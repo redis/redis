@@ -4,8 +4,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  * Originally authored by: Salvatore Sanfilippo.
  *
  * ======================== Understand threading model =========================
@@ -115,6 +116,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "hnsw.h"
+#include "vset_config.h"
 
 // We inline directly the expression implementation here so that building
 // the module is trivial.
@@ -635,6 +637,10 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         cas = 0;
     }
 
+    if (VSGlobalConfig.forceSingleThreadExec) {
+        cas = 0;
+    }
+
     /* Open/create key */
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
         REDISMODULE_READ|REDISMODULE_WRITE);
@@ -800,8 +806,8 @@ int vectorSetFilterCallback(void *value, void *privdata) {
  * handles the HNSW locking explicitly. */
 void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     float *vec, unsigned long count, float epsilon, unsigned long withscores,
-    unsigned long ef, exprstate *filter_expr, unsigned long filter_ef,
-    int ground_truth)
+    unsigned long withattribs, unsigned long ef, exprstate *filter_expr,
+    unsigned long filter_ef, int ground_truth)
 {
     /* In our scan, we can't just collect 'count' elements as
      * if count is small we would explore the graph in an insufficient
@@ -814,10 +820,12 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     if (ef == 0) ef = VSET_DEFAULT_SEARCH_EF;
     if (count > ef) ef = count;
 
+    int slot = hnsw_acquire_read_slot(vset->hnsw);
+    if (ef > vset->hnsw->node_count) ef = vset->hnsw->node_count;
+
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    int slot = hnsw_acquire_read_slot(vset->hnsw);
     unsigned int found;
     if (ground_truth) {
         found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
@@ -836,28 +844,52 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     }
 
     /* Return results */
-    if (withscores)
+    int resp3 = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3;
+    int reply_with_map = resp3 && (withscores || withattribs);
+
+    if (reply_with_map)
         RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
     else
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
-    long long arraylen = 0;
 
+    long long arraylen = 0;
     for (unsigned int i = 0; i < found && i < count; i++) {
-        if (distances[i] > epsilon) break;
+        if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
         arraylen++;
+
+        /* If the user asked for multiple properties at the same time using
+         * the RESP3 protocol, we wrap the value of the map into an N-items
+         * array. Two for now, since we have just two properties that can be
+         * requested.
+         *
+         * So in the case of RESP2 we will just have the flat reply:
+         * item, score, attribute. For RESP3 instead item -> [score, attribute]
+         */
+        if (resp3 && withscores && withattribs)
+            RedisModule_ReplyWithArray(ctx,2);
+
         if (withscores) {
             /* The similarity score is provided in a 0-1 range. */
             RedisModule_ReplyWithDouble(ctx, 1.0 - distances[i]/2.0);
         }
+        if (withattribs) {
+            /* Return the attributes as well, if any. */
+            if (nv->attrib)
+                RedisModule_ReplyWithString(ctx, nv->attrib);
+            else
+                RedisModule_ReplyWithNull(ctx);
+        }
     }
     hnsw_release_read_slot(vset->hnsw,slot);
 
-    if (withscores)
+    if (reply_with_map) {
         RedisModule_ReplySetMapLength(ctx, arraylen);
-    else
-        RedisModule_ReplySetArrayLength(ctx, arraylen);
+    } else {
+        int items_per_ele = 1+withattribs+withscores;
+        RedisModule_ReplySetArrayLength(ctx, arraylen * items_per_ele);
+    }
 
     RedisModule_Free(vec);
     RedisModule_Free(neighbors);
@@ -877,10 +909,11 @@ void *VSIM_thread(void *arg) {
     unsigned long count = (unsigned long)targ[3];
     float epsilon = *((float*)targ[4]);
     unsigned long withscores = (unsigned long)targ[5];
-    unsigned long ef = (unsigned long)targ[6];
-    exprstate *filter_expr = targ[7];
-    unsigned long filter_ef = (unsigned long)targ[8];
-    unsigned long ground_truth = (unsigned long)targ[9];
+    unsigned long withattribs = (unsigned long)targ[6];
+    unsigned long ef = (unsigned long)targ[7];
+    exprstate *filter_expr = targ[8];
+    unsigned long filter_ef = (unsigned long)targ[9];
+    unsigned long ground_truth = (unsigned long)targ[10];
     RedisModule_Free(targ[4]);
     RedisModule_Free(targ);
 
@@ -893,7 +926,7 @@ void *VSIM_thread(void *arg) {
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
 
     // Run the query.
-    VSIM_execute(ctx, vset, vec, count, epsilon, withscores, ef, filter_expr, filter_ef, ground_truth);
+    VSIM_execute(ctx, vset, vec, count, epsilon, withscores, withattribs, ef, filter_expr, filter_ef, ground_truth);
     pthread_rwlock_unlock(&vset->in_use_lock);
 
     // Cleanup.
@@ -903,7 +936,7 @@ void *VSIM_thread(void *arg) {
     return NULL;
 }
 
-/* VSIM key [ELE|FP32|VALUES] <vector or ele> [WITHSCORES] [COUNT num] [EPSILON eps] [EF exploration-factor] [FILTER expression] [FILTER-EF exploration-factor] */
+/* VSIM key [ELE|FP32|VALUES] <vector or ele> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EPSILON eps] [EF exploration-factor] [FILTER expression] [FILTER-EF exploration-factor] */
 int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
 
@@ -913,6 +946,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     /* Defaults */
     int withscores = 0;
+    int withattribs = 0;
     long long count = VSET_DEFAULT_COUNT;   /* New default value */
     long long ef = 0;       /* Exploration factor (see HNSW paper) */
     double epsilon = 2.0;   /* Max cosine distance */
@@ -1016,6 +1050,9 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         if (!strcasecmp(opt, "WITHSCORES")) {
             withscores = 1;
             j++;
+        } else if (!strcasecmp(opt, "WITHATTRIBS")) {
+            withattribs = 1;
+            j++;
         } else if (!strcasecmp(opt, "TRUTH")) {
             ground_truth = 1;
             j++;
@@ -1040,7 +1077,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             j += 2;
         } else if (!strcasecmp(opt, "EF") && j+1 < argc) {
             if (RedisModule_StringToLongLong(argv[j+1], &ef) !=
-                REDISMODULE_OK || ef <= 0)
+                REDISMODULE_OK || ef <= 0 || ef > 1000000)
             {
                 RedisModule_Free(vec);
                 return RedisModule_ReplyWithError(ctx, "ERR invalid EF");
@@ -1080,9 +1117,9 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     /* Disable threaded for MULTI/EXEC and Lua, or if explicitly
      * requested by the user via the NOTHREAD option. */
-    if (no_thread || (RedisModule_GetContextFlags(ctx) &
-                      (REDISMODULE_CTX_FLAGS_LUA|
-                       REDISMODULE_CTX_FLAGS_MULTI)))
+    if (no_thread || VSGlobalConfig.forceSingleThreadExec ||
+        (RedisModule_GetContextFlags(ctx) &
+        (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI)))
     {
         threaded_request = 0;
     }
@@ -1096,7 +1133,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
          * free slot if all the HNSW_MAX_THREADS slots are used. */
         RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0);
         pthread_t tid;
-        void **targ = RedisModule_Alloc(sizeof(void*)*10);
+        void **targ = RedisModule_Alloc(sizeof(void*)*11);
         targ[0] = bc;
         targ[1] = vset;
         targ[2] = vec;
@@ -1104,10 +1141,11 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         targ[4] = RedisModule_Alloc(sizeof(float));
         *((float*)targ[4]) = epsilon;
         targ[5] = (void*)(unsigned long)withscores;
-        targ[6] = (void*)(unsigned long)ef;
-        targ[7] = (void*)filter_expr;
-        targ[8] = (void*)(unsigned long)filter_ef;
-        targ[9] = (void*)(unsigned long)ground_truth;
+        targ[6] = (void*)(unsigned long)withattribs;
+        targ[7] = (void*)(unsigned long)ef;
+        targ[8] = (void*)filter_expr;
+        targ[9] = (void*)(unsigned long)filter_ef;
+        targ[10] = (void*)(unsigned long)ground_truth;
         RedisModule_BlockedClientMeasureTimeStart(bc);
         vset->thread_creation_pending++;
         if (pthread_create(&tid,NULL,VSIM_thread,targ) != 0) {
@@ -1115,10 +1153,10 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             RedisModule_AbortBlock(bc);
             RedisModule_Free(targ[4]);
             RedisModule_Free(targ);
-            VSIM_execute(ctx, vset, vec, count, epsilon, withscores, ef, filter_expr, filter_ef, ground_truth);
+            VSIM_execute(ctx, vset, vec, count, epsilon, withscores, withattribs, ef, filter_expr, filter_ef, ground_truth);
         }
     } else {
-        VSIM_execute(ctx, vset, vec, count, epsilon, withscores, ef, filter_expr, filter_ef, ground_truth);
+        VSIM_execute(ctx, vset, vec, count, epsilon, withscores, withattribs, ef, filter_expr, filter_ef, ground_truth);
     }
 
     return REDISMODULE_OK;
@@ -1680,6 +1718,183 @@ int VISMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithBool(ctx, node != NULL);
 }
 
+/* Structure to represent a range boundary. */
+struct vsetRangeOp {
+    int incl;   /* 1 if inclusive ([), 0 if exclusive ((). */
+    int min;    /* 1 if this is "-" (minimum). */
+    int max;    /* 1 if this is "+" (maximum). */
+    unsigned char *ele;  /* The actual element, NULL if min/max. */
+    size_t ele_len;      /* Length of the element. */
+};
+
+/* Parse a range specification like "[foo" or "(bar" or "-" or "+".
+ * Returns 1 on success, 0 on error. */
+int vsetParseRangeOp(RedisModuleString *arg, struct vsetRangeOp *op) {
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(arg, &len);
+
+    if (len == 0) return 0;
+
+    /* Initialize the structure. */
+    op->incl = 0;
+    op->min = 0;
+    op->max = 0;
+    op->ele = NULL;
+    op->ele_len = 0;
+
+    /* Check for special cases "-" and "+". */
+    if (len == 1 && str[0] == '-') {
+        op->min = 1;
+        return 1;
+    }
+    if (len == 1 && str[0] == '+') {
+        op->max = 1;
+        return 1;
+    }
+
+    /* Otherwise, must start with ( or [. */
+    if (str[0] == '[') {
+        op->incl = 1;
+    } else if (str[0] == '(') {
+        op->incl = 0;
+    } else {
+        return 0;  /* Invalid format. */
+    }
+
+    /* Extract the string part after the bracket. */
+    if (len > 1) {
+        op->ele = (unsigned char *)(str + 1);
+        op->ele_len = len - 1;
+    } else {
+        return 0;  /* Just a bracket with no string. */
+    }
+
+    return 1;
+}
+
+/* Check if the current element is within the range defined by the end operator.
+ * Returns 1 if the element is within range, 0 if it has passed the end. */
+int vsetIsElementInRange(const void *ele, size_t ele_len, struct vsetRangeOp *end_op) {
+    /* If end is "+", element is always in range. */
+    if (end_op->max) return 1;
+
+    /* Compare current element with end boundary. */
+    size_t minlen = ele_len < end_op->ele_len ? ele_len : end_op->ele_len;
+    int cmp = memcmp(ele, end_op->ele, minlen);
+
+    if (cmp == 0) {
+        /* If equal up to minlen, shorter string is smaller. */
+        if (ele_len < end_op->ele_len) {
+            cmp = -1;
+        } else if (ele_len > end_op->ele_len) {
+            cmp = 1;
+        }
+    }
+
+    /* Check based on inclusive/exclusive. */
+    if (end_op->incl) {
+        return cmp <= 0;  /* Inclusive: element <= end. */
+    } else {
+        return cmp < 0;   /* Exclusive: element < end. */
+    }
+}
+
+/* VRANGE key start end [count]
+ * Returns elements in the lexicographical range [start, end]
+ *
+ * Elements must be specified in one of the following forms:
+ *
+ *  [myelement
+ *  (myelement
+ *  +
+ *  -
+ *
+ * Elements starting with [ are inclusive, so "myelement" would be
+ * returned if present in the set. Elements starting with ( are exclusive
+ * ranges instead. The special - and + elements mean the minimum and maximum
+ * possible element (inclusive), so "VRANGE key - +" will return everything
+ * (depending on COUNT of course). The special - element can be used only
+ * as starting element, the special + element only as ending element. */
+int VRANGE_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+
+    /* Check arguments. */
+    if (argc < 4 || argc > 5) return RedisModule_WrongArity(ctx);
+
+    /* Parse COUNT if provided. */
+    long long count = -1;  /* Default: return all elements. */
+    if (argc == 5) {
+        if (RedisModule_StringToLongLong(argv[4], &count) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx, "ERR invalid COUNT value");
+        }
+    }
+
+    /* Parse range operators. */
+    struct vsetRangeOp start_op, end_op;
+    if (!vsetParseRangeOp(argv[2], &start_op)) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid start range format");
+    }
+    if (!vsetParseRangeOp(argv[3], &end_op)) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid end range format");
+    }
+
+    /* Validate: "-" can only be first arg, "+" can only be second. */
+    if (start_op.max || end_op.min) {
+        return RedisModule_ReplyWithError(ctx,
+            "ERR '-' can only be used as first argument, '+' only as second");
+    }
+
+    /* Open the key. */
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+        return RedisModule_ReplyWithEmptyArray(ctx);
+    }
+
+    if (RedisModule_ModuleTypeGetType(key) != VectorSetType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    struct vsetObject *vset = RedisModule_ModuleTypeGetValue(key);
+
+    /* Start the iterator. */
+    RedisModuleDictIter *iter;
+    if (start_op.min) {
+        /* Start from the beginning. */
+        iter = RedisModule_DictIteratorStartC(vset->dict, "^", NULL, 0);
+    } else {
+        /* Start from the specified element. */
+        const char *op = start_op.incl ? ">=" : ">";
+        iter = RedisModule_DictIteratorStartC(vset->dict, op, start_op.ele, start_op.ele_len);
+    }
+
+    /* Collect results. */
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+    long long returned = 0;
+
+    void *key_data;
+    size_t key_len;
+    while ((key_data = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
+        /* Check if we've collected enough elements. */
+        if (count >= 0 && returned >= count) break;
+
+        /* Check if we've passed the end range. */
+        if (!vsetIsElementInRange(key_data, key_len, &end_op)) break;
+
+        /* Add this element to the result. */
+        RedisModule_ReplyWithStringBuffer(ctx, key_data, key_len);
+        returned++;
+    }
+
+    RedisModule_ReplySetArrayLength(ctx, returned);
+
+    /* Cleanup. */
+    RedisModule_DictIteratorStop(iter);
+
+    return REDISMODULE_OK;
+}
+
 /* ============================== vset type methods ========================= */
 
 #define SAVE_FLAG_HAS_PROJMATRIX    (1<<0)
@@ -1733,17 +1948,23 @@ void VectorSetRdbSave(RedisModuleIO *rdb, void *value) {
     }
 }
 
-/* Load object from RDB. Please note that we don't do any cleanup
- * on errors, and just return NULL, as Redis will abort completely
- * not just the module but the server itself in this case. */
+/* Load object from RDB. Recover from recoverable errors (read errors)
+ * by performing cleanup. */
 void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     if (encver != 0) return NULL;  // Invalid version
 
     uint32_t dim = RedisModule_LoadUnsigned(rdb);
     uint64_t elements = RedisModule_LoadUnsigned(rdb);
     uint32_t hnsw_config = RedisModule_LoadUnsigned(rdb);
+    if (RedisModule_IsIOError(rdb)) return NULL;
     uint32_t quant_type = hnsw_config & 0xff;
     uint32_t hnsw_m = (hnsw_config >> 8) & 0xffff;
+
+    /* Check that the quantization type is correct. Otherwise
+     * return ASAP signaling the error. */
+    if (quant_type != HNSW_QUANT_NONE &&
+        quant_type != HNSW_QUANT_Q8 &&
+        quant_type != HNSW_QUANT_BIN) return NULL;
 
     if (hnsw_m == 0) hnsw_m = 16; // Default, useful for RDB files predating
                                   // this configuration parameter: it was fixed
@@ -1753,22 +1974,21 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
 
     /* Load projection matrix if present */
     uint32_t save_flags = RedisModule_LoadUnsigned(rdb);
+    if (RedisModule_IsIOError(rdb)) goto ioerr;
     int has_projection = save_flags & SAVE_FLAG_HAS_PROJMATRIX;
     int has_attribs = save_flags & SAVE_FLAG_HAS_ATTRIBS;
     if (has_projection) {
         uint32_t input_dim = RedisModule_LoadUnsigned(rdb);
+        if (RedisModule_IsIOError(rdb)) goto ioerr;
         uint32_t output_dim = dim;
         size_t matrix_size = sizeof(float) * input_dim * output_dim;
 
         vset->proj_matrix = RedisModule_Alloc(matrix_size);
-        if (!vset->proj_matrix) {
-            vectorSetReleaseObject(vset);
-            return NULL;
-        }
         vset->proj_input_size = input_dim;
 
         // Load projection matrix as a binary blob
         char *matrix_blob = RedisModule_LoadStringBuffer(rdb, NULL);
+        if (matrix_blob == NULL) goto ioerr;
         memcpy(vset->proj_matrix, matrix_blob, matrix_size);
         RedisModule_Free(matrix_blob);
     }
@@ -1776,9 +1996,14 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     while(elements--) {
         // Load associated string element.
         RedisModuleString *ele = RedisModule_LoadString(rdb);
+        if (RedisModule_IsIOError(rdb)) goto ioerr;
         RedisModuleString *attrib = NULL;
         if (has_attribs) {
             attrib = RedisModule_LoadString(rdb);
+            if (RedisModule_IsIOError(rdb)) {
+                RedisModule_FreeString(NULL,ele);
+                goto ioerr;
+            }
             size_t attrlen;
             RedisModule_StringPtrLen(attrib,&attrlen);
             if (attrlen == 0) {
@@ -1788,18 +2013,42 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         }
         size_t vector_len;
         void *vector = RedisModule_LoadStringBuffer(rdb, &vector_len);
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            goto ioerr;
+        }
         uint32_t vector_bytes = hnsw_quants_bytes(vset->hnsw);
         if (vector_len != vector_bytes) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Mismatching vector dimension");
-            return NULL; // Loading error.
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            goto ioerr;
         }
 
         // Load node parameters back.
         uint32_t params_count = RedisModule_LoadUnsigned(rdb);
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            goto ioerr;
+        }
+
         uint64_t *params = RedisModule_Alloc(params_count*sizeof(uint64_t));
-        for (uint32_t j = 0; j < params_count; j++)
+        for (uint32_t j = 0; j < params_count; j++) {
+            // Ignore loading errors here: handled at the end of the loop.
             params[j] = RedisModule_LoadUnsigned(rdb);
+        }
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            RedisModule_Free(params);
+            goto ioerr;
+        }
 
         struct vsetNodeVal *nv = RedisModule_Alloc(sizeof(*nv));
         nv->item = ele;
@@ -1808,15 +2057,28 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         if (node == NULL) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Vector set node index loading error");
-            return NULL; // Loading error.
+            vectorSetReleaseNodeValue(nv);
+            RedisModule_Free(vector);
+            RedisModule_Free(params);
+            goto ioerr;
         }
         if (nv->attrib) vset->numattribs++;
         RedisModule_DictSet(vset->dict,ele,node);
         RedisModule_Free(vector);
         RedisModule_Free(params);
     }
-    hnsw_deserialize_index(vset->hnsw);
+
+    uint64_t salt[2];
+    RedisModule_GetRandomBytes((unsigned char*)salt,sizeof(salt));
+    if (!hnsw_deserialize_index(vset->hnsw, salt[0], salt[1])) goto ioerr;
+
     return vset;
+
+ioerr:
+    /* We want to recover from I/O errors and free the partially allocated
+     * data structure to support diskless replication. */
+    vectorSetReleaseObject(vset);
+    return NULL;
 }
 
 /* Calculate memory usage */
@@ -1934,6 +2196,28 @@ void VectorSetDigest(RedisModuleDigest *md, void *value) {
     }
 }
 
+// int VectorSets_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+        RedisModule_Log(ctx, "warning", "Error registering module configuration");
+        return REDISMODULE_ERR;
+    }
+    // Load default values
+    if (RedisModule_LoadDefaultConfigs(ctx) == REDISMODULE_ERR) {
+        RedisModule_Log(ctx, "warning", "Error loading default module configuration");
+        return REDISMODULE_ERR;
+    } else {
+        RedisModule_Log(ctx, "verbose", "Successfully loaded default module configuration");
+    }
+    if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
+        RedisModule_Log(ctx, "warning", "Error loading user module configuration");
+        return REDISMODULE_ERR;
+    } else {
+        RedisModule_Log(ctx, "verbose", "Successfully loaded user module configuration");
+    }
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1943,7 +2227,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"vectorset",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    /* TODO: Added to pass CI, need to make changes in order to support these options */
+    if (VectorSets_InitModuleConfig(ctx) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS|REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
 
     RedisModuleTypeMethods tm = {
@@ -1959,54 +2246,336 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     VectorSetType = RedisModule_CreateDataType(ctx,"vectorset",0,&tm);
     if (VectorSetType == NULL) return REDISMODULE_ERR;
 
+    // Register command VADD
     if (RedisModule_CreateCommand(ctx,"VADD",
         VADD_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vadd_cmd = RedisModule_GetCommand(ctx, "VADD");
+    if (vadd_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vadd_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "reduce", .type = REDISMODULE_ARG_TYPE_BLOCK, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]) {
+                { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER },
+                { .name = NULL }
+            }
+        },
+        { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
+                { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
+                { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
+                { .name = NULL }
+            }
+        },
+        { .name = "vector", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "cas", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "CAS", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "quant_type", .type = REDISMODULE_ARG_TYPE_ONEOF, .flags = REDISMODULE_CMD_ARG_OPTIONAL, .subargs = (RedisModuleCommandArg[]) {
+                { .name = "noquant", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOQUANT" },
+                { .name = "bin", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "BIN" },
+                { .name = "q8", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "Q8" },
+                { .name = NULL }
+            }
+        },
+        { .name = "build-exploration-factor", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "attributes", .type = REDISMODULE_ARG_TYPE_STRING, .token = "SETATTR", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "numlinks", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "M", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vadd_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Add one or more elements to a vector set, or update its vector if it already exists",
+        .since = "8.0.0",
+        .arity = -5,
+        .args = vadd_args,
+    };
+    if (RedisModule_SetCommandInfo(vadd_cmd, &vadd_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VREM
     if (RedisModule_CreateCommand(ctx,"VREM",
         VREM_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vrem_cmd = RedisModule_GetCommand(ctx, "VREM");
+    if (vrem_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vrem_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vrem_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Remove an element from a vector set",
+        .since = "8.0.0",
+        .arity = 3,
+        .args = vrem_args,
+    };
+    if (RedisModule_SetCommandInfo(vrem_cmd, &vrem_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VSIM
     if (RedisModule_CreateCommand(ctx,"VSIM",
         VSIM_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vsim_cmd = RedisModule_GetCommand(ctx, "VSIM");
+    if (vsim_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vsim_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
+                { .name = "ele", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "ELE" },
+                { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
+                { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
+                { .name = NULL }
+            }
+        },
+        { .name = "vector_or_element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "withscores", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHSCORES", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "withattribs", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHATTRIBS", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "COUNT", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "max_distance", .type = REDISMODULE_ARG_TYPE_DOUBLE, .token = "EPSILON", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "search-exploration-factor", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "expression", .type = REDISMODULE_ARG_TYPE_STRING, .token = "FILTER", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "max-filtering-effort", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "FILTER-EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "truth", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "TRUTH", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "nothread", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOTHREAD", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vsim_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return elements by vector similarity",
+        .since = "8.0.0",
+        .arity = -4,
+        .args = vsim_args,
+    };
+    if (RedisModule_SetCommandInfo(vsim_cmd, &vsim_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VDIM
     if (RedisModule_CreateCommand(ctx, "VDIM",
         VDIM_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vdim_cmd = RedisModule_GetCommand(ctx, "VDIM");
+    if (vdim_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vdim_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vdim_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the dimension of vectors in the vector set",
+        .since = "8.0.0",
+        .arity = 2,
+        .args = vdim_args,
+    };
+    if (RedisModule_SetCommandInfo(vdim_cmd, &vdim_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VCARD
     if (RedisModule_CreateCommand(ctx, "VCARD",
         VCARD_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vcard_cmd = RedisModule_GetCommand(ctx, "VCARD");
+    if (vcard_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vcard_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vcard_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the number of elements in a vector set",
+        .since = "8.0.0",
+        .arity = 2,
+        .args = vcard_args,
+    };
+    if (RedisModule_SetCommandInfo(vcard_cmd, &vcard_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VEMB
     if (RedisModule_CreateCommand(ctx, "VEMB",
         VEMB_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vemb_cmd = RedisModule_GetCommand(ctx, "VEMB");
+    if (vemb_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vemb_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "raw", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "RAW", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vemb_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the vector associated with an element",
+        .since = "8.0.0",
+        .arity = -3,
+        .args = vemb_args,
+    };
+    if (RedisModule_SetCommandInfo(vemb_cmd, &vemb_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VLINKS
     if (RedisModule_CreateCommand(ctx, "VLINKS",
         VLINKS_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vlinks_cmd = RedisModule_GetCommand(ctx, "VLINKS");
+    if (vlinks_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vlinks_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "withscores", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHSCORES", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vlinks_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the neighbors of an element at each layer in the HNSW graph",
+        .since = "8.0.0",
+        .arity = -3,
+        .args = vlinks_args,
+    };
+    if (RedisModule_SetCommandInfo(vlinks_cmd, &vlinks_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VINFO
     if (RedisModule_CreateCommand(ctx, "VINFO",
         VINFO_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vinfo_cmd = RedisModule_GetCommand(ctx, "VINFO");
+    if (vinfo_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vinfo_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vinfo_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return information about a vector set",
+        .since = "8.0.0",
+        .arity = 2,
+        .args = vinfo_args,
+    };
+    if (RedisModule_SetCommandInfo(vinfo_cmd, &vinfo_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VSETATTR
     if (RedisModule_CreateCommand(ctx, "VSETATTR",
         VSETATTR_RedisCommand, "write fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vsetattr_cmd = RedisModule_GetCommand(ctx, "VSETATTR");
+    if (vsetattr_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vsetattr_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "json", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vsetattr_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Associate or remove the JSON attributes of elements",
+        .since = "8.0.0",
+        .arity = 4,
+        .args = vsetattr_args,
+    };
+    if (RedisModule_SetCommandInfo(vsetattr_cmd, &vsetattr_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VGETATTR
     if (RedisModule_CreateCommand(ctx, "VGETATTR",
         VGETATTR_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vgetattr_cmd = RedisModule_GetCommand(ctx, "VGETATTR");
+    if (vgetattr_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vgetattr_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vgetattr_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Retrieve the JSON attributes of elements",
+        .since = "8.0.0",
+        .arity = 3,
+        .args = vgetattr_args,
+    };
+    if (RedisModule_SetCommandInfo(vgetattr_cmd, &vgetattr_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VRANDMEMBER
     if (RedisModule_CreateCommand(ctx, "VRANDMEMBER",
         VRANDMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vrandmember_cmd = RedisModule_GetCommand(ctx, "VRANDMEMBER");
+    if (vrandmember_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vrandmember_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vrandmember_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return one or multiple random members from a vector set",
+        .since = "8.0.0",
+        .arity = -2,
+        .args = vrandmember_args,
+    };
+    if (RedisModule_SetCommandInfo(vrandmember_cmd, &vrandmember_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VISMEMBER
     if (RedisModule_CreateCommand(ctx, "VISMEMBER",
         VISMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vismember_cmd = RedisModule_GetCommand(ctx, "VISMEMBER");
+    if (vismember_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vismember_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vismember_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Check if an element exists in a vector set",
+        .since = "8.2.0",
+        .arity = 3,
+        .args = vismember_args,
+    };
+    if (RedisModule_SetCommandInfo(vismember_cmd, &vismember_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VRANGE
+    if (RedisModule_CreateCommand(ctx, "VRANGE",
+	VRANGE_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+	return REDISMODULE_ERR;
+
+    RedisModuleCommand *vrange_cmd = RedisModule_GetCommand(ctx, "VRANGE");
+    if (vrange_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vrange_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "start", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "end", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = NULL }
+    };
+    RedisModuleCommandInfo vrange_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return vector set elements in a lex range",
+        .since = "8.4.0",
+        .arity = -4,
+        .args = vrange_args,
+    };
+    if (RedisModule_SetCommandInfo(vrange_cmd, &vrange_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Set the allocator for the HNSW library, so that memory tracking
+    // is correct in Redis.
     hnsw_set_allocator(RedisModule_Free, RedisModule_Alloc,
                        RedisModule_Realloc);
 

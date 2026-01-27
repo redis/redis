@@ -3,8 +3,9 @@
  * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include <stdlib.h>
@@ -157,33 +158,49 @@ static inline void raxStackFree(raxStack *ts) {
  * If datafield is true, the allocation is made large enough to hold the
  * associated data pointer.
  * Returns the new node pointer. On out of memory NULL is returned. */
-raxNode *raxNewNode(size_t children, int datafield) {
+raxNode *raxNewNode(rax *rax, size_t children, int datafield) {
     size_t nodesize = sizeof(raxNode)+children+raxPadding(children)+
                       sizeof(raxNode*)*children;
     if (datafield) nodesize += sizeof(void*);
-    raxNode *node = rax_malloc(nodesize);
+    size_t usable;
+    raxNode *node = rax_malloc_usable(nodesize,&usable);
     if (node == NULL) return NULL;
     node->iskey = 0;
     node->isnull = 0;
     node->iscompr = 0;
     node->size = children;
+    if (rax->alloc_size) *rax->alloc_size += usable;
     return node;
+}
+
+/* Deallocate node */
+void raxFreeNode(rax *rax, raxNode *n) {
+    size_t usable;
+    rax_free_usable(n, &usable);
+    if (rax->alloc_size) *rax->alloc_size -= usable;
 }
 
 /* Allocate a new rax and return its pointer. On out of memory the function
  * returns NULL. */
 rax *raxNew(void) {
-    return raxNewWithMetadata(0);
+    return raxNewWithMetadata(0, NULL);
 }
 
-/* Allocate a new rax with metadata */
-rax *raxNewWithMetadata(int metaSize) {
-    rax *rax = rax_malloc(sizeof(*rax) + metaSize);
+/* Allocate a new rax with metadata. On out of memory the function
+ * returns NULL.
+ * If passed `alloc_size` is non-NULL, rax will account for its used
+ * memory at this location. */
+rax *raxNewWithMetadata(int metaSize, size_t *alloc_size) {
+    size_t usable;
+    rax *rax = rax_malloc_usable(sizeof(*rax) + metaSize, &usable);
     if (rax == NULL) return NULL;
     rax->numele = 0;
     rax->numnodes = 1;
-    rax->head = raxNewNode(0, 0);
+    rax->alloc_size = alloc_size;
+    if (rax->alloc_size) *rax->alloc_size += usable;
+    rax->head = raxNewNode(rax, 0, 0);
     if (rax->head == NULL) {
+        if (rax->alloc_size) *rax->alloc_size -= usable;
         rax_free(rax);
         return NULL;
     } else {
@@ -191,12 +208,24 @@ rax *raxNewWithMetadata(int metaSize) {
     }
 }
 
+/* realloc the node to have 'newsize'. On out of memory NULL is returned. */
+raxNode *raxNodeRealloc(rax *rax, raxNode *n, size_t newsize) {
+    size_t usable, old_usable;
+    raxNode *newn = rax_realloc_usable(n,newsize,&usable,&old_usable);
+    if (newn == NULL) return NULL;
+    if (rax->alloc_size) {
+        *rax->alloc_size -= old_usable;
+        *rax->alloc_size += usable;
+    }
+    return newn;
+}
+
 /* realloc the node to make room for auxiliary data in order
  * to store an item in that node. On out of memory NULL is returned. */
-raxNode *raxReallocForData(raxNode *n, void *data) {
+raxNode *raxReallocForData(rax *rax, raxNode *n, void *data) {
     if (data == NULL) return n; /* No reallocation needed, setting isnull=1 */
     size_t curlen = raxNodeCurrentLength(n);
-    return rax_realloc(n,curlen+sizeof(void*));
+    return raxNodeRealloc(rax,n,curlen+sizeof(void*));
 }
 
 /* Set the node auxiliary data to the specified pointer. */
@@ -230,7 +259,7 @@ void *raxGetData(raxNode *n) {
  * On success the new parent node pointer is returned (it may change because
  * of the realloc, so the caller should discard 'n' and use the new value).
  * On out of memory NULL is returned, and the old node is still valid. */
-raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode ***parentlink) {
+raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, raxNode ***parentlink) {
     assert(n->iscompr == 0);
 
     size_t curlen = raxNodeCurrentLength(n);
@@ -240,13 +269,13 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
                   success at the end. */
 
     /* Alloc the new child we will link to 'n'. */
-    raxNode *child = raxNewNode(0,0);
+    raxNode *child = raxNewNode(rax,0,0);
     if (child == NULL) return NULL;
 
     /* Make space in the original node. */
-    raxNode *newn = rax_realloc(n,newlen);
+    raxNode *newn = raxNodeRealloc(rax,n,newlen);
     if (newn == NULL) {
-        rax_free(child);
+        raxFreeNode(rax,child);
         return NULL;
     }
     n = newn;
@@ -371,7 +400,7 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
  * The function also returns a child node, since the last node of the
  * compressed chain cannot be part of the chain: it has zero children while
  * we can only compress inner nodes with exactly one child each. */
-raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **child) {
+raxNode *raxCompressNode(rax *rax, raxNode *n, unsigned char *s, size_t len, raxNode **child) {
     assert(n->size == 0 && n->iscompr == 0);
     void *data = NULL; /* Initialized only to avoid warnings. */
     size_t newsize;
@@ -379,7 +408,7 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
     debugf("Compress node: %.*s\n", (int)len,s);
 
     /* Allocate the child to link to this node. */
-    *child = raxNewNode(0,0);
+    *child = raxNewNode(rax,0,0);
     if (*child == NULL) return NULL;
 
     /* Make space in the parent node. */
@@ -388,9 +417,9 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
         data = raxGetData(n); /* To restore it later. */
         if (!n->isnull) newsize += sizeof(void*);
     }
-    raxNode *newn = rax_realloc(n,newsize);
+    raxNode *newn = raxNodeRealloc(rax,n,newsize);
     if (newn == NULL) {
-        rax_free(*child);
+        raxFreeNode(rax, *child);
         return NULL;
     }
     n = newn;
@@ -484,13 +513,15 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
  * be set to 0.
  */
 int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old, int overwrite) {
-    size_t i;
+    size_t i, usable;
     int j = 0; /* Split position. If raxLowWalk() stops in a compressed
                   node, the index 'j' represents the char we stopped within the
                   compressed node, that is, the position where to split the
                   node for insertion. */
     raxNode *h, **parentlink;
+    size_t dummy, *alloc_size = &dummy;
 
+    if (rax->alloc_size) alloc_size = rax->alloc_size;
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
     i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL);
 
@@ -503,7 +534,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         debugf("### Insert: node representing key exists\n");
         /* Make space for the value pointer if needed. */
         if (!h->iskey || (h->isnull && overwrite)) {
-            h = raxReallocForData(h,data);
+            h = raxReallocForData(rax,h,data);
             if (h) memcpy(parentlink,&h,sizeof(h));
         }
         if (h == NULL) {
@@ -676,7 +707,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
         /* 2: Create the split node. Also allocate the other nodes we'll need
          *    ASAP, so that it will be simpler to handle OOM. */
-        raxNode *splitnode = raxNewNode(1, split_node_is_key);
+        raxNode *splitnode = raxNewNode(rax, 1, split_node_is_key);
         raxNode *trimmed = NULL;
         raxNode *postfix = NULL;
 
@@ -684,13 +715,15 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             nodesize = sizeof(raxNode)+trimmedlen+raxPadding(trimmedlen)+
                        sizeof(raxNode*);
             if (h->iskey && !h->isnull) nodesize += sizeof(void*);
-            trimmed = rax_malloc(nodesize);
+            trimmed = rax_malloc_usable(nodesize, &usable);
+            *alloc_size += usable;
         }
 
         if (postfixlen) {
             nodesize = sizeof(raxNode)+postfixlen+raxPadding(postfixlen)+
                        sizeof(raxNode*);
-            postfix = rax_malloc(nodesize);
+            postfix = rax_malloc_usable(nodesize, &usable);
+            *alloc_size += usable;
         }
 
         /* OOM? Abort now that the tree is untouched. */
@@ -698,9 +731,9 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             (trimmedlen && trimmed == NULL) ||
             (postfixlen && postfix == NULL))
         {
-            rax_free(splitnode);
-            rax_free(trimmed);
-            rax_free(postfix);
+            raxFreeNode(rax,splitnode);
+            raxFreeNode(rax,trimmed);
+            raxFreeNode(rax,postfix);
             errno = ENOMEM;
             return 0;
         }
@@ -755,7 +788,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         /* 6. Continue insertion: this will cause the splitnode to
          * get a new child (the non common character at the currently
          * inserted key). */
-        rax_free(h);
+        raxFreeNode(rax,h);
         h = splitnode;
     } else if (h->iscompr && i == len) {
     /* ------------------------- ALGORITHM 2 --------------------------- */
@@ -767,18 +800,21 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         size_t nodesize = sizeof(raxNode)+postfixlen+raxPadding(postfixlen)+
                           sizeof(raxNode*);
         if (data != NULL) nodesize += sizeof(void*);
-        raxNode *postfix = rax_malloc(nodesize);
+        raxNode *postfix = rax_malloc_usable(nodesize, &usable);
+        *alloc_size += usable;
 
         nodesize = sizeof(raxNode)+j+raxPadding(j)+sizeof(raxNode*);
         if (h->iskey && !h->isnull) nodesize += sizeof(void*);
-        raxNode *trimmed = rax_malloc(nodesize);
+        raxNode *trimmed = rax_malloc_usable(nodesize, &usable);
+        *alloc_size += usable;
 
         if (postfix == NULL || trimmed == NULL) {
-            rax_free(postfix);
-            rax_free(trimmed);
+            raxFreeNode(rax,postfix);
+            raxFreeNode(rax,trimmed);
             errno = ENOMEM;
             return 0;
         }
+
 
         /* 1: Save next pointer. */
         raxNode **childfield = raxNodeLastChildPtr(h);
@@ -816,7 +852,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         /* Finish! We don't need to continue with the insertion
          * algorithm for ALGO 2. The key is already inserted. */
         rax->numele++;
-        rax_free(h);
+        raxFreeNode(rax,h);
         return 1; /* Key inserted. */
     }
 
@@ -833,7 +869,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             size_t comprsize = len-i;
             if (comprsize > RAX_NODE_MAX_SIZE)
                 comprsize = RAX_NODE_MAX_SIZE;
-            raxNode *newh = raxCompressNode(h,s+i,comprsize,&child);
+            raxNode *newh = raxCompressNode(rax,h,s+i,comprsize,&child);
             if (newh == NULL) goto oom;
             h = newh;
             memcpy(parentlink,&h,sizeof(h));
@@ -842,7 +878,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         } else {
             debugf("Inserting normal node\n");
             raxNode **new_parentlink;
-            raxNode *newh = raxAddChild(h,s[i],&child,&new_parentlink);
+            raxNode *newh = raxAddChild(rax,h,s[i],&child,&new_parentlink);
             if (newh == NULL) goto oom;
             h = newh;
             memcpy(parentlink,&h,sizeof(h));
@@ -852,7 +888,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         rax->numnodes++;
         h = child;
     }
-    raxNode *newh = raxReallocForData(h,data);
+    raxNode *newh = raxReallocForData(rax,h,data);
     if (newh == NULL) goto oom;
     h = newh;
     if (!h->iskey) rax->numele++;
@@ -924,7 +960,7 @@ raxNode **raxFindParentLink(raxNode *parent, raxNode *child) {
  * removal) is returned. Note that this function does not fix the pointer
  * of the parent node in its parent, so this task is up to the caller.
  * The function never fails for out of memory. */
-raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
+raxNode *raxRemoveChild(rax *rax, raxNode *parent, raxNode *child) {
     debugnode("raxRemoveChild before", parent);
     /* If parent is a compressed node (having a single child, as for definition
      * of the data structure), the removal of the child consists into turning
@@ -986,11 +1022,11 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
 
     /* realloc the node according to the theoretical memory usage, to free
      * data if we are over-allocating right now. */
-    raxNode *newnode = rax_realloc(parent,raxNodeCurrentLength(parent));
+    raxNode *newnode = raxNodeRealloc(rax,parent,raxNodeCurrentLength(parent));
     if (newnode) {
         debugnode("raxRemoveChild after", newnode);
     }
-    /* Note: if rax_realloc() fails we just return the old address, which
+    /* Note: if raxNodeRealloc() fails we just return the old address, which
      * is valid. */
     return newnode ? newnode : parent;
 }
@@ -1029,17 +1065,17 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
             child = h;
             debugf("Freeing child %p [%.*s] key:%d\n", (void*)child,
                 (int)child->size, (char*)child->data, child->iskey);
-            rax_free(child);
+            raxFreeNode(rax,child);
             rax->numnodes--;
             h = raxStackPop(&ts);
-             /* If this node has more then one child, or actually holds
+             /* If this node has more than one child, or actually holds
               * a key, stop here. */
             if (h->iskey || (!h->iscompr && h->size != 1)) break;
         }
         if (child) {
             debugf("Unlinking child %p from parent %p\n",
                 (void*)child, (void*)h);
-            raxNode *new = raxRemoveChild(h,child);
+            raxNode *new = raxRemoveChild(rax,h,child);
             if (new != h) {
                 raxNode *parent = raxStackPeek(&ts);
                 raxNode **parentlink;
@@ -1146,13 +1182,15 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
             /* If we can compress, create the new node and populate it. */
             size_t nodesize =
                 sizeof(raxNode)+comprsize+raxPadding(comprsize)+sizeof(raxNode*);
-            raxNode *new = rax_malloc(nodesize);
+            size_t usable;
+            raxNode *new = rax_malloc_usable(nodesize, &usable);
             /* An out of memory here just means we cannot optimize this
              * node, but the tree is left in a consistent state. */
             if (new == NULL) {
                 raxStackFree(&ts);
                 return 1;
             }
+            if (rax->alloc_size) *rax->alloc_size += usable;
             new->iskey = 0;
             new->isnull = 0;
             new->iscompr = 1;
@@ -1170,7 +1208,8 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 raxNode **cp = raxNodeLastChildPtr(h);
                 raxNode *tofree = h;
                 memcpy(&h,cp,sizeof(h));
-                rax_free(tofree); rax->numnodes--;
+                raxFreeNode(rax,tofree);
+                rax->numnodes--;
                 if (h->iskey || (!h->iscompr && h->size != 1)) break;
             }
             debugnode("New node",new);
@@ -1211,7 +1250,7 @@ void raxRecursiveFree(rax *rax, raxNode *n, void (*free_callback)(void*)) {
     debugnode("free depth-first",n);
     if (free_callback && n->iskey && !n->isnull)
         free_callback(raxGetData(n));
-    rax_free(n);
+    raxFreeNode(rax,n);
     rax->numnodes--;
 }
 
@@ -1230,7 +1269,7 @@ void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
     debugnode("free depth-first",n);
     if (free_callback && n->iskey && !n->isnull)
         free_callback(raxGetData(n), ctx);
-    rax_free(n);
+    raxFreeNode(rax,n);
     rax->numnodes--;
 }
 
@@ -1239,7 +1278,10 @@ void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
     raxRecursiveFree(rax,rax->head,free_callback);
     assert(rax->numnodes == 0);
-    rax_free(rax);
+    size_t *alloc_size = rax->alloc_size;
+    size_t usable;
+    rax_free_usable(rax, &usable);
+    if (alloc_size) *alloc_size -= usable;
 }
 
 /* Free a whole radix tree, calling the specified callback in order to
@@ -1248,7 +1290,10 @@ void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx), void *ctx) {
     raxRecursiveFreeWithCtx(rax,rax->head,free_callback,ctx);
     assert(rax->numnodes == 0);
-    rax_free(rax);
+    size_t *alloc_size = rax->alloc_size;
+    size_t usable;
+    rax_free_usable(rax, &usable);
+    if (alloc_size) *alloc_size -= usable;
 }
 
 /* Free a whole radix tree. */
@@ -1269,6 +1314,7 @@ void raxStart(raxIterator *it, rax *rt) {
     it->key_max = RAX_ITER_STATIC_LEN;
     it->data = NULL;
     it->node_cb = NULL;
+    it->privdata = NULL;
     raxStackInit(&it->stack);
 }
 
@@ -1345,7 +1391,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             memcpy(&it->node,cp,sizeof(it->node));
             /* Call the node callback if any, and replace the node pointer
              * if the callback returns true. */
-            if (it->node_cb && it->node_cb(&it->node))
+            if (it->node_cb && it->node_cb(&it->node, it->privdata))
                 memcpy(cp,&it->node,sizeof(it->node));
             /* For "next" step, stop every time we find a key along the
              * way, since the key is lexicographically smaller compared to
@@ -1401,7 +1447,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         memcpy(&it->node,cp,sizeof(it->node));
                         /* Call the node callback if any, and replace the node
                          * pointer if the callback returns true. */
-                        if (it->node_cb && it->node_cb(&it->node))
+                        if (it->node_cb && it->node_cb(&it->node, it->privdata))
                             memcpy(cp,&it->node,sizeof(it->node));
                         if (it->node->iskey) {
                             it->data = raxGetData(it->node);
@@ -1931,3 +1977,122 @@ unsigned long raxTouch(raxNode *n) {
     }
     return sum;
 }
+
+/* The rest of this file is test cases and test helpers. */
+#ifdef REDIS_TEST
+#include "testhelp.h"
+#include <stdlib.h>
+
+#define UNUSED(x) (void)(x)
+
+#define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
+
+#define ERR(x, ...)                                                            \
+    do {                                                                       \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
+        printf("ERROR! " x "\n", __VA_ARGS__);                                 \
+        err++;                                                                 \
+    } while (0)
+
+#define TEST(name) printf("test — %s\n", name);
+
+/* Verify rax memory accounting by calculating actual memory usage */
+static int _rax_verify_alloc_size(rax *rax, size_t have) {
+    int errors = 0;
+    size_t want = rax_malloc_usable_size(rax);
+    raxNode *node;
+    raxStack stack;
+
+    raxStackInit(&stack);
+    raxStackPush(&stack, rax->head);
+    while ((node = raxStackPop(&stack))) {
+        want += rax_malloc_usable_size(node);
+        if (!node->iscompr) {
+            /* Non-compressed node: add all children */
+            for (int i = 0; i < node->size; i++) {
+                raxNode **child = raxNodeLastChildPtr(node) - i;
+                if (*child) raxStackPush(&stack, *child);
+            }
+        } else {
+            /* Compressed node: add single child */
+            raxNode **child = raxNodeLastChildPtr(node);
+            if (*child) raxStackPush(&stack, *child);
+        }
+    }
+    raxStackFree(&stack);
+
+    if (want != have) {
+        yell("rax alloc_size is wrong: want: %zu, have: %zu\n", want, have);
+        errors++;
+    }
+
+    return errors;
+}
+
+static void *createTestValue(size_t size) {
+    size_t usable;
+    void *val = rax_malloc_usable(size, &usable);
+    memset(val, 'A', usable);
+    return val;
+}
+
+int raxTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    int err = 0;
+
+    TEST("verify raxAllocSize() after raxInsert()/raxRemove()") {
+        size_t alloc_size = 0;
+        rax *r = raxNewWithMetadata(0, &alloc_size);
+
+        /* Insert values and verify accounting */
+        void *val1 = createTestValue(100);
+        assert(raxInsert(r, (unsigned char*)"key1", 4, val1, NULL) == 1);
+        err += _rax_verify_alloc_size(r, alloc_size);
+
+        void *val2 = createTestValue(200);
+        assert(raxInsert(r, (unsigned char*)"key2", 4, val2, NULL) == 1);
+        err += _rax_verify_alloc_size(r, alloc_size);
+
+        void *val3 = createTestValue(10);
+        assert(raxInsert(r, (unsigned char*)"3yek", 4, val3, NULL) == 1);
+        err += _rax_verify_alloc_size(r, alloc_size);
+
+        /* Remove a value and verify */
+        void *removed;
+        assert(raxRemove(r, (unsigned char*)"key1", 4, &removed) == 1);
+        rax_free(removed);
+        err += _rax_verify_alloc_size(r, alloc_size);
+
+        raxFreeWithCallback(r, rax_free);
+    }
+
+    TEST("verify raxAllocSize() when replacing existing key") {
+        size_t alloc_size = 0;
+        rax *r = raxNewWithMetadata(0, &alloc_size);
+
+        void *val1 = createTestValue(100);
+        assert(raxInsert(r, (unsigned char*)"key", 3, val1, NULL) == 1);
+        err += _rax_verify_alloc_size(r, alloc_size);
+
+        /* Update with different sized value */
+        void *val2 = createTestValue(300);
+        void *old;
+        assert(raxInsert(r, (unsigned char*)"key", 3, val2, &old) == 0);
+        rax_free(old);
+        err += _rax_verify_alloc_size(r, alloc_size);
+
+        raxFreeWithCallback(r, rax_free);
+    }
+
+    if (!err)
+        printf("ALL TESTS PASSED!\n");
+    else
+        ERR("Sorry, not all tests passed!  In fact, %d tests failed.", err);
+
+    return err;
+}
+
+#endif

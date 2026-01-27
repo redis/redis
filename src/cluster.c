@@ -2,8 +2,12 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -16,6 +20,8 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_asm.h"
+#include "cluster_slot_stats.h"
 
 #include <ctype.h>
 
@@ -53,6 +59,18 @@ int patternHashSlot(char *pattern, int length) {
     return crc16(pattern, length) & 0x3FFF;
 }
 
+int getSlotOrReply(client *c, robj *o) {
+    long long slot;
+
+    if (getLongLongFromObject(o,&slot) != C_OK ||
+        slot < 0 || slot >= CLUSTER_SLOTS)
+    {
+        addReplyError(c,"Invalid or out of range slot");
+        return -1;
+    }
+    return (int) slot;
+}
+
 ConnectionType *connTypeOfCluster(void) {
     if (server.tls_cluster) {
         return connectionTypeTls();
@@ -67,13 +85,17 @@ ConnectionType *connTypeOfCluster(void) {
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
  * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum) {
     unsigned char buf[2];
-    uint64_t crc;
+    uint64_t crc = 0;
 
     /* Serialize the object in an RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
+
+    /* Save key metadata if present without (handles TTL separately via command args) */
+    if (getModuleMetaBits(o->metabits))
+        serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
@@ -89,10 +111,14 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
     buf[1] = (RDB_VERSION >> 8) & 0xff;
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
 
-    /* CRC64 */
-    crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
-                sdslen(payload->io.buffer.ptr));
-    memrev64ifbe(&crc);
+    /* If crc checksum is disabled, crc is set to 0 and no checksum validation
+     * will be performed on RESTORE. */
+    if (!skip_checksum) {
+        /* CRC64 */
+        crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
+                    sdslen(payload->io.buffer.ptr));
+        memrev64ifbe(&crc);
+    }
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
 }
 
@@ -120,17 +146,22 @@ int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr) {
     if (server.skip_checksum_validation)
         return C_OK;
 
+    uint64_t crc_payload;
+    memcpy(&crc_payload, footer+2, 8);
+    if (crc_payload == 0) /* No checksum. */
+        return C_OK;
+
     /* Verify CRC64 */
     crc = crc64(0,p,len-8);
     memrev64ifbe(&crc);
-    return (memcmp(&crc,footer+2,8) == 0) ? C_OK : C_ERR;
+    return crc == crc_payload ? C_OK : C_ERR;
 }
 
 /* DUMP keyname
  * DUMP is actually not used by Redis Cluster but it is the obvious
  * complement of RESTORE and can be useful for different applications. */
 void dumpCommand(client *c) {
-    robj *o;
+    kvobj *o;
     rio payload;
 
     /* Check if the key is here. */
@@ -140,7 +171,7 @@ void dumpCommand(client *c) {
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload,o,c->argv[1],c->db->id);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id,0);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
@@ -190,7 +221,9 @@ void restoreCommand(client *c) {
 
     /* Make sure this key does not already exist here... */
     robj *key = c->argv[1];
-    if (!replace && lookupKeyWrite(c->db,key) != NULL) {
+    kvobj *oldval = lookupKeyWrite(c->db,key);
+    int oldtype = oldval ? oldval->type : -1;
+    if (!replace && oldval) {
         addReplyErrorObject(c,shared.busykeyerr);
         return;
     }
@@ -211,9 +244,28 @@ void restoreCommand(client *c) {
     }
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
-    if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL))
+
+    /* Initialize metadata spec to collect metadata+expiry from payload. */
+    KeyMetaSpec keymeta;
+    keyMetaSpecInit(&keymeta);
+
+    /* Compute TTL early so we can add it to metadata spec in correct order */
+    if (ttl) {
+        if (!absttl) ttl+=commandTimeSnapshot();
+        keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+    }
+
+    /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
+    type = rdbLoadType(&payload);
+    if (rdbResolveKeyType(&payload, &type, c->db->id, &keymeta) == -1) {
+        addReplyError(c,"Bad data format");
+        return;
+    }
+
+    /* Load the object */
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
     {
+        keyMetaSpecCleanup(&keymeta);
         addReplyError(c,"Bad data format");
         return;
     }
@@ -223,33 +275,32 @@ void restoreCommand(client *c) {
     if (replace)
         deleted = dbDelete(c->db,key);
 
-    if (ttl && !absttl) ttl+=commandTimeSnapshot();
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
             robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
             rewriteClientCommandVector(c, 2, aux, key);
-            signalModifiedKey(c,c->db,key);
+            keyModified(c,c->db,key,NULL,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
+        keyMetaSpecCleanup(&keymeta);
         decrRefCount(obj);
         addReply(c, shared.ok);
         return;
     }
 
     /* Create the key and set the TTL if any */
-    dictEntry *de = dbAdd(c->db,key,obj);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
-    if (obj->type == OBJ_HASH) {
-        uint64_t minExpiredField = hashTypeGetMinExpire(obj, 1);
+    if (kv->type == OBJ_HASH) {
+        uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
+            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
     if (ttl) {
-        setExpire(c,c->db,key,ttl);
         if (!absttl) {
             /* Propagate TTL as absolute timestamp */
             robj *ttl_obj = createStringObjectFromLongLong(ttl);
@@ -258,9 +309,18 @@ void restoreCommand(client *c) {
             rewriteClientCommandArgument(c,c->argc,shared.absttl);
         }
     }
-    objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock,1000);
-    signalModifiedKey(c,c->db,key);
+    objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
+    keyModified(c,c->db,key,NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
+
+    /* If we deleted a key that means REPLACE parameter was passed and the
+     * destination key existed. */
+    if (deleted) {
+        notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
+        if (oldtype != kv->type) {
+            notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
+        }
+    }
     addReply(c,shared.ok);
     server.dirty++;
 }
@@ -358,10 +418,11 @@ void migrateCloseSocket(robj *host, robj *port) {
 }
 
 void migrateCloseTimedoutSockets(void) {
-    dictIterator *di = dictGetSafeIterator(server.migrate_cached_sockets);
+    dictIterator di;
     dictEntry *de;
 
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, server.migrate_cached_sockets);
+    while((de = dictNext(&di)) != NULL) {
         migrateCachedSocket *cs = dictGetVal(de);
 
         if ((server.unixtime - cs->last_use_time) > MIGRATE_SOCKET_CACHE_TTL) {
@@ -370,7 +431,7 @@ void migrateCloseTimedoutSockets(void) {
             dictDelete(server.migrate_cached_sockets,dictGetKey(de));
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password |
@@ -387,8 +448,8 @@ void migrateCommand(client *c) {
     char *password = NULL;
     long timeout;
     long dbid;
-    robj **ov = NULL; /* Objects to migrate. */
-    robj **kv = NULL; /* Key names. */
+    robj **kvArray = NULL; /* Objects to migrate. */
+    robj **keyArray = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
     rio cmd, payload;
     int may_retry = 1;
@@ -452,19 +513,19 @@ void migrateCommand(client *c) {
      * the caller there was nothing to migrate. We don't return an error in
      * this case, since often this is due to a normal condition like the key
      * expiring in the meantime. */
-    ov = zrealloc(ov,sizeof(robj*)*num_keys);
-    kv = zrealloc(kv,sizeof(robj*)*num_keys);
-    int oi = 0;
+    kvArray = zrealloc(kvArray,sizeof(kvobj*)*num_keys);
+    keyArray = zrealloc(keyArray,sizeof(robj*)*num_keys);
+    int num_exists = 0;
 
     for (j = 0; j < num_keys; j++) {
-        if ((ov[oi] = lookupKeyRead(c->db,c->argv[first_key+j])) != NULL) {
-            kv[oi] = c->argv[first_key+j];
-            oi++;
+        if ((kvArray[num_exists] = lookupKeyRead(c->db,c->argv[first_key+j])) != NULL) {
+            keyArray[num_exists] = c->argv[first_key+j];
+            num_exists++;
         }
     }
-    num_keys = oi;
+    num_keys = num_exists;
     if (num_keys == 0) {
-        zfree(ov); zfree(kv);
+        zfree(kvArray); zfree(keyArray);
         addReplySds(c,sdsnew("+NOKEY\r\n"));
         return;
     }
@@ -475,7 +536,7 @@ void migrateCommand(client *c) {
     /* Connect */
     cs = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
     if (cs == NULL) {
-        zfree(ov); zfree(kv);
+        zfree(kvArray); zfree(keyArray);
         return; /* error sent to the client by migrateGetSocket() */
     }
 
@@ -510,7 +571,7 @@ void migrateCommand(client *c) {
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
         long long ttl = 0;
-        long long expireat = getExpire(c->db,kv[j]);
+        long long expireat = kvobjGetExpire(kvArray[j]);
 
         if (expireat != -1) {
             ttl = expireat-commandTimeSnapshot();
@@ -523,8 +584,8 @@ void migrateCommand(client *c) {
         /* Relocate valid (non expired) keys and values into the array in successive
          * positions to remove holes created by the keys that were present
          * in the first lookup but are now expired after the second lookup. */
-        ov[non_expired] = ov[j];
-        kv[non_expired++] = kv[j];
+        kvArray[non_expired] = kvArray[j];
+        keyArray[non_expired++] = keyArray[j];
 
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
@@ -534,14 +595,14 @@ void migrateCommand(client *c) {
                                  rioWriteBulkString(&cmd,"RESTORE-ASKING",14));
         else
             serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
-        serverAssertWithInfo(c,NULL,sdsEncodedObject(kv[j]));
-        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,kv[j]->ptr,
-                                                       sdslen(kv[j]->ptr)));
+        serverAssertWithInfo(c,NULL,sdsEncodedObject(keyArray[j]));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,keyArray[j]->ptr,
+                                                       sdslen(keyArray[j]->ptr)));
         serverAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,ov[j],kv[j],dbid);
+        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid,0);
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                                 sdslen(payload.io.buffer.ptr)));
@@ -621,14 +682,14 @@ void migrateCommand(client *c) {
         } else {
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
-                dbDelete(c->db,kv[j]);
-                signalModifiedKey(c,c->db,kv[j]);
-                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",kv[j],c->db->id);
+                dbDelete(c->db,keyArray[j]);
+                keyModified(c,c->db,keyArray[j],NULL,1);
+                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArray[j],c->db->id);
                 server.dirty++;
 
                 /* Populate the argument vector to replace the old one. */
-                newargv[del_idx++] = kv[j];
-                incrRefCount(kv[j]);
+                newargv[del_idx++] = keyArray[j];
+                incrRefCount(keyArray[j]);
             }
         }
     }
@@ -686,7 +747,7 @@ void migrateCommand(client *c) {
     }
 
     sdsfree(cmd.io.buffer.ptr);
-    zfree(ov); zfree(kv); zfree(newargv);
+    zfree(kvArray); zfree(keyArray); zfree(newargv);
     return;
 
 /* On socket errors we try to close the cached socket and try again.
@@ -713,7 +774,7 @@ void migrateCommand(client *c) {
     }
 
     /* Cleanup we want to do if no retry is attempted. */
-    zfree(ov); zfree(kv);
+    zfree(kvArray); zfree(keyArray);
     addReplyErrorSds(c, sdscatprintf(sdsempty(),
                                      "-IOERR error or timeout %s to target instance",
                                      write_error ? "writing" : "reading"));
@@ -929,6 +990,8 @@ void clusterCommandHelp(client *c) {
             "SLOTS",
             "    Return information about slots range mappings. Each range is made of:",
             "    start, end, master and replicas IP addresses, ports and ids",
+            "SLOT-STATS",
+            "    Return an array of slot usage statistics for slots assigned to the current node.",
             "SHARDS",
             "    Return information about slot range mappings and the nodes associated with them.",
             NULL
@@ -986,6 +1049,11 @@ void clusterCommand(client *c) {
             addReplyError(c,"Invalid slot");
             return;
         }
+
+        if (!clusterCanAccessKeysInSlot(slot)) {
+            addReplyLongLong(c, 0);
+            return;
+        }
         addReplyLongLong(c,countKeysInSlot(slot));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
         /* CLUSTER GETKEYSINSLOT <slot> <count> */
@@ -1001,19 +1069,24 @@ void clusterCommand(client *c) {
             return;
         }
 
+        if (!clusterCanAccessKeysInSlot(slot)) {
+            addReplyArrayLen(c, 0);
+            return;
+        }
+
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        kvstoreDictIterator *kvs_di = NULL;
+        kvstoreDictIterator kvs_di;
         dictEntry *de = NULL;
-        kvs_di = kvstoreGetDictIterator(server.db->keys, slot);
+        kvstoreInitDictIterator(&kvs_di, server.db->keys, slot);
         for (unsigned int i = 0; i < numkeys; i++) {
-            de = kvstoreDictIteratorNext(kvs_di);
+            de = kvstoreDictIteratorNext(&kvs_di);
             serverAssert(de != NULL);
-            sds sdskey = dictGetKey(de);
+            sds sdskey = kvobjGetKey(dictGetKV(de));
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
@@ -1039,10 +1112,37 @@ void clusterCommand(client *c) {
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr, "migration")) {
+        clusterMigrationCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"syncslots") && c->argc >= 3) {
+        clusterSyncSlotsCommand(c);
     } else if(!clusterCommandSpecial(c)) {
         addReplySubcommandSyntaxError(c);
         return;
     }
+}
+
+/* Extract slot number from keys in a keys_result structure and return to caller.
+ * Returns:
+ *   - The slot number if all keys belong to the same slot
+ *   - INVALID_CLUSTER_SLOT if there are no keys or cluster is disabled
+ *   - CLUSTER_CROSSSLOT if keys belong to different slots (cross-slot error) */
+int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
+    if (keys_result->numkeys == 0 || !server.cluster_enabled)
+        return INVALID_CLUSTER_SLOT;
+
+    int first_slot = INVALID_CLUSTER_SLOT;
+    for (int j = 0; j < keys_result->numkeys; j++) {
+        robj *this_key = argv[keys_result->keys[j].pos];
+        int this_slot = (int)keyHashSlot((char*)this_key->ptr, sdslen(this_key->ptr));
+
+        if (first_slot == INVALID_CLUSTER_SLOT)
+            first_slot = this_slot;
+        else if (first_slot != this_slot) {
+            return CLUSTER_CROSSSLOT;
+        }
+    }
+    return first_slot;
 }
 
 /* Return the pointer to the cluster node that is able to serve the command.
@@ -1077,13 +1177,16 @@ void clusterCommand(client *c) {
  *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, uint64_t cmd_flags, int *error_code) {
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,
+    getKeysResult *keys_result, uint8_t read_error, uint64_t cmd_flags, int *error_code)
+{
     clusterNode *myself = getMyClusterNode();
     clusterNode *n = NULL;
     robj *firstkey = NULL;
     int multiple_keys = 0;
     multiState *ms, _ms;
-    multiCmd mc;
+    pendingCommand mc;
+    pendingCommand *mcp = &mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
             existing_keys = 0;
     int pubsubshard_included = 0; /* Flag to indicate if a pubsub shard cmd is included. */
@@ -1111,11 +1214,20 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
          * structure if the client is not in MULTI/EXEC state, this way
          * we have a single codepath below. */
         ms = &_ms;
-        _ms.commands = &mc;
+        _ms.commands = &mcp;
         _ms.count = 1;
+
+        /* Properly initialize the fake pendingCommand */
+        initPendingCommand(&mc);
         mc.argv = argv;
         mc.argc = argc;
         mc.cmd = cmd;
+        mc.slot = hashslot ? *hashslot : INVALID_CLUSTER_SLOT;
+        mc.read_error = read_error;
+        if (keys_result) {
+            mc.keys_result = *keys_result;
+            mc.flags |= PENDING_CMD_KEYS_RESULT_VALID;
+        }
     }
 
     /* Check that all the keys are in the same hash slot, and obtain this
@@ -1123,12 +1235,14 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     for (i = 0; i < ms->count; i++) {
         struct redisCommand *mcmd;
         robj **margv;
-        int margc, numkeys, j;
+        int margc, j;
         keyReference *keyindex;
 
-        mcmd = ms->commands[i].cmd;
-        margc = ms->commands[i].argc;
-        margv = ms->commands[i].argv;
+        pendingCommand *pcmd = ms->commands[i];
+
+        mcmd = pcmd->cmd;
+        margc = pcmd->argc;
+        margv = pcmd->argv;
 
         /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
         if (!pubsubshard_included &&
@@ -1137,14 +1251,29 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             pubsubshard_included = 1;
         }
 
+        /* If we have a cached keys result from preprocessCommand(), use it.
+         * Otherwise, extract keys result. */
+        int use_cache_keys_result = pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID;
         getKeysResult result = GETKEYS_RESULT_INIT;
-        numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
+        if (use_cache_keys_result)
+            result = pcmd->keys_result;
+        else
+            getKeysFromCommand(mcmd,margv,margc,&result);
         keyindex = result.keys;
 
-        for (j = 0; j < numkeys; j++) {
+        for (j = 0; j < result.numkeys; j++) {
+            /* The command has keys and was checked for cross-slot between its keys in preprocessCommand() */
+            if (pcmd->read_error == CLIENT_READ_CROSS_SLOT) {
+                /* Error: multiple keys from different slots. */
+                if (error_code)
+                    *error_code = CLUSTER_REDIR_CROSS_SLOT;
+                return NULL;
+            }
+
             robj *thiskey = margv[keyindex[j].pos];
-            int thisslot = keyHashSlot((char*)thiskey->ptr,
-                                       sdslen(thiskey->ptr));
+            int thisslot = pcmd->slot;
+            if (thisslot == INVALID_CLUSTER_SLOT)
+                thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
@@ -1158,7 +1287,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * not trapped earlier in processCommand(). Report the same
                  * error to the client. */
                 if (n == NULL) {
-                    getKeysFreeResult(&result);
+                    if (!use_cache_keys_result) getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
                     return NULL;
@@ -1181,7 +1310,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * the same key/channel as the first we saw. */
                 if (slot != thisslot) {
                     /* Error: multiple keys from different slots. */
-                    getKeysFreeResult(&result);
+                    if (!use_cache_keys_result) getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_CROSS_SLOT;
                     return NULL;
@@ -1206,7 +1335,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 else existing_keys++;
             }
         }
-        getKeysFreeResult(&result);
+        if (!use_cache_keys_result) getKeysFreeResult(&result);
     }
 
     /* No key at all in command? then we can serve the request
@@ -1348,7 +1477,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
          c->bstate.btype == BLOCKED_MODULE))
     {
         dictEntry *de;
-        dictIterator *di;
+        dictIterator di;
 
         /* If the cluster is down, unblock the client with the right error.
          * If the cluster is configured to allow reads on cluster down, we
@@ -1365,8 +1494,8 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
-        di = dictGetIterator(c->bstate.keys);
-        if ((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, c->bstate.keys);
+        if ((de = dictNext(&di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
             clusterNode *node = getNodeBySlot(slot);
@@ -1392,11 +1521,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
                     clusterRedirectClient(c,node,slot,
                                           CLUSTER_REDIR_MOVED);
                 }
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
                 return 1;
             }
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     return 0;
 }
@@ -1558,14 +1687,403 @@ void readonlyCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
-    addReplyArrayLen(c, sflush->numRanges);
-    for (int i = 0 ; i < sflush->numRanges ; i++) {
-        addReplyArrayLen(c, 2);
-        addReplyLongLong(c, sflush->ranges[i].first);
-        addReplyLongLong(c, sflush->ranges[i].last);
+/* Remove all the keys in the specified hash slot.
+ * The number of removed items is returned. */
+unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
+    unsigned int j = 0;
+
+    if (!kvstoreDictSize(server.db->keys, (int) hashslot))
+        return 0;
+
+    kvstoreDictIterator kvs_di;
+    dictEntry *de = NULL;
+    kvstoreInitDictSafeIterator(&kvs_di, server.db->keys, (int) hashslot);
+    while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
+        enterExecutionUnit(1, 0);
+        sds sdskey = kvobjGetKey(dictGetKV(de));
+        robj *key = createStringObject(sdskey, sdslen(sdskey));
+        dbDelete(&server.db[0], key);
+
+        keyModified(NULL, &server.db[0], key, NULL, 1);
+        if (by_command) {
+            /* Keys are deleted by a command (trimslots), we need to notify the
+             * keyspace event. Though, we don't need to propagate the DEL
+             * command, as the command (trimslots) will be propagated. */
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+        } else {
+            /* Propagate the DEL command */
+            propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
+            /* The keys are not actually logically deleted from the database,
+             * just moved to another node. The modules needs to know that these
+             * keys are no longer available locally, so just send the keyspace
+             * notification to the modules, but not to clients. */
+            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+        }
+        exitExecutionUnit();
+        postExecutionUnitOperations();
+        decrRefCount(key);
+        j++;
+        server.dirty++;
     }
-    zfree(sflush);
+    kvstoreResetDictIterator(&kvs_di);
+    return j;
+}
+
+/* Delete the keys in the slot ranges. Returns the number of deleted items */
+unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *slots, int by_command) {
+    unsigned int j = 0;
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
+            j += clusterDelKeysInSlot(slot, by_command);
+        }
+    }
+    return j;
+}
+
+int clusterIsMySlot(int slot) {
+    return getMyClusterNode() == getNodeBySlot(slot);
+}
+
+void replySlotsFlushAndFree(client *c, slotRangeArray *slots) {
+    addReplyArrayLen(c, slots->num_ranges);
+    for (int i = 0 ; i < slots->num_ranges ; i++) {
+        addReplyArrayLen(c, 2);
+        addReplyLongLong(c, slots->ranges[i].start);
+        addReplyLongLong(c, slots->ranges[i].end);
+    }
+    slotRangeArrayFree(slots);
+}
+
+/* Normalizes (sorts and merges adjacent ranges), checks that slot ranges are
+ * well-formed and non-overlapping. */
+int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
+    unsigned char used_slots[CLUSTER_SLOTS] = {0};
+
+    if (slots->num_ranges <= 0 || slots->num_ranges >= CLUSTER_SLOTS) {
+        *err = sdscatprintf(sdsempty(), "invalid number of slot ranges: %d", slots->num_ranges);
+        return C_ERR;
+    }
+
+    /* Sort and merge adjacent slot ranges. */
+    slotRangeArraySortAndMerge(slots);
+
+    for (int i = 0; i < slots->num_ranges; i++) {
+        if (slots->ranges[i].start >= CLUSTER_SLOTS ||
+            slots->ranges[i].end >= CLUSTER_SLOTS)
+        {
+            *err = sdscatprintf(sdsempty(), "slot range is out of range: %d-%d",
+                                slots->ranges[i].start, slots->ranges[i].end);
+            return C_ERR;
+        }
+
+        if (slots->ranges[i].start > slots->ranges[i].end) {
+            *err = sdscatprintf(sdsempty(), "start slot number %d is greater than end slot number %d",
+                                slots->ranges[i].start, slots->ranges[i].end);
+            return C_ERR;
+        }
+
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            if (used_slots[j]) {
+                *err = sdscatprintf(sdsempty(), "Slot %d specified multiple times", j);
+                return C_ERR;
+            }
+            used_slots[j]++;
+        }
+    }
+    return C_OK;
+}
+
+/* Create a slot range array with the specified number of ranges. */
+slotRangeArray *slotRangeArrayCreate(int num_ranges) {
+    slotRangeArray *slots = zcalloc(sizeof(slotRangeArray) + num_ranges * sizeof(slotRange));
+    slots->num_ranges = num_ranges;
+    return slots;
+}
+
+/* Duplicate the slot range array. */
+slotRangeArray *slotRangeArrayDup(slotRangeArray *slots) {
+    slotRangeArray *dup = slotRangeArrayCreate(slots->num_ranges);
+    memcpy(dup->ranges, slots->ranges, sizeof(slotRange) * slots->num_ranges);
+    return dup;
+}
+
+/* Set the slot range at the specified index. */
+void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end) {
+    slots->ranges[idx].start = start;
+    slots->ranges[idx].end = end;
+}
+
+/* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
+sds slotRangeArrayToString(slotRangeArray *slots) {
+    sds s = sdsempty();
+    if (slots == NULL || slots->num_ranges == 0) return s;
+
+    for (int i = 0; i < slots->num_ranges; i++) {
+        slotRange *sr = &slots->ranges[i];
+        s = sdscatprintf(s, "%d-%d ", sr->start, sr->end);
+    }
+    sdssetlen(s, sdslen(s) - 1);
+    s[sdslen(s)] = '\0';
+
+    return s;
+}
+
+/* Parse a slot range string in the format "1000-2000 3000-4000 ..." into a slotRangeArray.
+ * Returns a new slotRangeArray on success, NULL on failure. */
+slotRangeArray *slotRangeArrayFromString(sds data) {
+    int num_ranges;
+    long long start, end;
+    slotRangeArray *slots = NULL;
+    if (!data || sdslen(data) == 0) return NULL;
+
+    sds *parts = sdssplitlen(data, sdslen(data), " ", 1, &num_ranges);
+    if (num_ranges <= 0) goto err;
+
+    slots = slotRangeArrayCreate(num_ranges);
+
+    /* Parse each slot range */
+    for (int i = 0; i < num_ranges; i++) {
+        char *dash = strchr(parts[i], '-');
+        if (!dash) goto err;
+
+        if (string2ll(parts[i], dash - parts[i], &start) == 0 ||
+            string2ll(dash + 1, sdslen(parts[i]) - (dash - parts[i]) - 1, &end) == 0)
+            goto err;
+        slotRangeArraySet(slots, i, start, end);
+    }
+
+    /* Validate all ranges */
+    sds err_msg = NULL;
+    if (slotRangeArrayNormalizeAndValidate(slots, &err_msg) != C_OK) {
+        if (err_msg) sdsfree(err_msg);
+        goto err;
+    }
+    sdsfreesplitres(parts, num_ranges);
+    return slots;
+
+err:
+    if (slots) slotRangeArrayFree(slots);
+    sdsfreesplitres(parts, num_ranges);
+    return NULL;
+}
+
+static int compareSlotRange(const void *a, const void *b) {
+    const slotRange *sa = a;
+    const slotRange *sb = b;
+    if (sa->start < sb->start) return -1;
+    if (sa->start > sb->start) return 1;
+    return 0;
+}
+
+/* Sort slot ranges by start slot and merge adjacent ranges.
+ * Adjacent means: prev.end + 1 == next.start.
+ * e.g. 1000-2000 2001-3000 0-100  =>  0-100 1000-3000
+ *
+ * Note: Overlapping ranges are not merged.*/
+void slotRangeArraySortAndMerge(slotRangeArray *slots) {
+    if (!slots || slots->num_ranges <= 1) return;
+
+    qsort(slots->ranges, slots->num_ranges, sizeof(slotRange), compareSlotRange);
+
+    int idx = 0;
+    for (int i = 1; i < slots->num_ranges; i++) {
+        if (slots->ranges[idx].end + 1 == slots->ranges[i].start)
+            slots->ranges[idx].end = slots->ranges[i].end;
+        else
+            slots->ranges[++idx] = slots->ranges[i];
+    }
+    slots->num_ranges = idx + 1;
+}
+
+/* Compare two slot range arrays, return 1 if equal, 0 otherwise */
+int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2) {
+    slotRangeArraySortAndMerge(slots1);
+    slotRangeArraySortAndMerge(slots2);
+
+    if (slots1->num_ranges != slots2->num_ranges) return 0;
+
+    for (int i = 0; i < slots1->num_ranges; i++) {
+        if (slots1->ranges[i].start != slots2->ranges[i].start ||
+            slots1->ranges[i].end != slots2->ranges[i].end) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Add a slot to the slot range array.
+ * Usage:
+ *     slotRangeArray *slots = NULL
+ *     slots = slotRangeArrayAppend(slots, 1000);
+ *     slots = slotRangeArrayAppend(slots, 1001);
+ *     slots = slotRangeArrayAppend(slots, 1003);
+ *     slots = slotRangeArrayAppend(slots, 1004);
+ *     slots = slotRangeArrayAppend(slots, 1005);
+ *
+ *     Result: 1000-1001, 1003-1005
+ *     Note: `slot` must be greater than the previous slot.
+ * */
+slotRangeArray *slotRangeArrayAppend(slotRangeArray *slots, int slot) {
+    if (slots == NULL) {
+        slots = slotRangeArrayCreate(4);
+        slots->ranges[0].start = slot;
+        slots->ranges[0].end = slot;
+        slots->num_ranges = 1;
+        return slots;
+    }
+
+    serverAssert(slots->num_ranges >= 0 && slots->num_ranges <= CLUSTER_SLOTS);
+    serverAssert(slot > slots->ranges[slots->num_ranges - 1].end);
+
+    /* Check if we can extend the last range */
+    slotRange *last = &slots->ranges[slots->num_ranges - 1];
+    if (slot == last->end + 1) {
+        last->end = slot;
+        return slots;
+    }
+
+    /* Calculate current capacity and reallocate if needed */
+    int cap = (int) ((zmalloc_size(slots) - sizeof(slotRangeArray)) / sizeof(slotRange));
+    if (slots->num_ranges >= cap)
+        slots = zrealloc(slots, sizeof(slotRangeArray) + sizeof(slotRange) * cap * 2);
+
+    /* Add new single-slot range */
+    slots->ranges[slots->num_ranges].start = slot;
+    slots->ranges[slots->num_ranges].end = slot;
+    slots->num_ranges++;
+
+    return slots;
+}
+
+/* Returns 1 if the slot range array contains the given slot, 0 otherwise. */
+int slotRangeArrayContains(slotRangeArray *slots, unsigned int slot) {
+    for (int i = 0; i < slots->num_ranges; i++)
+        if (slots->ranges[i].start <= slot && slots->ranges[i].end >= slot)
+            return 1;
+    return 0;
+}
+
+/* Free the slot range array. */
+void slotRangeArrayFree(slotRangeArray *slots) {
+    zfree(slots);
+}
+
+/* Generic version of slotRangeArrayFree(). */
+void slotRangeArrayFreeGeneric(void *slots) {
+    slotRangeArrayFree(slots);
+}
+
+/* Slot range array iterator */
+slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots) {
+    slotRangeArrayIter *it = zmalloc(sizeof(*it));
+    it->slots = slots;
+    it->range_index = 0;
+    it->cur_slot = slots->num_ranges > 0 ? slots->ranges[0].start : -1;
+    return it;
+}
+
+/* Returns the next slot in the array, or -1 if there are no more slots. */
+int slotRangeArrayNext(slotRangeArrayIter *it) {
+    if (it->range_index >= it->slots->num_ranges) return -1;
+
+    if (it->cur_slot < it->slots->ranges[it->range_index].end) {
+        it->cur_slot++;
+    } else {
+        it->range_index++;
+        if (it->range_index < it->slots->num_ranges)
+            it->cur_slot = it->slots->ranges[it->range_index].start;
+        else
+            it->cur_slot = -1; /* finished */
+    }
+    return it->cur_slot;
+}
+
+int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it) {
+    return it->cur_slot;
+}
+
+void slotRangeArrayIteratorFree(slotRangeArrayIter *it) {
+    zfree(it);
+}
+
+/* Parse slot range pairs from argv starting at `pos`.
+ * `argc` is the argument count, `pos` is the first slot argument index.
+ * Returns a slotRangeArray or NULL on error. */
+slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
+    int start, end, count;
+    slotRangeArray *slots;
+
+    /* Ensure there is at least one (start,end) slot range pairs. */
+    if (argc < 0 || pos < 0 || pos >= argc || (argc - pos) < 2 || ((argc - pos) % 2) != 0) {
+        addReplyErrorArity(c);
+        return NULL;
+    }
+
+    count = (argc - pos) / 2;
+    slots = slotRangeArrayCreate(count);
+    slots->num_ranges = 0;
+
+    for (int j = pos; j < argc; j += 2) {
+        if ((start = getSlotOrReply(c, c->argv[j])) == -1 ||
+            (end = getSlotOrReply(c, c->argv[j + 1])) == -1)
+        {
+            slotRangeArrayFree(slots);
+            return NULL;
+        }
+        slotRangeArraySet(slots, slots->num_ranges, start, end);
+        slots->num_ranges++;
+    }
+
+    sds err = NULL;
+    if (slotRangeArrayNormalizeAndValidate(slots, &err) != C_OK) {
+        addReplyErrorSds(c, err);
+        slotRangeArrayFree(slots);
+        return NULL;
+    }
+    return slots;
+}
+
+/* Return 1 if the keys in the slot can be accessed, 0 otherwise. */
+int clusterCanAccessKeysInSlot(int slot) {
+    /* If not in cluster mode, all keys are accessible */
+    if (server.cluster_enabled == 0) return 1;
+
+    /* If the slot is being imported under old slot migration approach, we should
+     * allow to list keys from the slot as previously. */
+    if (getImportingSlotSource(slot)) return 1;
+
+    /* If using atomic slot migration, check if the slot belongs to the current
+     * node or its master, return 1 if so. */
+    clusterNode *myself = getMyClusterNode();
+    if (clusterNodeIsSlave(myself)) {
+        clusterNode *master = clusterNodeGetMaster(myself);
+        if (master && clusterNodeCoversSlot(master, slot))
+            return 1;
+    } else {
+        if (clusterNodeCoversSlot(myself, slot))
+            return 1;
+    }
+    return 0;
+}
+
+/* Return the slot ranges that belong to the current node or its master. */
+slotRangeArray *clusterGetLocalSlotRanges(void) {
+    slotRangeArray *slots = NULL;
+
+    if (!server.cluster_enabled) {
+        slots = slotRangeArrayCreate(1);
+        slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
+        return slots;
+    }
+
+    clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
+    if (master) {
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            if (clusterNodeCoversSlot(master, i))
+                slots = slotRangeArrayAppend(slots, i);
+        }
+    }
+    return slots ? slots : slotRangeArrayCreate(0);
 }
 
 /* Partially flush destination DB in a cluster node, based on the slot range.
@@ -1605,77 +2123,44 @@ void sflushCommand(client *c) {
         return;
     }
 
-    /* Verify <first, last> slot pairs are valid and not overlapping */
-    long long j, first, last;
-    unsigned char slotsToFlushRq[CLUSTER_SLOTS] = {0};
-    for (j = 1; j < argc; j += 2) {
-        /* check if the first slot is valid */
-        if (getLongLongFromObject(c->argv[j], &first) != C_OK || first < 0 || first >= CLUSTER_SLOTS) {
-            addReplyError(c,"Invalid or out of range slot");
-            return;
-        }
+    /* Parse slot ranges from the command arguments. */
+    slotRangeArray *slots = parseSlotRangesOrReply(c, argc, 1);
+    if (!slots) return;
 
-        /* check if the last slot is valid */
-        if (getLongLongFromObject(c->argv[j+1], &last) != C_OK || last < 0 || last >= CLUSTER_SLOTS) {
-            addReplyError(c,"Invalid or out of range slot");
-            return;
-        }
-
-        if (first > last) {
-            addReplyErrorFormat(c,"start slot number %lld is greater than end slot number %lld", first, last);
-            return;
-        }
-
-        /* Mark the slots in slotsToFlushRq[] */
-        for (int i = first; i <= last; i++) {
-            if (slotsToFlushRq[i]) {
-                addReplyErrorFormat(c, "Slot %d specified multiple times", i);
-                return;
+    /* Iterate and find the slot ranges that belong to this node. Save them in
+     * a new slotRangeArray. It is allocated on heap since there is a chance
+     * that FLUSH SYNC will be running as blocking ASYNC and only later reply
+     * with slot ranges */
+    unsigned char slots_to_flush[CLUSTER_SLOTS] = {0}; /* Requested slots to flush */
+    slotRangeArray *myslots = NULL;
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            if (clusterIsMySlot(j)) {
+                myslots = slotRangeArrayAppend(myslots, j);
+                slots_to_flush[j] = 1;
             }
-            slotsToFlushRq[i] = 1;
         }
     }
 
-    /* Verify slotsToFlushRq[] covers ALL slots of myNode. */
-    clusterNode *myNode = getMyClusterNode();
-    /* During iteration trace also the slot range pairs and save in SlotsFlush.
-     * It is allocated on heap since there is a chance that FLUSH SYNC will be 
-     * running as blocking ASYNC and only later reply with slot ranges */
-    int capacity = 32; /* Initial capacity */
-    SlotsFlush *sflush = zmalloc(sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
-    sflush->numRanges = 0;
-    int inSlotRange = 0;
+    /* Verify that all slots of mynode got covered. See sflushCommand() comment. */
+    int all_slots_covered = 1;
     for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        if (myNode == getNodeBySlot(i)) {
-            if (!slotsToFlushRq[i]) {
-                addReplySetLen(c, 0); /* Not all slots of mynode got covered. See sflushCommand() comment. */
-                zfree(sflush);
-                return;
-            }
-
-            if (!inSlotRange) { /* If start another slot range */
-                sflush->ranges[sflush->numRanges].first = i;
-                inSlotRange = 1;
-            }
-        } else {
-            if (inSlotRange) { /* If end another slot range */
-                sflush->ranges[sflush->numRanges++].last = i - 1;
-                inSlotRange = 0;
-                /* If reached 'sflush' capacity, double the capacity */
-                if (sflush->numRanges >= capacity) {
-                    capacity *= 2;
-                    sflush = zrealloc(sflush, sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
-                }
-            }
+        if (clusterIsMySlot(i) && !slots_to_flush[i]) {
+            all_slots_covered = 0;
+            break;
         }
     }
+    if (myslots == NULL || !all_slots_covered) {
+        addReplyArrayLen(c, 0);
+        slotRangeArrayFree(slots);
+        slotRangeArrayFree(myslots);
+        return;
+    }
+    slotRangeArrayFree(slots);
 
-    /* Update last pair if last cluster slot is also end of last range */
-    if (inSlotRange) sflush->ranges[sflush->numRanges++].last = CLUSTER_SLOTS - 1;
-    
     /* Flush selected slots. If not flush as blocking async, then reply immediately */
-    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0)
-        replySlotsFlushAndFree(c, sflush);
+    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)
+        replySlotsFlushAndFree(c, myslots);
 }
 
 /* The READWRITE command just clears the READONLY command state. */
@@ -1686,4 +2171,93 @@ void readwriteCommand(client *c) {
     }
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
+}
+
+/* Resets transient cluster stats that we expose via INFO or other means that we want
+ * to reset via CONFIG RESETSTAT. The function is also used in order to
+ * initialize these fields in clusterInit() at server startup. */
+void resetClusterStats(void) {
+    if (!server.cluster_enabled) return;
+
+    clusterSlotStatResetAll();
+}
+
+/* This function is called at server startup in order to initialize cluster data
+ * structures that are shared between the different cluster implementations. */
+void clusterCommonInit(void) {
+    resetClusterStats();
+    asmInit();
+}
+
+/* This function is called after the node startup in order to check if there
+ * are any slots that we have keys for, but are not assigned to us. If so,
+ * we delete the keys. */
+void clusterDeleteKeysInUnownedSlots(void) {
+    if (clusterNodeIsSlave(getMyClusterNode())) return;
+
+    /* Check that all the slots we have keys for are assigned to us. Otherwise,
+     * delete the keys. */
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        /* Skip if: no keys in the slot, it's our slot, or we are importing it. */
+        if (!countKeysInSlot(i) ||
+            clusterIsMySlot(i) ||
+            getImportingSlotSource(i))
+        {
+            continue;
+        }
+
+        serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
+                             "assigned to another node. "
+                             "Deleting keys in the slot.", i);
+        /* With atomic slot migration, it is safe to drop keys from slots
+         * that are not owned. This will not result in data loss under the
+         * legacy slot migration approach either, since the importing state
+         * has already been persisted in node.conf. */
+        clusterDelKeysInSlot(i, 0);
+    }
+}
+
+
+/* This function is called after the node startup in order to verify that data
+ * loaded from disk is in agreement with the cluster configuration:
+ *
+ * 1) If we find keys about hash slots we have no responsibility for, the
+ *    following happens:
+ *    A) If no other node is in charge according to the current cluster
+ *       configuration, we add these slots to our node.
+ *    B) If according to our config other nodes are already in charge for
+ *       this slots, we set the slots as IMPORTING from our point of view
+ *       in order to justify we have those slots, and in order to make
+ *       redis-cli aware of the issue, so that it can try to fix it.
+ * 2) If we find data in a DB different than DB0 we return C_ERR to
+ *    signal the caller it should quit the server with an error message
+ *    or take other actions.
+ *
+ * The function always returns C_OK even if it will try to correct
+ * the error described in "1". However if data is found in DB different
+ * from DB0, C_ERR is returned.
+ *
+ * The function also uses the logging facility in order to warn the user
+ * about desynchronizations between the data we have in memory and the
+ * cluster configuration. */
+int verifyClusterConfigWithData(void) {
+    /* Return ASAP if a module disabled cluster redirections. In that case
+     * every master can store keys about every possible hash slot. */
+    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+        return C_OK;
+
+    /* If this node is a slave, don't perform the check at all as we
+     * completely depend on the replication stream. */
+    if (clusterNodeIsSlave(getMyClusterNode())) return C_OK;
+
+    /* Make sure we only have keys in DB0. */
+    for (int i = 1; i < server.dbnum; i++) {
+        if (kvstoreSize(server.db[i].keys)) return C_ERR;
+    }
+
+    /* Take over slots that we have keys for, but are assigned to no one. */
+    clusterClaimUnassignedSlots();
+    /* Delete keys in unowned slots */
+    clusterDeleteKeysInUnownedSlots();
+    return C_OK;
 }

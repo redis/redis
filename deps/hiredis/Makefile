@@ -35,14 +35,19 @@ define REDIS_TEST_CONFIG
 endef
 export REDIS_TEST_CONFIG
 
+# Flags passed from outside so as not to override CFLAGS or LDFLAGS as they may
+# be changed inside this Makefile
+HIREDIS_CFLAGS=
+HIREDIS_LDFLAGS=
+
 # Fallback to gcc when $CC is not in $PATH.
 CC:=$(shell sh -c 'type $${CC%% *} >/dev/null 2>/dev/null && echo $(CC) || echo gcc')
 CXX:=$(shell sh -c 'type $${CXX%% *} >/dev/null 2>/dev/null && echo $(CXX) || echo g++')
 OPTIMIZATION?=-O3
 WARNINGS=-Wall -Wextra -Werror -Wstrict-prototypes -Wwrite-strings -Wno-missing-field-initializers
 DEBUG_FLAGS?= -g -ggdb
-REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS) $(PLATFORM_FLAGS)
-REAL_LDFLAGS=$(LDFLAGS)
+REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS) $(PLATFORM_FLAGS) $(HIREDIS_CFLAGS)
+REAL_LDFLAGS=$(LDFLAGS) $(HIREDIS_LDFLAGS)
 
 DYLIBSUFFIX=so
 STLIBSUFFIX=a

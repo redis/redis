@@ -2,12 +2,15 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __CONFIG_H
 #define __CONFIG_H
+
+#include <sys/param.h>
 
 #ifdef __APPLE__
 #include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
@@ -84,9 +87,10 @@
 #endif
 
 /* Test for accept4() */
-#if defined(__linux__) || defined(OpenBSD5_7) || \
-    (__FreeBSD__ >= 10 || __FreeBSD_version >= 1000000) || \
-    (defined(NetBSD8_0) || __NetBSD_Version__ >= 800000000)
+#if defined(__linux__) || (defined(OpenBSD) && OpenBSD >= 201505) || \
+    defined(__FreeBSD__) || \
+    (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000) || \
+    (defined(__DragonFly__) && __DragonFly_version >= 400305)
 #define HAVE_ACCEPT4 1
 #endif
 
@@ -104,10 +108,10 @@
 
 /* Test for __builtin_prefetch()
  * Supported in LLVM since 2.9: https://releases.llvm.org/2.9/docs/ReleaseNotes.html
- * Supported in GCC since 3.1 but we use 4.9 given it's too old: https://gcc.gnu.org/gcc-3.1/changes.html. */
+ * Supported in GCC since 3.1 but we use 4.8 given it's too old: https://gcc.gnu.org/gcc-3.1/changes.html. */
 #if defined(__clang__) && (__clang_major__ > 2 || (__clang_major__ == 2 && __clang_minor__ >= 9))
 #define HAS_BUILTIN_PREFETCH 1
-#elif defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9))
+#elif defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))
 #define HAS_BUILTIN_PREFETCH 1
 #else
 #define HAS_BUILTIN_PREFETCH 0
@@ -165,6 +169,12 @@
 #endif
 #if !defined(REDIS_NO_SANITIZE)
 #define REDIS_NO_SANITIZE(sanitizer)
+#endif
+
+#if defined(__clang__)
+#define REDIS_NO_SANITIZE_MSAN(sanitizer) REDIS_NO_SANITIZE(sanitizer)
+#else
+#define REDIS_NO_SANITIZE_MSAN(sanitizer)
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
@@ -323,7 +333,7 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 /* Test for posix_fadvise() */
-#if defined(__linux__) || __FreeBSD__ >= 10
+#if defined(__linux__) || defined(__FreeBSD__)
 #define HAVE_FADVISE
 #endif
 
@@ -342,13 +352,24 @@ void setcpuaffinity(const char *cpulist);
 #if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
 #if defined(__has_attribute) && __has_attribute(target)
 #define HAVE_AVX2
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2")))
+#define ATTRIBUTE_TARGET_AVX2_POPCOUNT __attribute__((target("avx2,popcnt")))
 #endif
 #endif
 
-#if defined (HAVE_AVX2)
-#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2")))
-#else
-#define ATTRIBUTE_TARGET_AVX2
+/* Check if we can compile AVX512 code */
+#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_AVX512
+#define ATTRIBUTE_TARGET_AVX512_POPCOUNT __attribute__((target("avx512f,avx512vpopcntdq")))
+#endif
+#endif
+
+/* Check for AArch64 (ARM v8) specific optimizations */
+#if defined(__aarch64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || defined(__clang__))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_AARCH64_NEON
+#endif
 #endif
 
 #endif

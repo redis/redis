@@ -141,48 +141,36 @@ start_server {tags {"protocol network"}} {
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 7] "\$1\r\n2\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 9] "\$3\r\nint\r\n"
 
         # value=2147483647 (int encoding)
         r set crlf 2147483647
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 17] "\$10\r\n2147483647\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 9] "\$3\r\nint\r\n"
 
         # value=-2147483648 (int encoding)
         r set crlf -2147483648
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 18] "\$11\r\n-2147483648\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 9] "\$3\r\nint\r\n"
 
         # value=-9223372036854775809 (embstr encoding)
         r set crlf -9223372036854775809
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 27] "\$20\r\n-9223372036854775809\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 12] "\$6\r\nembstr\r\n"
 
         # value=9223372036854775808 (embstr encoding)
         r set crlf 9223372036854775808
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 26] "\$19\r\n9223372036854775808\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 12] "\$6\r\nembstr\r\n"
 
         # normal sds (embstr encoding)
         r set crlf aaaaaaaaaaaaaaaa
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 23] "\$16\r\naaaaaaaaaaaaaaaa\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 12] "\$6\r\nembstr\r\n"
 
         # normal sds (raw string encoding) with 45 'a'
         set rawstr [string repeat "a" 45]
@@ -190,8 +178,6 @@ start_server {tags {"protocol network"}} {
         assert_equal [r rawread 5] "+OK\r\n"
         r get crlf
         assert_equal [r rawread 52] "\$45\r\n$rawstr\r\n"
-        r object encoding crlf
-        assert_equal [r rawread 9] "\$3\r\nraw\r\n"
 
         r del crlf
         assert_equal [r rawread 4] ":1\r\n"

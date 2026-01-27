@@ -2,8 +2,12 @@
  * Copyright (c) 2019-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #define REDISMODULE_CORE_MODULE /* A module that's part of the redis core, uses server.h too. */
@@ -16,6 +20,7 @@
 
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
@@ -629,6 +634,57 @@ static void tlsPendingRemove(tls_connection *conn) {
     }
 }
 
+static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t outlen) {
+    if (!cert || !field || !out) return 0;
+
+    int nid = -1;
+
+    if (!strcasecmp(field, "CN"))
+        nid = NID_commonName;
+    else if (!strcasecmp(field, "O"))
+        nid = NID_organizationName;
+    /* Add more mappings here as needed */
+
+    if (nid == -1) return 0;
+
+    X509_NAME *subject = X509_get_subject_name(cert);
+    if (!subject) return 0;
+
+    return X509_NAME_get_text_by_NID(subject, nid, out, outlen) > 0;
+}
+
+sds tlsGetPeerUsername(connection *conn_) {
+    tls_connection *conn = (tls_connection *)conn_;
+    if (!conn || !SSL_is_init_finished(conn->ssl)) return NULL;
+
+    /* Find the corresponding field name from the enum mapping */
+    const char *field = NULL;
+    switch (server.tls_ctx_config.client_auth_user) {
+    case TLS_CLIENT_FIELD_CN:
+        field = "CN";
+        break;
+    default:
+        return NULL;
+    }
+
+    if (!field) return NULL;
+
+    X509 *cert = SSL_get_peer_certificate(conn->ssl);
+    if (!cert) return NULL;
+
+    char field_value[256];
+    sds result = NULL;
+
+    if (getCertFieldByName(cert, field, field_value, sizeof(field_value))) {
+        result = sdsnew(field_value);
+    } else {
+        serverLog(LL_NOTICE, "TLS: Failed to extract field '%s' from certificate", field);
+    }
+
+    X509_free(cert);
+    return result;
+}
+
 static void tlsHandleEvent(tls_connection *conn, int mask) {
     int ret, conn_error;
 
@@ -636,10 +692,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             conn->c.fd, conn->c.state, mask, conn->c.read_handler != NULL, conn->c.write_handler != NULL,
             conn->flags);
 
-    ERR_clear_error();
-
     switch (conn->c.state) {
         case CONN_STATE_CONNECTING:
+            ERR_clear_error();
             conn_error = anetGetError(conn->c.fd);
             if (conn_error) {
                 conn->c.last_errno = conn_error;
@@ -673,6 +728,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             conn->c.conn_handler = NULL;
             break;
         case CONN_STATE_ACCEPTING:
+            ERR_clear_error();
             ret = SSL_accept(conn->ssl);
             if (ret <= 0) {
                 WantIOType want = 0;
@@ -770,6 +826,8 @@ static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) 
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
+            if (anetAcceptFailureNeedsRetry(errno))
+                continue;
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
@@ -1011,6 +1069,7 @@ static int connTLSBlockingConnect(connection *conn_, const char *addr, int port,
      * which means the specified timeout will not be enforced accurately. */
     SSL_set_fd(conn->ssl, conn->c.fd);
     setBlockingTimeout(conn, timeout);
+    ERR_clear_error();
 
     if ((ret = SSL_connect(conn->ssl)) <= 0) {
         conn->c.state = CONN_STATE_ERROR;
@@ -1181,6 +1240,7 @@ static ConnectionType CT_TLS = {
 
     /* TLS specified methods */
     .get_peer_cert = connTLSGetPeerCert,
+    .get_peer_username = tlsGetPeerUsername,
 };
 
 int RedisRegisterConnectionTypeTLS(void) {

@@ -40,7 +40,7 @@ test "Master reboot in very short time" {
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
     
-    R $master_id debug populate 10000
+    R $master_id debug populate 20000
     R $master_id bgsave
     R $master_id config set key-load-delay 1500
     R $master_id config set loading-process-events-interval-bytes 1024
@@ -55,13 +55,22 @@ test "Master reboot in very short time" {
     kill_instance redis $master_id
     reboot_instance redis $master_id
     
+    set max_tries 1000
+    if {$::tsan} {
+        set max_tries 5000
+    }
+
     foreach_sentinel_id id {        
-        wait_for_condition 1000 100 {
+        wait_for_condition $max_tries 100 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not receive failover info"
         }
     }
+
+    # Reset configuration to avoid unnecessary delays
+    R $master_id config set key-load-delay 0
+    R $master_id config rewrite
 
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     set master_id [get_instance_id_by_port redis [lindex $addr 1]]

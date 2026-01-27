@@ -2,8 +2,9 @@
  * Copyright (c) 2018-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * ----------------------------------------------------------------------------
  *
@@ -18,6 +19,7 @@
 
 void lolwut5Command(client *c);
 void lolwut6Command(client *c);
+void lolwut8Command(client *c);
 
 /* The default target for LOLWUT if no matching version was found.
  * This is what unstable versions of Redis will display. */
@@ -53,6 +55,9 @@ void lolwutCommand(client *c) {
     else if ((v[0] == '6' && v[1] == '.' && v[2] != '9') ||
              (v[0] == '5' && v[1] == '.' && v[2] == '9'))
         lolwut6Command(c);
+    else if ((v[0] == '8' && v[1] == '.' && v[2] != '9') ||
+             (v[0] == '7' && v[1] == '.' && v[2] == '9'))
+        lolwut8Command(c);
     else
         lolwutUnstableCommand(c);
 

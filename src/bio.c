@@ -10,7 +10,7 @@
  *
  * In the future we'll either continue implementing new things we need or
  * we'll switch to libeio. However there are probably long term uses for this
- * file as we may want to put here Redis specific background tasks.
+ * file as we may want to put Redis specific background tasks here.
  *
  * DESIGN
  * ------
@@ -39,8 +39,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -168,9 +169,9 @@ void bioInit(void) {
      * function accepts in order to pass the job ID the thread is
      * responsible for. */
     for (j = 0; j < BIO_WORKER_NUM; j++) {
-        void *arg = (void*)(unsigned long) j;
-        if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
-            serverLog(LL_WARNING, "Fatal: Can't initialize Background Jobs. Error message: %s", strerror(errno));
+        int err = pthread_create(&thread,&attr,bioProcessBackgroundJobs, (void*) j);
+        if (err) {
+            serverLog(LL_WARNING, "Fatal: Can't initialize Background Jobs. Error message: %s", strerror(err));
             exit(1);
         }
         bio_threads[j] = thread;
@@ -272,9 +273,10 @@ void *bioProcessBackgroundJobs(void *arg) {
      * receive the watchdog signal. */
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGALRM);
-    if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
+    int err = pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+    if (err)
         serverLog(LL_WARNING,
-            "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
+            "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(err));
 
     while(1) {
         listNode *ln;

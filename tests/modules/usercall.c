@@ -13,7 +13,7 @@ int call_without_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, (size_t)argc - 2);
     if (!rep) {
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     } else {
@@ -37,7 +37,7 @@ int call_with_user_flag(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     const char* flg = RedisModule_StringPtrLen(flags, NULL);
     const char* cmd = RedisModule_StringPtrLen(argv[2], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, argc - 3);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, (size_t)argc - 3);
     if (!rep) {
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     } else {
@@ -134,7 +134,7 @@ void *bg_call_worker(void *arg) {
     RedisModule_StringAppendBuffer(NULL, format_redis_str, "E", 1);
     format = RedisModule_StringPtrLen(format_redis_str, NULL);
     const char *cmd = RedisModule_StringPtrLen(bg->argv[2], NULL);
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + 3, bg->argc - 3);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + 3, (size_t)bg->argc - 3);
     RedisModule_FreeString(NULL, format_redis_str);
 
     /* Free the arguments within GIL to prevent simultaneous freeing in main thread. */

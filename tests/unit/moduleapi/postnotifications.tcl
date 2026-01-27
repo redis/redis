@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/postnotifications.so]
 
-tags "modules" {
+tags "modules external:skip" {
     start_server {} {
         r module load $testmodule with_key_events
 
@@ -174,7 +174,7 @@ tags "modules" {
 
 set testmodule2 [file normalize tests/modules/keyspace_events.so]
 
-tags "modules" {
+tags "modules external:skip" {
     start_server {} {
         r module load $testmodule with_key_events
         r module load $testmodule2

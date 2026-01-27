@@ -2,13 +2,20 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
 #include "script.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -31,7 +38,22 @@ static void exitScriptTimedoutMode(scriptRunCtx *run_ctx) {
     run_ctx->flags &= ~SCRIPT_TIMEDOUT;
     blockingOperationEnds();
     /* if we are a replica and we have an active master, set it for continue processing */
-    if (server.masterhost && server.master) queueClientForReprocessing(server.master);
+    if (server.masterhost && server.master) {
+        /* Master running in IO thread needs to be sent to main thread so that
+         * it can process any pending commands ASAP without waiting for the next
+         * read.
+         * We don't queue the client for reprocessing in this case as it will
+         * create contention with main thread when it deals with unblocked
+         * clients - see comment above queueClientForReprocessing. */
+        if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+            pauseIOThread(server.master->tid);
+            enqueuePendingClientsToMainThread(server.master, 0);
+            resumeIOThread(server.master->tid);
+            return;
+        }
+
+        queueClientForReprocessing(server.master);
+    }
 }
 
 static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
@@ -479,7 +501,7 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
     const uint64_t cmd_flags = getCommandFlags(c);
     int hashslot = -1;
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, cmd_flags, &error_code) != getMyClusterNode()) {
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, NULL, 0, cmd_flags, &error_code) != getMyClusterNode()) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -663,6 +685,7 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+    clusterSlotStatsInvalidateSlotIfApplicable(run_ctx);
     return;
 
 error:

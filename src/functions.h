@@ -2,8 +2,9 @@
  * Copyright (c) 2021-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __FUNCTIONS_H_
@@ -120,5 +121,7 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
 int luaEngineInitEngine(void);
 int functionsInit(void);
 void functionsFree(functionsLibCtx *lib_ctx, dict *engs);
+
+void createFunctionDumpPayload(rio *payload);
 
 #endif /* __FUNCTIONS_H_ */

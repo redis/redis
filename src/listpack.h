@@ -7,8 +7,9 @@
  * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __LISTPACK_H
@@ -35,7 +36,6 @@ typedef struct {
 
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
-void lpFreeGeneric(void *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
                               unsigned char *p, int where, unsigned char **newp);
@@ -77,7 +77,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata);
 unsigned char *lpValidateFirst(unsigned char *lp);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
-unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen);
+unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen, long long *cached_longval, int *cached_valid);
 void lpRandomPair(unsigned char *lp, unsigned long total_count,
                   listpackEntry *key, listpackEntry *val, int tuple_len);
 void lpRandomPairs(unsigned char *lp, unsigned int count,

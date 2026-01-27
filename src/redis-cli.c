@@ -3,8 +3,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "fmacros.h"
@@ -162,7 +163,7 @@ static struct termios orig_termios; /* To restore terminal at exit.*/
 
 /* Dict Helpers */
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(dict *d, const void *key1,
+static int dictSdsKeyCompare(dictCmpCache *cache, const void *key1,
     const void *key2);
 static void dictSdsDestructor(dict *d, void *val);
 static void dictListDestructor(dict *d, void *val);
@@ -208,6 +209,11 @@ static struct config {
     int monitor_mode;
     int pubsub_mode;
     int blocking_state_aborted; /* used to abort monitor_mode and pubsub_mode. */
+    int vset_recall_mode;
+    sds vset_recall_key;
+    int vset_recall_ele_count;
+    int vset_recall_vsim_count;
+    int vset_recall_vsim_ef;
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -264,6 +270,7 @@ static struct config {
     char *server_version;
     char *test_hint;
     char *test_hint_file;
+    char *client_name;
     int prefer_ipv4; /* Prefer IPv4 over IPv6 on DNS lookup. */
     int prefer_ipv6; /* Prefer IPv6 over IPv4 on DNS lookup. */
 } config;
@@ -368,10 +375,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
+static int dictSdsKeyCompare(dictCmpCache *cache, const void *key1, const void *key2)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -452,7 +459,11 @@ static void cliLegacyIntegrateHelp(void) {
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
-    if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
+    if (reply == NULL) return;
+    if (reply->type != REDIS_REPLY_ARRAY) {
+        freeReplyObject(reply);
+        return;
+    }
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
@@ -703,7 +714,7 @@ int helpEntryCompare(const void *entry1, const void *entry2) {
  * Extends the help table with new entries for the command groups.
  */
 void cliInitGroupHelpEntries(dict *groups) {
-    dictIterator *iter = dictGetIterator(groups);
+    dictIterator iter;
     dictEntry *entry;
     helpEntry tmp;
 
@@ -712,7 +723,8 @@ void cliInitGroupHelpEntries(dict *groups) {
     helpEntriesLen += numGroups;
     helpEntries = zrealloc(helpEntries, sizeof(helpEntry)*helpEntriesLen);
 
-    for (entry = dictNext(iter); entry != NULL; entry = dictNext(iter)) {
+    dictInitIterator(&iter, groups);
+    for (entry = dictNext(&iter); entry != NULL; entry = dictNext(&iter)) {
         tmp.argc = 1;
         tmp.argv = zmalloc(sizeof(sds));
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)dictGetKey(entry));
@@ -727,7 +739,7 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.docs.group = NULL;
         helpEntries[pos++] = tmp;
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 }
 
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
@@ -942,7 +954,10 @@ static void cliInitHelp(void) {
         cliLegacyIntegrateHelp();
         return;
     };
-    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
+    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) {
+        freeReplyObject(commandTable);
+        return;
+    }
 
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
@@ -1656,6 +1671,24 @@ static int cliSwitchProto(void) {
     return result;
 }
 
+/* Set the client name if configured. */
+static int cliSetName(void) {
+    if (config.client_name == NULL) return REDIS_OK;
+
+    redisReply *reply = redisCommand(context,"CLIENT SETNAME %s", config.client_name);
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
+    }
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        fprintf(stderr,"CLIENT SETNAME failed: %s\n", reply->str);
+        result = REDIS_ERR;
+    }
+    freeReplyObject(reply);
+    return result;
+}
+
 /* Connect to the server. It is possible to pass certain flags to the function:
  *      CC_FORCE: The connection is performed even if there is already
  *                a connected socket.
@@ -1723,6 +1756,8 @@ static int cliConnect(int flags) {
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
         if (cliSwitchProto() != REDIS_OK)
+            return REDIS_ERR;
+        if (cliSetName() != REDIS_OK)
             return REDIS_ERR;
     }
 
@@ -2739,6 +2774,21 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--latency-history")) {
             config.latency_mode = 1;
             config.latency_history = 1;
+        } else if (!strcmp(argv[i],"--vset-recall") && !lastarg) {
+            config.vset_recall_mode = 1;
+            config.vset_recall_key = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--vset-recall-ele") && !lastarg) {
+            config.vset_recall_ele_count = strtoll(argv[++i],NULL,10);
+            if (config.vset_recall_ele_count <= 0)
+                config.vset_recall_ele_count = 1;
+        } else if (!strcmp(argv[i],"--vset-recall-count") && !lastarg) {
+            config.vset_recall_vsim_count = strtoll(argv[++i],NULL,10);
+            if (config.vset_recall_vsim_count <= 0)
+                config.vset_recall_vsim_count = 1;
+        } else if (!strcmp(argv[i],"--vset-recall-ef") && !lastarg) {
+            config.vset_recall_vsim_ef = strtoll(argv[++i],NULL,10);
+            if (config.vset_recall_vsim_ef <= 0)
+                config.vset_recall_vsim_ef = 1;
         } else if (!strcmp(argv[i],"--lru-test") && !lastarg) {
             config.lru_test_mode = 1;
             config.lru_test_sample_size = strtoll(argv[++i],NULL,10);
@@ -2950,6 +3000,8 @@ static int parseOptions(int argc, char **argv) {
             config.test_hint = argv[++i];
         } else if (!strcmp(argv[i],"--test_hint_file") && !lastarg) {
             config.test_hint_file = argv[++i];
+        } else if (!strcmp(argv[i], "--name") && !lastarg) {
+            config.client_name = argv[++i];
 #ifdef USE_OPENSSL
         } else if (!strcmp(argv[i],"--tls")) {
             config.tls = 1;
@@ -3120,6 +3172,7 @@ static void usage(int err) {
 "                     This interval is also used in --scan and --stat per cycle.\n"
 "                     and in --bigkeys, --memkeys, --keystats, and --hotkeys per 100 cycles.\n"
 "  -n <db>            Database number.\n"
+"  --name <name>      Set the client name.\n"
 "  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN (see example below).\n"
@@ -3155,6 +3208,14 @@ version,tls_usage);
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
+"  --vset-recall <key> Enable VSIM recall test mode for the specified key\n"
+"                     (that must be a vector set). Random vectors are created\n"
+"                     mixing components from other elements. A VSIM is then\n"
+"                     executed and checked against ground truth.\n"
+"  --vset-recall-count <count> How many top elements to fetch per query.\n"
+"  --vset-recall-ef <ef> HSNW EF (search effort) to use. Default 500.\n"
+"  --vset-recall-ele <count> Number of elements used to compose query vectors\n"
+"                            Default 1.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
@@ -3628,6 +3689,11 @@ static int noninteractive(int argc, char **argv) {
         fflush(stdout);
     }
     return retval == REDIS_OK ? 0 : 1;
+}
+
+static void longStatLoopModeStop(int s) {
+    UNUSED(s);
+    force_cancel_loop = 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -4395,9 +4461,11 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
         }
         /* Now it's trivial to check, for each related group having the
          * same host, what is their local score. */
-        dictIterator *iter = dictGetIterator(related);
+        dictIterator iter;
         dictEntry *entry;
-        while ((entry = dictNext(iter)) != NULL) {
+
+        dictInitIterator(&iter, related);
+        while ((entry = dictNext(&iter)) != NULL) {
             sds types = (sds) dictGetVal(entry);
             sds name = (sds) dictGetKey(entry);
             int typeslen = sdslen(types);
@@ -4420,7 +4488,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             }
         }
         //if (offending_len != NULL) *offending_len = offending_p - *offending;
-        dictReleaseIterator(iter);
+        dictResetIterator(&iter);
         dictRelease(related);
     }
     return score;
@@ -5397,14 +5465,14 @@ static void clusterManagerWaitForClusterJoin(void) {
         sleep(1);
         if (++counter > check_after) {
             dict *status = clusterManagerGetLinkStatus();
-            dictIterator *iter = NULL;
             if (status != NULL && dictSize(status) > 0) {
                 printf("\n");
                 clusterManagerLogErr("Warning: %d node(s) may "
                                      "be unreachable\n", dictSize(status));
-                iter = dictGetIterator(status);
+                dictIterator iter;
                 dictEntry *entry;
-                while ((entry = dictNext(iter)) != NULL) {
+                dictInitIterator(&iter, status);
+                while ((entry = dictNext(&iter)) != NULL) {
                     sds nodeaddr = (sds) dictGetKey(entry);
                     char *node_ip = NULL;
                     int node_port = 0, node_bus_port = 0;
@@ -5432,8 +5500,8 @@ static void clusterManagerWaitForClusterJoin(void) {
                                          "from standard instance ports.\n");
                     listEmpty(from);
                 }
+                dictResetIterator(&iter);
             }
-            if (iter != NULL) dictReleaseIterator(iter);
             if (status != NULL) dictRelease(status);
             counter = 0;
         }
@@ -6108,9 +6176,11 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
     none = listCreate();
     single = listCreate();
     multi = listCreate();
-    dictIterator *iter = dictGetIterator(clusterManagerUncoveredSlots);
+    dictIterator iter;
     dictEntry *entry;
-    while ((entry = dictNext(iter)) != NULL) {
+
+    dictInitIterator(&iter, clusterManagerUncoveredSlots);
+    while ((entry = dictNext(&iter)) != NULL) {
         sds slot = (sds) dictGetKey(entry);
         list *nodes = (list *) dictGetVal(entry);
         switch (listLength(nodes)){
@@ -6119,7 +6189,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
         default: listAddNodeTail(multi, slot); break;
         }
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 
     /* we want explicit manual confirmation from users for all the fix cases */
     int ignore_force = 1;
@@ -6691,28 +6761,30 @@ static int clusterManagerCheckCluster(int quiet) {
     }
     if (open_slots != NULL) {
         result = 0;
-        dictIterator *iter = dictGetIterator(open_slots);
+        dictIterator iter;
         dictEntry *entry;
         sds errstr = sdsnew("[WARNING] The following slots are open: ");
         i = 0;
-        while ((entry = dictNext(iter)) != NULL) {
+
+        dictInitIterator(&iter, open_slots);
+        while ((entry = dictNext(&iter)) != NULL) {
             sds slot = (sds) dictGetKey(entry);
             char *fmt = (i++ > 0 ? ",%S" : "%S");
             errstr = sdscatfmt(errstr, fmt, slot);
         }
+        dictResetIterator(&iter);
         clusterManagerLogErr("%s.\n", (char *) errstr);
         sdsfree(errstr);
         if (do_fix) {
             /* Fix open slots. */
-            dictReleaseIterator(iter);
-            iter = dictGetIterator(open_slots);
-            while ((entry = dictNext(iter)) != NULL) {
+            dictInitIterator(&iter, open_slots);
+            while ((entry = dictNext(&iter)) != NULL) {
                 sds slot = (sds) dictGetKey(entry);
                 result = clusterManagerFixOpenSlot(atoi(slot));
                 if (!result) break;
             }
+            dictResetIterator(&iter);
         }
-        dictReleaseIterator(iter);
         dictRelease(open_slots);
     }
     clusterManagerLogInfo(">>> Check slots coverage...\n");
@@ -8174,6 +8246,9 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     UNUSED(argc);
     int success = 1, port = 0;
     char *ip = NULL;
+    sds json = NULL;
+    sds jsonpath = NULL;
+
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
@@ -8181,8 +8256,26 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
     config.cluster_manager_command.backup_dir = argv[1];
-    /* TODO: check if backup_dir is a valid directory. */
-    sds json = sdsnew("[\n");
+
+    struct stat st = {0};
+    char *backup_dir = config.cluster_manager_command.backup_dir;
+
+    if (stat(backup_dir, &st) == -1) {
+        if (errno == ENOENT) {
+            clusterManagerLogErr("[ERR] The specified backup directory '%s' does not exist.\n", backup_dir);
+        } else {
+            clusterManagerLogErr("[ERR] Cannot stat backup directory %s: %s\n",
+                                 backup_dir, strerror(errno));
+        }
+        success = 0;
+        goto cleanup;
+    } else if (!S_ISDIR(st.st_mode)) {
+        clusterManagerLogErr("[ERR] The specified backup path '%s' exists but is not a directory.\n", backup_dir);
+        success = 0;
+        goto cleanup;
+    }
+
+    json = sdsnew("[\n");
     int first_node = 0;
     listIter li;
     listNode *ln;
@@ -8202,7 +8295,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         getRDB(node);
     }
     json = sdscat(json, "\n]");
-    sds jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
+    jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
     if (jsonpath[sdslen(jsonpath) - 1] != '/')
         jsonpath = sdscat(jsonpath, "/");
     jsonpath = sdscat(jsonpath, "nodes.json");
@@ -8509,6 +8602,227 @@ static void latencyDistMode(void) {
         }
         usleep(LATENCY_SAMPLE_RATE * 1000);
     }
+}
+
+/*------------------------------------------------------------------------------
+ * Vset recall mode.
+ *
+ * This mode targets a specific vector set key, performing queries on
+ * vectors composed mixing components from existing vectors (each component of
+ * the query vector is the component of a random source vector), then uses
+ * VSIM and VSIM TRUTH to test for recall percentage.
+ *--------------------------------------------------------------------------- */
+static void vsetRecallMode(void) {
+    redisReply *reply, *vsim_reply, *truth_reply;
+    int ele_count = config.vset_recall_ele_count;
+    int vsim_count = config.vset_recall_vsim_count;
+    int vsim_ef = config.vset_recall_vsim_ef;
+    unsigned long long queries = 0, total_overlap = 0;
+    long long refresh_time = mstime();
+    struct hdr_histogram *recall_histogram;
+
+    if (!context) exit(1);
+
+    /* HDR histogram requires minimum value >= 1 for some reason.
+     * We store recall percentages as:
+     * (recall% * 100) + 1, giving us range 1 to 10001.
+     * This maps: 0.00% -> 1, 50.00% -> 5001, 100.00% -> 10001
+     * Precision: 2 significant figures = 0.01% accuracy. */
+    if (hdr_init(1, 10001, 2, &recall_histogram)) {
+        fprintf(stderr, "Failed to initialize recall histogram\n");
+        exit(1);
+    }
+
+    /* Get vector dimension. */
+    reply = reconnectingRedisCommand(context, "VDIM %s",
+        config.vset_recall_key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
+        fprintf(stderr, "Error: Cannot get dimension for key %s\n",
+                config.vset_recall_key);
+        exit(1);
+    }
+    unsigned int dim = reply->integer;
+    freeReplyObject(reply);
+
+    printf("\n# Testing recall for vector set: %s (dimension: %d)\n",
+           config.vset_recall_key, dim);
+    printf("# Mixing %d random element vectors, top %d results, EF=%d\n\n",
+           ele_count, vsim_count, vsim_ef);
+
+    signal(SIGINT, longStatLoopModeStop);
+
+    /* Do the same recall test again and again. */
+    while (force_cancel_loop == 0) {
+        /* Get random members. */
+        reply = reconnectingRedisCommand(context, "VRANDMEMBER %s %d",
+                                        config.vset_recall_key, ele_count);
+        if (reply == NULL || reply->type != REDIS_REPLY_ARRAY ||
+            reply->elements == 0) {
+            fprintf(stderr, "Error fetching random members\n");
+            exit(1);
+        }
+
+        /* Fetch and store vectors. */
+        double **vectors = zmalloc(reply->elements * sizeof(double*));
+        int valid_vectors = 0;
+
+        for (size_t i = 0; i < reply->elements; i++) {
+            redisReply *vemb = reconnectingRedisCommand(context, "VEMB %s %s",
+                                                       config.vset_recall_key,
+                                                       reply->element[i]->str);
+            if (vemb && vemb->type == REDIS_REPLY_ARRAY &&
+                vemb->elements == dim) {
+                vectors[valid_vectors] = zmalloc(dim * sizeof(double));
+                for (unsigned int j = 0; j < dim; j++) {
+                    vectors[valid_vectors][j] = atof(vemb->element[j]->str);
+                }
+                valid_vectors++;
+            }
+            if (vemb) freeReplyObject(vemb);
+        }
+        freeReplyObject(reply);
+
+        if (valid_vectors == 0) {
+            fprintf(stderr, "No valid vectors retrieved\n");
+            zfree(vectors);
+            continue;
+        }
+
+        /* Create mixed query vector by randomly selecting components. */
+        float *query = zmalloc(sizeof(float) * dim);
+        for (unsigned int i = 0; i < dim; i++) {
+            int src = rand() % valid_vectors;
+            query[i] = vectors[src][i];
+        }
+
+        for (int i = 0; i < valid_vectors; i++) zfree(vectors[i]);
+        zfree(vectors);
+
+        /* Execute VSIM query with HNSW. */
+        vsim_reply = reconnectingRedisCommand(context,
+                                     "VSIM %s FP32 %b COUNT %d EF %d",
+                                     config.vset_recall_key, query,
+                                     sizeof(float)*dim, vsim_count, vsim_ef);
+        if (vsim_reply == NULL || vsim_reply->type != REDIS_REPLY_ARRAY) {
+            zfree(query);
+            if (vsim_reply) freeReplyObject(vsim_reply);
+            continue;
+        }
+
+        /* Execute ground truth query (brute force using TRUTH). */
+        truth_reply = reconnectingRedisCommand(context,
+                                      "VSIM %s FP32 %b COUNT %d TRUTH",
+                                      config.vset_recall_key, query,
+                                      sizeof(float)*dim, vsim_count);
+        zfree(query);
+
+        if (truth_reply == NULL || truth_reply->type != REDIS_REPLY_ARRAY) {
+            freeReplyObject(vsim_reply);
+            if (truth_reply) freeReplyObject(truth_reply);
+            continue;
+        }
+
+        /* Build dictionary of ground truth results for fast lookup. */
+        dictType dtype = {
+            dictSdsHash, NULL, NULL, dictSdsKeyCompare,
+            dictSdsDestructor, NULL, NULL
+        };
+        dict *truth_set = dictCreate(&dtype);
+
+        for (size_t i = 0; i < truth_reply->elements; i++) {
+            sds key = sdsnew(truth_reply->element[i]->str);
+            dictAdd(truth_set, key, NULL);
+        }
+
+        /* Count overlap between HNSW results and ground truth. */
+        int overlap = 0;
+        for (size_t i = 0; i < vsim_reply->elements; i++) {
+            sds vsim_key = sdsnew(vsim_reply->element[i]->str);
+            if (dictFind(truth_set, vsim_key) != NULL) {
+                overlap++;
+            }
+            sdsfree(vsim_key);
+        }
+
+        dictRelease(truth_set);
+        freeReplyObject(vsim_reply);
+        freeReplyObject(truth_reply);
+
+        /* Calculate recall percentage (overlap / expected * 100). */
+        double recall = (double)overlap / vsim_count * 100.0;
+
+        /* Cap at 100% against rounding errors. */
+        if (recall > 100.0) recall = 100.0;
+
+        queries++;
+        total_overlap += overlap;
+
+        /* Store in histogram: convert to integer by multiplying by 100,
+         * then add 1 to shift into valid range [1, 10001] */
+        int64_t recall_value = (int64_t)(recall * 100.0) + 1;
+        hdr_record_value(recall_histogram, recall_value);
+
+        /* Display progresses. */
+        if (mstime() > refresh_time + REFRESH_INTERVAL || !IS_TTY_OR_FAKETTY())
+        {
+            refresh_time = mstime();
+            double avg_recall = (double)total_overlap / (queries * vsim_count)
+                                    * 100.0;
+
+            if (IS_TTY_OR_FAKETTY()) printf("\x1b[0G\x1b[2K");
+            printf("Queries: %llu | Avg recall: %.2f%%", queries, avg_recall);
+            if (!IS_TTY_OR_FAKETTY()) printf("\n");
+            fflush(stdout);
+        }
+        if (config.interval) usleep(config.interval);
+    }
+
+    /* Final statistics. */
+    printf("\n\n");
+    printf("====================================\n");
+    printf("       Recall Test Results\n");
+    printf("====================================\n\n");
+    printf("Total queries:   %llu\n", queries);
+    printf("Average recall:  %.2f%%\n",
+           (double)total_overlap / (queries * vsim_count) * 100.0);
+
+    /* Convert histogram statistics back to percentages. */
+    printf("Mean recall:     %.2f%%\n", (hdr_mean(recall_histogram)-1)/100.0);
+    printf("Median recall:   %.2f%%\n",
+           (hdr_value_at_percentile(recall_histogram, 50.0)-1)/100.0);
+    printf("StdDev:          %.2f%%\n", hdr_stddev(recall_histogram)/100.0);
+    printf("Min recall:      %.2f%%\n", (hdr_min(recall_histogram)-1)/100.0);
+    printf("Max recall:      %.2f%%\n", (hdr_max(recall_histogram)-1)/100.0);
+
+    /* Display recall threshold distribution. */
+    printf("\n--- Recall Thresholds ---\n");
+    printf("At least    %% of queries\n");
+    printf("--------    ------------\n");
+
+    double recall_thresholds[] = {0, 50, 60, 70, 80, 85, 90, 95, 99, 100};
+    int num_thresholds = sizeof(recall_thresholds) / sizeof(recall_thresholds[0]);
+    for (int i = 0; i < num_thresholds; i++) {
+        double target_recall = recall_thresholds[i];
+        /* Convert target recall to histogram value. */
+        int64_t target_value = (int64_t)(target_recall * 100.0) + 1;
+
+        /* Find what percentile this value is at. */
+        double percentile = 0.0;
+        for (double p = 0.0; p <= 100.0; p += 0.1) {
+            int64_t value_at_p = hdr_value_at_percentile(recall_histogram, p);
+            if (value_at_p >= target_value) {
+                percentile = p;
+                break;
+            }
+        }
+
+        /* Percentage achieving AT LEAST this recall is (100 - percentile) */
+        double pct_achieving = 100.0 - percentile;
+        printf("%6.1f%%     %10.2f%%\n", target_recall, pct_achieving);
+    }
+
+    hdr_close(recall_histogram);
+    exit(0);
 }
 
 /*------------------------------------------------------------------------------
@@ -9192,11 +9506,6 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
     }
 }
 
-static void longStatLoopModeStop(int s) {
-    UNUSED(s);
-    force_cancel_loop = 1;
-}
-
 /* In cluster mode we may need to send the READONLY command.
    Ignore the error in case the server isn't using cluster mode. */
 static void sendReadOnly(void) {
@@ -9221,7 +9530,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     typeinfo **types = NULL;
     double pct;
@@ -9321,8 +9630,8 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 line_count = displayKeyStatsProgressbar(sampled, total_keys);
                 line_count += cleanPrintfln("");
 
-                di = dictGetIterator(types_dict);
-                while ((de = dictNext(di))) {
+                dictInitIterator(&di, types_dict);
+                while ((de = dictNext(&di))) {
                     typeinfo *current_type = dictGetVal(de);
                     if (current_type->biggest > 0) {
                         line_count += cleanPrintfln("Biggest %-9s found so far %s with %llu %s",
@@ -9330,7 +9639,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                             !memkeys? current_type->sizeunit: "bytes");
                     }
                 }
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
 
                 printf("\033[%dA\r", line_count);
             }
@@ -9350,10 +9659,10 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
 
         /* Clean the types info shown during the progress bar */
         int line_count = 0;
-        di = dictGetIterator(types_dict);
-        while ((de = dictNext(di)))
+        dictInitIterator(&di, types_dict);
+        while ((de = dictNext(&di)))
             line_count += cleanPrintfln("");
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         printf("\033[%dA\r", line_count);
     }
 
@@ -9373,27 +9682,27 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
        totlen, totlen ? (double)totlen/sampled : 0);
 
     /* Output the biggest keys we found, for types we did find */
-    di = dictGetIterator(types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         if(type->biggest_key) {
             printf("Biggest %6s found %s has %llu %s\n", type->name, type->biggest_key,
                type->biggest, !memkeys? type->sizeunit: "bytes");
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     printf("\n");
 
-    di = dictGetIterator(types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         printf("%llu %ss with %llu %s (%05.2f%% of keys, avg size %.2f)\n",
            type->count, type->name, type->totalsize, !memkeys? type->sizeunit: "bytes",
            sampled ? 100 * (double)type->count/sampled : 0,
            type->count ? (double)type->totalsize/type->count : 0);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     dictRelease(types_dict);
 
@@ -9840,11 +10149,12 @@ static void LRUTestMode(void) {
             }
         }
         /* Print stats. */
+        long long total_gets = hits + misses;
         printf(
             "%lld Gets/sec | Hits: %lld (%.2f%%) | Misses: %lld (%.2f%%)\n",
             hits+misses,
-            hits, (double)hits/(hits+misses)*100,
-            misses, (double)misses/(hits+misses)*100);
+            hits, total_gets > 0 ? (double)hits/total_gets*100 : 0.0,
+            misses, total_gets > 0 ? (double)misses/total_gets*100 : 0.0);
     }
     exit(0);
 }
@@ -10131,14 +10441,14 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
 }
 
 static int displayKeyStatsSizeType(dict *memkeys_types_dict) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int line_count = 0;
     char buf[256];
 
     line_count += cleanPrintfln("--- Top size per type ---");
-    di = dictGetIterator(memkeys_types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, memkeys_types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         if (type->biggest_key) {
             line_count += cleanPrintfln("%-10s %s is %s",
@@ -10146,20 +10456,20 @@ static int displayKeyStatsSizeType(dict *memkeys_types_dict) {
                 bytesToHuman(buf, sizeof(buf),type->biggest));
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return line_count;
 }
 
 static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int line_count = 0;
     char buf[256];
 
     line_count += cleanPrintfln("--- Top length and cardinality per type ---");
-    di = dictGetIterator(bigkeys_types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, bigkeys_types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         if (type->biggest_key) {
             if (!strcmp(type->sizeunit, "bytes")) {
@@ -10170,7 +10480,7 @@ static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
             line_count += cleanPrintfln("%-10s %s has %s", type->name, type->biggest_key, buf);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return line_count;
 }
@@ -10225,7 +10535,7 @@ static int displayKeyStatsType(unsigned long long sampled,
                                dict *memkeys_types_dict,
                                dict *bigkeys_types_dict)
 {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int line_count = 0;
     char total_size[64], size_avg[64], total_length[64], length_avg[64];
@@ -10233,8 +10543,8 @@ static int displayKeyStatsType(unsigned long long sampled,
     line_count += cleanPrintfln("Type        Total keys  Keys %% Tot size Avg size  Total length/card Avg ln/card");
     line_count += cleanPrintfln("--------- ------------ ------- -------- -------- ------------------ -----------");
 
-    di = dictGetIterator(memkeys_types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, memkeys_types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *memkey_type = dictGetVal(de);
         if (memkey_type->count) {
             /* Key count, percentage, memkeys info */
@@ -10266,7 +10576,7 @@ static int displayKeyStatsType(unsigned long long sampled,
                 total_size, size_avg, total_length, length_avg);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return line_count;
 }
@@ -10282,14 +10592,14 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
 
     line_count += cleanPrintfln("--- Top %llu key sizes ---", top_sizes_limit);
     char buffer[32];
-    listIter *iter = listGetIterator(top_key_sizes, AL_START_HEAD);
+    listIter iter;
     listNode *node;
-    while ((node = listNext(iter)) != NULL) {
+    listRewind(top_key_sizes, &iter);
+    while ((node = listNext(&iter)) != NULL) {
         key_info *key = (key_info*) listNodeValue(node);
         line_count += cleanPrintfln("%3d %8s %-10s %s", ++i, bytesToHuman(buffer, sizeof(buffer), key->size),
                                     key->type_name, key->key_name);
     }
-    listReleaseIterator(iter);
 
     return line_count;
 }
@@ -10314,7 +10624,7 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
                           char *type_name, list *topkeys, unsigned long top_sizes_limit)
 {
     listNode *node;
-    listIter *iter;
+    listIter iter;
     key_info *new_node;
 
     /* Check if we do not need to add to the list */
@@ -10325,11 +10635,10 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
     }
 
     /* Find where to insert the new key size */
-    iter = listGetIterator(topkeys, AL_START_HEAD);
+    listRewind(topkeys, &iter);
     do {
-        node = listNext(iter);
+        node = listNext(&iter);
     } while (node != NULL && key_size <= ((key_info*)node->value)->size);
-    listReleaseIterator(iter);
 
     new_node = createKeySizeInfo(key_name, key_name_len, type_name, key_size);
     if (node) {
@@ -10561,13 +10870,13 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     hdr_close(keysize_histogram);
 
     /* sdsfree before listRelease */
-    listIter *iter = listGetIterator(top_sizes, AL_START_HEAD);
+    listIter iter;
     listNode *node;
-    while ((node = listNext(iter)) != NULL) {
+    listRewind(top_sizes, &iter);
+    while ((node = listNext(&iter)) != NULL) {
         key_info *key = (key_info*) listNodeValue(node);
         sdsfree(key->key_name);
     }
-    listReleaseIterator(iter);
     listRelease(top_sizes); /* list->free is set */
 
     exit(0);
@@ -10596,6 +10905,11 @@ int main(int argc, char **argv) {
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
     config.blocking_state_aborted = 0;
+    config.vset_recall_mode = 0;
+    config.vset_recall_key = NULL;
+    config.vset_recall_ele_count = 1;
+    config.vset_recall_vsim_count = 100;
+    config.vset_recall_vsim_ef = 500;
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
@@ -10717,6 +11031,12 @@ int main(int argc, char **argv) {
     if (config.latency_dist_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         latencyDistMode();
+    }
+
+    /* Latency mode */
+    if (config.vset_recall_mode) {
+        if (cliConnect(0) == REDIS_ERR) exit(1);
+        vsetRecallMode();
     }
 
     /* Slave mode */

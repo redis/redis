@@ -5,8 +5,9 @@
  * Copyright (c) 2011-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __ENDIANCONV_H
@@ -14,6 +15,17 @@
 
 #include "config.h"
 #include <stdint.h>
+
+/* --------------------------------------------------------------------------
+ * Optimized endian conversion helpers
+ * -------------------------------------------------------------------------- */
+
+/* For GCC, Clang — use builtins that compile to a single instruction */
+#if defined(__GNUC__) || defined(__clang__)
+#define REDIS_BSWAP64(v) __builtin_bswap64(v)
+#else
+#define REDIS_BSWAP64(v) intrev64(v)
+#endif
 
 void memrev16(void *p);
 void memrev32(void *p);
@@ -46,8 +58,8 @@ uint64_t intrev64(uint64_t v);
 #define htonu64(v) (v)
 #define ntohu64(v) (v)
 #else
-#define htonu64(v) intrev64(v)
-#define ntohu64(v) intrev64(v)
+#define htonu64(v) REDIS_BSWAP64(v)
+#define ntohu64(v) REDIS_BSWAP64(v)
 #endif
 
 #ifdef REDIS_TEST

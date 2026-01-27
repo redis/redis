@@ -23,6 +23,10 @@
             [
                 "7.0.0",
                 "Allowed the `NX` and `GET` options to be used together."
+            ],
+            [
+                "8.4.0",
+                "Added 'IFEQ', 'IFNE', 'IFDEQ', 'IFDNE' options."
             ]
         ],
         "command_flags": [
@@ -58,7 +62,7 @@
         "reply_schema": {
             "anyOf":[
                 {
-                    "description": "`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX` options).",
+                    "description": "`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX`/`IFEQ`/`IFDEQ` options or condition not met).",
                     "type": "null"
                 },
                 {
@@ -100,6 +104,30 @@
                         "name": "xx",
                         "type": "pure-token",
                         "token": "XX"
+                    },
+                    {
+                        "name": "ifeq-value",
+                        "type": "string",
+                        "token": "IFEQ",
+                        "since": "8.4.0"
+                    },
+                    {
+                        "name": "ifne-value",
+                        "type": "string",
+                        "token": "IFNE",
+                        "since": "8.4.0"
+                    },
+                    {
+                        "name": "ifdeq-digest",
+                        "type": "integer",
+                        "token": "IFDEQ",
+                        "since": "8.4.0"
+                    },
+                    {
+                        "name": "ifdne-digest",
+                        "type": "integer",
+                        "token": "IFDNE",
+                        "since": "8.4.0"
                     }
                 ]
             },

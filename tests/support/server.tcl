@@ -1,3 +1,17 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 set ::global_overrides {}
 set ::tags {}
 set ::valgrind_errors {}
@@ -95,9 +109,10 @@ proc kill_server config {
 
     # kill server and wait for the process to be totally exited
     send_data_packet $::test_server_fd server-killing $pid
-    catch {exec kill $pid}
     # Node might have been stopped in the test
+    # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
     catch {exec kill -SIGCONT $pid}
+    catch {exec kill $pid}
     if {$::valgrind} {
         set max_wait 120000
     } else {
@@ -221,6 +236,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::debug_defrag && [lsearch $tags "debug_defrag:skip"] >= 0} {
+        set err "Not supported on server compiled with DEBUG_DEFRAG option"
+        return 0
+    }
+
     if {$::singledb && [lsearch $tags "singledb:skip"] >= 0} {
         set err "Not supported on singledb"
         return 0
@@ -228,6 +248,11 @@ proc tags_acceptable {tags err_return} {
 
     if {$::cluster_mode && [lsearch $tags "cluster:skip"] >= 0} {
         set err "Not supported in cluster mode"
+        return 0
+    }
+
+    if {$::tsan && [lsearch $tags "tsan:skip"] >= 0} {
+        set err "Not supported under thread sanitizer"
         return 0
     }
 
@@ -261,7 +286,10 @@ proc tags {tags code} {
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         return
     }
-    uplevel 1 $code
+    if {[catch {uplevel 1 $code} error]} {
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
+        error $error $::errorInfo
+    }
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
 
@@ -294,7 +322,12 @@ proc spawn_server {config_file stdout stderr args} {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
+        set env [list \
+            "ASAN_OPTIONS=allocator_may_return_null=1" \
+            "MSAN_OPTIONS=allocator_may_return_null=1" \
+            "TSAN_OPTIONS=allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup" \
+        ]
+        set pid [exec /usr/bin/env {*}$env {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -456,8 +489,8 @@ proc start_server {options {code undefined}} {
             "tags" {
                 # If we 'tags' contain multiple tags, quoted and separated by spaces,
                 # we want to get rid of the quotes in order to have a proper list
-                set tags [string map { \" "" } $value]
-                set ::tags [concat $::tags $tags]
+                set _tags [string map { \" "" } $value]
+                set tags [concat $tags $_tags]
             }
             "keep_persistence" {
                 set keep_persistence $value
@@ -470,6 +503,7 @@ proc start_server {options {code undefined}} {
             }
         }
     }
+    set ::tags [concat $::tags $tags]
 
     # We skip unwanted tags
     if {![tags_acceptable $::tags err]} {
@@ -547,6 +581,12 @@ proc start_server {options {code undefined}} {
         dict set config "client-default-resp" "3"
     }
 
+    if {$::debug_defrag} {
+        dict set config "activedefrag" "yes" ;# defrag enabled
+        dict set config "active-defrag-cycle-min" "65"
+        dict set config "active-defrag-cycle-max" "75"
+    }
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     create_server_config_file $config_file $config $config_lines
@@ -619,6 +659,7 @@ proc start_server {options {code undefined}} {
             set err {}
             append err [exec cat $stdout] "\n" [exec cat $stderr]
             start_server_error $config_file $err
+            set ::tags [lrange $::tags 0 end-[llength $tags]]
             return
         }
         set server_started 1
@@ -648,6 +689,7 @@ proc start_server {options {code undefined}} {
     if {$code ne "undefined"} {
         set line [exec head -n1 $stdout]
         if {[string match {*already in use*} $line]} {
+            set ::tags [lrange $::tags 0 end-[llength $tags]]
             error_and_quit $config_file $line
         }
 
@@ -719,6 +761,7 @@ proc start_server {options {code undefined}} {
                 send_data_packet $::test_server_fd err [join $details "\n"]
             } else {
                 # Re-raise, let handler up the stack take care of this.
+                set ::tags [lrange $::tags 0 end-[llength $tags]]
                 error $error $backtrace
             }
         } else {
@@ -729,11 +772,6 @@ proc start_server {options {code undefined}} {
 
         # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
         set srv [lindex $::servers end]
-
-        # Don't do the leak check when no tests were run
-        if {$num_tests == $::num_tests} {
-            dict set srv "skipleaks" 1
-        }
 
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]

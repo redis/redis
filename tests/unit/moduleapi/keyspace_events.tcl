@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/keyspace_events.so]
 
-tags "modules" {
+tags "modules external:skip" {
     start_server [list overrides [list loadmodule "$testmodule"]] {
 
         # avoid using shared integers, to increase the chance of detection heap issues
@@ -85,6 +85,24 @@ tags "modules" {
             r keyspace.notify x
             assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
             $rd1 close
+        }
+
+        test "Keyspace notifications: unsubscribe removes handler" {
+            r config set notify-keyspace-events KEA
+            set before [r keyspace.callback_count]
+            r set a 1
+            r del a
+            wait_for_condition 100 10 {
+                [r keyspace.callback_count] > $before
+            } else {
+                fail "callback did not trigger"
+            }
+            set before_unsub [r keyspace.callback_count]
+            r keyspace.unsubscribe 4  ;# REDISMODULE_NOTIFY_GENERIC
+            r set a 1
+            r del a
+            set after_unsub [r keyspace.callback_count]
+            assert_equal $before_unsub $after_unsub
         }
 
         test {Test expired key space event} {

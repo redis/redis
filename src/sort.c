@@ -3,8 +3,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "fast_float_strtod.h"
@@ -39,9 +40,11 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
+    kvobj *kv;
     char *p, *f, *k;
     sds spat, ssub;
-    robj *keyobj, *fieldobj = NULL, *o, *val;
+    robj *keyobj, *fieldobj = NULL, *val;
+
     int prefixlen, sublen, postfixlen, fieldlen;
 
     /* If the pattern is "#" return the substitution object itself in order
@@ -86,31 +89,31 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
-    o = lookupKeyRead(db, keyobj);
-    if (o == NULL) goto noobj;
+    kv = lookupKeyRead(db, keyobj);
+    if (kv == NULL) goto noobj;
 
     if (fieldobj) {
-        if (o->type != OBJ_HASH) goto noobj;
+        if (kv->type != OBJ_HASH) goto noobj;
 
         /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
         int isHashDeleted;
-        hashTypeGetValueObject(db, o, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
-        o = val;
+        hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
+        kv = val;
 
         if (isHashDeleted)
             goto noobj;
 
     } else {
-        if (o->type != OBJ_STRING) goto noobj;
+        if (kv->type != OBJ_STRING) goto noobj;
 
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
-        incrRefCount(o);
+        incrRefCount(kv);
     }
     decrRefCount(keyobj);
     if (fieldobj) decrRefCount(fieldobj);
-    return o;
+    return kv;
 
 noobj:
     decrRefCount(keyobj);
@@ -182,6 +185,7 @@ void sortCommandGeneric(client *c, int readonly) {
     int int_conversion_error = 0;
     int syntax_error = 0;
     robj *sortval, *sortby = NULL, *storekey = NULL;
+    size_t oldsize = 0;
     redisSortObject *vector; /* Resulting vector to sort */
     int user_has_full_key_access = 0; /* ACL - used in order to verify 'get' and 'by' options can be used */
     /* Create a list of operations to perform for every sorted element.
@@ -335,8 +339,13 @@ void sortCommandGeneric(client *c, int readonly) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET)
+    if (sortval->type == OBJ_ZSET) {
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+    }
 
     /* Obtain the length of the object to sort. */
     switch(sortval->type) {
@@ -386,43 +395,49 @@ void sortCommandGeneric(client *c, int readonly) {
          * Note that in this case we also handle LIMIT here in a direct
          * way, just getting the required range, as an optimization. */
         if (end >= start) {
-            listTypeIterator *li;
+            listTypeIterator li;
             listTypeEntry entry;
-            li = listTypeInitIterator(sortval,
+            listTypeInitIterator(&li, sortval,
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
 
-            while(j < vectorlen && listTypeNext(li,&entry)) {
+            while(j < vectorlen && listTypeNext(&li, &entry)) {
                 vector[j].obj = listTypeGet(&entry);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
             }
-            listTypeReleaseIterator(li);
+            listTypeResetIterator(&li);
             /* Fix start/end: output code is not aware of this optimization. */
             end -= start;
             start = 0;
         }
     } else if (sortval->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
+        listTypeIterator li;
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        listTypeInitIterator(&li, sortval, 0, LIST_TAIL);
+        while(listTypeNext(&li, &entry)) {
             vector[j].obj = listTypeGet(&entry);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        listTypeReleaseIterator(li);
+        listTypeResetIterator(&li);
     } else if (sortval->type == OBJ_SET) {
-        setTypeIterator *si = setTypeInitIterator(sortval);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
+        setTypeIterator si;
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, sortval);
+        while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
@@ -452,7 +467,7 @@ void sortCommandGeneric(client *c, int readonly) {
 
         while(rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
-            sdsele = ln->ele;
+            sdsele = zslGetNodeElement(ln);
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
@@ -464,18 +479,23 @@ void sortCommandGeneric(client *c, int readonly) {
         start = 0;
     } else if (sortval->type == OBJ_ZSET) {
         dict *set = ((zset*)sortval->ptr)->dict;
-        dictIterator *di;
+        dictIterator di;
         dictEntry *setele;
         sds sdsele;
-        di = dictGetIterator(set);
-        while((setele = dictNext(di)) != NULL) {
-            sdsele =  dictGetKey(setele);
+
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
+        dictInitIterator(&di, set);
+        while((setele = dictNext(&di)) != NULL) {
+            sdsele = zslGetNodeElement(dictGetKey(setele));
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else {
         serverPanic("Unknown type");
     }
@@ -599,18 +619,26 @@ void sortCommandGeneric(client *c, int readonly) {
                 }
             }
         }
+        
         if (outputlen) {
             listTypeTryConversion(sobj,LIST_CONV_AUTO,NULL,NULL);
-            setKey(c,c->db,storekey,sobj,0);
+            setKey(c, c->db, storekey, &sobj, 0);
+            /* Ownership of sobj transferred to the db. Set to NULL to prevent
+             * freeing it below. */
+            sobj = NULL;
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;
-        } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c,c->db,storekey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
-            server.dirty++;
+            /* Ownership of sobj transferred to the db. No need to free it. */
+        } else {
+            if (dbDelete(c->db, storekey)) {
+                keyModified(c, c->db, storekey, NULL, 1);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
+                server.dirty++;
+            }
+            decrRefCount(sobj);
         }
-        decrRefCount(sobj);
+
         addReplyLongLong(c,outputlen);
     }
 

@@ -6,24 +6,29 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  * Originally authored by: Salvatore Sanfilippo.
  */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <math.h>
-#include <string.h>
-#include "cJSON.h"
 
 #ifdef TEST_MAIN
 #define RedisModule_Alloc malloc
 #define RedisModule_Realloc realloc
 #define RedisModule_Free free
 #define RedisModule_Strdup strdup
+#define RedisModule_Assert assert
+#define _DEFAULT_SOURCE
+#define _USE_MATH_DEFINES
+#include <assert.h>
+#include <math.h>
 #endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <math.h>
+#include <string.h>
 
 #define EXPR_TOKEN_EOF 0
 #define EXPR_TOKEN_NUM 1
@@ -31,6 +36,7 @@
 #define EXPR_TOKEN_TUPLE 3
 #define EXPR_TOKEN_SELECTOR 4
 #define EXPR_TOKEN_OP 5
+#define EXPR_TOKEN_NULL 6
 
 #define EXPR_OP_OPAREN 0  /* ( */
 #define EXPR_OP_CPAREN 1  /* ) */
@@ -149,12 +155,7 @@ exprtoken *exprNewToken(int type) {
 void exprTokenRelease(exprtoken *t) {
     if (t == NULL) return;
 
-    if (t->refcount <= 0) {
-        printf("exprTokenRelease() against a token with refcount %d!\n"
-               "Aborting program execution\n",
-            t->refcount);
-        exit(1);
-    }
+    RedisModule_Assert(t->refcount > 0); // Catch double free & more.
     t->refcount--;
     if (t->refcount > 0) return;
 
@@ -240,9 +241,10 @@ void exprConsumeSpaces(exprstate *es) {
     while(es->p[0] && isspace(es->p[0])) es->p++;
 }
 
-/* Parse an operator, trying to match the longer match in the
- * operators table. */
-exprtoken *exprParseOperator(exprstate *es) {
+/* Parse an operator or a literal (just "null" currently).
+ * When parsing operators, the function will try to match the longest match
+ * in the operators table. */
+exprtoken *exprParseOperatorOrLiteral(exprstate *es) {
     exprtoken *t = exprNewToken(EXPR_TOKEN_OP);
     char *start = es->p;
 
@@ -256,6 +258,12 @@ exprtoken *exprParseOperator(exprstate *es) {
     int matchlen = es->p - start;
     int bestlen = 0;
     int j;
+
+    // Check if it's a literal.
+    if (matchlen == 4 && !memcmp("null",start,4)) {
+        t->token_type = EXPR_TOKEN_NULL;
+        return t;
+    }
 
     // Find the longest matching operator.
     for (j = 0; ExprOptable[j].opname != NULL; j++) {
@@ -301,7 +309,7 @@ exprtoken *exprParseSelector(exprstate *es) {
 
 exprtoken *exprParseNumber(exprstate *es) {
     exprtoken *t = exprNewToken(EXPR_TOKEN_NUM);
-    char num[64];
+    char num[256];
     int idx = 0;
     while(isdigit(es->p[0]) || es->p[0] == '.' || es->p[0] == 'e' ||
           es->p[0] == 'E' || (idx == 0 && es->p[0] == '-'))
@@ -467,10 +475,10 @@ int exprTokenize(exprstate *es, int *errpos) {
             current = exprParseString(es);
         } else if (*es->p == '.' && is_selector_char(es->p[1])) {
             current = exprParseSelector(es);
-        } else if (isalpha(*es->p) || strchr(EXPR_OP_SPECIALCHARS, *es->p)) {
-            current = exprParseOperator(es);
         } else if (*es->p == '[') {
             current = exprParseTuple(es);
+        } else if (isalpha(*es->p) || strchr(EXPR_OP_SPECIALCHARS, *es->p)) {
+            current = exprParseOperatorOrLiteral(es);
         }
 
         if (current == NULL) {
@@ -611,11 +619,12 @@ exprstate *exprCompile(char *expr, int *errpos) {
 
         if (token->token_type == EXPR_TOKEN_EOF) break;
 
-        /* Handle values (numbers, strings, selectors). */
+        /* Handle values (numbers, strings, selectors, null). */
         if (token->token_type == EXPR_TOKEN_NUM ||
             token->token_type == EXPR_TOKEN_STR ||
             token->token_type == EXPR_TOKEN_TUPLE ||
-            token->token_type == EXPR_TOKEN_SELECTOR)
+            token->token_type == EXPR_TOKEN_SELECTOR ||
+            token->token_type == EXPR_TOKEN_NULL)
         {
             exprStackPush(&es->program, token);
             exprTokenRetain(token);
@@ -675,7 +684,7 @@ exprstate *exprCompile(char *expr, int *errpos) {
 /* Convert a token to its numeric value. For strings we attempt to parse them
  * as numbers, returning 0 if conversion fails. */
 double exprTokenToNum(exprtoken *t) {
-    char buf[128];
+    char buf[256];
     if (t->token_type == EXPR_TOKEN_NUM) {
         return t->num;
     } else if (t->token_type == EXPR_TOKEN_STR && t->str.len < sizeof(buf)) {
@@ -695,6 +704,8 @@ double exprTokenToBool(exprtoken *t) {
         return t->num != 0;
     } else if (t->token_type == EXPR_TOKEN_STR && t->str.len == 0) {
         return 0; // Empty string are false, like in Javascript.
+    } else if (t->token_type == EXPR_TOKEN_NULL) {
+        return 0; // Null is surely more false than true...
     } else {
         return 1; // Every non numerical type is true.
     }
@@ -713,77 +724,34 @@ int exprTokensEqual(exprtoken *a, exprtoken *b) {
         return a->num == b->num;
     }
 
+    /* If one of the two is null, the expression is true only if
+     * both are null. */
+    if (a->token_type == EXPR_TOKEN_NULL || b->token_type == EXPR_TOKEN_NULL) {
+        return a->token_type == b->token_type;
+    }
+
     // Mixed types - convert to numbers and compare.
     return exprTokenToNum(a) == exprTokenToNum(b);
 }
 
-/* Convert a json object to an expression token. There is only
- * limited support for JSON arrays: they must be composed of
- * just numbers and strings. Returns NULL if the JSON object
- * cannot be converted. */
-exprtoken *exprJsonToToken(cJSON *js) {
-    if (cJSON_IsNumber(js)) {
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_NUM);
-        obj->num = cJSON_GetNumberValue(js);
-        return obj;
-    } else if (cJSON_IsString(js)) {
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_STR);
-        char *strval = cJSON_GetStringValue(js);
-        obj->str.heapstr = RedisModule_Strdup(strval);
-        obj->str.start = obj->str.heapstr;
-        obj->str.len = strlen(obj->str.heapstr);
-        return obj;
-    } else if (cJSON_IsBool(js)) {
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_NUM);
-        obj->num = cJSON_IsTrue(js);
-        return obj;
-    } else if (cJSON_IsArray(js)) {
-        // First, scan the array to ensure it only
-        // contains strings and numbers. Otherwise the
-        // expression will evaluate to false.
-        int array_size = cJSON_GetArraySize(js);
-
-        for (int j = 0; j < array_size; j++) {
-            cJSON *item = cJSON_GetArrayItem(js, j);
-            if (!cJSON_IsNumber(item) && !cJSON_IsString(item)) return NULL;
-        }
-
-        // Create a tuple token for the array.
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_TUPLE);
-        obj->tuple.len = array_size;
-        obj->tuple.ele = NULL;
-        if (obj->tuple.len == 0) return obj; // No elements, already ok.
-
-        obj->tuple.ele =
-            RedisModule_Alloc(sizeof(exprtoken*) * obj->tuple.len);
-
-        // Convert each array element to a token.
-        for (size_t j = 0; j < obj->tuple.len; j++) {
-            cJSON *item = cJSON_GetArrayItem(js, j);
-            if (cJSON_IsNumber(item)) {
-                exprtoken *eleToken = exprNewToken(EXPR_TOKEN_NUM);
-                eleToken->num = cJSON_GetNumberValue(item);
-                obj->tuple.ele[j] = eleToken;
-            } else if (cJSON_IsString(item)) {
-                exprtoken *eleToken = exprNewToken(EXPR_TOKEN_STR);
-                char *strval = cJSON_GetStringValue(item);
-                eleToken->str.heapstr = RedisModule_Strdup(strval);
-                eleToken->str.start = eleToken->str.heapstr;
-                eleToken->str.len = strlen(eleToken->str.heapstr);
-                obj->tuple.ele[j] = eleToken;
-            }
-        }
-        return obj;
+/* Return true if the string a is a substring of b. */
+int exprTokensStringIn(exprtoken *a, exprtoken *b) {
+    RedisModule_Assert(a->token_type == EXPR_TOKEN_STR &&
+                       b->token_type == EXPR_TOKEN_STR);
+    if (a->str.len > b->str.len) return 0; // A is bigger, can't be a substring.
+    for (size_t i = 0; i <= b->str.len - a->str.len; i++) {
+        if (memcmp(b->str.start+i,a->str.start,a->str.len) == 0) return 1;
     }
-    return NULL; // No conversion possible for this type.
+    return 0;
 }
+
+#include "fastjson.c" // JSON parser implementation used by exprRun().
 
 /* Execute the compiled expression program. Returns 1 if the final stack value
  * evaluates to true, 0 otherwise. Also returns 0 if any selector callback
  * fails. */
 int exprRun(exprstate *es, char *json, size_t json_len) {
     exprStackReset(&es->values_stack);
-    cJSON *parsed_json = NULL;
 
     // Execute each instruction in the program.
     for (int i = 0; i < es->program.numitems; i++) {
@@ -791,35 +759,15 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
 
         // Handle selectors by calling the callback.
         if (t->token_type == EXPR_TOKEN_SELECTOR) {
-            if (json != NULL) {
-                cJSON *attrib = NULL;
-                if (parsed_json == NULL) {
-                    parsed_json = cJSON_ParseWithLength(json,json_len);
-                    // Will be left to NULL if the above fails.
-                }
-                if (parsed_json) {
-                    char item_name[128];
-                    if (t->str.len > 0 && t->str.len < sizeof(item_name)) {
-                        memcpy(item_name,t->str.start,t->str.len);
-                        item_name[t->str.len] = 0;
-                        attrib = cJSON_GetObjectItem(parsed_json,item_name);
-                    }
-                    /* Fill the token according to the JSON type stored
-                     * at the attribute. */
-                    if (attrib) {
-                        exprtoken *obj = exprJsonToToken(attrib);
-                        if (obj) {
-                            exprStackPush(&es->values_stack, obj);
-                            continue;
-                        }
-                    }
-                }
-            }
+            exprtoken *obj = NULL;
+            if (t->str.len > 0)
+                obj = jsonExtractField(json,json_len,t->str.start,t->str.len);
 
             // Selector not found or JSON object not convertible to
             // expression tokens. Evaluate the expression to false.
-            if (parsed_json) cJSON_Delete(parsed_json);
-            return 0;
+            if (obj == NULL) return 0;
+            exprStackPush(&es->values_stack, obj);
+            continue;
         }
 
         // Push non-operator values directly onto the stack.
@@ -886,7 +834,9 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = !exprTokensEqual(a, b) ? 1 : 0;
             break;
         case EXPR_OP_IN: {
-            // For 'in' operator, b must be a tuple.
+            /* For 'in' operator, b must be a tuple, and we check for
+             * membership. Otherwise both a and b must be strings, and
+             * in this case we check if a is a substring of b. */
             result->num = 0;  // Default to false.
             if (b->token_type == EXPR_TOKEN_TUPLE) {
                 for (size_t j = 0; j < b->tuple.len; j++) {
@@ -895,6 +845,10 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
                         break;
                     }
                 }
+            } else if (a->token_type == EXPR_TOKEN_STR &&
+                       b->token_type == EXPR_TOKEN_STR)
+            {
+                result->num = exprTokensStringIn(a,b);
             }
             break;
         }
@@ -917,8 +871,6 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
         exprStackPush(&es->values_stack, result);
     }
 
-    if (parsed_json) cJSON_Delete(parsed_json);
-
     // Get final result from stack.
     exprtoken *final = exprStackPop(&es->values_stack);
     if (final == NULL) return 0;
@@ -932,6 +884,8 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
 /* ============================ Simple test main ============================ */
 
 #ifdef TEST_MAIN
+#include "fastjson_test.c"
+
 void exprPrintToken(exprtoken *t) {
     switch(t->token_type) {
         case EXPR_TOKEN_EOF:
@@ -971,6 +925,12 @@ void exprPrintStack(exprstack *stack, const char *name) {
 }
 
 int main(int argc, char **argv) {
+    /* Check for JSON parser test mode. */
+    if (argc >= 2 && strcmp(argv[1], "--test-json-parser") == 0) {
+        run_fastjson_test();
+        return 0;
+    }
+
     char *testexpr = "(5+2)*3 and .year > 1980 and 'foo' == 'foo'";
     char *testjson = "{\"year\": 1984, \"name\": \"The Matrix\"}";
     if (argc >= 2) testexpr = argv[1];

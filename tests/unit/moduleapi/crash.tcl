@@ -4,8 +4,8 @@ set testmodule [file normalize tests/modules/crash.so]
 set backtrace_supported [system_backtrace_supported]
 
 # Valgrind will complain that the process terminated by a signal, skip it.
-if {!$::valgrind} {
-    start_server {tags {"modules"}} {
+if {!$::valgrind && !$::tsan} {
+    start_server {tags {"modules external:skip"}} {
         r module load $testmodule assert
         test {Test module crash when info crashes with an assertion } {
             catch {r 0 info modulecrash}
@@ -31,7 +31,7 @@ if {!$::valgrind} {
         }
     }
 
-    start_server {tags {"modules"}} {
+    start_server {tags {"modules external:skip"}} {
         r module load $testmodule segfault
         test {Test module crash when info crashes with a segfault} {
             catch {r 0 info modulecrash}
@@ -61,7 +61,7 @@ if {!$::valgrind} {
         }
     }
 
-    start_server {tags {"modules"}} {
+    start_server {tags {"modules external:skip"}} {
         r module load $testmodule
 
         # memcheck confuses sanitizer
@@ -83,7 +83,7 @@ if {!$::valgrind} {
         }
     }
 
-    start_server {tags {"modules"}} {
+    start_server {tags {"modules external:skip"}} {
         r module load $testmodule
 
         # memcheck confuses sanitizer
@@ -108,7 +108,7 @@ if {!$::valgrind} {
         }
     }
 
-    start_server {tags {"modules"}} {
+    start_server {tags {"modules external:skip"}} {
         r module load $testmodule
 
         # memcheck confuses sanitizer

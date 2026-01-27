@@ -5,8 +5,9 @@
 # Copyright (c) 2024-present, Valkey contributors.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
@@ -134,7 +135,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
 
 tags {"external:skip"} {
 foreach mdl {no yes} {
-    foreach sdl {disabled swapdb} {
+    foreach sdl {disabled swapdb flushdb} {
         foreach rdbchannel {yes no} {
             if {$rdbchannel == "yes" && $mdl == "no"} {
                 # rdbchannel replication requires repl-diskless-sync enabled

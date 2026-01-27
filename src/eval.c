@@ -2,8 +2,9 @@
  * Copyright (c) 2011-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -251,6 +252,8 @@ void scriptingInit(int setup) {
     /* Recursively lock all tables that can be reached from the global table */
     luaSetTableProtectionRecursively(lua);
     lua_pop(lua, 1);
+    /* Set metatables of basic types (string, number, nil etc.) readonly. */
+    luaSetTableProtectionForBasicTypes(lua);
 
     lctx.lua = lua;
 }
@@ -610,17 +613,21 @@ void evalGenericCommand(client *c, int evalsha) {
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
                                       get appropriate error messages and logs */
 
-    luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
-    lua_pop(lua,1); /* Remove the error handler. */
-    scriptResetRun(&rctx);
-    luaGC(lua, &gc_count);
-
     if (l->node) {
         /* Quick removal and re-insertion after the script is called to
          * maintain the LRU list. */
         listUnlinkNode(lctx.lua_scripts_lru_list, l->node);
         listLinkNodeTail(lctx.lua_scripts_lru_list, l->node);
     }
+
+    luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
+    lua_pop(lua,1); /* Remove the error handler. */
+    scriptResetRun(&rctx);
+    luaGC(lua, &gc_count);
+
+    /* We can no longer touch 'l' here, as it may have been reallocated by activedefrag
+     * during AOF loading of long-running scripts. This issue is not with newly generated
+     * AOF files, in which scripts propagate effects rather than scripts. */
 }
 
 void evalCommand(client *c) {
@@ -919,7 +926,7 @@ void ldbEndSession(client *c) {
     if (ldb.forked) {
         writeToClient(c,0);
         serverLog(LL_NOTICE,"Lua debugging session child exiting");
-        exitFromChild(0);
+        exitFromChild(0, 0);
     } else {
         serverLog(LL_NOTICE,
             "Redis synchronous debugging eval session ended");

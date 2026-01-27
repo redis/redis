@@ -2,9 +2,13 @@
  *
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
+ * 
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved. 
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __SDS_H
@@ -59,13 +63,41 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_BITS 3
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
-#define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
+#define SDS_TYPE_5_LEN(s) (((unsigned char)(s[-1])) >> SDS_TYPE_BITS)
+
+static inline unsigned char sdsType(sds s) {
+    unsigned char flags = s[-1];
+    return flags & SDS_TYPE_MASK;
+}
+
+/* Returns a user data bit stored in the SDS header by sdsSetAuxBit. The bit
+ * index is 0-4. Returns 0 or 1. Always returns 0 for SDS_TYPE_5. */
+static inline int sdsGetAuxBit(sds s, int bit) {
+    if (sdsType(s) == SDS_TYPE_5) 
+        return 0;
+    
+    unsigned char flags = s[-1];
+    return (flags & (1U << (SDS_TYPE_BITS + bit))) != 0U;
+}
+
+/* Stores a bit in an unused area in the SDS header, except for SDS_TYPE_5. The
+ * bit index is 0-4. The value is 0 or 1. The aux bits are lost if the SDS is
+ * auto-resized. This is only for special uses like immutable SDS embedded in
+ * other structures. */
+static inline void sdsSetAuxBit(sds s, int bit, int value) {
+    if (sdsType(s) == SDS_TYPE_5) return;
+    unsigned char flags = s[-1];
+    if (value) {
+        flags |= 1U << (SDS_TYPE_BITS + bit);
+    } else {
+        flags &= ~(1U << (SDS_TYPE_BITS + bit));
+    }
+    s[-1] = (char)flags;
+}
 
 static inline size_t sdslen(const sds s) {
-    unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
-        case SDS_TYPE_5:
-            return SDS_TYPE_5_LEN(flags);
+    switch (sdsType(s)) {
+        case SDS_TYPE_5: return SDS_TYPE_5_LEN(s);
         case SDS_TYPE_8:
             return SDS_HDR(8,s)->len;
         case SDS_TYPE_16:
@@ -79,8 +111,7 @@ static inline size_t sdslen(const sds s) {
 }
 
 static inline size_t sdsavail(const sds s) {
-    unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(sdsType(s)) {
         case SDS_TYPE_5: {
             return 0;
         }
@@ -105,8 +136,7 @@ static inline size_t sdsavail(const sds s) {
 }
 
 static inline void sdssetlen(sds s, size_t newlen) {
-    unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(sdsType(s)) {
         case SDS_TYPE_5:
             {
                 unsigned char *fp = ((unsigned char*)s)-1;
@@ -129,12 +159,11 @@ static inline void sdssetlen(sds s, size_t newlen) {
 }
 
 static inline void sdsinclen(sds s, size_t inc) {
-    unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(sdsType(s)) {
         case SDS_TYPE_5:
             {
                 unsigned char *fp = ((unsigned char*)s)-1;
-                unsigned char newlen = SDS_TYPE_5_LEN(flags)+inc;
+                unsigned char newlen = SDS_TYPE_5_LEN(s)+inc;
                 *fp = SDS_TYPE_5 | (newlen << SDS_TYPE_BITS);
             }
             break;
@@ -153,12 +182,34 @@ static inline void sdsinclen(sds s, size_t inc) {
     }
 }
 
+/* Return the total size of the allocation of the specified sds string,
+ * including:
+ * 1) The sds header before the pointer.
+ * 2) The string.
+ * 3) The free buffer at the end if any.
+ * 4) The implicit null term.
+ */
+static inline size_t sdsAllocSize(sds s) {
+    switch(sdsType(s)) {
+        case SDS_TYPE_5:
+            return sizeof(struct sdshdr5) + SDS_TYPE_5_LEN(s) + 1;
+        case SDS_TYPE_8:
+            return sizeof(struct sdshdr8) + SDS_HDR(8,s)->alloc + 1;
+        case SDS_TYPE_16:
+            return sizeof(struct sdshdr16) + SDS_HDR(16,s)->alloc + 1;
+        case SDS_TYPE_32:
+            return sizeof(struct sdshdr32) + SDS_HDR(32,s)->alloc + 1;
+        case SDS_TYPE_64:
+            return sizeof(struct sdshdr64) + SDS_HDR(64,s)->alloc + 1;
+    }
+    return 0;
+}
+
 /* sdsalloc() = sdsavail() + sdslen() */
 static inline size_t sdsalloc(const sds s) {
-    unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(sdsType(s)) {
         case SDS_TYPE_5:
-            return SDS_TYPE_5_LEN(flags);
+            return SDS_TYPE_5_LEN(s);
         case SDS_TYPE_8:
             return SDS_HDR(8,s)->alloc;
         case SDS_TYPE_16:
@@ -172,8 +223,7 @@ static inline size_t sdsalloc(const sds s) {
 }
 
 static inline void sdssetalloc(sds s, size_t newlen) {
-    unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(sdsType(s)) {
         case SDS_TYPE_5:
             /* Nothing to do, this type has no total allocation info. */
             break;
@@ -192,13 +242,32 @@ static inline void sdssetalloc(sds s, size_t newlen) {
     }
 }
 
+static inline int sdsHdrSize(char type) {
+    switch(type&SDS_TYPE_MASK) {
+        case SDS_TYPE_5:
+            return sizeof(struct sdshdr5);
+        case SDS_TYPE_8:
+            return sizeof(struct sdshdr8);
+        case SDS_TYPE_16:
+            return sizeof(struct sdshdr16);
+        case SDS_TYPE_32:
+            return sizeof(struct sdshdr32);
+        case SDS_TYPE_64:
+            return sizeof(struct sdshdr64);
+    }
+    return 0;
+}
+
 sds sdsnewlen(const void *init, size_t initlen);
 sds sdstrynewlen(const void *init, size_t initlen);
 sds sdsnew(const char *init);
+sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size_t initlen);
+
 sds sdsempty(void);
 sds sdsdup(const sds s);
 void sdsfree(sds s);
 void sdsfreegeneric(void *s);
+void sdsfreeusable(sds s, size_t *usable);
 sds sdsgrowzero(sds s, size_t len);
 sds sdscatlen(sds s, const void *t, size_t len);
 sds sdscat(sds s, const char *t);
@@ -242,13 +311,19 @@ typedef sds (*sdstemplate_callback_t)(const sds variable, void *arg);
 sds sdstemplate(const char *template, sdstemplate_callback_t cb_func, void *cb_arg);
 
 /* Low level functions exposed to the user API */
+char sdsReqType(size_t string_size);
 sds sdsMakeRoomFor(sds s, size_t addlen);
 sds sdsMakeRoomForNonGreedy(sds s, size_t addlen);
 void sdsIncrLen(sds s, ssize_t incr);
 sds sdsRemoveFreeSpace(sds s, int would_regrow);
 sds sdsResize(sds s, size_t size, int would_regrow);
-size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
+
+/* Returns the minimum required size to store an sds string of the given length
+ * and type. */
+static inline size_t sdsReqSize(size_t len, char type) {
+    return len + sdsHdrSize(type) + 1;
+}
 
 /* Export the allocator used by SDS to the program using SDS.
  * Sometimes the program SDS is linked to, may use a different set of

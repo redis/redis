@@ -5,14 +5,17 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
 #include "script.h"
+#include "cluster.h"
+#include "cluster_asm.h"
 #include <math.h>
 
 /* ----------------------------------------------------------------------------
@@ -79,6 +82,12 @@ unsigned long long estimateObjectIdleTime(robj *o) {
     }
 }
 
+/* During atomic slot migration, keys that are being imported are in an
+ * intermediate state. We cannot evict them and therefore skip them. */
+static int randomEvictionShouldSkipDictIndex(int didx) {
+    return !clusterCanAccessKeysInSlot(didx);
+}
+
 /* LRU approximation algorithm
  *
  * Redis uses an approximation of the LRU algorithm that runs in constant
@@ -126,31 +135,22 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
-    int slot = kvstoreGetFairRandomDictIndex(samplekvs);
+    /* Don't retry, since we will call evictionPoolPopulate multiple times if needed. */
+    int slot = kvstoreGetFairRandomDictIndex(samplekvs, randomEvictionShouldSkipDictIndex, 1, 0);
+    if (slot == -1) return 0;
     count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
-        sds key;
-        robj *o;
-        dictEntry *de;
-
-        de = samples[j];
-        key = dictGetKey(de);
-
-        /* If the dictionary we are sampling from is not the main
-         * dictionary (but the expires one) we need to lookup the key
-         * again in the key dictionary to obtain the value object. */
-        if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (samplekvs != db->keys)
-                de = kvstoreDictFind(db->keys, slot, key);
-            o = dictGetVal(de);
-        }
-
+        
+        dictEntry *de = samples[j];
+        kvobj *kv = dictGetKV(de);
+        sds key = kvobjGetKey(kv);
+        
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
          * just a score where a higher score means better candidate. */
-        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
-            idle = estimateObjectIdleTime(o);
+        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM)) {
+            idle = estimateObjectIdleTime(kv);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             /* When we use an LRU policy, we sort the keys by idle time
              * so that we expire keys starting from greater idle time.
@@ -159,10 +159,10 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
              * first. So inside the pool we put objects using the inverted
              * frequency subtracting the actual frequency to the maximum
              * frequency of 255. */
-            idle = 255-LFUDecrAndReturn(o);
+            idle = 255-LFUDecrAndReturn(kv);
         } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
             /* In this case the sooner the expire the better. */
-            idle = ULLONG_MAX - dictGetSignedIntegerVal(de);
+            idle = ULLONG_MAX - kvobjGetExpire(kv);
         } else {
             serverPanic("Unknown eviction policy in evictionPoolPopulate()");
         }
@@ -346,6 +346,11 @@ size_t freeMemoryGetNotCountedMemory(void) {
         }
     }
 
+    /* The migrate client is like a replica, we also push DELs into it when
+     * evicting keys belonging to the migrating slot, so we don't count its
+     * output buffer to avoid eviction loop. */
+    overhead += asmGetMigrateOutputBufferSize();
+
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf);
     }
@@ -469,6 +474,13 @@ static int isSafeToPerformEvictions(void) {
      * and just be masters exact copies. */
     if (server.masterhost && server.repl_slave_ignore_maxmemory) return 0;
 
+    /* Disable eviction during slot migration import to avoid delays and errors
+     * caused by failed evictions. A special client is created for data import,
+     * identified by the CLIENT_MASTER and CLIENT_ASM_IMPORTING flags. */
+    if (server.current_client && server.current_client->flags & CLIENT_MASTER &&
+        server.current_client->flags & CLIENT_ASM_IMPORTING)
+        return 0;
+
     /* If 'evict' action is paused, for whatever reason, then return false */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EVICT)) return 0;
 
@@ -560,12 +572,13 @@ int performEvictions(void) {
         redisDb *db;
         dictEntry *de;
 
-        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
+        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU|MAXMEMORY_FLAG_LRM) ||
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
             while (bestkey == NULL) {
                 unsigned long total_keys = 0;
+                unsigned long total_sampled_keys = 0;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
@@ -587,6 +600,7 @@ int performEvictions(void) {
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
                         sampled_keys += evictionPoolPopulate(db, kvs, pool);
+                        total_sampled_keys += sampled_keys;
                         /* We have sampled enough keys in the current db, exit the loop. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
@@ -598,6 +612,10 @@ int performEvictions(void) {
                     }
                 }
                 if (!total_keys) break; /* No keys to evict. */
+
+                /* If we iterated all the DBs and all non-empty slot dicts, then
+                 * did not sample any key, stop sampling. */
+                if (!total_sampled_keys) break;
 
                 /* Go backward from best to worst element to evict. */
                 for (k = EVPOOL_SIZE-1; k >= 0; k--) {
@@ -621,7 +639,7 @@ int performEvictions(void) {
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
                     if (de) {
-                        bestkey = dictGetKey(de);
+                        bestkey = kvobjGetKey(dictGetKV(de));
                         break;
                     } else {
                         /* Ghost... Iterate again. */
@@ -646,10 +664,12 @@ int performEvictions(void) {
                 } else {
                     kvs = db->expires;
                 }
-                int slot = kvstoreGetFairRandomDictIndex(kvs);
+                int slot = kvstoreGetFairRandomDictIndex(kvs, randomEvictionShouldSkipDictIndex, 16, 0);
+                if (slot == -1) continue;
                 de = kvstoreDictGetRandomKey(kvs, slot);
                 if (de) {
-                    bestkey = dictGetKey(de);
+                    kvobj *kv = dictGetKV(de);
+                    bestkey = kvobjGetKey(kv);
                     bestdbid = j;
                     break;
                 }

@@ -59,6 +59,20 @@ start_server {tags {"dump"}} {
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
+    
+    test {RESTORE with TTL maintain valid object} {
+        # RESTORE Creates a string with TTL in two steps. The second step potentially 
+        # reallocates the object. Access the object and verify it is not corrupted
+        r del foo
+        r set foo bar
+        set encoded [r dump foo]
+        # Iterate several times and verify it is consistent
+        for {set i 0} {$i < 100} {incr i} {
+            r del foo
+            r restore foo 1000 $encoded IDLETIME 500
+            assert_equal [r get foo] {bar}
+        }
+    }
 
     test {RESTORE can set LFU} {
         r set foo bar

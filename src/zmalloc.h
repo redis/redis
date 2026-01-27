@@ -3,8 +3,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __ZMALLOC_H
@@ -75,9 +76,18 @@
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
  * and the version used is our special version modified for Redis having
  * the ability to return per-allocation fragmentation hints. */
-#if defined(USE_JEMALLOC) && defined(JEMALLOC_FRAG_HINT)
+#if (defined(USE_JEMALLOC) && defined(JEMALLOC_FRAG_HINT)) || defined(DEBUG_DEFRAG_FORCE)
 #define HAVE_DEFRAG
 #endif
+
+/* We can enable allocation with usable size capabilities only if we are using Jemalloc
+ * and the version used is our special version modified for Redis having
+ * the ability to return usable size during allocation or deallocation. */
+#if defined(USE_JEMALLOC) && defined(JEMALLOC_ALLOC_WITH_USIZE)
+#define HAVE_ALLOC_WITH_USIZE
+#endif
+
+#include <time.h>
 
 /* 'noinline' attribute is intended to prevent the `-Wstringop-overread` warning
  * when using gcc-12 later with LTO enabled. It may be removed once the
@@ -92,13 +102,16 @@ __attribute__((alloc_size(2),noinline)) void *ztryrealloc(void *ptr, size_t size
 void zfree(void *ptr);
 void *zmalloc_usable(size_t size, size_t *usable);
 void *zcalloc_usable(size_t size, size_t *usable);
-void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *zrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usable);
 void *ztrymalloc_usable(size_t size, size_t *usable);
 void *ztrycalloc_usable(size_t size, size_t *usable);
-void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usable);
 void zfree_usable(void *ptr, size_t *usable);
 __attribute__((malloc)) char *zstrdup(const char *s);
+__attribute__((malloc)) char *zstrdup_usable(const char *s, size_t *usable);
 size_t zmalloc_used_memory(void);
+size_t zmalloc_get_peak_memory(void);
+time_t zmalloc_get_peak_memory_time(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);
 int zmalloc_get_allocator_info(int refresh_stats, size_t *allocated, size_t *active, size_t *resident,
@@ -119,7 +132,7 @@ void *zrealloc_with_flags(void *ptr, size_t size, int flags);
 void zfree_with_flags(void *ptr, int flags);
 #endif
 
-#ifdef HAVE_DEFRAG
+#if (defined(USE_JEMALLOC) && defined(HAVE_DEFRAG))
 void zfree_no_tcache(void *ptr);
 __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 #endif

@@ -65,7 +65,7 @@ int test_call_generic(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     const char* cmdname = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdname, "v", argv+2, argc-2);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdname, "v", argv+2, (size_t)argc-2);
     if (reply) {
         RedisModule_ReplyWithCallReply(ctx, reply);
         RedisModule_FreeCallReply(reply);
@@ -397,7 +397,7 @@ int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, (size_t)argc - 2);
     if(!rep){
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     }else{
@@ -429,7 +429,7 @@ int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     const char* flg = RedisModule_StringPtrLen(flags, NULL);
     const char* cmd = RedisModule_StringPtrLen(argv[2], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, argc - 3);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, (size_t)argc - 3);
     if(!rep){
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     }else{
@@ -525,12 +525,15 @@ int test_malloc_api(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int test_keyslot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    /* Static check of the ClusterKeySlot + ClusterCanonicalKeyNameInSlot
+    /* Static check of the ClusterKeySlot + ClusterKeySlotC + ClusterCanonicalKeyNameInSlot
      * round-trip for all slots. */
     for (unsigned int slot = 0; slot < 16384; slot++) {
         const char *tag = RedisModule_ClusterCanonicalKeyNameInSlot(slot);
         RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "x{%s}y", tag);
         assert(slot == RedisModule_ClusterKeySlot(key));
+        size_t len;
+        const char *key_c = RedisModule_StringPtrLen(key, &len);
+        assert(slot == RedisModule_ClusterKeySlotC(key_c, len));
         RedisModule_FreeString(ctx, key);
     }
     if (argc != 2){
@@ -544,6 +547,16 @@ int only_reply_ok(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+/* Test command for RM_SignalModifiedKey. */
+int test_signalmodifiedkey(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    /* Manually signal that the key was modified */
+    RedisModule_SignalModifiedKey(ctx, argv[1]);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -621,6 +634,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *parent = RedisModule_GetCommand(ctx, "test.no_cluster_cmd");
     if (RedisModule_CreateSubcommand(parent, "set", only_reply_ok, "no-cluster", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.signalmodifiedkey", test_signalmodifiedkey, "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

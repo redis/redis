@@ -7,8 +7,9 @@
  * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include <stdint.h>
@@ -231,11 +232,6 @@ void lpFree(unsigned char *lp) {
     lp_free(lp);
 }
 
-/* Generic version of lpFree. */
-void lpFreeGeneric(void *lp) {
-    lp_free((unsigned char *)lp);
-}
-
 /* Shrink the memory to fit. */
 unsigned char* lpShrinkToFit(unsigned char *lp) {
     size_t size = lpGetTotalBytes(lp);
@@ -392,18 +388,49 @@ static inline unsigned long lpEncodeBacklenBytes(uint64_t l) {
 }
 
 /* Decode the backlen and returns it. If the encoding looks invalid (more than
- * 5 bytes are used), UINT64_MAX is returned to report the problem. */
+ * 5 bytes are used), UINT64_MAX is returned to report the problem.
+ *
+ * Optimized for the common case: most backlen values fit in one or two bytes
+ * due to listpack size limits. This version avoids a loop and pointer
+ * mutation, reducing overhead in hot paths while keeping the same encoding
+ * semantics.
+ *
+ * Note: the caller guarantees that up to 5 bytes preceding 'p' are readable,
+ * as ensured by listpack invariants. */
 static inline uint64_t lpDecodeBacklen(unsigned char *p) {
-    uint64_t val = 0;
-    uint64_t shift = 0;
-    do {
-        val |= (uint64_t)(p[0] & 127) << shift;
-        if (!(p[0] & 128)) break;
-        shift += 7;
-        p--;
-        if (shift > 28) return UINT64_MAX;
-    } while(1);
-    return val;
+    uint64_t val;
+
+    /* Fast path: single byte (most common for small entries <= 127 bytes) */
+    if (likely(!(p[0] & 128))) {
+        return p[0] & 127;
+    }
+
+    /* Two bytes */
+    val = (uint64_t)(p[0] & 127);
+    if (!(p[-1] & 128)) {
+        return val | ((uint64_t)(p[-1] & 127) << 7);
+    }
+
+    /* Three bytes */
+    val |= (uint64_t)(p[-1] & 127) << 7;
+    if (!(p[-2] & 128)) {
+        return val | ((uint64_t)(p[-2] & 127) << 14);
+    }
+
+    /* Four bytes */
+    val |= (uint64_t)(p[-2] & 127) << 14;
+    if (!(p[-3] & 128)) {
+        return val | ((uint64_t)(p[-3] & 127) << 21);
+    }
+
+    /* Five bytes */
+    val |= (uint64_t)(p[-3] & 127) << 21;
+    if (!(p[-4] & 128)) {
+        return val | ((uint64_t)(p[-4] & 127) << 28);
+    }
+
+    /* Invalid: more than 5 bytes */
+    return UINT64_MAX;
 }
 
 /* Encode the string element pointed by 's' of size 'len' in the target
@@ -1717,7 +1744,8 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 
 /* Compare entry pointer to by 'p' with string 's' of length 'slen'.
  * Return 1 if equal. */
-unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
+unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen,
+                       long long *cached_longval, int *cached_valid) {
     unsigned char *value;
     int64_t sz;
     if (p[0] == LP_EOF) return 0;
@@ -1726,12 +1754,25 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     if (value) {
         return (slen == sz) && memcmp(value,s,slen) == 0;
     } else {
+        int64_t sval;
         /* We use lpStringToInt64() to get an integer representation of the
          * string 's' and compare it to 'sval', it's much faster than convert
          * integer to string and comparing. */
-        int64_t sval;
-        if (lpStringToInt64((const char*)s, slen, &sval))
-            return sz == sval;
+        if (cached_valid != NULL) {
+            /* Use caching */
+            if (*cached_valid == 0) {
+                if (lpStringToInt64((const char*)s, slen, (int64_t*)cached_longval)) {
+                    *cached_valid = 1;
+                } else {
+                    *cached_valid = -1;
+                }
+            }
+            return (*cached_valid == 1 && sz == *cached_longval);
+        } else {
+            /* No caching - direct conversion */
+            if (lpStringToInt64((const char*)s, slen, &sval))
+                return sz == sval;
+        }
     }
 
     return 0;
@@ -1742,7 +1783,7 @@ static int uintCompare(const void *a, const void *b) {
     return (*(unsigned int *) a - *(unsigned int *) b);
 }
 
-/* Helper method to store a string into from val or lval into dest */
+/* Helper method to store a string from val or lval into dest */
 static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lval, listpackEntry *dest) {
     dest->sval = val;
     dest->slen = len;
@@ -2138,7 +2179,7 @@ static int randstring(char *target, unsigned int min, unsigned int max) {
 }
 
 static void verifyEntry(unsigned char *p, unsigned char *s, size_t slen) {
-    assert(lpCompare(p, s, slen));
+    assert(lpCompare(p, s, slen, NULL, NULL));
 }
 
 static int lpValidation(unsigned char *p, unsigned int head_count, void *userdata) {
@@ -2147,7 +2188,7 @@ static int lpValidation(unsigned char *p, unsigned int head_count, void *userdat
 
     int ret;
     long *count = userdata;
-    ret = lpCompare(p, (unsigned char *)mixlist[*count], strlen(mixlist[*count]));
+    ret = lpCompare(p, (unsigned char *)mixlist[*count], strlen(mixlist[*count]), NULL, NULL);
     (*count)++;
     return ret;
 }
@@ -2538,7 +2579,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = createList();
         p = lpFirst(lp);
         while (p) {
-            if (lpCompare(p, (unsigned char*)"foo", 3)) {
+            if (lpCompare(p, (unsigned char*)"foo", 3, NULL, NULL)) {
                 lp = lpDelete(lp, p, &p);
             } else {
                 p = lpNext(lp, p);
@@ -2619,12 +2660,12 @@ int listpackTest(int argc, char *argv[], int flags) {
     TEST("Compare strings with listpack entries") {
         lp = createList();
         p = lpSeek(lp,0);
-        assert(lpCompare(p,(unsigned char*)"hello",5));
-        assert(!lpCompare(p,(unsigned char*)"hella",5));
+        assert(lpCompare(p,(unsigned char*)"hello",5,NULL,NULL));
+        assert(!lpCompare(p,(unsigned char*)"hella",5,NULL,NULL));
 
         p = lpSeek(lp,3);
-        assert(lpCompare(p,(unsigned char*)"1024",4));
-        assert(!lpCompare(p,(unsigned char*)"1025",4));
+        assert(lpCompare(p,(unsigned char*)"1024",4,NULL,NULL));
+        assert(!lpCompare(p,(unsigned char*)"1025",4,NULL,NULL));
         lpFree(lp);
     }
 
@@ -3251,7 +3292,7 @@ int listpackTest(int argc, char *argv[], int flags) {
             for (int i = 0; i < 2000; i++) {
                 unsigned char *eptr = lpSeek(lp,0);
                 while (eptr != NULL) {
-                    lpCompare(eptr,(unsigned char*)"nothing",7);
+                    lpCompare(eptr,(unsigned char*)"nothing",7,NULL,NULL);
                     eptr = lpNext(lp,eptr);
                 }
             }
@@ -3263,7 +3304,21 @@ int listpackTest(int argc, char *argv[], int flags) {
             for (int i = 0; i < 2000; i++) {
                 unsigned char *eptr = lpSeek(lp,0);
                 while (eptr != NULL) {
-                    lpCompare(lp, (unsigned char*)"99999", 5);
+                    lpCompare(eptr, (unsigned char*)"99999", 5, NULL, NULL);
+                    eptr = lpNext(lp,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpCompare with number and caching") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = lpSeek(lp,0);
+                long long cached_val = 0;
+                int cached_valid = 0;
+                while (eptr != NULL) {
+                    lpCompare(eptr, (unsigned char*)"99999", 5, &cached_val, &cached_valid);
                     eptr = lpNext(lp,eptr);
                 }
             }

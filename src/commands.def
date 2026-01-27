@@ -196,11 +196,15 @@ struct COMMAND_ARG BITOP_operation_Subargs[] = {
 {MAKE_ARG("or",ARG_TYPE_PURE_TOKEN,-1,"OR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("xor",ARG_TYPE_PURE_TOKEN,-1,"XOR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("not",ARG_TYPE_PURE_TOKEN,-1,"NOT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("diff",ARG_TYPE_PURE_TOKEN,-1,"DIFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("diff1",ARG_TYPE_PURE_TOKEN,-1,"DIFF1",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("andor",ARG_TYPE_PURE_TOKEN,-1,"ANDOR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* BITOP argument table */
 struct COMMAND_ARG BITOP_Args[] = {
-{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=BITOP_operation_Subargs},
+{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,8,NULL),.subargs=BITOP_operation_Subargs},
 {MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
@@ -679,6 +683,53 @@ struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 {MAKE_ARG("cluster-bus-port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
+/********** CLUSTER MIGRATION ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CLUSTER MIGRATION history */
+#define CLUSTER_MIGRATION_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CLUSTER MIGRATION tips */
+#define CLUSTER_MIGRATION_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CLUSTER MIGRATION key specs */
+#define CLUSTER_MIGRATION_Keyspecs NULL
+#endif
+
+/* CLUSTER MIGRATION subcommand import argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_import_Subargs[] = {
+{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER MIGRATION subcommand cancel argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_cancel_Subargs[] = {
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,"ID",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER MIGRATION subcommand status argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_status_Subargs[] = {
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,"ID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/* CLUSTER MIGRATION subcommand argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_Subargs[] = {
+{MAKE_ARG("import",ARG_TYPE_BLOCK,-1,"IMPORT",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_import_Subargs},
+{MAKE_ARG("cancel",ARG_TYPE_ONEOF,-1,"CANCEL",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_cancel_Subargs},
+{MAKE_ARG("status",ARG_TYPE_ONEOF,-1,"STATUS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_status_Subargs},
+};
+
+/* CLUSTER MIGRATION argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_Args[] = {
+{MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLUSTER_MIGRATION_subcommand_Subargs},
+};
+
 /********** CLUSTER MYID ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -921,6 +972,56 @@ struct COMMAND_ARG CLUSTER_SLAVES_Args[] = {
 {MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** CLUSTER SLOT_STATS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CLUSTER SLOT_STATS history */
+#define CLUSTER_SLOT_STATS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CLUSTER SLOT_STATS tips */
+const char *CLUSTER_SLOT_STATS_Tips[] = {
+"nondeterministic_output",
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CLUSTER SLOT_STATS key specs */
+#define CLUSTER_SLOT_STATS_Keyspecs NULL
+#endif
+
+/* CLUSTER SLOT_STATS filter slotsrange argument table */
+struct COMMAND_ARG CLUSTER_SLOT_STATS_filter_slotsrange_Subargs[] = {
+{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER SLOT_STATS filter orderby order argument table */
+struct COMMAND_ARG CLUSTER_SLOT_STATS_filter_orderby_order_Subargs[] = {
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER SLOT_STATS filter orderby argument table */
+struct COMMAND_ARG CLUSTER_SLOT_STATS_filter_orderby_Subargs[] = {
+{MAKE_ARG("metric",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_SLOT_STATS_filter_orderby_order_Subargs},
+};
+
+/* CLUSTER SLOT_STATS filter argument table */
+struct COMMAND_ARG CLUSTER_SLOT_STATS_filter_Subargs[] = {
+{MAKE_ARG("slotsrange",ARG_TYPE_BLOCK,-1,"SLOTSRANGE",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SLOT_STATS_filter_slotsrange_Subargs},
+{MAKE_ARG("orderby",ARG_TYPE_BLOCK,-1,"ORDERBY",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLUSTER_SLOT_STATS_filter_orderby_Subargs},
+};
+
+/* CLUSTER SLOT_STATS argument table */
+struct COMMAND_ARG CLUSTER_SLOT_STATS_Args[] = {
+{MAKE_ARG("filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SLOT_STATS_filter_Subargs},
+};
+
 /********** CLUSTER SLOTS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -943,6 +1044,65 @@ const char *CLUSTER_SLOTS_Tips[] = {
 #define CLUSTER_SLOTS_Keyspecs NULL
 #endif
 
+/********** CLUSTER SYNCSLOTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CLUSTER SYNCSLOTS history */
+#define CLUSTER_SYNCSLOTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CLUSTER SYNCSLOTS tips */
+const char *CLUSTER_SYNCSLOTS_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CLUSTER SYNCSLOTS key specs */
+#define CLUSTER_SYNCSLOTS_Keyspecs NULL
+#endif
+
+/* CLUSTER SYNCSLOTS subcommand sync slot_range argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_sync_slot_range_Subargs[] = {
+{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER SYNCSLOTS subcommand sync argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_sync_Subargs[] = {
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slot-range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_sync_slot_range_Subargs},
+};
+
+/* CLUSTER SYNCSLOTS subcommand ack argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_ack_Subargs[] = {
+{MAKE_ARG("state",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER SYNCSLOTS subcommand conf argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_conf_Subargs[] = {
+{MAKE_ARG("option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* CLUSTER SYNCSLOTS subcommand argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_Subargs[] = {
+{MAKE_ARG("sync",ARG_TYPE_BLOCK,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_sync_Subargs},
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,"RDBCHANNEL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("snapshot-eof",ARG_TYPE_PURE_TOKEN,-1,"SNAPSHOT-EOF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stream-eof",ARG_TYPE_PURE_TOKEN,-1,"STREAM-EOF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ack",ARG_TYPE_BLOCK,-1,"ACK",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_ack_Subargs},
+{MAKE_ARG("error",ARG_TYPE_STRING,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("conf",ARG_TYPE_BLOCK,-1,"CONF",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_conf_Subargs},
+};
+
+/* CLUSTER SYNCSLOTS argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_Args[] = {
+{MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,7,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_Subargs},
+};
+
 /* CLUSTER command table */
 struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("addslots","Assigns new hash slots to a node.","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,0,CLUSTER_ADDSLOTS_Tips,0,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTS_Args},
@@ -961,6 +1121,7 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("keyslot","Returns the hash slot for a key.","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,0,CLUSTER_KEYSLOT_Tips,0,clusterCommand,3,CMD_STALE,0,CLUSTER_KEYSLOT_Keyspecs,0,NULL,1),.args=CLUSTER_KEYSLOT_Args},
 {MAKE_CMD("links","Returns a list of all TCP links to and from peer nodes.","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,0,CLUSTER_LINKS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_LINKS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("meet","Forces a node to handshake with another node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,1,CLUSTER_MEET_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MEET_Keyspecs,0,NULL,3),.args=CLUSTER_MEET_Args},
+{MAKE_CMD("migration","Start, monitor and cancel slot migration.","O(N) where N is the total number of the slots between the start slot and end slot arguments.","8.4.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MIGRATION_History,0,CLUSTER_MIGRATION_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MIGRATION_Keyspecs,0,NULL,1),.args=CLUSTER_MIGRATION_Args},
 {MAKE_CMD("myid","Returns the ID of a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,0,CLUSTER_MYID_Tips,0,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("myshardid","Returns the shard ID of a node.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYSHARDID_History,0,CLUSTER_MYSHARDID_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_MYSHARDID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("nodes","Returns the cluster configuration for a node.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,0,CLUSTER_NODES_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_NODES_Keyspecs,0,NULL,0)},
@@ -972,7 +1133,9 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("setslot","Binds a hash slot to a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,0,CLUSTER_SETSLOT_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SETSLOT_Keyspecs,0,NULL,2),.args=CLUSTER_SETSLOT_Args},
 {MAKE_CMD("shards","Returns the mapping of cluster slots to shards.","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args},
+{MAKE_CMD("slot-stats","Return an array of slot usage statistics for slots assigned to the current node.","O(N) where N is the total number of slots based on arguments. O(N*log(N)) with ORDERBY subcommand.","8.2.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOT_STATS_History,0,CLUSTER_SLOT_STATS_Tips,2,clusterSlotStatsCommand,-4,CMD_STALE|CMD_LOADING,0,CLUSTER_SLOT_STATS_Keyspecs,0,NULL,1),.args=CLUSTER_SLOT_STATS_Args},
 {MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("syncslots","Internal command for atomic slot migration protocol between cluster nodes.","O(1)","8.4.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SYNCSLOTS_History,0,CLUSTER_SYNCSLOTS_Tips,1,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SYNCSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_SYNCSLOTS_Args},
 {0}
 };
 
@@ -7148,6 +7311,122 @@ struct COMMAND_ARG FLUSHDB_Args[] = {
 {MAKE_ARG("flush-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHDB_flush_type_Subargs},
 };
 
+/********** HOTKEYS GET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HOTKEYS GET history */
+#define HOTKEYS_GET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HOTKEYS GET tips */
+#define HOTKEYS_GET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HOTKEYS GET key specs */
+#define HOTKEYS_GET_Keyspecs NULL
+#endif
+
+/********** HOTKEYS RESET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HOTKEYS RESET history */
+#define HOTKEYS_RESET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HOTKEYS RESET tips */
+#define HOTKEYS_RESET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HOTKEYS RESET key specs */
+#define HOTKEYS_RESET_Keyspecs NULL
+#endif
+
+/********** HOTKEYS START ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HOTKEYS START history */
+#define HOTKEYS_START_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HOTKEYS START tips */
+#define HOTKEYS_START_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HOTKEYS START key specs */
+#define HOTKEYS_START_Keyspecs NULL
+#endif
+
+/* HOTKEYS START metrics argument table */
+struct COMMAND_ARG HOTKEYS_START_metrics_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cpu",ARG_TYPE_PURE_TOKEN,-1,"CPU",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("net",ARG_TYPE_PURE_TOKEN,-1,"NET",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/* HOTKEYS START slots argument table */
+struct COMMAND_ARG HOTKEYS_START_slots_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HOTKEYS START argument table */
+struct COMMAND_ARG HOTKEYS_START_Args[] = {
+{MAKE_ARG("metrics",ARG_TYPE_BLOCK,-1,"METRICS",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=HOTKEYS_START_metrics_Subargs},
+{MAKE_ARG("k",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"DURATION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("ratio",ARG_TYPE_INTEGER,-1,"SAMPLE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("slots",ARG_TYPE_BLOCK,-1,"SLOTS",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HOTKEYS_START_slots_Subargs},
+};
+
+/********** HOTKEYS STOP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HOTKEYS STOP history */
+#define HOTKEYS_STOP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HOTKEYS STOP tips */
+#define HOTKEYS_STOP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HOTKEYS STOP key specs */
+#define HOTKEYS_STOP_Keyspecs NULL
+#endif
+
+/* HOTKEYS command table */
+struct COMMAND_STRUCT HOTKEYS_Subcommands[] = {
+{MAKE_CMD("get","Returns lists of top K hotkeys depending on metrics chosen in HOTKEYS START command.","O(K) where K is the number of hotkeys returned.","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_GET_History,0,HOTKEYS_GET_Tips,0,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_GET_Keyspecs,0,NULL,0)},
+{MAKE_CMD("reset","Release the resources used for hotkey tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_RESET_History,0,HOTKEYS_RESET_Tips,0,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_RESET_Keyspecs,0,NULL,0)},
+{MAKE_CMD("start","Starts hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_START_History,0,HOTKEYS_START_Tips,0,hotkeysCommand,-2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_START_Keyspecs,0,NULL,5),.args=HOTKEYS_START_Args},
+{MAKE_CMD("stop","Stops hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_STOP_History,0,HOTKEYS_STOP_Tips,0,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_STOP_Keyspecs,0,NULL,0)},
+{0}
+};
+
+/********** HOTKEYS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HOTKEYS history */
+#define HOTKEYS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HOTKEYS tips */
+#define HOTKEYS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HOTKEYS key specs */
+#define HOTKEYS_Keyspecs NULL
+#endif
+
 /********** INFO ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -8106,6 +8385,40 @@ const char *TIME_Tips[] = {
 /* TIME key specs */
 #define TIME_Keyspecs NULL
 #endif
+
+/********** TRIMSLOTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TRIMSLOTS history */
+#define TRIMSLOTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TRIMSLOTS tips */
+#define TRIMSLOTS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TRIMSLOTS key specs */
+#define TRIMSLOTS_Keyspecs NULL
+#endif
+
+/* TRIMSLOTS ranges slots argument table */
+struct COMMAND_ARG TRIMSLOTS_ranges_slots_Subargs[] = {
+{MAKE_ARG("startslot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("endslot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* TRIMSLOTS ranges argument table */
+struct COMMAND_ARG TRIMSLOTS_ranges_Subargs[] = {
+{MAKE_ARG("numranges",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slots",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=TRIMSLOTS_ranges_slots_Subargs},
+};
+
+/* TRIMSLOTS argument table */
+struct COMMAND_ARG TRIMSLOTS_Args[] = {
+{MAKE_ARG("ranges",ARG_TYPE_BLOCK,-1,"RANGES",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=TRIMSLOTS_ranges_Subargs},
+};
 
 /********** SADD ********************/
 
@@ -9645,6 +9958,46 @@ struct COMMAND_ARG XACK_Args[] = {
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** XACKDEL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XACKDEL history */
+#define XACKDEL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XACKDEL tips */
+#define XACKDEL_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XACKDEL key specs */
+keySpec XACKDEL_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* XACKDEL condition argument table */
+struct COMMAND_ARG XACKDEL_condition_Subargs[] = {
+{MAKE_ARG("keepref",ARG_TYPE_PURE_TOKEN,-1,"KEEPREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("delref",ARG_TYPE_PURE_TOKEN,-1,"DELREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XACKDEL ids argument table */
+struct COMMAND_ARG XACKDEL_ids_Subargs[] = {
+{MAKE_ARG("numids",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* XACKDEL argument table */
+struct COMMAND_ARG XACKDEL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=XACKDEL_condition_Subargs},
+{MAKE_ARG("ids",ARG_TYPE_BLOCK,-1,"IDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XACKDEL_ids_Subargs},
+};
+
 /********** XADD ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -9652,6 +10005,7 @@ struct COMMAND_ARG XACK_Args[] = {
 commandHistory XADD_History[] = {
 {"6.2.0","Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."},
 {"7.0.0","Added support for the `<ms>-*` explicit ID form."},
+{"8.2.0","Added the `KEEPREF`, `DELREF` and `ACKED` options."},
 };
 #endif
 
@@ -9668,6 +10022,32 @@ keySpec XADD_Keyspecs[1] = {
 {"UPDATE instead of INSERT because of the optional trimming feature",CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
+
+/* XADD condition argument table */
+struct COMMAND_ARG XADD_condition_Subargs[] = {
+{MAKE_ARG("keepref",ARG_TYPE_PURE_TOKEN,-1,"KEEPREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("delref",ARG_TYPE_PURE_TOKEN,-1,"DELREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XADD idmp idmpauto_with_pid argument table */
+struct COMMAND_ARG XADD_idmp_idmpauto_with_pid_Subargs[] = {
+{MAKE_ARG("idmpauto-token",ARG_TYPE_PURE_TOKEN,-1,"IDMPAUTO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XADD idmp idmp_with_pid_iid argument table */
+struct COMMAND_ARG XADD_idmp_idmp_with_pid_iid_Subargs[] = {
+{MAKE_ARG("idmp-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("iid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XADD idmp argument table */
+struct COMMAND_ARG XADD_idmp_Subargs[] = {
+{MAKE_ARG("idmpauto-with-pid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_idmp_idmpauto_with_pid_Subargs},
+{MAKE_ARG("idmp-with-pid-iid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=XADD_idmp_idmp_with_pid_iid_Subargs},
+};
 
 /* XADD trim strategy argument table */
 struct COMMAND_ARG XADD_trim_strategy_Subargs[] = {
@@ -9705,6 +10085,8 @@ struct COMMAND_ARG XADD_data_Subargs[] = {
 struct COMMAND_ARG XADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=XADD_condition_Subargs},
+{MAKE_ARG("idmp",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XADD_idmp_Subargs},
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=XADD_trim_Subargs},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_selector_Subargs},
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_data_Subargs},
@@ -9742,6 +10124,44 @@ struct COMMAND_ARG XAUTOCLAIM_Args[] = {
 {MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** XCFGSET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XCFGSET history */
+#define XCFGSET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XCFGSET tips */
+#define XCFGSET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XCFGSET key specs */
+keySpec XCFGSET_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* XCFGSET idmp_duration_block argument table */
+struct COMMAND_ARG XCFGSET_idmp_duration_block_Subargs[] = {
+{MAKE_ARG("idmp-duration-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP-DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("duration",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XCFGSET idmp_maxsize_block argument table */
+struct COMMAND_ARG XCFGSET_idmp_maxsize_block_Subargs[] = {
+{MAKE_ARG("idmp-maxsize-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP-MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XCFGSET argument table */
+struct COMMAND_ARG XCFGSET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("idmp-duration-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_idmp_duration_block_Subargs},
+{MAKE_ARG("idmp-maxsize-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_idmp_maxsize_block_Subargs},
 };
 
 /********** XCLAIM ********************/
@@ -9803,6 +10223,45 @@ keySpec XDEL_Keyspecs[1] = {
 struct COMMAND_ARG XDEL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** XDELEX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XDELEX history */
+#define XDELEX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XDELEX tips */
+#define XDELEX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XDELEX key specs */
+keySpec XDELEX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* XDELEX condition argument table */
+struct COMMAND_ARG XDELEX_condition_Subargs[] = {
+{MAKE_ARG("keepref",ARG_TYPE_PURE_TOKEN,-1,"KEEPREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("delref",ARG_TYPE_PURE_TOKEN,-1,"DELREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XDELEX ids argument table */
+struct COMMAND_ARG XDELEX_ids_Subargs[] = {
+{MAKE_ARG("numids",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* XDELEX argument table */
+struct COMMAND_ARG XDELEX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=XDELEX_condition_Subargs},
+{MAKE_ARG("ids",ARG_TYPE_BLOCK,-1,"IDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XDELEX_ids_Subargs},
 };
 
 /********** XGROUP CREATE ********************/
@@ -10078,6 +10537,7 @@ commandHistory XINFO_STREAM_History[] = {
 {"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
 {"7.2.0","Added the `active-time` field, and changed the meaning of `seen-time`."},
+{"8.6.0","Added the `idmp-duration`, `idmp-maxsize`, `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."},
 };
 #endif
 
@@ -10110,7 +10570,7 @@ struct COMMAND_STRUCT XINFO_Subcommands[] = {
 {MAKE_CMD("consumers","Returns a list of the consumers in a consumer group.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,1,XINFO_CONSUMERS_Tips,1,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_CONSUMERS_Keyspecs,1,NULL,2),.args=XINFO_CONSUMERS_Args},
 {MAKE_CMD("groups","Returns a list of the consumer groups of a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_GROUPS_History,1,XINFO_GROUPS_Tips,0,xinfoCommand,3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_GROUPS_Keyspecs,1,NULL,1),.args=XINFO_GROUPS_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_HELP_History,0,XINFO_HELP_Tips,0,xinfoCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM,XINFO_HELP_Keyspecs,0,NULL,0)},
-{MAKE_CMD("stream","Returns information about a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_STREAM_History,3,XINFO_STREAM_Tips,0,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_STREAM_Keyspecs,1,NULL,2),.args=XINFO_STREAM_Args},
+{MAKE_CMD("stream","Returns information about a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_STREAM_History,4,XINFO_STREAM_Tips,0,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_STREAM_Keyspecs,1,NULL,2),.args=XINFO_STREAM_Args},
 {0}
 };
 
@@ -10291,6 +10751,7 @@ struct COMMAND_ARG XREADGROUP_Args[] = {
 {MAKE_ARG("group-block",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_group_block_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("min-idle-time",ARG_TYPE_INTEGER,-1,"CLAIM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_streams_Subargs},
 };
@@ -10359,6 +10820,7 @@ struct COMMAND_ARG XSETID_Args[] = {
 /* XTRIM history */
 commandHistory XTRIM_History[] = {
 {"6.2.0","Added the `MINID` trimming strategy and the `LIMIT` option."},
+{"8.2.0","Added the `KEEPREF`, `DELREF` and `ACKED` options."},
 };
 #endif
 
@@ -10388,18 +10850,26 @@ struct COMMAND_ARG XTRIM_trim_operator_Subargs[] = {
 {MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* XTRIM trim condition argument table */
+struct COMMAND_ARG XTRIM_trim_condition_Subargs[] = {
+{MAKE_ARG("keepref",ARG_TYPE_PURE_TOKEN,-1,"KEEPREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("delref",ARG_TYPE_PURE_TOKEN,-1,"DELREF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /* XTRIM trim argument table */
 struct COMMAND_ARG XTRIM_trim_Subargs[] = {
 {MAKE_ARG("strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XTRIM_trim_strategy_Subargs},
 {MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XTRIM_trim_operator_Subargs},
 {MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=XTRIM_trim_condition_Subargs},
 };
 
 /* XTRIM argument table */
 struct COMMAND_ARG XTRIM_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=XTRIM_trim_Subargs},
+{MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,5,NULL),.subargs=XTRIM_trim_Subargs},
 };
 
 /********** APPEND ********************/
@@ -10474,6 +10944,63 @@ keySpec DECRBY_Keyspecs[1] = {
 struct COMMAND_ARG DECRBY_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("decrement",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** DELEX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* DELEX history */
+#define DELEX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* DELEX tips */
+#define DELEX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* DELEX key specs */
+keySpec DELEX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_DELETE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* DELEX condition argument table */
+struct COMMAND_ARG DELEX_condition_Subargs[] = {
+{MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* DELEX argument table */
+struct COMMAND_ARG DELEX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=DELEX_condition_Subargs},
+};
+
+/********** DIGEST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* DIGEST history */
+#define DIGEST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* DIGEST tips */
+#define DIGEST_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* DIGEST key specs */
+keySpec DIGEST_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* DIGEST argument table */
+struct COMMAND_ARG DIGEST_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** GET ********************/
@@ -10771,6 +11298,57 @@ struct COMMAND_ARG MSET_Args[] = {
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSET_data_Subargs},
 };
 
+/********** MSETEX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* MSETEX history */
+#define MSETEX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* MSETEX tips */
+const char *MSETEX_Tips[] = {
+"request_policy:multi_shard",
+"response_policy:all_succeeded",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* MSETEX key specs */
+keySpec MSETEX_Keyspecs[1] = {
+{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,2}}
+};
+#endif
+
+/* MSETEX data argument table */
+struct COMMAND_ARG MSETEX_data_Subargs[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* MSETEX condition argument table */
+struct COMMAND_ARG MSETEX_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* MSETEX expiration argument table */
+struct COMMAND_ARG MSETEX_expiration_Subargs[] = {
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* MSETEX argument table */
+struct COMMAND_ARG MSETEX_Args[] = {
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSETEX_data_Subargs},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=MSETEX_condition_Subargs},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=MSETEX_expiration_Subargs},
+};
+
 /********** MSETNX ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10836,6 +11414,7 @@ commandHistory SET_History[] = {
 {"6.0.0","Added the `KEEPTTL` option."},
 {"6.2.0","Added the `GET`, `EXAT` and `PXAT` option."},
 {"7.0.0","Allowed the `NX` and `GET` options to be used together."},
+{"8.4.0","Added 'IFEQ', 'IFNE', 'IFDEQ', 'IFDNE' options."},
 };
 #endif
 
@@ -10855,6 +11434,10 @@ keySpec SET_Keyspecs[1] = {
 struct COMMAND_ARG SET_condition_Subargs[] = {
 {MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* SET expiration argument table */
@@ -10870,7 +11453,7 @@ struct COMMAND_ARG SET_expiration_Subargs[] = {
 struct COMMAND_ARG SET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,2,NULL),.subargs=SET_condition_Subargs},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,6,NULL),.subargs=SET_condition_Subargs},
 {MAKE_ARG("get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=SET_expiration_Subargs},
 };
@@ -11249,6 +11832,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("failover","Starts a coordinated failover from a server to one of its replicas.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FAILOVER_History,0,FAILOVER_Tips,0,failoverCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,FAILOVER_Keyspecs,0,NULL,3),.args=FAILOVER_Args},
 {MAKE_CMD("flushall","Removes all keys from all databases.","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FLUSHALL_History,2,FLUSHALL_Tips,2,flushallCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,FLUSHALL_Keyspecs,0,NULL,1),.args=FLUSHALL_Args},
 {MAKE_CMD("flushdb","Remove all keys from the current database.","O(N) where N is the number of keys in the selected database","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FLUSHDB_History,2,FLUSHDB_Tips,2,flushdbCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,FLUSHDB_Keyspecs,0,NULL,1),.args=FLUSHDB_Args},
+{MAKE_CMD("hotkeys","A container for hotkeys tracking commands.","Depends on subcommand.","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_History,0,HOTKEYS_Tips,0,NULL,-2,0,0,HOTKEYS_Keyspecs,0,NULL,0),.subcommands=HOTKEYS_Subcommands},
 {MAKE_CMD("info","Returns information and statistics about the server.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,INFO_History,1,INFO_Tips,3,infoCommand,-1,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_DANGEROUS,INFO_Keyspecs,0,NULL,1),.args=INFO_Args},
 {MAKE_CMD("lastsave","Returns the Unix timestamp of the last successful save to disk.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,LASTSAVE_History,0,LASTSAVE_Tips,1,lastsaveCommand,1,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS,LASTSAVE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("latency","A container for latency diagnostics commands.","Depends on subcommand.","2.8.13",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,LATENCY_History,0,LATENCY_Tips,0,NULL,-2,0,0,LATENCY_Keyspecs,0,NULL,0),.subcommands=LATENCY_Subcommands},
@@ -11268,6 +11852,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("swapdb","Swaps two Redis databases.","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SWAPDB_History,0,SWAPDB_Tips,0,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SWAPDB_Keyspecs,0,NULL,2),.args=SWAPDB_Args},
 {MAKE_CMD("sync","An internal command used in replication.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SYNC_History,0,SYNC_Tips,0,syncCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,SYNC_Keyspecs,0,NULL,0)},
 {MAKE_CMD("time","Returns the server time.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,TIME_History,0,TIME_Tips,1,timeCommand,1,CMD_LOADING|CMD_STALE|CMD_FAST,0,TIME_Keyspecs,0,NULL,0)},
+{MAKE_CMD("trimslots","Trim the keys that belong to specified slots.","O(N) where N is the total number of keys in all databases","8.4.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,TRIMSLOTS_History,0,TRIMSLOTS_Tips,0,trimslotsCommand,-5,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,TRIMSLOTS_Keyspecs,0,NULL,1),.args=TRIMSLOTS_Args},
 /* set */
 {MAKE_CMD("sadd","Adds one or more members to a set. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SADD_History,1,SADD_Tips,0,saddCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,SADD_Keyspecs,1,NULL,2),.args=SADD_Args},
 {MAKE_CMD("scard","Returns the number of members in a set.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SCARD_History,0,SCARD_Tips,0,scardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SCARD_Keyspecs,1,NULL,1),.args=SCARD_Args},
@@ -11324,24 +11909,29 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("zunionstore","Stores the union of multiple sorted sets in a key.","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_History,0,ZUNIONSTORE_Tips,0,zunionstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZUNIONSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,5),.args=ZUNIONSTORE_Args},
 /* stream */
 {MAKE_CMD("xack","Returns the number of messages that were successfully acknowledged by the consumer group member of a stream.","O(1) for each message ID processed.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACK_History,0,XACK_Tips,0,xackCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACK_Keyspecs,1,NULL,3),.args=XACK_Args},
-{MAKE_CMD("xadd","Appends a new message to a stream. Creates the key if it doesn't exist.","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XADD_History,2,XADD_Tips,1,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XADD_Keyspecs,1,NULL,5),.args=XADD_Args},
+{MAKE_CMD("xackdel","Acknowledges and deletes one or multiple messages for a stream consumer group.","O(1) for each message ID processed.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACKDEL_History,0,XACKDEL_Tips,0,xackdelCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACKDEL_Keyspecs,1,NULL,4),.args=XACKDEL_Args},
+{MAKE_CMD("xadd","Appends a new message to a stream. Creates the key if it doesn't exist.","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XADD_History,3,XADD_Tips,1,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XADD_Keyspecs,1,NULL,7),.args=XADD_Args},
 {MAKE_CMD("xautoclaim","Changes, or acquires, ownership of messages in a consumer group, as if the messages were delivered to as consumer group member.","O(1) if COUNT is small.","6.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XAUTOCLAIM_History,1,XAUTOCLAIM_Tips,1,xautoclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XAUTOCLAIM_Keyspecs,1,NULL,7),.args=XAUTOCLAIM_Args},
+{MAKE_CMD("xcfgset","Sets the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XCFGSET_History,0,XCFGSET_Tips,0,xcfgsetCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XCFGSET_Keyspecs,1,NULL,3),.args=XCFGSET_Args},
 {MAKE_CMD("xclaim","Changes, or acquires, ownership of a message in a consumer group, as if the message was delivered a consumer group member.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XCLAIM_History,0,XCLAIM_Tips,1,xclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XCLAIM_Keyspecs,1,NULL,11),.args=XCLAIM_Args},
 {MAKE_CMD("xdel","Returns the number of messages after removing them from a stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDEL_History,0,XDEL_Tips,0,xdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDEL_Keyspecs,1,NULL,2),.args=XDEL_Args},
+{MAKE_CMD("xdelex","Deletes one or multiple entries from the stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDELEX_History,0,XDELEX_Tips,0,xdelexCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDELEX_Keyspecs,1,NULL,3),.args=XDELEX_Args},
 {MAKE_CMD("xgroup","A container for consumer groups commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XGROUP_History,0,XGROUP_Tips,0,NULL,-2,0,0,XGROUP_Keyspecs,0,NULL,0),.subcommands=XGROUP_Subcommands},
 {MAKE_CMD("xinfo","A container for stream introspection commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_History,0,XINFO_Tips,0,NULL,-2,0,0,XINFO_Keyspecs,0,NULL,0),.subcommands=XINFO_Subcommands},
 {MAKE_CMD("xlen","Return the number of messages in a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XLEN_History,0,XLEN_Tips,0,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XLEN_Keyspecs,1,NULL,1),.args=XLEN_Args},
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args},
 {MAKE_CMD("xrange","Returns the messages from a stream within a range of IDs.","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XRANGE_History,1,XRANGE_Tips,0,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XRANGE_Keyspecs,1,NULL,4),.args=XRANGE_Args},
 {MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args},
-{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args},
+{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,6),.args=XREADGROUP_Args},
 {MAKE_CMD("xrevrange","Returns the messages from a stream within a range of IDs in reverse order.","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREVRANGE_History,1,XREVRANGE_Tips,0,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XREVRANGE_Keyspecs,1,NULL,4),.args=XREVRANGE_Args},
 {MAKE_CMD("xsetid","An internal command for replicating stream values.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSETID_History,1,XSETID_Tips,0,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XSETID_Keyspecs,1,NULL,4),.args=XSETID_Args},
-{MAKE_CMD("xtrim","Deletes messages from the beginning of a stream.","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XTRIM_History,1,XTRIM_Tips,1,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,XTRIM_Keyspecs,1,NULL,2),.args=XTRIM_Args},
+{MAKE_CMD("xtrim","Deletes messages from the beginning of a stream.","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XTRIM_History,2,XTRIM_Tips,1,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,XTRIM_Keyspecs,1,NULL,2),.args=XTRIM_Args},
 /* string */
 {MAKE_CMD("append","Appends a string to the value of a key. Creates the key if it doesn't exist.","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,APPEND_History,0,APPEND_Tips,0,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,APPEND_Keyspecs,1,NULL,2),.args=APPEND_Args},
 {MAKE_CMD("decr","Decrements the integer value of a key by one. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,DECR_History,0,DECR_Tips,0,decrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,DECR_Keyspecs,1,NULL,1),.args=DECR_Args},
 {MAKE_CMD("decrby","Decrements a number from the integer value of a key. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,DECRBY_History,0,DECRBY_Tips,0,decrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,DECRBY_Keyspecs,1,NULL,2),.args=DECRBY_Args},
+{MAKE_CMD("delex","Conditionally removes the specified key based on value or digest comparison.","O(1) for IFEQ/IFNE, O(N) for IFDEQ/IFDNE where N is the length of the string value.","8.4.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,DELEX_History,0,DELEX_Tips,0,delexCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,DELEX_Keyspecs,1,delexGetKeys,2),.args=DELEX_Args},
+{MAKE_CMD("digest","Returns the XXH3 hash of a string value.","O(N) where N is the length of the string value.","8.4.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,DIGEST_History,0,DIGEST_Tips,0,digestCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,DIGEST_Keyspecs,1,NULL,1),.args=DIGEST_Args},
 {MAKE_CMD("get","Returns the string value of a key.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,GET_History,0,GET_Tips,0,getCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,GET_Keyspecs,1,NULL,1),.args=GET_Args},
 {MAKE_CMD("getdel","Returns the string value of a key after deleting the key.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,GETDEL_History,0,GETDEL_Tips,0,getdelCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,GETDEL_Keyspecs,1,NULL,1),.args=GETDEL_Args},
 {MAKE_CMD("getex","Returns the string value of a key after setting its expiration time.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,GETEX_History,0,GETEX_Tips,0,getexCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STRING,GETEX_Keyspecs,1,NULL,2),.args=GETEX_Args},
@@ -11353,9 +11943,10 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lcs","Finds the longest common substring.","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,LCS_History,0,LCS_Tips,0,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,LCS_Keyspecs,1,NULL,6),.args=LCS_Args},
 {MAKE_CMD("mget","Atomically returns the string values of one or more keys.","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MGET_History,0,MGET_Tips,1,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,MGET_Keyspecs,1,NULL,1),.args=MGET_Args},
 {MAKE_CMD("mset","Atomically creates or modifies the string values of one or more keys.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSET_History,0,MSET_Tips,2,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSET_Keyspecs,1,NULL,1),.args=MSET_Args},
+{MAKE_CMD("msetex","Atomically sets multiple string keys with a shared expiration in a single operation. Supports flexible argument parsing where condition and expiration flags can appear in any order.","O(N) where N is the number of keys to set.","8.4.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETEX_History,0,MSETEX_Tips,2,msetexCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETEX_Keyspecs,1,NULL,4),.args=MSETEX_Args},
 {MAKE_CMD("msetnx","Atomically modifies the string values of one or more keys only when all keys don't exist.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETNX_History,0,MSETNX_Tips,0,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETNX_Keyspecs,1,NULL,1),.args=MSETNX_Args},
 {MAKE_CMD("psetex","Sets both string value and expiration time in milliseconds of a key. The key is created if it doesn't exist.","O(1)","2.6.0",CMD_DOC_DEPRECATED,"`SET` with the `PX` argument","2.6.12","string",COMMAND_GROUP_STRING,PSETEX_History,0,PSETEX_Tips,0,psetexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,PSETEX_Keyspecs,1,NULL,3),.args=PSETEX_Args},
-{MAKE_CMD("set","Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args},
+{MAKE_CMD("set","Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,5,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args},
 {MAKE_CMD("setex","Sets the string value and expiration time of a key. Creates the key if it doesn't exist.","O(1)","2.0.0",CMD_DOC_DEPRECATED,"`SET` with the `EX` argument","2.6.12","string",COMMAND_GROUP_STRING,SETEX_History,0,SETEX_Tips,0,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETEX_Keyspecs,1,NULL,3),.args=SETEX_Args},
 {MAKE_CMD("setnx","Set the string value of a key only when the key doesn't exist.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`SET` with the `NX` argument","2.6.12","string",COMMAND_GROUP_STRING,SETNX_History,0,SETNX_Tips,0,setnxCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,SETNX_Keyspecs,1,NULL,2),.args=SETNX_Args},
 {MAKE_CMD("setrange","Overwrites a part of a string value with another by an offset. Creates the key if it doesn't exist.","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SETRANGE_History,0,SETRANGE_Tips,0,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETRANGE_Keyspecs,1,NULL,3),.args=SETRANGE_Args},

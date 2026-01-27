@@ -3,8 +3,9 @@
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "fmacros.h"
@@ -173,6 +174,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     }
 
     intvl = idle/3;
+    if (intvl < 10) intvl = 10; /* kernel expects at least 10 seconds */
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
@@ -195,9 +197,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     /* Note that the consequent probes will not be sent at equal intervals on Solaris,
      * but will be sent using the exponential backoff algorithm. */
-    intvl = idle/3;
-    cnt = 3;
-    int time_to_abort = intvl * cnt;
+    int time_to_abort = idle;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort))) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
@@ -785,4 +785,28 @@ int anetIsFifo(char *filepath) {
     struct stat sb;
     if (stat(filepath, &sb) == -1) return 0;
     return S_ISFIFO(sb.st_mode);
+}
+
+/* This function must be called after accept4() fails. It returns 1 if 'err'
+ * indicates accepted connection faced an error, and it's okay to continue
+ * accepting next connection by calling accept4() again. Other errors either
+ * indicate programming errors, e.g. calling accept() on a closed fd or indicate
+ * a resource limit has been reached, e.g. -EMFILE, open fd limit has been
+ * reached. In the latter case, caller might wait until resources are available.
+ * See accept4() documentation for details. */
+int anetAcceptFailureNeedsRetry(int err) {
+    if (err == ECONNABORTED)
+        return 1;
+
+#if defined(__linux__)
+    /* For details, see 'Error Handling' section on
+     * https://man7.org/linux/man-pages/man2/accept.2.html */
+    if (err == ENETDOWN || err == EPROTO || err == ENOPROTOOPT ||
+        err == EHOSTDOWN || err == ENONET || err == EHOSTUNREACH ||
+        err == EOPNOTSUPP || err == ENETUNREACH)
+    {
+        return 1;
+    }
+#endif
+    return 0;
 }

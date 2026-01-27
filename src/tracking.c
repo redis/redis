@@ -3,8 +3,9 @@
  * Copyright (c) 2019-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -351,7 +352,7 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
     raxStop(&ri);
 }
 
-/* This function is called from signalModifiedKey() or other places in Redis
+/* This function is called from keyModified() or other places in Redis
  * when a key changes value. In the context of keys tracking, our task here is
  * to send a notification to every client that may have keys about such caching
  * slot.

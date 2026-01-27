@@ -25,7 +25,7 @@
       as Murmurhash2 that we used previously, while the 2-4 variant slowed
       down Redis by a 4% figure more or less.
    2. Hard-code rounds in the hope the compiler can optimize it more
-      in this raw from. Anyway we always want the standard 2-4 variant.
+      in this raw form. Anyway we always want the standard 2-4 variant.
    3. Modify the prototype and implementation so that the function directly
       returns an uint64_t value, the hash itself, instead of receiving an
       output buffer. This also means that the output size is set to 8 bytes
@@ -68,7 +68,8 @@ int siptlw(int c) {
  * Two interesting conditions to speedup the function that happen to be
  * in most of x86 servers. */
 #if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__) \
-	|| defined (__aarch64__) || defined (__arm64__)
+	|| defined (__aarch64__) || defined (__arm64__) \
+    || (defined(__riscv) && defined(__riscv_zicclsm))
 #define UNALIGNED_LE_CPU
 #endif
 

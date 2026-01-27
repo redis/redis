@@ -2,7 +2,7 @@ set testmodule [file normalize tests/modules/propagate.so]
 set miscmodule [file normalize tests/modules/misc.so]
 set keyspace_events [file normalize tests/modules/keyspace_events.so]
 
-tags "modules" {
+tags "modules external:skip" {
     test {Modules can propagate in async and threaded contexts} {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             set replica [srv 0 client]
@@ -596,8 +596,13 @@ tags "modules" {
 
                     assert_equal [$master get k1] 1
                     assert_equal [$master ttl k1] -1
-                    assert_equal [$replica get k1] 1
-                    assert_equal [$replica ttl k1] -1
+
+                    wait_for_condition 50 100 {
+                        [$replica get k1] eq 1 &&
+                        [$replica ttl k1] eq -1
+                    } else {
+                        fail "failed RM_Call of expired key propagation"
+                    }
                 }
 
                 test {module notification on set} {
@@ -677,7 +682,7 @@ tags "modules" {
 }
 
 
-tags "modules aof" {
+tags "modules aof external:skip" {
     foreach aofload_type {debug_cmd startup} {
     test "Modules RM_Replicate replicates MULTI/EXEC correctly: AOF-load type $aofload_type" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
@@ -765,9 +770,9 @@ tags "modules aof" {
 # This test does not really test module functionality, but rather uses a module
 # command to test Redis replication mechanisms.
 test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
         set replica [srv 0 client]
-        start_server [list overrides [list loadmodule "$testmodule"]] {
+        start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
             set master [srv 0 client]
             set master_host [srv 0 host]
             set master_port [srv 0 port]
@@ -793,7 +798,7 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
                 # exceed the replica soft limit. Furthermore, as the replica release its reference to
                 # replication backlog, it should be properly trimmed, the memory usage of replication
                 # backlog should not significantly exceed repl-backlog-size (default 1MB). */
-                assert_lessthan [getInfoProperty $res used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [getInfoProperty $res used_memory_peak] 20000000;# less than 20mb
                 assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
             }
         }

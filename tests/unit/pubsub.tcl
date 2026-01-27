@@ -269,6 +269,7 @@ start_server {tags {"pubsub network"}} {
 
     test "Keyspace notifications: we receive keyevent notifications" {
         r config set notify-keyspace-events EA
+        r del foo
         set rd1 [redis_deferring_client]
         $rd1 CLIENT REPLY SKIP ;# Make sure it works even if replies are silenced
         assert_equal {1} [psubscribe $rd1 *]
@@ -279,6 +280,7 @@ start_server {tags {"pubsub network"}} {
 
     test "Keyspace notifications: we can receive both kind of events" {
         r config set notify-keyspace-events KEA
+        r del foo
         set rd1 [redis_deferring_client]
         $rd1 CLIENT REPLY ON ;# Just coverage
         assert_equal {OK} [$rd1 read]
@@ -554,6 +556,82 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications:FXX/FNX with HSETEX cmd" {
+        r config set notify-keyspace-events Khxg
+        r del myhash
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r debug set-active-expire 0
+
+        # FXX on logically expired field
+        r hset myhash f v
+        r hset myhash f2 v
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hpexpire myhash 10 FIELDS 1 f
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 15
+        assert_equal [r HSETEX myhash FXX PX 10 FIELDS 1 f v] 0
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        r hdel myhash f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal 0 [r exists myhash]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        # FXX with past expiry
+        r HSET myhash f1 v1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        set past [expr {[clock seconds] - 2}]
+        assert_equal [r hsetex myhash FXX EXAT $past FIELDS 1 f1 v1] 1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        # FXX overwrite + full key expiry
+        r hset myhash f v
+        r hset myhash f2 v
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hpexpire myhash 10 FIELDS 1 f
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 15
+        set past [expr {[clock milliseconds] - 5000}]
+        assert_equal [r hsetex myhash FXX PXAT $past FIELDS 1 f v] 0
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        r hpexpire myhash 10 FIELDS 1 f2
+        after 15
+        r hget myhash f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        # FNX on logically expired field
+        r del myhash
+        r hset myhash f v
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hpexpire myhash 10 FIELDS 1 f
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 15
+        assert_equal [r HSETEX myhash FNX PX 1000 FIELDS 1 f v] 1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+
+        # FNX with past expiry
+        r del myhash
+        r hset myhash f v
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        set past [expr {[clock seconds] - 2}]
+        assert_equal [r hsetex myhash FNX EXAT $past FIELDS 1 f1 v1] 1
+        # f1 is created and immediately expired
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+
+        r debug set-active-expire 1
+        $rd1 close
+    } {0} {needs:debug}
+
     test "Keyspace notifications: expired events (triggered expire)" {
         r config set notify-keyspace-events Ex
         r del foo
@@ -614,6 +692,273 @@ start_server {tags {"pubsub network"}} {
         r set bar bar
         assert_equal "pmessage * __keyevent@${db}__:new foo" [$rd1 read]
         assert_equal "pmessage * __keyevent@${db}__:new bar" [$rd1 read]
+        $rd1 close
+    }
+
+    ### overwritten and type_changed events
+
+    test "Keyspace notifications: overwritten events - string to string" {
+        r config set notify-keyspace-events Eo
+        r del foo
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # First set - should not trigger overwritten (new key)
+        r set foo bar
+
+        # Second set - should trigger overwritten (same type)
+        r set foo baz
+
+        assert_equal "pmessage * __keyevent@${db}__:overwritten foo" [$rd1 read]
+        $rd1 close
+    }
+
+    test "Keyspace notifications: type_changed events - hash to string" {
+        r config set notify-keyspace-events Ec
+        r del testkey
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # Set as hash first
+        r hset testkey field "hash_value"
+
+        # Change to string - should trigger type_changed
+        r set testkey "string_value"
+
+        assert_equal "pmessage * __keyevent@${db}__:type_changed testkey" [$rd1 read]
+        $rd1 close
+    }
+
+    test "Keyspace notifications: both overwritten and type_changed events" {
+        r config set notify-keyspace-events Eoc
+        r del testkey3
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # Set as hash first
+        r hset testkey3 field "hash_value"
+
+        # Change to string - should trigger both overwritten and type_changed
+        r set testkey3 "string_value"
+
+        assert_equal "pmessage * __keyevent@${db}__:overwritten testkey3" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed testkey3" [$rd1 read]
+
+        $rd1 close
+    }
+
+    test "Keyspace notifications: configuration flags work correctly" {
+        # Test that 'o' flag enables override notifications
+        r config set notify-keyspace-events o
+        set config [r config get notify-keyspace-events]
+        assert {[lindex $config 1] eq "o"}
+
+        # Test that 'c' flag enables type_changed notifications
+        r config set notify-keyspace-events c
+        set config [r config get notify-keyspace-events]
+        assert {[lindex $config 1] eq "c"}
+
+        # Test that both flags can be combined
+        r config set notify-keyspace-events oc
+        set config [r config get notify-keyspace-events]
+        assert {[lindex $config 1] eq "oc"}
+    }
+
+    ### RESTORE command tests for type_changed KSN types
+
+    test "Keyspace notifications: RESTORE REPLACE different type - restore, overwritten and type_changed events" {
+        r config set notify-keyspace-events Egoc
+        r del restore_test_key3
+
+        # Create a string value and dump it (do this before subscribing)
+        r set temp_key "string_value"
+        set dump_data [r dump temp_key]
+        r del temp_key
+
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # Create initial hash key
+        r hset restore_test_key3 field "hash_value"
+
+        # Restore with REPLACE - should emit restore, overwritten and type_changed events
+        r restore restore_test_key3 0 $dump_data REPLACE
+
+        assert_equal "pmessage * __keyevent@${db}__:restore restore_test_key3" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:overwritten restore_test_key3" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed restore_test_key3" [$rd1 read]
+
+        $rd1 close
+    }
+
+    ### SET command tests for overwritten and type_changed KSN types
+
+    test "Keyspace notifications: SET on existing string key - overwritten event" {
+        r config set notify-keyspace-events EAo
+        r del set_test_key1
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # Create initial string key
+        r set set_test_key1 "initial_value"
+        assert_equal "pmessage * __keyevent@${db}__:set set_test_key1" [$rd1 read]
+
+        # Set new value on existing string key - should emit overwritten event
+        r set set_test_key1 "new_value"
+
+        assert_equal "pmessage * __keyevent@${db}__:overwritten set_test_key1" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set set_test_key1" [$rd1 read]
+
+        $rd1 close
+    }
+
+    test "Keyspace notifications: setKey on existing different type key - overwritten and type_changed events" {
+        r config set notify-keyspace-events Eoc
+
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r flushdb
+        r hset set_test_key2 field "hash_value"
+        r set set_test_key2 "string_value"
+        assert_equal "pmessage * __keyevent@${db}__:overwritten set_test_key2" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed set_test_key2" [$rd1 read]
+
+        # overwritten and type_changed events should be emitted for any->any
+        # type conversion that uses the setKey command
+        r flushdb
+        r lpush l{t} 1 2 3
+        r sadd s1{t} "A"
+        r sadd s2{t} "B"
+        r sunionstore l{t} s1{t} s2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten l{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed l{t}" [$rd1 read]
+
+        r flushdb
+        r sadd s1{t} "A"
+        r set x{t} "\x0f"
+        r set y{t} "\xff"
+        r bitop and s1{t} x{t} y{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten s1{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed s1{t}" [$rd1 read]
+
+        $rd1 close
+    }
+
+    test "Keyspace notifications: overwritten and type_changed events for RENAME and COPY commands" {
+        r config set notify-keyspace-events Eoc
+
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # test COPY events
+        r flushdb
+        r hset hs{t} 1 2 3 4
+        r lpush l{t} 1 2 3 4
+        r copy hs{t} l{t} replace
+
+        assert_equal "pmessage * __keyevent@${db}__:overwritten l{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed l{t}" [$rd1 read]
+
+        # test rename RENAME events
+        r flushdb
+        r hset hs{t} field "hash_value"
+        r sadd x{t} 1 2 3
+        r rename x{t} hs{t}
+
+        assert_equal "pmessage * __keyevent@${db}__:overwritten hs{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed hs{t}" [$rd1 read]
+
+        $rd1 close
+    }
+
+    test "Keyspace notifications: overwritten and type_changed for *STORE* commands" {
+        r config set notify-keyspace-events Eoc
+
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r flushdb
+        r set x{t} x
+
+        # SORT
+        r lpush l{t} 4 3 2 1
+        r sort l{t} store x{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten x{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed x{t}" [$rd1 read]
+
+        # SDIFFSTORE
+        r sadd s1{t} a b c d
+        r sadd s2{t} b e f
+        r sdiffstore x{t} s1{t} s2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten x{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed x{t}" [$rd1 read]
+
+        # SINTERSTORE
+        r set d1{t} x
+        r sinterstore d1{t} s1{t} s2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d1{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d1{t}" [$rd1 read]
+
+        # SUNIONSTORE
+        r set d2{t} x
+        r sunionstore d2{t} s1{t} s2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d2{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d2{t}" [$rd1 read]
+
+        # ZUNIONSTORE
+        r set d3{t} x
+        r zadd z1{t} 1 a 2 b
+        r zadd z2{t} 3 c 4 d
+        r zunionstore d3{t} 2 z1{t} z2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d3{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d3{t}" [$rd1 read]
+
+        # ZINTERSTORE
+        r set d4{t} x
+        r zadd z2{t} 2 a
+        r zinterstore d4{t} 2 z1{t} z2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d4{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d4{t}" [$rd1 read]
+
+        # ZDIFFSTORE
+        r set d5{t} x
+        r zdiffstore d5{t} 2 z1{t} z2{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d5{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d5{t}" [$rd1 read]
+
+        # ZRANGESTORE
+        r set d6{t} x
+        r zadd zsrc{t} 1 a 2 b 3 c 4 d
+        r zrangestore d6{t} zsrc{t} 1 2
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d6{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d6{t}" [$rd1 read]
+
+        # GEORADIUS with STORE
+        r set d7{t} x
+        r geoadd geo{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+        r georadius geo{t} 15 37 200 km store d7{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d7{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d7{t}" [$rd1 read]
+
+        # GEORADIUS with STOREDIST
+        r set d8{t} x
+        r georadius geo{t} 15 37 200 km storedist d8{t}
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d8{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d8{t}" [$rd1 read]
+
+        # GEOSEARCHSTORE
+        r set d9{t} x
+        r geosearchstore d9{t} geo{t} fromlonlat 15 37 byradius 200 km
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d9{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d9{t}" [$rd1 read]
+
+        # GEOSEARCHSTORE with STOREDIST
+        r set d10{t} x
+        r geosearchstore d10{t} geo{t} fromlonlat 15 37 byradius 200 km storedist
+        assert_equal "pmessage * __keyevent@${db}__:overwritten d10{t}" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:type_changed d10{t}" [$rd1 read]
+
         $rd1 close
     }
 

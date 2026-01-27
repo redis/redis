@@ -1,0 +1,89 @@
+{
+    "DELEX": {
+        "summary": "Conditionally removes the specified key based on value or digest comparison.",
+        "complexity": "O(1) for IFEQ/IFNE, O(N) for IFDEQ/IFDNE where N is the length of the string value.",
+        "group": "string",
+        "since": "8.4.0",
+        "arity": -2,
+        "function": "delexCommand",
+        "get_keys_function": "delexGetKeys",
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STRING"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE",
+                    "VARIABLE_FLAGS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The key exists but holds a non-string value",
+                    "const": "WRONGTYPE"
+                },
+                {
+                    "description": "The key does not exist or the specified condition was not met.",
+                    "const": 0
+                },
+                {
+                    "description": "The key was deleted.",
+                    "const": 1
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "ifeq-value",
+                        "type": "string",
+                        "token": "IFEQ"
+                    },
+                    {
+                        "name": "ifne-value",
+                        "type": "string",
+                        "token": "IFNE"
+                    },
+                    {
+                        "name": "ifdeq-digest",
+                        "type": "integer",
+                        "token": "IFDEQ"
+                    },
+                    {
+                        "name": "ifdne-digest",
+                        "type": "integer",
+                        "token": "IFDNE"
+                    }
+                ]
+            }
+        ]
+    }
+}

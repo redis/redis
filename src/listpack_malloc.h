@@ -4,8 +4,9 @@
  * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 /* Allocator selection.
@@ -22,7 +23,7 @@
  * to ensure the safe invocation of 'zmalloc_usable_size().
  * See comment in zmalloc_usable_size(). */
 #define lp_malloc(sz) zmalloc_usable(sz,NULL)
-#define lp_realloc(ptr,sz) zrealloc_usable(ptr,sz,NULL)
+#define lp_realloc(ptr,sz) zrealloc_usable(ptr,sz,NULL,NULL)
 #define lp_free zfree
 #define lp_malloc_size zmalloc_usable_size
 #endif

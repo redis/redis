@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag,vectorset'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -58,9 +58,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -100,9 +97,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -140,9 +134,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -177,9 +168,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -211,16 +199,12 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386 g++ gcc-multilib g++-multilib
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
+        make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -262,10 +246,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --dump-logs --tls --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs --tls --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -306,10 +286,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -346,10 +322,10 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --config io-threads 4 --accurate --verbose --tags "network iothreads psync2 repl failover" --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster --config io-threads 4 ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-reclaim-cache:
     runs-on: ubuntu-latest
@@ -457,7 +433,10 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind g++ -y
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
+      # Note that valgrind's overhead doesn't pair well with io-threads so we
+      # explicitly disable tests tagged with 'iothreads' - these are tests that
+      # always run with io-threads enabled.
+      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --tags -iothreads --dump-logs ${{github.event.inputs.test_args}}
 
   test-valgrind-misc:
     runs-on: ubuntu-latest
@@ -485,9 +464,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: |
@@ -522,7 +498,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind g++ -y
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --valgrind --tags -iothreads --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
 
   test-valgrind-no-malloc-usable-size-misc:
     runs-on: ubuntu-latest
@@ -550,9 +526,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: |
@@ -593,9 +566,47 @@ jobs:
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-      - name: module api test
-        if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      - name: sentinel tests
+        if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
+      - name: cluster tests
+        if: true && !contains(github.event.inputs.skiptests, 'cluster')
+        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+      - name: unittest
+        if: true && !contains(github.event.inputs.skiptests, 'unittest')
+        run: ./src/redis-server test all
+
+  test-sanitizer-memory:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'sanitizer')
+    timeout-minutes: 14400
+    env:
+      CC: clang # MSan works only with clang
+    steps:
+      - name: prep
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITHUB_REPOSITORY }}
+          ref: ${{ env.GITHUB_HEAD_REF }}
+      - name: make
+        run: make SANITIZER=memory REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+      - name: testprep
+        run: |
+          sudo apt-get update
+          sudo apt-get install tcl8.6 tclx -y
+      - name: test
+        if: true && !contains(github.event.inputs.skiptests, 'redis')
+        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -640,9 +651,6 @@ jobs:
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-      - name: module api test
-        if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -652,6 +660,50 @@ jobs:
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
+
+  test-sanitizer-thread:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'sanitizer')
+    timeout-minutes: 14400
+    strategy:
+      fail-fast: false # let gcc and clang both run until the end even if one of them fails
+      matrix:
+        compiler: [ gcc, clang ]
+    env:
+      CC: ${{ matrix.compiler }}
+    steps:
+      - name: prep
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITHUB_REPOSITORY }}
+          ref: ${{ env.GITHUB_HEAD_REF }}
+      - name: make
+        # TODO Investigate why jemalloc with clang TSan crash on start;
+        # with gcc TSan, jemalloc works modulo sentinel tests hanging.
+        run: make SANITIZER=thread USE_JEMALLOC=no REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+      - name: testprep
+        run: |
+          sudo apt-get update
+          sudo apt-get install tcl8.6 tclx -y
+      - name: test
+        if: true && !contains(github.event.inputs.skiptests, 'redis')
+        run: ./runtest --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+      - name: sentinel tests
+        if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+        run: ./runtest-sentinel --tsan ${{github.event.inputs.cluster_test_args}}
+      - name: cluster tests
+        if: true && !contains(github.event.inputs.skiptests, 'cluster')
+        run: ./runtest-cluster --config io-threads 2 ${{github.event.inputs.cluster_test_args}}
 
   test-centos-jemalloc:
     runs-on: ubuntu-latest
@@ -685,9 +737,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -729,10 +778,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -776,10 +821,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -814,9 +855,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
 
   test-macos-latest-sentinel:
     runs-on: macos-latest
@@ -873,7 +911,7 @@ jobs:
   build-macos:
     strategy:
       matrix:
-        os: [macos-13, macos-15]
+        os: [macos-14, macos-26]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
@@ -900,7 +938,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
 
   test-freebsd:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd')
@@ -919,14 +957,14 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.22.0
+      uses: cross-platform-actions/action@v0.30.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx gcc
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
@@ -959,9 +997,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -998,9 +1033,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -1035,9 +1067,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --log-req-res --no-latency --dont-clean --force-resp3 --tags -slow --verbose --dump-logs  ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --log-req-res --no-latency --dont-clean --force-resp3 --dont-pre-clean --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
@@ -1090,9 +1119,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -1142,10 +1168,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -1197,10 +1219,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-    - name: module api test
-      if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: |
-        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -1209,3 +1227,61 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+
+  test-sanitizer-force-defrag:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'defrag')
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: ./runtest --debug-defrag --verbose --clients 1 ${{github.event.inputs.test_args}}
+
+  test-vectorset:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'vectorset')
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+    - name: testprep
+      run: |
+        sudo apt-get install tcl8.6 tclx
+        sudo pip install redis
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: ./runtest --accurate --verbose --dump-logs --single vectorset/vectorset ${{github.event.inputs.test_args}}

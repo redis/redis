@@ -651,6 +651,9 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         r flushdb
         r function flush
 
+        if {!$::external} {
+            set lines [count_log_lines 0]
+        }
         set dir [lindex [r config get dir] 1]
 
         assert_equal "OK" [r debug populate 100000 key 1000]
@@ -662,6 +665,12 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         }
         catch {run_cli {*}$args} output
         assert_match {*Transfer finished with success*} $output
+
+        # If server enabled diskless sync, it should transfer the RDB by RDB channel
+        # since server will automatically apply this optimization for rdb-only.
+        if {[r config get repl-diskless-sync] == "yes" && !$::external} {
+            verify_log_message 0 "*replicas sockets (rdb-channel)*" $lines
+        }
 
         file delete "$dir/dump.rdb"
         file rename "$dir/cli.rdb" "$dir/dump.rdb"

@@ -1,3 +1,17 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 foreach is_eval {0 1} {
 
 if {$is_eval == 1} {
@@ -341,12 +355,44 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
-    test {EVAL - JSON string encoding a string larger than 2GB} {
-        run_script {
-            local s = string.rep("a", 1024 * 1024 * 1024)
-            return #cjson.encode(s..s..s)
-        } 0
-    } {3221225474} {large-memory} ;# length includes two double quotes at both ends
+    test {EVAL - Test table unpack with invalid indexes} {
+        catch {run_script { return {unpack({1,2,3}, -2, 2147483647)} } 0} e
+        assert_match {*too many results to unpack*} $e
+        catch {run_script { return {unpack({1,2,3}, 0, 2147483647)} } 0} e
+        assert_match {*too many results to unpack*} $e
+        catch {run_script { return {unpack({1,2,3}, -2147483648, -2)} } 0} e
+        assert_match {*too many results to unpack*} $e
+        set res [run_script { return {unpack({1,2,3}, -1, -2)} } 0]
+        assert_match {} $res
+        set res [run_script { return {unpack({1,2,3}, 1, -1)} } 0]
+        assert_match {} $res
+
+        # unpack with range -1 to 5, verify nil indexes
+        set res [run_script {
+             local function unpack_to_list(t, i, j)
+               local n, v = select('#', unpack(t, i, j)), {unpack(t, i, j)}
+               for i = 1, n do v[i] = v[i] or '_NIL_' end
+               v.n = n
+               return v
+             end
+
+            return unpack_to_list({1,2,3}, -1, 5)
+        } 0]
+        assert_match {_NIL_ _NIL_ 1 2 3 _NIL_ _NIL_} $res
+
+        # unpack with negative range, verify nil indexes
+        set res [run_script {
+             local function unpack_to_list(t, i, j)
+               local n, v = select('#', unpack(t, i, j)), {unpack(t, i, j)}
+               for i = 1, n do v[i] = v[i] or '_NIL_' end
+               v.n = n
+               return v
+             end
+
+            return unpack_to_list({1,2,3}, -2147483648, -2147483646)
+        } 0]
+        assert_match {_NIL_ _NIL_ _NIL_} $res
+    } {}
 
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
@@ -364,6 +410,65 @@ start_server {tags {"scripting"}} {
                 return {decoded.keya, decoded.keyb}
         } 0
     } {a b}
+
+    test {EVAL - JSON empty array decoding} {
+        # Default behavior
+        assert_equal "{}" [run_script {
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":{}}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
+
+        # With array metatable
+        assert_equal "\[\]" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":\[\]}" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
+    }
+
+    test {EVAL - JSON empty array decoding after element removal} {
+        # Default: emptied array becomes object
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            local t = cjson.decode('[1, 2]')
+            -- emptying the array
+            t[1] = nil
+            t[2] = nil
+            return cjson.encode(t)
+        } 0]
+
+        # With array metatable: emptied array stays array
+        assert_equal "\[\]" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            local t = cjson.decode('[1, 2]')
+            -- emptying the array
+            t[1] = nil
+            t[2] = nil
+            return cjson.encode(t)
+        } 0]
+    }
+
+    test {EVAL - cjson array metatable modification should be readonly} {
+        catch {
+            run_script {
+                cjson.decode_array_with_array_mt(true)
+                local t = cjson.decode('[]')
+                getmetatable(t).__is_cjson_array = function() return 1 end
+                return cjson.encode(t)
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
 
     test {EVAL - JSON smoke test} {
         run_script {
@@ -1085,6 +1190,27 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Attempt to modify a readonly table*}
 
+    test "Try trick readonly table on basic types metatable" {
+        # Run the following scripts for basic types. Either getmetatable()
+        # should return nil or the metatable must be readonly.
+        set scripts {
+            {getmetatable(nil).__index = function() return 1 end}
+            {getmetatable('').__index = function() return 1 end}
+            {getmetatable(123.222).__index = function() return 1 end}
+            {getmetatable(true).__index = function() return 1 end}
+            {getmetatable(function() return 1 end).__index = function() return 1 end}
+            {getmetatable(coroutine.create(function() return 1 end)).__index = function() return 1 end}
+        }
+
+        foreach code $scripts {
+            catch {run_script $code 0} e
+            assert {
+                [string match "*attempt to index a nil value script*" $e] ||
+                [string match "*Attempt to modify a readonly table*" $e]
+            }
+        }
+    }
+
     test "Test loadfile are not available" {
         catch {
             run_script {
@@ -1111,6 +1237,101 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*Script attempted to access nonexistent global variable 'print'*}
+}
+
+# start a new server to test the large-memory tests
+start_server {tags {"scripting external:skip large-memory"}} {
+    test {EVAL - JSON string encoding a string larger than 2GB} {
+        run_script {
+            local s = string.rep("a", 1024 * 1024 * 1024)
+            return #cjson.encode(s..s..s)
+        } 0
+    } {3221225474} ;# length includes two double quotes at both ends
+
+    test {EVAL - Test long escape sequences for strings} {
+        run_script {
+            -- Generate 1gb '==...==' separator
+            local s = string.rep('=', 1024 * 1024)
+            local t = {} for i=1,1024 do t[i] = s end
+            local sep = table.concat(t)
+            collectgarbage('collect')
+
+            local code = table.concat({'return [',sep,'[x]',sep,']'})
+            collectgarbage('collect')
+
+            -- Load the code and run it. Script will return the string length.
+            -- Escape sequence: [=....=[ to ]=...=] will be ignored
+            -- Actual string is a single character: 'x'. Script will return 1
+            local func = loadstring(code)
+            return #func()
+        } 0
+    } {1}
+
+    test {EVAL - Lua can parse string with too many new lines} {
+        # Create a long string consisting only of newline characters. When Lua
+        # fails to parse a string, it typically includes a snippet like
+        # "... near ..." in the error message to indicate the last recognizable
+        # token. In this test, since the input contains only newlines, there
+        # should be no identifiable token, so the error message should contain
+        # only the actual error, without a near clause.
+
+        run_script {
+           local s = string.rep('\n', 1024 * 1024)
+           local t = {} for i=1,2048 do t[#t+1] = s end
+           local lines = table.concat(t)
+           local fn, err = loadstring(lines)
+           return err
+        } 0
+    } {*chunk has too many lines}
+}
+
+# Start a new server to test lua-enable-deprecated-api config
+foreach enabled {no yes} {
+start_server [subst {tags {"scripting external:skip"} overrides {lua-enable-deprecated-api $enabled}}] {
+    test "Test setfenv availability lua-enable-deprecated-api=$enabled" {
+        catch {
+            run_script {
+                local f = function() return 1 end
+                setfenv(f, {})
+                return 0
+            } 0
+        } e
+        if {$enabled} {
+            assert_equal $e 0
+        } else {
+            assert_match {*Script attempted to access nonexistent global variable 'setfenv'*} $e
+        }
+    }
+
+    test "Test getfenv availability lua-enable-deprecated-api=$enabled" {
+        catch {
+            run_script {
+                local f = function() return 1 end
+                getfenv(f)
+                return 0
+            } 0
+        } e
+        if {$enabled} {
+            assert_equal $e 0
+        } else {
+            assert_match {*Script attempted to access nonexistent global variable 'getfenv'*} $e
+        }
+    }
+
+    test "Test newproxy availability lua-enable-deprecated-api=$enabled" {
+        catch {
+            run_script {
+                getmetatable(newproxy(true)).__gc = function() return 1 end
+                return 0
+            } 0
+        } e
+        if {$enabled} {
+            assert_equal $e 0
+        } else {
+            assert_match {*Script attempted to access nonexistent global variable 'newproxy'*} $e
+        }
+    }
+}
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -1930,7 +2151,7 @@ start_server {tags {"scripting"}} {
         } else {
             assert_lessthan [s used_memory_vm_functions] 14500000
         }
-    }
+    } {} {debug_defrag:skip}
 }
 } ;# foreach is_eval
 
@@ -2445,6 +2666,23 @@ start_server {tags {"scripting"}} {
 
             # Assert the string has been trimmed and the 80 bytes from the previous alloc were not kept.
             assert { [r memory usage foo] <= $expected_memory};
+        }
+    }
+
+    test {EVAL - explicit error() call handling} {
+        # error("simple string error")
+        assert_error {ERR user_script:1: simple string error script: *} {
+            r eval "error('simple string error')" 0
+        }
+
+        # error({"err": "ERR table error"})
+        assert_error {ERR table error script: *} {
+            r eval "error({err='ERR table error'})" 0
+        }
+
+        # error({})
+        assert_error {ERR unknown error script: *} {
+            r eval "error({})" 0
         }
     }
 }

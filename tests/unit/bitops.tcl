@@ -29,16 +29,35 @@ proc simulate_bit_op {op args} {
     }
     set out {}
     for {set x 0} {$x < $maxlen} {incr x} {
-        set bit [string range $b(0) $x $x]
+        set fst_bit [string range $b(0) $x $x]
+        set bit $fst_bit
+        if {[expr {$op == {diff} || $op == {diff1} || $op == {andor}}]} {
+            set bit "0"
+        }
         if {$op eq {not}} {set bit [expr {!$bit}]}
+        set multi_cnt "0"
         for {set j 1} {$j < $count} {incr j} {
             set bit2 [string range $b($j) $x $x]
             switch $op {
-                and {set bit [expr {$bit & $bit2}]}
-                or  {set bit [expr {$bit | $bit2}]}
-                xor {set bit [expr {$bit ^ $bit2}]}
+                and   {set bit [expr {$bit & $bit2}]}
+                or    {set bit [expr {$bit | $bit2}]}
+                xor   {set bit [expr {$bit ^ $bit2}]}
+                diff  {set bit [expr {$bit | $bit2}]}
+                diff1 {set bit [expr {$bit | $bit2}]}
+                andor {set bit [expr {$bit | $bit2}]}
+                one {
+                    set multi_cnt [expr $multi_cnt | {$bit & $bit2}]
+                    set bit [expr {$bit ^ $bit2}]
+                    set bit [expr {$bit & !$multi_cnt}]
+                }
             }
         }
+        switch $op {
+            diff  { set bit [expr {$fst_bit & !$bit}] }
+            diff1 { set bit [expr {!$fst_bit & $bit}] }
+            andor { set bit [expr {$fst_bit & $bit}] }
+        }
+
         append out $bit
     }
     binary format b* $out
@@ -209,44 +228,69 @@ start_server {tags {"bitops"}} {
         r get dest{t}
     } "\x55\xff\x00\xaa"
 
+    test {BITOP NOT with multiple source keys} {
+        r set s{t} "\xaa\x00\xff\x55"
+        assert_error "ERR BITOP NOT*" { r bitop not dest{t} s{t} s{t} }
+    }
+
     test {BITOP where dest and target are the same key} {
         r set s "\xaa\x00\xff\x55"
         r bitop not s s
         r get s
     } "\x55\xff\x00\xaa"
 
-    test {BITOP AND|OR|XOR don't change the string with single input key} {
+    test {BITOP AND|OR|XOR|ONE don't change the string with single input key} {
         r set a{t} "\x01\x02\xff"
         r bitop and res1{t} a{t}
         r bitop or  res2{t} a{t}
         r bitop xor res3{t} a{t}
-        list [r get res1{t}] [r get res2{t}] [r get res3{t}]
-    } [list "\x01\x02\xff" "\x01\x02\xff" "\x01\x02\xff"]
+        r bitop one res4{t} a{t}
+        list [r get res1{t}] [r get res2{t}] [r get res3{t}] [r get res4{t}]
+    } [list "\x01\x02\xff" "\x01\x02\xff" "\x01\x02\xff" "\x01\x02\xff"]
+
+    test {BITOP DIFF|DIFF1|ANDOR with one source key} {
+        r set s{t} ""
+        assert_error "ERR BITOP DIFF*" { r bitop diff dest{t} s{t} }
+        assert_error "ERR BITOP DIFF1*" { r bitop diff1 dest{t} s{t} }
+        assert_error "ERR BITOP ANDOR*" { r bitop andor dest{t} s{t} }
+    }
 
     test {BITOP missing key is considered a stream of zero} {
         r set a{t} "\x01\x02\xff"
-        r bitop and res1{t} no-suck-key{t} a{t}
-        r bitop or  res2{t} no-suck-key{t} a{t} no-such-key{t}
-        r bitop xor res3{t} no-such-key{t} a{t}
-        list [r get res1{t}] [r get res2{t}] [r get res3{t}]
-    } [list "\x00\x00\x00" "\x01\x02\xff" "\x01\x02\xff"]
+        r bitop and   res1{t} no-such-key{t} a{t}
+        r bitop or    res2{t} no-such-key{t} a{t} no-such-key{t}
+        r bitop xor   res3{t} no-such-key{t} a{t}
+        r bitop diff  res4{t} a{t} no-such-key{t}
+        r bitop diff1 res5{t} a{t} no-such-key{t}
+        r bitop andor res6{t} a{t} no-such-key{t}
+        r bitop one   res7{t} no-such_key{t} a{t}
+        list [r get res1{t}] [r get res2{t}] [r get res3{t}] [r get res4{t}] [r get res5{t}] [r get res6{t}] [r get res7{t}]
+    } [list "\x00\x00\x00" "\x01\x02\xff" "\x01\x02\xff" "\x01\x02\xff" "\x00\x00\x00" "\x00\x00\x00" "\x01\x02\xff"]
 
     test {BITOP shorter keys are zero-padded to the key with max length} {
         r set a{t} "\x01\x02\xff\xff"
         r set b{t} "\x01\x02\xff"
-        r bitop and res1{t} a{t} b{t}
-        r bitop or  res2{t} a{t} b{t}
-        r bitop xor res3{t} a{t} b{t}
-        list [r get res1{t}] [r get res2{t}] [r get res3{t}]
-    } [list "\x01\x02\xff\x00" "\x01\x02\xff\xff" "\x00\x00\x00\xff"]
+        r bitop and   res1{t} a{t} b{t}
+        r bitop or    res2{t} a{t} b{t}
+        r bitop xor   res3{t} a{t} b{t}
+        r bitop diff  res4{t} a{t} b{t}
+        r bitop diff1 res5{t} a{t} b{t}
+        r bitop andor res6{t} a{t} b{t}
+        r bitop one   res7{t} a{t} b{t}
+        list [r get res1{t}] [r get res2{t}] [r get res3{t}] [r get res4{t}] [r get res5{t}] [r get res6{t}] [r get res7{t}]
+    } [list "\x01\x02\xff\x00" "\x01\x02\xff\xff" "\x00\x00\x00\xff" "\x00\x00\x00\xff" "\x00\x00\x00\x00" "\x01\x02\xff\x00" "\x00\x00\x00\xff"]
 
-    foreach op {and or xor} {
+    foreach op {and or xor diff diff1 andor one} {
         test "BITOP $op fuzzing" {
+            set min_args 1
+            if {[expr {$op == {diff} || $op == {diff1} || $op == {andor}}]} {
+                set min_args 2
+            }
             for {set i 0} {$i < 10} {incr i} {
                 r flushall
                 set vec {}
                 set veckeys {}
-                set numvec [expr {[randomInt 10]+1}]
+                set numvec [expr {[randomInt 10]+$min_args}]
                 for {set j 0} {$j < $numvec} {incr j} {
                     set str [randstring 0 1000]
                     lappend vec $str

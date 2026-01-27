@@ -5,8 +5,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  * Originally authored by: Salvatore Sanfilippo.
  */
 
@@ -157,7 +158,7 @@ void hnsw_free_insert_context(InsertContext *ctx);
 hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node);
 void hnsw_free_serialized_node(hnswSerNode *sn);
 hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, uint32_t params_len, void *value);
-int hnsw_deserialize_index(HNSW *index);
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1);
 
 // Helper function in case the user wants to directly copy
 // the vector bytes.

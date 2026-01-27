@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/blockonkeys.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test "Module client blocked on keys: Circular BPOPPUSH" {
@@ -332,7 +332,7 @@ start_server {tags {"modules"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
         set replica [srv 0 client]
         set replica_host [srv 0 host]
         set replica_port [srv 0 port]

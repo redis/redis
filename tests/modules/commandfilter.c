@@ -80,7 +80,7 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     size_t cmdlen;
     const char *cmdname = RedisModule_StringPtrLen(argv[1], &cmdlen);
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdname, "v", &argv[2], argc - 2);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdname, "v", &argv[2], (size_t)argc - 2);
     if (reply) {
         RedisModule_ReplyWithCallReply(ctx, reply);
         RedisModule_FreeCallReply(reply);

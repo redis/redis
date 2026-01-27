@@ -43,11 +43,11 @@ int call_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RMCall
     switch (mode) {
         case RM_CALL_REGULAR:
             // Regular call, with the unrestricted user.
-            rep = RedisModule_Call(ctx, cmd, "vE", argv + 2, argc - 2);
+            rep = RedisModule_Call(ctx, cmd, "vE", argv + 2, (size_t)argc - 2);
             break;
         case RM_CALL_WITHUSER:
             // Simply call the command with the current client.
-            rep = RedisModule_Call(ctx, cmd, "vCE", argv + 2, argc - 2);
+            rep = RedisModule_Call(ctx, cmd, "vCE", argv + 2, (size_t)argc - 2);
             break;
         case RM_CALL_WITHDETACHEDCLIENT:
             // Use a context created with the thread-safe-context API
@@ -57,10 +57,10 @@ int call_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RMCall
                 return REDISMODULE_ERR;
             }
             // Dispatch the command with the detached context
-            rep = RedisModule_Call(detached_ctx, cmd, "vCE", argv + 2, argc - 2);
+            rep = RedisModule_Call(detached_ctx, cmd, "vCE", argv + 2, (size_t)argc - 2);
             break;
         case RM_CALL_REPLICATED:
-            rep = RedisModule_Call(ctx, cmd, "vE", argv + 2, argc - 2);
+            rep = RedisModule_Call(ctx, cmd, "vE", argv + 2, (size_t)argc - 2);
     }
 
     if(!rep) {

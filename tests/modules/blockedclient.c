@@ -134,7 +134,7 @@ void *bg_call_worker(void *arg) {
     }
     const char *format = RedisModule_StringPtrLen(format_redis_str, NULL);
     const char *cmd = RedisModule_StringPtrLen(bg->argv[cmd_pos], NULL);
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, (size_t)bg->argc - cmd_pos - 1);
     RedisModule_FreeString(NULL, format_redis_str);
 
     /* Free the arguments within GIL to prevent simultaneous freeing in main thread. */
@@ -211,7 +211,7 @@ int do_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, (size_t)argc - 2);
     if(!rep){
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     }else{
@@ -247,7 +247,7 @@ int do_rm_call_async_fire_and_forget(RedisModuleCtx *ctx, RedisModuleString **ar
     }
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "!KEv", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "!KEv", argv + 2, (size_t)argc - 2);
 
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         RedisModule_ReplyWithCallReply(ctx, rep);
@@ -310,7 +310,7 @@ int do_rm_call_async(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, format, argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, format, argv + 2, (size_t)argc - 2);
 
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         rm_call_async_send_reply(ctx, rep);
@@ -368,7 +368,7 @@ int do_rm_call_async_on_thread(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "KEv", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "KEv", argv + 2, (size_t)argc - 2);
 
     if(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_PROMISE) {
         rm_call_async_send_reply(ctx, rep);
@@ -408,7 +408,7 @@ static void wait_and_do_rm_call_async_on_unblocked(RedisModuleCtx *ctx, RedisMod
     reply = NULL;
 
     const char* cmd = RedisModule_StringPtrLen(wctx->argv[0], NULL);
-    reply = RedisModule_Call(ctx, cmd, "!EKv", wctx->argv + 1, wctx->argc - 1);
+    reply = RedisModule_Call(ctx, cmd, "!EKv", wctx->argv + 1, (size_t)wctx->argc - 1);
 
 done:
     if(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_PROMISE) {

@@ -5,8 +5,9 @@
 # Copyright (c) 2024-present, Valkey contributors.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
@@ -226,7 +227,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip debug_defrag:skip"}} {
     set replica [srv 0 client]
 
     start_server {} {
@@ -247,9 +248,8 @@ start_server {tags {"repl external:skip"}} {
             populate 10000 master 10000 ;# 10k keys of 10k, means 100mb
             $replica config set loading-process-events-interval-bytes 262144 ;# process events every 256kb of rdb or command stream
 
-            # Start write traffic writing at most 5mbps
-
-            set load_handle [start_write_load $master_host $master_port 100 "key1" 10000 2]
+            # Start write traffic
+            set load_handle [start_write_load $master_host $master_port 100 "key1" 5000 4]
 
             set prev_used [s 0 used_memory]
 
@@ -299,8 +299,8 @@ start_server {tags {"repl external:skip"}} {
             assert_lessthan [expr $peak_master_used_mem - $prev_used - $backlog_size] 1000000
             assert_lessthan $peak_master_rpl_buf [expr {$backlog_size + 1000000}]
             assert_lessthan $peak_master_slave_buf_size 1000000
-            # buffers in the replica are more than 10mb
-            assert_morethan $peak_replica_buf_size 10000000
+            # buffers in the replica are more than 5mb
+            assert_morethan $peak_replica_buf_size 5000000
 
             stop_write_load $load_handle
         }
@@ -401,7 +401,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip debug_defrag:skip"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
@@ -433,11 +433,10 @@ start_server {tags {"repl external:skip"}} {
                 fail "Replica did not start loading"
             }
 
-            # Generate some traffic for backlog ~2mb
+            # Generate replication traffic of ~20mb to disconnect the slave on obuf limit
             populate 20 master 1000000 -1
 
-            set res [wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10]
-            set loglines [lindex $res 1]
+            wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10
             $replica config set key-load-delay 0
 
             # Wait until replica loads RDB
@@ -642,7 +641,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip tsan:skip"}} {
     set replica [srv 0 client]
     set replica_pid  [srv 0 pid]
 
@@ -826,7 +825,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip tsan:skip"}} {
     set master2 [srv 0 client]
     set master2_host [srv 0 host]
     set master2_port [srv 0 port]

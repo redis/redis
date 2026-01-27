@@ -3,15 +3,6 @@
 # The command returns a histogram of the sizes of keys in the database.
 ################################################################################
 
-# Query and Strip result of "info keysizes" from header, spaces, and newlines.
-proc get_stripped_info {server} {
-    set infoStripped [string map {
-        "# Keysizes" ""
-        " " "" "\n" "" "\r" ""
-    } [$server info keysizes] ]
-    return $infoStripped
-}
-
 # Verify output of "info keysizes" command is as expected.
 #
 # Arguments:
@@ -34,6 +25,42 @@ proc get_stripped_info {server} {
 #                  as well. Otherwise, just run the command on the leader and verify 
 #                  the output.
 proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
+
+    #################### internal funcs ################
+    proc build_exp_hist {server expOutput} {
+        if {[regexp {^__EVAL_DB_HIST__\s+(\d+)$} $expOutput -> dbid]} {
+            set expOutput [eval_db_histogram $server $dbid]
+        }
+    
+        # Replace all placeholders with the actual values. Remove spaces & newlines.
+        set res [string map {
+            "STR" "distrib_strings_sizes"
+            "LIST" "distrib_lists_items"
+            "SET" "distrib_sets_items"
+            "ZSET" "distrib_zsets_items"
+            "HASH" "distrib_hashes_items"
+            " " "" "\n" "" "\r" ""
+        } $expOutput]
+        return $res
+    }
+    proc verify_histogram { server expOutput cmd {retries 1} } {
+         wait_for_condition 50 $retries {
+            [build_exp_hist $server $expOutput] eq [get_info_hist_stripped $server]
+        } else {
+            fail "Expected: \n`[build_exp_hist $server $expOutput]` \
+                Actual: `[get_info_hist_stripped $server]`. \nFailed after command: $cmd"
+        }
+    }
+    # Query and Strip result of "info keysizes" from header, spaces, and newlines.
+    proc get_info_hist_stripped {server} {
+        set infoStripped [string map {
+            "# Keysizes" ""
+            " " "" "\n" "" "\r" ""
+        } [$server info keysizes] ]
+        return $infoStripped
+    }
+    #################### EOF internal funcs ################
+
     uplevel 1 $cmd
     global replicaMode
 
@@ -45,53 +72,21 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
         set server [srv 0 client]
     }
 
-    # If need eval expected histogram by reading all the keys & lengths from the
-    # server.
-    if {[regexp {^__EVAL_DB_HIST__\s+(\d+)$} $expOutput -> dbid]} {
-        set expOutput [eval_db_histogram $server $dbid]
-    }
-
-    # Replace all placeholders with the actual values. Remove spaces & newlines.
-    set expStripped [string map {
-        "STR" "distrib_strings_sizes"
-        "LIST" "distrib_lists_items"
-        "SET" "distrib_sets_items"
-        "ZSET" "distrib_zsets_items"
-        "HASH" "distrib_hashes_items"
-        " " "" "\n" "" "\r" ""
-    } $expOutput]
-
     # Compare the stripped expected output with the actual output from the server
-    if {$waitCond} {
-        wait_for_condition 50 50 {
-            $expStripped eq [get_stripped_info $server]
-        } else {
-            fail "Unexpected KEYSIZES. Expected: `$expStripped` \
-                but got: `[get_stripped_info $server]`. Failed after command: $cmd"
-        }
-    } else {
-        set infoStripped [get_stripped_info $server]
-        if {$expStripped ne $infoStripped} {
-            fail "Unexpected KEYSIZES. Expected: `$expStripped` \
-                but got: `$infoStripped`. Failed after command: $cmd"
-        }
-    }
+    set retries [expr { $waitCond ? 20 : 1}]
+    verify_histogram $server $expOutput $cmd $retries
 
     # If we are testing `replicaMode` then need to wait for the replica to catch up
     if {$replicaMode eq 1} {
-        wait_for_condition 50 50 {
-            $expStripped eq [get_stripped_info $replica]
-        } else {
-            fail "Unexpected replica KEYSIZES. Expected: `$expStripped` \
-                but got: `[get_stripped_info $replica]`. Failed after command: $cmd"
-        }
+        verify_histogram $replica $expOutput $cmd 20
     }
 }
 
-## eval_db_histogram - eval The expected histogram for current db, by
-## reading all the keys from the server, query for their length, and computing
-## the expected output.
+# eval_db_histogram - eval The expected histogram for current db, by
+# reading all the keys from the server, query for their length, and computing
+# the expected output.
 proc eval_db_histogram {server dbid} {
+    $server select $dbid
     array set type_counts {}
 
     set keys [$server keys *]
@@ -125,6 +120,7 @@ proc eval_db_histogram {server dbid} {
 
         set power 1
         while { ($power * 2) <= $value } { set power [expr {$power * 2}] }
+        if {$value == 0} { set power 0}
         # Store counts by type and size bucket
         incr type_counts($type,$power)
     }
@@ -146,7 +142,7 @@ proc eval_db_histogram {server dbid} {
         }
     }
 
-    return [join $result " | "]
+    return [join $result " "]
 }
 
 proc test_all_keysizes { {replMode 0} } {
@@ -176,7 +172,7 @@ proc test_all_keysizes { {replMode 0} } {
         }
     }
 
-    test "KEYSIZES - Histogram of values of Bytes, Kilo and Mega $suffixRepl" {
+    test "KEYSIZES - Histogram values of Bytes, Kilo and Mega $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server set x 0123456789ABCDEF} {db0_STR:16=1}
         run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:32=1}
@@ -274,10 +270,15 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server RPUSH l7 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {$server LPOP l7} {db0_LIST:2=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:2=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:1=1}
+        run_cmd_verify_hist {$server LPOP l7} {}
         # LREM
         run_cmd_verify_hist {$server FLUSHALL} {}
-        run_cmd_verify_hist {$server RPUSH l8 1 x 3 x 5 x 7 x 9 10} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server RPUSH l8 y x y x y x y x y y} {db0_LIST:8=1}
         run_cmd_verify_hist {$server LREM l8 3 x} {db0_LIST:4=1}        
+        run_cmd_verify_hist {$server LREM l8 0 y} {db0_LIST:1=1}
+        run_cmd_verify_hist {$server LREM l8 0 x} {}
         # EXPIRE 
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server RPUSH l9 1 2 3 4} {db0_LIST:4=1}
@@ -303,17 +304,23 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server SPOP s3} {db0_SET:1=1,8=1}
         run_cmd_verify_hist {$server SPOP s2} {db0_SET:8=1}
         run_cmd_verify_hist {$server SPOP s1} {db0_SET:4=1}
-        run_cmd_verify_hist {$server del s1} {}
-        
+        run_cmd_verify_hist {$server SPOP s1 7} {}
+        run_cmd_verify_hist {$server SADD s2 1} {db0_SET:1=1}
+        run_cmd_verify_hist {$server SMOVE s2 s4 1} {db0_SET:1=1}
+        run_cmd_verify_hist {$server SREM s4 1} {}
+        run_cmd_verify_hist {$server SADD s2 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SPOP s2 7} {db0_SET:1=1}
         # SDIFFSTORE
         run_cmd_verify_hist {$server flushall} {}
         run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
         run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SADD s3 x} {db0_SET:1=1,8=2}
         run_cmd_verify_hist {$server SDIFFSTORE s3 s1 s2} {db0_SET:4=1,8=2}        
         #SINTERSTORE
         run_cmd_verify_hist {$server flushall} {}
         run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
         run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SADD s3 x} {db0_SET:1=1,8=2}
         run_cmd_verify_hist {$server SINTERSTORE s3 s1 s2} {db0_SET:2=1,8=2}        
         #SUNIONSTORE
         run_cmd_verify_hist {$server flushall} {}
@@ -345,12 +352,16 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server ZADD z1 6 f 7 g 8 h 9 i} {db0_ZSET:8=1}
         run_cmd_verify_hist {$server ZADD z2 1 a} {db0_ZSET:1=1,8=1}
         run_cmd_verify_hist {$server ZREM z1 a} {db0_ZSET:1=1,8=1}
-        run_cmd_verify_hist {$server ZREM z1 b} {db0_ZSET:1=1,4=1}        
+        run_cmd_verify_hist {$server ZREM z1 b} {db0_ZSET:1=1,4=1}
+        run_cmd_verify_hist {$server ZREM z1 c d e f g h i} {db0_ZSET:1=1}
+        run_cmd_verify_hist {$server ZREM z2 a} {}
         # ZREMRANGEBYSCORE
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (2} {db0_ZSET:4=1}
-        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (3} {db0_ZSET:2=1}        
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (3} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf +inf} {}
+                
         # ZREMRANGEBYRANK
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e 6 f} {db0_ZSET:4=1}
@@ -384,7 +395,9 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {$server ZADD z2 3 c 4 d 5 e 6 f} {db0_ZSET:4=2}
-        run_cmd_verify_hist {$server ZINTERSTORE z3 2 z1 z2} {db0_ZSET:2=1,4=2}
+        run_cmd_verify_hist {$server ZADD z3 1 x} {db0_ZSET:1=1,4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z4 2 z1 z2} {db0_ZSET:1=1,2=1,4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z4 2 z1 z3} {db0_ZSET:1=1,4=2}        
         # DEL
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
@@ -399,6 +412,12 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {$server SET z1 1234567} {db0_STR:4=1}
         run_cmd_verify_hist {$server DEL z1} {}
+        # ZMPOP
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZMPOP 1 z1 MIN} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZMPOP 1 z1 MAX COUNT 2} {}
+        
     } {} {cluster:skip}    
     
     test "KEYSIZES - Test STRING $suffixRepl" {        
@@ -406,6 +425,8 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server SET s2 1234567890} {db0_STR:8=1}
         run_cmd_verify_hist {$server SETRANGE s2 10 123456} {db0_STR:16=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SETRANGE k 200000 v} {db0_STR:128K=1}
         # MSET, MSETNX
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server MSET s3 1 s4 2 s5 3} {db0_STR:1=3}
@@ -424,8 +445,7 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server SET s1 1024} {db0_STR:4=1}
         run_cmd_verify_hist {$server SET s1 842} {db0_STR:2=1}
         run_cmd_verify_hist {$server SET s1 2} {db0_STR:1=1}
-        run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}        
-
+        run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}
         # SET (string of length 0)
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server SET s1 ""} {db0_STR:0=1}
@@ -438,8 +458,32 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEL h} {db0_STR:0=2}
         run_cmd_verify_hist {$server DEL s2} {db0_STR:0=1}
         run_cmd_verify_hist {$server DEL s1} {}
+        # APPEND
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server APPEND s1 x} {db0_STR:1=1}
+        run_cmd_verify_hist {$server APPEND s2 y} {db0_STR:1=2}
 
     } {} {cluster:skip}
+    
+    test "KEYSIZES - Test complex dataset $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        createComplexDataset $server 1000
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
+        
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        createComplexDataset $server 1000 {useexpire usehexpire}
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
+    } {} {cluster:skip}
+    
+    start_server {tags {"cluster:skip" "external:skip" "needs:debug"}} {
+        test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        # Test based on debug command rather than __EVAL_DB_HIST__
+            r DEBUG KEYSIZES-HIST-ASSERT 1
+            r FLUSHALL
+            createComplexDataset r 100
+            createComplexDataset r 100 {useexpire usehexpire}
+        }
+    }
     
     foreach type {listpackex hashtable} {
         # Test different implementations of hash tables and listpacks
@@ -460,6 +504,8 @@ proc test_all_keysizes { {replMode 0} } {
             run_cmd_verify_hist {$server HSET h2 2 2} {db0_HASH:2=1}
             run_cmd_verify_hist {$server HDEL h2 1}   {db0_HASH:1=1}
             run_cmd_verify_hist {$server HDEL h2 2}   {}
+            run_cmd_verify_hist {$server HSET h2 1 1 2 2} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HDEL h2 1 2}   {}
             # HGETDEL
             run_cmd_verify_hist {$server FLUSHALL} {}
             run_cmd_verify_hist {$server HSETEX h2 FIELDS 1 1 1} {db0_HASH:1=1}
@@ -687,7 +733,6 @@ proc test_all_keysizes { {replMode 0} } {
 }
 
 start_server {} {
-    # Test KEYSIZES on a single server
     r select 0
     test_all_keysizes 0
     # Start another server to test replication of KEYSIZES
@@ -706,5 +751,389 @@ start_server {} {
         # Test KEYSIZES on leader and replica
         $primary select 0
         test_all_keysizes 1
+    }
+}
+
+################################################################################
+# Test the key-memory-histograms config and key memory histograms (_sizes fields)
+# in "info keysizes" command.
+#
+# The key memory histogram (distrib_*_sizes) requires key-memory-histograms or
+# cluster-slot-stats-enabled to be set on startup (which enables memory_tracking).
+#
+# Note: Strings are not tracked to avoid confusion with distrib_strings_sizes.
+################################################################################
+
+# Query and Strip result of "info keysizes" from header, spaces, and newlines,
+# keeping only the key memory distribution lines.
+proc get_info_keymem_stripped {server} {
+    set info [$server info keysizes]
+    set result ""
+    foreach line [split $info "\n"] {
+        # Match key memory histograms: lists_sizes, sets_sizes, zsets_sizes, hashes_sizes
+        if {[regexp {distrib_(lists|sets|zsets|hashes)_sizes} $line]} {
+            append result [string map {" " "" "\r" ""} $line]
+        }
+    }
+    return $result
+}
+
+# Verify that key memory histogram has entries for the expected types
+proc verify_keymem_non_empty {server types} {
+    set info [$server info keysizes]
+    foreach type $types {
+        if {![string match "*distrib_${type}_sizes*" $info]} {
+            fail "Expected key memory histogram for type $type but not found in: $info"
+        }
+    }
+}
+
+# Verify that key memory histogram is empty
+proc verify_keymem_empty {server} {
+    set stripped [get_info_keymem_stripped $server]
+    if {$stripped ne ""} {
+        fail "Expected empty key memory histogram but got: $stripped"
+    }
+}
+
+# Test key-memory-histograms config in standalone mode
+start_server {tags {external:skip needs:debug} overrides {key-memory-histograms yes}} {
+
+    test "KEY-MEMORY-STATS - Empty database should have empty key memory histogram" {
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - List keys should appear in key memory histogram" {
+        r FLUSHALL
+        r RPUSH "mylist" a b c d e
+        verify_keymem_non_empty r {lists}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - All data types should appear in key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" a b c
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+
+        verify_keymem_non_empty r {lists sets zsets hashes}
+    }
+
+    test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
+        r FLUSHALL
+        r HSET "hash" f1 v1
+        set info [r info keysizes]
+        assert {[regexp {distrib_hashes_sizes:([0-9]+[KMGTPE]?)=} $info -> label]}
+        set valid_labels {0 1 2 4 8 16 32 64 128 256 512
+                          1K 2K 4K 8K 16K 32K 64K 128K 256K 512K
+                          1M 2M 4M 8M 16M 32M 64M 128M 256M 512M
+                          1G 2G 4G 8G 16G 32G 64G 128G 256G 512G
+                          1T 2T 4T 8T 16T 32T 64T 128T 256T 512T
+                          1P 2P 4P 8P 16P 32P 64P 128P 256P 512P
+                          1E 2E 4E}
+        if {[lsearch -exact $valid_labels $label] < 0} {
+            fail "Label '$label' is not a valid power-of-2 label"
+        }
+    }
+
+    test "KEY-MEMORY-STATS - DEL should remove key from key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" a b c
+        verify_keymem_non_empty r {lists}
+        r DEL "list"
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Modifying a list should update key memory histogram" {
+        r FLUSHALL
+        r RPUSH "mylist" a
+        set info1 [r info keysizes]
+        # Add many elements to change allocation
+        for {set i 0} {$i < 1000} {incr i} {
+            r RPUSH "mylist" [string repeat "x" 100]
+        }
+        set info2 [r info keysizes]
+        # The histogram should have changed
+        assert {$info1 ne $info2}
+    }
+
+    test "KEY-MEMORY-STATS - FLUSHALL clears key memory histogram" {
+        r RPUSH "list1" a b c
+        r RPUSH "list2" d e f
+        verify_keymem_non_empty r {lists}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Larger allocations go to higher bins" {
+        r FLUSHALL
+        r HSET "small" f1 v1
+        set small_info [r info keysizes]
+        r FLUSHALL
+
+        # Create a large hash
+        for {set i 0} {$i < 1000} {incr i} {
+            r HSET "large" field$i [string repeat "x" 100]
+        }
+        set large_info [r info keysizes]
+
+        # The bin labels should be different
+        assert {$small_info ne $large_info}
+    }
+
+    test "KEY-MEMORY-STATS - EXPIRE eventually removes from histogram" {
+        r FLUSHALL
+        r RPUSH "expiring" a b c
+        verify_keymem_non_empty r {lists}
+        r PEXPIRE "expiring" 50
+        after 100
+        wait_for_condition 50 20 {
+            [get_info_keymem_stripped r] eq ""
+        } else {
+            fail "Key did not expire from key memory histogram"
+        }
+    }
+
+    test "KEY-MEMORY-STATS - Test RESTORE adds to histogram" {
+        r FLUSHALL
+        r RPUSH "mylist" 1 2 3 4
+        set encoded [r dump "mylist"]
+        r DEL "mylist"
+        verify_keymem_empty r
+        r RESTORE "mylist2" 0 $encoded
+        verify_keymem_non_empty r {lists}
+    }
+
+    test "KEY-MEMORY-STATS - DEBUG RELOAD preserves key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" 1 2 3 4 5
+        r HSET "hash" f1 v1
+        verify_keymem_non_empty r {lists hashes}
+        r DEBUG RELOAD
+        verify_keymem_non_empty r {lists hashes}
+        r DEL "list"
+        r DEBUG RELOAD
+        verify_keymem_non_empty r {hashes}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - RENAME should preserve key memory histogram" {
+        r FLUSHALL
+        r RPUSH "oldkey" a b c d e
+        verify_keymem_non_empty r {lists}
+        r RENAME "oldkey" "newkey"
+        verify_keymem_non_empty r {lists}
+        r DEL "newkey"
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        r DEBUG KEYSIZES-HIST-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100
+        createComplexDataset r 100 {useexpire usehexpire}
+        # If we get here without crash, the assertion passed
+        r DEBUG KEYSIZES-HIST-ASSERT 0
+    }
+
+    test "KEY-MEMORY-STATS - RDB save and restart preserves key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list" 1 2 3 4 5
+        r SADD "set" a b c d e
+        r ZADD "zset" 1 a 2 b 3 c
+        r HSET "hash" f1 v1 f2 v2
+        verify_keymem_non_empty r {lists sets zsets hashes}
+        r SAVE
+        restart_server 0 true false
+        verify_keymem_non_empty r {lists sets zsets hashes}
+    }
+
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "KEY-MEMORY-STATS - Hash field lazy expiration ($type)" {
+            r debug set-active-expire 0
+
+            # HGET triggers lazy expiration
+            r FLUSHALL
+            r HSETEX "h1" PX 1 FIELDS 2 f1 v1 f2 v2
+            verify_keymem_non_empty r {hashes}
+            after 5
+            r HGET "h1" f1
+            verify_keymem_non_empty r {hashes}
+            r HGET "h1" f2
+            verify_keymem_empty r
+
+            r debug set-active-expire 1
+            r FLUSHALL
+        }
+    }
+}
+
+# Test that key-memory-histograms=no does NOT show key memory histogram
+start_server {tags {external:skip} overrides {key-memory-histograms no}} {
+
+    test "KEY-MEMORY-STATS disabled - key memory histogram should not appear" {
+        r FLUSHALL
+        r SET "mykey" "hello world"
+        r RPUSH "list" a b c
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+
+        set info [r info keysizes]
+        # Keysizes (sizes/items) should be present
+        assert {[string match "*distrib_strings_sizes*" $info]}
+        assert {[string match "*distrib_lists_items*" $info]}
+        # Key memory histogram should NOT be present (note: lists_sizes
+        # is only present when memory tracking is enabled, but lists_items always is)
+        set stripped [get_info_keymem_stripped r]
+        assert {$stripped eq ""}
+    }
+
+    test "KEY-MEMORY-STATS - cannot enable key-memory-histograms at runtime when disabled at startup" {
+        # Verify the config is currently disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Try to enable at runtime - should fail
+        catch {r config set key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+
+        # Verify it's still disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+    }
+}
+
+# Test that key-memory-histograms can be disabled at runtime when enabled at startup
+start_server {tags {external:skip} overrides {key-memory-histograms yes}} {
+
+    test "KEY-MEMORY-STATS - can disable key-memory-histograms at runtime and distrib_*_sizes disappear" {
+        # Verify the config is currently enabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms yes}
+
+        # Create some data that would appear in histogram
+        r RPUSH "list" a b c d e
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+        verify_keymem_non_empty r {lists sets zsets hashes}
+
+        # Disable at runtime - should succeed
+        r config set key-memory-histograms no
+
+        # Verify it's now disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Verify distrib_*_sizes fields are no longer in INFO keysizes
+        set stripped [get_info_keymem_stripped r]
+        assert_equal $stripped "" "Expected empty key memory histogram after disabling"
+    }
+
+    test "KEY-MEMORY-STATS - cannot re-enable key-memory-histograms at runtime after disabling" {
+        # Disable first (may already be disabled from previous test)
+        r config set key-memory-histograms no
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Try to re-enable - should fail
+        catch {r config set key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+
+        # Verify it's still disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+    }
+}
+
+# Test key memory histograms in cluster mode (with cluster-slot-stats-enabled)
+start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
+
+    test "SLOT-ALLOCSIZE - Test DEBUG ALLOCSIZE-SLOTS-ASSERT command" {
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
+        # If we get here without crash, the assertion passed
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
+    test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        r DEBUG KEYSIZES-HIST-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
+        # If we get here without crash, the assertion passed
+        r DEBUG KEYSIZES-HIST-ASSERT 0
+    }
+
+    test "KEY-MEMORY-STATS - key memory histogram should appear" {
+        r FLUSHALL
+        r RPUSH "mylist{t}" a b c d e
+        verify_keymem_non_empty r {lists}
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
+    test "KEY-MEMORY-STATS - All data types should appear in key memory histogram" {
+        r FLUSHALL
+        r RPUSH "list{t}" a b c
+        r SADD "set{t}" x y z
+        r ZADD "zset{t}" 1 a 2 b
+        r HSET "hash{t}" f1 v1
+
+        verify_keymem_non_empty r {lists sets zsets hashes}
+    }
+}
+
+# Test with replication in cluster mode for key memory stats
+start_cluster 1 1 {tags {external:skip cluster needs:debug needs:repl} overrides {cluster-slot-stats-enabled yes}} {
+    set primary_id 0
+    set replica_id 1
+    set primary [Rn $primary_id]
+    set replica [Rn $replica_id]
+
+    # Wait for replica to sync
+    wait_for_condition 50 100 {
+        [s -1 role] eq {slave}
+    } else {
+        fail "Replica did not start"
+    }
+    wait_for_condition 1000 50 {
+        [s -1 master_link_status] eq {up}
+    } else {
+        fail "Replica link not up"
+    }
+
+    test "KEY-MEMORY-STATS - Replication updates key memory stats on replica" {
+        $primary FLUSHALL
+        wait_for_ofs_sync $primary $replica
+
+        $primary RPUSH "list{t}" 1 2 3 4 5
+        $primary SADD "set{t}" a b c d e
+        $primary ZADD "zset{t}" 1 a 2 b 3 c
+        $primary HSET "hash{t}" f1 v1 f2 v2
+
+        wait_for_ofs_sync $primary $replica
+
+        verify_keymem_non_empty $replica {lists sets zsets hashes}
+    }
+
+    test "KEY-MEMORY-STATS - DEL on primary updates key memory stats on replica" {
+        $primary FLUSHALL
+        wait_for_ofs_sync $primary $replica
+
+        $primary RPUSH "list{t}" a b c d e
+        wait_for_ofs_sync $primary $replica
+        verify_keymem_non_empty $replica {lists}
+
+        $primary DEL "list{t}"
+        wait_for_ofs_sync $primary $replica
+        verify_keymem_empty $replica
     }
 }

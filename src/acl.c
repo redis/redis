@@ -2,8 +2,12 @@
  * Copyright (c) 2018-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -420,8 +424,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED;
-    u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+    atomicSet(u->flags, USER_FLAG_DISABLED | USER_FLAG_SANITIZE_PAYLOAD);
     u->passwords = listCreate();
     u->acl_string = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
@@ -632,12 +635,13 @@ void ACLChangeSelectorPerm(aclSelector *selector, struct redisCommand *cmd, int 
     ACLResetFirstArgsForCommand(selector,id);
     if (cmd->subcommands_dict) {
         dictEntry *de;
-        dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
-        while((de = dictNext(di)) != NULL) {
+        dictIterator di;
+        dictInitSafeIterator(&di, cmd->subcommands_dict);
+        while((de = dictNext(&di)) != NULL) {
             struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
             ACLSetSelectorCommandBit(selector,sub->id,allow);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 }
 
@@ -648,9 +652,10 @@ void ACLChangeSelectorPerm(aclSelector *selector, struct redisCommand *cmd, int 
  * function returns C_ERR if the category was not found, or C_OK if it was
  * found and the operation was performed. */
 void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector, uint64_t cflag, int value) {
-    dictIterator *di = dictGetIterator(commands);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (cmd->acl_categories & cflag) {
             ACLChangeSelectorPerm(selector,cmd,value);
@@ -659,7 +664,7 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
             ACLSetSelectorCommandBitsForCategory(cmd->subcommands_dict, selector, cflag, value);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* This function is responsible for recomputing the command bits for all selectors of the existing users.
@@ -712,9 +717,10 @@ int ACLSetSelectorCategory(aclSelector *selector, const char *category, int allo
 }
 
 void ACLCountCategoryBitsForCommands(dict *commands, aclSelector *selector, unsigned long *on, unsigned long *off, uint64_t cflag) {
-    dictIterator *di = dictGetIterator(commands);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (cmd->acl_categories & cflag) {
             if (ACLGetSelectorCommandBit(selector,cmd->id))
@@ -726,7 +732,7 @@ void ACLCountCategoryBitsForCommands(dict *commands, aclSelector *selector, unsi
             ACLCountCategoryBitsForCommands(cmd->subcommands_dict, selector, on, off, cflag);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Return the number of commands allowed (on) and denied (off) for the user 'u'
@@ -799,7 +805,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
     {
         serverLog(LL_WARNING,
             "CRITICAL ERROR: User ACLs don't match final bitmap: '%s'",
-            rules);
+            redactLogCstr(rules));
         serverPanic("No bitmap match in ACLDescribeSelectorCommandRules()");
     }
     ACLFreeSelector(fake_selector);
@@ -1178,7 +1184,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                 /* Add the first-arg to the list of valid ones. */
                 serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
                                       "blocked command is a misuse of ACL and may get disabled "
-                                      "in the future (offender: +%s)", op+1);
+                                      "in the future (offender: +%s)", redactLogCstr(op+1));
                 ACLAddAllowedFirstArg(selector,cmd->id,sub);
             }
             ACLUpdateCommandRules(selector,op+1,1);
@@ -1285,22 +1291,18 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {
-        u->flags |= USER_FLAG_ENABLED;
-        u->flags &= ~USER_FLAG_DISABLED;
+        atomicSet(u->flags, (u->flags | USER_FLAG_ENABLED) & ~USER_FLAG_DISABLED);
     } else if (!strcasecmp(op,"off")) {
-        u->flags |= USER_FLAG_DISABLED;
-        u->flags &= ~USER_FLAG_ENABLED;
+        atomicSet(u->flags, (u->flags | USER_FLAG_DISABLED) & ~USER_FLAG_ENABLED);
     } else if (!strcasecmp(op,"skip-sanitize-payload")) {
-        u->flags |= USER_FLAG_SANITIZE_PAYLOAD_SKIP;
-        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD;
+        atomicSet(u->flags, (u->flags | USER_FLAG_SANITIZE_PAYLOAD_SKIP) & ~USER_FLAG_SANITIZE_PAYLOAD);
     } else if (!strcasecmp(op,"sanitize-payload")) {
-        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD_SKIP;
-        u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+        atomicSet(u->flags, (u->flags | USER_FLAG_SANITIZE_PAYLOAD) & ~USER_FLAG_SANITIZE_PAYLOAD_SKIP);
     } else if (!strcasecmp(op,"nopass")) {
-        u->flags |= USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags | USER_FLAG_NOPASS);
         listEmpty(u->passwords);
     } else if (!strcasecmp(op,"resetpass")) {
-        u->flags &= ~USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags & ~USER_FLAG_NOPASS);
         listEmpty(u->passwords);
     } else if (op[0] == '>' || op[0] == '#') {
         sds newpass;
@@ -1320,7 +1322,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             listAddNodeTail(u->passwords,newpass);
         else
             sdsfree(newpass);
-        u->flags &= ~USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags & ~USER_FLAG_NOPASS);
     } else if (op[0] == '<' || op[0] == '!') {
         sds delpass;
         if (op[0] == '<') {
@@ -1848,12 +1850,21 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
  * If the command fails an ACL check, idxptr will be to set to the first argv entry that
  * causes the failure, either 0 if the command itself fails or the idx of the key/channel
  * that causes the failure */
-int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
+int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr) {
     listIter li;
     listNode *ln;
 
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
+
+    /* Quick check if the user has all permissions, return early if so. */
+    if (likely(listFirst(u->selectors) != NULL)) {
+        aclSelector *s = listNodeValue(listFirst(u->selectors));
+        const uint32_t all_perms = SELECTOR_FLAG_ALLCOMMANDS |
+                                   SELECTOR_FLAG_ALLKEYS |
+                                   SELECTOR_FLAG_ALLCHANNELS;
+        if ((s->flags & all_perms) == all_perms) return ACL_OK;
+    }
 
     /* We have to pick a single error to log, the logic for picking is as follows:
      * 1) If no selector can execute the command, return the command.
@@ -1865,6 +1876,10 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
      * calls to prevent duplicate lookups. */
     aclKeyResultCache cache;
     initACLKeyResultCache(&cache);
+    if (key_result) {
+        cache.keys = *key_result;
+        cache.keys_init = 1;
+    }
 
     /* Check each selector sequentially */
     listRewind(u->selectors,&li);
@@ -1872,7 +1887,7 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
         aclSelector *s = (aclSelector *) listNodeValue(ln);
         int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
         if (acl_retval == ACL_OK) {
-            cleanupACLKeyResultCache(&cache);
+            if (!key_result) cleanupACLKeyResultCache(&cache);
             return ACL_OK;
         }
         if (acl_retval > relevant_error ||
@@ -1884,13 +1899,13 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     }
 
     *idxptr = last_idx;
-    cleanupACLKeyResultCache(&cache);
+    if (!key_result) cleanupACLKeyResultCache(&cache);
     return relevant_error;
 }
 
 /* High level API for checking if a client can execute the queued up command */
 int ACLCheckAllPerm(client *c, int *idxptr) {
-    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, getClientCachedKeyResult(c), idxptr);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
@@ -1958,36 +1973,37 @@ int ACLShouldKillPubsubClient(client *c, list *upcoming) {
 
     if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
         /* Check for pattern violations. */
-        dictIterator *di = dictGetIterator(c->pubsub_patterns);
+        dictIterator di;
         dictEntry *de;
-        while (!kill && ((de = dictNext(di)) != NULL)) {
+        dictInitIterator(&di, c->pubsub_patterns);
+        while (!kill && ((de = dictNext(&di)) != NULL)) {
             o = dictGetKey(de);
             int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
             kill = (res == ACL_DENIED_CHANNEL);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
 
         /* Check for channel violations. */
         if (!kill) {
             /* Check for global channels violation. */
-            di = dictGetIterator(c->pubsub_channels);
+            dictInitIterator(&di, c->pubsub_channels);
 
-            while (!kill && ((de = dictNext(di)) != NULL)) {
+            while (!kill && ((de = dictNext(&di)) != NULL)) {
                 o = dictGetKey(de);
                 int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
                 kill = (res == ACL_DENIED_CHANNEL);
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         }
         if (!kill) {
             /* Check for shard channels violation. */
-            di = dictGetIterator(c->pubsubshard_channels);
-            while (!kill && ((de = dictNext(di)) != NULL)) {
+            dictInitIterator(&di, c->pubsubshard_channels);
+            while (!kill && ((de = dictNext(&di)) != NULL)) {
                 o = dictGetKey(de);
                 int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
                 kill = (res == ACL_DENIED_CHANNEL);
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         }
 
         if (kill) {
@@ -2243,7 +2259,7 @@ int ACLLoadConfiguredUsers(void) {
                 const char *errmsg = ACLSetUserStringError();
                 serverLog(LL_WARNING,"Error loading ACL rule '%s' for "
                                      "the user named '%s': %s",
-                          aclrules[j],aclrules[0],errmsg);
+                                     redactLogCstr(aclrules[j]),redactLogCstr(aclrules[0]),errmsg);
                 return C_ERR;
             }
         }
@@ -2254,7 +2270,7 @@ int ACLLoadConfiguredUsers(void) {
             serverLog(LL_NOTICE, "The user '%s' is disabled (there is no "
                                  "'on' modifier in the user description). Make "
                                  "sure this is not a configuration error.",
-                      aclrules[0]);
+                                 redactLogCstr(aclrules[0]));
         }
     }
     return C_OK;
@@ -2643,6 +2659,8 @@ void ACLUpdateInfoMetrics(int reason){
         server.acl_info.invalid_key_accesses++;
     } else if (reason == ACL_DENIED_CHANNEL) {
         server.acl_info.invalid_channel_accesses++;
+    } else if (reason == ACL_INVALID_TLS_CERT_AUTH) {
+        server.acl_info.acl_access_denied_tls_cert++;
     } else {
         serverPanic("Unknown ACL_DENIED encoding");
     }
@@ -2777,9 +2795,9 @@ sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds er
 /* ACL CAT category */
 void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
     dictEntry *de;
-    dictIterator *di = dictGetIterator(commands);
-
-    while ((de = dictNext(di)) != NULL) {
+    dictIterator di;
+    dictInitIterator(&di, commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (cmd->acl_categories & cflag) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
@@ -2790,7 +2808,7 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
             aclCatWithFlags(c, cmd->subcommands_dict, cflag, arraylen);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Add the formatted response from a single selector to the ACL GETUSER
@@ -3087,6 +3105,7 @@ void aclCommand(client *c) {
             case ACL_DENIED_KEY: reasonstr="key"; break;
             case ACL_DENIED_CHANNEL: reasonstr="channel"; break;
             case ACL_DENIED_AUTH: reasonstr="auth"; break;
+            case ACL_INVALID_TLS_CERT_AUTH: reasonstr = "tls-cert"; break;
             default: reasonstr="unknown";
             }
             addReplyBulkCString(c,reasonstr);
@@ -3139,7 +3158,7 @@ void aclCommand(client *c) {
         }
 
         int idx;
-        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, NULL, &idx);
         if (result != ACL_OK) {
             sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
             addReplyBulkSds(c, err);
@@ -3198,7 +3217,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
 /* When successful, initiates an internal connection, that is able to execute
  * internal commands (see CMD_INTERNAL). */
 static void internalAuth(client *c) {
-    if (server.cluster == NULL) {
+    if (!server.cluster_enabled) {
         addReplyError(c, "Cannot authenticate as an internal connection on non-cluster instances");
         return;
     }

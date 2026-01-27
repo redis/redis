@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -38,6 +39,7 @@
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 #define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
+#define CLUSTER_TODO_BROADCAST_PONG (1<<5)
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
@@ -67,6 +69,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_EXTENSIONS_SUPPORTED 1024 /* This node supports extensions. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
+#define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
 #define nodeIsSlave(n) ((n)->flags & CLUSTER_NODE_SLAVE)
 #define nodeInHandshake(n) ((n)->flags & CLUSTER_NODE_HANDSHAKE)
 #define nodeHasAddr(n) (!((n)->flags & CLUSTER_NODE_NOADDR))

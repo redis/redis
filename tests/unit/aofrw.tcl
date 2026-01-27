@@ -59,7 +59,7 @@ start_server {tags {"aofrw external:skip logreqres:skip"} overrides {save {}}} {
     }
 }
 
-start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} {
+start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-rdb-preamble no}} {
     test {Turning off AOF kills the background writing child if any} {
         r config set appendonly yes
         waitForBgrewriteaof r

@@ -28,8 +28,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  * Originally authored by: Salvatore Sanfilippo.
  */
 
@@ -44,7 +45,48 @@
 #include <float.h>  /* for INFINITY if not in math.h */
 #include <assert.h>
 #include "hnsw.h"
-#include "hnsw_popcount.h"
+#include "mixer.h"
+
+/* Define HAVE_POPCNT if the compiler supports the target("popcnt") attribute */
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
+    #if defined(__has_attribute) && __has_attribute(target)
+        #define HAVE_POPCNT
+        #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+    #else
+        #define ATTRIBUTE_TARGET_POPCNT
+    #endif
+#else
+    #define ATTRIBUTE_TARGET_POPCNT
+#endif
+
+/* Check if we can compile SIMD code with function attributes */
+#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_AVX2
+#define HAVE_AVX512
+#endif
+#endif
+
+#if defined (HAVE_AVX2)
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
+#else
+#define ATTRIBUTE_TARGET_AVX2
+#define VSET_USE_AVX2 0
+#endif
+
+#if defined (HAVE_AVX512)
+#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512bw,fma")))
+#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
+#else
+#define ATTRIBUTE_TARGET_AVX512
+#define VSET_USE_AVX512 0
+#endif
+
+/* Include SIMD headers when supported */
+#if defined(HAVE_AVX2) || defined(HAVE_AVX512)
+#include <immintrin.h>
+#endif
 
 #if 0
 #define debugmsg printf
@@ -57,6 +99,15 @@
 #endif
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
+
+/* Define likely macro if not already defined */
+#ifndef likely
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#else
+#define likely(x) (x)
+#endif
+#endif
 
 
 /* Algorithm parameters. */
@@ -192,16 +243,145 @@ float pq_max_distance(pqueue *pq) {
 
 /* ============================ HNSW algorithm ============================== */
 
-/* Dot product: our vectors are already normalized.
+/* Check if CPU supports POPCNT instruction - cached per thread */
+static inline int hnsw_cpu_supports_popcnt(void) {
+#if defined(HAVE_POPCNT)
+    static __thread int popcnt_supported = -1;
+    if (popcnt_supported == -1) {
+        popcnt_supported = __builtin_cpu_supports("popcnt");
+    }
+    return popcnt_supported;
+#else
+    return 0; /* Assume CPU does not support POPCNT if __builtin_cpu_supports() is not available. */
+#endif
+}
+
+/* Manual popcount implementation for platforms without POPCNT support */
+static inline int hnsw_popcount64(uint64_t x) {
+    x = (x & 0x5555555555555555) + ((x >> 1) & 0x5555555555555555);
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+    x = (x & 0x0F0F0F0F0F0F0F0F) + ((x >> 4) & 0x0F0F0F0F0F0F0F0F);
+    x = (x & 0x00FF00FF00FF00FF) + ((x >> 8) & 0x00FF00FF00FF00FF);
+    x = (x & 0x0000FFFF0000FFFF) + ((x >> 16) & 0x0000FFFF0000FFFF);
+    x = (x & 0x00000000FFFFFFFF) + ((x >> 32) & 0x00000000FFFFFFFF);
+    return x;
+}
+
+/* Optimized popcount function that uses hardware POPCNT instruction when available,
+ * falling back to a software implementation when necessary. The CPU feature detection
+ * result is cached per thread for better performance. */
+ATTRIBUTE_TARGET_POPCNT
+static inline int hnsw_popcount(uint64_t x) {
+    if (likely(hnsw_cpu_supports_popcnt())) {
+        return __builtin_popcountll(x);
+    } else {
+        return hnsw_popcount64(x);
+    }
+}
+
+/* Binary vectors distance function that uses POPCNT when available */
+ATTRIBUTE_TARGET_POPCNT
+static inline float hnsw_vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+
+    for (uint32_t j = 0; j < len; j++) {
+        uint64_t xor = x[j]^y[j];
+        opposite += hnsw_popcount(xor);
+    }
+    return (float)opposite*2/dim;
+}
+
+#if defined(HAVE_AVX512)
+/* AVX512 optimized dot product for float vectors */
+ATTRIBUTE_TARGET_AVX512
+float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim) {
+    __m512 sum = _mm512_setzero_ps();
+    uint32_t i;
+    
+    /* Process 16 floats at a time with AVX512 */
+    for (i = 0; i + 15 < dim; i += 16) {
+        __m512 vx = _mm512_loadu_ps(&x[i]);
+        __m512 vy = _mm512_loadu_ps(&y[i]);
+        sum = _mm512_fmadd_ps(vx, vy, sum);
+    }
+    
+    /* Horizontal sum of the 16 elements in sum */
+    float dot = _mm512_reduce_add_ps(sum);
+    
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += x[i] * y[i];
+    }
+    
+    return 1.0f - dot;
+}
+#endif /* HAVE_AVX512 */
+
+#if defined(HAVE_AVX2)
+/* AVX2 optimized dot product for float vectors */
+ATTRIBUTE_TARGET_AVX2
+float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) {
+    __m256 sum1 = _mm256_setzero_ps();
+    __m256 sum2 = _mm256_setzero_ps();
+    uint32_t i;
+    
+    /* Process 16 floats at a time with two AVX2 registers */
+    for (i = 0; i + 15 < dim; i += 16) {
+        __m256 vx1 = _mm256_loadu_ps(&x[i]);
+        __m256 vy1 = _mm256_loadu_ps(&y[i]);
+        __m256 vx2 = _mm256_loadu_ps(&x[i + 8]);
+        __m256 vy2 = _mm256_loadu_ps(&y[i + 8]);
+        
+        sum1 = _mm256_fmadd_ps(vx1, vy1, sum1);
+        sum2 = _mm256_fmadd_ps(vx2, vy2, sum2);
+    }
+    
+    /* Combine the two sums */
+    __m256 combined = _mm256_add_ps(sum1, sum2);
+    
+    /* Horizontal sum of the 8 elements */
+    __m128 sum_high = _mm256_extractf128_ps(combined, 1);
+    __m128 sum_low = _mm256_castps256_ps128(combined);
+    __m128 sum_128 = _mm_add_ps(sum_high, sum_low);
+    
+    sum_128 = _mm_hadd_ps(sum_128, sum_128);
+    sum_128 = _mm_hadd_ps(sum_128, sum_128);
+    
+    float dot = _mm_cvtss_f32(sum_128);
+    
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += x[i] * y[i];
+    }
+    
+    return 1.0f - dot;
+}
+#endif /* HAVE_AVX2 */
+
+/* Optimized dot product: automatically selects best available implementation 
+ * Dot product: our vectors are already normalized.
  * Version for not quantized vectors of floats. */
 float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
-    /* Use two accumulators to reduce dependencies among multiplications.
-     * This provides a clear speed boost in Apple silicon, but should be
-     * help in general. */
+#if defined(HAVE_AVX512)
+    if (dim >= 16 && VSET_USE_AVX512) {
+        return vectors_distance_float_avx512(x, y, dim);
+    }
+#endif
+
+#if defined(HAVE_AVX2)
+    if (VSET_USE_AVX2 && dim >= 16) {
+        return vectors_distance_float_avx2(x, y, dim);
+    }
+#endif
+
+    /* Fallback to original scalar implementation */
     float dot0 = 0.0f, dot1 = 0.0f;
     uint32_t i;
 
-    // Process 8 elements per iteration, 50/50 with the two accumulators.
+    /* Use two accumulators to reduce dependencies among multiplications.
+     * This provides a clear speed boost in Apple silicon, but should be
+     * help in general. */
     for (i = 0; i + 7 < dim; i += 8) {
         dot0 += x[i] * y[i] +
                 x[i+1] * y[i+1] +
@@ -238,8 +418,155 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
 }
 
 /* Q8 quants dotproduct. We do integer math and later fix it by range. */
+#if defined(HAVE_AVX512)
+/* AVX512 optimized dot product for Q8 vectors */
+ATTRIBUTE_TARGET_AVX512
+float vectors_distance_q8_avx512(const int8_t *x, const int8_t *y, uint32_t dim,
+                                  float range_a, float range_b) {
+    // Handle zero vectors special case.
+    if (range_a == 0 || range_b == 0) {
+        return 1.0f;
+    }
+
+    const float scale_product = (range_a/127) * (range_b/127);
+    __m512i sum = _mm512_setzero_si512();
+    uint32_t i;
+
+    /* Process 64 int8 elements at a time with AVX512 */
+    for (i = 0; i + 63 < dim; i += 64) {
+        /* Load 64 int8 values */
+        __m512i vx = _mm512_loadu_si512((__m512i*)&x[i]);
+        __m512i vy = _mm512_loadu_si512((__m512i*)&y[i]);
+        
+        /* Unpack and multiply-add in 32-bit precision
+         * This is done in two steps: lower 32 bytes and upper 32 bytes */
+        
+        /* Process lower 32 bytes (256 bits) */
+        __m256i vx_lo = _mm512_extracti64x4_epi64(vx, 0);
+        __m256i vy_lo = _mm512_extracti64x4_epi64(vy, 0);
+        
+        /* Extend int8 to int16 */
+        __m512i vx_lo_16 = _mm512_cvtepi8_epi16(vx_lo);
+        __m512i vy_lo_16 = _mm512_cvtepi8_epi16(vy_lo);
+        
+        /* Multiply and accumulate to int32 */
+        __m512i prod_lo = _mm512_madd_epi16(vx_lo_16, vy_lo_16);
+        sum = _mm512_add_epi32(sum, prod_lo);
+        
+        /* Process upper 32 bytes (256 bits) */
+        __m256i vx_hi = _mm512_extracti64x4_epi64(vx, 1);
+        __m256i vy_hi = _mm512_extracti64x4_epi64(vy, 1);
+        
+        __m512i vx_hi_16 = _mm512_cvtepi8_epi16(vx_hi);
+        __m512i vy_hi_16 = _mm512_cvtepi8_epi16(vy_hi);
+        
+        __m512i prod_hi = _mm512_madd_epi16(vx_hi_16, vy_hi_16);
+        sum = _mm512_add_epi32(sum, prod_hi);
+    }
+
+    /* Horizontal sum of the 16 int32 elements in sum */
+    int32_t dot = _mm512_reduce_add_epi32(sum);
+
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += ((int32_t)x[i]) * ((int32_t)y[i]);
+    }
+
+    /* Convert to original range */
+    float dotf = dot * scale_product;
+    float distance = 1.0f - dotf;
+
+    /* Clamp distance to [0, 2] */
+    if (distance < 0) distance = 0;
+    else if (distance > 2) distance = 2;
+    return distance;
+}
+#endif /* HAVE_AVX512 */
+
+#if defined(HAVE_AVX2)
+/* AVX2 optimized dot product for Q8 vectors */
+ATTRIBUTE_TARGET_AVX2
+float vectors_distance_q8_avx2(const int8_t *x, const int8_t *y, uint32_t dim,
+                                float range_a, float range_b) {
+    // Handle zero vectors special case.
+    if (range_a == 0 || range_b == 0) {
+        return 1.0f;
+    }
+
+    const float scale_product = (range_a/127) * (range_b/127);
+    __m256i sum = _mm256_setzero_si256();
+    uint32_t i;
+
+    /* Process 32 int8 elements at a time with AVX2 */
+    for (i = 0; i + 31 < dim; i += 32) {
+        /* Load 32 int8 values */
+        __m256i vx = _mm256_loadu_si256((__m256i*)&x[i]);
+        __m256i vy = _mm256_loadu_si256((__m256i*)&y[i]);
+        
+        /* Split into lower and upper 16 bytes */
+        __m128i vx_lo = _mm256_extracti128_si256(vx, 0);
+        __m128i vy_lo = _mm256_extracti128_si256(vy, 0);
+        __m128i vx_hi = _mm256_extracti128_si256(vx, 1);
+        __m128i vy_hi = _mm256_extracti128_si256(vy, 1);
+        
+        /* Extend int8 to int16 for lower half */
+        __m256i vx_lo_16 = _mm256_cvtepi8_epi16(vx_lo);
+        __m256i vy_lo_16 = _mm256_cvtepi8_epi16(vy_lo);
+        
+        /* Multiply and accumulate (madd does multiply adjacent pairs and add) */
+        __m256i prod_lo = _mm256_madd_epi16(vx_lo_16, vy_lo_16);
+        sum = _mm256_add_epi32(sum, prod_lo);
+        
+        /* Extend int8 to int16 for upper half */
+        __m256i vx_hi_16 = _mm256_cvtepi8_epi16(vx_hi);
+        __m256i vy_hi_16 = _mm256_cvtepi8_epi16(vy_hi);
+        
+        __m256i prod_hi = _mm256_madd_epi16(vx_hi_16, vy_hi_16);
+        sum = _mm256_add_epi32(sum, prod_hi);
+    }
+
+    /* Horizontal sum of the 8 int32 elements in sum */
+    __m128i sum_hi = _mm256_extracti128_si256(sum, 1);
+    __m128i sum_lo = _mm256_castsi256_si128(sum);
+    __m128i sum_128 = _mm_add_epi32(sum_hi, sum_lo);
+    
+    sum_128 = _mm_hadd_epi32(sum_128, sum_128);
+    sum_128 = _mm_hadd_epi32(sum_128, sum_128);
+    
+    int32_t dot = _mm_cvtsi128_si32(sum_128);
+
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += ((int32_t)x[i]) * ((int32_t)y[i]);
+    }
+
+    /* Convert to original range */
+    float dotf = dot * scale_product;
+    float distance = 1.0f - dotf;
+
+    /* Clamp distance to [0, 2] */
+    if (distance < 0) distance = 0;
+    else if (distance > 2) distance = 2;
+    return distance;
+}
+#endif /* HAVE_AVX2 */
+
+/* Q8 dot product: automatically selects best available implementation */
 float vectors_distance_q8(const int8_t *x, const int8_t *y, uint32_t dim,
                         float range_a, float range_b) {
+#if defined(HAVE_AVX512)
+    if (dim >= 64 && VSET_USE_AVX512) {
+        return vectors_distance_q8_avx512(x, y, dim, range_a, range_b);
+    }
+#endif
+
+#if defined(HAVE_AVX2)
+    if (dim >= 32 && VSET_USE_AVX2) {
+        return vectors_distance_q8_avx2(x, y, dim, range_a, range_b);
+    }
+#endif
+
+    /* Fallback to scalar implementation */
     // Handle zero vectors special case.
     if (range_a == 0 || range_b == 0) {
         /* Zero vector distance from anything is 1.0
@@ -1960,6 +2287,13 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
     double logN = log2(index->node_count + 1);
     uint32_t num_walks = (uint32_t)(logN * c);
 
+    /* Avoid the ping-pong effect: imagine there are just two nodes and
+     * the number of walks selected is even. We will select always the
+     * first element of the graph; conversely, if it is odd, we will always
+     * select the other element. One way to add more selection randomness is
+     * to randomly add '1' or '0' to the number of walks to perform. */
+    num_walks += rand() & 1;
+
     // Perform random walk at level 0.
     for (uint32_t i = 0; i < num_walks; i++) {
         if (current->layers[0].num_links == 0) return current;
@@ -2043,6 +2377,18 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
  * hash table, then scan all the nodes again and fix all the links converting
  * the ID to the pointer. */
 
+/* History of serialization versions:
+ * version 0: the first implementation, lacking worst node id/info.
+ * version 1: includes worst link id/info. */
+#define HNSW_SERIALIZATION_VERSION 1
+
+/* This is a special worst link index that is set when loading a serialized
+ * node with version 0 (this version of the serialization lacked explicit
+ * information about the worst link index/distance). This way, later, the
+ * function that fixes a deserialized index will know to compute the worst
+ * index info at runtime. */
+#define HNSW_SER_WORSTLINK_MISSING UINT32_MAX
+
 /* Return the serialized node information as specified in the top comment
  * above. Note that the returned information is true as long as the node
  * provided is not deleted or modified, so this function should be called
@@ -2058,6 +2404,7 @@ hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node) {
     for (uint32_t i = 0; i <= node->level; i++) {
         num_params += 2; // max_links and num_links info for this layer.
         num_params += node->layers[i].num_links; // The IDs of linked nodes.
+        num_params += 1; // worst link id/distance parameter.
     }
 
     /* We use another 64bit value to store two floats that are about
@@ -2081,18 +2428,43 @@ hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node) {
 
     uint32_t param_idx = 0;
     sn->params[param_idx++] = node->id;
-    sn->params[param_idx++] = node->level;
+    /* The second parameter contains information about the serialization
+     * version of this node, the node level and some unused field:
+     *
+     * +--------+--------+--------+--------+
+     * |VVVVVVVV|........|........|LLLLLLLL|
+     * +--------+--------+--------+--------+
+     *
+     * V is the version, 8 bits.
+     * L is the node level, 8 bits (but actually 16 is the max so far).
+     * The middle two bytes are reserved for future uses. */
+    sn->params[param_idx] = node->level & 0xff;
+    sn->params[param_idx] |= HNSW_SERIALIZATION_VERSION << 24;
+    param_idx++;
     for (uint32_t i = 0; i <= node->level; i++) {
         sn->params[param_idx++] = node->layers[i].num_links;
         sn->params[param_idx++] = node->layers[i].max_links;
         for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
             sn->params[param_idx++] = node->layers[i].links[j]->id;
         }
+        /* Since version 1: pack and store worst_idx and worst_distance. */
+        uint32_t worst_distance_bits;
+        memcpy(&worst_distance_bits, &node->layers[i].worst_distance,
+               sizeof(float));
+        uint64_t wi =
+            (((uint64_t)worst_distance_bits) << 32) | node->layers[i].worst_idx;
+        sn->params[param_idx++] = wi;
     }
-    uint64_t l2_and_range = 0;
-    unsigned char *aux = (unsigned char*)&l2_and_range;
-    memcpy(aux,&node->l2,sizeof(float));
-    memcpy(aux+4,&node->quants_range,sizeof(float));
+
+    /* Store l2 and range as uint32_t, in a way that is endian-safe.
+     * Note that in big endian archs both are reversed: integers and
+     * also the bytes of floats, so they will match. */
+    uint64_t l2_and_range;
+    uint32_t l2_bits, range_bits;
+    memcpy(&l2_bits,&node->l2,sizeof(float));
+    memcpy(&range_bits,&node->quants_range,sizeof(float));
+    l2_and_range = ((uint64_t)range_bits<<32) | l2_bits;
+
     sn->params[param_idx++] = l2_and_range;
 
     /* Better safe than sorry: */
@@ -2118,7 +2490,13 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     if (params_len < 2) return NULL;
 
     uint64_t id = params[0];
-    uint32_t level = params[1];
+    /* Check the node serialization function for the specific layout
+     * of param[1] fields. */
+    uint32_t level = params[1] & 0xff;                  // Node level.
+    uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
+
+    if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+    int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
     if (id >= index->last_id) index->last_id = id;
@@ -2136,13 +2514,20 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t param_idx = 2;
     for (uint32_t i = 0; i <= level; i++) {
         /* Sanity check. */
-        if (param_idx + 2 > params_len) {
+        if (param_idx + 2 + has_worst_link_info > params_len) {
             hnsw_node_free(node);
             return NULL;
         }
 
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
+
+        /* Sanity check: links should be less than max links and
+         * in general a reasonable amount. */
+        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+            hnsw_node_free(node);
+            return NULL;
+        }
 
         /* If max_links is larger than current allocation, reallocate.
          * It could happen in select_neighbors() that we over-allocate the
@@ -2160,7 +2545,7 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         node->layers[i].num_links = num_links;
 
         /* Sanity check. */
-        if (param_idx + num_links > params_len) {
+        if (param_idx + num_links + has_worst_link_info > params_len) {
             hnsw_node_free(node);
             return NULL;
         }
@@ -2171,6 +2556,27 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
          * fit more than 2^32 nodes in a 32 bit system. */
         for (uint32_t j = 0; j < num_links; j++)
             node->layers[i].links[j] = (hnswNode*)params[param_idx++];
+
+        if (has_worst_link_info) {
+            uint64_t wi = params[param_idx++];
+            uint32_t worst_idx = wi & 0xffffffff;
+            uint32_t worst_distance_bits = wi >> 32;
+            float worst_distance;
+            memcpy(&worst_distance,&worst_distance_bits,sizeof(float));
+            node->layers[i].worst_idx = worst_idx;
+            node->layers[i].worst_distance = worst_distance;
+
+            // Sanity check the worst ID range.
+            if (node->layers[i].num_links > 0 &&
+                node->layers[i].worst_idx >= node->layers[i].num_links)
+            {
+                hnsw_node_free(node);
+                return NULL;
+            }
+        } else {
+            node->layers[i].worst_idx = HNSW_SER_WORSTLINK_MISSING;
+            node->layers[i].worst_distance = 0;
+        }
     }
 
     /* Get l2 and quantization range. */
@@ -2178,10 +2584,14 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         hnsw_node_free(node);
         return NULL;
     }
+
+    /* Load l2 and range packed into an uint64_t in an endian safe way. */
     uint64_t l2_and_range = params[param_idx];
-    unsigned char *aux = (unsigned char*)&l2_and_range;
-    memcpy(&node->l2, aux, sizeof(float));
-    memcpy(&node->quants_range, aux+4, sizeof(float));
+    uint32_t l2_bits, range_bits;
+    l2_bits = l2_and_range & 0xffffffff;
+    range_bits = l2_and_range >> 32;
+    memcpy(&node->l2, &l2_bits, sizeof(float));
+    memcpy(&node->quants_range, &range_bits, sizeof(float));
 
     node->value = value;
     hnsw_add_node(index, node);
@@ -2207,13 +2617,28 @@ uint64_t hnsw_hash_node_id(uint64_t id) {
     return id;
 }
 
+/* Helper for duplicated link detection in hnsw_deserialize_index(). */
+static int qsort_compare_pointers(const void *aptr, const void *bptr) {
+    uintptr_t a = *((uintptr_t*)aptr);
+    uintptr_t b = *((uintptr_t*)bptr);
+    if (a > b) return 1;
+    if (a < b) return -1;
+    return 0;
+}
+
 /* Fix pointers of neighbors nodes: after loading the serialized nodes, the
  * neighbors links are just IDs (casted to pointers), instead of the actual
  * pointers. We need to resolve IDs into pointers.
  *
+ * The two integers salt0 and salt1 are used to make the internal state
+ * of the function unguessable to an external attacker, in order to protect
+ * from corruptions. Show be two random numbers from /dev/urandom if possible
+ * otherwise can be just 0,0 if the application is not security critical and
+ * never processes untrusted inputs.
+ *
  * Return 0 on error (out of memory or some ID that can't be resolved), 1 on
  * success. */
-int hnsw_deserialize_index(HNSW *index) {
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     /* We will use simple linear probing, so over-allocating is a good
      * idea: anyway this flat array of pointers will consume a fraction
      * of the memory of the loaded index. */
@@ -2239,12 +2664,60 @@ int hnsw_deserialize_index(HNSW *index) {
         node = node->next;
     }
 
-    /* Second pass: fix pointers of all the neighbors links. */
+    /* Second pass: fix pointers of all the neighbors links.
+     * As we scan and fix the links, we also compute the accumulator
+     * register "reciprocal", that is used in order to guarantee that all
+     * the links are reciprocal.
+     *
+     * This is how it works, we hash (using a strong hash function) the
+     * following key for each link that we see from A to B (or vice versa):
+     *
+     *      hash(salt || A || B || link-level)
+     *
+     * We always sort A and B, so the same link from A to B and from B to A
+     * will hash the same. The we xor the result into the 128 bit accumulator.
+     * If each link has its own backlink, the accumulator is guaranteed to
+     * be zero at the end.
+     *
+     * Collisions are extremely unlikely to happen, and an external attacker
+     * can't easily control the hash function output, since the salt is
+     * unknown, and also there would be to control the pointers.
+     *
+     * This algorithm is O(1) for each node so it is basically free for
+     * us, as we scan the list of nodes, and runs on constant and very
+     * small memory. */
+    uint64_t accumulator[2] = {0,0};
+
     node = index->head; // Rewind.
     while(node) {
+        uint64_t this_node_id = node->id;
         for (uint32_t i = 0; i <= node->level; i++) {
+            // Check if there are duplicated links: those are
+            // also corruptions of the on-disk serialization format.
+            if (node->layers[i].num_links > 0) {
+                qsort(node->layers[i].links, node->layers[i].num_links,
+                        sizeof(void*), qsort_compare_pointers);
+                for (uint32_t j = 0; j < node->layers[i].num_links-1; j++) {
+                    if (node->layers[i].links[j] == node->layers[i].links[j+1])
+                        goto corrupted;
+                }
+            }
+
+            // Resolve pointers.
             for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
                 uint64_t linked_id = (uint64_t) node->layers[i].links[j];
+
+                // We can't link to our own node.
+                if (linked_id == this_node_id) goto corrupted;
+
+                // Compute accumulator for reciprocal links check.
+                uint64_t mixed_h1, mixed_h2;
+                secure_pair_mixer_128(salt0, salt1, this_node_id, linked_id, (uint64_t)i, &mixed_h1, &mixed_h2);
+
+                accumulator[0] ^= mixed_h1;
+                accumulator[1] ^= mixed_h2;
+
+                // Fix links.
                 uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
@@ -2254,19 +2727,37 @@ int hnsw_deserialize_index(HNSW *index) {
                     }
                     bucket = (bucket+1) & (table_size-1);
                 }
-                if (neighbor == NULL) {
+
+                /* The neighbor must exist and also exist at the right
+                 * level. */
+                if (neighbor == NULL || neighbor->level < i) {
                     /* Unresolved link! Either a bug in this code
                      * or broken serialization data. */
-                    hfree(table);
-                    return 0;
+                    goto corrupted;
                 }
                 node->layers[i].links[j] = neighbor;
+            }
+
+            /* The worst link information was missing from older
+             * serialization formats. Compute it on the fly if needed. */
+            if (node->layers[i].worst_idx == HNSW_SER_WORSTLINK_MISSING) {
+                hnsw_update_worst_neighbor(index,node,i);
             }
         }
         node = node->next;
     }
+
+    /* Check that links are reciprocal, otherwise fail. */
+    if (accumulator[0] || accumulator[1]) goto corrupted;
+
+    /* Everything fine. Return success. */
     hfree(table);
     return 1;
+
+corrupted:
+    /* Some corruption error detected. */
+    hfree(table);
+    return 0;
 }
 
 /* ================================ Iterator ================================ */
@@ -2294,25 +2785,27 @@ hnswCursor *hnsw_cursor_init(HNSW *index) {
 /* Free the cursor. Can be called both at the end of the iteration, when
  * hnsw_cursor_next() returned NULL, or before. */
 void hnsw_cursor_free(hnswCursor *cursor) {
-    if (pthread_rwlock_wrlock(&cursor->index->global_lock) != 0) {
+    HNSW *index = cursor->index;
+    if (pthread_rwlock_wrlock(&index->global_lock) != 0) {
         // No easy way to recover from that. We will leak memory.
         return;
     }
 
-    hnswCursor *x = cursor->index->cursors;
+    hnswCursor *x = index->cursors;
     hnswCursor *prev = NULL;
     while(x) {
         if (x == cursor) {
             if (prev)
                 prev->next = cursor->next;
             else
-                cursor->index->cursors = cursor->next;
+                index->cursors = cursor->next;
             hfree(cursor);
             break;
         }
+        prev = x;
         x = x->next;
     }
-    pthread_rwlock_unlock(&cursor->index->global_lock);
+    pthread_rwlock_unlock(&index->global_lock);
 }
 
 /* Acquire a lock to use the cursor. Returns 1 if the lock was acquired

@@ -2,8 +2,9 @@
 # Copyright (c) 2009-Present, Redis Ltd.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
@@ -28,7 +29,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         $primary MULTI
         $primary SPUBLISH ch1 "hello"
         $primary GET foo
-        catch {[$primary EXEC]} err
+        catch {$primary EXEC} err
         assert_match {CROSSSLOT*} $err
     }
 

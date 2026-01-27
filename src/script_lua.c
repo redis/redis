@@ -2,8 +2,14 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "script_lua.h"
@@ -46,7 +52,6 @@ static char *redis_api_allow_list[] = {
 static char *lua_builtins_allow_list[] = {
     "xpcall",
     "tostring",
-    "getfenv",
     "setmetatable",
     "next",
     "assert",
@@ -67,15 +72,16 @@ static char *lua_builtins_allow_list[] = {
     "loadstring",
     "ipairs",
     "_VERSION",
-    "setfenv",
     "load",
     "error",
     NULL,
 };
 
-/* Lua builtins which are not documented on the Lua documentation */
-static char *lua_builtins_not_documented_allow_list[] = {
+/* Lua builtins which are deprecated for sandboxing concerns */
+static char *lua_builtins_deprecated[] = {
     "newproxy",
+    "setfenv",
+    "getfenv",
     NULL,
 };
 
@@ -97,7 +103,6 @@ static char **allow_lists[] = {
     libraries_allow_list,
     redis_api_allow_list,
     lua_builtins_allow_list,
-    lua_builtins_not_documented_allow_list,
     lua_builtins_removed_after_initialization_allow_list,
     NULL,
 };
@@ -968,7 +973,8 @@ cleanup:
     c->argc = c->argv_len = 0;
     c->user = NULL;
     c->argv = NULL;
-    resetClient(c);
+    c->all_argv_len_sum = 0;
+    resetClient(c, 1);
     inuse--;
 
     if (raise_error) {
@@ -1128,7 +1134,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         raise_error = 1;
     } else {
         int keyidxptr;
-        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, NULL, &keyidxptr) != ACL_OK) {
             lua_pushboolean(lua, 0);
         } else {
             lua_pushboolean(lua, 1);
@@ -1300,7 +1306,22 @@ static int luaNewIndexAllowList(lua_State *lua) {
             break;
         }
     }
-    if (!*allow_l) {
+
+    int allowed = (*allow_l != NULL);
+    /* If not explicitly allowed, check if it's a deprecated function. If so,
+     * allow it only if 'lua_enable_deprecated_api' config is enabled. */
+    int deprecated = 0;
+    if (!allowed) {
+        char **c = lua_builtins_deprecated;
+        for (; *c; ++c) {
+            if (strcmp(*c, variable_name) == 0) {
+                deprecated = 1;
+                allowed = server.lua_enable_deprecated_api ? 1 : 0;
+                break;
+            }
+        }
+    }
+    if (!allowed) {
         /* Search the value on the back list, if its there we know that it was removed
          * on purpose and there is no need to print a warning. */
         char **c = deny_list;
@@ -1309,7 +1330,7 @@ static int luaNewIndexAllowList(lua_State *lua) {
                 break;
             }
         }
-        if (!*c) {
+        if (!*c && !deprecated) {
             serverLog(LL_WARNING, "A key '%s' was added to Lua globals which is not on the globals allow list nor listed on the deny list.", variable_name);
         }
     } else {
@@ -1358,6 +1379,37 @@ void luaSetTableProtectionRecursively(lua_State *lua) {
     if (lua_getmetatable(lua, -1)) {
         luaSetTableProtectionRecursively(lua);
         lua_pop(lua, 1); /* pop the metatable */
+    }
+}
+
+/* Set the readonly flag on the metatable of basic types (string, nil etc.) */
+void luaSetTableProtectionForBasicTypes(lua_State *lua) {
+    static const int types[] = {
+        LUA_TSTRING,
+        LUA_TNUMBER,
+        LUA_TBOOLEAN,
+        LUA_TNIL,
+        LUA_TFUNCTION,
+        LUA_TTHREAD,
+        LUA_TLIGHTUSERDATA
+    };
+
+    for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        /* Push a dummy value of the type to get its metatable */
+        switch (types[i]) {
+            case LUA_TSTRING: lua_pushstring(lua, ""); break;
+            case LUA_TNUMBER: lua_pushnumber(lua, 0); break;
+            case LUA_TBOOLEAN: lua_pushboolean(lua, 0); break;
+            case LUA_TNIL: lua_pushnil(lua); break;
+            case LUA_TFUNCTION: lua_pushcfunction(lua, NULL); break;
+            case LUA_TTHREAD: lua_newthread(lua); break;
+            case LUA_TLIGHTUSERDATA: lua_pushlightuserdata(lua, (void*)lua); break;
+        }
+        if (lua_getmetatable(lua, -1)) {
+            luaSetTableProtectionRecursively(lua);
+            lua_pop(lua, 1); /* pop metatable */
+        }
+        lua_pop(lua, 1); /* pop dummy value */
     }
 }
 
@@ -1579,6 +1631,9 @@ void luaExtractErrorInformation(lua_State *lua, errorInfo *err_info) {
     lua_getfield(lua, -1, "err");
     if (lua_isstring(lua, -1)) {
         err_info->msg = sdsnew(lua_tostring(lua, -1));
+    } else {
+        /* Ensure we never return a NULL msg. */
+        err_info->msg = sdsnew("ERR unknown error");
     }
     lua_pop(lua, 1);
 

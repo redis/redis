@@ -3,8 +3,9 @@
  * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 /* Allocator selection.
@@ -20,4 +21,8 @@
 #define rax_malloc zmalloc
 #define rax_realloc zrealloc
 #define rax_free zfree
+#define rax_malloc_usable zmalloc_usable
+#define rax_realloc_usable zrealloc_usable
+#define rax_free_usable zfree_usable
+#define rax_malloc_usable_size zmalloc_usable_size
 #endif

@@ -255,15 +255,15 @@ malloc_initialized(void) {
  * tail-call to the slowpath if they fire.
  */
 JEMALLOC_ALWAYS_INLINE void *
-imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t)) {
+imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t, size_t *), size_t *usable_size) {
 	LOG("core.malloc.entry", "size: %zu", size);
 	if (tsd_get_allocates() && unlikely(!malloc_initialized())) {
-		return fallback_alloc(size);
+		return fallback_alloc(size, usable_size);
 	}
 
 	tsd_t *tsd = tsd_get(false);
 	if (unlikely((size > SC_LOOKUP_MAXCLASS) || tsd == NULL)) {
-		return fallback_alloc(size);
+		return fallback_alloc(size, usable_size);
 	}
 	/*
 	 * The code below till the branch checking the next_event threshold may
@@ -307,7 +307,7 @@ imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t)) {
 	 * 0) in a single branch.
 	 */
 	if (unlikely(allocated_after >= threshold)) {
-		return fallback_alloc(size);
+		return fallback_alloc(size, usable_size);
 	}
 	assert(tsd_fast(tsd));
 
@@ -326,15 +326,17 @@ imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t)) {
 	ret = cache_bin_alloc_easy(bin, &tcache_success);
 	if (tcache_success) {
 		fastpath_success_finish(tsd, allocated_after, bin, ret);
+		if (usable_size) *usable_size = usize;
 		return ret;
 	}
 	ret = cache_bin_alloc(bin, &tcache_success);
 	if (tcache_success) {
 		fastpath_success_finish(tsd, allocated_after, bin, ret);
+		if (usable_size) *usable_size = usize;
 		return ret;
 	}
 
-	return fallback_alloc(size);
+	return fallback_alloc(size, usable_size);
 }
 
 JEMALLOC_ALWAYS_INLINE int

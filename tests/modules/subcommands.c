@@ -108,5 +108,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* Trying to create a sub-subcommand fails */
     RedisModule_Assert(RedisModule_CreateSubcommand(subcmd,"get",NULL,"",0,0,0) == REDISMODULE_ERR);
 
+    /* Internal container command for testing */
+    if (RedisModule_CreateCommand(ctx,"subcommands.internal_container",NULL,"internal",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    RedisModuleCommand *internal_parent = RedisModule_GetCommand(ctx,"subcommands.internal_container");
+    if (RedisModule_CreateSubcommand(internal_parent,"test",cmd_set,"internal",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }

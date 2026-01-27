@@ -2,12 +2,19 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 
 /* Structure to hold the pubsub related metadata. Currently used
  * for pubsub and pubsubshard feature. */
@@ -242,8 +249,9 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     unsigned int slot = 0;
 
     /* Add the channel to the client -> channels hash table */
-    void *position = dictFindPositionForInsert(type.clientPubSubChannels(c),channel,NULL);
-    if (position) { /* Not yet subscribed to this channel */
+    dictEntryLink bucket;
+    dictEntryLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
+    if (link == NULL) { /* Not yet subscribed to this channel */
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
@@ -262,7 +270,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
-        serverAssert(dictInsertAtPosition(type.clientPubSubChannels(c), channel, position));
+        dictSetKeyAtLink(type.clientPubSubChannels(c), channel, &bucket, 1);
         incrRefCount(channel);
     }
     /* Notify the client */
@@ -311,15 +319,18 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     if (!kvstoreDictSize(server.pubsubshard_channels, slot))
         return;
 
-    kvstoreDictIterator *kvs_di = kvstoreGetDictSafeIterator(server.pubsubshard_channels, slot);
     dictEntry *de;
-    while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+    kvstoreDictIterator kvs_di;
+    kvstoreInitDictSafeIterator(&kvs_di, server.pubsubshard_channels, slot);
+    while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
         /* For each client subscribed to the channel, unsubscribe it. */
-        dictIterator *iter = dictGetIterator(clients);
+        dictIterator iter;
         dictEntry *entry;
-        while ((entry = dictNext(iter)) != NULL) {
+
+        dictInitIterator(&iter, clients);
+        while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             int retval = dictDelete(c->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
@@ -330,10 +341,10 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
                 unmarkClientAsPubSub(c);
             }
         }
-        dictReleaseIterator(iter);
+        dictResetIterator(&iter);
         kvstoreDictDelete(server.pubsubshard_channels, slot, channel);
     }
-    kvstoreReleaseDictIterator(kvs_di);
+    kvstoreResetDictIterator(&kvs_di);
 }
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
@@ -393,15 +404,16 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubtype type) {
     int count = 0;
     if (dictSize(type.clientPubSubChannels(c)) > 0) {
-        dictIterator *di = dictGetSafeIterator(type.clientPubSubChannels(c));
+        dictIterator di;
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        dictInitSafeIterator(&di, type.clientPubSubChannels(c));
+        while((de = dictNext(&di)) != NULL) {
             robj *channel = dictGetKey(de);
 
             count += pubsubUnsubscribeChannel(c,channel,notify,type);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) {
@@ -432,14 +444,15 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     int count = 0;
 
     if (dictSize(c->pubsub_patterns) > 0) {
-        dictIterator *di = dictGetSafeIterator(c->pubsub_patterns);
+        dictIterator di;
         dictEntry *de;
 
-        while ((de = dictNext(di)) != NULL) {
+        dictInitSafeIterator(&di, c->pubsub_patterns);
+        while ((de = dictNext(&di)) != NULL) {
             robj *pattern = dictGetKey(de);
             count += pubsubUnsubscribePattern(c, pattern, notify);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 
     /* We were subscribed to nothing? Still reply to the client. */
@@ -453,7 +466,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
 int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) {
     int receivers = 0;
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
     unsigned int slot = 0;
 
     /* Send to clients listening for that channel */
@@ -464,14 +477,18 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     if (de) {
         dict *clients = dictGetVal(de);
         dictEntry *entry;
-        dictIterator *iter = dictGetIterator(clients);
-        while ((entry = dictNext(iter)) != NULL) {
+        dictIterator iter;
+
+        dictInitIterator(&iter, clients);
+        while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
+            if (clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_NET))
+                clusterSlotStatsAddNetworkBytesOutForShardedPubSubInternalPropagation(c, slot);
             updateClientMemUsageAndBucket(c);
             receivers++;
         }
-        dictReleaseIterator(iter);
+        dictResetIterator(&iter);
     }
 
     if (type.shard) {
@@ -480,10 +497,10 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     }
 
     /* Send to clients listening to matching channels */
-    di = dictGetIterator(server.pubsub_patterns);
-    if (di) {
+    if (dictSize(server.pubsub_patterns) > 0) {
         channel = getDecodedObject(channel);
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, server.pubsub_patterns);
+        while((de = dictNext(&di)) != NULL) {
             robj *pattern = dictGetKey(de);
             dict *clients = dictGetVal(de);
             if (!stringmatchlen((char*)pattern->ptr,
@@ -492,17 +509,19 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
                                 sdslen(channel->ptr),0)) continue;
 
             dictEntry *entry;
-            dictIterator *iter = dictGetIterator(clients);
-            while ((entry = dictNext(iter)) != NULL) {
+            dictIterator iter;
+
+            dictInitIterator(&iter, clients);
+            while ((entry = dictNext(&iter)) != NULL) {
                 client *c = dictGetKey(entry);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
                 updateClientMemUsageAndBucket(c);
                 receivers++;
             }
-            dictReleaseIterator(iter);
+            dictResetIterator(&iter);
         }
         decrRefCount(channel);
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     return receivers;
 }
@@ -676,9 +695,10 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels) {
     for (unsigned int i = 0; i < slot_cnt; i++) {
         if (!kvstoreDictSize(pubsub_channels, i))
             continue;
-        kvstoreDictIterator *kvs_di = kvstoreGetDictIterator(pubsub_channels, i);
         dictEntry *de;
-        while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+        kvstoreDictIterator kvs_di;
+        kvstoreInitDictIterator(&kvs_di, pubsub_channels, i);
+        while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
 
@@ -689,7 +709,7 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels) {
                 mblen++;
             }
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
     }
     setDeferredArrayLen(c,replylen,mblen);
 }

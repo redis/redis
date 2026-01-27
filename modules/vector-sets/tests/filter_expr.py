@@ -39,124 +39,189 @@ class VSIMFilterExpressions(TestCase):
         self.redis.execute_command('VSETATTR', self.test_key, f'{self.test_key}:item:5',
                                   'invalid json')  # Intentionally malformed JSON
 
-        # Test 1: Basic equality with numbers
+        # Basic equality with numbers
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age == 25')
         assert len(result) == 1, "Expected 1 result for age == 25"
         assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1 for age == 25"
 
-        # Test 2: Greater than
+        # Greater than
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age > 25')
         assert len(result) == 2, "Expected 2 results for age > 25"
 
-        # Test 3: Less than or equal
+        # Less than or equal
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age <= 30')
         assert len(result) == 2, "Expected 2 results for age <= 30"
 
-        # Test 4: String equality
+        # String equality
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.name == "Alice"')
         assert len(result) == 1, "Expected 1 result for name == Alice"
         assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1 for name == Alice"
 
-        # Test 5: String inequality
+        # String inequality
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.name != "Alice"')
         assert len(result) == 2, "Expected 2 results for name != Alice"
 
-        # Test 6: Boolean value
+        # Boolean value
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.active')
         assert len(result) == 1, "Expected 1 result for .active being true"
 
-        # Test 7: Logical AND
+        # Logical AND
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age > 20 and .age < 30')
         assert len(result) == 1, "Expected 1 result for 20 < age < 30"
         assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1 for 20 < age < 30"
 
-        # Test 8: Logical OR
+        # Logical OR
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age < 30 or .age > 35')
         assert len(result) == 1, "Expected 1 result for age < 30 or age > 35"
 
-        # Test 9: Logical NOT
+        # Logical NOT
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '!(.age == 25)')
         assert len(result) == 2, "Expected 2 results for NOT(age == 25)"
 
-        # Test 10: The "in" operator with array
+        # The "in" operator with array
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age in [25, 35]')
         assert len(result) == 2, "Expected 2 results for age in [25, 35]"
 
-        # Test 11: The "in" operator with strings in array
+        # The "in" operator with strings in array
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.name in ["Alice", "David"]')
         assert len(result) == 1, "Expected 1 result for name in [Alice, David]"
 
-        # Test 12: Arithmetic operations - addition
+        # The "in" operator for substring matching
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"lic" in .name')
+        assert len(result) == 1, "Expected 1 result for 'lic' in name"
+        assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1 (Alice)"
+
+        # The "in" operator with city substring
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"ork" in .city')
+        assert len(result) == 1, "Expected 1 result for 'ork' in city"
+        assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1 (New York)"
+
+        # The "in" operator with no matches
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"xyz" in .name')
+        assert len(result) == 0, "Expected 0 results for 'xyz' in name"
+
+        # Off-by-one tests - substring at the beginning
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"Ali" in .name')
+        assert len(result) == 1, "Expected 1 result for 'Ali' at beginning of 'Alice'"
+        assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1"
+
+        # Off-by-one tests - substring at the end
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"ice" in .name')
+        assert len(result) == 1, "Expected 1 result for 'ice' at end of 'Alice'"
+        assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1"
+
+        # Off-by-one tests - exact match (entire string)
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"Alice" in .name')
+        assert len(result) == 1, "Expected 1 result for exact match 'Alice' in 'Alice'"
+        assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1"
+
+        # Off-by-one tests - single character
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"A" in .name')
+        assert len(result) == 1, "Expected 1 result for single char 'A' in 'Alice'"
+
+        # Off-by-one tests - empty string (should match all strings)
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"" in .name')
+        assert len(result) == 3, "Expected 3 results for empty string (matches all strings)"
+
+        # Off-by-one tests - non-empty strings are never substrings of ""
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.name in ""')
+        assert len(result) == 0, "Expected 0 results for empty string on the right of IN operator"
+
+        # Off-by-one tests - empty string match empty string.
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"" in .name && "" in ""')
+        assert len(result) == 3, "Expected empty string matching empty string"
+
+        # Arithmetic operations - addition
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age + 10 > 40')
         assert len(result) == 1, "Expected 1 result for age + 10 > 40"
 
-        # Test 13: Arithmetic operations - multiplication
+        # Arithmetic operations - multiplication
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age * 2 > 60')
         assert len(result) == 1, "Expected 1 result for age * 2 > 60"
 
-        # Test 14: Arithmetic operations - division
+        # Arithmetic operations - division
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age / 5 == 5')
         assert len(result) == 1, "Expected 1 result for age / 5 == 5"
 
-        # Test 15: Arithmetic operations - modulo
+        # Arithmetic operations - modulo
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age % 2 == 0')
         assert len(result) == 1, "Expected 1 result for age % 2 == 0"
 
-        # Test 16: Power operator
+        # Power operator
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age ** 2 > 900')
         assert len(result) == 1, "Expected 1 result for age^2 > 900"
 
-        # Test 17: Missing attribute (should exclude items missing that attribute)
+        # Missing attribute (should exclude items missing that attribute)
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.missing_field == "value"')
         assert len(result) == 0, "Expected 0 results for missing_field == value"
 
-        # Test 18: No attribute set at all
+        # No attribute set at all
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.any_field')
         assert f'{self.test_key}:item:4' not in [item.decode() for item in result], "Item with no attribute should be excluded"
 
-        # Test 19: Malformed JSON
+        # Malformed JSON
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.any_field')
         assert f'{self.test_key}:item:5' not in [item.decode() for item in result], "Item with malformed JSON should be excluded"
 
-        # Test 20: Complex expression combining multiple operators
+        # Complex expression combining multiple operators
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '(.age > 20 and .age < 40) and (.city == "Boston" or .city == "New York")')
@@ -164,13 +229,13 @@ class VSIMFilterExpressions(TestCase):
         expected_items = [f'{self.test_key}:item:1', f'{self.test_key}:item:2']
         assert set([item.decode() for item in result]) == set(expected_items), "Expected item:1 and item:2 for the complex expression"
 
-        # Test 21: Parentheses to control operator precedence
+        # Parentheses to control operator precedence
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age > (20 + 10)')
         assert len(result) == 1, "Expected 1 result for age > (20 + 10)"
 
-        # Test 22: Array access (arrays evaluate to true)
+        # Array access (arrays evaluate to true)
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.scores')

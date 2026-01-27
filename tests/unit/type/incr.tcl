@@ -75,13 +75,13 @@ start_server {tags {"incr"}} {
         assert_equal {-1} [r decrby key_not_exist 1]
     }
 
-    test {INCR uses shared objects in the 0-9999 range} {
+    test {INCR does not use shared objects} {
         r set foo -1
         r incr foo
-        assert_refcount_morethan foo 1
+        assert_refcount 1 foo
         r set foo 9998
         r incr foo
-        assert_refcount_morethan foo 1
+        assert_refcount 1 foo
         r incr foo
         assert_refcount 1 foo
     }
@@ -96,7 +96,7 @@ start_server {tags {"incr"}} {
         assert {[string range $old 0 2] eq "at:"}
         assert {[string range $new 0 2] eq "at:"}
         assert {$old eq $new}
-    } {} {needs:debug}
+    } {} {needs:debug debug_defrag:skip}
 
     test {INCRBYFLOAT against non existing key} {
         r del novar

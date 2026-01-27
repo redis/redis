@@ -2,8 +2,9 @@
  * Copyright (c) 2021-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 /*
@@ -494,6 +495,8 @@ int luaEngineInitEngine(void) {
     lua_enablereadonlytable(lua_engine_ctx->lua, -1, 1); /* protect the new global table */
     lua_replace(lua_engine_ctx->lua, LUA_GLOBALSINDEX); /* set new global table as the new globals */
 
+    /* Set metatables of basic types (string, number, nil etc.) readonly. */
+    luaSetTableProtectionForBasicTypes(lua_engine_ctx->lua);
 
     engine *lua_engine = zmalloc(sizeof(*lua_engine));
     *lua_engine = (engine) {

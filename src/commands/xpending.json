@@ -92,23 +92,53 @@
                             "pattern": "[0-9]+-[0-9]+"
                         },
                         {
-                            "description": "Consumers with pending messages",
-                            "type": "array",
-                            "items": {
-                                "type": "array",
-                                "minItems": 2,
-                                "maxItems": 2,
-                                "items": [
-                                    {
-                                        "description": "Consumer name",
-                                        "type": "string"
-                                    },
-                                    {
-                                        "description": "Number of pending messages",
-                                        "type": "string"
+                            "description": "Consuers with pending messages",
+                            "oneOf": [
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "array",
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                        "items": [
+                                            {
+                                                "description": "Consumer name",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "description": "Number of pending messages",
+                                                "type": "string"
+                                            }
+                                        ]
                                     }
-                                ]
-                            }
+                                },
+                                {
+                                    "type": "null",
+                                    "description": "When there are no consumers with pending messages"
+                                }
+                            ]
+                            
+                        }
+                    ]
+                },
+                {
+                    "description": "Summary form, in case `start` was not given and there are no pending messages.",
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "Total number of pending messages",
+                            "const": 0
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
                         }
                     ]
                 }

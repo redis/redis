@@ -5,8 +5,9 @@
 # Copyright (c) 2024-present, Valkey contributors.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
@@ -57,6 +58,24 @@ start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
         catch {[$rr read]} e
         assert_match {*unauthenticated bulk length*} $e
         $rr close
+    }
+
+    test {For unauthenticated clients output buffer is limited} {
+        set rr [redis [srv "host"] [srv "port"] 1 $::tls]
+        $rr SET x 5
+        catch {[$rr read]} e
+        assert_match {*NOAUTH Authentication required*} $e
+
+        # Fill the output buffer in a loop without reading it and make
+        # sure the client disconnected.
+        # Considering the socket eat some of the replies, we are testing
+        # that such client can't consume more than few MB's.
+        catch {
+            for {set j 0} {$j < 1000000} {incr j} {
+                    $rr SET x 5
+            }
+        } e
+        assert_match {I/O error reading reply} $e
     }
 }
 

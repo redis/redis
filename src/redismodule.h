@@ -9,6 +9,7 @@
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
+typedef int RedisModuleKeyMetaClassId;
 
 /* -------------- Defines NOT common between core and modules ------------- */
 
@@ -45,6 +46,10 @@ typedef long long ustime_t;
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 5
 
+/* Version of the RedisModuleKeyMetaClassConfig structure. Once the RedisModuleKeyMetaClassConfig 
+ * structure is changed, this version number needs to be changed synchronistically. */
+#define REDISMODULE_KEY_META_VERSION    1
+
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
 #define REDISMODULE_WRITE (1<<1)
@@ -62,11 +67,14 @@ typedef long long ustime_t;
 #define REDISMODULE_OPEN_KEY_NOEFFECTS (1<<20)
 /* Allow access expired key that haven't deleted yet */
 #define REDISMODULE_OPEN_KEY_ACCESS_EXPIRED (1<<21)
+/* Allow access trimmed key that haven't deleted yet */
+#define REDISMODULE_OPEN_KEY_ACCESS_TRIMMED (1<<22)
+
 
 /* Mask of all REDISMODULE_OPEN_KEY_* values. Any new mode should be added to this list.
  * Should not be used directly by the module, use RM_GetOpenKeyModesAll instead.
  * Located here so when we will add new modes we will not forget to update it. */
-#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED
+#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
@@ -210,11 +218,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_SERVER_STARTUP (1<<24)
 /* This context can call execute debug commands. */
 #define REDISMODULE_CTX_FLAGS_DEBUG_ENABLED (1<<25)
+/* Trim is in progress due to slot migration. */
+#define REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS (1<<26)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<26)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<27)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -234,11 +244,14 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_LOADED (1<<12)     /* module only key space notification, indicate a key loaded from rdb */
 #define REDISMODULE_NOTIFY_MODULE (1<<13)     /* d, module key space notification */
 #define REDISMODULE_NOTIFY_NEW (1<<14)        /* n, new key notification */
+#define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
+#define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
+#define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<15)
+#define _REDISMODULE_NOTIFY_NEXT (1<<18)
 
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
 
@@ -505,7 +518,9 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_EVENTLOOP 15
 #define REDISMODULE_EVENT_CONFIG 16
 #define REDISMODULE_EVENT_KEY 17
-#define _REDISMODULE_EVENT_NEXT 18 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
+#define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
+#define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -616,6 +631,14 @@ static const RedisModuleEvent
     RedisModuleEvent_Key = {
         REDISMODULE_EVENT_KEY,
         1
+    },
+    RedisModuleEvent_ClusterSlotMigration = {
+        REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION,
+        1
+    },
+    RedisModuleEvent_ClusterSlotMigrationTrim = {
+        REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -693,6 +716,20 @@ static const RedisModuleEvent
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
 #define _REDISMODULE_SUBEVENT_SWAPDB_NEXT 0
+
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED 0
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED 1
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED 2
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED 3
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED 4
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED 5
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE 6
+#define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT 7
+
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED 0
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
+#define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -823,12 +860,54 @@ typedef struct RedisModuleKeyInfo {
 
 #define RedisModuleKeyInfo RedisModuleKeyInfoV1
 
+typedef struct RedisModuleSlotRange {
+    uint16_t start;
+    uint16_t end;
+} RedisModuleSlotRange;
+
+typedef struct RedisModuleSlotRangeArray {
+    int32_t num_ranges;
+    RedisModuleSlotRange ranges[];
+} RedisModuleSlotRangeArray;
+
+#define REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION 1
+
+typedef struct RedisModuleClusterSlotMigrationInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    char source_node_id[REDISMODULE_NODE_ID_LEN + 1];
+    char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
+    const char *task_id;
+    RedisModuleSlotRangeArray *slots;
+} RedisModuleClusterSlotMigrationInfoV1;
+
+#define RedisModuleClusterSlotMigrationInfo RedisModuleClusterSlotMigrationInfoV1
+
+#define REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION 1
+
+typedef struct RedisModuleClusterSlotMigrationTrimInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    RedisModuleSlotRangeArray *slots;
+} RedisModuleClusterSlotMigrationTrimInfoV1;
+
+#define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
+
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
     REDISMODULE_ACL_LOG_CMD, /* Command authorization failure */
     REDISMODULE_ACL_LOG_KEY, /* Key authorization failure */
     REDISMODULE_ACL_LOG_CHANNEL /* Channel authorization failure */
 } RedisModuleACLLogEntryReason;
+
+typedef enum {
+    REDISMODULE_CONFIG_TYPE_STRING = 0,
+    REDISMODULE_CONFIG_TYPE_ENUM,
+    REDISMODULE_CONFIG_TYPE_NUMERIC,
+    REDISMODULE_CONFIG_TYPE_BOOL,
+} RedisModuleConfigType;
 
 /* Incomplete structures needed by both the core and modules. */
 typedef struct RedisModuleIO RedisModuleIO;
@@ -891,6 +970,7 @@ typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 typedef struct RedisModuleUser RedisModuleUser;
 typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 typedef struct RedisModuleRdbStream RedisModuleRdbStream;
+typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -930,6 +1010,19 @@ typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, R
 typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
 typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
+typedef int (*RedisModuleKeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
+typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
+typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*RedisModuleKeyMetaFreeFunc)(const char *keyname, uint64_t meta);
+typedef int (*RedisModuleKeyMetaCopyFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaRenameFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleString *keyname, uint64_t meta);
+typedef size_t (*RedisModuleKeyMetaMemUsageFunc)(RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
+typedef size_t (*RedisModuleKeyMetaFreeEffortFunc)(RedisModuleKeyOptCtx *ctx, uint64_t meta);
+typedef void (*RedisModuleKeyMetaUnlinkFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaMoveFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+
+
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
     RedisModuleTypeLoadFunc rdb_load;
@@ -951,6 +1044,27 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeCopyFunc2 copy2;
     RedisModuleTypeAuxSaveFunc aux_save2;
 } RedisModuleTypeMethods;
+
+/* Key metadata class configuration structure.
+ * Must be aligned with KeyMetaConfAllVersions in module.c.
+ * See RM_CreateKeyMetaClass() documentation in module.c for detailed information. */
+typedef struct RedisModuleKeyMetaClassConfig {
+    uint64_t version;
+#define REDISMODULE_META_ALLOW_IGNORE 0
+    uint64_t flags;
+    uint64_t reset_value;
+    RedisModuleKeyMetaCopyFunc copy;
+    RedisModuleKeyMetaRenameFunc rename;
+    RedisModuleKeyMetaMoveFunc move;
+    RedisModuleKeyMetaUnlinkFunc unlink;
+    RedisModuleKeyMetaFreeFunc free;
+    RedisModuleKeyMetaLoadFunc rdb_load;
+    RedisModuleKeyMetaSaveFunc rdb_save;
+    RedisModuleKeyMetaAOFRewriteFunc aof_rewrite;
+    RedisModuleKeyMetaDefragFunc defrag;
+    RedisModuleKeyMetaMemUsageFunc mem_usage;
+    RedisModuleKeyMetaFreeEffortFunc free_effort;
+} RedisModuleKeyMetaClassConfig;
 
 #define REDISMODULE_GET_API(name) \
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
@@ -1245,6 +1359,7 @@ REDISMODULE_API void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx) R
 REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetNotifyKeyspaceEvents)(void) REDISMODULE_ATTR;
@@ -1263,8 +1378,15 @@ REDISMODULE_API void (*RedisModule_GetRandomBytes)(unsigned char *dst, size_t le
 REDISMODULE_API void (*RedisModule_GetRandomHexChars)(char *dst, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetDisconnectCallback)(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterDisableTrim)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterEnableTrim)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlot)(RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlotC)(const char *keystr, size_t keylen) REDISMODULE_ATTR;
 REDISMODULE_API const char *(*RedisModule_ClusterCanonicalKeyNameInSlot)(unsigned int slot) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterCanAccessKeysInSlot)(int slot) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterPropagateForSlotMigration)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleSlotRangeArray *(*RedisModule_ClusterGetLocalSlotRanges)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ClusterFreeSlotRanges)(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExportSharedAPI)(RedisModuleCtx *ctx, const char *apiname, void *func) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_GetSharedAPI)(RedisModuleCtx *ctx, const char *apiname) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommandFilter * (*RedisModule_RegisterCommandFilter)(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc cb, int flags) REDISMODULE_ATTR;
@@ -1333,6 +1455,22 @@ REDISMODULE_API void (*RedisModule_RdbStreamFree)(RedisModuleRdbStream *stream) 
 REDISMODULE_API int (*RedisModule_RdbLoad)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RdbSave)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_GetInternalSecret)(RedisModuleCtx *ctx, size_t *len) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleConfigIterator * (*RedisModule_ConfigIteratorCreate)(RedisModuleCtx *ctx, const char *pattern) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ConfigIteratorRelease)(RedisModuleCtx *ctx, RedisModuleConfigIterator *iter) REDISMODULE_ATTR;
+REDISMODULE_API const char * (*RedisModule_ConfigIteratorNext)(RedisModuleConfigIterator *iter) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetType)(const char *name, RedisModuleConfigType *res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGet)(RedisModuleCtx *ctx, const char *name, RedisModuleString **res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetBool)(RedisModuleCtx *ctx, const char *name, int *res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString **res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetNumeric)(RedisModuleCtx *ctx, const char *name, long long *res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSet)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSetBool)(RedisModuleCtx *ctx, const char *name, int value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSetNumeric)(RedisModuleCtx *ctx, const char *name, long long value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleKeyMetaClassId (*RedisModule_CreateKeyMetaClass)(RedisModuleCtx *ctx, const char *metaname, int metaver, RedisModuleKeyMetaClassConfig *conf) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReleaseKeyMetaClass)(RedisModuleKeyMetaClassId id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t metadata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t *metadata) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1621,6 +1759,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(BlockedClientMeasureTimeEnd);
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
+    REDISMODULE_GET_API(UnsubscribeFromKeyspaceEvents);
     REDISMODULE_GET_API(AddPostNotificationJob);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);
     REDISMODULE_GET_API(GetNotifyKeyspaceEvents);
@@ -1638,8 +1777,15 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetRandomBytes);
     REDISMODULE_GET_API(GetRandomHexChars);
     REDISMODULE_GET_API(SetClusterFlags);
+    REDISMODULE_GET_API(ClusterDisableTrim);
+    REDISMODULE_GET_API(ClusterEnableTrim);
     REDISMODULE_GET_API(ClusterKeySlot);
+    REDISMODULE_GET_API(ClusterKeySlotC);
     REDISMODULE_GET_API(ClusterCanonicalKeyNameInSlot);
+    REDISMODULE_GET_API(ClusterCanAccessKeysInSlot);
+    REDISMODULE_GET_API(ClusterPropagateForSlotMigration);
+    REDISMODULE_GET_API(ClusterGetLocalSlotRanges);
+    REDISMODULE_GET_API(ClusterFreeSlotRanges);
     REDISMODULE_GET_API(ExportSharedAPI);
     REDISMODULE_GET_API(GetSharedAPI);
     REDISMODULE_GET_API(RegisterCommandFilter);
@@ -1708,6 +1854,23 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RdbLoad);
     REDISMODULE_GET_API(RdbSave);
     REDISMODULE_GET_API(GetInternalSecret);
+    REDISMODULE_GET_API(ConfigIteratorCreate);
+    REDISMODULE_GET_API(ConfigIteratorRelease);
+    REDISMODULE_GET_API(ConfigIteratorNext);
+    REDISMODULE_GET_API(ConfigGetType);
+    REDISMODULE_GET_API(ConfigGet);
+    REDISMODULE_GET_API(ConfigGetBool);
+    REDISMODULE_GET_API(ConfigGetEnum);
+    REDISMODULE_GET_API(ConfigGetNumeric);
+    REDISMODULE_GET_API(ConfigSet);
+    REDISMODULE_GET_API(ConfigSetBool);
+    REDISMODULE_GET_API(ConfigSetEnum);
+    REDISMODULE_GET_API(ConfigSetNumeric);
+    REDISMODULE_GET_API(CreateKeyMetaClass);
+    REDISMODULE_GET_API(ReleaseKeyMetaClass);
+
+    REDISMODULE_GET_API(SetKeyMeta);
+    REDISMODULE_GET_API(GetKeyMeta);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

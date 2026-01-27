@@ -2,11 +2,13 @@
 # Copyright (c) 2009-Present, Redis Ltd.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 
 #!/usr/bin/env python3
+import argparse
 import redis
 import requests
 import re
@@ -14,9 +16,12 @@ import shlex
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
+# Default Ollama embeddings URL (can be overridden with --ollama-url)
+OLLAMA_URL = "http://localhost:11434/api/embeddings"
+
 def get_embedding(text):
     """Get embedding from local Ollama API"""
-    url = "http://localhost:11434/api/embeddings"
+    url = OLLAMA_URL
     payload = {
         "model": "mxbai-embed-large",
         "prompt": text
@@ -72,6 +77,15 @@ def format_response(response):
         return str(response)
 
 def main():
+    global OLLAMA_URL
+
+    parser = argparse.ArgumentParser(prog="cli.py", add_help=False)
+    parser.add_argument("--ollama-url", dest="ollama_url",
+                        help="Ollama embeddings API URL (default: {OLLAMA_URL})",
+                        default=OLLAMA_URL)
+    args, _ = parser.parse_known_args()
+    OLLAMA_URL = args.ollama_url
+
     # Default connection to localhost:6379
     r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 

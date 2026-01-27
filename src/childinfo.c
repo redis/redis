@@ -2,8 +2,9 @@
  * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -93,7 +94,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
     if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
         /* Failed writing to parent, it could have been killed, exit. */
         serverLog(LL_WARNING,"Child failed reporting info to parent, exiting. %s", strerror(errno));
-        exitFromChild(1);
+        exitFromChild(1, 0);
     }
 }
 

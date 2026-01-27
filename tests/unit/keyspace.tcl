@@ -272,7 +272,7 @@ foreach {type large} [array get largevalue] {
 }
 
     foreach type {intset listpack hashtable} {
-        test {COPY basic usage for $type set} {
+        test "COPY basic usage for $type set" {
             r del set1{t} newset1{t}
             r sadd set1{t} 1 2 3
             if {$type ne "intset"} {

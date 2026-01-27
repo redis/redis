@@ -75,6 +75,26 @@
                         "name": "not",
                         "type": "pure-token",
                         "token": "NOT"
+                    },
+                    {
+                        "name": "diff",
+                        "type": "pure-token",
+                        "token": "DIFF"
+                    },
+                    {
+                        "name": "diff1",
+                        "type": "pure-token",
+                        "token": "DIFF1"
+                    },
+                    {
+                        "name": "andor",
+                        "type": "pure-token",
+                        "token": "ANDOR"
+                    },
+                    {
+                        "name": "one",
+                        "type": "pure-token",
+                        "token": "ONE"
                     }
                 ]
             },
