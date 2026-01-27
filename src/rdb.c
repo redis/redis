@@ -3254,7 +3254,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
 
                 /* Insert in sorted order since RDB entries may not be time-ordered */
-                pelListInsertSorted(cgroup, nack, nack->delivery_time);
+                pelListInsertSorted(cgroup, nack);
             }
 
             /* Now that we loaded our global PEL, we need to load the

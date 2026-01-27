@@ -196,7 +196,7 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx);
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
 /* PEL time list management (used by RDB loading) */
-void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time);
+void pelListInsertSorted(streamCG *cg, streamNACK *nack);
 
 /* IDMP functions */
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);

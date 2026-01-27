@@ -253,7 +253,7 @@ robj *streamDup(robj *o) {
             raxInsert(new_cg->pel, ri_cg_pel.key, sizeof(streamID), new_nack, NULL);
 
             /* Insert in sorted order to preserve ordering */
-            pelListInsertSorted(new_cg, new_nack, new_nack->delivery_time);
+            pelListInsertSorted(new_cg, new_nack);
         }
         raxStop(&ri_cg_pel);
 
@@ -5232,15 +5232,11 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 /* Insert a NACK at the tail of the PEL time-ordered list. This is used when
  * delivery_time is set to current time, which is the common case. */
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
-    serverAssert(nack != NULL);
-    serverAssert(nack->pel_prev == NULL && nack->pel_next == NULL);
     nack->pel_prev = cg->pel_time_tail;
     nack->pel_next = NULL;
     if (cg->pel_time_tail) {
-        serverAssert(cg->pel_time_head != NULL);
         cg->pel_time_tail->pel_next = nack;
     } else {
-        serverAssert(cg->pel_time_head == NULL);
         cg->pel_time_head = nack;
     }
     cg->pel_time_tail = nack;
@@ -5248,17 +5244,16 @@ static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
 
 /* Unlink a NACK from the PEL time-ordered list. */
 static void pelListUnlink(streamCG *cg, streamNACK *nack) {
-    serverAssert(nack != NULL);
     if (nack->pel_prev) {
         nack->pel_prev->pel_next = nack->pel_next;
     } else {
-        serverAssert(cg->pel_time_head == nack); /* Removing head. */
+        /* Removing head. */
         cg->pel_time_head = nack->pel_next;
     }
     if (nack->pel_next) {
         nack->pel_next->pel_prev = nack->pel_prev;
     } else {
-        serverAssert(cg->pel_time_tail == nack); /* Removing tail. */
+        /* Removing tail. */
         cg->pel_time_tail = nack->pel_prev;
     }
     nack->pel_prev = nack->pel_next = NULL;
@@ -5268,10 +5263,7 @@ static void pelListUnlink(streamCG *cg, streamNACK *nack) {
  * delivery_time is set to a past time, and also by RDB loading where entries
  * may not be time-ordered. We scan backwards from the tail since most times
  * are recent, so the common case is still fast. */
-void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time) {
-    serverAssert(nack != NULL);
-    serverAssert(nack->pel_prev == NULL && nack->pel_next == NULL);
-
+void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
     /* Empty list. */
     if (cg->pel_time_head == NULL) {
         cg->pel_time_head = cg->pel_time_tail = nack;
@@ -5280,13 +5272,13 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time)
     }
 
     /* Append to tail (common case: delivery_time >= tail time). */
-    if (delivery_time >= cg->pel_time_tail->delivery_time) {
+    if (nack->delivery_time >= cg->pel_time_tail->delivery_time) {
         pelListInsertAtTail(cg, nack);
         return;
     }
 
     /* Prepend to head (rare: delivery_time < head time). */
-    if (delivery_time < cg->pel_time_head->delivery_time) {
+    if (nack->delivery_time < cg->pel_time_head->delivery_time) {
         nack->pel_next = cg->pel_time_head;
         nack->pel_prev = NULL;
         cg->pel_time_head->pel_prev = nack;
@@ -5296,12 +5288,11 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time)
 
     /* Insert in middle: scan backwards from tail since most times are recent. */
     streamNACK *curr = cg->pel_time_tail;
-    while (curr && curr->delivery_time > delivery_time) {
+    while (curr && curr->delivery_time > nack->delivery_time) {
         curr = curr->pel_prev;
     }
 
     /* Insert after curr. */
-    serverAssert(curr != NULL);
     nack->pel_next = curr->pel_next;
     nack->pel_prev = curr;
     if (curr->pel_next) {
@@ -5312,10 +5303,9 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time)
 
 /* Update a NACK's delivery_time and reposition it in the time-ordered list. */
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time) {
-    serverAssert(nack != NULL);
     pelListUnlink(cg, nack);
     nack->delivery_time = new_delivery_time;
-    pelListInsertSorted(cg, nack, new_delivery_time);
+    pelListInsertSorted(cg, nack);
 }
 
 
