@@ -8420,12 +8420,12 @@ void RM_BlockClientSetPrivateData(RedisModuleBlockedClient *blocked_client, void
  * However the reply callback will be able to access the argument vector of
  * the command, so the private data is often not needed.
  *
- * Note: RedisModule_UnblockClient should not be called from module threads for
- *       clients that are blocked with this API. Clients are automatically
- *       unblocked when keys become ready or timeout occurs. Manual unblocking
- *       from the main thread is allowed, in which case the client will be
- *       handled as if it timed out, triggering the timeout callback (which
- *       must be implemented).
+ * Note: Under normal circumstances RedisModule_UnblockClient should not be
+ *       called for clients that are blocked on keys (Either the key will
+ *       become ready or a timeout will occur). If for some reason you do want
+ *       to call RedisModule_UnblockClient it is possible, but it must NOT be
+ *       called from module threads and the client will be handled as if it
+ *       timed out (You must implement the timeout callback in that case).
  */
 RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                                RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
