@@ -109,7 +109,6 @@
 #endif
 #endif
 
-
 /* Algorithm parameters. */
 
 #define HNSW_P 0.25         /* Probability of level increase. */
