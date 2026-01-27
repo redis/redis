@@ -643,8 +643,8 @@ start_cluster 1 1 {tags {external:skip cluster}} {
             ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $subscriber QUIT
     }
-    $subscriber QUIT
     R 0 FLUSHALL
     R 0 CONFIG RESETSTAT
 
@@ -1107,4 +1107,99 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         assert {[dict exists $stats network-bytes-in]}
         assert {[dict exists $stats network-bytes-out]}
     }
+}
+
+# -----------------------------------------------------------------------------
+# Test cases for memory tracking accuracy with DEBUG ALLOCSIZE-SLOTS-ASSERT.
+# These tests verify that memory accounting is correct after operations that
+# may change object encoding (e.g., listTypeTryConversion).
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
+    # Enable debug assertion that validates memory tracking after each command.
+    # This will cause a panic if tracked memory doesn't match actual memory.
+    R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+
+    test "LTRIM memory tracking with quicklist to listpack conversion" {
+        # Use a small list-max-listpack-size to force quicklist encoding
+        set origin_conf [R 0 CONFIG GET list-max-listpack-size]
+        R 0 CONFIG SET list-max-listpack-size 3
+
+        # Create a quicklist by adding more elements than the listpack limit
+        R 0 DEL mylist{t}
+        R 0 RPUSH mylist{t} a b c d
+
+        # Verify we have a quicklist (4 elements > 3 limit)
+        assert_equal "quicklist" [R 0 OBJECT ENCODING mylist{t}]
+
+        # LTRIM to reduce elements - this triggers listTypeTryConversion(LIST_CONV_SHRINKING)
+        # which may convert quicklist back to listpack. The bug was that memory was tracked
+        # BEFORE the conversion, causing a mismatch.
+        R 0 LTRIM mylist{t} 0 0
+
+        # Verify conversion happened
+        assert_equal "listpack" [R 0 OBJECT ENCODING mylist{t}]
+
+        # The DEBUG ALLOCSIZE-SLOTS-ASSERT will have already panicked if memory
+        # tracking was wrong. If we reach here, the test passed.
+        assert_equal "a" [R 0 LRANGE mylist{t} 0 -1]
+
+        R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
+    }
+
+    test "LREM memory tracking with quicklist to listpack conversion" {
+        # Use a small list-max-listpack-size to force quicklist encoding
+        set origin_conf [R 0 CONFIG GET list-max-listpack-size]
+        R 0 CONFIG SET list-max-listpack-size 3
+
+        # Create a quicklist by adding more elements than the listpack limit
+        # Use 3 'a' elements so we can remove them to trigger conversion (same as list.tcl test)
+        R 0 DEL mylist{t}
+        R 0 RPUSH mylist{t} a a a d
+
+        # Verify we have a quicklist (4 elements > 3 limit)
+        assert_equal "quicklist" [R 0 OBJECT ENCODING mylist{t}]
+
+        # LREM to remove 3 'a' elements - this triggers listTypeTryConversion(LIST_CONV_SHRINKING)
+        # which may convert quicklist back to listpack. The bug was that memory was tracked
+        # BEFORE the conversion, causing a mismatch.
+        R 0 LREM mylist{t} 3 a
+
+        # Verify conversion happened (1 element <= 3 limit)
+        assert_equal "listpack" [R 0 OBJECT ENCODING mylist{t}]
+
+        # The DEBUG ALLOCSIZE-SLOTS-ASSERT will have already panicked if memory
+        # tracking was wrong. If we reach here, the test passed.
+        assert_equal "d" [R 0 LRANGE mylist{t} 0 -1]
+
+        R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Test cases for RM_StringTruncate memory tracking.
+# This verifies memory tracking works correctly when module API truncates strings.
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 {tags {external:skip cluster needs:debug modules} overrides {cluster-slot-stats-enabled yes}} {
+    set testmodule [file normalize tests/modules/basics.so]
+    R 0 MODULE LOAD $testmodule
+
+    # Enable debug assertion that validates memory tracking after each command.
+    # This will cause a panic if tracked memory doesn't match actual memory.
+    R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+
+    test "RM_StringTruncate memory tracking" {
+        # The test.string.truncate command:
+        # 1. Creates a key "foo" with value "abcde" (5 bytes)
+        # 2. Truncates (expands) to 8 bytes
+        # 3. Truncates (shrinks) to 4 bytes
+        # 4. Truncates (shrinks) to 0 bytes
+        #
+        # Without the fix, memory tracking was missing in RM_StringTruncate,
+        # causing the DEBUG ALLOCSIZE-SLOTS-ASSERT to panic.
+        R 0 test.string.truncate
+    }
+
+    R 0 MODULE UNLOAD test
 }
