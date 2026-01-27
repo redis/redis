@@ -969,15 +969,17 @@ void ltrimCommand(client *c) {
         serverPanic("Unknown list encoding");
     }
 
-    if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if ((llenNew = listTypeLength(o)) == 0) {
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
         dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         llenNew = -1; /* Indicate key deleted to updateKeysizesHist() */
     } else {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
     }
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -1141,16 +1143,18 @@ void lremCommand(client *c) {
 
     if (removed) {
         long ll = listTypeLength(subject);
-        if (server.memory_tracking_per_slot)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
         
         if (ll == 0) {
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
             dbDelete(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         } else {
             listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
         }
         signalModifiedKey(c,c->db,c->argv[1]);
     }
