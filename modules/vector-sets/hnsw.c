@@ -271,17 +271,11 @@ static inline int hnsw_popcount64(uint64_t x) {
  * result is cached per thread for better performance. */
 ATTRIBUTE_TARGET_POPCNT
 static inline int hnsw_popcount(uint64_t x) {
-#if defined(__aarch64__) || defined(__ARM_ARCH_ISA_A64)
-    /* ARM64: Let the compiler decide - it will use CNT, NEON, or fallback
-     * based on compile-time target flags. No runtime check needed. */
-    return __builtin_popcountll(x);
-#else
     if (likely(hnsw_cpu_supports_popcnt())) {
         return __builtin_popcountll(x);
     } else {
         return hnsw_popcount64(x);
     }
-#endif
 }
 
 /* Binary vectors distance function that uses POPCNT when available */
