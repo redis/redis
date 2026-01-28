@@ -47,36 +47,26 @@
 #include "hnsw.h"
 #include "mixer.h"
 
-/* Define HAVE_POPCNT if the compiler supports the target("popcnt") attribute */
-#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__)))
+/* Check if we can compile SIMD code with function attributes.
+ * This defines HAVE_AVX2, HAVE_AVX512, and HAVE_POPCNT when the compiler
+ * supports the target() attribute for runtime CPU feature dispatch. */
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
     #if defined(__has_attribute) && __has_attribute(target)
+        #define HAVE_AVX2
+        #define HAVE_AVX512
         #define HAVE_POPCNT
-        #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
-    #else
-        #define ATTRIBUTE_TARGET_POPCNT
     #endif
-#else
-    #define ATTRIBUTE_TARGET_POPCNT
-#endif
-
-/* Check if we can compile SIMD code with function attributes */
-#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
-#if defined(__has_attribute) && __has_attribute(target)
-#define HAVE_AVX2
-#define HAVE_AVX512
-#define HAVE_POPCNT
-#endif
 #endif
 
 #if defined(HAVE_POPCNT)
-#define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
-#define VSET_USE_POPCNT __builtin_cpu_supports("popcnt")
+    #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+    #define VSET_USE_POPCNT __builtin_cpu_supports("popcnt")
 #else
-#define ATTRIBUTE_TARGET_POPCNT
-#define VSET_USE_POPCNT 0
+    #define ATTRIBUTE_TARGET_POPCNT
+    #define VSET_USE_POPCNT 0
 #endif
 
-#if defined (HAVE_AVX2)
+#if defined(HAVE_AVX2)
 #define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
 #define ATTRIBUTE_TARGET_AVX2_POPCNT __attribute__((target("avx2,fma,popcnt")))
 #define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
