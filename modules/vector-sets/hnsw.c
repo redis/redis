@@ -52,20 +52,31 @@
 #if defined(__has_attribute) && __has_attribute(target)
 #define HAVE_AVX2
 #define HAVE_AVX512
+#define HAVE_POPCNT
 #endif
 #endif
 
+#if defined(HAVE_POPCNT)
+#define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+#define VSET_USE_POPCNT __builtin_cpu_supports("popcnt")
+#else
+#define ATTRIBUTE_TARGET_POPCNT
+#define VSET_USE_POPCNT 0
+#endif
+
 #if defined (HAVE_AVX2)
-#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma,popcnt")))
-#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma") && __builtin_cpu_supports("popcnt"))
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define ATTRIBUTE_TARGET_AVX2_POPCNT __attribute__((target("avx2,fma,popcnt")))
+#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
 #else
 #define ATTRIBUTE_TARGET_AVX2
+#define ATTRIBUTE_TARGET_AVX2_POPCNT
 #define VSET_USE_AVX2 0
 #endif
 
 #if defined (HAVE_AVX512)
 #define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512bw,fma")))
-#define ATTRIBUTE_TARGET_AVX512_VPOPCNT __attribute__((target("avx512f,fma,avx512vpopcntdq")))
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT __attribute__((target("avx512f,fma,avx512vpopcntdq,popcnt")))
 #define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
 #define VSET_USE_AVX512_VPOPCNT (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
@@ -550,7 +561,7 @@ static inline int popcount64(uint64_t x) {
     return x;
 }
 
-#if defined(HAVE_AVX512)
+#if defined(HAVE_AVX512) && defined(HAVE_POPCNT)
 /* AVX-512 vectorized binary distance calculation using VPOPCNTDQ.
  * Processes 8 uint64_t (512 bits) per iteration.
  * 
@@ -591,10 +602,10 @@ static float vectors_distance_bin_avx512_vpopcnt(const uint64_t *x, const uint64
 }
 #endif
 
-#if defined(HAVE_AVX2)
+#if defined(HAVE_AVX2) && defined(HAVE_POPCNT)
 /* AVX2 vectorized binary distance calculation.
  * Processes 4 uint64_t (256 bits) per iteration. */
-ATTRIBUTE_TARGET_AVX2
+ATTRIBUTE_TARGET_AVX2_POPCNT
 static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uint32_t dim) {
     uint32_t len = (dim+63)/64;
     uint32_t opposite = 0;
@@ -630,16 +641,16 @@ static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uin
 
 /* Binary vectors distance with SIMD dispatch. */
 float vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
-#if defined(HAVE_AVX512)
+#if defined(HAVE_AVX512) && defined(HAVE_POPCNT)
     /* AVX-512 with VPOPCNTDQ */
     if (dim >= 512 && VSET_USE_AVX512_VPOPCNT) {
         return vectors_distance_bin_avx512_vpopcnt(x, y, dim);
     }
 #endif
 
-#if defined(HAVE_AVX2)
+#if defined(HAVE_AVX2) && defined(HAVE_POPCNT)
     /* AVX2 path: processes 4 uint64_t (256 bits) per iteration */
-    if (dim >= 256 && VSET_USE_AVX2) {
+    if (dim >= 256 && VSET_USE_AVX2 && VSET_USE_POPCNT) {
         return vectors_distance_bin_avx2(x, y, dim);
     }
 #endif
