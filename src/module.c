@@ -13122,7 +13122,7 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
             }
             break;
         } else {
-            serverLog(LL_NOTICE, "Syntax Error from arguments to loadex around %s.", arg_val);
+            serverLog(LL_NOTICE, "Syntax Error from arguments to loadex around %s.", redactLogCstr(arg_val));
             return REDISMODULE_ERR;
         }
     }
