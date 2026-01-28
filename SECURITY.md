@@ -18,7 +18,7 @@ unless this is not possible or feasible with a reasonable effort.
 | 7.4.x   | :white_check_mark:                                                     |
 | 7.2.x   | :white_check_mark: support extended till 7.4 end of support            |
 | < 7.2.x | :x:                                                                    |
-| 6.2.x   | :white_check_mark: support extended - may be removed after end of 2025 |
+| 6.2.x   | :white_check_mark: support extended                                    |
 | < 6.2.x | :x:                                                                    |
 
 ## Reporting a Vulnerability
