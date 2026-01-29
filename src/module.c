@@ -12976,7 +12976,7 @@ void moduleLoadFromQueue(void) {
         dictEntry *de;
         dictInitIterator(&di, server.module_configs_queue);
         while ((de = dictNext(&di)) != NULL) {
-            serverLog(LL_WARNING, ">>> '%s %s'", (char *)dictGetKey(de), (char *)dictGetVal(de));
+            serverLog(LL_WARNING, ">>> '%s %s'", redactLogCstr((char *)dictGetKey(de)), redactLogCstr((char *)dictGetVal(de)));
         }
         dictResetIterator(&di);
         serverLog(LL_WARNING, "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting");
@@ -13647,7 +13647,7 @@ int loadModuleConfigs(RedisModule *module) {
         /* If found in the queue, set the value. Otherwise, set the default value. */
         if (de) {
             if (!performModuleConfigSetFromName(dictGetKey(de), dictGetVal(de), &err)) {
-                serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", (sds) dictGetKey(de), err);
+                serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", redactLogCstr((char *)dictGetKey(de)), err);
                 dictFreeUnlinkedEntry(server.module_configs_queue, de);
                 dictEmpty(server.module_configs_queue, NULL);
                 return REDISMODULE_ERR;
