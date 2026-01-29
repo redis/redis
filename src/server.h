@@ -3946,6 +3946,8 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_SLOTS 2
 void replySlotsFlushAndFree(client *c, struct slotRangeArray *slots);
 int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *ranges);
+void unblockClientForAsyncFlush(uint64_t client_id, void *userdata);
+void blockClientForAsyncFlush(client *c);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 #define EMPTYDB_NOFUNCTIONS (1<<1) /* Indicate not to flush the functions. */

@@ -54,11 +54,18 @@ typedef struct asmTask {
     redisOpArray *pre_snapshot_module_cmds; /* Module commands to be propagated at the beginning of slot migration */
 } asmTask;
 
+/* Structure to hold pending client information for active trim completion */
+typedef struct activeTrimPendingClient {
+    uint64_t client_id;         /* Client ID waiting for active trim completion */
+    slotRangeArray *slots;      /* Slots being trimmed */
+} activeTrimPendingClient;
+
 struct asmManager {
     list *tasks;                        /* List of asmTask to be processed */
     list *archived_tasks;               /* List of archived asmTask */
     list *pending_trim_jobs;            /* List of pending trim jobs (due to write pause) */
     list *active_trim_jobs;             /* List of active trim jobs */
+    list *active_trim_pending_replies;  /* List of pending replies waiting for active trim completion */
     slotRangeArrayIter *active_trim_it; /* Iterator of the current active trim job */
     size_t sync_buffer_peak;            /* Peak size of sync buffer */
     asmTask *master_task;               /* The task that is currently active on the master */
@@ -142,7 +149,6 @@ void asmTrimJobProcessPending(void);
 void asmCancelPendingTrimJobs(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
 void asmActiveTrimEnd(void);
-int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
 
@@ -151,6 +157,7 @@ void asmInit(void) {
     asmManager->tasks = listCreate();
     asmManager->archived_tasks = listCreate();
     asmManager->pending_trim_jobs = listCreate();
+    asmManager->active_trim_pending_replies = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->master_task = NULL;
     asmManager->debug_fail_channel = -1;
@@ -2993,10 +3000,10 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     asmUnblockMasterAfterTrim();
 }
 
-/* Trim the slots. */
-void asmTrimSlots(slotRangeArray *slots) {
+/* Trim the slots, return the trim method used. */
+int asmTrimSlots(struct slotRangeArray *slots) {
     if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
-        return;
+        return ASM_TRIM_METHOD_NONE;
 
     /* Trigger active trim for the following cases:
      * 1. Debug override: trim method is set to 'active'.
@@ -3014,6 +3021,8 @@ void asmTrimSlots(slotRangeArray *slots) {
         asmTriggerActiveTrim(slots);
     else
         asmTriggerBackgroundTrim(slots);
+
+    return activetrim ? ASM_TRIM_METHOD_ACTIVE : ASM_TRIM_METHOD_BG;
 }
 
 /* Schedule a trim job for the specified slot ranges. The job will be
@@ -3234,6 +3243,33 @@ void asmCancelPendingTrimJobs(void) {
     }
 }
 
+/* Add the client to a queue of clients waiting for active trim completion. */
+void queueClientForActiveTrimCompletion(uint64_t client_id, struct slotRangeArray *slots) {
+    activeTrimPendingClient *pending = zmalloc(sizeof(*pending));
+    pending->client_id = client_id;
+    pending->slots = slots; /* slots will be freed after replying */
+    listAddNodeTail(asmManager->active_trim_pending_replies, pending);
+}
+
+/* Process pending clients waiting for active trim completion.
+ * Find the pending client with matching slots, unblock it and send the reply. */
+void processPendingClientsForActiveTrim(slotRangeArray *slots) {
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->active_trim_pending_replies, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        activeTrimPendingClient *pending = listNodeValue(ln);
+
+        /* Check if the pending client's slots match the completed trim job's slots */
+        if (slotRangeArrayIsEqual(pending->slots, slots)) {
+            unblockClientForAsyncFlush(pending->client_id, pending->slots);
+            zfree(pending); /* 'pending->slots' were freed above. */
+            listDelNode(asmManager->active_trim_pending_replies, ln);
+            break;
+        }
+    }
+}
+
 /* Cancel all pending and active trim jobs. */
 void asmCancelTrimJobs(void) {
     if (!asmManager) return;
@@ -3386,6 +3422,10 @@ void asmActiveTrimEnd(void) {
     serverLog(LL_NOTICE, "Active trim completed for slots: %s, %llu keys trimmed.",
               str, asmManager->active_trim_current_job_trimmed);
     sdsfree(str);
+    
+    /* Process pending clients waiting for active trim completion. */
+    processPendingClientsForActiveTrim(slots);
+
     listDelNode(asmManager->active_trim_jobs, listFirst(asmManager->active_trim_jobs));
     asmManager->active_trim_completed++;
 }

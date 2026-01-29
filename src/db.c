@@ -1209,11 +1209,22 @@ void flushAllDataAndResetRDB(int flags) {
 #endif
 }
 
-/* CB function on blocking ASYNC FLUSH completion
- *
- * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
- */
-void flushallSyncBgDone(uint64_t client_id, void *userdata) {
+/* Block client for blocking ASYNC FLUSH operation (FLUSH*, SFLUSH). */
+void blockClientForAsyncFlush(client *c) {
+    /* measure bg job till completion as elapsed time of flush command */
+    elapsedStart(&c->bstate.lazyfreeStartTime);
+
+    c->bstate.timeout = 0;
+    /* We still need to perform cleanup operations for the command, including
+     * updating the replication offset, so mark this command as pending to
+     * avoid command from being reset during unblock. */
+    c->flags |= CLIENT_PENDING_COMMAND;
+    blockClient(c, BLOCKED_LAZYFREE);
+}
+
+/* CB function on blocking ASYNC FLUSH completion.
+ * We will unblock the client and send the proper reply. */
+void unblockClientForAsyncFlush(uint64_t client_id, void *userdata) {
     slotRangeArray *slots = userdata;
     client *c = lookupClientByID(client_id);
 
@@ -1289,16 +1300,8 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
      * worker's queue. To be called and reply with OK only after all preceding pending
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
-        /* measure bg job till completion as elapsed time of flush command */
-        elapsedStart(&c->bstate.lazyfreeStartTime);
-
-        c->bstate.timeout = 0;
-        /* We still need to perform cleanup operations for the command, including
-         * updating the replication offset, so mark this command as pending to
-         * avoid command from being reset during unblock. */
-        c->flags |= CLIENT_PENDING_COMMAND;
-        blockClient(c,BLOCKED_LAZYFREE);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, slots);
+        blockClientForAsyncFlush(c);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, slots);
     }
 
 #if defined(USE_JEMALLOC)

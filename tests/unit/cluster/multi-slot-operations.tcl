@@ -133,20 +133,20 @@ test "SFLUSH - Errors and output validation" {
     assert_error {ERR wrong number of arguments*}           {$master1 SFLUSH 0 999 2001 8191 ASYNCX}
 
     # Test SFLUSH output validation
-    assert_match "" [$master1 SFLUSH 2 4]
-    assert_match "" [$master1 SFLUSH 0 4]
+    assert_match "{2 4}" [$master1 SFLUSH 2 4]
+    assert_match "{0 4}" [$master1 SFLUSH 0 4]
     assert_match "" [$master2 SFLUSH 0 4]
-    assert_match "" [$master1 SFLUSH 1 8191]
-    assert_match "" [$master1 SFLUSH 0 8190]
-    assert_match "" [$master1 SFLUSH 0 998 2001 8191]
-    assert_match "" [$master1 SFLUSH 1 999 2001 8191]
-    assert_match "" [$master1 SFLUSH 0 999 2001 8190]
-    assert_match "" [$master1 SFLUSH 0 999 2002 8191]
+    assert_match "{1 999} {2001 8191}" [$master1 SFLUSH 1 8191]
+    assert_match "{0 999} {2001 8190}" [$master1 SFLUSH 0 8190]
+    assert_match "{0 998} {2001 8191}" [$master1 SFLUSH 0 998 2001 8191]
+    assert_match "{1 999} {2001 8191}" [$master1 SFLUSH 1 999 2001 8191]
+    assert_match "{0 999} {2001 8190}" [$master1 SFLUSH 0 999 2001 8190]
+    assert_match "{0 999} {2002 8191}" [$master1 SFLUSH 0 999 2002 8191]
     assert_match "{0 999} {2001 8191}" [$master1 SFLUSH 0 999 2001 8191]
     assert_match "{0 999} {2001 8191}" [$master1 SFLUSH 0 8191]
     assert_match "{0 999} {2001 8191}" [$master1 SFLUSH 0 4000 4001 8191]
-    assert_match "" [$master2 SFLUSH 8193 16383]
-    assert_match "" [$master2 SFLUSH 8192 16382]
+    assert_match "{8193 16383}" [$master2 SFLUSH 8193 16383]
+    assert_match "{8192 16382}" [$master2 SFLUSH 8192 16382]
     assert_match "{8192 16383}" [$master2 SFLUSH 8192 16383]
     assert_match "{8192 16383}" [$master2 SFLUSH 8192 16383 SYNC]
     assert_match "{8192 16383}" [$master2 SFLUSH 8192 16383 ASYNC]
@@ -179,4 +179,57 @@ test "SFLUSH - Deletes the keys with argument <NONE>/SYNC/ASYNC" {
     }
 }
 
+}
+
+start_cluster 2 2 {tags {external:skip cluster experimental}} {
+foreach sync_method {"SYNC" "BLOCKING-ASYNC" "ASYNC"} {
+foreach trim_method {"active" "bg"} {
+    test "sflush can propagate to replicas (sync method: $sync_method, trim method: $trim_method)" {
+        R 0 flushall
+        R 0 debug asm-trim-method $trim_method
+        R 2 debug asm-trim-method $trim_method
+
+        # Add keys in master
+        set slot0_key "06S"
+        R 0 set $slot0_key 1
+        wait_for_ofs_sync [Rn 0] [Rn 2]
+
+        set loglines [count_log_lines 0]
+
+        # since we have optimization, if the master is not running in blocking context,
+        # we will try to run in blocking ASYNC mode, so we need to use MULTI/EXEC to make it blocking
+        if {$sync_method eq "SYNC"} {
+            R 0 MULTI
+        }
+
+        # Execute SFLUSH on master, SYNC will be run as blocking ASYNC if not running in MULTI/EXEC
+        set sync_option "SYNC"
+        if {$sync_method eq "ASYNC"} {
+            set sync_option "ASYNC"
+        }
+        R 0 SFLUSH 0 8191 $sync_option
+
+        # Execute EXEC if using SYNC
+        if {$sync_method eq "SYNC"} {
+            R 0 EXEC
+        }
+
+        # Wait for SFLUSH to propagate to replica, and complete the trim
+        wait_for_condition 1000 10 {
+           [R 0 DBSIZE] == 0 && [R 2 DBSIZE] == 0
+        } else {
+            fail "SFLUSH did not propagate to replica"
+        }
+
+        if {$sync_method ne "SYNC"} {
+            if {$trim_method eq "active"} {
+                wait_for_log_messages 0 {"*Active trim completed for slots*0-8191*"} $loglines 1000 10
+            } else {
+                # background trim
+                wait_for_log_messages 0 {"*Background trim started for slots*0-8191*"} $loglines 1000 10
+            }
+        }
+    }
+}
+}
 }
