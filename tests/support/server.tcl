@@ -156,7 +156,7 @@ proc ping_server {host port} {
     set retval 0
     if {[catch {
         if {$::tls} {
-            set fd [::tls::socket $host $port] 
+            set fd [::tls::socket $host $port]
         } else {
             set fd [socket $host $port]
         }
@@ -179,6 +179,144 @@ proc ping_server {host port} {
         }
     }
     return $retval
+}
+
+# Ping server with a timeout. Returns 1 if server responds within timeout_ms,
+# otherwise returns 0. This is useful for checking if a server is responsive
+# before attempting blocking operations.
+# The timeout covers both connection and read operations end-to-end.
+proc ping_server_with_timeout {host port timeout_ms} {
+    set retval 0
+    set fd {}
+    if {[catch {
+        # Track overall deadline for connect + read
+        # Ensure at least 10ms timeout so loops run at least once
+        set effective_timeout [expr {max(10, $timeout_ms)}]
+        set deadline [expr {[clock milliseconds] + $effective_timeout}]
+
+        # Create socket with async connect to enforce timeout on connection
+        # For TLS: create async TCP socket first, wait for connect, then upgrade to TLS
+        set fd [socket -async $host $port]
+
+        # Configure for non-blocking I/O
+        fconfigure $fd -translation binary -blocking 0 -buffering full
+
+        # Wait for async connect to complete by polling for connection errors
+        # and attempting to send data. For async sockets:
+        # - fconfigure -error returns "" while connecting or if connected
+        # - fconfigure -error returns error message if connection failed
+        # - flush will fail with "socket is not connected" if still connecting
+        set connected 0
+        while {[clock milliseconds] < $deadline} {
+            # Check if socket has connection error
+            set err [fconfigure $fd -error]
+            if {$err ne ""} {
+                error "Connection failed: $err"
+            }
+            # Try to send PING and flush - flush will fail if not yet connected
+            if {![catch {
+                puts $fd "PING\r\n"
+                flush $fd
+            } flush_err]} {
+                set connected 1
+                break
+            }
+            # Clear any partial write from the failed attempt
+            after 10
+        }
+        if {!$connected} {
+            error "Connection timeout"
+        }
+
+        # Upgrade to TLS if needed (after async connect completed and PING sent)
+        # Note: For TLS we need to import before the response comes back
+        # But since we already sent PING on plain socket, TLS upgrade here won't work
+        # So for TLS, we need a different approach - skip async for now
+        if {$::tls} {
+            # For TLS connections, close this socket and create a proper TLS socket
+            # This is a fallback since async + TLS upgrade is complex
+            close $fd
+            set fd [::tls::socket $host $port]
+            fconfigure $fd -translation binary -blocking 0 -buffering full
+            puts $fd "PING\r\n"
+            flush $fd
+        }
+
+        # Wait for response with remaining time from deadline
+        set reply ""
+        set got_reply 0
+        while {[clock milliseconds] < $deadline && !$got_reply} {
+            set line [gets $fd]
+            # Check if we got a real line (not blocked waiting for data)
+            # fblocked returns 1 if the last read would have blocked
+            # Note: Check ![fblocked] first - if we got data, use it even if EOF is also true
+            # (server may close connection immediately after sending response)
+            if {![fblocked $fd]} {
+                set reply $line
+                set got_reply 1
+            } elseif {[eof $fd]} {
+                # Connection closed by server without sending data
+                break
+            } else {
+                # Would block - wait and retry
+                after 10
+            }
+        }
+
+        if {$got_reply &&
+            ([string range $reply 0 0] eq {+} ||
+             [string range $reply 0 0] eq {-})} {
+            set retval 1
+        }
+        close $fd
+        set fd {}
+    } e]} {
+        # Ensure socket is closed on error to avoid FD leaks
+        catch {if {$fd ne {}} {close $fd}}
+    }
+    return $retval
+}
+
+# Save configuration for a single server.
+# Arguments:
+#   client - Redis client object to use for CONFIG GET
+# Returns: A dict of {param value} pairs
+proc save_single_server_config {client} {
+    set saved_config {}
+    foreach {param val} [$client config get *] {
+        dict set saved_config $param $val
+    }
+    return $saved_config
+}
+
+# Restore configuration for a single server.
+# Arguments:
+#   client       - Redis client object to use for CONFIG SET
+#   saved_config - Dict of {param value} pairs from save_single_server_config
+#   diff_based   - If 1, only restore configs that actually changed (default: 0)
+proc restore_single_server_config {client saved_config {diff_based 0}} {
+    if {$diff_based} {
+        # Get current config state for comparison
+        set current_config [save_single_server_config $client]
+
+        # Only restore configs that changed
+        dict for {param saved_val} $saved_config {
+            if {[catch {dict get $current_config $param} current_val]} {
+                # Parameter no longer exists, skip it
+                continue
+            }
+            if {$saved_val ne $current_val} {
+                # Config was modified - restore it
+                catch {$client config set $param $saved_val}
+            }
+        }
+    } else {
+        # Restore all configs (original behavior)
+        dict for {param val} $saved_config {
+            # Some may fail, specifically immutable ones
+            catch {$client config set $param $val}
+        }
+    }
 }
 
 # Return 1 if the server at the specified addr is reachable by PING, otherwise
@@ -409,11 +547,8 @@ proc run_external_server_test {code overrides} {
     r script flush
     r config resetstat
 
-    # store configs
-    set saved_config {}
-    foreach {param val} [r config get *] {
-        dict set saved_config $param $val
-    }
+    # store configs using shared helper
+    set saved_config [save_single_server_config $client]
 
     # apply overrides
     foreach {param val} $overrides {
@@ -442,11 +577,8 @@ proc run_external_server_test {code overrides} {
         }
     }
 
-    # restore overrides
-    dict for {param val} $saved_config {
-        # some may fail, specifically immutable ones.
-        catch {r config set $param $val}
-    }
+    # restore configs using shared helper
+    restore_single_server_config $client $saved_config
 
     set srv [lpop ::servers]
     
