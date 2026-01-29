@@ -3587,7 +3587,7 @@ void stopSaving(int success) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
-    if (server.rdb_checksum)
+    if (server.rdb_checksum && !(r->flags & RIO_FLAG_NO_CHECKSUM))
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
@@ -4017,7 +4017,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
         if (server.rdb_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
-            if (cksum == 0) {
+            if (cksum == 0 || rdb->flags & RIO_FLAG_NO_CHECKSUM) {
                 serverLog(LL_NOTICE,"RDB file was saved with checksum disabled: no check performed.");
             } else if (cksum != expected) {
                 serverLog(LL_WARNING,"Wrong RDB checksum expected: (%llx) but "
@@ -4302,6 +4302,10 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         /* Disable RDB compression if requested. */
         if (req & SLAVE_REQ_RDB_NO_COMPRESS)
             server.rdb_compression = 0;
+
+        /* Disable RDB checksum if requested. */
+        if (req & SLAVE_REQ_RDB_NO_CHECKSUM)
+            server.rdb_checksum = 0;
 
         if (req & SLAVE_REQ_SLOTS_SNAPSHOT) {
             /* Slots snapshot is required */
