@@ -335,6 +335,11 @@ void hotkeysCommand(client *c) {
                 sample_ratio = (int)ratio_val;
                 j += 2;
             } else if (moreargs && !strcasecmp(c->argv[j]->ptr, "SLOTS")) {
+                if (!server.cluster_enabled) {
+                    addReplyError(c, "SLOTS parameter cannot be used in non-cluster mode");
+                    return;
+                }
+
                 if (slots) {
                     addReplyError(c, "SLOTS parameter already specified");
                     zfree(slots);
@@ -469,7 +474,7 @@ void hotkeysCommand(client *c) {
         int has_selected_slots = (server.hotkeys->numslots > 0);
         int has_sampling = (server.hotkeys->sample_ratio > 1);
 
-        int total_len = 14;
+        int total_len = 7;
         void *arraylenptr = addReplyDeferredLen(c);
 
         /* tracking-active */
@@ -487,32 +492,32 @@ void hotkeysCommand(client *c) {
             addReplyLongLong(c, server.hotkeys->slots[i]);
         }
 
-        /* sampled-command-selected-slots-ms (conditional) */
+        /* sampled-command-selected-slots-us (conditional) */
         if (has_sampling && has_selected_slots) {
-            addReplyBulkCString(c, "sampled-command-selected-slots-ms");
-            addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots / 1000);
+            addReplyBulkCString(c, "sampled-command-selected-slots-us");
+            addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots);
 
-            total_len += 2;
+            total_len++;
         }
 
-        /* all-commands-selected-slots-ms (conditional) */
+        /* all-commands-selected-slots-us (conditional) */
         if (has_selected_slots) {
-            addReplyBulkCString(c, "all-commands-selected-slots-ms");
-            addReplyLongLong(c, server.hotkeys->time_all_commands_selected_slots / 1000);
+            addReplyBulkCString(c, "all-commands-selected-slots-us");
+            addReplyLongLong(c, server.hotkeys->time_all_commands_selected_slots);
 
-            total_len += 2;
+            ++total_len;
         }
 
-        /* all-commands-all-slots-ms */
-        addReplyBulkCString(c, "all-commands-all-slots-ms");
-        addReplyLongLong(c, server.hotkeys->time_all_commands_all_slots / 1000);
+        /* all-commands-all-slots-us */
+        addReplyBulkCString(c, "all-commands-all-slots-us");
+        addReplyLongLong(c, server.hotkeys->time_all_commands_all_slots);
 
         /* net-bytes-sampled-commands-selected-slots (conditional) */
         if (has_sampling && has_selected_slots) {
             addReplyBulkCString(c, "net-bytes-sampled-commands-selected-slots");
             addReplyLongLong(c, server.hotkeys->net_bytes_sampled_commands_selected_slots);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* net-bytes-all-commands-selected-slots (conditional) */
@@ -521,7 +526,7 @@ void hotkeysCommand(client *c) {
             addReplyLongLong(c,
                 server.hotkeys->net_bytes_all_commands_selected_slots);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* net-bytes-all-commands-all-slots */
@@ -545,7 +550,7 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "total-cpu-time-sys-ms");
             addReplyLongLong(c, total_cpu_sys_msec);
 
-            total_len += 4;
+            total_len += 2;
         }
 
         /* total-net-bytes - only if NET tracking is enabled */
@@ -553,12 +558,12 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "total-net-bytes");
             addReplyLongLong(c, total_net_bytes);
 
-            total_len += 2;
+            ++total_len;
         }
 
-        /* by-cpu-time - only if CPU tracking is enabled */
+        /* by-cpu-time-us - only if CPU tracking is enabled */
         if (server.hotkeys->tracked_metrics & HOTKEYS_TRACK_CPU) {
-            addReplyBulkCString(c, "by-cpu-time");
+            addReplyBulkCString(c, "by-cpu-time-us");
             /* Nested array of key-value pairs */
             addReplyArrayLen(c, 2 * cpu_count);
             for (int i = 0; i < cpu_count; ++i) {
@@ -568,7 +573,7 @@ void hotkeysCommand(client *c) {
             }
             zfree(cpu);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* by-net-bytes - only if NET tracking is enabled */
@@ -583,10 +588,10 @@ void hotkeysCommand(client *c) {
             }
             zfree(net);
 
-            total_len += 2;
+            ++total_len;
         }
 
-        setDeferredArrayLen(c, arraylenptr, total_len);
+        setDeferredMapLen(c, arraylenptr, total_len);
 
     } else if (!strcasecmp(sub, "RESET")) {
         /* HOTKEYS RESET */
