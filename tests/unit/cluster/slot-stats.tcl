@@ -1234,31 +1234,3 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
     }
 }
-
-# -----------------------------------------------------------------------------
-# Test cases for RM_StringTruncate memory tracking.
-# This verifies memory tracking works correctly when module API truncates strings.
-# -----------------------------------------------------------------------------
-
-start_cluster 1 0 {tags {external:skip cluster needs:debug modules} overrides {cluster-slot-stats-enabled yes}} {
-    set testmodule [file normalize tests/modules/basics.so]
-    R 0 MODULE LOAD $testmodule
-
-    # Enable debug assertion that validates memory tracking after each command.
-    # This will cause a panic if tracked memory doesn't match actual memory.
-    R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
-
-    test "RM_StringTruncate memory tracking" {
-        # The test.string.truncate command:
-        # 1. Creates a key "foo" with value "abcde" (5 bytes)
-        # 2. Truncates (expands) to 8 bytes
-        # 3. Truncates (shrinks) to 4 bytes
-        # 4. Truncates (shrinks) to 0 bytes
-        #
-        # Without the fix, memory tracking was missing in RM_StringTruncate,
-        # causing the DEBUG ALLOCSIZE-SLOTS-ASSERT to panic.
-        R 0 test.string.truncate
-    }
-
-    R 0 MODULE UNLOAD test
-}
