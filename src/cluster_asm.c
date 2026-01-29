@@ -65,7 +65,7 @@ struct asmManager {
     list *archived_tasks;               /* List of archived asmTask */
     list *pending_trim_jobs;            /* List of pending trim jobs (due to write pause) */
     list *active_trim_jobs;             /* List of active trim jobs */
-    list *active_trim_pending_replies;  /* List of pending replies waiting for active trim completion */
+    list *active_trim_pending_clients;  /* List of pending clients waiting for active trim completion */
     slotRangeArrayIter *active_trim_it; /* Iterator of the current active trim job */
     size_t sync_buffer_peak;            /* Peak size of sync buffer */
     asmTask *master_task;               /* The task that is currently active on the master */
@@ -157,7 +157,7 @@ void asmInit(void) {
     asmManager->tasks = listCreate();
     asmManager->archived_tasks = listCreate();
     asmManager->pending_trim_jobs = listCreate();
-    asmManager->active_trim_pending_replies = listCreate();
+    asmManager->active_trim_pending_clients = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->master_task = NULL;
     asmManager->debug_fail_channel = -1;
@@ -3248,7 +3248,7 @@ void queueClientForActiveTrimCompletion(uint64_t client_id, struct slotRangeArra
     activeTrimPendingClient *pending = zmalloc(sizeof(*pending));
     pending->client_id = client_id;
     pending->slots = slots; /* slots will be freed after replying */
-    listAddNodeTail(asmManager->active_trim_pending_replies, pending);
+    listAddNodeTail(asmManager->active_trim_pending_clients, pending);
 }
 
 /* Process pending clients waiting for active trim completion.
@@ -3256,7 +3256,7 @@ void queueClientForActiveTrimCompletion(uint64_t client_id, struct slotRangeArra
 void processPendingClientsForActiveTrim(slotRangeArray *slots) {
     listIter li;
     listNode *ln;
-    listRewind(asmManager->active_trim_pending_replies, &li);
+    listRewind(asmManager->active_trim_pending_clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         activeTrimPendingClient *pending = listNodeValue(ln);
 
@@ -3264,9 +3264,26 @@ void processPendingClientsForActiveTrim(slotRangeArray *slots) {
         if (slotRangeArrayIsEqual(pending->slots, slots)) {
             unblockClientForAsyncFlush(pending->client_id, pending->slots);
             zfree(pending); /* 'pending->slots' were freed above. */
-            listDelNode(asmManager->active_trim_pending_replies, ln);
+            listDelNode(asmManager->active_trim_pending_clients, ln);
             break;
         }
+    }
+}
+
+/* Unblock all pending clients waiting for active trim completion. */
+void unblockPendingClientsForActiveTrim(void) {
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->active_trim_pending_clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        activeTrimPendingClient *pending = listNodeValue(ln);
+        /* Reply with empty slots to abort the async flush. */
+        slotRangeArray *empty_slots = slotRangeArrayCreate(0);
+        unblockClientForAsyncFlush(pending->client_id, empty_slots);
+        /* Free the pending client structure. */
+        slotRangeArrayFree(pending->slots);
+        zfree(pending);
+        listDelNode(asmManager->active_trim_pending_clients, ln);
     }
 }
 
@@ -3279,6 +3296,9 @@ void asmCancelTrimJobs(void) {
 
     /* Cancel pending trim jobs */
     asmCancelPendingTrimJobs();
+
+    /* unblock all pending clients waiting for active trim completion. */
+    unblockPendingClientsForActiveTrim();
 
     /* Cancel active trim jobs */
     if (listLength(asmManager->active_trim_jobs) == 0)
