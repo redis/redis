@@ -231,7 +231,7 @@ foreach trim_method {"active" "bg"} {
     }
 }
 }
-    test "Canceling active triming can abort sflush" {
+    test "Canceling active trimming can abort sflush" {
         # Delay active trim to make sure it is not completed before FLUSHDB
         R 0 debug asm-trim-method active 10000000 ;# delay 10s
         # Add keys in master
