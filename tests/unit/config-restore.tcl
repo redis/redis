@@ -678,7 +678,8 @@ start_server {tags {external:skip}} {
             assert_equal "value" [$server0 get test:key]
             assert_equal "value" [$server1 get test:key]
 
-            # No configs were changed, so restoration should be skipped
+            # No configs were changed, so no CONFIG SET commands will be issued
+            # (restoration still runs ping + CONFIG GET * diff, but applies no changes)
         } {} {config:restore}
 
         test "Two Servers: Verify configs unchanged" {

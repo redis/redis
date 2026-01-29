@@ -221,6 +221,10 @@ proc ping_server_with_timeout {host port timeout_ms} {
                 set connected 1
                 break
             }
+            # Log flush errors for debugging (typically "socket is not connected")
+            if {$::verbose && $flush_err ne ""} {
+                puts "Debug: flush failed during async connect: $flush_err"
+            }
             # Clear any partial write from the failed attempt
             after 10
         }
@@ -228,16 +232,35 @@ proc ping_server_with_timeout {host port timeout_ms} {
             error "Connection timeout"
         }
 
-        # Upgrade to TLS if needed (after async connect completed and PING sent)
-        # Note: For TLS we need to import before the response comes back
-        # But since we already sent PING on plain socket, TLS upgrade here won't work
-        # So for TLS, we need a different approach - skip async for now
+        # For TLS connections, we need to start fresh with a TLS socket
+        # The async TCP socket above just verified the server is reachable
         if {$::tls} {
-            # For TLS connections, close this socket and create a proper TLS socket
-            # This is a fallback since async + TLS upgrade is complex
             close $fd
-            set fd [::tls::socket $host $port]
+            set fd {}
+
+            # Create TLS socket with async option to avoid blocking on connect
+            set fd [::tls::socket -async $host $port]
             fconfigure $fd -translation binary -blocking 0 -buffering full
+
+            # Wait for TLS handshake to complete with timeout
+            set tls_connected 0
+            while {[clock milliseconds] < $deadline} {
+                # tls::handshake returns 1 if complete, 0 if still in progress
+                if {[catch {::tls::handshake $fd} handshake_result]} {
+                    # Handshake failed with error
+                    error "TLS handshake failed: $handshake_result"
+                }
+                if {$handshake_result == 1} {
+                    set tls_connected 1
+                    break
+                }
+                after 10
+            }
+            if {!$tls_connected} {
+                error "TLS handshake timeout"
+            }
+
+            # Now send PING on the TLS socket
             puts $fd "PING\r\n"
             flush $fd
         }
