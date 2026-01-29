@@ -904,6 +904,162 @@ start_server {tags {"multi"}} {
         r flushall
         r ping
      }
+
+}
+
+# ---------------------------------------------------------------------------
+# Regression tests for touchWatchedKey() skipping expired watchers.
+#
+# These tests use a writable replica where a key is locally expired (via
+# PEXPIREAT) while remaining alive on the master. When the master later
+# writes to the same key, the replicated command arrives without a
+# preceding DEL (since the key was not expired on the master). The replica
+# processes it with CLIENT_MASTER flag, so expireIfNeeded() returns
+# KEY_VALID without deleting the expired key. This results in a single
+# touchWatchedKey() call where expired watchers must be correctly flagged.
+# ---------------------------------------------------------------------------
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set replica [srv -1 client]
+        set replica_host [srv -1 host]
+        set replica_port [srv -1 port]
+
+        # Configure writable replica and start replication
+        $replica config set replica-read-only no
+        $replica replicaof $master_host $master_port
+
+        wait_for_condition 50 100 {
+            [string match {*master_link_status:up*} [$replica info replication]]
+        } else {
+            fail "Replica didn't connect to master"
+        }
+
+        test {EXEC fail on expired WATCHed key re-created via replication on writable replica (3 watchers)} {
+            # 3 expired watchers on a key that is re-created via a replicated
+            # SET from the master. All three EXEC should return {} (aborted).
+
+            $replica debug set-active-expire 0
+
+            # Master creates key with NO TTL (never expires on master)
+            $master set tx2key mastervalue
+            $master wait 1 5000
+
+            # Locally set a near-future expiry on the writable replica.
+            # Using a future timestamp avoids the delete-on-PEXPIREAT path
+            # (checkAlreadyExpired returns false for future timestamps).
+            # No watchers exist yet, so touchWatchedKey is a no-op.
+            set expire_at [expr {[clock milliseconds] + 100}]
+            $replica pexpireat tx2key $expire_at
+
+            # Wait for the key to expire on replica (but not on master)
+            after 200
+
+            # All three watch the expired key (wk->expired=1 for each)
+            set c_a [redis_client -1]
+            set c_b [redis_client -1]
+            set c_c [redis_client -1]
+            $c_a watch tx2key
+            $c_b watch tx2key
+            $c_c watch tx2key
+
+            # All begin transactions with side-effect writes
+            $c_a multi
+            $c_a set tx2side_A A_ran
+            $c_b multi
+            $c_b set tx2side_B B_ran
+            $c_c multi
+            $c_c set tx2side_C C_ran
+
+            # Master SET: key is alive on master (no TTL), so NO DEL is
+            # propagated. Only SET tx2key newvalue arrives at the replica.
+            # On replica: CLIENT_MASTER flag -> expireIfNeeded returns
+            # KEY_VALID -> single touchWatchedKey with dbFind!=NULL -> break.
+            $master set tx2key newvalue
+            $master wait 1 5000
+
+            # Execute transactions
+            set res_a [$c_a exec]
+            set res_b [$c_b exec]
+            set res_c [$c_c exec]
+
+            # Check side effects
+            set side_a [$replica get tx2side_A]
+            set side_b [$replica get tx2side_B]
+            set side_c [$replica get tx2side_C]
+
+            # Cleanup
+            $c_a close
+            $c_b close
+            $c_c close
+            $replica debug set-active-expire 1
+            catch { $master del tx2key tx2side_A tx2side_B tx2side_C }
+
+            # All watchers should be aborted (EXEC returns {})
+            assert_equal $res_a {}
+            assert_equal $res_b {}
+            assert_equal $res_c {}
+            assert_equal $side_a {}
+            assert_equal $side_b {}
+            assert_equal $side_c {}
+        } {} {needs:debug}
+
+        test {EXEC fail on expired WATCHed key re-created via replication on writable replica (2 watchers)} {
+            # Minimal reproduction: 2 expired watchers on a key that is
+            # re-created via a replicated SET. Both EXEC should return {}.
+
+            $replica debug set-active-expire 0
+
+            # Master creates key with NO TTL
+            $master set tx2key3 mastervalue
+            $master wait 1 5000
+
+            # Locally set near-future expiry on writable replica
+            set expire_at [expr {[clock milliseconds] + 100}]
+            $replica pexpireat tx2key3 $expire_at
+
+            # Wait for key to expire on replica only
+            after 200
+
+            # Both watchers watch the expired key (wk->expired=1)
+            set c_b [redis_client -1]
+            set c_c [redis_client -1]
+            $c_b watch tx2key3
+            $c_c watch tx2key3
+
+            # Both begin transactions
+            $c_b multi
+            $c_b set tx2min_B B_ran
+            $c_c multi
+            $c_c set tx2min_C C_ran
+
+            # Master SET triggers single touchWatchedKey on replica
+            $master set tx2key3 newvalue
+            $master wait 1 5000
+
+            # Execute transactions
+            set res_b [$c_b exec]
+            set res_c [$c_c exec]
+
+            # Check side effects
+            set side_b [$replica get tx2min_B]
+            set side_c [$replica get tx2min_C]
+
+            # Cleanup
+            $c_b close
+            $c_c close
+            $replica debug set-active-expire 1
+            catch { $master del tx2key3 tx2min_B tx2min_C }
+
+            # Both watchers should be aborted
+            assert_equal $res_b {}
+            assert_equal $res_c {}
+            assert_equal $side_b {}
+            assert_equal $side_c {}
+        } {} {needs:debug}
+    }
 }
 
 start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {

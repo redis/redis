@@ -404,7 +404,10 @@ void touchWatchedKey(redisDb *db, robj *key) {
                 wk->expired = 0;
                 goto skip_client;
             }
-            break;
+            /* Key was expired at WATCH time but has been re-created
+             * (dbFind != NULL). This is a logical change that should
+             * invalidate the transaction. Fall through to flag the
+             * client as dirty. */
         }
 
         c->flags |= CLIENT_DIRTY_CAS;
