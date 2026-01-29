@@ -1168,10 +1168,6 @@ static int luaLogCommand(lua_State *lua) {
         return luaError(lua);
     }
     if (level < server.verbosity) return 0;
-    if (server.hide_user_data_from_log) {
-        serverLogRaw(level, "*redacted*");
-        return 0;
-    }
 
     /* Glue together all the arguments */
     log = sdsempty();
