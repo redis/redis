@@ -2180,8 +2180,9 @@ void sflushCommand(client *c) {
     /* Trim the slots if running in async mode and not loading from AOF,
      * otherwise delete the keys synchronously. */
     if (flags & EMPTYDB_ASYNC && server.loading == 0) {
+        /* Update dirty stats before trimming. */
+        server.dirty += getKeyCountInSlotRangeArray(myslots);
         trim_method = asmTrimSlots(myslots);
-        server.dirty += getKeyCountInSlotRangeArray(myslots); /* Update dirty stats. */
     } else {
         clusterDelKeysInSlotRangeArray(myslots, 1);
     }
