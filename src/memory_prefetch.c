@@ -394,14 +394,14 @@ int addCommandToBatch(client *c) {
         return C_ERR;
     }
 
-    /* Avoid partial prefetching: if the batch already has keys and adding this
+    /* Avoid partial prefetching: if the batch already has commands and adding this
      * client's ready commands would likely exceed the batch size limit, reject
      * the entire client. This is a conservative estimate using command count as
      * a proxy for key count to ensure all keys from a client are either fully
      * prefetched together or not prefetched at all. */
-    if (batch->key_count > 0 &&
-        c->pending_cmds.ready_len + batch->key_count > batch->max_prefetch_size &&
-        c->pending_cmds.ready_len + batch->pcmd_count > batch->max_prefetch_size)
+    if (batch->pcmd_count > 0 &&
+        (c->pending_cmds.ready_len + batch->key_count > batch->max_prefetch_size ||
+         c->pending_cmds.ready_len + batch->pcmd_count > batch->max_prefetch_size))
     {
         return C_ERR;
     }
