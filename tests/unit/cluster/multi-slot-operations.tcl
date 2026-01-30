@@ -231,11 +231,13 @@ foreach trim_method {"active" "bg"} {
     }
 }
 }
-    test "Canceling active trimming can abort sflush" {
+    test "Canceling active trimming can unblock sflush" {
         # Delay active trim to make sure it is not completed before FLUSHDB
-        R 0 debug asm-trim-method active 10000000 ;# delay 10s
-        # Add keys in master
-        R 0 set "06S" "slot0"
+        R 0 debug asm-trim-method active 10000 ;# delay 10ms per key
+        # Add slot 0 keys in master
+        for {set i 0} {$i < 1000} {incr i} {
+            R 0 set "{06S}$i" "value$i"
+        }
 
         set rd [redis_deferring_client 0]
         $rd SFLUSH 0 8191 SYNC ;# running in blocking async method
@@ -244,7 +246,7 @@ foreach trim_method {"active" "bg"} {
         R 0 SELECT 0
         R 0 FLUSHDB SYNC
 
-        # SFLUSH should be aborted and return empty array
+        # SFLUSH should be unblocked and return empty array
         assert_equal [$rd read] {}
     }
 }
