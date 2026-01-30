@@ -330,7 +330,8 @@ int determinePrefetchCount(int len) {
 /* Prefetch command-related data:
  * 1. Prefetch the command arguments allocated by the I/O thread to bring them
  *    closer to the L1 cache.
- * 2. Prefetch the keys and values for all commands in the current batch from
+ * 2. Prefetch the io_deferred_objects for all clients.
+ * 3. Prefetch the keys and values for all commands in the current batch from
  *    the main dictionaries. */
 void prefetchCommands(void) {
     if (!batch) return;
@@ -344,6 +345,14 @@ void prefetchCommands(void) {
         }
     }
 
+    /* Prefetch io_deferred_objects for all clients */
+    for (size_t i = 0; i < batch->client_count; i++) {
+        client *c = batch->clients[i];
+        if (!c->io_deferred_objects || c->io_deferred_objects_num == 0) continue;
+        for (int j = 0; j < c->io_deferred_objects_num; j++)
+            redis_prefetch_read(c->io_deferred_objects[j]);
+    }
+
     /* Prefetch the argv->ptr if required */
     for (size_t i = 0; i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
@@ -353,14 +362,6 @@ void prefetchCommands(void) {
                 redis_prefetch_read(pcmd->argv[j]->ptr);
             }
         }
-    }
-
-    /* Prefetch io_deferred_objects for all clients */
-    for (size_t i = 0; i < batch->client_count; i++) {
-        client *c = batch->clients[i];
-        if (!c->io_deferred_objects || c->io_deferred_objects_num == 0) continue;
-        for (int j = 0; j < c->io_deferred_objects_num; j++)
-            redis_prefetch_read(c->io_deferred_objects[j]);
     }
 
     /* Get the keys ptrs - we do it here after the key obj was prefetched. */
@@ -409,7 +410,6 @@ int addCommandToBatch(client *c) {
     pendingCommand *pcmd = c->pending_cmds.head;
     while (pcmd != NULL && batch->pcmd_count < batch->max_prefetch_size) {
         if (pcmd->next) redis_prefetch_read(pcmd->next);
-        redis_prefetch_read(pcmd->argv);
 
         /* Skip commands that have not been preprocessed, or have errors. */
         if ((pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE) || !pcmd->cmd || pcmd->read_error) break;
