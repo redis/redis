@@ -474,7 +474,7 @@ void hotkeysCommand(client *c) {
         int has_selected_slots = (server.hotkeys->numslots > 0);
         int has_sampling = (server.hotkeys->sample_ratio > 1);
 
-        int total_len = 14;
+        int total_len = 7;
         void *arraylenptr = addReplyDeferredLen(c);
 
         /* tracking-active */
@@ -497,7 +497,7 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "sampled-command-selected-slots-us");
             addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots);
 
-            total_len += 2;
+            total_len++;
         }
 
         /* all-commands-selected-slots-us (conditional) */
@@ -505,7 +505,7 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "all-commands-selected-slots-us");
             addReplyLongLong(c, server.hotkeys->time_all_commands_selected_slots);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* all-commands-all-slots-us */
@@ -517,7 +517,7 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "net-bytes-sampled-commands-selected-slots");
             addReplyLongLong(c, server.hotkeys->net_bytes_sampled_commands_selected_slots);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* net-bytes-all-commands-selected-slots (conditional) */
@@ -526,7 +526,7 @@ void hotkeysCommand(client *c) {
             addReplyLongLong(c,
                 server.hotkeys->net_bytes_all_commands_selected_slots);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* net-bytes-all-commands-all-slots */
@@ -550,7 +550,7 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "total-cpu-time-sys-ms");
             addReplyLongLong(c, total_cpu_sys_msec);
 
-            total_len += 4;
+            total_len += 2;
         }
 
         /* total-net-bytes - only if NET tracking is enabled */
@@ -558,7 +558,7 @@ void hotkeysCommand(client *c) {
             addReplyBulkCString(c, "total-net-bytes");
             addReplyLongLong(c, total_net_bytes);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* by-cpu-time-us - only if CPU tracking is enabled */
@@ -573,7 +573,7 @@ void hotkeysCommand(client *c) {
             }
             zfree(cpu);
 
-            total_len += 2;
+            ++total_len;
         }
 
         /* by-net-bytes - only if NET tracking is enabled */
@@ -588,10 +588,10 @@ void hotkeysCommand(client *c) {
             }
             zfree(net);
 
-            total_len += 2;
+            ++total_len;
         }
 
-        setDeferredArrayLen(c, arraylenptr, total_len);
+        setDeferredMapLen(c, arraylenptr, total_len);
 
     } else if (!strcasecmp(sub, "RESET")) {
         /* HOTKEYS RESET */

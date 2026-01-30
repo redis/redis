@@ -2701,7 +2701,7 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, lo
         keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
     }
 
-    serverLog(LL_DEBUG,"key %s %s: deleting it", (char*)keyobj->ptr, notify_type == NOTIFY_EXPIRED ? "expired" : "evicted");
+    serverLog(LL_DEBUG,"key %s %s: deleting it", redactLogCstr((char*)keyobj->ptr), notify_type == NOTIFY_EXPIRED ? "expired" : "evicted");
 
     /* We compute the amount of memory freed by db*Delete() alone.
      * It is possible that actually the memory needed to propagate

@@ -351,6 +351,47 @@ start_server {tags {"hotkeys"}} {
     }
 }
 
+start_server {tags {"hotkeys"}} {
+    test {HOTKEYS GET - RESP3 returns map with flat array values for hotkeys} {
+        r hello 3
+
+        assert_equal {OK} [r hotkeys start METRICS 2 CPU NET]
+        r set testkey testvalue
+        assert_equal {OK} [r hotkeys stop]
+
+        set result [r hotkeys get]
+
+        # In RESP3, the outer result is a native map (dict)
+        assert [dict exists $result "tracking-active"]
+        assert [dict exists $result "sample-ratio"]
+        assert [dict exists $result "selected-slots"]
+        assert [dict exists $result "by-cpu-time-us"]
+        assert [dict exists $result "by-net-bytes"]
+
+        # Verify by-cpu-time-us is a flat array [key1, val1, key2, val2, ...]
+        set cpu_array [dict get $result "by-cpu-time-us"]
+        # Flat array length should be even (key-value pairs)
+        assert {[llength $cpu_array] % 2 == 0}
+        # First element is the key name (string), second is the value (integer)
+        set first_key [lindex $cpu_array 0]
+        set first_val [lindex $cpu_array 1]
+        assert_equal "testkey" $first_key
+        assert {[string is integer $first_val]}
+
+        # Verify by-net-bytes is a flat array [key1, val1, key2, val2, ...]
+        set net_array [dict get $result "by-net-bytes"]
+        # Flat array length should be even (key-value pairs)
+        assert {[llength $net_array] % 2 == 0}
+        # First element is the key name (string), second is the value (integer)
+        set first_key [lindex $net_array 0]
+        set first_val [lindex $net_array 1]
+        assert_equal "testkey" $first_key
+        assert {[string is integer $first_val]}
+
+        assert_equal {OK} [r hotkeys reset]
+    }
+}
+
 start_cluster 1 0 {tags {external:skip cluster hotkeys}} {
 
     test {HOTKEYS START - with SLOTS parameter in cluster mode} {
