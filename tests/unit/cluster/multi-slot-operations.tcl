@@ -247,6 +247,7 @@ foreach trim_method {"active" "bg"} {
         R 0 FLUSHDB SYNC
 
         # SFLUSH should be unblocked and return empty array
-        assert_equal [$rd read] {}
+        assert_equal [$rd read] "{0 8191}"
+        $rd close
     }
 }
