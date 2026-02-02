@@ -1975,8 +1975,10 @@ void slotRangeArrayFreeGeneric(void *slots) {
 }
 
 /* Returns the number of keys in the given slot ranges. */
-long long getKeyCountInSlotRangeArray(slotRangeArray *slots) {
-    long long key_count = 0;
+unsigned long long getKeyCountInSlotRangeArray(slotRangeArray *slots) {
+    if (!slots) return 0;
+
+    unsigned long long key_count = 0;
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
             key_count += countKeysInSlot(j);
@@ -2157,12 +2159,10 @@ void sflushCommand(client *c) {
         }
     }
 
-    /* If no slots belong to this node or there is a trim job that
-     * overlaps with the given slot ranges, return empty array. */
-    if (myslots == NULL || (!must_obey && asmIsAnyTrimJobOverlaps(myslots))) {
+    /* If no slots belong to this node, return empty array. */
+    if (myslots == NULL) {
         addReplyArrayLen(c, 0);
         slotRangeArrayFree(slots);
-        slotRangeArrayFree(myslots);
         return;
     }
     slotRangeArrayFree(slots);

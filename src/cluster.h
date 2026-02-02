@@ -196,6 +196,7 @@ int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it);
 void slotRangeArrayIteratorFree(slotRangeArrayIter *it);
 int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err);
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos);
+unsigned long long getKeyCountInSlotRangeArray(slotRangeArray *slots);
 
 unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command);
 unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *slots, int by_command);

@@ -1269,12 +1269,8 @@ void unblockClientForAsyncFlush(uint64_t client_id, void *userdata) {
  *
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
- *
- * slots - provided only by SFLUSH command, otherwise NULL. Will be used on
- *         completion to reply with the slots flush result. Ownership is passed
- *         to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
+int flushCommandCommon(client *c, int type, int flags) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1285,7 +1281,7 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
     }
 
     /* Cancel all ASM tasks that overlap with the given slot ranges. */
-    clusterAsmCancelBySlotRangeArray(slots, c->argv[0]->ptr);
+    clusterAsmCancelBySlotRangeArray(NULL, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -1301,7 +1297,7 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
         blockClientForAsyncFlush(c);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, slots);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, NULL);
     }
 
 #if defined(USE_JEMALLOC)
@@ -1330,7 +1326,7 @@ void flushallCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
 
     /* If FLUSH SYNC isn't running as blocking async, then reply */
-    if (flushCommandCommon(c, FLUSH_TYPE_ALL, flags, NULL) == 0)
+    if (flushCommandCommon(c, FLUSH_TYPE_ALL, flags) == 0)
         addReply(c, shared.ok);
 }
 
@@ -1342,7 +1338,7 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
 
     /* If FLUSH SYNC isn't running as blocking async, then reply */
-    if (flushCommandCommon(c, FLUSH_TYPE_DB,flags, NULL) == 0)
+    if (flushCommandCommon(c, FLUSH_TYPE_DB,flags) == 0)
         addReply(c, shared.ok);
 
 }

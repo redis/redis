@@ -1012,19 +1012,6 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
-/* Return the number of keys in the specified slot ranges. */
-unsigned long long asmCountKeysInSlots(slotRangeArray *slots) {
-    if (!slots) return 0;
-
-    unsigned long long key_count = 0;
-    for (int i = 0; i < slots->num_ranges; i++) {
-        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
-            key_count += kvstoreDictSize(server.db[0].keys, j);
-        }
-    }
-    return key_count;
-}
-
 /* Log a human-readable message for ASM task lifecycle events. */
 void asmLogTaskEvent(asmTask *task, int event) {
     sds str = slotRangeArrayToString(task->slots);
@@ -1041,11 +1028,11 @@ void asmLogTaskEvent(asmTask *task, int event) {
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
             serverLog(LL_NOTICE, "Import task %s completed for slots: %s (imported %llu keys)",
-                      task->id, str, asmCountKeysInSlots(task->slots));
+                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_STARTED:
             serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (keys at start: %llu)",
-                      task->id, str, asmCountKeysInSlots(task->slots));
+                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_FAILED:
             serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
@@ -1055,7 +1042,7 @@ void asmLogTaskEvent(asmTask *task, int event) {
             break;
         case ASM_EVENT_MIGRATE_COMPLETED:
             serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s (migrated %llu keys)",
-                      task->id, str, asmCountKeysInSlots(task->slots));
+                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         default:
             break;
@@ -2773,6 +2760,11 @@ int isSlotInTrimJob(int slot) {
 
     if (!asmManager || !asmIsTrimInProgress()) return 0;
 
+    /* If we can access the keys in the slot, even there is an active trim job
+     * that covers the slot, maybe it is triggered by SFLUSH command, We still
+     * think it is a part of the dataset. */
+    if (clusterCanAccessKeysInSlot(slot)) return 0;
+
     /* Check if the slot is in any pending trim job. */
     listIter li;
     listNode *ln;
@@ -3265,6 +3257,9 @@ void processPendingClientsForActiveTrim(slotRangeArray *slots) {
             unblockClientForAsyncFlush(pending->client_id, pending->slots);
             zfree(pending); /* 'pending->slots' were freed above. */
             listDelNode(asmManager->active_trim_pending_clients, ln);
+            /* We must break here, even there may be multiple clients waiting
+             * for the same slot ranges, but they are blocked on different active
+             * trimming jobs that are not completed yet. */
             break;
         }
     }
@@ -3277,12 +3272,10 @@ void unblockPendingClientsForActiveTrim(void) {
     listRewind(asmManager->active_trim_pending_clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         activeTrimPendingClient *pending = listNodeValue(ln);
-        /* Reply with empty slots to abort the async flush. */
-        slotRangeArray *empty_slots = slotRangeArrayCreate(0);
-        unblockClientForAsyncFlush(pending->client_id, empty_slots);
-        /* Free the pending client structure. */
-        slotRangeArrayFree(pending->slots);
-        zfree(pending);
+        /* Reply with the slot ranges that requested to be trimmed. Generally we
+         * cancel trim jobs as the dataset is reset, no need to trim anymore. */
+        unblockClientForAsyncFlush(pending->client_id, pending->slots);
+        zfree(pending); /* 'pending->slots' were freed above. */
         listDelNode(asmManager->active_trim_pending_clients, ln);
     }
 }
@@ -3386,7 +3379,7 @@ void asmActiveTrimStart(void) {
     asmManager->active_trim_current_job_trimmed = 0;
 
     /* Count the number of keys to trim */
-    asmManager->active_trim_current_job_keys += asmCountKeysInSlots(slots);
+    asmManager->active_trim_current_job_keys += getKeyCountInSlotRangeArray(slots);
 
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
