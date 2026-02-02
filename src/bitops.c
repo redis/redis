@@ -37,7 +37,7 @@
 
 /* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
 #ifdef HAVE_AVX512
-#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
+#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f"))
 #else
 #define BITOP_USE_AVX512 0
 #endif
@@ -923,7 +923,7 @@ void getbitCommand(client *c) {
  * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
  * will be skipped. They will be taken care for in the unoptimized loop in the
  * main bitopCommand function. */
-ATTRIBUTE_TARGET_AVX2_POPCOUNT
+ATTRIBUTE_TARGET_AVX2
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res, 
                               unsigned long op, unsigned long numkeys,
                               unsigned long minlen)
@@ -1075,6 +1075,164 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX2 */
 
+#ifdef HAVE_AVX512
+/* Compute the given bitop operation using AVX512 intrinsics.
+ * Return how many bytes were successfully processed, as AVX512 operates on
+ * 512-bit registers so if `minlen` is not a multiple of 64 some of the bytes
+ * will be skipped. They will be taken care for in the unoptimized loop in the
+ * main bitopCommand function. */
+ATTRIBUTE_TARGET_AVX512
+unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res, 
+                                 unsigned long op, unsigned long numkeys,
+                                 unsigned long minlen)
+{
+    const unsigned long step = sizeof(__m512i);  /* 64 bytes */
+
+    unsigned long i;
+    unsigned long processed = 0;
+    unsigned char *res_start = res;
+    unsigned char *fst_key = keys[0];
+
+    if (minlen < step) {
+        return 0;
+    }
+
+    /* Unlike other operations that do the same with all source keys
+     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
+     * but the first one. We first store that disjunction in `lres` and later 
+     * compute the final operation using the first source key. */
+    if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR) {
+        memcpy(res, keys[0], minlen);
+    }
+
+    const __m512i max512 = _mm512_set1_epi64(-1);
+    const __m512i zero512 = _mm512_set1_epi64(0);
+
+    switch (op) {
+    case BITOP_AND:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                lres = _mm512_and_si512(lres, lkey);
+            }
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_DIFF:
+    case BITOP_DIFF1:
+    case BITOP_ANDOR:
+    case BITOP_OR:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                lres = _mm512_or_si512(lres, lkey);
+            }
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_XOR:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                lres = _mm512_xor_si512(lres, lkey);
+            }
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_NOT:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            lres = _mm512_xor_si512(lres, max512);
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_ONE:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i common_bits = zero512;
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                __m512i common = _mm512_and_si512(lres, lkey);
+                common_bits = _mm512_or_si512(common_bits, common);
+
+                lres = _mm512_xor_si512(lres, lkey);
+            }
+            lres = _mm512_andnot_si512(common_bits, lres);
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    default:
+        break;
+    }
+
+    res = res_start;
+    switch (op) {
+    case BITOP_DIFF:
+        for (i = 0; i < processed; i += step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i fkey = _mm512_loadu_si512((__m512i*)fst_key);
+
+            lres = _mm512_andnot_si512(lres, fkey);
+            _mm512_storeu_si512((__m512i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    case BITOP_DIFF1:
+        for (i = 0; i < processed; i += step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i fkey = _mm512_loadu_si512((__m512i*)fst_key);
+
+            lres = _mm512_andnot_si512(fkey, lres);
+            _mm512_storeu_si512((__m512i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    case BITOP_ANDOR:
+        for (i = 0; i < processed; i += step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i fkey = _mm512_loadu_si512((__m512i*)fst_key);
+
+            lres = _mm512_and_si512(fkey, lres);
+            _mm512_storeu_si512((__m512i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    default:
+        break;
+    }
+
+    return processed;
+}
+#endif /* HAVE_AVX512 */
+
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
@@ -1168,8 +1326,19 @@ void bitopCommand(client *c) {
         /* Number of bytes processed from each source key */
         j = 0;
 
+#if defined(HAVE_AVX512)
+        if (BITOP_USE_AVX512) {
+            j = bitopCommandAVX512(src, res, op, numkeys, minlen);
+
+            serverAssert(minlen >= j);
+            minlen -= j;
+
+            useAVX2 = 1;
+        }
+#endif
+
 #if defined(HAVE_AVX2)
-        if (BITOP_USE_AVX2) {
+        if (!useAVX2 && BITOP_USE_AVX2) {
             j = bitopCommandAVX(src, res, op, numkeys, minlen);
 
             serverAssert(minlen >= j);
