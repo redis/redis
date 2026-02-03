@@ -233,7 +233,12 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-        *milliseconds += commandTimeSnapshot();
+        long long now = commandTimeSnapshot();
+        if (*milliseconds > LLONG_MAX - now) {
+            addReplyErrorExpireTime(c);
+            return C_ERR;
+        }
+        *milliseconds += now;
     }
 
     if (*milliseconds <= 0) {
@@ -1214,4 +1219,3 @@ void digestCommand(client *c) {
 
     addReplyBulkSds(c, stringDigest(o));
 }
-
