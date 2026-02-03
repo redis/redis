@@ -380,7 +380,7 @@ static size_t genRandIntUniform(void) {
     return random() % config.randomkeys_keyspacelen;
 }
 
-// Generates zipf distributed numbers between `1` and `keyspacelen`. Uses
+// Generates zipf distributed numbers between `0` and `keyspacelen-1`. Uses
 // rejection algorithm from the book "Non-Uniform Random Variate Generation",
 // by Luc Devroye (see page 551)
 static size_t genRandIntZipf(void) {
@@ -398,7 +398,7 @@ static size_t genRandIntZipf(void) {
         double v = genrand64_real2();
         double t = pow(1.0 + 1.0 / x, s - 1.0);
         if (v * x * (t - 1.0) / (b - 1.0) <= t / b) {
-          return (size_t)x;
+          return (size_t)x - 1;
         }
     }
 }
@@ -1439,7 +1439,10 @@ int parseOptions(int argc, char **argv) {
             if (lastarg) goto invalid;
             config.use_zipf = true;
             config.zipf_skew = atof(argv[++i]);
-            assert(1.001 <= config.zipf_skew && config.zipf_skew <= 1000.0);
+            if (config.zipf_skew < 1.001 || config.zipf_skew > 1000.0) {
+                fprintf(stderr, "Invalid zipf skew.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"-h")) {
             if (lastarg) goto invalid;
             sdsfree(config.conn_info.hostip);
