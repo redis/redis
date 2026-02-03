@@ -76,6 +76,8 @@ static struct config {
     int datasize;
     int randomkeys;
     int randomkeys_keyspacelen;
+    int use_zipf;
+    double zipf_skew;
     int keepalive;
     int pipeline;
     long long start;
@@ -374,6 +376,45 @@ static void resetClient(client c) {
     c->pending = config.pipeline;
 }
 
+static size_t genRandIntUniform(void) {
+    return random() % config.randomkeys_keyspacelen;
+}
+
+// Generates zipf distributed numbers between `1` and `keyspacelen`. Uses
+// rejection algorithm from the book "Non-Uniform Random Variate Generation",
+// by Luc Devroye (see page 551)
+static size_t genRandIntZipf(void) {
+    size_t n = config.randomkeys_keyspacelen;
+    if (n <= 1) return 1;
+
+    double s = config.zipf_skew;
+    double b = pow(2.0, s - 1.0);
+
+    while (1) {
+        double u = genrand64_real2();
+        double x = floor(pow(u, -1.0 / (s - 1.0)));
+        if (x > (double)n || x < 1.0) continue;
+
+        double v = genrand64_real2();
+        double t = pow(1.0 + 1.0 / x, s - 1.0);
+        if (v * x * (t - 1.0) / (b - 1.0) <= t / b) {
+          return (size_t)x;
+        }
+    }
+}
+
+static size_t genRandIntKey(void) {
+    size_t r = 0;
+
+    if (config.use_zipf) {
+        r = genRandIntZipf();
+    } else {
+        r = genRandIntUniform();
+    }
+
+    return r;
+}
+
 static void randomizeClientKey(client c) {
     size_t i;
 
@@ -381,7 +422,7 @@ static void randomizeClientKey(client c) {
         char *p = c->randptr[i]+11;
         size_t r = 0;
         if (config.randomkeys_keyspacelen != 0)
-            r = random() % config.randomkeys_keyspacelen;
+            r = genRandIntKey();
         size_t j;
 
         for (j = 0; j < 12; j++) {
@@ -845,6 +886,7 @@ static void showLatencyReport(void) {
         printf("  %d parallel clients\n", config.numclients);
         printf("  %d bytes payload\n", config.datasize);
         printf("  keep alive: %d\n", config.keepalive);
+        printf("  use zipf: %d (%f)\n", config.use_zipf, config.zipf_skew);
         if (config.cluster_mode) {
             printf("  cluster mode: yes (%d masters)\n",
                    config.cluster_node_count);
@@ -1393,6 +1435,11 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-k")) {
             if (lastarg) goto invalid;
             config.keepalive = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-z")) {
+            if (lastarg) goto invalid;
+            config.use_zipf = true;
+            config.zipf_skew = atof(argv[++i]);
+            assert(1.001 <= config.zipf_skew && config.zipf_skew <= 1000.0);
         } else if (!strcmp(argv[i],"-h")) {
             if (lastarg) goto invalid;
             sdsfree(config.conn_info.hostip);
@@ -1601,6 +1648,9 @@ usage:
 "                    range.\n"
 "                    Note: If -r is omitted, all commands in a benchmark will\n"
 "                    use the same key.\n"
+" -z <skew>          Generated keys will follow a zipf distribution. If -z is\n"
+"                    omitted, the generated keys will follow a uniform distribution.\n"
+"                    Skew should be between 1.001 and 1000.0.\n"
 " -P <numreq>        Pipeline <numreq> requests. Default 1 (no pipeline).\n"
 " -q                 Quiet. Just show query/sec values\n"
 " --precision        Number of decimal places to display in latency output (default 0)\n"
@@ -1712,6 +1762,8 @@ int main(int argc, char **argv) {
     config.el = aeCreateEventLoop(1024*10);
     aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
     config.keepalive = 1;
+    config.use_zipf = 0;
+    config.zipf_skew = 1.001;
     config.datasize = 3;
     config.pipeline = 1;
     config.randomkeys = 0;
