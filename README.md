@@ -144,6 +144,14 @@ cd src
 ./redis-cli
 ```
 
+Note: `redis-cli` is a generated binary. It will not exist until `make` is run.
+If `./redis-cli` is missing [eg. "zsh: no such file or directory: ./redis-cli"], build Redis from source first.
+
+```sh
+make
+```
+
+
 ```text
 redis> ping
 PONG
