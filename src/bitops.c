@@ -1328,7 +1328,6 @@ void bitopCommand(client *c) {
         j = 0;
 
 #if defined(HAVE_AVX512)
-        /* Heuristic: AVX-512 helps for larger bitmaps and many keys */
         if (BITOP_USE_AVX512 && (minlen >= 10000) && (numkeys >= 8)) {
             useAVX512 = 1;
         }
@@ -1355,16 +1354,19 @@ void bitopCommand(client *c) {
 #endif
 
 #if !defined(USE_ALIGNED_ACCESS)
-        /* We don't have AVX2/AVX512 but we still have fast path:
+        /* We don't have AVX2 but we still have fast path:
          * as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
          * vanilla algorithm. On ARM we skip the fast path since it will
          * result in GCC compiling the code using multiple-words load/store
-         * operations that are not supported even in ARM >= v6.
-         * If we already used AVX512/AVX2, skip this path - the SIMD paths
-         * already handled the bulk of the data and will have left less than
-         * their step size remaining. */
+         * operations that are not supported even in ARM >= v6. */
         if (!useAVX2 && minlen >= sizeof(unsigned long)*4) {
+            /* We can't have entered the AVX2 path since minlen >= sizeof(unsigned long)*4
+             * AVX2 path operates on steps of sizeof(__m256i) which for 64-bit
+             * machines (the only ones supporting AVX2) is equal to
+             * sizeof(unsigned long)*4. That means after the AVX2
+             * path minlen will necessarily be < sizeof(unsigned long)*4. */
+            serverAssert(!useAVX2);
 
             unsigned long **lp = (unsigned long**)src;
             unsigned long *lres = (unsigned long*) res;
