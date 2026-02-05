@@ -3724,7 +3724,11 @@ static int rdbChannelSendHandshake(connection *conn, sds *err) {
 
     *err = sendCommand(conn, "REPLCONF", "capa", "eof", "rdb-only", "1",
                        "rdb-channel", "1", "main-ch-client-id", cid,
-                       "listening-port", buf, NULL);
+                       "listening-port", buf,
+                       server.slave_announce_ip ? "ip-address" : NULL,
+                       server.slave_announce_ip ? server.slave_announce_ip : NULL,
+                       NULL);
+    
     if (*err) {
         serverLog(LL_WARNING, "Error sending REPLCONF command to master in rdb channel handshake: %s", *err);
         return C_ERR;

@@ -3974,12 +3974,13 @@ void call(client *c, int flags) {
 
     /* Populate the per-key hotkey stats. Before updating stats for a command
      * we need to do some setup on the hotkeyStats structure. We only do this
-     * once during the outer-most call in case of nesting.
+     * once during the outer-most call in case of nesting. However, when we are
+     * inside a MULTI/EXEC block, we want to track each individual command.
      * NOTE: even though we update the network bytes during nested calls we
      * only update the duration, since the outer-most call records the whole
      * duration. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED) &&
-        !server.execution_nesting)
+        (!server.execution_nesting || server.in_exec))
     {
         /* First we need to prepare the hotkeyStats for updates */
         hotkeyStatsPreCurrentCmd(server.hotkeys, c);
@@ -4078,8 +4079,9 @@ void call(client *c, int flags) {
         hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
 
         /* Just like curr cmd setup we only do the cleanup in case we are not in
-         * a nested command. */
-        if (!server.execution_nesting)
+         * a nested command. For MULTI/EXEC, we do cleanup for each individual
+         * command. */
+        if (!server.execution_nesting || server.in_exec)
             hotkeyStatsPostCurrentCmd(server.hotkeys);
     }
 

@@ -7320,7 +7320,11 @@ struct COMMAND_ARG FLUSHDB_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HOTKEYS GET tips */
-#define HOTKEYS_GET_Tips NULL
+const char *HOTKEYS_GET_Tips[] = {
+"nondeterministic_output",
+"request_policy:special",
+"response_policy:special",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -7337,7 +7341,9 @@ struct COMMAND_ARG FLUSHDB_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HOTKEYS RESET tips */
-#define HOTKEYS_RESET_Tips NULL
+const char *HOTKEYS_RESET_Tips[] = {
+"request_policy:special",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -7354,7 +7360,9 @@ struct COMMAND_ARG FLUSHDB_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HOTKEYS START tips */
-#define HOTKEYS_START_Tips NULL
+const char *HOTKEYS_START_Tips[] = {
+"request_policy:special",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -7393,7 +7401,9 @@ struct COMMAND_ARG HOTKEYS_START_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* HOTKEYS STOP tips */
-#define HOTKEYS_STOP_Tips NULL
+const char *HOTKEYS_STOP_Tips[] = {
+"request_policy:special",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -7403,10 +7413,10 @@ struct COMMAND_ARG HOTKEYS_START_Args[] = {
 
 /* HOTKEYS command table */
 struct COMMAND_STRUCT HOTKEYS_Subcommands[] = {
-{MAKE_CMD("get","Returns lists of top K hotkeys depending on metrics chosen in HOTKEYS START command.","O(K) where K is the number of hotkeys returned.","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_GET_History,0,HOTKEYS_GET_Tips,0,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_GET_Keyspecs,0,NULL,0)},
-{MAKE_CMD("reset","Release the resources used for hotkey tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_RESET_History,0,HOTKEYS_RESET_Tips,0,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_RESET_Keyspecs,0,NULL,0)},
-{MAKE_CMD("start","Starts hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_START_History,0,HOTKEYS_START_Tips,0,hotkeysCommand,-2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_START_Keyspecs,0,NULL,5),.args=HOTKEYS_START_Args},
-{MAKE_CMD("stop","Stops hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_STOP_History,0,HOTKEYS_STOP_Tips,0,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_STOP_Keyspecs,0,NULL,0)},
+{MAKE_CMD("get","Returns lists of top K hotkeys depending on metrics chosen in HOTKEYS START command.","O(K) where K is the number of hotkeys returned.","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_GET_History,0,HOTKEYS_GET_Tips,3,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_GET_Keyspecs,0,NULL,0)},
+{MAKE_CMD("reset","Release the resources used for hotkey tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_RESET_History,0,HOTKEYS_RESET_Tips,1,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_RESET_Keyspecs,0,NULL,0)},
+{MAKE_CMD("start","Starts hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_START_History,0,HOTKEYS_START_Tips,1,hotkeysCommand,-2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_START_Keyspecs,0,NULL,5),.args=HOTKEYS_START_Args},
+{MAKE_CMD("stop","Stops hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_STOP_History,0,HOTKEYS_STOP_Tips,1,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_STOP_Keyspecs,0,NULL,0)},
 {0}
 };
 

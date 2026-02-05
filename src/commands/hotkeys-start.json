@@ -11,6 +11,9 @@
             "ADMIN",
             "NOSCRIPT"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:SPECIAL"
+        ],
         "reply_schema": {
             "const": "OK"
         },
