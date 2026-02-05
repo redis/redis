@@ -1328,8 +1328,8 @@ void bitopCommand(client *c) {
         j = 0;
 
 #if defined(HAVE_AVX512)
-        /* Heuristic: AVX-512 helps for larger bitmaps. */
-        if (BITOP_USE_AVX512 && (minlen >= 10000)) {
+        /* Heuristic: AVX-512 helps for larger bitmaps and many keys */
+        if (BITOP_USE_AVX512 && (minlen >= 10000) && (numkeys >= 8)) {
             useAVX512 = 1;
         }
 
