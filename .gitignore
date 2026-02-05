@@ -42,3 +42,7 @@ Makefile.dep
 .ccls-cache/*
 compile_commands.json
 redis.code-workspace
+
+# Module build markers (modules are git submodules under modules/*/src)
+modules/*/.prepared
+modules/*/.cargo_fetched

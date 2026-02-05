@@ -10,10 +10,16 @@ endif
 
 default: all
 
+.PHONY: get_source
+get_source:
+ifeq ($(BUILD_WITH_MODULES), yes)
+	$(MAKE) -C modules $@
+endif
+
 .DEFAULT:
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
+	@set -e; for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
 install:
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
+	@set -e; for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
 .PHONY: install

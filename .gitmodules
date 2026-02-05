@@ -1,0 +1,12 @@
+[submodule "modules/redisjson/src"]
+	path = modules/redisjson/src
+	url = https://github.com/redisjson/redisjson
+[submodule "modules/redisbloom/src"]
+	path = modules/redisbloom/src
+	url = https://github.com/redisbloom/redisbloom
+[submodule "modules/redistimeseries/src"]
+	path = modules/redistimeseries/src
+	url = https://github.com/redistimeseries/redistimeseries
+[submodule "modules/redisearch/src"]
+	path = modules/redisearch/src
+	url = https://github.com/redisearch/redisearch

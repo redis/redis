@@ -2,8 +2,14 @@ PREFIX ?= /usr/local
 INSTALL_DIR ?= $(DESTDIR)$(PREFIX)/lib/redis/modules
 INSTALL ?= install
 
-# This logic *partially* follows the current module build system. It is a bit awkward and
-# should be changed if/when the modules' build process is refactored.
+# This logic expects each module's source to exist under $(SRC_DIR).
+# In this repo, module sources are tracked as **git submodules** at:
+#   modules/<module_name>/$(SRC_DIR)
+#
+# Building will auto-init/update the submodule if it's missing, so:
+# - `git clone --recurse-submodules ...` works out of the box
+# - existing checkouts don't re-download anything
+# - non-recursive clones still "just work" on first build
 
 ARCH_MAP_x86_64 := x64
 ARCH_MAP_i386 := x86
@@ -27,12 +33,22 @@ $(TARGET_MODULE): get_source
 	$(MAKE) -C $(SRC_DIR)
 	cp ${TARGET_MODULE} ./
 
-get_source: $(SRC_DIR)/.prepared
+ROOT_DIR := $(abspath $(CURDIR)/../..)
+MODULE_NAME := $(notdir $(CURDIR))
+SUBMODULE_PATH_REL := modules/$(MODULE_NAME)/$(SRC_DIR)
+PREPARED_MARKER := .prepared
 
-$(SRC_DIR)/.prepared:
-	mkdir -p $(SRC_DIR)
-	git clone --recursive --depth 1 --branch $(MODULE_VERSION) $(MODULE_REPO) $(SRC_DIR)
-	touch $@
+get_source: $(PREPARED_MARKER)
+
+$(PREPARED_MARKER):
+	@cd "$(ROOT_DIR)" && \
+	if [ -e "$(SUBMODULE_PATH_REL)/.git" ]; then \
+		echo "Using module source at $(SUBMODULE_PATH_REL)"; \
+	else \
+		echo "Initializing module submodule at $(SUBMODULE_PATH_REL)"; \
+		git submodule update --init --recursive -- "$(SUBMODULE_PATH_REL)"; \
+	fi
+	@touch "$@"
 
 clean:
 	-$(MAKE) -C $(SRC_DIR) clean
@@ -42,7 +58,10 @@ distclean: clean
 	-$(MAKE) -C $(SRC_DIR) distclean
 
 pristine:
-	-rm -rf $(SRC_DIR)
+	@cd "$(ROOT_DIR)" && \
+	echo "Deinitializing submodule $(SUBMODULE_PATH_REL) (if initialized)"; \
+	git submodule deinit -f -- "$(SUBMODULE_PATH_REL)" >/dev/null 2>&1 || true
+	-rm -rf "$(SRC_DIR)" "$(PREPARED_MARKER)"
 
 install: $(TARGET_MODULE)
 	mkdir -p $(INSTALL_DIR)

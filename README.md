@@ -791,6 +791,14 @@ To build Redis with all the data structures (including JSON, time series, Bloom 
 make BUILD_WITH_MODULES=yes
 ```
 
+If you're building from a git checkout (not a source tarball), the module sources are included as git submodules under `modules/*/src`. For the smoothest experience, clone with:
+
+```sh
+git clone --recurse-submodules <repo>
+```
+
+If you already cloned without submodules, you can run `git submodule update --init --recursive` once (or just run the build; it will initialize missing submodules automatically).
+
 Note: `BUILD_WITH_MODULES=yes` is not supported on 32 bit systems.
 
 To build Redis with just the core data structures, use:
