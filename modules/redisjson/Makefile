@@ -7,8 +7,8 @@ include ../common.mk
 
 CARGO_FETCHED_MARKER := .cargo_fetched
 
-$(CARGO_FETCHED_MARKER): .prepared
+get_source: $(CARGO_FETCHED_MARKER)
+
+$(CARGO_FETCHED_MARKER): get_source_base
 	cd $(SRC_DIR) && cargo fetch
 	touch $@
-
-get_source: $(CARGO_FETCHED_MARKER)

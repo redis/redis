@@ -18,6 +18,9 @@ ARCH_MAP_aarch64 := arm64v8
 ARCH_MAP_arm64 := arm64v8
 
 OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ifeq ($(OS),darwin)
+OS := macos
+endif
 ARCH := $(ARCH_MAP_$(shell uname -m))
 ifeq ($(ARCH),)
 	$(error Unrecognized CPU architecture $(shell uname -m))
@@ -30,25 +33,30 @@ FULL_VARIANT := $(OS)-$(ARCH)-release
 all: $(TARGET_MODULE)
 
 $(TARGET_MODULE): get_source
-	$(MAKE) -C $(SRC_DIR)
+	$(MAKE) -C $(SRC_DIR) ARCH=$(ARCH)
 	cp ${TARGET_MODULE} ./
 
 ROOT_DIR := $(abspath $(CURDIR)/../..)
 MODULE_NAME := $(notdir $(CURDIR))
 SUBMODULE_PATH_REL := modules/$(MODULE_NAME)/$(SRC_DIR)
-PREPARED_MARKER := .prepared
 
-get_source: $(PREPARED_MARKER)
+.PHONY: get_source get_source_base
+get_source: get_source_base
 
-$(PREPARED_MARKER):
+get_source_base:
 	@cd "$(ROOT_DIR)" && \
-	if [ -e "$(SUBMODULE_PATH_REL)/.git" ]; then \
-		echo "Using module source at $(SUBMODULE_PATH_REL)"; \
-	else \
-		echo "Initializing module submodule at $(SUBMODULE_PATH_REL)"; \
+	if [ -d ".git" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		echo "Syncing module submodule at $(SUBMODULE_PATH_REL)"; \
+		git submodule sync --recursive -- "$(SUBMODULE_PATH_REL)" >/dev/null 2>&1 || true; \
 		git submodule update --init --recursive -- "$(SUBMODULE_PATH_REL)"; \
+	else \
+		if [ -d "$(SRC_DIR)" ]; then \
+			echo "Using existing module source at $(SRC_DIR) (non-git source tree)"; \
+		else \
+			echo "ERROR: module sources missing and not a git checkout (expected $(SRC_DIR))" >&2; \
+			exit 1; \
+		fi; \
 	fi
-	@touch "$@"
 
 clean:
 	-$(MAKE) -C $(SRC_DIR) clean
@@ -61,7 +69,7 @@ pristine:
 	@cd "$(ROOT_DIR)" && \
 	echo "Deinitializing submodule $(SUBMODULE_PATH_REL) (if initialized)"; \
 	git submodule deinit -f -- "$(SUBMODULE_PATH_REL)" >/dev/null 2>&1 || true
-	-rm -rf "$(SRC_DIR)" "$(PREPARED_MARKER)"
+	-rm -rf "$(SRC_DIR)"
 
 install: $(TARGET_MODULE)
 	mkdir -p $(INSTALL_DIR)
