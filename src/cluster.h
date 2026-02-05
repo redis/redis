@@ -37,6 +37,7 @@
 #define CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
 #define CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
 #define CLUSTER_REDIR_DOWN_RO_STATE 7 /* -CLUSTERDOWN, allow reads. */
+#define CLUSTER_REDIR_TRIMMING 8      /* -TRYAGAIN, slot is being trimmed. */
 
 typedef struct _clusterNode clusterNode;
 struct clusterState;

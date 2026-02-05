@@ -181,7 +181,8 @@ test "SFLUSH - Deletes the keys with argument <NONE>/SYNC/ASYNC" {
 
 }
 
-start_cluster 2 2 {tags {external:skip cluster experimental}} {
+set testmodule [file normalize tests/modules/atomicslotmigration.so]
+start_cluster 2 2 [list tags {external:skip cluster experimental modules} config_lines [list loadmodule $testmodule]] {
 foreach sync_method {"SYNC" "BLOCKING-ASYNC" "ASYNC"} {
 foreach trim_method {"active" "bg"} {
     test "sflush can propagate to replicas (sync method: $sync_method, trim method: $trim_method)" {
@@ -248,6 +249,30 @@ foreach trim_method {"active" "bg"} {
 
         # SFLUSH should be unblocked and return empty array
         assert_equal [$rd read] "{0 8191}"
+        $rd close
+    }
+
+    test "Can not read/write keys in SFLUSH slots using active trim" {
+        R 0 debug asm-trim-method active 1000 ;# delay 1ms per key
+        # Add slot 0 keys
+        for {set i 0} {$i < 1000} {incr i} {
+            R 0 set "{06S}$i" "value$i"
+        }
+        # Add a slot 1 key, we should trim slot 0 first, then slot 1
+        set slot1_key "Qi"
+        R 0 set $slot1_key "slot1"
+
+        set rd [redis_deferring_client 0]
+        $rd SFLUSH 0 8191 SYNC ;# running in blocking async method
+
+        # we can not read the slot 1 key
+        assert_equal [R 0 get $slot1_key] ""
+        # Module with flag REDISMODULE_OPEN_KEY_ACCESS_TRIMMED can read the key
+        assert_equal [R 0 asm.read_pending_trim_key $slot1_key] "slot1"
+
+        # we can not write to the slot 1 key
+        assert_error "*TRYAGAIN Slot is being trimmed*" {R 0 set $slot1_key "value1"}
+
         $rd close
     }
 }

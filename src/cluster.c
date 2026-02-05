@@ -1176,6 +1176,8 @@ int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
  * already "down" but it is fragile to rely on the update of the global state,
  * so we also handle it here.
  *
+ * CLUSTER_REDIR_TRIMMING if the request addresses a slot that is being trimmed.
+ *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,
@@ -1417,6 +1419,16 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         return myself;
     }
 
+    /* If this node is responsible for the slot and is currently trimming it,
+     * maybe we trigger an active trimming for SFLUSH command. Here we reject
+     * any write commands as no writes should be accepted now. */
+    if (n == myself && is_write_command && (slot) && isSlotInTrimJob(slot) &&
+        clusterNodeCoversSlot(myself, slot))
+    {
+        *error_code = CLUSTER_REDIR_TRIMMING;
+        return NULL;
+    }
+
     /* Base case: just return the right node. However, if this node is not
      * myself, set error_code to MOVED since we need to issue a redirection. */
     if (n != myself && error_code) *error_code = CLUSTER_REDIR_MOVED;
@@ -1453,6 +1465,8 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
                                         "-%s %d %s:%d",
                                         (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
                                         hashslot, clusterNodePreferredEndpoint(n), port));
+    } else if (error_code == CLUSTER_REDIR_TRIMMING) {
+        addReplyError(c,"-TRYAGAIN Slot is being trimmed");
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }

@@ -2760,11 +2760,6 @@ int isSlotInTrimJob(int slot) {
 
     if (!asmManager || !asmIsTrimInProgress()) return 0;
 
-    /* If we can access the keys in the slot, even there is an active trim job
-     * that covers the slot, maybe it is triggered by SFLUSH command, We still
-     * think it is a part of the dataset. */
-    if (clusterCanAccessKeysInSlot(slot)) return 0;
-
     /* Check if the slot is in any pending trim job. */
     listIter li;
     listNode *ln;
