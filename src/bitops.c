@@ -1351,7 +1351,7 @@ void bitopCommand(client *c) {
 #endif
 
 #if !defined(USE_ALIGNED_ACCESS)
-        /* If no SIMD path was used (no AVX2/AVX51), fall back 
+        /* If no SIMD path was used (no AVX2/AVX512), fall back 
          * to a word-at-a-time fast path that is still much better 
          * than the byte-by-byte loop below. On ARM we skip this since 
          * it would cause GCC to emit multiple-word load/store ops
