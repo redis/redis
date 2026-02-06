@@ -1323,7 +1323,7 @@ void bitopCommand(client *c) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
-        int useAVX2 = 0;
+        int useAVX = 0;
 
         /* Number of bytes processed from each source key */
         j = 0;
@@ -1335,18 +1335,18 @@ void bitopCommand(client *c) {
             serverAssert(minlen >= j);
             minlen -= j;
 
-            useAVX2 = 1;
+            useAVX = 1;
         }
 #endif
 
 #if defined(HAVE_AVX2)
-        if (!useAVX2 && BITOP_USE_AVX2) {
+        if (!useAVX && BITOP_USE_AVX2) {
             j = bitopCommandAVX(src, res, op, numkeys, minlen);
 
             serverAssert(minlen >= j);
             minlen -= j;
 
-            useAVX2 = 1;
+            useAVX = 1;
         }
 #endif
 
@@ -1356,7 +1356,7 @@ void bitopCommand(client *c) {
          * than the byte-by-byte loop below. On ARM we skip this since 
          * it would cause GCC to emit multiple-word load/store ops
          * not supported even on ARM >= v6. */
-        if (!useAVX2 && minlen >= sizeof(unsigned long)*4) {
+        if (!useAVX && minlen >= sizeof(unsigned long)*4) {
 
             unsigned long **lp = (unsigned long**)src;
             unsigned long *lres = (unsigned long*) res;
