@@ -1420,8 +1420,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     }
 
     /* If this node is responsible for the slot and is currently trimming it,
-     * maybe we trigger an active trimming for SFLUSH command. Here we reject
-     * any write commands as no writes should be accepted now. */
+     * SFLUSH may have triggered active trimming and it could still be in progress.
+     * Here we reject any write commands as no writes should be accepted for
+     * trimming slots while active trimming is in progress. */
     if (n == myself && is_write_command && isSlotInTrimJob(slot) &&
         clusterNodeCoversSlot(myself, slot))
     {
