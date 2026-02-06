@@ -1356,19 +1356,12 @@ void bitopCommand(client *c) {
 #endif
 
 #if !defined(USE_ALIGNED_ACCESS)
-        /* We don't have AVX2 but we still have fast path:
-         * as far as we have data for all the input bitmaps we
-         * can take a fast path that performs much better than the
-         * vanilla algorithm. On ARM we skip the fast path since it will
-         * result in GCC compiling the code using multiple-words load/store
-         * operations that are not supported even in ARM >= v6. */
+        /* If no SIMD path was used (no AVX2/AVX51), fall back 
+         * to a word-at-a-time fast path that is still much better 
+         * than the byte-by-byte loop below. On ARM we skip this since 
+         * it would cause GCC to emit multiple-word load/store ops
+         * not supported even on ARM >= v6. */
         if (!useAVX2 && minlen >= sizeof(unsigned long)*4) {
-            /* We can't have entered the AVX2 path since minlen >= sizeof(unsigned long)*4
-             * AVX2 path operates on steps of sizeof(__m256i) which for 64-bit
-             * machines (the only ones supporting AVX2) is equal to
-             * sizeof(unsigned long)*4. That means after the AVX2
-             * path minlen will necessarily be < sizeof(unsigned long)*4. */
-            serverAssert(!useAVX2);
 
             unsigned long **lp = (unsigned long**)src;
             unsigned long *lres = (unsigned long*) res;
