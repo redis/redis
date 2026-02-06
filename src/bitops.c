@@ -1324,17 +1324,12 @@ void bitopCommand(client *c) {
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
         int useAVX2 = 0;
-        int useAVX512 = 0;
 
         /* Number of bytes processed from each source key */
         j = 0;
 
 #if defined(HAVE_AVX512)
         if (BITOP_USE_AVX512 && (minlen >= 10000) && (numkeys >= 8)) {
-            useAVX512 = 1;
-        }
-
-        if (useAVX512) {
             j = bitopCommandAVX512(src, res, op, numkeys, minlen);
 
             serverAssert(minlen >= j);
