@@ -38,8 +38,10 @@
 /* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
 #ifdef HAVE_AVX512
 #define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#define POPCOUNT_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define BITOP_USE_AVX512 0
+#define POPCOUNT_USE_AVX512 0
 #endif
 
 
@@ -364,7 +366,7 @@ long long redisPopCountAvx2(void *s, long count) {
 /* Automatically select the best available popcount implementation */
 static inline long long redisPopcountAuto(const unsigned char *p, long count) {
 #ifdef HAVE_AVX512
-    if (BITOP_USE_AVX512) {
+    if (POPCOUNT_USE_AVX512) {
         return redisPopCountAvx512((void*)p, count);
     }
 #endif
