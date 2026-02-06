@@ -252,8 +252,11 @@ foreach trim_method {"active" "bg"} {
         $rd close
     }
 
-    test "Can not read/write keys in SFLUSH slots using active trim" {
+    test "Write is rejected and read is allowed in SFLUSH slots using active trim" {
         R 0 debug asm-trim-method active 1000 ;# delay 1ms per key
+        R 0 asm.clear_event_log
+        R 2 asm.clear_event_log
+
         # Add slot 0 keys
         for {set i 0} {$i < 1000} {incr i} {
             R 0 set "{06S}$i" "value$i"
@@ -261,18 +264,25 @@ foreach trim_method {"active" "bg"} {
         # Add a slot 1 key, we should trim slot 0 first, then slot 1
         set slot1_key "Qi"
         R 0 set $slot1_key "slot1"
+        wait_for_ofs_sync [Rn 0] [Rn 2]
 
         set rd [redis_deferring_client 0]
         $rd SFLUSH 0 8191 SYNC ;# running in blocking async method
 
-        # we can not read the slot 1 key
-        assert_equal [R 0 get $slot1_key] ""
-        # Module with flag REDISMODULE_OPEN_KEY_ACCESS_TRIMMED can read the key
+        # we can read the slot 1 key
+        assert_equal [R 0 get $slot1_key] "slot1"
+        # Module with flag REDISMODULE_OPEN_KEY_ACCESS_TRIMMED also can read the key
         assert_equal [R 0 asm.read_pending_trim_key $slot1_key] "slot1"
 
         # we can not write to the slot 1 key
         assert_error "*TRYAGAIN Slot is being trimmed*" {R 0 set $slot1_key "value1"}
 
+        # wait for SFLUSH to complete
+        assert_equal [$rd read] "{0 8191}"
         $rd close
+
+        # there is no trim event since we sfluh the owned slots of this node
+        assert_equal [R 0 asm.get_cluster_event_log] {}
+        assert_equal [R 2 asm.get_cluster_event_log] {}
     }
 }

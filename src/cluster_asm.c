@@ -1882,6 +1882,14 @@ void clusterSyncSlotsCommand(client *c) {
             }
         }
 
+        /* Check if there is any trim job in progress for the slot ranges.
+         * We can't start the migrate task since the trim job will modify the data.*/
+        if (asmIsAnyTrimJobOverlaps(slots)) {
+            addReplyError(c, "Trim job in progress for the slots");
+            slotRangeArrayFree(slots);
+            return;
+        }
+
         sds task_id = c->argv[3]->ptr;
         /* Notify the cluster implementation to prepare for the migrate task. */
         if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK ||
@@ -2947,9 +2955,11 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
-                          &fsi);
+    /* We only notify the modules if the slots are not served by this node. */
+    if (!clusterCanAccessKeysInSlots(slots))
+        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
+                              &fsi);
 
     signalFlushedDb(0, 1, slots);
 
@@ -3381,9 +3391,11 @@ void asmActiveTrimStart(void) {
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
-                          &fsi);
+    /* We only notify the modules if the slots are not served by this node. */
+    if (!clusterCanAccessKeysInSlots(slots))
+        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
+                              &fsi);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim initiated for slots: %s, to trim %llu keys.",
@@ -3422,9 +3434,11 @@ void asmActiveTrimEnd(void) {
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
-                          &fsi);
+    /* We only notify the modules if the slots are not served by this node. */
+    if (!clusterCanAccessKeysInSlots(slots))
+        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
+                              &fsi);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim completed for slots: %s, %llu keys trimmed.",
@@ -3482,7 +3496,7 @@ int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc
 }
 
 /* Delete the key and notify the modules. */
-void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
+void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int key_is_served) {
     if (asmManager->debug_active_trim_delay > 0)
         debugDelay(asmManager->debug_active_trim_delay);
 
@@ -3492,11 +3506,16 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
 
     dbDelete(db, keyobj);
     keyModified(NULL, db, keyobj, NULL, 1);
-    /* The keys are not actually logically deleted from the database, just moved
-     * to another node. The modules need to know that these keys are no longer
-     * available locally, so just send the keyspace notification to the modules,
-     * but not to clients. */
-    moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+    if (key_is_served) {
+        /* The key is served by this node, notify the clients. */
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyobj, db->id);
+    } else {
+        /* The keys are not actually logically deleted from the database, just moved
+        * to another node. The modules need to know that these keys are no longer
+        * available locally, so just send the keyspace notification to the modules,
+        * but not to clients. */
+        moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+    }
     asmManager->active_trim_current_job_trimmed++;
 
     if (static_key) decrRefCount(keyobj);
@@ -3542,8 +3561,11 @@ void asmActiveTrimCycle(void) {
 
     serverAssert(asmManager->active_trim_it);
     int slot = slotRangeArrayGetCurrentSlot(asmManager->active_trim_it);
+    int is_served = -1; /* -1: not checked, 0: not served, 1: served */
 
     while (!time_exceeded && slot != -1) {
+        if (is_served == -1) is_served = clusterCanAccessKeysInSlot(slot);
+
         dictEntry *de;
         kvstoreDictIterator kvs_di;
         kvstoreInitDictSafeIterator(&kvs_di, server.db[0].keys, slot);
@@ -3553,7 +3575,7 @@ void asmActiveTrimCycle(void) {
 
             enterExecutionUnit(1, 0);
             robj *keyobj = createStringObject(sdskey, sdslen(sdskey));
-            asmActiveTrimDeleteKey(&server.db[0], keyobj);
+            asmActiveTrimDeleteKey(&server.db[0], keyobj, is_served);
             decrRefCount(keyobj);
             exitExecutionUnit();
             postExecutionUnitOperations();
@@ -3566,7 +3588,12 @@ void asmActiveTrimCycle(void) {
             }
         }
         kvstoreResetDictIterator(&kvs_di);
-        if (!time_exceeded) slot = slotRangeArrayNext(asmManager->active_trim_it);
+
+        /* Move to the next slot if we haven't exceeded the time limit. */
+        if (!time_exceeded) {
+            slot = slotRangeArrayNext(asmManager->active_trim_it);
+            is_served = -1;
+        }
     }
 
     if (slot == -1) {

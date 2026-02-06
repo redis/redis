@@ -1422,7 +1422,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* If this node is responsible for the slot and is currently trimming it,
      * maybe we trigger an active trimming for SFLUSH command. Here we reject
      * any write commands as no writes should be accepted now. */
-    if (n == myself && is_write_command && (slot) && isSlotInTrimJob(slot) &&
+    if (n == myself && is_write_command && isSlotInTrimJob(slot) &&
         clusterNodeCoversSlot(myself, slot))
     {
         *error_code = CLUSTER_REDIR_TRIMMING;
@@ -2092,6 +2092,18 @@ int clusterCanAccessKeysInSlot(int slot) {
             return 1;
     }
     return 0;
+}
+
+/* Return 1 if the keys in the slots can be accessed, 0 otherwise. */
+int clusterCanAccessKeysInSlots(slotRangeArray *slots) {
+    serverAssert(slots != NULL);
+
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            if (!clusterCanAccessKeysInSlot(j)) return 0;
+        }
+    }
+    return 1;
 }
 
 /* Return the slot ranges that belong to the current node or its master. */
