@@ -7,8 +7,12 @@ include ../common.mk
 
 CARGO_FETCHED_MARKER := .cargo_fetched
 
-get_source: $(CARGO_FETCHED_MARKER)
+get_source_post:
+	@if [ ! -f "$(CARGO_FETCHED_MARKER)" ] || [ "$(SRC_DIR)/Cargo.lock" -nt "$(CARGO_FETCHED_MARKER)" ]; then \
+		echo "Fetching Rust crate dependencies (cargo fetch)"; \
+		( cd "$(SRC_DIR)" && cargo fetch ); \
+		touch "$(CARGO_FETCHED_MARKER)"; \
+	fi
 
-$(CARGO_FETCHED_MARKER): get_source_base
-	cd $(SRC_DIR) && cargo fetch
-	touch $@
+pristine_post:
+	-rm -f "$(CARGO_FETCHED_MARKER)"

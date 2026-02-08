@@ -40,22 +40,35 @@ ROOT_DIR := $(abspath $(CURDIR)/../..)
 MODULE_NAME := $(notdir $(CURDIR))
 SUBMODULE_PATH_REL := modules/$(MODULE_NAME)/$(SRC_DIR)
 
-.PHONY: get_source get_source_base
-get_source: get_source_base
+.PHONY: get_source get_source_base get_source_post
+get_source: get_source_base get_source_post
+
+get_source_post:
 
 get_source_base:
 	@cd "$(ROOT_DIR)" && \
-	if [ -d ".git" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
 		echo "Syncing module submodule at $(SUBMODULE_PATH_REL)"; \
 		git submodule sync --recursive -- "$(SUBMODULE_PATH_REL)" >/dev/null 2>&1 || true; \
 		git submodule update --init --recursive -- "$(SUBMODULE_PATH_REL)"; \
 	else \
-		if [ -d "$(SRC_DIR)" ]; then \
-			echo "Using existing module source at $(SRC_DIR) (non-git source tree)"; \
+		if [ -d "$(SUBMODULE_PATH_REL)" ]; then \
+			echo "Using existing module source at $(SUBMODULE_PATH_REL) (non-git source tree)"; \
 		else \
-			echo "ERROR: module sources missing and not a git checkout (expected $(SRC_DIR))" >&2; \
+			echo "ERROR: module sources missing and not a git checkout (expected $(SUBMODULE_PATH_REL))" >&2; \
 			exit 1; \
 		fi; \
+	fi
+
+.PHONY: clean_git
+clean_git:
+	@cd "$(ROOT_DIR)" && \
+	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		echo "Cleaning untracked build outputs in $(SUBMODULE_PATH_REL)"; \
+		git -C "$(SUBMODULE_PATH_REL)" clean -fdx; \
+		( cd "$(SUBMODULE_PATH_REL)" && git submodule foreach --recursive 'git clean -fdx' ); \
+	else \
+		echo "Skipping clean_git (not a git checkout)"; \
 	fi
 
 clean:
@@ -65,7 +78,12 @@ clean:
 distclean: clean
 	-$(MAKE) -C $(SRC_DIR) distclean
 
-pristine:
+.PHONY: pristine pristine_base pristine_post
+pristine: pristine_base pristine_post
+
+pristine_post:
+
+pristine_base:
 	@cd "$(ROOT_DIR)" && \
 	echo "Deinitializing submodule $(SUBMODULE_PATH_REL) (if initialized)"; \
 	git submodule deinit -f -- "$(SUBMODULE_PATH_REL)" >/dev/null 2>&1 || true
@@ -75,4 +93,4 @@ install: $(TARGET_MODULE)
 	mkdir -p $(INSTALL_DIR)
 	$(INSTALL) -m 0755 -D $(TARGET_MODULE) $(INSTALL_DIR)
 
-.PHONY: all clean distclean pristine install
+.PHONY: all clean distclean install clean_git
