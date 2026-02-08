@@ -1,12 +1,16 @@
 [submodule "modules/redisjson/src"]
 	path = modules/redisjson/src
 	url = https://github.com/redisjson/redisjson
+	ignore = dirty
 [submodule "modules/redisbloom/src"]
 	path = modules/redisbloom/src
 	url = https://github.com/redisbloom/redisbloom
+	ignore = dirty
 [submodule "modules/redistimeseries/src"]
 	path = modules/redistimeseries/src
 	url = https://github.com/redistimeseries/redistimeseries
+	ignore = dirty
 [submodule "modules/redisearch/src"]
 	path = modules/redisearch/src
 	url = https://github.com/redisearch/redisearch
+	ignore = dirty
