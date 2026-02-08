@@ -16,6 +16,9 @@ prepare_source: get_source handle-werrors setup_environment
 clean:
 	$(call submake,$@)
 
+clean_git:
+	$(call submake,$@)
+
 distclean: clean_environment
 	$(call submake,$@)
 
@@ -87,4 +90,4 @@ ifeq ($(DISABLE_WERRORS),yes)
 	done
 endif
 
-.PHONY: all clean distclean install $(SUBDIRS) setup_environment clean_environment install-rust uninstall-rust handle-werrors
+.PHONY: all clean clean_git distclean install $(SUBDIRS) setup_environment clean_environment install-rust uninstall-rust handle-werrors
