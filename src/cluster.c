@@ -1423,10 +1423,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * SFLUSH may have triggered active trimming and it could still be in progress.
      * Here we reject any write commands as no writes should be accepted for
      * trimming slots while active trimming is in progress. */
-    if (n == myself && is_write_command && isSlotInTrimJob(slot) &&
-        clusterNodeCoversSlot(myself, slot))
-    {
-        *error_code = CLUSTER_REDIR_TRIMMING;
+    if (n == myself && is_write_command && isSlotInTrimJob(slot)) {
+        if (error_code) *error_code = CLUSTER_REDIR_TRIMMING;
         return NULL;
     }
 
@@ -2209,7 +2207,8 @@ void sflushCommand(client *c) {
     if (flags & EMPTYDB_ASYNC && server.loading == 0) {
         /* Update dirty stats before trimming. */
         server.dirty += getKeyCountInSlotRangeArray(myslots);
-        trim_method = asmTrimSlots(myslots);
+        /* Pass client id for active trim to unblock client when trim completes. */
+        trim_method = asmTrimSlots(myslots, c->id, 0);
     } else {
         clusterDelKeysInSlotRangeArray(myslots, 1);
     }
@@ -2229,7 +2228,7 @@ void sflushCommand(client *c) {
         if (trim_method == ASM_TRIM_METHOD_BG)
             bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, myslots);
         else /* ASM_TRIM_METHOD_ACTIVE */
-            queueClientForActiveTrimCompletion(c->id, myslots);
+            slotRangeArrayFree(myslots);
     } else {
         /* Reply with slot ranges that were flushed. SYNC and ASYNC mode will be
          * replied here immediately. */

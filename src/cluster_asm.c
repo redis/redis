@@ -54,18 +54,17 @@ typedef struct asmTask {
     redisOpArray *pre_snapshot_module_cmds; /* Module commands to be propagated at the beginning of slot migration */
 } asmTask;
 
-/* Structure to hold pending client information for active trim completion */
-typedef struct activeTrimPendingClient {
-    uint64_t client_id;         /* Client ID waiting for active trim completion */
+typedef struct activeTrimJob {
     slotRangeArray *slots;      /* Slots being trimmed */
-} activeTrimPendingClient;
+    uint64_t client_id;         /* Client ID waiting for active trim completion (0 if none) */
+    int asm_trim;               /* Whether this job is in atomic slot migration process */
+} activeTrimJob;
 
 struct asmManager {
     list *tasks;                        /* List of asmTask to be processed */
     list *archived_tasks;               /* List of archived asmTask */
     list *pending_trim_jobs;            /* List of pending trim jobs (due to write pause) */
-    list *active_trim_jobs;             /* List of active trim jobs */
-    list *active_trim_pending_clients;  /* List of pending clients waiting for active trim completion */
+    list *active_trim_jobs;             /* List of activeTrimJob */
     slotRangeArrayIter *active_trim_it; /* Iterator of the current active trim job */
     size_t sync_buffer_peak;            /* Peak size of sync buffer */
     asmTask *master_task;               /* The task that is currently active on the master */
@@ -147,7 +146,8 @@ static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
 void asmCancelPendingTrimJobs(void);
-void asmTriggerActiveTrim(slotRangeArray *slots);
+void activeTrimJobFreeMethod(void *ptr);
+void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int asm_trim);
 void asmActiveTrimEnd(void);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
@@ -157,18 +157,17 @@ void asmInit(void) {
     asmManager->tasks = listCreate();
     asmManager->archived_tasks = listCreate();
     asmManager->pending_trim_jobs = listCreate();
-    asmManager->active_trim_pending_clients = listCreate();
+    asmManager->active_trim_jobs = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->master_task = NULL;
     asmManager->debug_fail_channel = -1;
     asmManager->debug_fail_state = -1;
     asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
     asmManager->debug_active_trim_delay = 0;
-    asmManager->active_trim_jobs = listCreate();
     asmManager->active_trim_started = 0;
     asmManager->active_trim_completed = 0;
     asmManager->active_trim_cancelled = 0;
-    listSetFreeMethod(asmManager->active_trim_jobs, slotRangeArrayFreeGeneric);
+    listSetFreeMethod(asmManager->active_trim_jobs, activeTrimJobFreeMethod);
 }
 
 char *asmTaskStateToString(int state) {
@@ -2781,8 +2780,8 @@ int isSlotInTrimJob(int slot) {
     /* Check if the slot is in any active trim job. */
     listRewind(asmManager->active_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(slots, &req))
+        activeTrimJob *job = listNodeValue(ln);
+        if (slotRangeArrayOverlaps(job->slots, &req))
             return 1;
     }
     return 0;
@@ -2948,18 +2947,18 @@ void asmUnblockMasterAfterTrim(void) {
     }
 }
 
-/* Trim the slots asynchronously in the BIO thread. */
-void asmTriggerBackgroundTrim(slotRangeArray *slots) {
+/* Trim the slots asynchronously in the BIO thread. asm_trim is true if this
+ * is called in atomic slot migration process. */
+void asmTriggerBackgroundTrim(slotRangeArray *slots, int asm_trim) {
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    /* We only notify the modules if the slots are not served by this node. */
-    if (!clusterCanAccessKeysInSlots(slots))
-        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
-                              &fsi);
+    /* Fire the trim event to modules only if in atomic slot migration process. */
+    if (asm_trim) moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
+                          &fsi);
 
     signalFlushedDb(0, 1, slots);
 
@@ -2997,8 +2996,10 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     asmUnblockMasterAfterTrim();
 }
 
-/* Trim the slots, return the trim method used. */
-int asmTrimSlots(struct slotRangeArray *slots) {
+/* Trim the slots, return the trim method used.
+ * If client_id is non-zero, the client will be unblocked when trim completes.
+ * If asm_trim is true, this is called in atomic slot migration process. */
+int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int asm_trim) {
     if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
         return ASM_TRIM_METHOD_NONE;
 
@@ -3015,9 +3016,9 @@ int asmTrimSlots(struct slotRangeArray *slots) {
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT &&
                       moduleHasSubscribersForKeyspaceEvent(NOTIFY_KEY_TRIMMED));
     if (activetrim)
-        asmTriggerActiveTrim(slots);
+        asmTriggerActiveTrim(slots, client_id, asm_trim);
     else
-        asmTriggerBackgroundTrim(slots);
+        asmTriggerBackgroundTrim(slots, asm_trim);
 
     return activetrim ? ASM_TRIM_METHOD_ACTIVE : ASM_TRIM_METHOD_BG;
 }
@@ -3074,7 +3075,7 @@ void asmTrimJobProcessPending(void) {
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
         slotRangeArray *slots = listNodeValue(ln);
-        asmTrimSlots(slots);
+        asmTrimSlots(slots, 0, 1);
         propagateTrimSlots(slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
         slotRangeArrayFree(slots);
@@ -3240,49 +3241,17 @@ void asmCancelPendingTrimJobs(void) {
     }
 }
 
-/* Add the client to a queue of clients waiting for active trim completion. */
-void queueClientForActiveTrimCompletion(uint64_t client_id, struct slotRangeArray *slots) {
-    activeTrimPendingClient *pending = zmalloc(sizeof(*pending));
-    pending->client_id = client_id;
-    pending->slots = slots; /* slots will be freed after replying */
-    listAddNodeTail(asmManager->active_trim_pending_clients, pending);
-}
-
-/* Process pending clients waiting for active trim completion.
- * Find the pending client with matching slots, unblock it and send the reply. */
-void processPendingClientsForActiveTrim(slotRangeArray *slots) {
-    listIter li;
-    listNode *ln;
-    listRewind(asmManager->active_trim_pending_clients, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        activeTrimPendingClient *pending = listNodeValue(ln);
-
-        /* Check if the pending client's slots match the completed trim job's slots */
-        if (slotRangeArrayIsEqual(pending->slots, slots)) {
-            unblockClientForAsyncFlush(pending->client_id, pending->slots);
-            zfree(pending); /* 'pending->slots' were freed above. */
-            listDelNode(asmManager->active_trim_pending_clients, ln);
-            /* We must break here, even there may be multiple clients waiting
-             * for the same slot ranges, but they are blocked on different active
-             * trimming jobs that are not completed yet. */
-            break;
-        }
-    }
-}
-
-/* Unblock all pending clients waiting for active trim completion. */
-void unblockPendingClientsForActiveTrim(void) {
-    listIter li;
-    listNode *ln;
-    listRewind(asmManager->active_trim_pending_clients, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        activeTrimPendingClient *pending = listNodeValue(ln);
+/* Free an activeTrimJob and unblock pending client if needed. */
+void activeTrimJobFreeMethod(void *ptr) {
+    activeTrimJob *job = ptr;
+    if (job->client_id != 0) {
         /* Reply with the slot ranges that requested to be trimmed. Generally we
          * cancel trim jobs as the dataset is reset, no need to trim anymore. */
-        unblockClientForAsyncFlush(pending->client_id, pending->slots);
-        zfree(pending); /* 'pending->slots' were freed above. */
-        listDelNode(asmManager->active_trim_pending_clients, ln);
+        unblockClientForAsyncFlush(job->client_id, job->slots);
+        job->slots = NULL; /* slots were freed in unblockClientForAsyncFlush */
     }
+    if (job->slots) slotRangeArrayFree(job->slots);
+    zfree(job);
 }
 
 /* Cancel all pending and active trim jobs. */
@@ -3294,9 +3263,6 @@ void asmCancelTrimJobs(void) {
 
     /* Cancel pending trim jobs */
     asmCancelPendingTrimJobs();
-
-    /* unblock all pending clients waiting for active trim completion. */
-    unblockPendingClientsForActiveTrim();
 
     /* Cancel active trim jobs */
     if (listLength(asmManager->active_trim_jobs) == 0)
@@ -3362,7 +3328,7 @@ void trimslotsCommand(client *c) {
                 }
             }
         }
-        asmTrimSlots(slots);
+        asmTrimSlots(slots, 0, 1);
     }
 
     /* Command will not be propagated automatically since it does not modify
@@ -3375,7 +3341,8 @@ void trimslotsCommand(client *c) {
 
 /* Start the active trim job. */
 void asmActiveTrimStart(void) {
-    slotRangeArray *slots = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    slotRangeArray *slots = job->slots;
 
     serverAssert(asmManager->active_trim_it == NULL);
     asmManager->active_trim_it = slotRangeArrayGetIterator(slots);
@@ -3391,11 +3358,10 @@ void asmActiveTrimStart(void) {
             (RedisModuleSlotRangeArray *) slots
     };
 
-    /* We only notify the modules if the slots are not served by this node. */
-    if (!clusterCanAccessKeysInSlots(slots))
-        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
-                              &fsi);
+    /* Fire the trim event to modules only if in atomic slot migration process. */
+    if (job->asm_trim) moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                                  REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
+                                  &fsi);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim initiated for slots: %s, to trim %llu keys.",
@@ -3403,9 +3369,14 @@ void asmActiveTrimStart(void) {
     sdsfree(str);
 }
 
-/* Schedule an active trim job. */
-void asmTriggerActiveTrim(slotRangeArray *slots) {
-    listAddNodeTail(asmManager->active_trim_jobs, slotRangeArrayDup(slots));
+/* Schedule an active trim job with optional client waiting for completion. */
+void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int asm_trim) {
+    activeTrimJob *job = zmalloc(sizeof(*job));
+    job->slots = slotRangeArrayDup(slots);
+    job->client_id = client_id;
+    job->asm_trim = asm_trim;
+
+    listAddNodeTail(asmManager->active_trim_jobs, job);
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
     sdsfree(str);
@@ -3419,7 +3390,8 @@ void asmTriggerActiveTrim(slotRangeArray *slots) {
 
 /* End the active trim job. */
 void asmActiveTrimEnd(void) {
-    slotRangeArray *slots = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    slotRangeArray *slots = job->slots;
 
     if (asmManager->active_trim_it) {
         slotRangeArrayIteratorFree(asmManager->active_trim_it);
@@ -3434,20 +3406,15 @@ void asmActiveTrimEnd(void) {
             (RedisModuleSlotRangeArray *) slots
     };
 
-    /* We only notify the modules if the slots are not served by this node. */
-    if (!clusterCanAccessKeysInSlots(slots))
-        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
-                              &fsi);
+    /* Fire the trim event to modules only if in asm. */
+    if (job->asm_trim) moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                                REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
+                                &fsi);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim completed for slots: %s, %llu keys trimmed.",
               str, asmManager->active_trim_current_job_trimmed);
     sdsfree(str);
-    
-    /* Process pending clients waiting for active trim completion. */
-    processPendingClientsForActiveTrim(slots);
-
     listDelNode(asmManager->active_trim_jobs, listFirst(asmManager->active_trim_jobs));
     asmManager->active_trim_completed++;
 }
@@ -3496,7 +3463,7 @@ int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc
 }
 
 /* Delete the key and notify the modules. */
-void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int key_is_served) {
+void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int asm_trim) {
     if (asmManager->debug_active_trim_delay > 0)
         debugDelay(asmManager->debug_active_trim_delay);
 
@@ -3506,15 +3473,16 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int key_is_served) {
 
     dbDelete(db, keyobj);
     keyModified(NULL, db, keyobj, NULL, 1);
-    if (key_is_served) {
-        /* The key is served by this node, notify the clients. */
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyobj, db->id);
-    } else {
+    if (asm_trim) {
         /* The keys are not actually logically deleted from the database, just moved
         * to another node. The modules need to know that these keys are no longer
         * available locally, so just send the keyspace notification to the modules,
         * but not to clients. */
         moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+    } else {
+        /* Not in atomic slot migration process, the key is really deleted from the
+         * database, need to notify the clients. */
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyobj, db->id);
     }
     asmManager->active_trim_current_job_trimmed++;
 
@@ -3559,13 +3527,12 @@ void asmActiveTrimCycle(void) {
     timelimit = 1000000 * trim_cycle_time_perc / server.hz / 100;
     if (timelimit <= 0) timelimit = 1;
 
+    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+
     serverAssert(asmManager->active_trim_it);
     int slot = slotRangeArrayGetCurrentSlot(asmManager->active_trim_it);
-    int is_served = -1; /* -1: not checked, 0: not served, 1: served */
 
     while (!time_exceeded && slot != -1) {
-        if (is_served == -1) is_served = clusterCanAccessKeysInSlot(slot);
-
         dictEntry *de;
         kvstoreDictIterator kvs_di;
         kvstoreInitDictSafeIterator(&kvs_di, server.db[0].keys, slot);
@@ -3575,7 +3542,7 @@ void asmActiveTrimCycle(void) {
 
             enterExecutionUnit(1, 0);
             robj *keyobj = createStringObject(sdskey, sdslen(sdskey));
-            asmActiveTrimDeleteKey(&server.db[0], keyobj, is_served);
+            asmActiveTrimDeleteKey(&server.db[0], keyobj, job->asm_trim);
             decrRefCount(keyobj);
             exitExecutionUnit();
             postExecutionUnitOperations();
@@ -3588,12 +3555,7 @@ void asmActiveTrimCycle(void) {
             }
         }
         kvstoreResetDictIterator(&kvs_di);
-
-        /* Move to the next slot if we haven't exceeded the time limit. */
-        if (!time_exceeded) {
-            slot = slotRangeArrayNext(asmManager->active_trim_it);
-            is_served = -1;
-        }
+        if (!time_exceeded) slot = slotRangeArrayNext(asmManager->active_trim_it);
     }
 
     if (slot == -1) {
