@@ -1066,7 +1066,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
                     /* If first param is digit or ';', read more until we see a final in @~ */
                     char additionalChar;
-                    while (i < seqBufferMaxLength-1 && read(l.ifd, &additionalChar, 1) != -1) {
+                    while (i < seqBufferMaxLength-1 && read(l.ifd, &additionalChar, 1) == 1) {
                         seqBuffer[i++] = additionalChar;
                         if (additionalChar >= '@' && additionalChar <= '~') break; /* CSI final byte */
                     }
