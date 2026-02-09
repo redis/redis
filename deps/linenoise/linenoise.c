@@ -1037,13 +1037,14 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
              * chars at different times. */
             if (read(l.ifd,seq,1) == -1) break;
 
-            /* Handle Meta-b / Meta-f directly */
-            if (seq[0] == 'b') {                 /* ESC b → word left */
-                linenoiseEditMoveWordLeft(&l);
-                break;
-            }
-            if (seq[0] == 'f') {                 /* ESC f → word right */
-                linenoiseEditMoveWordRight(&l);
+            /* Handle Meta-b / Meta-f directly because it's a 2-byte sequence */
+            if (seq[0] == 'b' || seq[0] == 'f') {
+                if (reverse_search_mode_enabled) {
+                    disableReverseSearchMode(&l, buf, buflen, 1);
+                    break;
+                }
+                if (seq[0] == 'b') linenoiseEditMoveWordLeft(&l);   /* ESC b → word left */
+                else linenoiseEditMoveWordRight(&l);                /* ESC f → word right */
                 break;
             }
 
