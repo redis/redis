@@ -1068,11 +1068,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                     char additionalChar;
                     while (i < seqBufferMaxLength-1 && read(l.ifd, &additionalChar, 1) != -1) {
                         seqBuffer[i++] = additionalChar;
-                        if (additionalChar >= '@' && additionalChar <= '~') {    /* CSI final byte */
-                            seqBuffer[i] = '\0';
-                            break;
-                        }
+                        if (additionalChar >= '@' && additionalChar <= '~') break; /* CSI final byte */
                     }
+                    seqBuffer[i] = '\0';
 
                     /* The exact key mapping behavior depends on your keyboard/terminal setup.
                      * For example, in MacOS terminal you can go to the profile keyboard setting
@@ -1090,17 +1088,17 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                      */
 
                     /* This branch is usually triggered by pressing Alt/Ctrl + ← */
-                    if (strstr(seqBuffer, "1;5D") || strstr(seqBuffer, "5D")) {
+                    if (strcmp(seqBuffer, "1;5D") == 0 || strcmp(seqBuffer, "5D") == 0) {
                         linenoiseEditMoveWordLeft(&l);
                         break;
                     }
                     /* Usually Alt/Ctrl + → */
-                    if (strstr(seqBuffer, "1;5C") || strstr(seqBuffer, "5C")) {
+                    if (strcmp(seqBuffer, "1;5C") == 0 || strcmp(seqBuffer, "5C") == 0) {
                         linenoiseEditMoveWordRight(&l);
                         break;
                     }
                     /* Usually the `delete` key */
-                    if (strstr(seqBuffer, "3~")) {
+                    if (strcmp(seqBuffer, "3~") == 0) {
                         linenoiseEditDelete(&l);
                         break;
                     }
