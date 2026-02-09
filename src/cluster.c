@@ -2093,18 +2093,6 @@ int clusterCanAccessKeysInSlot(int slot) {
     return 0;
 }
 
-/* Return 1 if the keys in the slots can be accessed, 0 otherwise. */
-int clusterCanAccessKeysInSlots(slotRangeArray *slots) {
-    serverAssert(slots != NULL);
-
-    for (int i = 0; i < slots->num_ranges; i++) {
-        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
-            if (!clusterCanAccessKeysInSlot(j)) return 0;
-        }
-    }
-    return 1;
-}
-
 /* Return the slot ranges that belong to the current node or its master. */
 slotRangeArray *clusterGetLocalSlotRanges(void) {
     slotRangeArray *slots = NULL;
@@ -2221,13 +2209,13 @@ void sflushCommand(client *c) {
      * Block the client and schedule completion callback based on trim method:
      * - BG trim uses BIO lazyfree worker to trim the slots, so schedule a new
      *   BIO lazyfree worker to wait for completion, then unblock client and reply.
-     * - Active trim works in cron job of the main thread, we queue client, then
+     * - Active trim works in cron job of the main thread, it will automatically
      *   unblock client and reply in active trim completion. */
     if (blocking_async && trim_method != ASM_TRIM_METHOD_NONE) {
         blockClientForAsyncFlush(c);
         if (trim_method == ASM_TRIM_METHOD_BG)
             bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, myslots);
-        else /* ASM_TRIM_METHOD_ACTIVE */
+        else /* ASM_TRIM_METHOD_ACTIVE, just free the slot ranges */
             slotRangeArrayFree(myslots);
     } else {
         /* Reply with slot ranges that were flushed. SYNC and ASYNC mode will be

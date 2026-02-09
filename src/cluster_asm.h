@@ -58,6 +58,5 @@ void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc);
 int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
-int asmIsAnyTrimJobOverlaps(struct slotRangeArray *slots);
 #endif
 

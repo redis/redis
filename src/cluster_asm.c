@@ -64,7 +64,7 @@ struct asmManager {
     list *tasks;                        /* List of asmTask to be processed */
     list *archived_tasks;               /* List of archived asmTask */
     list *pending_trim_jobs;            /* List of pending trim jobs (due to write pause) */
-    list *active_trim_jobs;             /* List of activeTrimJob */
+    list *active_trim_jobs;             /* List of active trim jobs */
     slotRangeArrayIter *active_trim_it; /* Iterator of the current active trim job */
     size_t sync_buffer_peak;            /* Peak size of sync buffer */
     asmTask *master_task;               /* The task that is currently active on the master */
@@ -146,24 +146,25 @@ static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
 void asmCancelPendingTrimJobs(void);
-void activeTrimJobFreeMethod(void *ptr);
 void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
 void asmActiveTrimEnd(void);
+int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
+void activeTrimJobFreeMethod(void *ptr);
 
 void asmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
     asmManager->tasks = listCreate();
     asmManager->archived_tasks = listCreate();
     asmManager->pending_trim_jobs = listCreate();
-    asmManager->active_trim_jobs = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->master_task = NULL;
     asmManager->debug_fail_channel = -1;
     asmManager->debug_fail_state = -1;
     asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
     asmManager->debug_active_trim_delay = 0;
+    asmManager->active_trim_jobs = listCreate();
     asmManager->active_trim_started = 0;
     asmManager->active_trim_completed = 0;
     asmManager->active_trim_cancelled = 0;

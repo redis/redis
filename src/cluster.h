@@ -153,7 +153,6 @@ unsigned int countKeysInSlot(unsigned int slot);
 int getSlotOrReply(client *c, robj *o);
 int clusterIsMySlot(int slot);
 int clusterCanAccessKeysInSlot(int slot);
-int clusterCanAccessKeysInSlots(struct slotRangeArray *slots);
 struct slotRangeArray *clusterGetLocalSlotRanges(void);
 
 /* functions with shared implementations */
