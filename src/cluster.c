@@ -2196,7 +2196,7 @@ void sflushCommand(client *c) {
         /* Update dirty stats before trimming. */
         server.dirty += getKeyCountInSlotRangeArray(myslots);
         /* Pass client id for active trim to unblock client when trim completes. */
-        trim_method = asmTrimSlots(myslots, c->id, 0);
+        trim_method = asmTrimSlots(myslots, blocking_async ? c->id : 0, 0);
     } else {
         clusterDelKeysInSlotRangeArray(myslots, 1);
     }
