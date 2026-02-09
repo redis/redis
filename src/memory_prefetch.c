@@ -345,14 +345,6 @@ void prefetchCommands(void) {
         }
     }
 
-    /* Prefetch io_deferred_objects for all clients */
-    for (size_t i = 0; i < batch->client_count; i++) {
-        client *c = batch->clients[i];
-        if (!c->io_deferred_objects || c->io_deferred_objects_num == 0) continue;
-        for (int j = 0; j < c->io_deferred_objects_num; j++)
-            redis_prefetch_read(c->io_deferred_objects[j]);
-    }
-
     /* Prefetch the argv->ptr if required */
     for (size_t i = 0; i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
@@ -362,6 +354,14 @@ void prefetchCommands(void) {
                 redis_prefetch_read(pcmd->argv[j]->ptr);
             }
         }
+    }
+
+    /* Prefetch io_deferred_objects for all clients */
+    for (size_t i = 0; i < batch->client_count; i++) {
+        client *c = batch->clients[i];
+        if (!c->io_deferred_objects || c->io_deferred_objects_num == 0) continue;
+        for (int j = 0; j < c->io_deferred_objects_num; j++)
+            redis_prefetch_read(c->io_deferred_objects[j]);
     }
 
     /* Get the keys ptrs - we do it here after the key obj was prefetched. */
