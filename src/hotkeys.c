@@ -545,9 +545,9 @@ void hotkeysCommand(client *c) {
         addReplyBulkCString(c, "selected-slots");
         addReplySelectedSlots(c, server.hotkeys);
 
-        /* sampled-command-selected-slots-us (conditional) */
+        /* sampled-commands-selected-slots-us (conditional) */
         if (has_sampling && has_selected_slots) {
-            addReplyBulkCString(c, "sampled-command-selected-slots-us");
+            addReplyBulkCString(c, "sampled-commands-selected-slots-us");
             addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots);
 
             total_len++;

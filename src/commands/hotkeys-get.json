@@ -44,7 +44,7 @@
                                 },
                                 "description": "Array of slot ranges. Each element is an array: single-element [slot] for individual slots, or two-element [start, end] for inclusive ranges."
                             },
-                            "sampled-command-selected-slots-us": {
+                            "sampled-commands-selected-slots-us": {
                                 "type": "integer",
                                 "description": "CPU time in microseconds for sampled commands in selected slots (only present when sampling and slots are configured)."
                             },

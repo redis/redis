@@ -312,7 +312,7 @@ start_server {tags {external:skip "hotkeys"}} {
         }
 
         # Should NOT have selected-slots conditional fields
-        assert {![dict exists $result "sampled-command-selected-slots-us"]}
+        assert {![dict exists $result "sampled-commands-selected-slots-us"]}
         assert {![dict exists $result "all-commands-selected-slots-us"]}
         assert {![dict exists $result "net-bytes-sampled-commands-selected-slots"]}
         assert {![dict exists $result "net-bytes-all-commands-selected-slots"]}
@@ -571,7 +571,7 @@ start_cluster 1 0 {tags {external:skip cluster hotkeys}} {
         }
 
         # Should have conditional fields
-        assert [dict exists $result "sampled-command-selected-slots-us"]
+        assert [dict exists $result "sampled-commands-selected-slots-us"]
         assert [dict exists $result "all-commands-selected-slots-us"]
         assert [dict exists $result "net-bytes-sampled-commands-selected-slots"]
         assert [dict exists $result "net-bytes-all-commands-selected-slots"]
@@ -590,7 +590,7 @@ start_cluster 1 0 {tags {external:skip cluster hotkeys}} {
         }
 
         # Should NOT have sampled-commands fields (sample_ratio = 1)
-        assert {![dict exists $result "sampled-command-selected-slots-us"]}
+        assert {![dict exists $result "sampled-commands-selected-slots-us"]}
         assert {![dict exists $result "net-bytes-sampled-commands-selected-slots"]}
 
         # Should have all-commands-selected-slots fields
