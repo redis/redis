@@ -673,7 +673,7 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
 void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void) {
     raxIterator ri;
     raxStart(&ri,Users);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while(raxNext(&ri)) {
         user *u = ri.data;
         listIter li;
@@ -2506,7 +2506,7 @@ int ACLSaveToFile(const char *filename) {
      * ACL file. */
     raxIterator ri;
     raxStart(&ri,Users);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while(raxNext(&ri)) {
         user *u = ri.data;
         /* Return information in the configuration file format. */
@@ -2983,7 +2983,7 @@ void aclCommand(client *c) {
         addReplyArrayLen(c,raxSize(Users));
         raxIterator ri;
         raxStart(&ri,Users);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while(raxNext(&ri)) {
             user *u = ri.data;
             if (justnames) {

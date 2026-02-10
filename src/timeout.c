@@ -120,7 +120,7 @@ void handleBlockedClientsTimeout(void) {
     uint64_t now = mstime();
     raxIterator ri;
     raxStart(&ri,server.clients_timeout_table);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
 
     while(raxNext(&ri)) {
         uint64_t timeout;
@@ -130,7 +130,7 @@ void handleBlockedClientsTimeout(void) {
         c->flags &= ~CLIENT_IN_TO_TABLE;
         checkBlockedClientTimeout(c,now);
         raxRemove(server.clients_timeout_table,ri.key,ri.key_len,NULL);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     }
     raxStop(&ri);
 }

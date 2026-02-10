@@ -169,6 +169,16 @@ typedef struct raxIterator {
 } raxIterator;
 
 /* Exported API. */
+typedef enum {
+    RAX_SEEK_EQ,       /* Seek to the exact key (=) */
+    RAX_SEEK_GE,       /* Seek to the first key greater or equal (>=) */
+    RAX_SEEK_GT,       /* Seek to the first key greater than (>) */
+    RAX_SEEK_LE,       /* Seek to the last key less or equal (<=) */
+    RAX_SEEK_LT,       /* Seek to the last key less than (<) */
+    RAX_SEEK_FIRST,    /* Seek to the first key (^) */
+    RAX_SEEK_LAST      /* Seek to the last key ($) */
+} raxSeekMode;
+
 rax *raxNew(void);
 rax *raxNewWithMetadata(int metaSize, size_t *alloc_size);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
@@ -181,7 +191,7 @@ void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx),
                              void *ctx);
 void raxStart(raxIterator *it, rax *rt);
-int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len);
+int raxSeek(raxIterator *it, raxSeekMode mode, unsigned char *ele, size_t len);
 int raxNext(raxIterator *it);
 int raxPrev(raxIterator *it);
 int raxRandomWalk(raxIterator *it, size_t steps);

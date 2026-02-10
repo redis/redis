@@ -2286,7 +2286,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     if (s->cgroups) {
         raxIterator ri;
         raxStart(&ri,s->cgroups);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while(raxNext(&ri)) {
             streamCG *group = ri.data;
             /* Emit the XGROUP CREATE in order to create the group. */
@@ -2309,7 +2309,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * XGROUP CREATECONSUMER. */
             raxIterator ri_cons;
             raxStart(&ri_cons,group->consumers);
-            raxSeek(&ri_cons,"^",NULL,0);
+            raxSeek(&ri_cons, RAX_SEEK_FIRST, NULL, 0);
             while(raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
                 /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
@@ -2328,7 +2328,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                  * to emit the XCLAIM protocol. */
                 raxIterator ri_pel;
                 raxStart(&ri_pel,consumer->pel);
-                raxSeek(&ri_pel,"^",NULL,0);
+                raxSeek(&ri_pel, RAX_SEEK_FIRST, NULL, 0);
                 while(raxNext(&ri_pel)) {
                     streamNACK *nack = ri_pel.data;
                     if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,

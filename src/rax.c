@@ -1560,7 +1560,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
  * Return 0 if the seek failed for syntax error or out of memory. Otherwise
  * 1 is returned. When 0 is returned for out of memory, errno is set to
  * the ENOMEM value. */
-int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
+int raxSeek(raxIterator *it, raxSeekMode mode, unsigned char *ele, size_t len) {
     int eq = 0, lt = 0, gt = 0, first = 0, last = 0;
 
     it->stack.items = 0; /* Just resetting. Initialized by raxStart(). */
@@ -1569,22 +1569,15 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     it->key_len = 0;
     it->node = NULL;
 
-    /* Set flags according to the operator used to perform the seek. */
-    if (op[0] == '>') {
-        gt = 1;
-        if (op[1] == '=') eq = 1;
-    } else if (op[0] == '<') {
-        lt = 1;
-        if (op[1] == '=') eq = 1;
-    } else if (op[0] == '=') {
-        eq = 1;
-    } else if (op[0] == '^') {
-        first = 1;
-    } else if (op[0] == '$') {
-        last = 1;
-    } else {
-        errno = 0;
-        return 0; /* Error. */
+    /* Set flags according to the mode used to perform the seek. */
+    switch(mode) {
+        case RAX_SEEK_EQ: eq = 1; break;
+        case RAX_SEEK_GE: gt = 1; eq = 1; break;
+        case RAX_SEEK_GT: gt = 1; break;
+        case RAX_SEEK_LE: lt = 1; eq = 1; break;
+        case RAX_SEEK_LT: lt = 1; break;
+        case RAX_SEEK_FIRST: first = 1; break;
+        case RAX_SEEK_LAST: last = 1; break;
     }
 
     /* If there are no elements, set the EOF condition immediately and
@@ -1597,7 +1590,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     if (first) {
         /* Seeking the first key greater or equal to the empty string
          * is equivalent to seeking the smaller key available. */
-        return raxSeek(it,">=",NULL,0);
+        return raxSeek(it, RAX_SEEK_GE, NULL, 0);
     }
 
     if (last) {

@@ -4736,7 +4736,7 @@ void incrementErrorCount(const char *fullerr, size_t namelen) {
             sds errors = sdsempty();
             raxIterator ri;
             raxStart(&ri, server.errors);
-            raxSeek(&ri, "^", NULL, 0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             while (raxNext(&ri)) {
                 char *tmpsafe;
                 errors = sdscatlen(errors, getSafeInfoString((char *)ri.key, ri.key_len, &tmpsafe), ri.key_len);
@@ -6753,7 +6753,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         info = sdscat(info, "# Errorstats\r\n");
         raxIterator ri;
         raxStart(&ri,server.errors);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         struct redisError *e;
         while(raxNext(&ri)) {
             char *tmpsafe;

@@ -154,7 +154,7 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
             raxIterator ri;
             streamCG *cg;
             raxStart(&ri,s->cgroups);
-            raxSeek(&ri,"^",NULL,0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             /* There must be at least one group so the following should always
              * work. */
             serverAssert(raxNext(&ri));

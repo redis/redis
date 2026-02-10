@@ -9853,7 +9853,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
     uint64_t now = ustime();
     long long next_period = 0;
     while(1) {
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         if (!raxNext(&ri)) break;
         uint64_t expiretime;
         memcpy(&expiretime,ri.key,sizeof(expiretime));
@@ -9928,7 +9928,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     if (aeTimer != -1) {
         raxIterator ri;
         raxStart(&ri,Timers);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         raxNext(&ri);
         if (memcmp(ri.key,&key,sizeof(key)) == 0) {
             /* This is the first key, we need to re-install the timer according
@@ -9992,7 +9992,7 @@ int moduleHoldsTimer(struct RedisModule *module) {
     raxIterator iter;
     int found = 0;
     raxStart(&iter,Timers);
-    raxSeek(&iter,"^",NULL,0);
+    raxSeek(&iter, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&iter)) {
         RedisModuleTimer *timer = iter.data;
         if (timer->module == module) {
@@ -10828,11 +10828,27 @@ int RM_DictDel(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
  * key and operator passed, RedisModule_DictNext() / Prev() will just return
  * REDISMODULE_ERR at the first call, otherwise they'll produce elements.
  */
+/* Convert raxSeekMode string to enum for internal use. */
+static inline raxSeekMode raxSeekModeFromString(const char *op) {
+    if (op[0] == '>') {
+        return (op[1] == '=') ? RAX_SEEK_GE : RAX_SEEK_GT;
+    } else if (op[0] == '<') {
+        return (op[1] == '=') ? RAX_SEEK_LE : RAX_SEEK_LT;
+    } else if (op[0] == '=') {
+        return RAX_SEEK_EQ;
+    } else if (op[0] == '^') {
+        return RAX_SEEK_FIRST;
+    } else if (op[0] == '$') {
+        return RAX_SEEK_LAST;
+    }
+    return RAX_SEEK_EQ; /* Default, should not reach here for valid input. */
+}
+
 RedisModuleDictIter *RM_DictIteratorStartC(RedisModuleDict *d, const char *op, void *key, size_t keylen) {
     RedisModuleDictIter *di = zmalloc(sizeof(*di));
     di->dict = d;
     raxStart(&di->ri,d->rax);
-    raxSeek(&di->ri,op,key,keylen);
+    raxSeek(&di->ri, raxSeekModeFromString(op), key,keylen);
     return di;
 }
 
@@ -10857,7 +10873,7 @@ void RM_DictIteratorStop(RedisModuleDictIter *di) {
  * or REDISMODULE_ERR in case it was not possible to seek the specified
  * element. It is possible to reseek an iterator as many times as you want. */
 int RM_DictIteratorReseekC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
-    return raxSeek(&di->ri,op,key,keylen);
+    return raxSeek(&di->ri, raxSeekModeFromString(op), key,keylen);
 }
 
 /* Like RedisModule_DictIteratorReseekC() but takes the key as a
@@ -15013,10 +15029,10 @@ RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModule
         /* assign the iterator node callback before the seek, so that the
          * initial nodes that are processed till the first item are covered */
         ri.node_cb = moduleDefragRaxNode;
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     } else {
         /* Seek to the static 'seekTo'. */
-        if (!raxSeek(&ri,">=", (*seekTo)->ptr, sdslen((*seekTo)->ptr))) {
+        if (!raxSeek(&ri, RAX_SEEK_GE, (*seekTo)->ptr, sdslen((*seekTo)->ptr))) {
             goto cleanup;
         }
         /* assign the iterator node callback after the seek, so that the

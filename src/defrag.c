@@ -781,13 +781,13 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
         /* assign the iterator node callback before the seek, so that the
          * initial nodes that are processed till the first item are covered */
         ri.node_cb = defragRaxNode;
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     } else {
         /* if cursor is non-zero, we seek to the static 'next'.
          * Since node_cb is set after seek operation, any node traversed during seek wouldn't
          * be defragmented. To prevent this, we advance to next node before exiting previous
          * run, ensuring it gets defragmented instead of being skipped during current seek. */
-        if (!raxSeek(&ri,">=", next, sizeof(next))) {
+        if (!raxSeek(&ri, RAX_SEEK_GE, next, sizeof(next))) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -842,7 +842,7 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
     raxStart(&ri,rax);
     ri.node_cb = defragRaxNode;
     defragRaxNode(&rax->head, NULL);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&ri)) {
         void *newdata = NULL;
         if (element_cb)
@@ -985,7 +985,7 @@ void defragStreamIdmpProducers(stream *s) {
     raxStart(&ri, s->idmp_producers);
     /* Set the node callback to defrag internal rax nodes */
     ri.node_cb = defragRaxNode;
-    raxSeek(&ri, "^", NULL, 0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&ri)) {
         idmpProducer *producer = ri.data;
         idmpProducer *newproducer = activeDefragAlloc(producer);

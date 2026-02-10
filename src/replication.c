@@ -816,10 +816,10 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
         uint64_t encoded_offset = htonu64(offset);
         raxIterator ri;
         raxStart(&ri, server.repl_backlog->blocks_index);
-        raxSeek(&ri, ">", (unsigned char*)&encoded_offset, sizeof(uint64_t));
+        raxSeek(&ri, RAX_SEEK_GT, (unsigned char*)&encoded_offset, sizeof(uint64_t));
         if (raxEOF(&ri)) {
             /* No found, so search from the last recorded node. */
-            raxSeek(&ri, "$", NULL, 0);
+            raxSeek(&ri, RAX_SEEK_LAST, NULL, 0);
             raxPrev(&ri);
             node = (listNode *)ri.data;
         } else {

@@ -747,7 +747,7 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     /* Save each entry. */
     raxIterator ri;
     raxStart(&ri,pel);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while(raxNext(&ri)) {
         /* We store IDs in raw form as 128 big big endian numbers, like
          * they are inside the radix tree key. */
@@ -794,7 +794,7 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
     /* Iterate through all producers. */
     raxIterator ri;
     raxStart(&ri, s->idmp_producers);
-    raxSeek(&ri, "^", NULL, 0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&ri)) {
         idmpProducer *producer = ri.data;
 
@@ -952,7 +952,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
     /* Save each consumer. */
     raxIterator ri;
     raxStart(&ri,cg->consumers);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while(raxNext(&ri)) {
         streamConsumer *consumer = ri.data;
 
@@ -1212,7 +1212,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
          * to insert it back into the radix tree. */
         raxIterator ri;
         raxStart(&ri,rax);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while (raxNext(&ri)) {
             unsigned char *lp = ri.data;
             size_t lp_bytes = lpBytes(lp);
@@ -1264,7 +1264,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         if (num_cgroups) {
             /* Serialize each consumer group. */
             raxStart(&ri,s->cgroups);
-            raxSeek(&ri,"^",NULL,0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             while(raxNext(&ri)) {
                 streamCG *cg = ri.data;
 
@@ -3346,7 +3346,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             if (deep_integrity_validation) {
                 raxIterator ri_cg_pel;
                 raxStart(&ri_cg_pel,cgroup->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
+                raxSeek(&ri_cg_pel, RAX_SEEK_FIRST, NULL, 0);
                 while(raxNext(&ri_cg_pel)) {
                     streamNACK *nack = ri_cg_pel.data;
                     if (!nack->consumer) {
