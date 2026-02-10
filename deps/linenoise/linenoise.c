@@ -1065,7 +1065,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                     int i = 0;
                     seqBuffer[i++] = seq[1];
 
-                    /* If first param is digit or ';', read more until we see a final in @~ */
+                    /* Read more bytes until we see a CSI final byte (range @..~).
+                     * Use seqBufferMaxLength-1 to reserve one position for '\0'. */
                     char additionalChar;
                     while (i < seqBufferMaxLength-1 && read(l.ifd, &additionalChar, 1) == 1) {
                         seqBuffer[i++] = additionalChar;
