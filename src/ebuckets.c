@@ -949,7 +949,7 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
         raxStart(&ri, rax);
         unsigned char raxKey[EB_KEY_SIZE];
         bucketKey2RaxKey(EB_BUCKET_KEY(ebGetMetaExpTime(mItem)), raxKey);
-        raxSeek(&ri, "<=", raxKey, EB_KEY_SIZE);
+        raxSeek(&ri, RAX_SEEK_LE, raxKey, EB_KEY_SIZE);
 
         if (raxNext(&ri) == 0)
             return 0; /* not removed */
@@ -1129,7 +1129,7 @@ int ebAddToRax(ebuckets *eb, EbucketsType *type, eItem item, uint64_t bucketKeyI
     bucketKey2RaxKey(bucketKeyItem, raxKey);
     rax *rax = ebGetRaxPtr(*eb);
     raxStart(&iter,rax);
-    raxSeek(&iter, "<=", raxKey, EB_KEY_SIZE);
+    raxSeek(&iter, RAX_SEEK_LE, raxKey, EB_KEY_SIZE);
     *ebRaxNumItems(rax) += 1;
     /* If expireTime of the item is below the bucket-key of first bucket in rax,
      * then need to add it as a new bucket at the beginning of the rax. */
@@ -1191,7 +1191,7 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
     uint64_t numItemsTotal = 0;
     raxIterator raxIter;
     raxStart(&raxIter, rax);
-    raxSeek(&raxIter, "^", NULL, 0);
+    raxSeek(&raxIter, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&raxIter)) {
         int expectFirstItemBucket = 1;
         FirstSegHdr *firstSegHdr = raxIter.data;
@@ -1308,7 +1308,7 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
     rax *rax = ebGetRaxPtr(eb);
     raxIterator iter;
     raxStart(&iter, rax);
-    raxSeek(&iter, "^", NULL, 0);
+    raxSeek(&iter, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&iter)) {
         FirstSegHdr *seg = iter.data;
         if (printItems)
@@ -1495,7 +1495,7 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
     uint64_t itemsExpiredBefore = info->itemsExpired;
 
     while (1) {
-        raxSeek(&iter,"^",NULL,0);
+        raxSeek(&iter, RAX_SEEK_FIRST, NULL, 0);
         if (!raxNext(&iter)) break;
 
         uint64_t bucketKey = raxKey2BucketKey(iter.key);
@@ -1586,7 +1586,7 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
     raxIterator iter;
     raxStart(&iter, rax);
     uint64_t nowKey = EB_BUCKET_KEY(now);
-    raxSeek(&iter,"^",NULL,0);
+    raxSeek(&iter, RAX_SEEK_FIRST, NULL, 0);
     assert(raxNext(&iter)); /* must be at least one bucket */
     FirstSegHdr *currBucket = iter.data;
 
@@ -1674,7 +1674,7 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
     rax *rax = ebGetRaxPtr(eb);
     raxIterator iter;
     raxStart(&iter, rax);
-    raxSeek(&iter, "^", NULL, 0);
+    raxSeek(&iter, RAX_SEEK_FIRST, NULL, 0);
     raxNext(&iter); /* seek to the last bucket */
     FirstSegHdr *firstSegHdr = iter.data;
     if ((firstSegHdr->numSegs == 1) || (EB_BUCKET_KEY_PRECISION == 0)) {
@@ -1741,7 +1741,7 @@ uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate) {
     rax *rax = ebGetRaxPtr(eb);
     raxIterator iter;
     raxStart(&iter, rax);
-    raxSeek(&iter, "$", NULL, 0);
+    raxSeek(&iter, RAX_SEEK_LAST, NULL, 0);
     raxNext(&iter); /* seek to the last bucket */
     FirstSegHdr *firstSegHdr = iter.data;
     if (firstSegHdr->numSegs == 1) {
@@ -1936,13 +1936,13 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
          * initial nodes that are processed till the first item are covered */
         ri.node_cb = ebDefragRaxNode;
         ri.privdata = defragfns;
-        raxSeek(&ri, "^", NULL, 0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     } else {
         /* if cursor is non-zero, we seek to the static 'next'.
          * Since node_cb is set after seek operation, any node traversed during seek wouldn't
          * be defragmented. To prevent this, we advance to next node before exiting previous
          * run, ensuring it gets defragmented instead of being skipped during current seek. */
-        if (!raxSeek(&ri, ">=", next, EB_KEY_SIZE)) {
+        if (!raxSeek(&ri, RAX_SEEK_GE, next, EB_KEY_SIZE)) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -2028,7 +2028,7 @@ void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
     } else {
         rax *rax = ebGetRaxPtr(eb);
         raxStart(&iter->raxIter, rax);
-        raxSeek(&iter->raxIter, "^", NULL, 0);
+        raxSeek(&iter->raxIter, RAX_SEEK_FIRST, NULL, 0);
         raxNext(&iter->raxIter);
         FirstSegHdr *firstSegHdr = iter->raxIter.data;
         iter->itemsCurrBucket = firstSegHdr->totalItems;

@@ -772,7 +772,7 @@ void dismissStreamObject(robj *o, size_t size_hint) {
     if (size_hint / raxSize(rax) >= server.page_size) {
         raxIterator ri;
         raxStart(&ri,rax);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while (raxNext(&ri)) {
             dismissMemory(ri.data, lpBytes(ri.data));
         }

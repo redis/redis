@@ -4690,7 +4690,7 @@ NULL
             addReplyArrayLen(c,raxSize(c->client_tracking_prefixes));
             raxIterator ri;
             raxStart(&ri,c->client_tracking_prefixes);
-            raxSeek(&ri,"^",NULL,0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             while(raxNext(&ri)) {
                 addReplyBulkCBuffer(c,ri.key,ri.key_len);
             }

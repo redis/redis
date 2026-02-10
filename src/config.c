@@ -1433,7 +1433,7 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
      * all the users directive inside the config file. */
     raxIterator ri;
     raxStart(&ri,Users);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while(raxNext(&ri)) {
         user *u = ri.data;
         sds line = sdsnew("user ");

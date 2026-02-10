@@ -203,7 +203,7 @@ robj *streamDup(robj *o) {
 
     raxIterator ri;
     raxStart(&ri, s->rax);
-    raxSeek(&ri, "^", NULL, 0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     size_t lp_bytes = 0;      /* Total bytes in the listpack. */
     unsigned char *lp = NULL; /* listpack pointer. */
     /* Get a reference to the listpack node. */
@@ -229,7 +229,7 @@ robj *streamDup(robj *o) {
     /* Consumer Groups */
     raxIterator ri_cgroups;
     raxStart(&ri_cgroups, s->cgroups);
-    raxSeek(&ri_cgroups, "^", NULL, 0);
+    raxSeek(&ri_cgroups, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&ri_cgroups)) {
         streamCG *cg = ri_cgroups.data;
         streamCG *new_cg = streamCreateCG(new_s, (char *)ri_cgroups.key,
@@ -241,7 +241,7 @@ robj *streamDup(robj *o) {
         /* Consumer Group PEL */
         raxIterator ri_cg_pel;
         raxStart(&ri_cg_pel,cg->pel);
-        raxSeek(&ri_cg_pel,"^",NULL,0);
+        raxSeek(&ri_cg_pel, RAX_SEEK_FIRST, NULL, 0);
         while(raxNext(&ri_cg_pel)){
             streamNACK *nack = ri_cg_pel.data;
             streamID nack_id;
@@ -260,7 +260,7 @@ robj *streamDup(robj *o) {
         /* Consumers */
         raxIterator ri_consumers;
         raxStart(&ri_consumers, cg->consumers);
-        raxSeek(&ri_consumers, "^", NULL, 0);
+        raxSeek(&ri_consumers, RAX_SEEK_FIRST, NULL, 0);
         while (raxNext(&ri_consumers)) {
             streamConsumer *consumer = ri_consumers.data;
             streamConsumer *new_consumer;
@@ -278,7 +278,7 @@ robj *streamDup(robj *o) {
             /* Consumer PEL */
             raxIterator ri_cpel;
             raxStart(&ri_cpel, consumer->pel);
-            raxSeek(&ri_cpel, "^", NULL, 0);
+            raxSeek(&ri_cpel, RAX_SEEK_FIRST, NULL, 0);
             while (raxNext(&ri_cpel)) {
                 void *result;
                 int found = raxFind(new_cg->pel,ri_cpel.key,sizeof(streamID),&result);
@@ -516,7 +516,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     /* Add the new entry. */
     raxIterator ri;
     raxStart(&ri,s->rax);
-    raxSeek(&ri,"$",NULL,0);
+    raxSeek(&ri, RAX_SEEK_LAST, NULL, 0);
 
     size_t lp_bytes = 0;        /* Total bytes in the tail listpack. */
     unsigned char *lp = NULL;   /* Tail listpack pointer. */
@@ -795,7 +795,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
     raxIterator ri;
     raxStart(&ri,s->rax);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
 
     int64_t deleted = 0;
     while (raxNext(&ri)) {
@@ -836,7 +836,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             s->alloc_size -= lpBytes(lp);
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
-            raxSeek(&ri,">=",ri.key,ri.key_len);
+            raxSeek(&ri, RAX_SEEK_GE,ri.key,ri.key_len);
             s->length -= entries;
             deleted += entries;
             continue;
@@ -936,7 +936,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             s->alloc_size -= oldsize;
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
-            raxSeek(&ri,">=",ri.key,ri.key_len);
+            raxSeek(&ri, RAX_SEEK_GE,ri.key,ri.key_len);
             continue;
         }
 
@@ -1305,19 +1305,19 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
     raxStart(&si->ri,s->rax);
     if (!rev) {
         if (start && (start->ms || start->seq)) {
-            raxSeek(&si->ri,"<=",(unsigned char*)si->start_key,
+            raxSeek(&si->ri, RAX_SEEK_LE,(unsigned char*)si->start_key,
                     sizeof(si->start_key));
-            if (raxEOF(&si->ri)) raxSeek(&si->ri,"^",NULL,0);
+            if (raxEOF(&si->ri)) raxSeek(&si->ri, RAX_SEEK_FIRST, NULL, 0);
         } else {
-            raxSeek(&si->ri,"^",NULL,0);
+            raxSeek(&si->ri, RAX_SEEK_FIRST, NULL, 0);
         }
     } else {
         if (end && (end->ms || end->seq)) {
-            raxSeek(&si->ri,"<=",(unsigned char*)si->end_key,
+            raxSeek(&si->ri, RAX_SEEK_LE,(unsigned char*)si->end_key,
                     sizeof(si->end_key));
-            if (raxEOF(&si->ri)) raxSeek(&si->ri,"$",NULL,0);
+            if (raxEOF(&si->ri)) raxSeek(&si->ri, RAX_SEEK_LAST, NULL, 0);
         } else {
-            raxSeek(&si->ri,"$",NULL,0);
+            raxSeek(&si->ri, RAX_SEEK_LAST, NULL, 0);
         }
     }
     si->stream = s;
@@ -2229,7 +2229,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     size_t arraylen = 0;
     void *arraylen_ptr = addReplyDeferredLen(c);
     raxStart(&ri,consumer->pel);
-    raxSeek(&ri,">=",startkey,sizeof(startkey));
+    raxSeek(&ri, RAX_SEEK_GE,startkey,sizeof(startkey));
     while(raxNext(&ri) && (!count || arraylen < count)) {
         if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
         streamID thisid;
@@ -3113,7 +3113,7 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
         s->min_cgroup_last_id.seq = UINT64_MAX;
         raxIterator ri;
         raxStart(&ri, s->cgroups);
-        raxSeek(&ri, "^", NULL, 0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while (raxNext(&ri)) {
             streamCG *cg = ri.data;
             if (streamCompareID(&cg->last_id, &s->min_cgroup_last_id) < 0)
@@ -3247,7 +3247,7 @@ void streamDestroyCG(stream *s, streamCG *cg) {
     /* Remove all references from the cgroups_ref. */
     raxIterator it;
     raxStart(&it, cg->pel);
-    raxSeek(&it, "^", NULL, 0);
+    raxSeek(&it, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&it)) {
         streamNACK *nack = it.data;
         streamUnlinkEntryFromCGroupRef(s, nack, it.key);
@@ -3318,7 +3318,7 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
      * entry from the global entry. */
     raxIterator ri;
     raxStart(&ri,consumer->pel);
-    raxSeek(&ri,"^",NULL,0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while(raxNext(&ri)) {
         streamNACK *nack = ri.data;
         streamUnlinkEntryFromCGroupRef(s, nack, ri.key);
@@ -3892,13 +3892,13 @@ void xpendingCommand(client *c) {
             /* Start. */
             raxIterator ri;
             raxStart(&ri,group->pel);
-            raxSeek(&ri,"^",NULL,0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             raxNext(&ri);
             streamDecodeID(ri.key,&startid);
             addReplyStreamID(c,&startid);
 
             /* End. */
-            raxSeek(&ri,"$",NULL,0);
+            raxSeek(&ri, RAX_SEEK_LAST, NULL, 0);
             raxNext(&ri);
             streamDecodeID(ri.key,&endid);
             addReplyStreamID(c,&endid);
@@ -3906,7 +3906,7 @@ void xpendingCommand(client *c) {
 
             /* Consumers with pending messages. */
             raxStart(&ri,group->consumers);
-            raxSeek(&ri,"^",NULL,0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             void *arraylen_ptr = addReplyDeferredLen(c);
             size_t arraylen = 0;
             while(raxNext(&ri)) {
@@ -3942,7 +3942,7 @@ void xpendingCommand(client *c) {
         streamEncodeID(startkey,&startid);
         streamEncodeID(endkey,&endid);
         raxStart(&ri,pel);
-        raxSeek(&ri,">=",startkey,sizeof(startkey));
+        raxSeek(&ri, RAX_SEEK_GE,startkey,sizeof(startkey));
         void *arraylen_ptr = addReplyDeferredLen(c);
         size_t arraylen = 0;
 
@@ -4359,7 +4359,7 @@ void xautoclaimCommand(client *c) {
     streamEncodeID(startkey,&startid);
     raxIterator ri;
     raxStart(&ri,group->pel);
-    raxSeek(&ri,">=",startkey,sizeof(startkey));
+    raxSeek(&ri, RAX_SEEK_GE,startkey,sizeof(startkey));
     size_t arraylen = 0;
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
@@ -4383,7 +4383,7 @@ void xautoclaimCommand(client *c) {
             streamDestroyNACK(s, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
-            raxSeek(&ri,">=",ri.key,ri.key_len);
+            raxSeek(&ri, RAX_SEEK_GE,ri.key,ri.key_len);
             count--; /* Count is a limit of the command response size. */
             continue;
         }
@@ -4761,7 +4761,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
     if (s->idmp_producers) {
         raxIterator ri;
         raxStart(&ri, s->idmp_producers);
-        raxSeek(&ri, "^", NULL, 0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while (raxNext(&ri)) {
             idmpProducer *producer = ri.data;
             total_iids += dictSize(producer->idmp_dict);
@@ -4809,7 +4809,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
             addReplyArrayLen(c,raxSize(s->cgroups));
             raxIterator ri_cgroups;
             raxStart(&ri_cgroups,s->cgroups);
-            raxSeek(&ri_cgroups,"^",NULL,0);
+            raxSeek(&ri_cgroups, RAX_SEEK_FIRST, NULL, 0);
             while(raxNext(&ri_cgroups)) {
                 streamCG *cg = ri_cgroups.data;
                 addReplyMapLen(c,7);
@@ -4844,7 +4844,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                 void *arrayptr_cg_pel = addReplyDeferredLen(c);
                 raxIterator ri_cg_pel;
                 raxStart(&ri_cg_pel,cg->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
+                raxSeek(&ri_cg_pel, RAX_SEEK_FIRST, NULL, 0);
                 while(raxNext(&ri_cg_pel) && (!count || arraylen_cg_pel < count)) {
                     streamNACK *nack = ri_cg_pel.data;
                     addReplyArrayLen(c,4);
@@ -4875,7 +4875,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                 addReplyArrayLen(c,raxSize(cg->consumers));
                 raxIterator ri_consumers;
                 raxStart(&ri_consumers,cg->consumers);
-                raxSeek(&ri_consumers,"^",NULL,0);
+                raxSeek(&ri_consumers, RAX_SEEK_FIRST, NULL, 0);
                 while(raxNext(&ri_consumers)) {
                     streamConsumer *consumer = ri_consumers.data;
                     addReplyMapLen(c,5);
@@ -4902,7 +4902,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                     void *arrayptr_cpel = addReplyDeferredLen(c);
                     raxIterator ri_cpel;
                     raxStart(&ri_cpel,consumer->pel);
-                    raxSeek(&ri_cpel,"^",NULL,0);
+                    raxSeek(&ri_cpel, RAX_SEEK_FIRST, NULL, 0);
                     while(raxNext(&ri_cpel) && (!count || arraylen_cpel < count)) {
                         streamNACK *nack = ri_cpel.data;
                         addReplyArrayLen(c,3);
@@ -4980,7 +4980,7 @@ NULL
         addReplyArrayLen(c,raxSize(cg->consumers));
         raxIterator ri;
         raxStart(&ri,cg->consumers);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         mstime_t now = commandTimeSnapshot();
         while(raxNext(&ri)) {
             streamConsumer *consumer = ri.data;
@@ -5009,7 +5009,7 @@ NULL
         addReplyArrayLen(c,raxSize(s->cgroups));
         raxIterator ri;
         raxStart(&ri,s->cgroups);
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
         while(raxNext(&ri)) {
             streamCG *cg = ri.data;
             addReplyMapLen(c,6);
@@ -5635,7 +5635,7 @@ void handleExpiredIdmpEntries(void) {
             /* Iterate through all producers and remove expired entries */
             raxIterator ri;
             raxStart(&ri, s->idmp_producers);
-            raxSeek(&ri, "^", NULL, 0);
+            raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
             while (raxNext(&ri)) {
                 idmpProducer *producer = ri.data;
                 
@@ -5661,7 +5661,7 @@ void handleExpiredIdmpEntries(void) {
                 if (producer->idmp_head == NULL) {
                     raxRemove(s->idmp_producers, ri.key, ri.key_len, NULL);
                     idmpProducerFree(producer, &s->alloc_size);
-                    raxSeek(&ri, ">=", ri.key, ri.key_len);
+                    raxSeek(&ri, RAX_SEEK_GE, ri.key, ri.key_len);
                 }
             }
             raxStop(&ri);
@@ -5758,7 +5758,7 @@ static void streamClearIdmpEntries(stream *s) {
     /* Iterate through all producers and free them */
     raxIterator ri;
     raxStart(&ri, s->idmp_producers);
-    raxSeek(&ri, "^", NULL, 0);
+    raxSeek(&ri, RAX_SEEK_FIRST, NULL, 0);
     while (raxNext(&ri)) {
         idmpProducerFree(ri.data, &s->alloc_size);
     }
