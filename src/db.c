@@ -1265,7 +1265,7 @@ void unblockClientForAsyncFlush(uint64_t client_id, void *userdata) {
     server.current_client = old_client;
 }
 
-/* Common flush command implementation for FLUSHALL, FLUSHDB and SFLUSH.
+/* Common flush command implementation for FLUSHALL, FLUSHDB.
  *
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
@@ -1280,7 +1280,7 @@ int flushCommandCommon(client *c, int type, int flags) {
         blocking_async = 1;
     }
 
-    /* Cancel all ASM tasks that overlap with the given slot ranges. */
+    /* Cancel all ASM tasks. */
     clusterAsmCancelBySlotRangeArray(NULL, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
