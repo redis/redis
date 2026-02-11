@@ -73,9 +73,11 @@ typedef struct PrefetchCommandsBatch {
     size_t cur_idx;                 /* Index of the current key being processed */
     size_t key_count;               /* Number of keys in the current batch */
     size_t client_count;            /* Number of clients in the current batch */
+    size_t pcmd_count;              /* Number of pending commands in the current batch */
     size_t max_prefetch_size;       /* Maximum number of keys to prefetch in a batch */
     void **keys;                    /* Array of keys to prefetch in the current batch */
     client **clients;               /* Array of clients in the current batch */
+    pendingCommand **pending_cmds;  /* Array of pending commands in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
     dict **current_dicts;           /* Points to dict to prefetch from */
     KeyPrefetchInfo *prefetch_info; /* Prefetch info for each key */
@@ -90,6 +92,7 @@ void freePrefetchCommandsBatch(void) {
     }
 
     zfree(batch->clients);
+    zfree(batch->pending_cmds);
     zfree(batch->keys);
     zfree(batch->keys_dicts);
     zfree(batch->prefetch_info);
@@ -112,6 +115,7 @@ void prefetchCommandsBatchInit(void) {
     batch = zcalloc(sizeof(PrefetchCommandsBatch));
     batch->max_prefetch_size = max_prefetch_size;
     batch->clients = zcalloc(max_prefetch_size * sizeof(client *));
+    batch->pending_cmds = zcalloc(max_prefetch_size * sizeof(pendingCommand *));
     batch->keys = zcalloc(max_prefetch_size * sizeof(void *));
     batch->keys_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
     batch->prefetch_info = zcalloc(max_prefetch_size * sizeof(KeyPrefetchInfo));
@@ -299,6 +303,7 @@ void resetCommandsBatch(void) {
     batch->cur_idx = 0;
     batch->key_count = 0;
     batch->client_count = 0;
+    batch->pcmd_count = 0;
 
     /* Handle the case where the max prefetch size has been changed. */
     if (batch->max_prefetch_size != (size_t)server.prefetch_batch_max_size * 2) {
@@ -325,31 +330,39 @@ int determinePrefetchCount(int len) {
 /* Prefetch command-related data:
  * 1. Prefetch the command arguments allocated by the I/O thread to bring them
  *    closer to the L1 cache.
- * 2. Prefetch the keys and values for all commands in the current batch from
+ * 2. Prefetch the io_deferred_objects for all clients.
+ * 3. Prefetch the keys and values for all commands in the current batch from
  *    the main dictionaries. */
 void prefetchCommands(void) {
     if (!batch) return;
 
-    /* Prefetch argv's for all clients */
-    for (size_t i = 0; i < batch->client_count; i++) {
-        client *c = batch->clients[i];
-        if (!c || c->argc <= 1) continue;
-        /* Skip prefetching first argv (cmd name) it was already looked up by
-         * the I/O thread, and the main thread will not touch argv[0]. */
-        for (int j = 1; j < c->argc; j++) {
-            redis_prefetch_read(c->argv[j]);
+    /* Prefetch argv's for all pending commands */
+    for (size_t i = 0; i < batch->pcmd_count; i++) {
+        pendingCommand *pcmd = batch->pending_cmds[i];
+        if (unlikely(pcmd->argc <= 0)) continue;
+        for (int j = 0; j < pcmd->argc; j++) {
+            redis_prefetch_read(pcmd->argv[j]);
         }
     }
 
     /* Prefetch the argv->ptr if required */
-    for (size_t i = 0; i < batch->client_count; i++) {
-        client *c = batch->clients[i];
-        if (!c || c->argc <= 1) continue;
-        for (int j = 1; j < c->argc; j++) {
-            if (c->argv[j]->encoding == OBJ_ENCODING_RAW) {
-                redis_prefetch_read(c->argv[j]->ptr);
+    for (size_t i = 0; i < batch->pcmd_count; i++) {
+        pendingCommand *pcmd = batch->pending_cmds[i];
+        if (unlikely(pcmd->argc <= 1)) continue;
+        /* Skip the first argument (command name), as it's typically short */
+        for (int j = 1; j < pcmd->argc; j++) {
+            if (pcmd->argv[j]->encoding == OBJ_ENCODING_RAW) {
+                redis_prefetch_read(pcmd->argv[j]->ptr);
             }
         }
+    }
+
+    /* Prefetch io_deferred_objects for all clients */
+    for (size_t i = 0; i < batch->client_count; i++) {
+        client *c = batch->clients[i];
+        if (!c->io_deferred_objects || c->io_deferred_objects_num == 0) continue;
+        for (int j = 0; j < c->io_deferred_objects_num; j++)
+            redis_prefetch_read(c->io_deferred_objects[j]);
     }
 
     /* Get the keys ptrs - we do it here after the key obj was prefetched. */
@@ -376,18 +389,20 @@ int addCommandToBatch(client *c) {
      * We also check the client count to handle cases where
      * no keys exist for the clients' commands. */
     if (batch->client_count == batch->max_prefetch_size ||
-        batch->key_count == batch->max_prefetch_size)
+        batch->key_count == batch->max_prefetch_size ||
+        batch->pcmd_count == batch->max_prefetch_size)
     {
         return C_ERR;
     }
 
-    /* Avoid partial prefetching: if the batch already has keys and adding this
+    /* Avoid partial prefetching: if the batch already has commands and adding this
      * client's ready commands would likely exceed the batch size limit, reject
      * the entire client. This is a conservative estimate using command count as
      * a proxy for key count to ensure all keys from a client are either fully
      * prefetched together or not prefetched at all. */
-    if (batch->key_count > 0 &&
-        c->pending_cmds.ready_len + batch->key_count > batch->max_prefetch_size)
+    if (batch->pcmd_count > 0 &&
+        (c->pending_cmds.ready_len + batch->key_count > batch->max_prefetch_size ||
+         c->pending_cmds.ready_len + batch->pcmd_count > batch->max_prefetch_size))
     {
         return C_ERR;
     }
@@ -395,9 +410,13 @@ int addCommandToBatch(client *c) {
     batch->clients[batch->client_count++] = c;
 
     pendingCommand *pcmd = c->pending_cmds.head;
-    while (pcmd != NULL) {
+    while (pcmd != NULL && batch->pcmd_count < batch->max_prefetch_size) {
+        if (pcmd->next) redis_prefetch_read(pcmd->next);
+
         /* Skip commands that have not been preprocessed, or have errors. */
         if ((pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE) || !pcmd->cmd || pcmd->read_error) break;
+
+        batch->pending_cmds[batch->pcmd_count++] = pcmd;
 
         serverAssert(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID);
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
