@@ -5550,7 +5550,7 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len) {
     /* Create the producers rax tree if it doesn't exist */
     if (s->idmp_producers == NULL) {
-        s->idmp_producers = raxNew();
+        s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     }
 
     /* Look up the producer */
