@@ -94,6 +94,15 @@
 #define HAVE_ACCEPT4 1
 #endif
 
+/* Detect for pipe2() */
+#if defined(__linux__) || \
+    defined(__FreeBSD__) || \
+    (defined(__OpenBSD__) && OpenBSD >= 201505) || \
+    (defined(__DragonFly_version) && __DragonFly_version >= 400106) || \
+    (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 600000000)
+#define HAVE_PIPE2 1
+#endif
+
 #if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
 #define HAVE_KQUEUE 1
 #endif
