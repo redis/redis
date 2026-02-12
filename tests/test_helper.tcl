@@ -333,7 +333,7 @@ proc test_server_cron {} {
 }
 
 proc accept_test_clients {fd addr port} {
-    fconfigure $fd -encoding binary
+    fconfigure $fd -translation binary
     fileevent $fd readable [list read_from_test_client $fd]
 }
 
@@ -524,7 +524,7 @@ proc the_end {} {
 # to read the command, execute, reply... all this in a loop.
 proc test_client_main server_port {
     set ::test_server_fd [socket localhost $server_port]
-    fconfigure $::test_server_fd -encoding binary
+    fconfigure $::test_server_fd -translation binary
     send_data_packet $::test_server_fd ready [pid]
     while 1 {
         set bytes [gets $::test_server_fd]
