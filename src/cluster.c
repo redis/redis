@@ -24,6 +24,7 @@
 #include "cluster_slot_stats.h"
 
 #include <ctype.h>
+#include "bio.h"
 
 /* -----------------------------------------------------------------------------
  * Key space handling
@@ -1175,6 +1176,8 @@ int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
  * already "down" but it is fragile to rely on the update of the global state,
  * so we also handle it here.
  *
+ * CLUSTER_REDIR_TRIMMING if the request addresses a slot that is being trimmed.
+ *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,
@@ -1416,6 +1419,15 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         return myself;
     }
 
+    /* If this node is responsible for the slot and is currently trimming it,
+     * SFLUSH may have triggered active trimming and it could still be in progress.
+     * Here we reject any write commands as no writes should be accepted for
+     * trimming slots while active trimming is in progress. */
+    if (n == myself && is_write_command && isSlotInTrimJob(slot)) {
+        if (error_code) *error_code = CLUSTER_REDIR_TRIMMING;
+        return NULL;
+    }
+
     /* Base case: just return the right node. However, if this node is not
      * myself, set error_code to MOVED since we need to issue a redirection. */
     if (n != myself && error_code) *error_code = CLUSTER_REDIR_MOVED;
@@ -1452,6 +1464,8 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
                                         "-%s %d %s:%d",
                                         (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
                                         hashslot, clusterNodePreferredEndpoint(n), port));
+    } else if (error_code == CLUSTER_REDIR_TRIMMING) {
+        addReplyError(c,"-TRYAGAIN Slot is being trimmed");
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }
@@ -1973,6 +1987,19 @@ void slotRangeArrayFreeGeneric(void *slots) {
     slotRangeArrayFree(slots);
 }
 
+/* Returns the number of keys in the given slot ranges. */
+unsigned long long getKeyCountInSlotRangeArray(slotRangeArray *slots) {
+    if (!slots) return 0;
+
+    unsigned long long key_count = 0;
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            key_count += countKeysInSlot(j);
+        }
+    }
+    return key_count;
+}
+
 /* Slot range array iterator */
 slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots) {
     slotRangeArrayIter *it = zmalloc(sizeof(*it));
@@ -2100,6 +2127,7 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
  */
 void sflushCommand(client *c) {
     int flags = EMPTYDB_NO_FLAGS, argc = c->argc;
+    int trim_method = ASM_TRIM_METHOD_NONE;
 
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -2127,40 +2155,73 @@ void sflushCommand(client *c) {
     slotRangeArray *slots = parseSlotRangesOrReply(c, argc, 1);
     if (!slots) return;
 
+    /* If client is AOF or master, we must obey the slot ranges.
+     * NOTE: we should exclude CLIENT_PSEUDO_MASTER when merging into fork. */
+    int must_obey = mustObeyClient(c);
+
     /* Iterate and find the slot ranges that belong to this node. Save them in
      * a new slotRangeArray. It is allocated on heap since there is a chance
      * that FLUSH SYNC will be running as blocking ASYNC and only later reply
      * with slot ranges */
-    unsigned char slots_to_flush[CLUSTER_SLOTS] = {0}; /* Requested slots to flush */
     slotRangeArray *myslots = NULL;
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
-            if (clusterIsMySlot(j)) {
+            if (must_obey || clusterIsMySlot(j)) {
                 myslots = slotRangeArrayAppend(myslots, j);
-                slots_to_flush[j] = 1;
             }
         }
     }
 
-    /* Verify that all slots of mynode got covered. See sflushCommand() comment. */
-    int all_slots_covered = 1;
-    for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        if (clusterIsMySlot(i) && !slots_to_flush[i]) {
-            all_slots_covered = 0;
-            break;
-        }
-    }
-    if (myslots == NULL || !all_slots_covered) {
+    /* If no slots belong to this node, return empty array. */
+    if (myslots == NULL) {
         addReplyArrayLen(c, 0);
         slotRangeArrayFree(slots);
-        slotRangeArrayFree(myslots);
         return;
     }
     slotRangeArrayFree(slots);
 
-    /* Flush selected slots. If not flush as blocking async, then reply immediately */
-    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)
+    /* Cancel all ASM tasks that overlap with the given slot ranges. */
+    clusterAsmCancelBySlotRangeArray(myslots, c->argv[0]->ptr);
+
+    /* In case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
+    int blocking_async = 0;
+    if ((!(flags & EMPTYDB_ASYNC)) && (!(c->flags & CLIENT_AVOID_BLOCKING_ASYNC_FLUSH))) {
+        flags |= EMPTYDB_ASYNC; /* Run as ASYNC */
+        blocking_async = 1;
+    }
+
+    /* Trim the slots if running in async mode and not loading from AOF,
+     * otherwise delete the keys synchronously. */
+    if (flags & EMPTYDB_ASYNC && server.loading == 0) {
+        /* Update dirty stats before trimming. */
+        server.dirty += getKeyCountInSlotRangeArray(myslots);
+        /* Pass client id for active trim to unblock client when trim completes. */
+        trim_method = asmTrimSlots(myslots, blocking_async ? c->id : 0, 0);
+    } else {
+        clusterDelKeysInSlotRangeArray(myslots, 1);
+    }
+
+    /* Without the forceCommandPropagation, when DB was already empty,
+     * SFLUSH will not be replicated nor put into the AOF. */
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+
+    /* Handle waiting for trim job to complete in case of blocking async flush.
+     * Block the client and schedule completion callback based on trim method:
+     * - BG trim uses BIO lazyfree worker to trim the slots, so schedule a new
+     *   BIO lazyfree worker to wait for completion, then unblock client and reply.
+     * - Active trim works in cron job of the main thread, it will automatically
+     *   unblock client and reply in active trim completion. */
+    if (blocking_async && trim_method != ASM_TRIM_METHOD_NONE) {
+        blockClientForAsyncFlush(c);
+        if (trim_method == ASM_TRIM_METHOD_BG)
+            bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, myslots);
+        else /* ASM_TRIM_METHOD_ACTIVE, just free the slot ranges */
+            slotRangeArrayFree(myslots);
+    } else {
+        /* Reply with slot ranges that were flushed. SYNC and ASYNC mode will be
+         * replied here immediately. */
         replySlotsFlushAndFree(c, myslots);
+    }
 }
 
 /* The READWRITE command just clears the READONLY command state. */

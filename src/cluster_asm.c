@@ -54,6 +54,12 @@ typedef struct asmTask {
     redisOpArray *pre_snapshot_module_cmds; /* Module commands to be propagated at the beginning of slot migration */
 } asmTask;
 
+typedef struct activeTrimJob {
+    slotRangeArray *slots;      /* Slots being trimmed */
+    uint64_t client_id;         /* Client ID waiting for active trim completion (0 if none) */
+    int migration_cleanup;      /* Whether this is a migration cleanup of slots no longer owned */
+} activeTrimJob;
+
 struct asmManager {
     list *tasks;                        /* List of asmTask to be processed */
     list *archived_tasks;               /* List of archived asmTask */
@@ -140,11 +146,12 @@ static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
 void asmCancelPendingTrimJobs(void);
-void asmTriggerActiveTrim(slotRangeArray *slots);
+void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
+void activeTrimJobFreeMethod(void *ptr);
 
 void asmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
@@ -161,7 +168,7 @@ void asmInit(void) {
     asmManager->active_trim_started = 0;
     asmManager->active_trim_completed = 0;
     asmManager->active_trim_cancelled = 0;
-    listSetFreeMethod(asmManager->active_trim_jobs, slotRangeArrayFreeGeneric);
+    listSetFreeMethod(asmManager->active_trim_jobs, activeTrimJobFreeMethod);
 }
 
 char *asmTaskStateToString(int state) {
@@ -1005,19 +1012,6 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
-/* Return the number of keys in the specified slot ranges. */
-unsigned long long asmCountKeysInSlots(slotRangeArray *slots) {
-    if (!slots) return 0;
-
-    unsigned long long key_count = 0;
-    for (int i = 0; i < slots->num_ranges; i++) {
-        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
-            key_count += kvstoreDictSize(server.db[0].keys, j);
-        }
-    }
-    return key_count;
-}
-
 /* Log a human-readable message for ASM task lifecycle events. */
 void asmLogTaskEvent(asmTask *task, int event) {
     sds str = slotRangeArrayToString(task->slots);
@@ -1034,11 +1028,11 @@ void asmLogTaskEvent(asmTask *task, int event) {
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
             serverLog(LL_NOTICE, "Import task %s completed for slots: %s (imported %llu keys)",
-                      task->id, str, asmCountKeysInSlots(task->slots));
+                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_STARTED:
             serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (keys at start: %llu)",
-                      task->id, str, asmCountKeysInSlots(task->slots));
+                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_FAILED:
             serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
@@ -1048,7 +1042,7 @@ void asmLogTaskEvent(asmTask *task, int event) {
             break;
         case ASM_EVENT_MIGRATE_COMPLETED:
             serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s (migrated %llu keys)",
-                      task->id, str, asmCountKeysInSlots(task->slots));
+                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         default:
             break;
@@ -1886,6 +1880,14 @@ void clusterSyncSlotsCommand(client *c) {
                 slotRangeArrayFree(slots);
                 return;
             }
+        }
+
+        /* Check if there is any trim job in progress for the slot ranges.
+         * We can't start the migrate task since the trim job will modify the data.*/
+        if (asmIsAnyTrimJobOverlaps(slots)) {
+            addReplyError(c, "Trim job in progress for the slots");
+            slotRangeArrayFree(slots);
+            return;
         }
 
         sds task_id = c->argv[3]->ptr;
@@ -2779,8 +2781,8 @@ int isSlotInTrimJob(int slot) {
     /* Check if the slot is in any active trim job. */
     listRewind(asmManager->active_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(slots, &req))
+        activeTrimJob *job = listNodeValue(ln);
+        if (slotRangeArrayOverlaps(job->slots, &req))
             return 1;
     }
     return 0;
@@ -2946,16 +2948,19 @@ void asmUnblockMasterAfterTrim(void) {
     }
 }
 
-/* Trim the slots asynchronously in the BIO thread. */
-void asmTriggerBackgroundTrim(slotRangeArray *slots) {
+/* Trim the slots asynchronously in the BIO thread. migration_cleanup is true if this
+ * is a migration cleanup of slots no longer owned. */
+void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
-                          &fsi);
+    /* Fire the trim event to modules only if this is a migration cleanup. */
+    if (migration_cleanup)
+        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
+                &fsi);
 
     signalFlushedDb(0, 1, slots);
 
@@ -2993,10 +2998,12 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     asmUnblockMasterAfterTrim();
 }
 
-/* Trim the slots. */
-void asmTrimSlots(slotRangeArray *slots) {
+/* Trim the slots, return the trim method used.
+ * If client_id is non-zero, the client will be unblocked when trim completes.
+ * If migration_cleanup is true, this is a migration cleanup of slots no longer owned. */
+int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
     if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
-        return;
+        return ASM_TRIM_METHOD_NONE;
 
     /* Trigger active trim for the following cases:
      * 1. Debug override: trim method is set to 'active'.
@@ -3011,9 +3018,11 @@ void asmTrimSlots(slotRangeArray *slots) {
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT &&
                       moduleHasSubscribersForKeyspaceEvent(NOTIFY_KEY_TRIMMED));
     if (activetrim)
-        asmTriggerActiveTrim(slots);
+        asmTriggerActiveTrim(slots, client_id, migration_cleanup);
     else
-        asmTriggerBackgroundTrim(slots);
+        asmTriggerBackgroundTrim(slots, migration_cleanup);
+
+    return activetrim ? ASM_TRIM_METHOD_ACTIVE : ASM_TRIM_METHOD_BG;
 }
 
 /* Schedule a trim job for the specified slot ranges. The job will be
@@ -3068,7 +3077,7 @@ void asmTrimJobProcessPending(void) {
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
         slotRangeArray *slots = listNodeValue(ln);
-        asmTrimSlots(slots);
+        asmTrimSlots(slots, 0, 1);
         propagateTrimSlots(slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
         slotRangeArrayFree(slots);
@@ -3234,6 +3243,19 @@ void asmCancelPendingTrimJobs(void) {
     }
 }
 
+/* Free an activeTrimJob and unblock pending client if needed. */
+void activeTrimJobFreeMethod(void *ptr) {
+    activeTrimJob *job = ptr;
+    if (job->client_id != 0) {
+        /* Reply with the slot ranges that requested to be trimmed. Generally we
+         * cancel trim jobs as the dataset is reset, no need to trim anymore. */
+        unblockClientForAsyncFlush(job->client_id, job->slots);
+        job->slots = NULL; /* slots were freed in unblockClientForAsyncFlush */
+    }
+    if (job->slots) slotRangeArrayFree(job->slots);
+    zfree(job);
+}
+
 /* Cancel all pending and active trim jobs. */
 void asmCancelTrimJobs(void) {
     if (!asmManager) return;
@@ -3308,7 +3330,7 @@ void trimslotsCommand(client *c) {
                 }
             }
         }
-        asmTrimSlots(slots);
+        asmTrimSlots(slots, 0, 1);
     }
 
     /* Command will not be propagated automatically since it does not modify
@@ -3321,7 +3343,8 @@ void trimslotsCommand(client *c) {
 
 /* Start the active trim job. */
 void asmActiveTrimStart(void) {
-    slotRangeArray *slots = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    slotRangeArray *slots = job->slots;
 
     serverAssert(asmManager->active_trim_it == NULL);
     asmManager->active_trim_it = slotRangeArrayGetIterator(slots);
@@ -3330,16 +3353,18 @@ void asmActiveTrimStart(void) {
     asmManager->active_trim_current_job_trimmed = 0;
 
     /* Count the number of keys to trim */
-    asmManager->active_trim_current_job_keys += asmCountKeysInSlots(slots);
+    asmManager->active_trim_current_job_keys += getKeyCountInSlotRangeArray(slots);
 
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
-                          &fsi);
+    /* Fire the trim event to modules only if this is a migration cleanup. */
+    if (job->migration_cleanup)
+        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                              REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
+                              &fsi);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim initiated for slots: %s, to trim %llu keys.",
@@ -3347,9 +3372,14 @@ void asmActiveTrimStart(void) {
     sdsfree(str);
 }
 
-/* Schedule an active trim job. */
-void asmTriggerActiveTrim(slotRangeArray *slots) {
-    listAddNodeTail(asmManager->active_trim_jobs, slotRangeArrayDup(slots));
+/* Schedule an active trim job with optional client waiting for completion. */
+void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
+    activeTrimJob *job = zmalloc(sizeof(*job));
+    job->slots = slotRangeArrayDup(slots);
+    job->client_id = client_id;
+    job->migration_cleanup = migration_cleanup;
+
+    listAddNodeTail(asmManager->active_trim_jobs, job);
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
     sdsfree(str);
@@ -3363,7 +3393,8 @@ void asmTriggerActiveTrim(slotRangeArray *slots) {
 
 /* End the active trim job. */
 void asmActiveTrimEnd(void) {
-    slotRangeArray *slots = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    slotRangeArray *slots = job->slots;
 
     if (asmManager->active_trim_it) {
         slotRangeArrayIteratorFree(asmManager->active_trim_it);
@@ -3378,9 +3409,11 @@ void asmActiveTrimEnd(void) {
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
-                          &fsi);
+    /* Fire the trim event to modules only if this is a migration cleanup. */
+    if (job->migration_cleanup)
+        moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                 REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
+                 &fsi);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim completed for slots: %s, %llu keys trimmed.",
@@ -3434,7 +3467,7 @@ int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc
 }
 
 /* Delete the key and notify the modules. */
-void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
+void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int migration_cleanup) {
     if (asmManager->debug_active_trim_delay > 0)
         debugDelay(asmManager->debug_active_trim_delay);
 
@@ -3444,11 +3477,17 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
 
     dbDelete(db, keyobj);
     keyModified(NULL, db, keyobj, NULL, 1);
-    /* The keys are not actually logically deleted from the database, just moved
-     * to another node. The modules need to know that these keys are no longer
-     * available locally, so just send the keyspace notification to the modules,
-     * but not to clients. */
-    moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+    if (migration_cleanup) {
+        /* The keys are not actually logically deleted from the database, just moved
+        * to another node. The modules need to know that these keys are no longer
+        * available locally, so just send the keyspace notification to the modules,
+        * but not to clients. */
+        moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+    } else {
+        /* Not a migration cleanup, the key is really deleted from the database,
+         * need to notify the clients. */
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyobj, db->id);
+    }
     asmManager->active_trim_current_job_trimmed++;
 
     if (static_key) decrRefCount(keyobj);
@@ -3492,6 +3531,8 @@ void asmActiveTrimCycle(void) {
     timelimit = 1000000 * trim_cycle_time_perc / server.hz / 100;
     if (timelimit <= 0) timelimit = 1;
 
+    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+
     serverAssert(asmManager->active_trim_it);
     int slot = slotRangeArrayGetCurrentSlot(asmManager->active_trim_it);
 
@@ -3505,7 +3546,7 @@ void asmActiveTrimCycle(void) {
 
             enterExecutionUnit(1, 0);
             robj *keyobj = createStringObject(sdskey, sdslen(sdskey));
-            asmActiveTrimDeleteKey(&server.db[0], keyobj);
+            asmActiveTrimDeleteKey(&server.db[0], keyobj, job->migration_cleanup);
             decrRefCount(keyobj);
             exitExecutionUnit();
             postExecutionUnitOperations();

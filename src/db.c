@@ -1209,11 +1209,22 @@ void flushAllDataAndResetRDB(int flags) {
 #endif
 }
 
-/* CB function on blocking ASYNC FLUSH completion
- *
- * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
- */
-void flushallSyncBgDone(uint64_t client_id, void *userdata) {
+/* Block client for blocking ASYNC FLUSH operation (FLUSH*, SFLUSH). */
+void blockClientForAsyncFlush(client *c) {
+    /* measure bg job till completion as elapsed time of flush command */
+    elapsedStart(&c->bstate.lazyfreeStartTime);
+
+    c->bstate.timeout = 0;
+    /* We still need to perform cleanup operations for the command, including
+     * updating the replication offset, so mark this command as pending to
+     * avoid command from being reset during unblock. */
+    c->flags |= CLIENT_PENDING_COMMAND;
+    blockClient(c, BLOCKED_LAZYFREE);
+}
+
+/* CB function on blocking ASYNC FLUSH completion.
+ * We will unblock the client and send the proper reply. */
+void unblockClientForAsyncFlush(uint64_t client_id, void *userdata) {
     slotRangeArray *slots = userdata;
     client *c = lookupClientByID(client_id);
 
@@ -1254,16 +1265,12 @@ void flushallSyncBgDone(uint64_t client_id, void *userdata) {
     server.current_client = old_client;
 }
 
-/* Common flush command implementation for FLUSHALL, FLUSHDB and SFLUSH.
+/* Common flush command implementation for FLUSHALL, FLUSHDB.
  *
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
- *
- * slots - provided only by SFLUSH command, otherwise NULL. Will be used on
- *         completion to reply with the slots flush result. Ownership is passed
- *         to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
+int flushCommandCommon(client *c, int type, int flags) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1273,8 +1280,8 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
         blocking_async = 1;
     }
 
-    /* Cancel all ASM tasks that overlap with the given slot ranges. */
-    clusterAsmCancelBySlotRangeArray(slots, c->argv[0]->ptr);
+    /* Cancel all ASM tasks. */
+    clusterAsmCancelBySlotRangeArray(NULL, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -1289,16 +1296,8 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
      * worker's queue. To be called and reply with OK only after all preceding pending
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
-        /* measure bg job till completion as elapsed time of flush command */
-        elapsedStart(&c->bstate.lazyfreeStartTime);
-
-        c->bstate.timeout = 0;
-        /* We still need to perform cleanup operations for the command, including
-         * updating the replication offset, so mark this command as pending to
-         * avoid command from being reset during unblock. */
-        c->flags |= CLIENT_PENDING_COMMAND;
-        blockClient(c,BLOCKED_LAZYFREE);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, slots);
+        blockClientForAsyncFlush(c);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, NULL);
     }
 
 #if defined(USE_JEMALLOC)
@@ -1327,7 +1326,7 @@ void flushallCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
 
     /* If FLUSH SYNC isn't running as blocking async, then reply */
-    if (flushCommandCommon(c, FLUSH_TYPE_ALL, flags, NULL) == 0)
+    if (flushCommandCommon(c, FLUSH_TYPE_ALL, flags) == 0)
         addReply(c, shared.ok);
 }
 
@@ -1339,7 +1338,7 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
 
     /* If FLUSH SYNC isn't running as blocking async, then reply */
-    if (flushCommandCommon(c, FLUSH_TYPE_DB,flags, NULL) == 0)
+    if (flushCommandCommon(c, FLUSH_TYPE_DB,flags) == 0)
         addReply(c, shared.ok);
 
 }
@@ -2859,7 +2858,10 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         if (server.allow_access_trimmed || (flags & EXPIRE_ALLOW_ACCESS_TRIMMED))
             return KEY_VALID;
 
-        return KEY_TRIMMED;
+        /* If the slot is not served by this node, we should not allow access
+         * to the key, we consider it as trimmed. */
+        if (!clusterCanAccessKeysInSlot(getKeySlot(key_name)))
+            return KEY_TRIMMED;
     }
 
     if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
