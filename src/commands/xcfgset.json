@@ -43,36 +43,16 @@
                 "key_spec_index": 0
             },
             {
-                "name": "idmp-duration-block",
-                "type": "block",
-                "optional": true,
-                "arguments": [
-                    {
-                        "name": "idmp-duration-token",
-                        "type": "pure-token",
-                        "token": "IDMP-DURATION"
-                    },
-                    {
-                        "name": "duration",
-                        "type": "integer"
-                    }
-                ]
+                "name": "idmp-duration",
+                "type": "integer",
+                "token": "IDMP-DURATION",
+                "optional": true
             },
             {
-                "name": "idmp-maxsize-block",
-                "type": "block",
-                "optional": true,
-                "arguments": [
-                    {
-                        "name": "idmp-maxsize-token",
-                        "type": "pure-token",
-                        "token": "IDMP-MAXSIZE"
-                    },
-                    {
-                        "name": "maxsize",
-                        "type": "integer"
-                    }
-                ]
+                "name": "idmp-maxsize",
+                "type": "integer",
+                "token": "IDMP-MAXSIZE",
+                "optional": true
             }
         ]
     }
