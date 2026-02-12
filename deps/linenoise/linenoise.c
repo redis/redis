@@ -1089,13 +1089,15 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                      *     down), D (cursor left).
                      */
 
-                    /* This branch is usually triggered by pressing Alt/Ctrl + ← */
-                    if (strcmp(seqBuffer, "1;5D") == 0 || strcmp(seqBuffer, "5D") == 0) {
+                    /* Word left: Ctrl + ← (modifier 5) or Alt + ← (modifier 3) */
+                    if (strcmp(seqBuffer, "1;5D") == 0 || strcmp(seqBuffer, "1;3D") == 0 ||
+                        strcmp(seqBuffer, "5D") == 0 || strcmp(seqBuffer, "3D") == 0) {
                         linenoiseEditMoveWordLeft(&l);
                         break;
                     }
-                    /* Usually Alt/Ctrl + → */
-                    if (strcmp(seqBuffer, "1;5C") == 0 || strcmp(seqBuffer, "5C") == 0) {
+                    /* Word right: Ctrl + → (modifier 5) or Alt + → (modifier 3) */
+                    if (strcmp(seqBuffer, "1;5C") == 0 || strcmp(seqBuffer, "1;3C") == 0 ||
+                        strcmp(seqBuffer, "5C") == 0 || strcmp(seqBuffer, "3C") == 0) {
                         linenoiseEditMoveWordRight(&l);
                         break;
                     }
