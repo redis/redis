@@ -5971,7 +5971,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id_ptr = &use_id;
     }
 
-    size_t oldsize = kvobjAllocSize(key->kv);
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
@@ -6024,7 +6024,7 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
         return REDISMODULE_ERR;
     }
     stream *s = key->kv->ptr;
-    size_t oldsize = kvobjAllocSize(key->kv);
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     streamID streamid = {id->ms, id->seq};
     if (streamDeleteItem(s, &streamid)) {
         if (server.memory_tracking_enabled)
@@ -6328,7 +6328,7 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     }
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     stream *s = key->kv->ptr;
-    size_t oldsize = kvobjAllocSize(key->kv);
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     long long retval = streamTrimByLength(s, length, approx);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6364,7 +6364,7 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     streamID minid = (streamID){id->ms, id->seq};
     stream *s = key->kv->ptr;
-    size_t oldsize = kvobjAllocSize(key->kv);
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     long long retval = streamTrimByID(s, minid, approx);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
