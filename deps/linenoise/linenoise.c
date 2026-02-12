@@ -801,18 +801,18 @@ static int isWordChar(char c) {
 
 static void linenoiseEditMoveWordLeft(struct linenoiseState *l) {
     if (l->pos == 0) return;
-    /* Move cursor to the left over any delimiters */
+    /* Skip any delimiters, then move left over the previous word */
     while (l->pos > 0 && !isWordChar(l->buf[l->pos - 1])) l->pos--;
-    /* Then continue moving over a word */
+    /* Then move to the start of that word */
     while (l->pos > 0 && isWordChar(l->buf[l->pos - 1])) l->pos--;
     refreshLine(l);
 }
 
 static void linenoiseEditMoveWordRight(struct linenoiseState *l) {
     if (l->pos == l->len) return;
-    /* Move cursor to the right over any delimiters */
+    /* Skip the current word to the right */
     while (l->pos < l->len && isWordChar(l->buf[l->pos])) l->pos++;
-    /* Then continue moving over a word */
+    /* Then skip any delimiters to reach the next word */
     while (l->pos < l->len && !isWordChar(l->buf[l->pos])) l->pos++;
     refreshLine(l);
 }
