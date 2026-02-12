@@ -2133,6 +2133,7 @@ void zremCommand(client *c) {
     }
     if (!keyremoved && zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         dictResumeAutoResize(((zset*)zobj->ptr)->dict);
+        dictShrinkIfNeeded(((zset*)zobj->ptr)->dict);
     }
 
     if (server.memory_tracking_enabled && !keyremoved)

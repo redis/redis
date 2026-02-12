@@ -2946,6 +2946,7 @@ void hdelCommand(client *c) {
     }
     if (!keyremoved && o->encoding == OBJ_ENCODING_HT) {
         dictResumeAutoResize((dict*)o->ptr);
+        dictShrinkIfNeeded((dict*)o->ptr);
     }
     if (server.memory_tracking_enabled && !keyremoved)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
