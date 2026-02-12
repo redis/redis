@@ -30,7 +30,7 @@
 #
 # vwait forever
 
-package require Tcl 8.5
+package require Tcl 8.5-10
 package provide redis 0.1
 
 source [file join [file dirname [info script]] "response_transformers.tcl"]

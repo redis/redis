@@ -13,9 +13,9 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
-package require Tcl 8.5
+package require Tcl 8.5-10
 
-set tcl_precision 17
+if {$tcl_version < 9.0} { set tcl_precision 17 }
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
