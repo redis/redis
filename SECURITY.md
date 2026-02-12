@@ -11,12 +11,14 @@ unless this is not possible or feasible with a reasonable effort.
 
 | Version | Supported                                                              |
 |---------|------------------------------------------------------------------------|
+| 8.6.x   | :white_check_mark:                                                     |
+| 8.4.x   | :white_check_mark:                                                     |
 | 8.2.x   | :white_check_mark:                                                     |
-| 8.0.x   | :white_check_mark:                                                     |
+| 8.0.x   | :x:                                                                    |
 | 7.4.x   | :white_check_mark:                                                     |
 | 7.2.x   | :white_check_mark: support extended till 7.4 end of support            |
 | < 7.2.x | :x:                                                                    |
-| 6.2.x   | :white_check_mark: support extended - may be removed after end of 2025 |
+| 6.2.x   | :white_check_mark: support extended                                    |
 | < 6.2.x | :x:                                                                    |
 
 ## Reporting a Vulnerability
@@ -39,6 +41,16 @@ embargo on public disclosure.
 
 If you believe you should be on the list, please contact us and we will
 consider your request based on the above criteria.
+
+## Support across Operating Systems, Architectures, and Compilers
+
+Redis is primarily tested on modern Linux distributions, using contemporary
+Intel and AMD x86_64 CPUs, as well as ARM-based CPUs, and recent versions of
+the GCC compiler.
+Vulnerability reports that rely on unsupported or uncommon environments
+(for example, 32-bit architectures, non-Linux operating systems, or outdated
+toolchains) may be considered out of scope, even if the issue is technically
+valid. Such reports will be evaluated on a case-by-case basis at our discretion.
 
 ## License Compatibility
 

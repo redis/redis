@@ -132,7 +132,7 @@ void estoreAdd(estore *es, int eidx, eItem item, uint64_t when) {
     /* currently only used by hash field expiration. Verify it has expireMeta */
     debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
                 ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &mstrHashDictTypeWithHFE));
+                 ((dict *) ((robj *)item)->ptr)->type == &entryHashDictTypeWithHFE));
 
     ebuckets *bucket = estoreGetBuckets(es, eidx);
     if (ebAdd(bucket, es->bucket_type, item, when) == 0) {
@@ -150,7 +150,7 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
     kvobj *kv = (kvobj *) item;
     if ( (kv->type != OBJ_HASH) ||
          (kv->encoding == OBJ_ENCODING_LISTPACK) ||
-         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &mstrHashDictTypeWithHFE)))
+         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &entryHashDictTypeWithHFE)))
         return EB_EXPIRE_TIME_INVALID;
 
     /* If (ExpireMeta of kv) marked as trash, then it is already removed */
@@ -172,7 +172,7 @@ void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
     /* currently only used by hash field expiration. Verify it has expireMeta */
     debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
                 ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &mstrHashDictTypeWithHFE));
+                 ((dict *) ((robj *)item)->ptr)->type == &entryHashDictTypeWithHFE));
 
     debugAssert(ebGetExpireTime(es->bucket_type, item) != EB_EXPIRE_TIME_INVALID);
 

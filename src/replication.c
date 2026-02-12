@@ -98,6 +98,86 @@ unsigned long replicationLogicalReplicaCount(void) {
     return count;
 }
 
+int replicaFromIOThreadHasPendingRead(client *c) {
+    serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID);
+
+    int pending_read;
+    atomicGetWithSync(c->pending_read, pending_read);
+    return pending_read;
+}
+
+/* Send replicas to their respective IO threads if it has pending reads or
+ * writes. Otherwise it remains in main thread so it can check for new data in
+ * the replication buffer ASAP. */
+void putReplicasInPendingClientsToIOThreads(void) {
+    if (server.io_threads_num <= 1) return;
+
+    serverAssert(pthread_equal(pthread_self(), server.main_thread_id));
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *replica = listNodeValue(ln);
+
+        /* We only care about replicas that need to run on IO thread but are
+         * currently in main */
+        if (replica->tid == IOTHREAD_MAIN_THREAD_ID ||
+            replica->running_tid != IOTHREAD_MAIN_THREAD_ID)
+        {
+            continue;
+        }
+
+        /* Skip the replica if it's scheduled for close */
+        if (replica->flags & CLIENT_CLOSE_ASAP) continue;
+
+        /* The call to clientHasPendingReplies may seem redundant but in the
+         * case of replica being in IO thread we can have the following case:
+         * replica gets back to main thread after sending the repl buffer it
+         * knows about. In the mean time main thread has accumulated new repl
+         * data. In that case the replica's client wouldn't have been put in
+         * the pending write queue but will still have new repl data it needs to
+         * send, so we make sure to check for that and send it back to IO thread
+         * if so. On the other hand if replica gets back to main thread before
+         * any new repl data has accumulated then after a new cmd is propagated
+         * the replica will be put in the pending write queue as usual so we
+         * need to check for that also.
+         * In addition, if the replica client has pending read events, we should
+         * also send them to the IO thread. */
+        if (replica->flags & CLIENT_PENDING_WRITE ||
+            clientHasPendingReplies(replica) ||
+            replicaFromIOThreadHasPendingRead(replica))
+        {
+            enqueuePendingClienstToIOThreads(replica);
+        }
+    }
+}
+
+/* Run some cron tasks for a connected master client. Return 1 when the client
+ * is freed, 0 otherwise. */
+int replicationCronRunMasterClient(void) {
+    if (!server.masterhost || !server.master) return 0;
+
+    if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) return 0;
+
+    /* Timed out master when we are an already connected slave? */
+    if (server.repl_state == REPL_STATE_CONNECTED &&
+        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
+    {
+        serverLog(LL_WARNING,"MASTER timeout: no data nor PING received...");
+        freeClient(server.master);
+        return 1;
+    }
+
+    /* Send ACK to master from time to time.
+     * Note that we do not send periodic acks to masters that don't
+     * support PSYNC and replication offsets. */
+    if (!(server.master->flags & CLIENT_PRE_PSYNC))
+        replicationSendAck();
+
+    return 0;
+}
+
 ConnectionType *connTypeOfReplication(void) {
     if (server.tls_replication) {
         return connectionTypeTls();
@@ -375,6 +455,8 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
 
 /* Free replication buffer blocks that are referenced by this client. */
 void freeReplicaReferencedReplBuffer(client *replica) {
+    serverAssert(replica->running_tid == IOTHREAD_MAIN_THREAD_ID);
+
     if (replica->ref_repl_buf_node != NULL) {
         /* Decrease the start buffer node reference count. */
         replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
@@ -397,6 +479,10 @@ void feedReplicationBuffer(char *s, size_t len) {
     if (server.repl_backlog == NULL) return;
 
     clusterSlotStatsIncrNetworkBytesOutForReplication(len);
+
+    /* Update the current cmd's keys with the commands replication bytes*/
+    hotkeyMetrics metrics = {0, len};
+    hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
 
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
@@ -702,6 +788,8 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 /* Feed the slave 'c' with the replication backlog starting from the
  * specified 'offset' up to the end of the backlog. */
 long long addReplyReplicationBacklog(client *c, long long offset) {
+    serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
+
     long long skip;
 
     serverLog(LL_DEBUG, "[PSYNC] Replica request offset: %lld", offset);
@@ -1461,6 +1549,18 @@ void replconfCommand(client *c) {
                 return;
             }
             c->main_ch_client_id = (uint64_t)client_id;
+            /* Inherit the rdb-no-compress request from the main channel. */
+            if (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
+                c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+        } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-compress")) {
+            long rdb_no_compress = 0;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 0, 1, &rdb_no_compress, NULL) != C_OK)
+                return;
+            if (rdb_no_compress == 1) {
+                c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+            } else {
+                c->slave_req &= ~SLAVE_REQ_RDB_NO_COMPRESS;
+            }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -2047,12 +2147,12 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
 
 static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
-    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_ALWAYS || server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
 
     if (enabled) {
         /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
-        if (!moduleAllDatatypesHandleErrors()) {
+        if (server.repl_diskless_load != REPL_DISKLESS_LOAD_ALWAYS && !moduleAllDatatypesHandleErrors()) {
             serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that don't handle read errors.");
             enabled = 0;
@@ -2908,6 +3008,7 @@ void syncWithMaster(connection *conn) {
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
     int psync_result;
+    static int replconf_rdb_no_compress = 0;
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
@@ -3006,6 +3107,15 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
+        /* If we are not going to save the RDB to disk, request that RDB
+         * compression be disabled, which speeds up RDB delivery. */
+        replconf_rdb_no_compress = 0;
+        if (useDisklessLoad()) {
+            replconf_rdb_no_compress = 1;
+            err = sendCommand(conn, "REPLCONF", "rdb-no-compress", "1", NULL);
+            if (err) goto write_error;
+        }
+
         /* Inform the master of our (slave) capabilities.
          *
          * EOF: supports EOF-style RDB transfer for diskless replication.
@@ -3056,7 +3166,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.slave_announce_ip)
-        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_COMP_REPLY;
 
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
@@ -3067,6 +3177,24 @@ void syncWithMaster(connection *conn) {
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
                                 "REPLCONF ip-address: %s", err);
+        }
+        sdsfree(err);
+        server.repl_state = REPL_STATE_RECEIVE_COMP_REPLY;
+        return;
+    }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_COMP_REPLY && !replconf_rdb_no_compress)
+        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+
+    /* Receive REPLCONF rdb-no-compress reply. */
+    if (server.repl_state == REPL_STATE_RECEIVE_COMP_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
+        /* Ignore the error if any, not all the Redis versions support
+         * REPLCONF rdb-no-compress. */
+        if (err[0] == '-') {
+            serverLog(LL_NOTICE,"(Non critical) Master does not understand "
+                                "REPLCONF rdb-no-compress: %s", err);
         }
         sdsfree(err);
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
@@ -3596,7 +3724,11 @@ static int rdbChannelSendHandshake(connection *conn, sds *err) {
 
     *err = sendCommand(conn, "REPLCONF", "capa", "eof", "rdb-only", "1",
                        "rdb-channel", "1", "main-ch-client-id", cid,
-                       "listening-port", buf, NULL);
+                       "listening-port", buf,
+                       server.slave_announce_ip ? "ip-address" : NULL,
+                       server.slave_announce_ip ? server.slave_announce_ip : NULL,
+                       NULL);
+    
     if (*err) {
         serverLog(LL_WARNING, "Error sending REPLCONF command to master in rdb channel handshake: %s", *err);
         return C_ERR;
@@ -4317,6 +4449,7 @@ void replicationSendAck(void) {
  */
 void replicationCacheMaster(client *c) {
     serverAssert(server.master != NULL && server.cached_master == NULL);
+    serverAssert(server.master->tid == IOTHREAD_MAIN_THREAD_ID);
     serverLog(LL_NOTICE,"Caching the disconnected master state.");
 
     /* Unlink the client from the server structures. */
@@ -4412,6 +4545,8 @@ void replicationDiscardCachedMaster(void) {
  * so the stream of data that we'll receive will start from where this
  * master left. */
 void replicationResurrectCachedMaster(connection *conn) {
+    serverAssert(server.cached_master->tid == IOTHREAD_MAIN_THREAD_ID);
+
     server.master = server.cached_master;
     server.cached_master = NULL;
     server.master->conn = conn;
@@ -4756,14 +4891,6 @@ void replicationCron(void) {
         cancelReplicationHandshake(1);
     }
 
-    /* Timed out master when we are an already connected slave? */
-    if (server.masterhost && server.repl_state == REPL_STATE_CONNECTED &&
-        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
-    {
-        serverLog(LL_WARNING,"MASTER timeout: no data nor PING received...");
-        freeClient(server.master);
-    }
-
     /* Check if we should connect to a MASTER */
     if (server.repl_state == REPL_STATE_CONNECT) {
         serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
@@ -4771,12 +4898,7 @@ void replicationCron(void) {
         connectWithMaster();
     }
 
-    /* Send ACK to master from time to time.
-     * Note that we do not send periodic acks to masters that don't
-     * support PSYNC and replication offsets. */
-    if (server.masterhost && server.master &&
-        !(server.master->flags & CLIENT_PRE_PSYNC))
-        replicationSendAck();
+    replicationCronRunMasterClient();
 
     /* If we have attached slaves, PING them from time to time.
      * So slaves can implement an explicit timeout to masters, and will
@@ -4958,6 +5080,10 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
                     continue;
                 }
                 idle = server.unixtime - slave->lastinteraction;
+                /* If the slave requests a slots snapshot, we should start BGSAVE
+                 * immediately since it can't share the RDB with other slaves. */
+                if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
+                    idle = server.repl_diskless_sync_delay; /* Threshold for BGSAVE */
                 if (idle > max_idle) max_idle = idle;
                 slaves_waiting++;
                 mincapa = first ? slave->slave_capa : (mincapa & slave->slave_capa);

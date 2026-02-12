@@ -154,5 +154,66 @@ start_server {tags {"tls"}} {
             r config set tls-key-file-pass 1234
             r config set tls-key-file $keyfile_encrypted
         }
+
+	    test {TLS: Auto-authenticate using tls-auth-clients-user (CN)} {
+	        # Create a user matching the CN in the client certificate (CN=Client-only)
+	        r ACL SETUSER {Client-only} on >clientpass allcommands allkeys
+
+	        # Map the client certificate CN to the ACL user name.
+	        r CONFIG SET tls-auth-clients-user CN
+
+	        # Connect over TLS using the test client certificate (CN=Client-only)
+	        set s [redis [srv 0 host] [srv 0 port] 0 1]
+	        catch {$s PING} e
+	        assert_match {PONG} $e
+	        assert_equal "Client-only" [$s ACL WHOAMI]
+	    }
+
+	    foreach user_type {"non-existent" "disabled"} {
+	        test "TLS: $user_type user cannot auto-authenticate via certificate" {
+	            if {$user_type eq "non-existent"} {
+	                # Ensure the Client-only user does not exist so auto-auth will fail
+	                catch {r ACL DELUSER {Client-only}}
+	            } else {
+	                r ACL SETUSER {Client-only} on >clientpass allcommands allkeys
+	                r ACL SETUSER {Client-only} off  ;# Disable the user
+	            }
+	            r ACL LOG RESET
+	            r CONFIG SET tls-auth-clients-user CN
+
+	            # Capture the current value of acl_access_denied_tls_cert from INFO stats
+	            set info_before [r INFO stats]
+	            regexp {acl_access_denied_tls_cert:(\d+)} $info_before -> before
+
+	            # Connect over TLS using the test client certificate (CN=Client-only)
+	            # Since there is no matching ACL user or user is disabled, auto-auth should fail
+	            # and the connection should remain authenticated as the default user
+	            set s [redis [srv 0 host] [srv 0 port] 0 1]
+	            assert_equal "default" [$s ACL WHOAMI]
+
+	            # The ACL LOG should contain a single entry with reason "tls-cert"
+	            # and username "Client-only"
+	            set log [r ACL LOG]
+	            assert_equal 1 [llength $log]
+	            set entry [lindex $log 0]
+	            assert_equal "tls-cert" [dict get $entry reason]
+	            assert_equal "Client-only" [dict get $entry username]
+
+	            # INFO stats should report that acl_access_denied_tls_cert increased by 1
+	            set info_after [r INFO stats]
+	            regexp {acl_access_denied_tls_cert:(\d+)} $info_after -> after
+	            assert {$after == $before + 1}
+
+	            # Verify fallback to password auth works after cert auth fails
+	            r ACL SETUSER testuser on >testpass +@all ~*
+	            $s AUTH testuser testpass
+	            assert_equal "testuser" [$s ACL WHOAMI]
+	            assert_equal "PONG" [$s PING]
+
+	            # Clean up
+	            r ACL DELUSER testuser
+	            catch {r ACL DELUSER {Client-only}}
+	        }
+	    }
     }
 }

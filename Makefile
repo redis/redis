@@ -2,6 +2,9 @@
 
 SUBDIRS = src
 ifeq ($(BUILD_WITH_MODULES), yes)
+	ifeq ($(MAKECMDGOALS),32bit)
+    	$(error BUILD_WITH_MODULES=yes is not supported on 32 bit systems)
+	endif
 	SUBDIRS += modules
 endif
 

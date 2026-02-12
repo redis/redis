@@ -9,10 +9,11 @@ proc get_reply_buffer_size {cname} {
 }
 
 start_server {tags {"replybufsize"}} {
-    
+
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
         r debug replybuffer peak-reset-time 100
+        r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
         
         # Create a simple idle test client
         variable tc [redis_client]

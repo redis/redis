@@ -126,6 +126,10 @@ proc assert_refcount_morethan {key ref} {
 # max retries and delay between retries. Otherwise the 'elsescript' is
 # executed.
 proc wait_for_condition {maxtries delay e _else_ elsescript} {
+    if {$_else_ ne "else"} {
+        error "$_else_ must be equal to \"else\""
+    }
+
     while {[incr maxtries -1] >= 0} {
         set errcode [catch {uplevel 1 [list expr $e]} result]
         if {$errcode == 0} {
@@ -136,7 +140,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
         after $delay
     }
     if {$maxtries == -1} {
-        set errcode [catch [uplevel 1 $elsescript] result]
+        set errcode [catch {uplevel 1 $elsescript} result]
         return -code $errcode $result
     }
 }

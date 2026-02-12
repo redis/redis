@@ -321,7 +321,7 @@ start_server {tags {"repl external:skip"}} {
 }
 
 foreach mdl {no yes} rdbchannel {no yes} {
-    foreach sdl {disabled swapdb} {
+    foreach sdl {disabled swapdb flushdb} {
         start_server {tags {"repl external:skip debug_defrag:skip"} overrides {save {}}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
@@ -916,6 +916,7 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     # so that the whole rdb generation process is bound to that
                     set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
+                    [lindex $replicas 1] config set repl-diskless-load swapdb
                     [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port
@@ -1246,7 +1247,7 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 # Slave2 disconnect with master
                 $slave2 slaveof no one
                 # Should kill child
-                wait_for_condition 100 10 {
+                wait_for_condition 1000 10 {
                     [s 0 rdb_bgsave_in_progress] eq 0
                 } else {
                     fail "can't kill rdb child"
@@ -1821,10 +1822,13 @@ start_server {tags {"repl external:skip"}} {
 
             # Connect to an invalid master
             $slave slaveof $master_host 0
-            after 1000
 
             # Expect current sync attempts to increase
-            assert {[status $slave master_current_sync_attempts] >= 2}
+            wait_for_condition 100 50 {
+                [status $slave master_current_sync_attempts] >= 2
+            } else {
+                fail "Timeout waiting for master_current_sync_attempts"
+            }
         }
     }
 }
