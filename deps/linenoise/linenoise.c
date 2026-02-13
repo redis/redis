@@ -1060,25 +1060,25 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 if (seq[1] >= '0' && seq[1] <= '9') {
                     /* Extended escape, read additional bytes.
                      * Examples: ESC [1;5C  ESC [3~ */
-                    const int seqBufferMaxLength = 8;
-                    char seqBuffer[seqBufferMaxLength];
+                    const int seq_buffer_max_length = 8;
+                    char seq_buffer[seq_buffer_max_length];
                     int i = 0;
-                    seqBuffer[i++] = seq[1];
+                    seq_buffer[i++] = seq[1];
 
                     /* Read more bytes until we see a CSI final byte (range @..~).
-                     * Use seqBufferMaxLength-1 to reserve one position for '\0'. */
-                    char additionalChar;
-                    while (i < seqBufferMaxLength-1 && read(l.ifd, &additionalChar, 1) == 1) {
-                        seqBuffer[i++] = additionalChar;
-                        if (additionalChar >= '@' && additionalChar <= '~') break; /* CSI final byte */
+                     * Use seq_buffer_max_length-1 to reserve one position for '\0'. */
+                    char seq_char;
+                    while (i < seq_buffer_max_length-1 && read(l.ifd, &seq_char, 1) == 1) {
+                        seq_buffer[i++] = seq_char;
+                        if (seq_char >= '@' && seq_char <= '~') break; /* CSI final byte */
                     }
-                    seqBuffer[i] = '\0';
+                    seq_buffer[i] = '\0';
 
                     /* The exact key mapping behavior depends on your keyboard/terminal setup.
                      * For example, in MacOS terminal you can go to the profile keyboard setting
                      * to see or configure the current mapping.
                      *
-                     * Take action `[1;5C` as an illustration:
+                     * Take action `[1;5C` (Ctrl + →) or `[1;3D` (Alt + ←) as examples:
                      * [ indicates a CSI (Control Sequence Introducer), telling the terminal
                      *    "What follows is a control command, not text"
                      * 1 is how many units to move (default is 1 if omitted)
@@ -1090,19 +1090,17 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                      */
 
                     /* Word left: Ctrl + ← (modifier 5) or Alt + ← (modifier 3) */
-                    if (strcmp(seqBuffer, "1;5D") == 0 || strcmp(seqBuffer, "1;3D") == 0 ||
-                        strcmp(seqBuffer, "5D") == 0 || strcmp(seqBuffer, "3D") == 0) {
+                    if (strcmp(seq_buffer, "1;5D") == 0 || strcmp(seq_buffer, "1;3D") == 0) {
                         linenoiseEditMoveWordLeft(&l);
                         break;
                     }
                     /* Word right: Ctrl + → (modifier 5) or Alt + → (modifier 3) */
-                    if (strcmp(seqBuffer, "1;5C") == 0 || strcmp(seqBuffer, "1;3C") == 0 ||
-                        strcmp(seqBuffer, "5C") == 0 || strcmp(seqBuffer, "3C") == 0) {
+                    if (strcmp(seq_buffer, "1;5C") == 0 || strcmp(seq_buffer, "1;3C") == 0) {
                         linenoiseEditMoveWordRight(&l);
                         break;
                     }
-                    /* Usually the `delete` key */
-                    if (strcmp(seqBuffer, "3~") == 0) {
+                    /* Delete key */
+                    if (strcmp(seq_buffer, "3~") == 0) {
                         linenoiseEditDelete(&l);
                         break;
                     }
