@@ -660,7 +660,7 @@ start_server {
 
     test {XIDMPRECORD with binary-safe iid} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         set binary_iid "\x00\x01\x02\xff"
         assert_equal "OK" [r XIDMPRECORD mystream p1 $binary_iid $id]
         set id_dup [r XADD mystream IDMP p1 $binary_iid * f v2]
@@ -669,7 +669,7 @@ start_server {
 
     test {XIDMPRECORD with maximum length iid} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         set long_iid [string repeat "x" 65536]
         assert_equal "OK" [r XIDMPRECORD mystream p1 $long_iid $id]
         set id_dup [r XADD mystream IDMP p1 $long_iid * f v2]
@@ -678,7 +678,7 @@ start_server {
 
     test {XIDMPRECORD with unicode pid and iid} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         assert_equal "OK" [r XIDMPRECORD mystream "producer-世界" "req-héllo" $id]
         set id_dup [r XADD mystream IDMP "producer-世界" "req-héllo" * f v2]
         assert_equal $id $id_dup
@@ -686,7 +686,7 @@ start_server {
 
     test {XIDMPRECORD with long producer ID} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         set long_pid [string repeat "p" 1000]
         assert_equal "OK" [r XIDMPRECORD mystream $long_pid i1 $id]
         set id_dup [r XADD mystream IDMP $long_pid i1 * f v2]
@@ -695,7 +695,7 @@ start_server {
 
     test {XIDMPRECORD with special characters in iid} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         assert_equal "OK" [r XIDMPRECORD mystream p1 "key:value" $id]
         set id_dup [r XADD mystream IDMP p1 "key:value" * f v2]
         assert_equal $id $id_dup
@@ -709,7 +709,7 @@ start_server {
 
     test {XIDMPRECORD then deduplication works} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         assert_equal "OK" [r XIDMPRECORD mystream p1 req-1 $id]
         set id_dup [r XADD mystream IDMP p1 req-1 * f v2]
         assert_equal $id $id_dup
@@ -718,7 +718,7 @@ start_server {
 
     test {XIDMPRECORD idempotent} {
         r DEL mystream
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         assert_equal "OK" [r XIDMPRECORD mystream p1 req-1 $id]
         assert_equal "OK" [r XIDMPRECORD mystream p1 req-1 $id]
         set id_dup [r XADD mystream IDMP p1 req-1 * f v2]
@@ -727,16 +727,16 @@ start_server {
 
     test {XIDMPRECORD conflict same pid iid different stream ID} {
         r DEL mystream
-        set id1 [r XADD mystream 1-1 f v1]
-        set id2 [r XADD mystream 1-2 f v2]
+        set id1 [r XADD mystream * f v1]
+        set id2 [r XADD mystream * f v2]
         assert_equal "OK" [r XIDMPRECORD mystream p1 i1 $id1]
         assert_error {*IID already exists for this producer with a different stream ID*} {r XIDMPRECORD mystream p1 i1 $id2}
     }
 
     test {XIDMPRECORD multiple producers} {
         r DEL mystream
-        set id1 [r XADD mystream 1-1 f v1]
-        set id2 [r XADD mystream 1-2 f v2]
+        set id1 [r XADD mystream * f v1]
+        set id2 [r XADD mystream * f v2]
         assert_equal "OK" [r XIDMPRECORD mystream p1 i1 $id1]
         assert_equal "OK" [r XIDMPRECORD mystream p2 i2 $id2]
         assert_equal $id1 [r XADD mystream IDMP p1 i1 * f dup1]
@@ -767,7 +767,7 @@ start_server {
         r config set appendonly yes
         waitForBgrewriteaof r
 
-        set id [r XADD mystream 1-1 f v]
+        set id [r XADD mystream * f v]
         assert_equal "OK" [r XIDMPRECORD mystream p1 rec-1 $id]
         set id_dup [r XADD mystream IDMP p1 rec-1 * f v2]
         assert_equal $id $id_dup
