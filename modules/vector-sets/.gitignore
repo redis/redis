@@ -9,4 +9,3 @@ word2vec.bin
 TODO
 *.txt
 *.rdb
-!tests/assets/*.rdb

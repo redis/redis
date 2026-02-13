@@ -65,3 +65,29 @@ class DimensionValidation(TestCase):
             assert False, "VSIM with wrong dimension should fail"
         except redis.exceptions.ResponseError as e:
             assert "Input dimension mismatch for projection" in str(e), f"Expected dimension mismatch error in VSIM, got: {e}"
+
+
+class CorruptedPayloadDimZero(TestCase):
+    def getname(self):
+        return "Corrupted payload dim=0 rejection"
+
+    def estimated_runtime(self):
+        return 0.5
+
+    def test(self):
+        # Create and dump a valid vector set
+        self.redis.execute_command('VADD', self.test_key, 'VALUES', 4, 1.0, 0.0, 0.0, 0.0, 'elem1')
+        payload = self.redis.execute_command('DUMP', self.test_key)
+        self.redis.delete(self.test_key)
+
+        # Contruct corrupted data: valid header + 4 zero'd fields (dim, elements, hnsw_config, save_flags) + EOF + footer
+        corrupted = payload[:10] + b'\x02\x00' * 4 + b'\x00' * 11
+
+        self.redis.execute_command('DEBUG', 'SET-SKIP-CHECKSUM-VALIDATION', '1')
+        rejected = False
+        try:
+            self.redis.execute_command('RESTORE', self.test_key, 0, corrupted)
+        except Exception:
+            rejected = True
+        self.redis.execute_command('DEBUG', 'SET-SKIP-CHECKSUM-VALIDATION', '0')
+        assert rejected, "RESTORE should have rejected payload with dim=0"

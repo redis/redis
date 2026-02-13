@@ -801,7 +801,7 @@ uint32_t random_level(void) {
 
 /* Create new HNSW index, quantized or not. */
 HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m) {
-    if (vector_dim == 0) return NULL;
+    assert(vector_dim != 0);
     HNSW *index = hmalloc(sizeof(HNSW));
     if (!index) return NULL;
 

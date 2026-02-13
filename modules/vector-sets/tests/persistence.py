@@ -1,7 +1,5 @@
 from test import TestCase, fill_redis_with_vectors, generate_random_vector
 import random
-import os
-import shutil
 
 class HNSWPersistence(TestCase):
     def getname(self):
@@ -86,61 +84,3 @@ class HNSWPersistence(TestCase):
 
         self.redis.delete(f"{self.test_key}:normal")
         self.redis.delete(f"{self.test_key}:projected")
-
-
-class CorruptedRDBDimZero(TestCase):
-    """Test that corrupted RDB with dim=0 doesn't cause division by zero."""
-
-    def getname(self):
-        return "Corrupted RDB dim=0 division by zero"
-
-    def estimated_runtime(self):
-        return 2
-
-    def test(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        corrupted_rdb = os.path.join(script_dir, 'assets', 'corrupted_dim_zero.rdb')
-
-        if not os.path.exists(corrupted_rdb):
-            raise Exception(f"Test asset not found: {corrupted_rdb}")
-
-        # Get RDB path
-        rdb_dir = self.redis.execute_command('CONFIG', 'GET', 'dir')[1]
-        rdb_file = self.redis.execute_command('CONFIG', 'GET', 'dbfilename')[1]
-        if isinstance(rdb_dir, bytes): rdb_dir = rdb_dir.decode()
-        if isinstance(rdb_file, bytes): rdb_file = rdb_file.decode()
-        rdb_path = os.path.join(rdb_dir, rdb_file)
-
-        # Backup and load corrupted RDB
-        backup = rdb_path + '.bak'
-        if os.path.exists(rdb_path):
-            shutil.copy(rdb_path, backup)
-
-        try:
-            shutil.copy(corrupted_rdb, rdb_path)
-            self.redis.execute_command('DEBUG', 'RELOAD', 'NOSAVE')
-
-            # If we get here, RDB loaded - check for NaN
-            dim = self.redis.execute_command('VDIM', 'test:dimzero')
-            if dim == 0:
-                results = self.redis.execute_command('VSIM', 'test:dimzero',
-                    'ELE', 'elem1', 'WITHSCORES')
-                scores = [r.decode() if isinstance(r, bytes) else r
-                          for r in results[1::2]]
-                assert not any(s in ('nan', 'NaN') for s in scores), \
-                    f"NaN scores returned: {results}"
-
-        except Exception as e:
-            # RDB rejected is acceptable (means fix is working)
-            if 'load' not in str(e).lower() and 'dimension' not in str(e).lower():
-                raise
-
-        finally:
-            if os.path.exists(backup):
-                shutil.copy(backup, rdb_path)
-                os.remove(backup)
-                try:
-                    self.redis.execute_command('DEBUG', 'RELOAD', 'NOSAVE')
-                except:
-                    pass
-            self.redis.delete('test:dimzero')
