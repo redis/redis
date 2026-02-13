@@ -3902,6 +3902,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             dbExpand(db, db_size, 0);
             dbExpandExpires(db, expires_size, 0);
             should_expand_db = 0;
+            serverLog(LL_VERBOSE, "DB %d resized: %lu key buckets, %lu expire buckets",
+                        db->id, kvstoreBuckets(db->keys), kvstoreBuckets(db->expires));
         }
 
         /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
