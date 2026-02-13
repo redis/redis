@@ -80,14 +80,12 @@ class CorruptedPayloadDimZero(TestCase):
         payload = self.redis.execute_command('DUMP', self.test_key)
         self.redis.delete(self.test_key)
 
-        # Construct corrupted data: valid header + 4 zero'd fields (dim, elements, hnsw_config, save_flags) + EOF + footer
+        # Construct corrupted data: valid header + 4 zero'd fields (dim, elements, hnsw_config, save_flags) + footer
         corrupted = payload[:10] + b'\x02\x00' * 4 + b'\x00' * 11
 
-        self.redis.execute_command('DEBUG', 'SET-SKIP-CHECKSUM-VALIDATION', '1')
         rejected = False
         try:
             self.redis.execute_command('RESTORE', self.test_key, 0, corrupted)
         except Exception:
             rejected = True
-        self.redis.execute_command('DEBUG', 'SET-SKIP-CHECKSUM-VALIDATION', '0')
         assert rejected, "RESTORE should have rejected payload with dim=0"

@@ -1954,6 +1954,7 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     if (encver != 0) return NULL;  // Invalid version
 
     uint32_t dim = RedisModule_LoadUnsigned(rdb);
+    if (RedisModule_IsIOError(rdb)) return NULL;
     if (dim == 0) {
         RedisModule_LogIOError(rdb, "warning", "Invalid vector dimension: 0");
         return NULL;
