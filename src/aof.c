@@ -2211,6 +2211,20 @@ int rioWriteStreamEmptyConsumer(rio *r, robj *key, const char *groupname, size_t
     return 1;
 }
 
+/* Helper for rewriteStreamObject(): emit the XIDMPRECORD needed to
+ * restore an IDMP entry for the given producer in the context of the
+ * specified key. */
+int rioWriteStreamIdmpEntry(rio *r, robj *key, const char *pid, size_t pid_len, idmpEntry *entry) {
+    /* XIDMPRECORD <key> <pid> <iid> <streamID> */
+    if (rioWriteBulkCount(r,'*',5) == 0) return 0;
+    if (rioWriteBulkString(r,"XIDMPRECORD",11) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkString(r,pid,pid_len) == 0) return 0;
+    if (rioWriteBulkString(r,entry->iid,entry->iid_len) == 0) return 0;
+    if (rioWriteBulkStreamID(r,&entry->id) == 0) return 0;
+    return 1;
+}
+
 /* Emit the commands needed to rebuild a stream object.
  * The function returns 0 on error, 1 on success. */
 int rewriteStreamObject(rio *r, robj *key, robj *o) {
@@ -2347,6 +2361,47 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             raxStop(&ri_cons);
         }
         raxStop(&ri);
+    }
+
+    /* Emit XCFGSET to restore per-stream IDMP configuration if it differs
+     * from the server defaults, so that AOF rewrite preserves custom settings. */
+    if (s->idmp_producers &&
+        (s->idmp_duration != (uint64_t)server.stream_idmp_duration ||
+         s->idmp_max_entries != (uint64_t)server.stream_idmp_maxsize))
+    {
+        if (!rioWriteBulkCount(r,'*',6) ||
+            !rioWriteBulkString(r,"XCFGSET",7) ||
+            !rioWriteBulkObject(r,key) ||
+            !rioWriteBulkString(r,"IDMP-DURATION",13) ||
+            !rioWriteBulkLongLong(r,s->idmp_duration) ||
+            !rioWriteBulkString(r,"IDMP-MAXSIZE",12) ||
+            !rioWriteBulkLongLong(r,s->idmp_max_entries))
+        {
+            streamIteratorStop(&si);
+            return 0;
+        }
+    }
+
+    /* Emit XIDMPRECORD for each IDMP entry (same order as RDB: after cgroups). */
+    if (s->idmp_producers) {
+        raxIterator ri_idmp;
+        raxStart(&ri_idmp, s->idmp_producers);
+        raxSeek(&ri_idmp, "^", NULL, 0);
+        while (raxNext(&ri_idmp)) {
+            idmpProducer *producer = ri_idmp.data;
+            idmpEntry *entry = producer->idmp_head;
+            while (entry != NULL) {
+                if (rioWriteStreamIdmpEntry(r,key,(char*)ri_idmp.key,
+                                            ri_idmp.key_len,entry) == 0)
+                {
+                    raxStop(&ri_idmp);
+                    streamIteratorStop(&si);
+                    return 0;
+                }
+                entry = entry->next;
+            }
+        }
+        raxStop(&ri_idmp);
     }
 
     streamIteratorStop(&si);
