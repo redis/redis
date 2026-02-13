@@ -1599,7 +1599,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
         char addr[NET_ADDR_STR_LEN] = {0};
         char laddr[NET_ADDR_STR_LEN] = {0};
         connFormatAddr(conn, addr, sizeof(addr), 1);
-        connFormatAddr(conn, laddr, sizeof(addr), 0);
+        connFormatAddr(conn, laddr, sizeof(laddr), 0);
         serverLog(LL_VERBOSE,
                   "Accepted client connection in error state: %s (addr=%s laddr=%s)",
                   connGetLastError(conn), addr, laddr);
@@ -1638,7 +1638,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
         char addr[NET_ADDR_STR_LEN] = {0};
         char laddr[NET_ADDR_STR_LEN] = {0};
         connFormatAddr(conn, addr, sizeof(addr), 1);
-        connFormatAddr(conn, laddr, sizeof(addr), 0);
+        connFormatAddr(conn, laddr, sizeof(laddr), 0);
         serverLog(LL_WARNING,
                   "Error registering fd event for the new client connection: %s (addr=%s laddr=%s)",
                   connGetLastError(conn), addr, laddr);
