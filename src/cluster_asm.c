@@ -2069,9 +2069,6 @@ void clusterSyncSlotsCommand(client *c) {
                 return;
             }
             task->dest_offset = offset;
-            serverLog(LL_DEBUG, "CLUSTER SYNCSLOTS ACK received, dest state: %s, "
-                                "updated dest offset to %lld, source offset: %lld",
-                asmTaskStateToString(dest_state), task->dest_offset, task->source_offset);
 
             /* Record the time when the destination finishes applying the accumulated buffer */
             if (task->dest_state == ASM_WAIT_STREAM_EOF && task->dest_accum_applied_time == 0)
@@ -2559,27 +2556,29 @@ void asmBeforeSleep(void) {
             return;
         }
 
-        if (task->state == ASM_HANDOFF) {
-            /* To avoid long pause, we fail the task if the pause takes too long. */
+        if (task->state == ASM_HANDOFF || task->state == ASM_STREAM_EOF) {
+            /* In these states, writes are still paused while waiting for the 
+             * destination to broadcast the slot ownership change. If the 
+             * destination fails or becomes unreachable, the source could remain 
+             * paused indefinitely, so we enforce a timeout and fail the task.
+             * 
+             * NOTE: There is a tricky case where the destination node may 
+             * advertise ownership of the slot after the source node resumes 
+             * writes, causing a temporary configuration conflict. However, the
+             * configuration will eventually converge. In most cases, the
+             * destination node becomes the winner, since it bumps its config 
+             * epoch before taking over slot ownership. During this window, 
+             * writes accepted by the source will not be replicated to the
+             * destination and those writes will be lost.*/
             if (server.mstime - task->paused_time >= server.asm_write_pause_timeout) {
-                asmTaskSetFailed(task, "Server paused timeout");
+                asmTaskSetFailed(task, "Write pause timeout during slot handoff: destination did not take ownership within %lld ms.",
+                                 server.asm_write_pause_timeout);
                 return;
             }
-            asmSendStreamEofIfDrained(task);
-        } else if (task->state == ASM_STREAM_EOF) {
-            /* In state ASM_STREAM_EOF (server is still paused), we are waiting
-             * for the destination node to broadcast the slot ownership change.
-             * But maybe the destination node is failed or network is not available,
-             * the source node may be paused forever. So we fail the task if it
-             * takes too long.
-             *
-             * NOTE: There is a tricky case where the destination node may advertise
-             * ownership of the slot, causing a temporary configuration conflict.
-             * However, the configuration will eventually converge. In most cases,
-             * the destination node becomes the winner, since it bumps its config
-             * epoch before taking over slot ownership. */
-            if (server.mstime - task->paused_time >= server.asm_write_pause_timeout)
-                asmTaskSetFailed(task, "Server paused timeout");
+
+            /* Send STREAM-EOF if the destination drained the command stream. */
+            if (task->state == ASM_HANDOFF)
+                asmSendStreamEofIfDrained(task);
         }
     }
 }
