@@ -2337,8 +2337,8 @@ sds ACLLoadFromFile(const char *filename) {
 
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
-        /* Skip blank lines */
-        if (lines[i][0] == '\0') continue;
+        /* Skip blank lines and comments */
+        if (lines[i][0] == '\0' || lines[i][0] == '#') continue;
 
         /* Split into arguments */
         argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);

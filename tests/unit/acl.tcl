@@ -1300,6 +1300,31 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
     } {} {external:skip}
 }
 
+set server_path [tmpdir "comments.acl"]
+exec cp -f tests/assets/commentuser.acl $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "commentuser.acl"] tags [list "external:skip"]] {
+    test {ACL file with comments is loaded correctly} {
+        assert {[r ACL GETUSER alice] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
+        assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+    }
+
+    test {ACL LOAD handles comments in ACL file} {
+        set fd [open $server_path/commentuser.acl w]
+        puts $fd "# Full-line comment"
+        puts $fd "  # Indented comment"
+        puts $fd ""
+        puts $fd "user default on nopass ~* &* +@all"
+        puts $fd "# Trailing comment"
+        close $fd
+        r ACL LOAD
+        assert {[r ACL GETUSER default] != ""}
+        # alice should no longer exist after reload
+        assert {[r ACL GETUSER alice] eq ""}
+    }
+}
+
 start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl external:skip}} {
     test {ACL from config file and config rewrite} {
         assert_error {NOPERM *} {r flushdb}
