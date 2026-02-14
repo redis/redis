@@ -1722,7 +1722,7 @@ void bitfieldGeneric(client *c, int flags) {
     kvobj *o;
     uint64_t bitoffset;
     int j, numops = 0, changes = 0;
-    size_t strOldSize, strGrowSize = 0;
+    size_t strOldSize = 0, strGrowSize = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
