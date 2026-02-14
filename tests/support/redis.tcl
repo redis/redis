@@ -163,9 +163,19 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     if {[info command ::redis::__method__$method] eq {}} {
         catch {unset ::redis::attributes($id)}
         set cmd "*[expr {[llength $argv]+1}]\r\n"
-        append cmd "$[string length $method]\r\n$method\r\n"
+        # Helper to encode if necessary
+        set encoded_method $method
+        if {[string match "*\[^\u0000-\u00ff\]*" $method]} {
+             set encoded_method [encoding convertto utf-8 $method]
+        }
+        append cmd "$[string length $encoded_method]\r\n$encoded_method\r\n"
+
         foreach a $argv {
-            append cmd "$[string length $a]\r\n$a\r\n"
+            set encoded_a $a
+            if {[string match "*\[^\u0000-\u00ff\]*" $a]} {
+                set encoded_a [encoding convertto utf-8 $a]
+            }
+            append cmd "$[string length $encoded_a]\r\n$encoded_a\r\n"
         }
         ::redis::redis_write $fd $cmd
         if {[catch {flush $fd}]} {
