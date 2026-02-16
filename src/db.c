@@ -206,6 +206,12 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
  * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
  */
 void dbgAssertKeysizesHist(redisDb *db) {
+    /* Don't assert during nested calls. Intermediate state may be inconsistent. */
+    if (server.execution_nesting) return;
+
+    /* Don't assert during RDB loading. Database may be in inconsistent state. */
+    if (server.loading || server.async_loading) return;
+
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength, "dbgAssertKeysizesHist");
     if (server.memory_tracking_enabled)
@@ -217,6 +223,12 @@ void dbgAssertKeysizesHist(redisDb *db) {
  * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
  */
 void dbgAssertAllocSizePerSlot(redisDb *db) {
+    /* Don't assert during nested calls. Intermediate state may be inconsistent. */
+    if (server.execution_nesting) return;
+
+    /* Don't assert during RDB loading. Database may be in inconsistent state. */
+    if (server.loading || server.async_loading) return;
+
     if (!server.memory_tracking_enabled) return;
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
