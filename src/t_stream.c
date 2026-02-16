@@ -3653,16 +3653,25 @@ void xidmprecordCommand(client *c) {
         return;
     }
 
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
-    if (idmpLookupRecordAndReply(s, producer, entry, &id, c))
+    if (idmpLookupRecordAndReply(s, producer, entry, &id, c)) {
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
         return;
+    }
 
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
     addReply(c, shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM, "xidmprecord", c->argv[1], c->db->id);
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+
     keyModified(c, c->db, c->argv[1], kv, 0);
 }
 
