@@ -2365,9 +2365,8 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 
     /* Emit XCFGSET to restore per-stream IDMP configuration if it differs
      * from the server defaults, so that AOF rewrite preserves custom settings. */
-    if (s->idmp_producers &&
-        (s->idmp_duration != (uint64_t)server.stream_idmp_duration ||
-         s->idmp_max_entries != (uint64_t)server.stream_idmp_maxsize))
+    if (s->idmp_duration != (uint64_t)server.stream_idmp_duration ||
+        s->idmp_max_entries != (uint64_t)server.stream_idmp_maxsize)
     {
         if (!rioWriteBulkCount(r,'*',6) ||
             !rioWriteBulkString(r,"XCFGSET",7) ||
@@ -2382,15 +2381,18 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         }
     }
 
-    /* Emit XIDMPRECORD for each IDMP entry (same order as RDB: after cgroups). */
+    /* Emit XIDMPRECORD for each IDMP entry. Entries whose stream ID no
+     * longer exists (removed by XDEL/trim) are skipped, since
+     * xidmprecordCommand() rejects references to missing IDs and would
+     * cause AOF replay errors. */
     if (s->idmp_producers) {
         raxIterator ri_idmp;
         raxStart(&ri_idmp, s->idmp_producers);
         raxSeek(&ri_idmp, "^", NULL, 0);
         while (raxNext(&ri_idmp)) {
             idmpProducer *producer = ri_idmp.data;
-            idmpEntry *entry = producer->idmp_head;
-            while (entry != NULL) {
+            for (idmpEntry *entry = producer->idmp_head; entry != NULL; entry = entry->next) {
+                if (!streamEntryExists(s, &entry->id)) continue;
                 if (rioWriteStreamIdmpEntry(r,key,(char*)ri_idmp.key,
                                             ri_idmp.key_len,entry) == 0)
                 {
@@ -2398,7 +2400,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                     streamIteratorStop(&si);
                     return 0;
                 }
-                entry = entry->next;
             }
         }
         raxStop(&ri_idmp);
