@@ -2229,13 +2229,13 @@ int rioWriteStreamIdmpEntry(rio *r, robj *key, const char *pid, size_t pid_len, 
  * The function returns 0 on error, 1 on success. */
 int rewriteStreamObject(rio *r, robj *key, robj *o) {
     stream *s = o->ptr;
-    streamIterator si;
-    streamIteratorStart(&si,s,NULL,NULL,0);
     streamID id;
-    int64_t numfields;
 
     if (s->length) {
         /* Reconstruct the stream data using XADD commands. */
+        streamIterator si;
+        int64_t numfields;
+        streamIteratorStart(&si,s,NULL,NULL,0);
         while(streamIteratorGetID(&si,&id,&numfields)) {
             /* Emit a two elements array for each item. The first is
              * the ID, the second is an array of field-value pairs. */
@@ -2261,6 +2261,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 }
             }
         }
+        streamIteratorStop(&si);
     } else {
         /* Use the XADD MAXLEN 0 trick to generate an empty stream if
          * the key we are serializing is an empty string, which is possible
@@ -2275,7 +2276,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             !rioWriteBulkString(r,"x",1) ||
             !rioWriteBulkString(r,"y",1))
         {
-            streamIteratorStop(&si);
             return 0;     
         }
     }
@@ -2291,10 +2291,8 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         !rioWriteBulkString(r,"MAXDELETEDID",12) ||
         !rioWriteBulkStreamID(r,&s->max_deleted_entry_id)) 
     {
-        streamIteratorStop(&si);
         return 0; 
     }
-
 
     /* Create all the stream consumer groups. */
     if (s->cgroups) {
@@ -2314,7 +2312,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkLongLong(r,group->entries_read))
             {
                 raxStop(&ri);
-                streamIteratorStop(&si);
                 return 0;
             }
 
@@ -2333,7 +2330,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                     {
                         raxStop(&ri_cons);
                         raxStop(&ri);
-                        streamIteratorStop(&si);
                         return 0;
                     }
                     continue;
@@ -2352,7 +2348,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                         raxStop(&ri_pel);
                         raxStop(&ri_cons);
                         raxStop(&ri);
-                        streamIteratorStop(&si);
                         return 0;
                     }
                 }
@@ -2363,7 +2358,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         raxStop(&ri);
     }
 
-    streamIteratorStop(&si);
     /* Emit XCFGSET to restore per-stream IDMP configuration if it differs
      * from the server defaults, so that AOF rewrite preserves custom settings. */
     if (s->idmp_duration != (uint64_t)server.stream_idmp_duration ||
@@ -2387,9 +2381,9 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
      * cause AOF replay errors. */
     if (s->idmp_producers) {
         raxIterator ri_idmp;
-        raxStart(&ri_idmp, s->idmp_producers);
-        raxSeek(&ri_idmp, "^", NULL, 0);
-        while (raxNext(&ri_idmp)) {
+        raxStart(&ri_idmp,s->idmp_producers);
+        raxSeek(&ri_idmp,"^",NULL,0);
+        while(raxNext(&ri_idmp)) {
             idmpProducer *producer = ri_idmp.data;
             for (idmpEntry *entry = producer->idmp_head; entry != NULL; entry = entry->next) {
                 if (!streamEntryExists(s, &entry->id)) continue;
