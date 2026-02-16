@@ -2363,6 +2363,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         raxStop(&ri);
     }
 
+    streamIteratorStop(&si);
     /* Emit XCFGSET to restore per-stream IDMP configuration if it differs
      * from the server defaults, so that AOF rewrite preserves custom settings. */
     if (s->idmp_duration != (uint64_t)server.stream_idmp_duration ||
@@ -2376,7 +2377,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             !rioWriteBulkString(r,"IDMP-MAXSIZE",12) ||
             !rioWriteBulkLongLong(r,s->idmp_max_entries))
         {
-            streamIteratorStop(&si);
             return 0;
         }
     }
@@ -2397,7 +2397,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                                             ri_idmp.key_len,entry) == 0)
                 {
                     raxStop(&ri_idmp);
-                    streamIteratorStop(&si);
                     return 0;
                 }
             }
@@ -2405,7 +2404,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         raxStop(&ri_idmp);
     }
 
-    streamIteratorStop(&si);
     return 1;
 }
 
