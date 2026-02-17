@@ -3,17 +3,18 @@
         "summary": "An internal command for setting IDMP metadata on an existing stream message.",
         "complexity": "O(N) where N is the number of entries inside the stream node that contains the target message",
         "group": "stream",
-        "since": "8.6.0",
+        "since": "8.6.1",
         "arity": 5,
         "function": "xidmprecordCommand",
         "history": [
             [
-                "8.6.0",
+                "8.6.1",
                 "Added the command."
             ]
         ],
         "command_flags": [
             "WRITE",
+            "DENYOOM",
             "FAST"
         ],
         "acl_categories": [
