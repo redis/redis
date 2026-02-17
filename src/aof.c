@@ -2197,60 +2197,26 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
     return 1;
 }
 
-/* Helper for rewriteStreamObject(): emit an XCLAIM followed by XNACK to
- * reconstruct a NACKed (unowned) PEL entry. We first XCLAIM it to a
- * temporary consumer "__xnack_aof_rewrite__" with RETRYCOUNT set to
- * delivery_count, then XNACK it with FAIL mode (preserving count).
- * The temporary consumer is later deleted. */
+/* Helper for rewriteStreamObject(): emit XNACK FORCE to reconstruct a
+ * NACKed (unowned) PEL entry. RETRYCOUNT preserves the delivery_count. */
 int rioWriteStreamNackedEntry(rio *r, robj *key, const char *groupname,
                               size_t groupname_len, unsigned char *rawid,
                               streamNACK *nack) {
     streamID id;
     streamDecodeID(rawid, &id);
-    const char *tmp_consumer = "__xnack_aof_rewrite__";
-    size_t tmp_consumer_len = 21;
 
-    /* XCLAIM <key> <group> <tmp_consumer> 0 <id> TIME 0 RETRYCOUNT <count> JUSTID FORCE */
-    if (rioWriteBulkCount(r,'*',12) == 0) return 0;
-    if (rioWriteBulkString(r,"XCLAIM",6) == 0) return 0;
-    if (rioWriteBulkObject(r,key) == 0) return 0;
-    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
-    if (rioWriteBulkString(r,tmp_consumer,tmp_consumer_len) == 0) return 0;
-    if (rioWriteBulkString(r,"0",1) == 0) return 0;
-    if (rioWriteBulkStreamID(r,&id) == 0) return 0;
-    if (rioWriteBulkString(r,"TIME",4) == 0) return 0;
-    if (rioWriteBulkLongLong(r,0) == 0) return 0;
-    if (rioWriteBulkString(r,"RETRYCOUNT",10) == 0) return 0;
-    if (rioWriteBulkLongLong(r,nack->delivery_count) == 0) return 0;
-    if (rioWriteBulkString(r,"JUSTID",6) == 0) return 0;
-    if (rioWriteBulkString(r,"FORCE",5) == 0) return 0;
-
-    /* XNACK <key> <group> <tmp_consumer> FAIL IDS 1 <id> */
-    if (rioWriteBulkCount(r,'*',8) == 0) return 0;
+    /* XNACK <key> <group> FAIL IDS 1 <id> RETRYCOUNT <count> FORCE */
+    if (rioWriteBulkCount(r,'*',10) == 0) return 0;
     if (rioWriteBulkString(r,"XNACK",5) == 0) return 0;
     if (rioWriteBulkObject(r,key) == 0) return 0;
     if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
-    if (rioWriteBulkString(r,tmp_consumer,tmp_consumer_len) == 0) return 0;
     if (rioWriteBulkString(r,"FAIL",4) == 0) return 0;
     if (rioWriteBulkString(r,"IDS",3) == 0) return 0;
     if (rioWriteBulkString(r,"1",1) == 0) return 0;
     if (rioWriteBulkStreamID(r,&id) == 0) return 0;
-    return 1;
-}
-
-/* Helper for rewriteStreamObject(): emit XGROUP DELCONSUMER to remove the
- * temporary consumer created for XNACK AOF rewriting. */
-int rioWriteStreamDelTempConsumer(rio *r, robj *key, const char *groupname,
-                                  size_t groupname_len) {
-    const char *tmp_consumer = "__xnack_aof_rewrite__";
-    size_t tmp_consumer_len = 21;
-    /* XGROUP DELCONSUMER <key> <group> <tmp_consumer> */
-    if (rioWriteBulkCount(r,'*',5) == 0) return 0;
-    if (rioWriteBulkString(r,"XGROUP",6) == 0) return 0;
-    if (rioWriteBulkString(r,"DELCONSUMER",11) == 0) return 0;
-    if (rioWriteBulkObject(r,key) == 0) return 0;
-    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
-    if (rioWriteBulkString(r,tmp_consumer,tmp_consumer_len) == 0) return 0;
+    if (rioWriteBulkString(r,"RETRYCOUNT",10) == 0) return 0;
+    if (rioWriteBulkLongLong(r,nack->delivery_count) == 0) return 0;
+    if (rioWriteBulkString(r,"FORCE",5) == 0) return 0;
     return 1;
 }
 
@@ -2403,17 +2369,15 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             }
             raxStop(&ri_cons);
 
-            /* Emit XCLAIM+XNACK pairs for NACKed (unowned) entries in
-             * the group PEL. These entries have consumer == NULL and are
-             * not referenced from any consumer's PEL. */
-            int has_nacked = 0;
+            /* Emit XNACK FORCE for NACKed (unowned) entries in the group
+             * PEL. These entries have consumer == NULL and are not
+             * referenced from any consumer's PEL. */
             raxIterator ri_gpel;
             raxStart(&ri_gpel, group->pel);
             raxSeek(&ri_gpel, "^", NULL, 0);
             while (raxNext(&ri_gpel)) {
                 streamNACK *nack = ri_gpel.data;
                 if (nack->consumer != NULL) continue;
-                has_nacked = 1;
                 if (rioWriteStreamNackedEntry(r, key, (char*)ri.key,
                                               ri.key_len, ri_gpel.key,
                                               nack) == 0)
@@ -2425,17 +2389,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 }
             }
             raxStop(&ri_gpel);
-
-            /* Delete the temporary consumer if we created one. */
-            if (has_nacked) {
-                if (rioWriteStreamDelTempConsumer(r, key, (char*)ri.key,
-                                                  ri.key_len) == 0)
-                {
-                    raxStop(&ri);
-                    streamIteratorStop(&si);
-                    return 0;
-                }
-            }
         }
         raxStop(&ri);
     }

@@ -4,7 +4,7 @@
         "complexity": "O(1) for each message ID processed.",
         "group": "stream",
         "since": "8.2.0",
-        "arity": -8,
+        "arity": -7,
         "function": "xnackCommand",
         "command_flags": [
             "WRITE",
@@ -41,10 +41,6 @@
             },
             {
                 "name": "group",
-                "type": "string"
-            },
-            {
-                "name": "consumer",
                 "type": "string"
             },
             {

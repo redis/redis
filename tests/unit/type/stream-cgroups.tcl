@@ -3297,10 +3297,9 @@ start_server {
         assert_error "*wrong number of arguments*" {r XNACK}
         assert_error "*wrong number of arguments*" {r XNACK key}
         assert_error "*wrong number of arguments*" {r XNACK key group}
-        assert_error "*wrong number of arguments*" {r XNACK key group consumer}
-        assert_error "*wrong number of arguments*" {r XNACK key group consumer SILENT}
-        assert_error "*wrong number of arguments*" {r XNACK key group consumer SILENT IDS}
-        assert_error "*wrong number of arguments*" {r XNACK key group consumer SILENT IDS 1}
+        assert_error "*wrong number of arguments*" {r XNACK key group SILENT}
+        assert_error "*wrong number of arguments*" {r XNACK key group SILENT IDS}
+        assert_error "*wrong number of arguments*" {r XNACK key group SILENT IDS 1}
     }
 
     test {XNACK mode validation} {
@@ -3308,7 +3307,7 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_error "*XNACK mode must be SILENT, FAIL, or FATAL*" {r XNACK mystream grp c1 BADMODE IDS 1 1-0}
+        assert_error "*XNACK mode must be SILENT, FAIL, or FATAL*" {r XNACK mystream grp BADMODE IDS 1 1-0}
     }
 
     test {XNACK IDS keyword validation} {
@@ -3316,7 +3315,7 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp c1 SILENT NOTIDS 1 1-0}
+        assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
     }
 
     test {XNACK numids validation} {
@@ -3324,27 +3323,19 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_error "*numids must be positive*" {r XNACK mystream grp c1 SILENT IDS 0 1-0}
-        assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp c1 SILENT IDS 2 1-0}
+        assert_error "*numids must be positive*" {r XNACK mystream grp SILENT IDS 0 1-0}
+        assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
     }
 
     test {XNACK on non-existent key returns 0} {
         r DEL nosuchkey
-        assert_equal 0 [r XNACK nosuchkey grp c1 SILENT IDS 1 1-0]
+        assert_equal 0 [r XNACK nosuchkey grp SILENT IDS 1 1-0]
     }
 
     test {XNACK on non-existent group returns 0} {
         r DEL mystream
         r XADD mystream 1-0 f v
-        assert_equal 0 [r XNACK mystream nogroup c1 SILENT IDS 1 1-0]
-    }
-
-    test {XNACK on non-existent consumer returns 0} {
-        r DEL mystream
-        r XADD mystream 1-0 f v
-        r XGROUP CREATE mystream grp 0
-        r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_equal 0 [r XNACK mystream grp noconsumer SILENT IDS 1 1-0]
+        assert_equal 0 [r XNACK mystream nogroup SILENT IDS 1 1-0]
     }
 
     test {XNACK SILENT mode decrements delivery_count} {
@@ -3358,7 +3349,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 1
 
         # XNACK with SILENT should decrement to 0
-        assert_equal 1 [r XNACK mystream grp c1 SILENT IDS 1 1-0]
+        assert_equal 1 [r XNACK mystream grp SILENT IDS 1 1-0]
 
         # Entry should still be in group PEL but with empty consumer and count 0
         set pending [r XPENDING mystream grp - + 10]
@@ -3376,7 +3367,7 @@ start_server {
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 3] 1
 
-        assert_equal 1 [r XNACK mystream grp c1 FAIL IDS 1 1-0]
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0]
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
@@ -3390,7 +3381,7 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        assert_equal 1 [r XNACK mystream grp c1 FATAL IDS 1 1-0]
+        assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0]
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
@@ -3399,7 +3390,7 @@ start_server {
         assert_equal [lindex $pending 0 3] -1
     }
 
-    test {XNACK skips IDs not owned by specified consumer} {
+    test {XNACK releases entries regardless of owning consumer} {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3408,11 +3399,17 @@ start_server {
         r XREADGROUP GROUP grp c1 COUNT 1 STREAMS mystream >
         r XREADGROUP GROUP grp c2 COUNT 1 STREAMS mystream >
 
-        # Trying to XNACK 2-0 as c1 should fail (belongs to c2)
-        assert_equal 0 [r XNACK mystream grp c1 FAIL IDS 1 2-0]
+        # XNACK 2-0 (owned by c2) should succeed
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 2-0]
 
-        # Trying to XNACK 1-0 as c1 should succeed
-        assert_equal 1 [r XNACK mystream grp c1 FAIL IDS 1 1-0]
+        # XNACK 1-0 (owned by c1) should succeed
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0]
+
+        # Both entries should now be unowned
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending] 2
+        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 1 1] {}
     }
 
     test {XNACK skips IDs not in group PEL} {
@@ -3421,8 +3418,8 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        # 9-9 is not in the PEL
-        assert_equal 0 [r XNACK mystream grp c1 FAIL IDS 1 9-9]
+        # 9-9 is not in the PEL (and no FORCE, so skip)
+        assert_equal 0 [r XNACK mystream grp FAIL IDS 1 9-9]
     }
 
     test {XNACK multiple IDs at once} {
@@ -3433,7 +3430,7 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        assert_equal 3 [r XNACK mystream grp c1 SILENT IDS 3 1-0 2-0 3-0]
+        assert_equal 3 [r XNACK mystream grp SILENT IDS 3 1-0 2-0 3-0]
 
         # All three should be in group PEL with empty consumer
         set pending [r XPENDING mystream grp - + 10]
@@ -3455,7 +3452,7 @@ start_server {
         assert_equal [llength $c1_pending] 2
 
         # XNACK 1-0
-        r XNACK mystream grp c1 FAIL IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 1-0
 
         # c1 should now have only 1 pending entry
         set c1_pending [r XPENDING mystream grp - + 10 c1]
@@ -3470,7 +3467,7 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # XNACK the entry
-        r XNACK mystream grp c1 FAIL IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 1-0
 
         # XCLAIM it as c2 with min-idle-time 0 (NACKed entries have delivery_time=0)
         set claimed [r XCLAIM mystream grp c2 0 1-0]
@@ -3490,7 +3487,7 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # XNACK the entry
-        r XNACK mystream grp c1 FAIL IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 1-0
 
         # XAUTOCLAIM with min-idle-time 0 should claim NACKed entries
         set result [r XAUTOCLAIM mystream grp c2 0 0-0]
@@ -3511,7 +3508,7 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # XNACK the entry
-        r XNACK mystream grp c1 FAIL IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 1-0
 
         after 10
 
@@ -3531,7 +3528,7 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # XNACK the entry
-        r XNACK mystream grp c1 FAIL IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 1-0
 
         # XACK should still remove it from the group PEL
         assert_equal 1 [r XACK mystream grp 1-0]
@@ -3550,8 +3547,8 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # XNACK 2-0 first, then 3-0
-        r XNACK mystream grp c1 FAIL IDS 1 2-0
-        r XNACK mystream grp c1 FAIL IDS 1 3-0
+        r XNACK mystream grp FAIL IDS 1 2-0
+        r XNACK mystream grp FAIL IDS 1 3-0
 
         # Both NACKed entries should be at head of PEL (FIFO among NACKed)
         # When reclaimed via XAUTOCLAIM, NACKed entries (delivery_time=0)
@@ -3575,14 +3572,14 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # delivery_count is 1
-        r XNACK mystream grp c1 SILENT IDS 1 1-0
+        r XNACK mystream grp SILENT IDS 1 1-0
         # delivery_count should be 0 now (decremented from 1)
 
         # Reclaim to check count
         r XCLAIM mystream grp c2 0 1-0 RETRYCOUNT 0
 
         # XNACK again with SILENT - should not go below 0
-        r XNACK mystream grp c2 SILENT IDS 1 1-0
+        r XNACK mystream grp SILENT IDS 1 1-0
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 3] 0
     }
@@ -3594,7 +3591,7 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        r XNACK mystream grp c1 FAIL IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 1-0
 
         # Summary form
         set info [r XPENDING mystream grp]
@@ -3624,7 +3621,7 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         # XNACK 1-0 and 2-0
-        r XNACK mystream grp c1 FAIL IDS 2 1-0 2-0
+        r XNACK mystream grp FAIL IDS 2 1-0 2-0
 
         # Save and reload
         r SAVE
@@ -3656,7 +3653,7 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        r XNACK mystream grp c1 FATAL IDS 1 1-0
+        r XNACK mystream grp FATAL IDS 1 1-0
 
         r SAVE
         r DEBUG RELOAD
@@ -3677,8 +3674,8 @@ start_server {
             r XREADGROUP GROUP grp c1 STREAMS mystream >
 
             # XNACK 1-0 (SILENT) and 3-0 (FAIL), keep 2-0 owned by c1
-            r XNACK mystream grp c1 SILENT IDS 1 1-0
-            r XNACK mystream grp c1 FAIL IDS 1 3-0
+            r XNACK mystream grp SILENT IDS 1 1-0
+            r XNACK mystream grp FAIL IDS 1 3-0
 
             # Verify state before rewrite
             set pending_before [r XPENDING mystream grp - + 10]
@@ -3714,12 +3711,6 @@ start_server {
             assert_equal [lindex $pending_after 2 0] 3-0
             assert_equal [lindex $pending_after 2 1] {}
             assert_equal [lindex $pending_after 2 3] 1
-
-            # Verify temp consumer was cleaned up
-            set consumers [r XINFO CONSUMERS mystream grp]
-            foreach consumer_info $consumers {
-                assert {[dict get $consumer_info name] ne "__xnack_aof_rewrite__"}
-            }
 
             # Verify NACKed entries can still be claimed after reload
             set claimed [r XCLAIM mystream grp c2 0 1-0 3-0]

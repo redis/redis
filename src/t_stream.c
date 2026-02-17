@@ -3694,69 +3694,83 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Propagate XNACK to AOF and replicas. The command is propagated as-is since
- * XCLAIM cannot represent unowned entries (consumer = NULL). */
+/* Propagate XNACK to AOF and replicas.
+ * When retrycount >= 0, RETRYCOUNT <n> is appended.
+ * When force is set, FORCE is appended. */
 static void streamPropagateXNACK(client *c, robj *key, robj *groupname,
-                                  robj *consumername, const char *mode,
-                                  streamID *ids, int count) {
-    /* XNACK <key> <group> <consumer> <mode> IDS <numids> <id> [<id> ...] */
-    int argc = 7 + count;
+                                  const char *mode, streamID *ids, int count,
+                                  long long retrycount, int force) {
+    /* XNACK <key> <group> <mode> IDS <numids> <id>...
+     *   [RETRYCOUNT <n>] [FORCE] */
+    int extra = 0;
+    if (retrycount >= 0) extra += 2;
+    if (force) extra += 1;
+    int argc = 6 + count + extra;
     robj **argv = zmalloc(sizeof(robj*)*argc);
     argv[0] = shared.xnack;
     argv[1] = key;
     argv[2] = groupname;
-    argv[3] = consumername;
-    argv[4] = createStringObject(mode,strlen(mode));
-    argv[5] = createStringObject("IDS",3);
-    argv[6] = createStringObjectFromLongLong(count);
+    argv[3] = createStringObject(mode,strlen(mode));
+    argv[4] = createStringObject("IDS",3);
+    argv[5] = createStringObjectFromLongLong(count);
+    int idx = 6;
     for (int i = 0; i < count; i++) {
-        argv[7+i] = createObjectFromStreamID(&ids[i]);
+        argv[idx++] = createObjectFromStreamID(&ids[i]);
+    }
+    if (retrycount >= 0) {
+        argv[idx++] = createStringObject("RETRYCOUNT",10);
+        argv[idx++] = createStringObjectFromLongLong(retrycount);
+    }
+    if (force) {
+        argv[idx++] = createStringObject("FORCE",5);
     }
     alsoPropagate(c->db->id,argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
-    decrRefCount(argv[4]);
-    decrRefCount(argv[5]);
-    decrRefCount(argv[6]);
-    for (int i = 0; i < count; i++) {
-        decrRefCount(argv[7+i]);
-    }
+    for (int i = 3; i < argc; i++) decrRefCount(argv[i]);
     zfree(argv);
 }
 
-/* XNACK key group consumer <SILENT | FAIL | FATAL> IDS numids id [id ...]
+/* XNACK key group <SILENT|FAIL|FATAL> IDS numids id [id ...]
+ *       [RETRYCOUNT count] [FORCE]
  *
- * Release claimed messages back to the group's PEL without acknowledging them.
- * NACKed entries are disassociated from their consumer (consumer = NULL) and
+ * Release pending messages back to the group's PEL without acknowledging them.
+ * Entries are disassociated from their consumer (consumer = NULL) and
  * repositioned to the head of the PEL time-ordered list (delivery_time = 0),
  * making them immediately claimable by other consumers.
  *
- * Delivery counter behavior:
+ * Delivery counter behavior (when RETRYCOUNT is not specified):
  *   SILENT: decrement by 1 (undo the delivery increment)
  *   FAIL:   no change (already incremented during delivery)
  *   FATAL:  set to UINT64_MAX
- */
+ *
+ * When RETRYCOUNT is specified it directly sets delivery_count.
+ *
+ * FORCE: create new unowned PEL entries (consumer = NULL) for IDs that
+ *   are not already in the group PEL. Used by AOF rewrite to persist
+ *   unowned PEL entries. */
 void xnackCommand(client *c) {
-    /* Parse mode: SILENT / FAIL / FATAL (argv[4]) */
+    /* Parse mode: SILENT / FAIL / FATAL (argv[3]) */
     int mode;
-    if (!strcasecmp(c->argv[4]->ptr,"SILENT")) {
+    if (!strcasecmp(c->argv[3]->ptr,"SILENT")) {
         mode = XNACK_SILENT;
-    } else if (!strcasecmp(c->argv[4]->ptr,"FAIL")) {
+    } else if (!strcasecmp(c->argv[3]->ptr,"FAIL")) {
         mode = XNACK_FAIL;
-    } else if (!strcasecmp(c->argv[4]->ptr,"FATAL")) {
+    } else if (!strcasecmp(c->argv[3]->ptr,"FATAL")) {
         mode = XNACK_FATAL;
     } else {
         addReplyError(c,"ERR XNACK mode must be SILENT, FAIL, or FATAL");
         return;
     }
 
-    /* Parse IDS keyword at argv[5] and validate argument count.
-     * argv: XNACK(0) key(1) group(2) consumer(3) MODE(4) IDS(5) numids(6) id...(7+) */
-    if (strcasecmp(c->argv[5]->ptr,"IDS") != 0) {
+    /* Parse IDS keyword at argv[4] and validate argument count.
+     * argv: XNACK(0) key(1) group(2) MODE(3) IDS(4) numids(5)
+     *       id...(6+) [RETRYCOUNT count] [FORCE] */
+    if (strcasecmp(c->argv[4]->ptr,"IDS") != 0) {
         addReplyError(c,"ERR syntax error, expected IDS keyword");
         return;
     }
 
     long long numids;
-    if (getLongLongFromObjectOrReply(c,c->argv[6],&numids,NULL) != C_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[5],&numids,NULL) != C_OK)
         return;
 
     if (numids < 1) {
@@ -3764,8 +3778,37 @@ void xnackCommand(client *c) {
         return;
     }
 
-    if (c->argc != 7 + numids) {
+    int ids_end = 6 + (int)numids;
+    if (c->argc < ids_end) {
         addReplyError(c,"ERR number of IDs doesn't match numids");
+        return;
+    }
+
+    /* Parse optional trailing arguments after the IDs.
+     * FORCE and RETRYCOUNT are internal options used only by AOF rewrite
+     * and replication; reject them from regular clients. */
+    int force = 0;
+    long long retrycount = -1;
+    for (int i = ids_end; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr,"FORCE")) {
+            force = 1;
+        } else if (!strcasecmp(c->argv[i]->ptr,"RETRYCOUNT") && i + 1 < c->argc) {
+            i++;
+            if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
+                return;
+            if (retrycount < 0) {
+                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0");
+                return;
+            }
+        } else {
+            addReplyErrorFormat(c,"ERR Unrecognized XNACK option '%s'",
+                                (char *)c->argv[i]->ptr);
+            return;
+        }
+    }
+
+    if ((force || retrycount >= 0) && !mustObeyClient(c)) {
+        addReplyError(c,"ERR FORCE and RETRYCOUNT are internal options used for replication");
         return;
     }
 
@@ -3776,10 +3819,10 @@ void xnackCommand(client *c) {
     if (id_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*id_count);
     for (int j = 0; j < id_count; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[7+j],&ids[j],0,NULL) != C_OK) goto cleanup;
+        if (streamParseStrictIDOrReply(c,c->argv[6+j],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
-    /* Lookup key, stream, group, consumer. */
+    /* Lookup key, stream, group. */
     kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
     if (kv) {
         if (checkType(c,kv,OBJ_STREAM)) goto cleanup;
@@ -3787,9 +3830,8 @@ void xnackCommand(client *c) {
 
     stream *s = kv ? kv->ptr : NULL;
     streamCG *group = s ? streamLookupCG(s,c->argv[2]->ptr) : NULL;
-    streamConsumer *consumer = group ? streamLookupConsumer(group,c->argv[3]->ptr) : NULL;
 
-    if (kv == NULL || group == NULL || consumer == NULL) {
+    if (kv == NULL || group == NULL) {
         addReplyLongLong(c,0);
         goto cleanup;
     }
@@ -3804,45 +3846,67 @@ void xnackCommand(client *c) {
 
         /* Lookup in group PEL. */
         void *result;
-        if (!raxFind(group->pel,buf,sizeof(buf),&result))
+        int found = raxFind(group->pel,buf,sizeof(buf),&result);
+
+        if (found) {
+            streamNACK *nack = result;
+
+            /* Already unowned -- nothing to do. */
+            if (nack->consumer == NULL)
+                continue;
+
+            /* Remove from consumer's PEL and disassociate. */
+            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            nack->consumer = NULL;
+
+            /* Adjust delivery_count: RETRYCOUNT overrides, else mode. */
+            if (retrycount >= 0) {
+                nack->delivery_count = (uint64_t)retrycount;
+            } else {
+                switch (mode) {
+                case XNACK_SILENT:
+                    if (nack->delivery_count > 0)
+                        nack->delivery_count--;
+                    break;
+                case XNACK_FAIL:
+                    break;
+                case XNACK_FATAL:
+                    nack->delivery_count = UINT64_MAX;
+                    break;
+                }
+            }
+
+            /* Move to NACK zone: unlink from current position, insert at
+             * end of NACK zone (head region of PEL). */
+            pelListUnlink(group, nack);
+            pelListInsertNacked(group, nack);
+        } else if (force) {
+            /* FORCE: create new unowned PEL entry directly. */
+            streamNACK *nack = streamCreateNACK(s, NULL, &ids[j]);
+
+            if (retrycount >= 0) {
+                nack->delivery_count = (uint64_t)retrycount;
+            } else {
+                nack->delivery_count = 0;
+                if (mode == XNACK_FATAL)
+                    nack->delivery_count = UINT64_MAX;
+            }
+
+            raxInsert(group->pel, buf, sizeof(buf), nack, NULL);
+            pelListInsertNacked(group, nack);
+            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
+        } else {
             continue;
-
-        streamNACK *nack = result;
-
-        /* Verify the entry belongs to the specified consumer. */
-        if (nack->consumer != consumer)
-            continue;
-
-        /* Remove from consumer's PEL and disassociate. */
-        raxRemove(consumer->pel,buf,sizeof(buf),NULL);
-        nack->consumer = NULL;
-
-        /* Adjust delivery_count based on mode. */
-        switch (mode) {
-        case XNACK_SILENT:
-            if (nack->delivery_count > 0)
-                nack->delivery_count--;
-            break;
-        case XNACK_FAIL:
-            /* No change. */
-            break;
-        case XNACK_FATAL:
-            nack->delivery_count = UINT64_MAX;
-            break;
         }
-
-        /* Move to NACK zone: unlink from current position, insert at
-         * end of NACK zone (head region of PEL). */
-        pelListUnlink(group, nack);
-        pelListInsertNacked(group, nack);
 
         nacked_ids[nacked] = ids[j];
         nacked++;
     }
 
     if (nacked > 0) {
-        streamPropagateXNACK(c,c->argv[1],c->argv[2],c->argv[3],
-                             (char *)c->argv[4]->ptr,nacked_ids,nacked);
+        streamPropagateXNACK(c,c->argv[1],c->argv[2],
+                             (char *)c->argv[3]->ptr,nacked_ids,nacked,
+                             retrycount,force);
         server.dirty += nacked;
         keyModified(c,c->db,c->argv[1],kv,0);
     }
