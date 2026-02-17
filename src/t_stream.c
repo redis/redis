@@ -59,6 +59,7 @@ static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
 static void pelListUnlink(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
+/* pelListInsertNacked is declared in stream.h (non-static, used by RDB) */
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -758,6 +759,10 @@ typedef struct {
 #define DELETE_STRATEGY_KEEPREF 1   /* Delete and keep references */
 #define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
 #define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
+
+#define XNACK_SILENT 0
+#define XNACK_FAIL   1
+#define XNACK_FATAL  2
 
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
@@ -2019,7 +2024,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 if (nack->consumer != consumer) {
                     unsigned char buf[sizeof(streamID)];
                     streamEncodeID(buf, &nack->id);
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    if (nack->consumer)
+                        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
@@ -2161,7 +2167,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 nack = result;
                 /* Only transfer between consumers if they're different */
                 if (nack->consumer != consumer) {
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    if (nack->consumer)
+                        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
@@ -3088,7 +3095,8 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         /* Remove from group and consumer PELs */
         pelListUnlink(group, nack);
         raxRemove(group->pel, buf, sizeof(buf), NULL);
-        raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
+        if (nack->consumer)
+            raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(s, nack);
@@ -3221,6 +3229,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->pel = raxNewWithMetadata(0, &s->alloc_size);
     cg->pel_time_head = NULL;
     cg->pel_time_tail = NULL;
+    cg->pel_nack_tail = NULL;
     cg->consumers = raxNewWithMetadata(0, &s->alloc_size);
     cg->last_id.ms = 0;
     cg->last_id.seq = 0;
@@ -3670,7 +3679,8 @@ void xackCommand(client *c) {
             streamNACK *nack = result;
             pelListUnlink(group, nack);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
-            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
@@ -3680,6 +3690,169 @@ void xackCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     addReplyLongLong(c,acknowledged);
+cleanup:
+    if (ids != static_ids) zfree(ids);
+}
+
+/* Propagate XNACK to AOF and replicas. The command is propagated as-is since
+ * XCLAIM cannot represent unowned entries (consumer = NULL). */
+static void streamPropagateXNACK(client *c, robj *key, robj *groupname,
+                                  robj *consumername, const char *mode,
+                                  streamID *ids, int count) {
+    /* XNACK <key> <group> <consumer> <mode> IDS <numids> <id> [<id> ...] */
+    int argc = 7 + count;
+    robj **argv = zmalloc(sizeof(robj*)*argc);
+    argv[0] = shared.xnack;
+    argv[1] = key;
+    argv[2] = groupname;
+    argv[3] = consumername;
+    argv[4] = createStringObject(mode,strlen(mode));
+    argv[5] = createStringObject("IDS",3);
+    argv[6] = createStringObjectFromLongLong(count);
+    for (int i = 0; i < count; i++) {
+        argv[7+i] = createObjectFromStreamID(&ids[i]);
+    }
+    alsoPropagate(c->db->id,argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
+    decrRefCount(argv[4]);
+    decrRefCount(argv[5]);
+    decrRefCount(argv[6]);
+    for (int i = 0; i < count; i++) {
+        decrRefCount(argv[7+i]);
+    }
+    zfree(argv);
+}
+
+/* XNACK key group consumer <SILENT | FAIL | FATAL> IDS numids id [id ...]
+ *
+ * Release claimed messages back to the group's PEL without acknowledging them.
+ * NACKed entries are disassociated from their consumer (consumer = NULL) and
+ * repositioned to the head of the PEL time-ordered list (delivery_time = 0),
+ * making them immediately claimable by other consumers.
+ *
+ * Delivery counter behavior:
+ *   SILENT: decrement by 1 (undo the delivery increment)
+ *   FAIL:   no change (already incremented during delivery)
+ *   FATAL:  set to UINT64_MAX
+ */
+void xnackCommand(client *c) {
+    /* Parse mode: SILENT / FAIL / FATAL (argv[4]) */
+    int mode;
+    if (!strcasecmp(c->argv[4]->ptr,"SILENT")) {
+        mode = XNACK_SILENT;
+    } else if (!strcasecmp(c->argv[4]->ptr,"FAIL")) {
+        mode = XNACK_FAIL;
+    } else if (!strcasecmp(c->argv[4]->ptr,"FATAL")) {
+        mode = XNACK_FATAL;
+    } else {
+        addReplyError(c,"ERR XNACK mode must be SILENT, FAIL, or FATAL");
+        return;
+    }
+
+    /* Parse IDS keyword at argv[5] and validate argument count.
+     * argv: XNACK(0) key(1) group(2) consumer(3) MODE(4) IDS(5) numids(6) id...(7+) */
+    if (strcasecmp(c->argv[5]->ptr,"IDS") != 0) {
+        addReplyError(c,"ERR syntax error, expected IDS keyword");
+        return;
+    }
+
+    long long numids;
+    if (getLongLongFromObjectOrReply(c,c->argv[6],&numids,NULL) != C_OK)
+        return;
+
+    if (numids < 1) {
+        addReplyError(c,"ERR numids must be positive");
+        return;
+    }
+
+    if (c->argc != 7 + numids) {
+        addReplyError(c,"ERR number of IDs doesn't match numids");
+        return;
+    }
+
+    /* Parse all IDs first (all-or-nothing). */
+    streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
+    streamID *ids = static_ids;
+    int id_count = (int)numids;
+    if (id_count > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*id_count);
+    for (int j = 0; j < id_count; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[7+j],&ids[j],0,NULL) != C_OK) goto cleanup;
+    }
+
+    /* Lookup key, stream, group, consumer. */
+    kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
+    if (kv) {
+        if (checkType(c,kv,OBJ_STREAM)) goto cleanup;
+    }
+
+    stream *s = kv ? kv->ptr : NULL;
+    streamCG *group = s ? streamLookupCG(s,c->argv[2]->ptr) : NULL;
+    streamConsumer *consumer = group ? streamLookupConsumer(group,c->argv[3]->ptr) : NULL;
+
+    if (kv == NULL || group == NULL || consumer == NULL) {
+        addReplyLongLong(c,0);
+        goto cleanup;
+    }
+
+    int nacked = 0;
+    streamID *nacked_ids = zmalloc(sizeof(streamID)*id_count);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+
+    for (int j = 0; j < id_count; j++) {
+        unsigned char buf[sizeof(streamID)];
+        streamEncodeID(buf,&ids[j]);
+
+        /* Lookup in group PEL. */
+        void *result;
+        if (!raxFind(group->pel,buf,sizeof(buf),&result))
+            continue;
+
+        streamNACK *nack = result;
+
+        /* Verify the entry belongs to the specified consumer. */
+        if (nack->consumer != consumer)
+            continue;
+
+        /* Remove from consumer's PEL and disassociate. */
+        raxRemove(consumer->pel,buf,sizeof(buf),NULL);
+        nack->consumer = NULL;
+
+        /* Adjust delivery_count based on mode. */
+        switch (mode) {
+        case XNACK_SILENT:
+            if (nack->delivery_count > 0)
+                nack->delivery_count--;
+            break;
+        case XNACK_FAIL:
+            /* No change. */
+            break;
+        case XNACK_FATAL:
+            nack->delivery_count = UINT64_MAX;
+            break;
+        }
+
+        /* Move to NACK zone: unlink from current position, insert at
+         * end of NACK zone (head region of PEL). */
+        pelListUnlink(group, nack);
+        pelListInsertNacked(group, nack);
+
+        nacked_ids[nacked] = ids[j];
+        nacked++;
+    }
+
+    if (nacked > 0) {
+        streamPropagateXNACK(c,c->argv[1],c->argv[2],c->argv[3],
+                             (char *)c->argv[4]->ptr,nacked_ids,nacked);
+        server.dirty += nacked;
+        keyModified(c,c->db,c->argv[1],kv,0);
+    }
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+
+    addReplyLongLong(c,nacked);
+    preventCommandPropagation(c);
+    zfree(nacked_ids);
+
 cleanup:
     if (ids != static_ids) zfree(ids);
 }
@@ -3746,7 +3919,8 @@ void xackdelCommand(client *c) {
             streamNACK *nack = result;
             pelListUnlink(group, nack);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
-            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(s, nack, buf);
             server.dirty++;
 
@@ -3970,9 +4144,13 @@ void xpendingCommand(client *c) {
             streamDecodeID(ri.key,&id);
             addReplyStreamID(c,&id);
 
-            /* Consumer name. */
-            addReplyBulkCBuffer(c,nack->consumer->name,
-                                sdslen(nack->consumer->name));
+            /* Consumer name (empty string if NACKed / unowned). */
+            if (nack->consumer) {
+                addReplyBulkCBuffer(c,nack->consumer->name,
+                                    sdslen(nack->consumer->name));
+            } else {
+                addReplyBulkCBuffer(c,"",0);
+            }
 
             /* Milliseconds elapsed since last delivery. */
             mstime_t elapsed = now - nack->delivery_time;
@@ -4179,14 +4357,18 @@ void xclaimCommand(client *c) {
         if (!streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
-                /* Propagate this change (we are going to delete the NACK). */
-                streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
-                propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
+                /* Propagate this change (we are going to delete the NACK).
+                 * Only propagate as XCLAIM if the entry has a consumer. */
+                if (nack->consumer) {
+                    streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
+                    propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
+                }
                 server.dirty++;
                 /* Release the NACK */
                 pelListUnlink(group, nack);
                 raxRemove(group->pel,buf,sizeof(buf),NULL);
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                if (nack->consumer)
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 streamDestroyNACK(s, nack, buf);
             }
             continue;
@@ -4378,15 +4560,19 @@ void xautoclaimCommand(client *c) {
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(s,&id)) {
-            /* Propagate this change (we are going to delete the NACK). */
-            robj *idstr = createObjectFromStreamID(&id);
-            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
-            decrRefCount(idstr);
+            /* Propagate this change (we are going to delete the NACK).
+             * Only propagate as XCLAIM if the entry has a consumer. */
+            if (nack->consumer) {
+                robj *idstr = createObjectFromStreamID(&id);
+                streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
+                decrRefCount(idstr);
+            }
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
             pelListUnlink(group, nack);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
-            raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+            if (nack->consumer)
+                raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
             streamDestroyNACK(s, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
@@ -4861,10 +5047,13 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                     streamDecodeID(ri_cg_pel.key,&id);
                     addReplyStreamID(c,&id);
 
-                    /* Consumer name. */
-                    serverAssert(nack->consumer); /* assertion for valgrind (avoid NPD) */
-                    addReplyBulkCBuffer(c,nack->consumer->name,
-                                        sdslen(nack->consumer->name));
+                    /* Consumer name (empty string if NACKed / unowned). */
+                    if (nack->consumer) {
+                        addReplyBulkCBuffer(c,nack->consumer->name,
+                                            sdslen(nack->consumer->name));
+                    } else {
+                        addReplyBulkCBuffer(c,"",0);
+                    }
 
                     /* Last delivery. */
                     addReplyLongLong(c,nack->delivery_time);
@@ -5251,6 +5440,9 @@ static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
 
 /* Unlink a NACK from the PEL time-ordered list. */
 static void pelListUnlink(streamCG *cg, streamNACK *nack) {
+    if (nack == cg->pel_nack_tail) {
+        cg->pel_nack_tail = nack->pel_prev;
+    }
     if (nack->pel_prev) {
         nack->pel_prev->pel_next = nack->pel_next;
     } else {
@@ -5306,6 +5498,33 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
         curr->pel_next->pel_prev = nack;
     }
     curr->pel_next = nack;
+}
+
+/* Insert a NACKed entry at the end of the NACK zone (head region of the PEL
+ * time-ordered list). The NACK zone occupies positions from pel_time_head to
+ * pel_nack_tail. This is O(1) and maintains FIFO order among NACKed entries. */
+void pelListInsertNacked(streamCG *cg, streamNACK *nack) {
+    nack->delivery_time = 0;
+    if (cg->pel_nack_tail) {
+        /* Insert after pel_nack_tail (end of NACK zone). */
+        nack->pel_prev = cg->pel_nack_tail;
+        nack->pel_next = cg->pel_nack_tail->pel_next;
+        if (cg->pel_nack_tail->pel_next)
+            cg->pel_nack_tail->pel_next->pel_prev = nack;
+        else
+            cg->pel_time_tail = nack;
+        cg->pel_nack_tail->pel_next = nack;
+    } else {
+        /* No NACKed entries yet -- insert at head. */
+        nack->pel_prev = NULL;
+        nack->pel_next = cg->pel_time_head;
+        if (cg->pel_time_head)
+            cg->pel_time_head->pel_prev = nack;
+        else
+            cg->pel_time_tail = nack;
+        cg->pel_time_head = nack;
+    }
+    cg->pel_nack_tail = nack;
 }
 
 /* Update a NACK's delivery_time and reposition it in the time-ordered list. */

@@ -712,7 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -1303,6 +1303,25 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
                 /* Save the consumers of this group. */
                 if ((n = rdbSaveStreamConsumers(rdb,cg)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
+
+                /* Save the count of NACKed (unowned) entries in this group's PEL.
+                 * These are entries with consumer == NULL and delivery_time == 0. */
+                uint64_t nacked_count = 0;
+                {
+                    raxIterator ri_pel;
+                    raxStart(&ri_pel, cg->pel);
+                    raxSeek(&ri_pel, "^", NULL, 0);
+                    while (raxNext(&ri_pel)) {
+                        streamNACK *nack = ri_pel.data;
+                        if (nack->consumer == NULL) nacked_count++;
+                    }
+                    raxStop(&ri_pel);
+                }
+                if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
                     raxStop(&ri);
                     return -1;
                 }
@@ -3047,7 +3066,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -3342,21 +3362,67 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             }
 
-            /* Verify that each PEL eventually got a consumer assigned to it. */
-            if (deep_integrity_validation) {
-                raxIterator ri_cg_pel;
-                raxStart(&ri_cg_pel,cgroup->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel)) {
-                    streamNACK *nack = ri_cg_pel.data;
-                    if (!nack->consumer) {
-                        raxStop(&ri_cg_pel);
-                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+            /* For RDB_TYPE_STREAM_LISTPACKS_5 and above, load the nacked_count
+             * and rebuild pel_nack_tail. For older types, verify all PEL entries
+             * have a consumer assigned. */
+            if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_5) {
+                uint64_t nacked_count = rdbLoadLen(rdb, NULL);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream nacked_count loading failed.");
+                    decrRefCount(o);
+                    return NULL;
+                }
+
+                /* Rebuild pel_nack_tail: NACKed entries have consumer == NULL
+                 * and delivery_time == 0 and reside at the head of the PEL
+                 * time-ordered list. Walk from head to find the tail of the
+                 * NACK zone. */
+                uint64_t found_nacked = 0;
+                streamNACK *cur = cgroup->pel_time_head;
+                cgroup->pel_nack_tail = NULL;
+                while (cur && cur->consumer == NULL && cur->delivery_time == 0) {
+                    cgroup->pel_nack_tail = cur;
+                    found_nacked++;
+                    cur = cur->pel_next;
+                }
+
+                if (deep_integrity_validation) {
+                    if (found_nacked != nacked_count) {
+                        rdbReportCorruptRDB("Stream CG nacked_count mismatch: "
+                                            "expected %llu, found %llu",
+                                            (unsigned long long)nacked_count,
+                                            (unsigned long long)found_nacked);
                         decrRefCount(o);
                         return NULL;
                     }
+                    /* Verify remaining entries all have a consumer assigned. */
+                    while (cur) {
+                        if (!cur->consumer) {
+                            rdbReportCorruptRDB("Stream CG PEL entry without "
+                                                "consumer outside NACK zone");
+                            decrRefCount(o);
+                            return NULL;
+                        }
+                        cur = cur->pel_next;
+                    }
                 }
-                raxStop(&ri_cg_pel);
+            } else {
+                /* Old RDB type: verify all PEL entries have consumers. */
+                if (deep_integrity_validation) {
+                    raxIterator ri_cg_pel;
+                    raxStart(&ri_cg_pel,cgroup->pel);
+                    raxSeek(&ri_cg_pel,"^",NULL,0);
+                    while(raxNext(&ri_cg_pel)) {
+                        streamNACK *nack = ri_cg_pel.data;
+                        if (!nack->consumer) {
+                            raxStop(&ri_cg_pel);
+                            rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+                            decrRefCount(o);
+                            return NULL;
+                        }
+                    }
+                    raxStop(&ri_cg_pel);
+                }
             }
         }
 
