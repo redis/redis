@@ -55,9 +55,6 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 
-/* Forward declarations */
-void streamEncodeID(void *buf, streamID *id);
-
 /* Forward declarations for PEL time list functions */
 static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack);
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
