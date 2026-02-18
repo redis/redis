@@ -55,6 +55,9 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 
+/* Forward declarations */
+void streamEncodeID(void *buf, streamID *id);
+
 /* Forward declarations for PEL time list functions */
 static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack);
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
@@ -238,24 +241,19 @@ robj *streamDup(robj *o) {
 
         serverAssert(new_cg != NULL);
 
-        /* Consumer Group PEL */
-        raxIterator ri_cg_pel;
-        raxStart(&ri_cg_pel,cg->pel);
-        raxSeek(&ri_cg_pel,"^",NULL,0);
-        while(raxNext(&ri_cg_pel)){
-            streamNACK *nack = ri_cg_pel.data;
-            streamID nack_id;
-            streamDecodeID(ri_cg_pel.key, &nack_id);
-            streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack_id);
+        /* Consumer Group PEL — walk the time-ordered list so we can
+         * append directly and preserve NACK zone structure. */
+        for (streamNACK *nack = cg->pel_time_head; nack; nack = nack->pel_next) {
+            unsigned char buf[sizeof(streamID)];
+            streamEncodeID(buf, &nack->id);
+            streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack->id);
             new_nack->delivery_time = nack->delivery_time;
             new_nack->delivery_count = nack->delivery_count;
-            new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, ri_cg_pel.key);
-            raxInsert(new_cg->pel, ri_cg_pel.key, sizeof(streamID), new_nack, NULL);
-
-            /* Insert in sorted order to preserve ordering */
-            pelListInsertSorted(new_cg, new_nack);
+            new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, buf);
+            raxInsert(new_cg->pel, buf, sizeof(streamID), new_nack, NULL);
+            pelListInsertAtTail(new_cg, new_nack);
+            if (nack == cg->pel_nack_tail) new_cg->pel_nack_tail = new_nack;
         }
-        raxStop(&ri_cg_pel);
 
         /* Consumers */
         raxIterator ri_consumers;
