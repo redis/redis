@@ -201,6 +201,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
 /* PEL time list management (used by RDB loading) */
 void pelListInsertSorted(streamCG *cg, streamNACK *nack);
+void pelListUnlink(streamCG *cg, streamNACK *nack);
 void pelListInsertNacked(streamCG *cg, streamNACK *nack);
 
 /* IDMP functions */

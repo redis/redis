@@ -1308,8 +1308,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
 
-                /* Save the count of NACKed (unowned) entries in this group's PEL.
-                 * These are entries with consumer == NULL and delivery_time == 0. */
+                /* Save the stream IDs of NACKed (unowned) entries in this
+                 * group's PEL. These are entries with consumer == NULL. We
+                 * first count them, save the count, then save each raw ID. */
                 uint64_t nacked_count = 0;
                 {
                     raxIterator ri_pel;
@@ -1326,6 +1327,25 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
+
+                /* Second pass: save each NACKed entry's stream ID. */
+                {
+                    raxIterator ri_pel;
+                    raxStart(&ri_pel, cg->pel);
+                    raxSeek(&ri_pel, "^", NULL, 0);
+                    while (raxNext(&ri_pel)) {
+                        streamNACK *nack = ri_pel.data;
+                        if (nack->consumer == NULL) {
+                            if ((n = rdbWriteRaw(rdb, ri_pel.key, sizeof(streamID))) == -1) {
+                                raxStop(&ri_pel);
+                                raxStop(&ri);
+                                return -1;
+                            }
+                            nwritten += n;
+                        }
+                    }
+                    raxStop(&ri_pel);
+                }
             }
             raxStop(&ri);
         }
@@ -3362,40 +3382,55 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             }
 
-            /* For RDB_TYPE_STREAM_LISTPACKS_5 and above, load the nacked_count
-             * and rebuild pel_nack_tail. For older types, verify all PEL entries
-             * have a consumer assigned. */
+            /* For RDB_TYPE_STREAM_LISTPACKS_5 and above, load the NACK
+             * zone stream IDs and reconstruct the NACK zone. Entries with
+             * delivery_time == 0 may exist for both nacked and owned PEL
+             * entries, so we cannot rely on a simple walk — we use the
+             * stored IDs to unlink each nacked entry from its sorted
+             * position and re-insert it into the NACK zone. */
             if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_5) {
                 uint64_t nacked_count = rdbLoadLen(rdb, NULL);
                 if (rioGetReadError(rdb)) {
-                    rdbReportReadError("Stream nacked_count loading failed.");
+                    rdbReportReadError("Stream NACK zone count loading failed.");
                     decrRefCount(o);
                     return NULL;
                 }
 
-                /* Rebuild pel_nack_tail: NACKed entries have consumer == NULL
-                 * and delivery_time == 0 and reside at the head of the PEL
-                 * time-ordered list. Walk from head to find the tail of the
-                 * NACK zone. */
-                uint64_t found_nacked = 0;
-                streamNACK *cur = cgroup->pel_time_head;
-                cgroup->pel_nack_tail = NULL;
-                while (cur && cur->consumer == NULL && cur->delivery_time == 0) {
-                    cgroup->pel_nack_tail = cur;
-                    found_nacked++;
-                    cur = cur->pel_next;
-                }
-
-                if (deep_integrity_validation) {
-                    if (found_nacked != nacked_count) {
-                        rdbReportCorruptRDB("Stream CG nacked_count mismatch: "
-                                            "expected %llu, found %llu",
-                                            (unsigned long long)nacked_count,
-                                            (unsigned long long)found_nacked);
+                /* Load each NACKed entry's stream ID, look it up in the
+                 * group PEL, unlink from its current time-list position,
+                 * and re-insert into the NACK zone. */
+                for (uint64_t i = 0; i < nacked_count; i++) {
+                    unsigned char rawid[sizeof(streamID)];
+                    if (rioRead(rdb, rawid, sizeof(rawid)) == 0) {
+                        rdbReportReadError("Stream NACK zone entry ID loading failed.");
                         decrRefCount(o);
                         return NULL;
                     }
-                    /* Verify remaining entries all have a consumer assigned. */
+
+                    void *result;
+                    if (!raxFind(cgroup->pel, rawid, sizeof(rawid), &result)) {
+                        rdbReportCorruptRDB("Stream NACK zone entry not found "
+                                            "in group global PEL");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    streamNACK *nack = result;
+                    if (deep_integrity_validation && nack->consumer != NULL) {
+                        rdbReportCorruptRDB("Stream NACK zone entry has a "
+                                            "consumer assigned");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    pelListUnlink(cgroup, nack);
+                    pelListInsertNacked(cgroup, nack);
+                }
+
+                if (deep_integrity_validation) {
+                    /* Verify entries outside the NACK zone all have a
+                     * consumer assigned. */
+                    streamNACK *cur = cgroup->pel_nack_tail ?
+                                     cgroup->pel_nack_tail->pel_next :
+                                     cgroup->pel_time_head;
                     while (cur) {
                         if (!cur->consumer) {
                             rdbReportCorruptRDB("Stream CG PEL entry without "

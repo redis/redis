@@ -58,7 +58,6 @@ static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 /* Forward declarations for PEL time list functions */
 static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack);
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
-static void pelListUnlink(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
 
 /* -----------------------------------------------------------------------
@@ -5486,7 +5485,7 @@ static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
 }
 
 /* Unlink a NACK from the PEL time-ordered list. */
-static void pelListUnlink(streamCG *cg, streamNACK *nack) {
+void pelListUnlink(streamCG *cg, streamNACK *nack) {
     if (nack == cg->pel_nack_tail) {
         cg->pel_nack_tail = nack->pel_prev;
     }
