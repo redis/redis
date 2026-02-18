@@ -4742,6 +4742,8 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
         }
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
+        if (curlen != newlen)
+            updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_STRING, curlen, newlen);
     }
     return REDISMODULE_OK;
 }
