@@ -3,7 +3,7 @@
         "summary": "Releases claimed messages back to the group's PEL without acknowledging them, making them available for re-delivery.",
         "complexity": "O(1) for each message ID processed.",
         "group": "stream",
-        "since": "8.2.0",
+        "since": "8.8.0",
         "arity": -7,
         "function": "xnackCommand",
         "command_flags": [
@@ -79,6 +79,18 @@
                         "multiple": true
                     }
                 ]
+            },
+            {
+                "name": "retrycount",
+                "token": "RETRYCOUNT",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "force",
+                "type": "pure-token",
+                "token": "FORCE",
+                "optional": true
             }
         ],
         "reply_schema": {

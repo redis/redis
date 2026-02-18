@@ -2207,6 +2207,7 @@ void createSharedObjects(void) {
     shared.srem = createStringObject("SREM",4);
     shared.xgroup = createStringObject("XGROUP",6);
     shared.xclaim = createStringObject("XCLAIM",6);
+    shared.xack = createStringObject("XACK",4);
     shared.xnack = createStringObject("XNACK",5);
     shared.script = createStringObject("SCRIPT",6);
     shared.replconf = createStringObject("REPLCONF",8);

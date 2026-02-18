@@ -3742,11 +3742,13 @@ static void streamPropagateXNACK(client *c, robj *key, robj *groupname,
  *   FAIL:   no change (already incremented during delivery)
  *   FATAL:  set to UINT64_MAX
  *
- * When RETRYCOUNT is specified it directly sets delivery_count.
+ * RETRYCOUNT count: directly sets delivery_count to the specified value,
+ *   overriding the mode-based adjustment.
  *
  * FORCE: create new unowned PEL entries (consumer = NULL) for IDs that
- *   are not already in the group PEL. Used by AOF rewrite to persist
- *   unowned PEL entries. */
+ *   are not already in the group PEL. When FORCE creates an entry, the
+ *   delivery counter is set to 0 (or to RETRYCOUNT if specified, or to
+ *   UINT64_MAX if mode is FATAL). */
 void xnackCommand(client *c) {
     /* Parse mode: SILENT / FAIL / FATAL (argv[3]) */
     int mode;
@@ -3784,9 +3786,7 @@ void xnackCommand(client *c) {
         return;
     }
 
-    /* Parse optional trailing arguments after the IDs.
-     * FORCE and RETRYCOUNT are internal options used only by AOF rewrite
-     * and replication; reject them from regular clients. */
+    /* Parse optional trailing arguments after the IDs. */
     int force = 0;
     long long retrycount = -1;
     for (int i = ids_end; i < c->argc; i++) {
@@ -3805,11 +3805,6 @@ void xnackCommand(client *c) {
                                 (char *)c->argv[i]->ptr);
             return;
         }
-    }
-
-    if ((force || retrycount >= 0) && !mustObeyClient(c)) {
-        addReplyError(c,"ERR FORCE and RETRYCOUNT are internal options used for replication");
-        return;
     }
 
     /* Parse all IDs first (all-or-nothing). */
@@ -4421,11 +4416,17 @@ void xclaimCommand(client *c) {
         if (!streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
-                /* Propagate this change (we are going to delete the NACK).
-                 * Only propagate as XCLAIM if the entry has a consumer. */
+                /* Propagate this change (we are going to delete the NACK). */
                 if (nack->consumer) {
                     streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                     propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
+                } else {
+                    robj *ack_argv[4];
+                    ack_argv[0] = shared.xack;
+                    ack_argv[1] = c->argv[1];
+                    ack_argv[2] = c->argv[2];
+                    ack_argv[3] = c->argv[j];
+                    alsoPropagate(c->db->id,ack_argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
                 }
                 server.dirty++;
                 /* Release the NACK */
@@ -4624,11 +4625,19 @@ void xautoclaimCommand(client *c) {
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(s,&id)) {
-            /* Propagate this change (we are going to delete the NACK).
-             * Only propagate as XCLAIM if the entry has a consumer. */
+            /* Propagate this change (we are going to delete the NACK). */
             if (nack->consumer) {
                 robj *idstr = createObjectFromStreamID(&id);
                 streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
+                decrRefCount(idstr);
+            } else {
+                robj *idstr = createObjectFromStreamID(&id);
+                robj *ack_argv[4];
+                ack_argv[0] = shared.xack;
+                ack_argv[1] = c->argv[1];
+                ack_argv[2] = c->argv[2];
+                ack_argv[3] = idstr;
+                alsoPropagate(c->db->id,ack_argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
                 decrRefCount(idstr);
             }
             server.dirty++;
