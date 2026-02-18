@@ -10,7 +10,7 @@ jobs:
   test-external-standalone:
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule' || github.repository == 'redis/redis'
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - uses: actions/checkout@v4
     - name: Build
@@ -35,7 +35,7 @@ jobs:
   test-external-cluster:
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule' || github.repository == 'redis/redis'
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - uses: actions/checkout@v4
     - name: Build
@@ -63,7 +63,7 @@ jobs:
   test-external-nodebug:
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule' || github.repository == 'redis/redis'
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - name: Build
