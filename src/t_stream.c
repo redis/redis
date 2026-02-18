@@ -3702,7 +3702,7 @@ cleanup:
  * Delivery counter behavior (when RETRYCOUNT is not specified):
  *   SILENT: decrement by 1 (undo the delivery increment)
  *   FAIL:   no change (already incremented during delivery)
- *   FATAL:  set to UINT64_MAX
+ *   FATAL:  set to UINT32_MAX
  *
  * RETRYCOUNT count: directly sets delivery_count to the specified value,
  *   overriding the mode-based adjustment.
@@ -3710,7 +3710,7 @@ cleanup:
  * FORCE: create new unowned PEL entries (consumer = NULL) for IDs that
  *   are not already in the group PEL. When FORCE creates an entry, the
  *   delivery counter is set to 0 (or to RETRYCOUNT if specified, or to
- *   UINT64_MAX if mode is FATAL). */
+ *   UINT32_MAX if mode is FATAL). */
 void xnackCommand(client *c) {
     /* Parse mode: SILENT / FAIL / FATAL (argv[3]) */
     int mode;
@@ -3828,7 +3828,7 @@ void xnackCommand(client *c) {
                 case XNACK_FAIL:
                     break;
                 case XNACK_FATAL:
-                    nack->delivery_count = UINT64_MAX;
+                    nack->delivery_count = UINT32_MAX;
                     break;
                 }
             }
@@ -3846,7 +3846,7 @@ void xnackCommand(client *c) {
             } else {
                 nack->delivery_count = 0;
                 if (mode == XNACK_FATAL)
-                    nack->delivery_count = UINT64_MAX;
+                    nack->delivery_count = UINT32_MAX;
             }
 
             raxInsert(group->pel, buf, sizeof(buf), nack, NULL);
