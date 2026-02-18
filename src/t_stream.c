@@ -56,10 +56,10 @@ static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 
 /* Forward declarations for PEL time list functions */
+static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack);
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
 static void pelListUnlink(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
-/* pelListInsertNacked is declared in stream.h (non-static, used by RDB) */
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -3694,41 +3694,6 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Propagate XNACK to AOF and replicas.
- * When retrycount >= 0, RETRYCOUNT <n> is appended.
- * When force is set, FORCE is appended. */
-static void streamPropagateXNACK(client *c, robj *key, robj *groupname,
-                                  const char *mode, streamID *ids, int count,
-                                  long long retrycount, int force) {
-    /* XNACK <key> <group> <mode> IDS <numids> <id>...
-     *   [RETRYCOUNT <n>] [FORCE] */
-    int extra = 0;
-    if (retrycount >= 0) extra += 2;
-    if (force) extra += 1;
-    int argc = 6 + count + extra;
-    robj **argv = zmalloc(sizeof(robj*)*argc);
-    argv[0] = shared.xnack;
-    argv[1] = key;
-    argv[2] = groupname;
-    argv[3] = createStringObject(mode,strlen(mode));
-    argv[4] = createStringObject("IDS",3);
-    argv[5] = createStringObjectFromLongLong(count);
-    int idx = 6;
-    for (int i = 0; i < count; i++) {
-        argv[idx++] = createObjectFromStreamID(&ids[i]);
-    }
-    if (retrycount >= 0) {
-        argv[idx++] = createStringObject("RETRYCOUNT",10);
-        argv[idx++] = createStringObjectFromLongLong(retrycount);
-    }
-    if (force) {
-        argv[idx++] = createStringObject("FORCE",5);
-    }
-    alsoPropagate(c->db->id,argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
-    for (int i = 3; i < argc; i++) decrRefCount(argv[i]);
-    zfree(argv);
-}
-
 /* XNACK key group <SILENT|FAIL|FATAL> IDS numids id [id ...]
  *       [RETRYCOUNT count] [FORCE]
  *
@@ -3780,11 +3745,12 @@ void xnackCommand(client *c) {
         return;
     }
 
-    int ids_end = 6 + (int)numids;
-    if (c->argc < ids_end) {
+    if (numids > (c->argc - 6)) {
         addReplyError(c,"ERR number of IDs doesn't match numids");
         return;
     }
+
+    int ids_end = 6 + (int)numids;
 
     /* Parse optional trailing arguments after the IDs. */
     int force = 0;
@@ -3810,7 +3776,7 @@ void xnackCommand(client *c) {
     /* Parse all IDs first (all-or-nothing). */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
-    int id_count = (int)numids;
+    int id_count = (int)numids; /* safe: validated numids <= c->argc - 6 above */
     if (id_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*id_count);
     for (int j = 0; j < id_count; j++) {
@@ -3832,7 +3798,6 @@ void xnackCommand(client *c) {
     }
 
     int nacked = 0;
-    streamID *nacked_ids = zmalloc(sizeof(streamID)*id_count);
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
 
     for (int j = 0; j < id_count; j++) {
@@ -3894,14 +3859,10 @@ void xnackCommand(client *c) {
             continue;
         }
 
-        nacked_ids[nacked] = ids[j];
         nacked++;
     }
 
     if (nacked > 0) {
-        streamPropagateXNACK(c,c->argv[1],c->argv[2],
-                             (char *)c->argv[3]->ptr,nacked_ids,nacked,
-                             retrycount,force);
         server.dirty += nacked;
         keyModified(c,c->db,c->argv[1],kv,0);
     }
@@ -3909,8 +3870,6 @@ void xnackCommand(client *c) {
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
     addReplyLongLong(c,nacked);
-    preventCommandPropagation(c);
-    zfree(nacked_ids);
 
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -5498,17 +5457,32 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
  * O(1) unlink from any position, O(1) append to tail, O(1) access to oldest
  * entries for CLAIM operations. */
 
+/* Insert nack after 'after' in the time-ordered list.
+ * If after is NULL, insert at the head. */
+static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack) {
+    if (after) {
+        nack->pel_prev = after;
+        nack->pel_next = after->pel_next;
+        if (after->pel_next)
+            after->pel_next->pel_prev = nack;
+        else
+            cg->pel_time_tail = nack;
+        after->pel_next = nack;
+    } else {
+        nack->pel_prev = NULL;
+        nack->pel_next = cg->pel_time_head;
+        if (cg->pel_time_head)
+            cg->pel_time_head->pel_prev = nack;
+        else
+            cg->pel_time_tail = nack;
+        cg->pel_time_head = nack;
+    }
+}
+
 /* Insert a NACK at the tail of the PEL time-ordered list. This is used when
  * delivery_time is set to current time, which is the common case. */
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
-    nack->pel_prev = cg->pel_time_tail;
-    nack->pel_next = NULL;
-    if (cg->pel_time_tail) {
-        cg->pel_time_tail->pel_next = nack;
-    } else {
-        cg->pel_time_head = nack;
-    }
-    cg->pel_time_tail = nack;
+    pelListInsertAfter(cg, cg->pel_time_tail, nack);
 }
 
 /* Unlink a NACK from the PEL time-ordered list. */
@@ -5519,13 +5493,11 @@ static void pelListUnlink(streamCG *cg, streamNACK *nack) {
     if (nack->pel_prev) {
         nack->pel_prev->pel_next = nack->pel_next;
     } else {
-        /* Removing head. */
         cg->pel_time_head = nack->pel_next;
     }
     if (nack->pel_next) {
         nack->pel_next->pel_prev = nack->pel_prev;
     } else {
-        /* Removing tail. */
         cg->pel_time_tail = nack->pel_prev;
     }
     nack->pel_prev = nack->pel_next = NULL;
@@ -5534,43 +5506,27 @@ static void pelListUnlink(streamCG *cg, streamNACK *nack) {
 /* Insert a NACK in sorted order by delivery_time. Used for edge cases where
  * delivery_time is set to a past time, and also by RDB loading where entries
  * may not be time-ordered. We scan backwards from the tail since most times
- * are recent, so the common case is still fast. */
+ * are recent, so the common case is still fast.
+ *
+ * The NACK zone (pel_time_head..pel_nack_tail) is skipped: new entries are
+ * never placed before pel_nack_tail, so the NACK zone stays intact. */
 void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
-    /* Empty list. */
-    if (cg->pel_time_head == NULL) {
-        cg->pel_time_head = cg->pel_time_tail = nack;
-        nack->pel_prev = nack->pel_next = NULL;
-        return;
-    }
-
-    /* Append to tail (common case: delivery_time >= tail time). */
-    if (nack->delivery_time >= cg->pel_time_tail->delivery_time) {
+    /* Empty list or append to tail (common case). */
+    if (cg->pel_time_head == NULL ||
+        nack->delivery_time >= cg->pel_time_tail->delivery_time) {
         pelListInsertAtTail(cg, nack);
         return;
     }
 
-    /* Prepend to head (rare: delivery_time < head time). */
-    if (nack->delivery_time < cg->pel_time_head->delivery_time) {
-        nack->pel_next = cg->pel_time_head;
-        nack->pel_prev = NULL;
-        cg->pel_time_head->pel_prev = nack;
-        cg->pel_time_head = nack;
-        return;
-    }
-
-    /* Insert in middle: scan backwards from tail since most times are recent. */
+    /* Scan backwards from tail to find insertion point.
+     * Stop at the NACK-zone boundary to never place entries inside it. */
+    streamNACK *boundary = cg->pel_nack_tail;
     streamNACK *curr = cg->pel_time_tail;
-    while (curr && curr->delivery_time > nack->delivery_time) {
+    while (curr != boundary && curr->delivery_time > nack->delivery_time) {
         curr = curr->pel_prev;
     }
 
-    /* Insert after curr. */
-    nack->pel_next = curr->pel_next;
-    nack->pel_prev = curr;
-    if (curr->pel_next) {
-        curr->pel_next->pel_prev = nack;
-    }
-    curr->pel_next = nack;
+    pelListInsertAfter(cg, curr, nack);
 }
 
 /* Insert a NACKed entry at the end of the NACK zone (head region of the PEL
@@ -5578,25 +5534,7 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
  * pel_nack_tail. This is O(1) and maintains FIFO order among NACKed entries. */
 void pelListInsertNacked(streamCG *cg, streamNACK *nack) {
     nack->delivery_time = 0;
-    if (cg->pel_nack_tail) {
-        /* Insert after pel_nack_tail (end of NACK zone). */
-        nack->pel_prev = cg->pel_nack_tail;
-        nack->pel_next = cg->pel_nack_tail->pel_next;
-        if (cg->pel_nack_tail->pel_next)
-            cg->pel_nack_tail->pel_next->pel_prev = nack;
-        else
-            cg->pel_time_tail = nack;
-        cg->pel_nack_tail->pel_next = nack;
-    } else {
-        /* No NACKed entries yet -- insert at head. */
-        nack->pel_prev = NULL;
-        nack->pel_next = cg->pel_time_head;
-        if (cg->pel_time_head)
-            cg->pel_time_head->pel_prev = nack;
-        else
-            cg->pel_time_tail = nack;
-        cg->pel_time_head = nack;
-    }
+    pelListInsertAfter(cg, cg->pel_nack_tail, nack);
     cg->pel_nack_tail = nack;
 }
 
