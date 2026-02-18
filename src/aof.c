@@ -2369,26 +2369,23 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             }
             raxStop(&ri_cons);
 
-            /* Emit XNACK FORCE for NACKed (unowned) entries in the group
-             * PEL. These entries have consumer == NULL and are not
-             * referenced from any consumer's PEL. */
-            raxIterator ri_gpel;
-            raxStart(&ri_gpel, group->pel);
-            raxSeek(&ri_gpel, "^", NULL, 0);
-            while (raxNext(&ri_gpel)) {
-                streamNACK *nack = ri_gpel.data;
-                if (nack->consumer != NULL) continue;
+            /* Emit XNACK FORCE for NACKed (unowned) entries from the
+             * NACK zone of the PEL time-ordered list
+             * (pel_time_head..pel_nack_tail). */
+            streamNACK *nack_end = group->pel_nack_tail;
+            streamNACK *nack = group->pel_time_head;
+            for (; nack && nack->pel_prev != nack_end; nack = nack->pel_next) {
+                unsigned char buf[sizeof(streamID)];
+                streamEncodeID(buf, &nack->id);
                 if (rioWriteStreamNackedEntry(r, key, (char*)ri.key,
-                                              ri.key_len, ri_gpel.key,
+                                              ri.key_len, buf,
                                               nack) == 0)
                 {
-                    raxStop(&ri_gpel);
                     raxStop(&ri);
                     streamIteratorStop(&si);
                     return 0;
                 }
             }
-            raxStop(&ri_gpel);
         }
         raxStop(&ri);
     }

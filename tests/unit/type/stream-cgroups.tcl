@@ -3386,8 +3386,8 @@ start_server {
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
         assert_equal [lindex $pending 0 1] {}
-        # UINT64_MAX wraps to -1 as signed long long in RESP
-        assert_equal [lindex $pending 0 3] -1
+        # UINT32_MAX delivered as integer in RESP
+        assert_equal [lindex $pending 0 3] 4294967295
     }
 
     test {XNACK releases entries regardless of owning consumer} {
@@ -3660,8 +3660,8 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 1] {}
-        # UINT64_MAX wraps to -1 as signed long long in RESP
-        assert_equal [lindex $pending 0 3] -1
+        # UINT32_MAX delivered as integer in RESP
+        assert_equal [lindex $pending 0 3] 4294967295
     } {} {external:skip needs:debug}
 
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
