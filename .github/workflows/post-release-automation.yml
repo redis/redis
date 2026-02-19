@@ -1,0 +1,146 @@
+name: Post-Release Automation
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  automate-release-scripts:
+    # Only run for the main redis/redis repository (not forks)
+    # Note: Only users with write access can publish releases, providing implicit authorization
+    # For testing on forks, change to: github.repository == 'stav-nachmias/fork-redis'
+    if: github.repository == 'redis/redis' || github.repository == 'stav-nachmias/fork-redis'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git archive
+      
+      - name: Extract and validate release information
+        id: release-info
+        run: |
+          # Extract tag name from the release event
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "Release tag: ${TAG_NAME}"
+          
+          # Validate tag format (MAJOR.MINOR.PATCH or MAJOR.MINOR-rcN)
+          if [[ "${TAG_NAME}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_type=stable" >> $GITHUB_OUTPUT
+            echo "Detected stable release: ${TAG_NAME}"
+          elif [[ "${TAG_NAME}" =~ ^[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
+            echo "release_type=rc" >> $GITHUB_OUTPUT
+            echo "Detected RC release: ${TAG_NAME}"
+          else
+            echo "Error: Invalid tag format. Expected MAJOR.MINOR.PATCH or MAJOR.MINOR-rcN"
+            exit 1
+          fi
+          
+          # Extract version components
+          VERSION="${TAG_NAME}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+      
+      - name: Set up environment variables
+        run: |
+          echo "RELEASE_TAG=${{ steps.release-info.outputs.tag_name }}" >> $GITHUB_ENV
+          echo "RELEASE_TYPE=${{ steps.release-info.outputs.release_type }}" >> $GITHUB_ENV
+          echo "VERSION=${{ steps.release-info.outputs.version }}" >> $GITHUB_ENV
+          echo "Environment variables set:"
+          echo "  RELEASE_TAG: ${{ steps.release-info.outputs.tag_name }}"
+          echo "  RELEASE_TYPE: ${{ steps.release-info.outputs.release_type }}"
+          echo "  VERSION: ${{ steps.release-info.outputs.version }}"
+      
+      - name: Create tarball
+        id: create-tarball
+        run: |
+          echo "Creating tarball for version ${VERSION}..."
+          # TODO: Implement tarball creation using utils/releasetools/01_create_tarball.sh
+          # ./utils/releasetools/01_create_tarball.sh ${VERSION}
+          
+          # Placeholder: Verify tarball was created
+          # TARBALL_PATH="/tmp/redis-${VERSION}.tar.gz"
+          # if [ ! -f "${TARBALL_PATH}" ]; then
+          #   echo "Error: Tarball not found at ${TARBALL_PATH}"
+          #   exit 1
+          # fi
+          # echo "tarball_path=${TARBALL_PATH}" >> $GITHUB_OUTPUT
+          
+          echo "✓ Tarball creation step (placeholder)"
+      
+      - name: Upload tarball
+        id: upload-tarball
+        run: |
+          echo "Uploading tarball for version ${VERSION}..."
+          # TODO: Implement tarball upload
+          # This will require:
+          # - SSH credentials/keys for upload to download.redis.io
+          # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
+          
+          echo "✓ Tarball upload step (placeholder)"
+      
+      - name: Test release tarball
+        id: test-release
+        run: |
+          echo "Testing release tarball for version ${VERSION}..."
+          # TODO: Implement release testing using utils/releasetools/03_test_release.sh
+          # This will:
+          # - Download the uploaded tarball
+          # - Extract and build Redis
+          # - Run test suites (runtest, runtest-sentinel, runtest-cluster, runtest-moduleapi)
+          
+          echo "✓ Release testing step (placeholder)"
+      
+      - name: Update release hashes
+        id: update-hashes
+        run: |
+          echo "Updating release hashes for version ${VERSION}..."
+          # TODO: Implement hash update using utils/releasetools/04_release_hash.sh
+          # This will require:
+          # - Access to redis-hashes repository
+          # - Git credentials for committing and pushing
+          
+          echo "✓ Release hashes update step (placeholder)"
+      
+      - name: Update stable symlink (stable releases only)
+        if: steps.release-info.outputs.release_type == 'stable'
+        id: update-stable
+        run: |
+          echo "This is a stable release. Stable symlink update will require approval."
+          # TODO: Implement stable symlink update
+          # This step should only run for stable releases (not RC)
+          # It will update the redis-stable symlink on download.redis.io
+          # This is part of the upload script (02_upload_tarball.sh)
+          
+          echo "✓ Stable symlink update step (placeholder)"
+      
+      - name: Approval gate for stable releases
+        if: steps.release-info.outputs.release_type == 'stable'
+        run: |
+          echo "Stable release detected. Manual approval required for production deployment."
+          # TODO: Implement approval workflow
+          # This could use GitHub Environments with required reviewers
+          # or a manual approval step
+          
+          echo "✓ Approval gate (placeholder)"
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Post-Release Automation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Tag:** ${{ steps.release-info.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ steps.release-info.outputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ steps.release-info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Steps Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Create tarball: ${{ steps.create-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Upload tarball: ${{ steps.upload-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Test release: ${{ steps.test-release.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Update hashes: ${{ steps.update-hashes.outcome }}" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.release-info.outputs.release_type }}" == "stable" ]]; then
+            echo "- Update stable symlink: ${{ steps.update-stable.outcome }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
