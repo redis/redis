@@ -10498,22 +10498,16 @@ static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
     line_count += cleanPrintfln("-------- ---------- -----------");
 
     while (hdr_iter_next(&iter)) {
-        /* Skip repeat in hdr_histogram cumulative_count, and set the last line
-         * to 100% when total_count is reached. For instance:
+        /* Skip repeat in hdr_histogram cumulative_count. For instance:
          * 140.68K    99.9969%        50013
          * 140.68K    99.9977%        50013
-         *   2.04G    99.9985%        50014
          *   2.04G   100.0000%        50014
          * Will display:
          * 140.68K    99.9969%        50013
          *   2.04G   100.0000%        50014                                   */
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
-            if (iter.cumulative_count == iter.h->total_count) {
-                percentile = 100;
-            } else {
-                percentile = iter.specifics.percentiles.percentile;
-            }
+            percentile = (100.0 * (double) iter.cumulative_count) / iter.h->total_count;
 
             line_count += cleanPrintfln("%8s %9.4f%% %11lld",
                 bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
@@ -10691,7 +10685,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
         /* Keep track of biggest key name for this type */
         if (type->biggest_key)
             sdsfree(type->biggest_key);
-        type->biggest_key = sdsnewlen(element->str, element->len);
+        type->biggest_key = sdscatrepr(sdsempty(), element->str, element->len);
         if (!type->biggest_key) {
             fprintf(stderr, "Failed to allocate memory for key!\n");
             exit(1);
