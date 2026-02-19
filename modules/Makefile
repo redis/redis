@@ -32,7 +32,7 @@ clean_environment: uninstall-rust
 # Keep all of the Rust stuff in one place
 install-rust:
 ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
-	@RUST_VERSION=1.92.0; \
+	@RUST_VERSION=1.93.1; \
 	ARCH="$$(uname -m)"; \
 	if ldd --version 2>&1 | grep -q musl; then LIBC_TYPE="musl"; else LIBC_TYPE="gnu"; fi; \
 	echo "Detected architecture: $${ARCH} and libc: $${LIBC_TYPE}"; \
@@ -40,18 +40,18 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 		'x86_64') \
 			if [ "$${LIBC_TYPE}" = "musl" ]; then \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-x86_64-unknown-linux-musl"; \
-				RUST_SHA256="e9b977ef480504d3beef0a095b470945af79e8496bcbb0e4a9d4601d6d72dd91"; \
+				RUST_SHA256="5a6c766ce05ad7229aadbb365bad2c9c809c9e378706f123c156821fe6ab2711"; \
 			else \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-x86_64-unknown-linux-gnu"; \
-				RUST_SHA256="d2ccef59dd9f7439f2c694948069f789a044dc1addcc0803613232af8f88ee0c"; \
+				RUST_SHA256="fa99eb4e823fdeb8ee25e486c7973b4803013ac68c64e8f74880da788db9739c"; \
 			fi ;; \
 		'aarch64') \
 			if [ "$${LIBC_TYPE}" = "musl" ]; then \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-aarch64-unknown-linux-musl"; \
-				RUST_SHA256="0c35fca319d01c3d55345d44dbe66c987858c45e262a77c4db679e9869b0af73"; \
+				RUST_SHA256="859d2e973ba1b0106aaeb5df7db72673cb82b9de417339e28ae9b5074756db5b"; \
 			else \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-aarch64-unknown-linux-gnu"; \
-				RUST_SHA256="3e383f8b4fca710d0600d0c1de97b78281672be2cda6575ecbe1c183a12e3822"; \
+				RUST_SHA256="bbe822f0aae2c1d31fa950a78446d4749e07ed67e974f87bf0c69146df2a9d9c"; \
 			fi ;; \
 		*) echo >&2 "Unsupported architecture: '$${ARCH}'"; exit 1 ;; \
 	esac; \
