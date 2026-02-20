@@ -2199,8 +2199,8 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
 
 /* Helper for rewriteStreamObject(): emit a single XNACK FORCE command that
  * reconstructs one or more NACKed (unowned) PEL entries sharing the same
- * delivery_count.  The caller is responsible for batching (up to
- * AOF_REWRITE_ITEMS_PER_CMD IDs).  Returns 0 on error, 1 on success. */
+ * delivery_count. The caller is responsible for batching (up to
+ * AOF_REWRITE_ITEMS_PER_CMD IDs). Returns 0 on error, 1 on success. */
 int rioWriteStreamNackedEntries(rio *r, robj *key, const char *groupname,
                                 size_t groupname_len, streamNACK *first,
                                 int count, uint64_t delivery_count) {
@@ -2379,12 +2379,12 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 
             /* Emit XNACK FORCE for NACKed (unowned) entries from the
              * NACK zone of the PEL time-ordered list
-             * (pel_time_head..pel_nack_tail).  Consecutive entries with
+             * (pel_time_head..pel_nack_tail). Consecutive entries with
              * the same delivery_count are batched into a single command.
              *
              * The loops use "pel_prev != nack_end" as the boundary test:
              * once we reach the node right after pel_nack_tail its
-             * pel_prev equals nack_end, stopping iteration.  When
+             * pel_prev equals nack_end, stopping iteration. When
              * pel_nack_tail is NULL (no NACKed entries) the guard below
              * skips the whole block. */
             streamNACK *nack_end = group->pel_nack_tail;

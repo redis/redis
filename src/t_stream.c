@@ -238,7 +238,7 @@ robj *streamDup(robj *o) {
 
         serverAssert(new_cg != NULL);
 
-        /* Consumer Group PEL — walk the time-ordered list so we can
+        /* Consumer Group PEL -- walk the time-ordered list so we can
          * append directly and preserve NACK zone structure. */
         for (streamNACK *nack = cg->pel_time_head; nack; nack = nack->pel_next) {
             unsigned char buf[sizeof(streamID)];
@@ -3709,7 +3709,8 @@ cleanup:
  *   delivery counter is set to 0 (or to RETRYCOUNT if specified, or to
  *   UINT32_MAX if mode is FATAL). */
 void xnackCommand(client *c) {
-    /* Parse mode: SILENT / FAIL / FATAL (argv[3]) */
+    /* Arity is -7, so at least 7 args are guaranteed by the command table.
+     * Parse mode: SILENT / FAIL / FATAL (argv[3]) */
     int mode;
     if (!strcasecmp(c->argv[3]->ptr,"SILENT")) {
         mode = XNACK_SILENT;
@@ -3718,7 +3719,7 @@ void xnackCommand(client *c) {
     } else if (!strcasecmp(c->argv[3]->ptr,"FATAL")) {
         mode = XNACK_FATAL;
     } else {
-        addReplyError(c,"ERR XNACK mode must be SILENT, FAIL, or FATAL");
+        addReplyError(c,"ERR mode must be SILENT, FAIL, or FATAL");
         return;
     }
 
@@ -3770,7 +3771,7 @@ void xnackCommand(client *c) {
     /* Parse all IDs first (all-or-nothing). */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
-    int id_count = (int)numids; /* safe: validated numids <= c->argc - 6 above */
+    int id_count = (int)numids; /* safe: numids bounded by argc */
     if (id_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*id_count);
     for (int j = 0; j < id_count; j++) {
@@ -5454,7 +5455,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
  * O(1) unlink from any position, O(1) append to tail, O(1) access to oldest
  * entries for CLAIM operations. */
 
-/* Insert nack after 'after' in the time-ordered list.
+/* Insert a NACK after 'after' in the time-ordered list.
  * If after is NULL, insert at the head. */
 static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack) {
     if (after) {
@@ -5515,11 +5516,8 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
         return;
     }
 
-    /* Scan backwards from tail to find insertion point.
-     * Stop at the NACK-zone boundary (pel_nack_tail) to never place
-     * entries inside the zone.  When the scan reaches the boundary,
-     * pelListInsertAfter inserts the entry right after pel_nack_tail,
-     * which is the first position outside the NACK zone.  If boundary
+    /* Scan backwards from tail, stopping at the NACK-zone boundary
+     * (pel_nack_tail) so we never insert inside the zone. If boundary
      * is NULL (no NACK zone), the scan may reach the list head. */
     streamNACK *boundary = cg->pel_nack_tail;
     streamNACK *curr = cg->pel_time_tail;
