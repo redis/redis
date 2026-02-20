@@ -657,6 +657,8 @@ void sremCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
 
+    if (set->encoding == OBJ_ENCODING_HT)
+        dictPauseAutoResize((dict*)set->ptr);
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
@@ -668,6 +670,10 @@ void sremCommand(client *c) {
                 break;
             }
         }
+    }
+    if (!keyremoved && set->encoding == OBJ_ENCODING_HT) {
+        dictResumeAutoResize((dict*)set->ptr);
+        dictShrinkIfNeeded((dict*)set->ptr);
     }
     if (server.memory_tracking_enabled && !keyremoved)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));

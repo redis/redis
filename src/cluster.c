@@ -1268,6 +1268,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             /* The command has keys and was checked for cross-slot between its keys in preprocessCommand() */
             if (pcmd->read_error == CLIENT_READ_CROSS_SLOT) {
                 /* Error: multiple keys from different slots. */
+                if (!use_cache_keys_result) getKeysFreeResult(&result);
                 if (error_code)
                     *error_code = CLUSTER_REDIR_CROSS_SLOT;
                 return NULL;

@@ -793,6 +793,30 @@ void linenoiseEditMoveRight(struct linenoiseState *l) {
     }
 }
 
+/* Consider letters/digits/underscore as “word”; others as delimiters. */
+static int isWordChar(char c) {
+    return (c == '_' || (c >= '0' && c <= '9') ||
+            (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
+}
+
+static void linenoiseEditMoveWordLeft(struct linenoiseState *l) {
+    if (l->pos == 0) return;
+    /* Skip any delimiters, then move left over the previous word */
+    while (l->pos > 0 && !isWordChar(l->buf[l->pos - 1])) l->pos--;
+    /* Then move to the start of that word */
+    while (l->pos > 0 && isWordChar(l->buf[l->pos - 1])) l->pos--;
+    refreshLine(l);
+}
+
+static void linenoiseEditMoveWordRight(struct linenoiseState *l) {
+    if (l->pos == l->len) return;
+    /* Skip the current word to the right */
+    while (l->pos < l->len && isWordChar(l->buf[l->pos])) l->pos++;
+    /* Then skip any delimiters to reach the next word */
+    while (l->pos < l->len && !isWordChar(l->buf[l->pos])) l->pos++;
+    refreshLine(l);
+}
+
 /* Move cursor to the start of the line. */
 void linenoiseEditMoveHome(struct linenoiseState *l) {
     if (l->pos != 0) {
@@ -1012,6 +1036,18 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
              * Use two calls to handle slow terminals returning the two
              * chars at different times. */
             if (read(l.ifd,seq,1) == -1) break;
+
+            /* Handle Meta-b / Meta-f directly because it's a 2-byte sequence */
+            if (seq[0] == 'b' || seq[0] == 'f') {
+                if (reverse_search_mode_enabled) {
+                    disableReverseSearchMode(&l, buf, buflen, 1);
+                    break;
+                }
+                if (seq[0] == 'b') linenoiseEditMoveWordLeft(&l);   /* ESC b → word left */
+                else linenoiseEditMoveWordRight(&l);                /* ESC f → word right */
+                break;
+            }
+
             if (read(l.ifd,seq+1,1) == -1) break;
 
             if (reverse_search_mode_enabled) {
@@ -1022,14 +1058,51 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             /* ESC [ sequences. */
             if (seq[0] == '[') {
                 if (seq[1] >= '0' && seq[1] <= '9') {
-                    /* Extended escape, read additional byte. */
-                    if (read(l.ifd,seq+2,1) == -1) break;
-                    if (seq[2] == '~') {
-                        switch(seq[1]) {
-                        case '3': /* Delete key. */
-                            linenoiseEditDelete(&l);
-                            break;
-                        }
+                    /* Extended escape, read additional bytes.
+                     * Examples: ESC [1;5C  ESC [3~ */
+                    const int seq_buffer_max_length = 8;
+                    char seq_buffer[seq_buffer_max_length];
+                    int i = 0;
+                    seq_buffer[i++] = seq[1];
+
+                    /* Read more bytes until we see a CSI final byte (range @..~).
+                     * Use seq_buffer_max_length-1 to reserve one position for '\0'. */
+                    char seq_char;
+                    while (i < seq_buffer_max_length-1 && read(l.ifd, &seq_char, 1) == 1) {
+                        seq_buffer[i++] = seq_char;
+                        if (seq_char >= '@' && seq_char <= '~') break; /* CSI final byte */
+                    }
+                    seq_buffer[i] = '\0';
+
+                    /* The exact key mapping behavior depends on your keyboard/terminal setup.
+                     * For example, in MacOS terminal you can go to the profile keyboard setting
+                     * to see or configure the current mapping.
+                     *
+                     * Take action `[1;5C` (Ctrl + →) or `[1;3D` (Alt + ←) as examples:
+                     * [ indicates a CSI (Control Sequence Introducer), telling the terminal
+                     *    "What follows is a control command, not text"
+                     * 1 is how many units to move (default is 1 if omitted)
+                     * ; is the separator between parameters
+                     * 5 is the modifier mask for Ctrl. Other possible values include 1 (no modifier),
+                     *     2 (Shift), 3 (Alt), 4 (Shift + Alt), 6 (Shift + Ctrl), 7 (Alt + Ctrl), etc.
+                     * C is the cursor right command. Other commands include A (cursor up), B (cursor
+                     *     down), D (cursor left).
+                     */
+
+                    /* Word left: Ctrl + ← (modifier 5) or Alt + ← (modifier 3) */
+                    if (strcmp(seq_buffer, "1;5D") == 0 || strcmp(seq_buffer, "1;3D") == 0) {
+                        linenoiseEditMoveWordLeft(&l);
+                        break;
+                    }
+                    /* Word right: Ctrl + → (modifier 5) or Alt + → (modifier 3) */
+                    if (strcmp(seq_buffer, "1;5C") == 0 || strcmp(seq_buffer, "1;3C") == 0) {
+                        linenoiseEditMoveWordRight(&l);
+                        break;
+                    }
+                    /* Delete key */
+                    if (strcmp(seq_buffer, "3~") == 0) {
+                        linenoiseEditDelete(&l);
+                        break;
                     }
                 } else {
                     switch(seq[1]) {

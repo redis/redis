@@ -1,6 +1,9 @@
 /*
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
+ * 
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
  *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
@@ -2926,6 +2929,8 @@ void hdelCommand(client *c) {
      * field with expiration and removes it from global HFE DS. */
     int isHFE = hashTypeIsFieldsWithExpire(o);
 
+    if (o->encoding == OBJ_ENCODING_HT)
+        dictPauseAutoResize((dict*)o->ptr);
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
@@ -2938,6 +2943,10 @@ void hdelCommand(client *c) {
                 break;
             }
         }
+    }
+    if (!keyremoved && o->encoding == OBJ_ENCODING_HT) {
+        dictResumeAutoResize((dict*)o->ptr);
+        dictShrinkIfNeeded((dict*)o->ptr);
     }
     if (server.memory_tracking_enabled && !keyremoved)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
