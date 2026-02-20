@@ -3717,5 +3717,171 @@ start_server {
             assert_equal [llength $claimed] 2
         }
     }
+
+    test {XNACK FORCE creates new unowned PEL entry} {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XGROUP CREATE mystream grp 0
+
+        # FORCE on 1-0 which is not in any consumer PEL
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 FORCE]
+
+        # Entry should be in group PEL with empty consumer
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending] 1
+        assert_equal [lindex $pending 0 0] 1-0
+        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0 3] 0
+
+        # Verify it can be claimed
+        set claimed [r XCLAIM mystream grp c1 0 1-0]
+        assert_equal [llength $claimed] 1
+        assert_equal [lindex $claimed 0 0] 1-0
+    }
+
+    test {XNACK FORCE skips non-existent stream entries} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+
+        # 9-9 does not exist in the stream
+        assert_equal 0 [r XNACK mystream grp FAIL IDS 1 9-9 FORCE]
+
+        # Group PEL should be empty
+        set info [r XPENDING mystream grp]
+        assert_equal [lindex $info 0] 0
+    }
+
+    test {XNACK FORCE with FATAL mode sets delivery_count to max} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+
+        assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0 FORCE]
+
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0 3] 4294967295
+    }
+
+    test {XNACK RETRYCOUNT overrides mode-based delivery count} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        # FATAL would set UINT32_MAX, but RETRYCOUNT 42 overrides
+        assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0 RETRYCOUNT 42]
+
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0 3] 42
+    }
+
+    test {XNACK RETRYCOUNT with SILENT mode overrides decrement} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        # SILENT would decrement, but RETRYCOUNT 10 overrides
+        assert_equal 1 [r XNACK mystream grp SILENT IDS 1 1-0 RETRYCOUNT 10]
+
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [lindex $pending 0 3] 10
+    }
+
+    test {XNACK FORCE + RETRYCOUNT combination} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 7 FORCE]
+
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending] 1
+        assert_equal [lindex $pending 0 0] 1-0
+        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0 3] 7
+    }
+
+    test {XNACK on already-NACKed entry is a no-op} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        # First XNACK succeeds
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0]
+
+        # Second XNACK on same (now unowned) entry returns 0
+        assert_equal 0 [r XNACK mystream grp FAIL IDS 1 1-0]
+
+        # Verify entry is still there with original delivery_count
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending] 1
+        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0 3] 1
+    }
+
+    test {XNACK on wrong key type returns type error} {
+        r DEL mykey
+        r SET mykey "not a stream"
+        assert_error "*WRONGTYPE*" {r XNACK mykey grp FAIL IDS 1 1-0}
+    }
+
+    test {XINFO STREAM FULL shows empty consumer for NACKed entries} {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        r XNACK mystream grp FAIL IDS 1 1-0
+
+        set info [r XINFO STREAM mystream FULL]
+        # groups is the 14th element (index 13) in the FULL output
+        set groups [lindex $info 13]
+        set grp_info [lindex $groups 0]
+
+        # Find pel-entries in group info
+        set pel_idx [lsearch -exact $grp_info "pel"]
+        set pel [lindex $grp_info [expr {$pel_idx + 1}]]
+
+        # Check that the NACKed entry (1-0) has an empty consumer name
+        set found_nacked 0
+        foreach entry $pel {
+            set entry_id [lindex $entry 0]
+            if {$entry_id eq "1-0"} {
+                set consumer_name [lindex $entry 1]
+                assert_equal $consumer_name {}
+                set found_nacked 1
+            }
+        }
+        assert_equal $found_nacked 1
+    }
+
+    test {XGROUP DELCONSUMER works when group PEL has NACKed entries} {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        # XNACK 1-0 (release from c1)
+        r XNACK mystream grp FAIL IDS 1 1-0
+
+        # c1 still owns 2-0; deleting c1 should release 2-0 to group PEL
+        set deleted_pending [r XGROUP DELCONSUMER mystream grp c1]
+        assert_equal $deleted_pending 1
+
+        # Group PEL should still have 1-0 (NACKed) and 2-0 should be gone
+        # from c1 but may remain in group PEL depending on implementation.
+        # Verify at minimum that 1-0 is still claimable.
+        set claimed [r XCLAIM mystream grp c2 0 1-0]
+        assert_equal [llength $claimed] 1
+        assert_equal [lindex $claimed 0 0] 1-0
+    }
 }
 

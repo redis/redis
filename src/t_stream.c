@@ -3835,7 +3835,10 @@ void xnackCommand(client *c) {
             pelListUnlink(group, nack);
             pelListInsertNacked(group, nack);
         } else if (force) {
-            /* FORCE: create new unowned PEL entry directly. */
+            /* FORCE: create new unowned PEL entry only if the stream
+             * entry exists, otherwise skip silently (same as XCLAIM). */
+            if (!streamEntryExists(s, &ids[j]))
+                continue;
             streamNACK *nack = streamCreateNACK(s, NULL, &ids[j]);
 
             if (retrycount >= 0) {
@@ -4607,7 +4610,7 @@ void xautoclaimCommand(client *c) {
             continue;
         }
 
-        if (minidle) {
+        if (nack->consumer && minidle) {
             mstime_t this_idle = now - nack->delivery_time;
             if (this_idle < minidle)
                 continue;
@@ -5513,7 +5516,11 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
     }
 
     /* Scan backwards from tail to find insertion point.
-     * Stop at the NACK-zone boundary to never place entries inside it. */
+     * Stop at the NACK-zone boundary (pel_nack_tail) to never place
+     * entries inside the zone.  When the scan reaches the boundary,
+     * pelListInsertAfter inserts the entry right after pel_nack_tail,
+     * which is the first position outside the NACK zone.  If boundary
+     * is NULL (no NACK zone), the scan may reach the list head. */
     streamNACK *boundary = cg->pel_nack_tail;
     streamNACK *curr = cg->pel_time_tail;
     while (curr != boundary && curr->delivery_time > nack->delivery_time) {
