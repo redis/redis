@@ -4,6 +4,8 @@ on:
   release:
     types: [published]
 
+permissions: {}
+
 jobs:
   redis_docs_sync:
     if: github.repository == 'redis/redis'
