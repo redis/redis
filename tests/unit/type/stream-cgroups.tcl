@@ -3862,6 +3862,83 @@ start_server {
         assert_equal $found_nacked 1
     }
 
+    test {XINFO STREAM FULL nacked-count reflects nack zone size} {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XADD mystream 3-0 f v3
+        r XADD mystream 4-0 f v4
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 COUNT 4 STREAMS mystream >
+
+        # Before any XNACK, nacked-count should be 0
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 0
+        assert_equal [dict get $group pel-count] 4
+
+        # NACK one entry
+        r XNACK mystream grp FAIL IDS 1 1-0
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 1
+        assert_equal [dict get $group pel-count] 4
+
+        # NACK two more entries
+        r XNACK mystream grp FAIL IDS 2 2-0 3-0
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 3
+        assert_equal [dict get $group pel-count] 4
+
+        # Reclaim a NACKed entry via XCLAIM — nacked-count should decrease
+        r XCLAIM mystream grp c1 0 1-0
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 2
+        assert_equal [dict get $group pel-count] 4
+
+        # XACK a NACKed entry — both counts should decrease
+        r XACK mystream grp 2-0
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 1
+        assert_equal [dict get $group pel-count] 3
+
+        # XACK the last NACKed entry — nacked-count should be 0
+        r XACK mystream grp 3-0
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 0
+        assert_equal [dict get $group pel-count] 2
+    }
+
+    test {XINFO STREAM FULL nacked-count with multiple groups} {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XGROUP CREATE mystream grp1 0
+        r XGROUP CREATE mystream grp2 0
+        r XREADGROUP GROUP grp1 c1 COUNT 2 STREAMS mystream >
+        r XREADGROUP GROUP grp2 c2 COUNT 2 STREAMS mystream >
+
+        # NACK in grp1 only
+        r XNACK mystream grp1 FAIL IDS 1 1-0
+
+        set info [r XINFO STREAM mystream FULL]
+        set grp1 [lindex [dict get $info groups] 0]
+        set grp2 [lindex [dict get $info groups] 1]
+        assert_equal [dict get $grp1 nacked-count] 1
+        assert_equal [dict get $grp2 nacked-count] 0
+    }
+
+    test {XINFO STREAM FULL nacked-count zero when no consumer groups} {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        set info [r XINFO STREAM mystream FULL]
+        assert_equal [dict get $info groups] {}
+    }
+
     test {XGROUP DELCONSUMER works when group PEL has NACKed entries} {
         r DEL mystream
         r XADD mystream 1-0 f v1

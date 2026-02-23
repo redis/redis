@@ -5039,7 +5039,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
             raxSeek(&ri_cgroups,"^",NULL,0);
             while(raxNext(&ri_cgroups)) {
                 streamCG *cg = ri_cgroups.data;
-                addReplyMapLen(c,7);
+                addReplyMapLen(c,8);
 
                 /* Name */
                 addReplyBulkCString(c,"name");
@@ -5064,6 +5064,10 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                 /* Group PEL count */
                 addReplyBulkCString(c,"pel-count");
                 addReplyLongLong(c,raxSize(cg->pel));
+
+                /* NACKed entries count (entries in the NACK zone) */
+                addReplyBulkCString(c,"nacked-count");
+                addReplyLongLong(c,pelListNackedCount(cg));
 
                 /* Group PEL */
                 addReplyBulkCString(c,"pending");
@@ -5539,6 +5543,21 @@ void pelListInsertNacked(streamCG *cg, streamNACK *nack) {
     nack->delivery_time = 0;
     pelListInsertAfter(cg, cg->pel_nack_tail, nack);
     cg->pel_nack_tail = nack;
+}
+
+/* Return the number of entries in the NACK zone (pel_time_head..pel_nack_tail).
+ * Returns 0 when no NACKed entries exist. */
+uint64_t pelListNackedCount(streamCG *cg) {
+    uint64_t count = 0;
+    if (cg->pel_nack_tail) {
+        streamNACK *nack = cg->pel_time_head;
+        while (nack) {
+            count++;
+            if (nack == cg->pel_nack_tail) break;
+            nack = nack->pel_next;
+        }
+    }
+    return count;
 }
 
 /* Update a NACK's delivery_time and reposition it in the time-ordered list. */

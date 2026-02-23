@@ -204,6 +204,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 void pelListInsertSorted(streamCG *cg, streamNACK *nack);
 void pelListUnlink(streamCG *cg, streamNACK *nack);
 void pelListInsertNacked(streamCG *cg, streamNACK *nack);
+uint64_t pelListNackedCount(streamCG *cg);
 
 /* IDMP functions */
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);

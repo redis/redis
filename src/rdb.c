@@ -1311,15 +1311,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 /* Save the stream IDs of NACKed (unowned) entries using the
                  * pel_time list's NACK zone (pel_time_head..pel_nack_tail).
                  * We first count them, save the count, then save each encoded ID. */
-                uint64_t nacked_count = 0;
-                if (cg->pel_nack_tail) {
-                    streamNACK *nack = cg->pel_time_head;
-                    while (nack) {
-                        nacked_count++;
-                        if (nack == cg->pel_nack_tail) break;
-                        nack = nack->pel_next;
-                    }
-                }
+                uint64_t nacked_count = pelListNackedCount(cg);
                 if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
                     raxStop(&ri);
                     return -1;
