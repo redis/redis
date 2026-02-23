@@ -3601,11 +3601,12 @@ start_server {
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 2
 
-        # Find the NACKed entry (1-0) - consumer should be empty
+        # Find the NACKed entry (1-0) - consumer should be empty, idle should be -1
         set found 0
         foreach entry $pending {
             if {[lindex $entry 0] eq "1-0"} {
                 assert_equal [lindex $entry 1] {}
+                assert_equal [lindex $entry 2] -1
                 set found 1
             }
         }
