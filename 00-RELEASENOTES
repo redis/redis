@@ -1,0 +1,177 @@
+Redis Open Source 8.6 release notes
+===================================
+
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
+
+The release notes contain PRs from multiple repositories:
+
+#n - Redis (https://github.com/redis/redis)
+#Qn = Query Engine (https://github.com/RediSearch/RediSearch)
+#Jn = JSON (https://github.com/RedisJSON/RedisJSON)
+#Tn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
+#Pn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
+
+
+================================================================
+Redis 8.6 GA (8.6.0)    Released Tue 10 Feb 2026 16:00:00 IST
+================================================================
+
+This is the General Availability release of Redis 8.6 in Redis Open Source.
+
+### Major changes compared to 8.4
+
+- Substantial performance improvements
+- Substantial memory reduction for hashes (hashtable-encoded) and sorted sets (skiplist-encoded)
+- Streams: `XADD` idempotency (at-most-once guarantee) with new `IDMPAUTO` and `IDMP` arguments
+- New eviction policies - least recently modified: `volatile-lrm` and `allkeys-lrm`
+- Hot keys detection and reporting; new command: `HOTKEYS`
+- TLS certificate-based automatic client authentication
+- Time series: support NaN values; new aggregators: `COUNTNAN` and `COUNTALL`
+
+### Binary distributions
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM - see https://github.com/redis/redis-rpm
+- Install using Debian APT - see https://github.com/redis/redis-debian
+
+### Operating systems we test Redis 8.6 on
+
+- Ubuntu 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat)
+- Rocky Linux 8.10, 9.5
+- AlmaLinux 8.10, 9.5, 10.1
+- Debian 12 (Bookworm), Debian 13 (Trixie)
+- macOS 14 (Sonoma), 15 (Sequoia)
+
+### New Features (compared to 8.6-RC1)
+
+- #14695 Keys memory size histograms
+
+### Performance and resource utilization improvements (compared to 8.6-RC1)
+
+- #14714 Optimize user ACL permission verification
+- #14692 Optimize peak memory metric collection
+- #14739 Avoid allocating and releasing list node in reply copy avoidance
+- #14713 Reduce per command syscalls by reusing cached time when hardware monotonic clock is available
+- #14726 Optimize `XREADGROUP CLAIM`
+- #13962 Vector set: replace manual popcount with __builtin_popcountll for binary vector distance (Intel, AMD, ARM)
+- #14474 Vector set: vectorized the quantized 8-bit vector distance calculation (Intel, AMD)
+- #14492 Vector set: vectorize binary quantization path for vectorsets distance calculation (Intel, AMD)
+
+### Configuration parameters
+
+- #14719 `cluster-slot-stats-enabled` - per-slot resource consumptions statistics to collect
+- #14695 `key-memory-histograms` collect memory consumption histograms per data type
+
+### Metrics
+
+- #14695 `db0_distrib_lists_sizes`, `db0_distrib_sets_sizes`, `db0_distrib_hashes_sizes`, `db0_distrib_zsets_sizes`
+
+### Known bugs and limitations
+
+- Streams: avoid using `XADD` with the new `IDMP` or `IDMPAUTO` options when using `appendonly yes` with `aof-use-rdb-preamble no` (non default)
+  This limitation will be removed in the next patch.
+
+================================================================
+Redis 8.6-RC1 (8.5.240)    Released Thu 22 Jan 2025 17:00:00 IST
+================================================================
+
+This is the first Release Candidate of Redis 8.6 in Redis Open Source.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### Binary distributions
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM - see https://github.com/redis/redis-rpm
+- Install using Debian APT - see https://github.com/redis/redis-debian
+
+### Operating systems we test Redis 8.6 on
+
+- Ubuntu 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat)
+- Rocky Linux 8.10, 9.5, 10.1
+- AlmaLinux 8.10, 9.5, 10.1
+- Debian 12 (Bookworm), Debian 13 (Trixie)
+- 14 (Sonoma), 15 (Sequoia)
+
+### New Features (compared to 8.4.0)
+
+- #14615 Streams: `XADD` idempotency (at-most-once guarantee) with new `IDMPAUTO` and `IDMP` arguments
+- #14624 New eviction policies - least recently modified: `volatile-lrm` and `allkeys-lrm`
+- #14680 Hot keys detection and reporting; new command: `HOTKEYS`
+- #14610 TLS certificate-based automatic client authentication
+- #T1853 Time series: support NaN values; new aggregators: `COUNTNAN` and `COUNTALL`
+
+### Security and privacy fixes
+
+- #14645 Hide Personally Identifiable Information from ACL log
+- #14659 ACL: Key-pattern bypass in `MSETEX`
+- #T1837, #J1474 Hide Personally Identifiable Information from server log
+- #P950 Out-of-bounds read when loading an invalid RDB file (MOD-12802)
+
+### Bug fixes (compared to 8.4.0)
+
+- #14545 ACL: AOF loading fails if ACL rules are changed and don't allow some commands in `MULTI`-`EXEC`
+- #14637 Atomic slot migration: wrong adjacent slot range behavior
+- #14567 Atomic slot migration: support delay trimming slots after finishing migrating slots
+- #14623 Streams: `XTRIM`/`XADD` with approx mode (`~`) don’t delete entries for `DELREF`/`ACKED` strategies
+- #14552 Streams: Incorrect behavior when using `XDELEX...`ACKED` after `XGROUP DESTROY`
+- #14537 `SCAN`: restore original filter order (revert change introduced in 8.2)
+- #14581 Rare server hang at shutdown
+- #14597 Panic when cluster node is uninitialized
+- #14583 `FLUSHALL ASYNC` on a writable replica may block the main thread for an extended period
+- #14504 Cluster: fix race condition in broadcast configuration
+- #14416 Fixed argument position handling in Redis APIs
+- #T1784, #T1839, #P952, #J1477 Atomic slot migration support
+- #P946 `MEMORY USAGE`: fix reported value (MOD-12799)
+- #J1473 Adding escapes to already-escaped characters (MOD-8137)
+- #J1475 `JSON.CLEAR` does not error if more than one path is specified (MOD-13109)
+
+### Performance and resource utilization improvements (compared to 8.4.0)
+
+- #14608 Reply copy-avoidance path to reduce memory copies for bulk string replies
+- #14595 Hash: unify field name and value into a single struct
+- #14701 Sorted set: unify score and value into a single struct
+- #14662 Optimize listpack iterator on hash fields
+- #14699 Optimize set commands with expiration
+- #14700 Optimize prefetching
+- #14715 Optimize prefetch sizing logic
+- #14636 Optimize `ZRANK`
+- #14676 Utilize hardware clock by default on ARM AArch64
+- #14575 Disable RDB compression when diskless replication is used
+
+### Modules API
+
+- #14445
+  - `RM_CreateKeyMetaClass` - define a new key-metadata class
+  - `RM_ReleaseKeyMetaClass` - release a key-metadata class
+  - `RM_SetKeyMeta` - attach or update a metadata value for a key under a specific metadata-key class
+  - `RM_GetKeyMeta` - get a metadata value for a key under a specific metadata-key class
+
+### Configuration parameters
+
+- #14624 `maxmemory-policy`: new eviction policies: `volatile-lrm`, `allkeys-lrm`
+- #14615 `stream-idmp-duration`, `stream-idmp-maxsize` - defaults for streams idempotent production
+- #14610 `tls-auth-clients-user` TLS certificate-based automatic client authentication
+- #14596 `flushdb` option for `repl-diskless-load`: always flush the entire dataset before diskless load
+
+### Metrics
+
+- #14610 `acl_access_denied_tls_cert` - failed TLS certificate–based authentication attempts
+
+### known bugs and limitations
+
+- Reids Query Engine: In case of load rebalancing operations (such as Atomic Slot Migration) taking place during the lifetime of a cursor,
+  there is a chance that some results may be missing.
+

@@ -1,0 +1,27 @@
+create-cluster is a small script used to easily start a big number of Redis
+instances configured to run in cluster mode. Its main goal is to allow manual
+testing in a condition which is not easy to replicate with the Redis cluster
+unit tests, for example when a lot of instances are needed in order to trigger
+a given bug.
+
+The tool can also be used just to easily create a number of instances in a
+Redis Cluster in order to experiment a bit with the system.
+
+USAGE
+---
+
+To create a cluster, follow these steps:
+
+1. Edit create-cluster and change the start / end port, depending on the
+number of instances you want to create.
+2. Use "./create-cluster start" in order to run the instances.
+3. Use "./create-cluster create" in order to execute redis-cli --cluster create, so that
+an actual Redis cluster will be created. (If you're accessing your setup via a local container, ensure that the CLUSTER_HOST value is changed to your local IP)
+4. Now you are ready to play with the cluster. AOF files and logs for each instances are created in the current directory.
+
+In order to stop a cluster:
+
+1. Use "./create-cluster stop" to stop all the instances. After you stopped the instances you can use "./create-cluster start" to restart them if you change your mind.
+2. Use "./create-cluster clean" to remove all the AOF / log files to restart with a clean environment.
+
+Use the command "./create-cluster help" to get the full list of features.

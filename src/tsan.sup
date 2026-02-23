@@ -1,0 +1,21 @@
+# collect_stacktrace_data() calls backtrace() from a signal handler but
+# backtrace() is signal-unsafe since it might allocate memory, at least on
+# glibc 2.39 it does through a call to _dl_map_object_deps().
+signal:collect_stacktrace_data
+signal:printCrashReport
+# TODO Investigate this race in jemalloc probably related to
+# https://github.com/jemalloc/jemalloc/issues/2621
+race:malloc_mutex_trylock_final
+
+# A race can happen on conn->last_errno if replica client is reading/writing
+# data in IO thread and main thread is calling connAddrPeerName for some reason
+# (f.e genRedisInfoString/roleCommand...).
+# Not worth the additional code for synchronization as:
+# - errno is thread-safe according to POSIX std
+# - we don't support systems that allow word tearing, i.e last_errno value would
+#   be a correct value at the end - either the errno from main or from IO thread
+# - even if we fix the data race on last_errno we still have the problem of it
+#   being set to either errno unless we pause the IO thread during main-thread's
+#   execution which would incur too big of a cost.
+# - the race happens rarely
+race:connSocketAddr

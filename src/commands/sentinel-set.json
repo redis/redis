@@ -1,0 +1,40 @@
+{
+    "SET": {
+        "summary": "Changes the configuration of a monitored Redis master.",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": -5,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            },
+            {
+                "name": "data",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "option",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            }
+        ]
+    }
+}

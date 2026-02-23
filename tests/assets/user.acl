@@ -1,0 +1,5 @@
+# This is a comment in the ACL file
+user alice on allcommands allkeys &* >alice
+user bob on -@all +@set +acl ~set* &* >bob
+user doug on resetchannels &test +@all ~* >doug
+user default on nopass ~* &* +@all

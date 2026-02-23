@@ -1,0 +1,42 @@
+{
+    "SSUBSCRIBE": {
+        "summary": "Listens for messages published to shard channels.",
+        "complexity": "O(N) where N is the number of shard channels to subscribe to.",
+        "group": "pubsub",
+        "since": "7.0.0",
+        "arity": -2,
+        "function": "ssubscribeCommand",
+        "command_flags": [
+            "PUBSUB",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "shardchannel",
+                "type": "string",
+                "multiple": true
+            }
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "NOT_KEY"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

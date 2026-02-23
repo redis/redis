@@ -1,0 +1,102 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+
+  test-ubuntu-latest:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+    - name: test
+      run: |
+        sudo apt-get install tcl8.6 tclx
+        ./runtest --verbose --tags -slow --dump-logs
+    - name: validate commands.def up to date
+      run: |
+        touch src/commands/ping.json
+        make commands.def
+        dirty=$(git diff)
+        if [[ ! -z  $dirty ]]; then echo $dirty; exit 1; fi
+
+  test-sanitizer-address:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: make
+        # build with TLS module just for compilation coverage
+        run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
+      - name: testprep
+        run: sudo apt-get install tcl8.6 tclx -y
+      - name: test
+        run: ./runtest --verbose --tags -slow --dump-logs
+
+  build-debian-old:
+    runs-on: ubuntu-latest
+    container: debian:buster
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      run: |
+        sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list
+        sed -i 's|http://security.debian.org|http://archive.debian.org/debian-security|g' /etc/apt/sources.list
+        apt-get update && apt-get install -y build-essential
+        make REDIS_CFLAGS='-Werror'
+
+  build-macos-latest:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+
+  build-32bit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      run: |
+        sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib g++-multilib
+        make REDIS_CFLAGS='-Werror' 32bit
+
+  build-libc-malloc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      run: make REDIS_CFLAGS='-Werror' MALLOC=libc
+
+  build-centos-jemalloc:
+    runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      run: |
+        dnf -y install which gcc gcc-c++ make
+        make REDIS_CFLAGS='-Werror'
+
+  build-old-chain-jemalloc:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      run: |
+        apt-get update
+        apt-get install -y gnupg2
+        echo "deb http://archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
+        echo "deb http://archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
+        apt-get update
+        apt-get install -y make gcc-4.8 g++-4.8
+        update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
+        update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
+        make CC=gcc REDIS_CFLAGS='-Werror'

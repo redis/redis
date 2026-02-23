@@ -1,0 +1,2 @@
+user alice on (+get ~rw*)
+user bob on (+set %W~w*) (+get %R~r*)

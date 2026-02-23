@@ -1,0 +1,75 @@
+{
+    "SFLUSH": {
+        "summary": "Remove all keys from selected range of slots.",
+        "complexity": "O(N)+O(k) where N is the number of keys and k is the number of slots.",
+        "group": "server",
+        "since": "8.0.0",
+        "arity": -3,
+        "function": "sflushCommand",
+        "command_flags": [
+            "WRITE",
+            "EXPERIMENTAL"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "command_tips": [
+        ],
+        "reply_schema": {
+            "description": "List of slot ranges",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "description": "start slot number",
+                        "type": "integer"
+                    },
+                    {
+                        "description": "end slot number",
+                        "type": "integer"
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "data",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "slot-start",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "slot-last",
+                        "type": "integer"
+                    }
+                ]
+            },
+            {
+                "name": "flush-type",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "async",
+                        "type": "pure-token",
+                        "token": "ASYNC"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "pure-token",
+                        "token": "SYNC"
+                    }
+                ]
+            }
+        ]
+    }
+}

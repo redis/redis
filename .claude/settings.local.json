@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./src/redis-cli:*)",
+      "WebFetch(domain:www.usenix.org)",
+      "WebSearch"
+    ]
+  }
+}
