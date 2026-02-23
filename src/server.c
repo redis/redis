@@ -6726,16 +6726,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Hotkeys */
-    if (server.hotkeys &&
-        (all_sections || (dictFind(section_dict,"hotkeys") != NULL)))
+    if (all_sections || (dictFind(section_dict,"hotkeys") != NULL))
     {
         if (sections++) info = sdscat(info,"\r\n"); 
 
-        info = sdscatprintf(info, "# Hotkeys\r\n"
-            "hotkeys-tracking-active:%d\r\n"
-            "hotkeys-cmd-cpu-time:%lld\r\n",
-            server.hotkeys->active ? 1 : 0,
-            server.hotkeys->cpu_time);
+        info = sdscatprintf(info, "# Hotkeys\r\n");
+        if (server.hotkeys) {
+            info = sdscatprintf(info,
+                "hotkeys-tracking-active:%d\r\n"
+                "hotkeys-cmd-cpu-time:%lld\r\n",
+                server.hotkeys->active ? 1 : 0,
+                server.hotkeys->cpu_time);
+        }
     }
 
     /* Modules */

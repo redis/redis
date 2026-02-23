@@ -266,7 +266,33 @@ void hotkeysCommand(client *c) {
 
     char *sub = c->argv[1]->ptr;
 
-    if (!strcasecmp(sub, "START")) {
+    if (!strcasecmp(sub, "HELP")) {
+        const char *help[] = {
+            "START <METRICS count [CPU] [NET]> [COUNT k] [DURATION duration] [SAMPLE ratio] [SLOTS count slot...]",
+            "    Starts hotkeys tracking with specified metrics.",
+            "    * METRICS count [CPU] [NET]",
+            "        Specify count of metrics and choose amongst:",
+            "        - CPU: Track hotkeys by CPU time percentage",
+            "        - NET: Track hotkeys by network bytes percentage",
+            "    * COUNT k",
+            "        Specifies the value of K for the top-K hotkeys tracking. Default: 10",
+            "    * DURATION duration",
+            "        Specifies tracking duration in seconds. 0 means tracking will continue until manually stopped. Default: 0",
+            "    * SAMPLE ratio",
+            "        Keys are tracked with probability 1/ratio. Default: 1 (tracks every key)",
+            "    * SLOTS count slot...",
+            "        Specify which slots to track keys from. Only available in cluster mode. Default: empty (track all slots)",
+            "STOP",
+            "    Stop hotkeys tracking. Results are still available via GET",
+            "GET",
+            "    Get results from hotkeys tracking.",
+            "RESET",
+            "    Reset memory used for hotkeys tracking. Tracking must have been stopped.",
+            "    Results will no longer be available after this command.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(sub, "START")) {
         /* HOTKEYS START
          *         <METRICS count [CPU] [NET]>
          *         [COUNT k]
