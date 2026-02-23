@@ -1265,6 +1265,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
 
         if (num_cgroups) {
+            int has_nacked = streamHasNackedEntries(s);
+
             /* Serialize each consumer group. */
             raxStart(&ri,s->cgroups);
             raxSeek(&ri,"^",NULL,0);
@@ -1312,7 +1314,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
 
                 /* Save NACK zone only when using RDB_TYPE_STREAM_LISTPACKS_5. */
-                if (streamHasNackedEntries(s)) {
+                if (has_nacked) {
                     uint64_t nacked_count = pelListNackedCount(cg);
                     if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
                         raxStop(&ri);
