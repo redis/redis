@@ -3327,15 +3327,15 @@ start_server {
         assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
     }
 
-    test {XNACK on non-existent key returns 0} {
+    test {XNACK on non-existent key returns NOGROUP error} {
         r DEL nosuchkey
-        assert_equal 0 [r XNACK nosuchkey grp SILENT IDS 1 1-0]
+        assert_error "*NOGROUP*" {r XNACK nosuchkey grp SILENT IDS 1 1-0}
     }
 
-    test {XNACK on non-existent group returns 0} {
+    test {XNACK on non-existent group returns NOGROUP error} {
         r DEL mystream
         r XADD mystream 1-0 f v
-        assert_equal 0 [r XNACK mystream nogroup SILENT IDS 1 1-0]
+        assert_error "*NOGROUP*" {r XNACK mystream nogroup SILENT IDS 1 1-0}
     }
 
     test {XNACK SILENT mode decrements delivery_count} {

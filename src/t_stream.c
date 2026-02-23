@@ -3709,8 +3709,21 @@ cleanup:
  *   delivery counter is set to 0 (or to RETRYCOUNT if specified, or to
  *   UINT32_MAX if mode is FATAL). */
 void xnackCommand(client *c) {
-    /* Arity is -7, so at least 7 args are guaranteed by the command table.
-     * Parse mode: SILENT / FAIL / FATAL (argv[3]) */
+    streamCG *group = NULL;
+    kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
+
+    if (kv) {
+        if (checkType(c,kv,OBJ_STREAM)) return;
+        group = streamLookupCG(kv->ptr,c->argv[2]->ptr);
+    }
+
+    if (kv == NULL || group == NULL) {
+        addReplyErrorFormat(c,"-NOGROUP No such key '%s' or "
+                              "consumer group '%s'", (char*)c->argv[1]->ptr,
+                              (char*)c->argv[2]->ptr);
+        return;
+    }
+
     int mode;
     if (!strcasecmp(c->argv[3]->ptr,"SILENT")) {
         mode = XNACK_SILENT;
@@ -3723,9 +3736,6 @@ void xnackCommand(client *c) {
         return;
     }
 
-    /* Parse IDS keyword at argv[4] and validate argument count.
-     * argv: XNACK(0) key(1) group(2) MODE(3) IDS(4) numids(5)
-     *       id...(6+) [RETRYCOUNT count] [FORCE] */
     if (strcasecmp(c->argv[4]->ptr,"IDS") != 0) {
         addReplyError(c,"ERR syntax error, expected IDS keyword");
         return;
@@ -3747,7 +3757,6 @@ void xnackCommand(client *c) {
 
     int ids_end = 6 + (int)numids;
 
-    /* Parse optional trailing arguments after the IDs. */
     int force = 0;
     long long retrycount = -1;
     for (int i = ids_end; i < c->argc; i++) {
@@ -3768,7 +3777,6 @@ void xnackCommand(client *c) {
         }
     }
 
-    /* Parse all IDs first (all-or-nothing). */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
     int id_count = (int)numids; /* safe: numids bounded by argc */
@@ -3778,20 +3786,7 @@ void xnackCommand(client *c) {
         if (streamParseStrictIDOrReply(c,c->argv[6+j],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
-    /* Lookup key, stream, group. */
-    kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
-    if (kv) {
-        if (checkType(c,kv,OBJ_STREAM)) goto cleanup;
-    }
-
-    stream *s = kv ? kv->ptr : NULL;
-    streamCG *group = s ? streamLookupCG(s,c->argv[2]->ptr) : NULL;
-
-    if (kv == NULL || group == NULL) {
-        addReplyLongLong(c,0);
-        goto cleanup;
-    }
-
+    stream *s = kv->ptr;
     int nacked = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
 
@@ -3799,7 +3794,6 @@ void xnackCommand(client *c) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j]);
 
-        /* Lookup in group PEL. */
         void *result;
         int found = raxFind(group->pel,buf,sizeof(buf),&result);
 
@@ -3810,11 +3804,11 @@ void xnackCommand(client *c) {
             if (nack->consumer == NULL)
                 continue;
 
-            /* Remove from consumer's PEL and disassociate. */
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             nack->consumer = NULL;
 
-            /* Adjust delivery_count: RETRYCOUNT overrides, else mode. */
+            /* Set the delivery attempts counter if given, otherwise
+             * adjust based on the mode. */
             if (retrycount >= 0) {
                 nack->delivery_count = (uint64_t)retrycount;
             } else {
