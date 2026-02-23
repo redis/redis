@@ -2282,10 +2282,10 @@ int ACLLoadConfiguredUsers(void) {
  *
  *  user <username> ... rules ...
  *
- * Note that this function considers comments starting with '#' as errors
- * because the ACL file is meant to be rewritten, and comments would be
- * lost after the rewrite. Yet empty lines are allowed to avoid being too
- * strict.
+ * Lines starting with '#' are treated as comments and skipped. Note that
+ * comments will not be preserved if the ACL file is rewritten via ACL SAVE,
+ * since the file is regenerated from the in-memory user data. Empty lines
+ * are also skipped.
  *
  * One important part of implementing ACL LOAD, that uses this function, is
  * to avoid ending with broken rules if the ACL file is invalid for some
@@ -2339,6 +2339,9 @@ sds ACLLoadFromFile(const char *filename) {
 
         /* Skip blank lines */
         if (lines[i][0] == '\0') continue;
+
+        /* Skip comments */
+        if (lines[i][0] == '#') continue;
 
         /* Split into arguments */
         argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);

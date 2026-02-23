@@ -1255,6 +1255,21 @@ exec cp -f tests/assets/user.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
 start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
 
+    test {Test loading an ACL file with comments} {
+        exec cp -f tests/assets/user.acl $server_path
+        r ACL LOAD
+        # Comments should be silently skipped; all users must load correctly
+        assert {[r ACL GETUSER alice] != ""}
+        assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+
+        # An inline comment mid-file must also be skipped without error
+        exec cp -f tests/assets/user.acl $server_path
+        exec echo "# another comment" >> $server_path/user.acl
+        r ACL LOAD
+        assert {[r ACL GETUSER alice] != ""}
+    }
+
     test {Test loading an ACL file with duplicate users} {
         exec cp -f tests/assets/user.acl $server_path
 
