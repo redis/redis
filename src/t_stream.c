@@ -2023,7 +2023,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
-                nack->delivery_count++;
+                nack->delivery_count += (nack->delivery_count < UINT32_MAX);
                 pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
 
                 consumer->active_time = cmd_time_snapshot;
@@ -2247,7 +2247,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             addReplyNullArray(c);
         } else {
             streamNACK *nack = ri.data;
-            nack->delivery_count++;
+            nack->delivery_count += (nack->delivery_count < UINT32_MAX);
             pelListUpdate(group, nack, commandTimeSnapshot());
         }
         arraylen++;
@@ -3757,8 +3757,8 @@ void xnackCommand(client *c) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
                 return;
-            if (retrycount < 0) {
-                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0");
+            if (retrycount < 0 || retrycount > UINT32_MAX) {
+                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0 and <= " STRINGIFY(UINT32_MAX));
                 return;
             }
         } else {
@@ -4318,6 +4318,10 @@ void xclaimCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[j],&retrycount,
                 "Invalid RETRYCOUNT option argument for XCLAIM")
                 != C_OK) goto cleanup;
+            if (retrycount < 0 || retrycount > UINT32_MAX) {
+                addReplyError(c,"ERR Invalid RETRYCOUNT option argument for XCLAIM, must be >= 0 and <= " STRINGIFY(UINT32_MAX));
+                goto cleanup;
+            }
         } else if (!strcasecmp(opt,"LASTID") && moreargs) {
             j++;
             if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0,NULL) != C_OK) goto cleanup;
@@ -4437,7 +4441,7 @@ void xclaimCommand(client *c) {
             if (retrycount >= 0) {
                 nack->delivery_count = retrycount;
             } else if (!justid) {
-                nack->delivery_count++;
+                nack->delivery_count += (nack->delivery_count < UINT32_MAX);
             }
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
@@ -4631,7 +4635,7 @@ void xautoclaimCommand(client *c) {
 
         /* Increment the delivery attempts counter unless JUSTID option provided */
         if (!justid)
-            nack->delivery_count++;
+            nack->delivery_count += (nack->delivery_count < UINT32_MAX);
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
