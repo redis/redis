@@ -79,18 +79,6 @@
                         "multiple": true
                     }
                 ]
-            },
-            {
-                "name": "retrycount",
-                "token": "RETRYCOUNT",
-                "type": "integer",
-                "optional": true
-            },
-            {
-                "name": "force",
-                "type": "pure-token",
-                "token": "FORCE",
-                "optional": true
             }
         ],
         "reply_schema": {
