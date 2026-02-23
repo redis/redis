@@ -5559,6 +5559,25 @@ uint64_t pelListNackedCount(streamCG *cg) {
     return count;
 }
 
+/* Return 1 if any consumer group in the stream has NACKed (unowned) PEL
+ * entries, 0 otherwise. Used by RDB serialization to decide whether the
+ * new NACK-zone-aware format is needed. */
+int streamHasNackedEntries(stream *s) {
+    if (s->cgroups == NULL) return 0;
+    raxIterator ri;
+    raxStart(&ri, s->cgroups);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        streamCG *cg = ri.data;
+        if (cg->pel_nack_tail) {
+            raxStop(&ri);
+            return 1;
+        }
+    }
+    raxStop(&ri);
+    return 0;
+}
+
 /* Update a NACK's delivery_time and reposition it in the time-ordered list. */
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time) {
     pelListUnlink(cg, nack);

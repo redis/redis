@@ -3323,7 +3323,9 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
+        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp SILENT IDS abc 1-0}
         assert_error "*numids must be positive*" {r XNACK mystream grp SILENT IDS 0 1-0}
+        assert_error "*numids must be positive*" {r XNACK mystream grp SILENT IDS -1 1-0}
         assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
     }
 
@@ -3336,6 +3338,38 @@ start_server {
         r DEL mystream
         r XADD mystream 1-0 f v
         assert_error "*NOGROUP*" {r XNACK mystream nogroup SILENT IDS 1 1-0}
+    }
+
+    test {XNACK invalid stream ID format} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+        assert_error "*Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
+    }
+
+    test {XNACK invalid RETRYCOUNT value} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
+    }
+
+    test {XNACK RETRYCOUNT out of range} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+        assert_error "*Invalid RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
+    }
+
+    test {XNACK unrecognized option} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
     }
 
     test {XNACK SILENT mode decrements delivery_count} {
