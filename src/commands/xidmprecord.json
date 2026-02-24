@@ -1,7 +1,7 @@
 {
     "XIDMPRECORD": {
         "summary": "An internal command for setting IDMP metadata on an existing stream message.",
-        "complexity": "O(N) where N is the number of entries inside the stream node that contains the target message",
+        "complexity": "O(1)",
         "group": "stream",
         "since": "8.6.2",
         "arity": 5,
