@@ -7332,6 +7332,23 @@ const char *HOTKEYS_GET_Tips[] = {
 #define HOTKEYS_GET_Keyspecs NULL
 #endif
 
+/********** HOTKEYS HELP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HOTKEYS HELP history */
+#define HOTKEYS_HELP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HOTKEYS HELP tips */
+#define HOTKEYS_HELP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HOTKEYS HELP key specs */
+#define HOTKEYS_HELP_Keyspecs NULL
+#endif
+
 /********** HOTKEYS RESET ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -7414,6 +7431,7 @@ const char *HOTKEYS_STOP_Tips[] = {
 /* HOTKEYS command table */
 struct COMMAND_STRUCT HOTKEYS_Subcommands[] = {
 {MAKE_CMD("get","Returns lists of top K hotkeys depending on metrics chosen in HOTKEYS START command.","O(K) where K is the number of hotkeys returned.","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_GET_History,0,HOTKEYS_GET_Tips,3,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_GET_Keyspecs,0,NULL,0)},
+{MAKE_CMD("help","Return helpful text about HOTKEYS command parameters.","O(1)","8.6.1",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_HELP_History,0,HOTKEYS_HELP_Tips,0,hotkeysCommand,2,CMD_LOADING|CMD_STALE,0,HOTKEYS_HELP_Keyspecs,0,NULL,0)},
 {MAKE_CMD("reset","Release the resources used for hotkey tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_RESET_History,0,HOTKEYS_RESET_Tips,1,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_RESET_Keyspecs,0,NULL,0)},
 {MAKE_CMD("start","Starts hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_START_History,0,HOTKEYS_START_Tips,1,hotkeysCommand,-2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_START_Keyspecs,0,NULL,5),.args=HOTKEYS_START_Args},
 {MAKE_CMD("stop","Stops hotkeys tracking.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,HOTKEYS_STOP_History,0,HOTKEYS_STOP_Tips,1,hotkeysCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,HOTKEYS_STOP_Keyspecs,0,NULL,0)},
@@ -10467,6 +10485,33 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #define XGROUP_Keyspecs NULL
 #endif
 
+/********** XIDMPRECORD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XIDMPRECORD history */
+#define XIDMPRECORD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XIDMPRECORD tips */
+#define XIDMPRECORD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XIDMPRECORD key specs */
+keySpec XIDMPRECORD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* XIDMPRECORD argument table */
+struct COMMAND_ARG XIDMPRECORD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("iid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stream-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** XINFO CONSUMERS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -11968,6 +12013,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xdel","Returns the number of messages after removing them from a stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDEL_History,0,XDEL_Tips,0,xdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDEL_Keyspecs,1,NULL,2),.args=XDEL_Args},
 {MAKE_CMD("xdelex","Deletes one or multiple entries from the stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDELEX_History,0,XDELEX_Tips,0,xdelexCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDELEX_Keyspecs,1,NULL,3),.args=XDELEX_Args},
 {MAKE_CMD("xgroup","A container for consumer groups commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XGROUP_History,0,XGROUP_Tips,0,NULL,-2,0,0,XGROUP_Keyspecs,0,NULL,0),.subcommands=XGROUP_Subcommands},
+{MAKE_CMD("xidmprecord","An internal command for setting IDMP metadata on an existing stream message.","O(1)","8.6.2",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMPRECORD_History,0,XIDMPRECORD_Tips,0,xidmprecordCommand,5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XIDMPRECORD_Keyspecs,1,NULL,4),.args=XIDMPRECORD_Args},
 {MAKE_CMD("xinfo","A container for stream introspection commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_History,0,XINFO_Tips,0,NULL,-2,0,0,XINFO_Keyspecs,0,NULL,0),.subcommands=XINFO_Subcommands},
 {MAKE_CMD("xlen","Return the number of messages in a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XLEN_History,0,XLEN_Tips,0,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XLEN_Keyspecs,1,NULL,1),.args=XLEN_Args},
 {MAKE_CMD("xnack","Releases claimed messages back to the group's PEL without acknowledging them, making them available for re-delivery.","O(1) for each message ID processed.","8.8.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XNACK_History,0,XNACK_Tips,0,xnackCommand,-7,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XNACK_Keyspecs,1,NULL,4),.args=XNACK_Args},
