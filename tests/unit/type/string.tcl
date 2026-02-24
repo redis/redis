@@ -729,6 +729,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     } {ERR no such key} {needs:debug}
 
     test {SET PXAT with a past expiration time will propagate it as DEL or UNLINK} {
+        r flushall
         r set foo foo
         r set bar bar
         set repl [attach_to_replication_stream]
