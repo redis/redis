@@ -3667,7 +3667,6 @@ void xidmprecordCommand(client *c) {
     trackStreamIdmpEntries(c, c->argv[1]);
     addReply(c, shared.ok);
     server.dirty++;
-    notifyKeyspaceEvent(NOTIFY_STREAM, "xidmprecord", c->argv[1], c->db->id);
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
