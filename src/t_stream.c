@@ -51,6 +51,7 @@ static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
+static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
@@ -3621,6 +3622,64 @@ void xsetidCommand(client *c) {
     keyModified(c,c->db,c->argv[1],kv,0);
 }
 
+/* XIDMPRECORD <key> <pid> <iid> <streamID>
+ * Set IDMP metadata (producer id + idempotency id) on an existing stream message. */
+void xidmprecordCommand(client *c) {
+    streamID id;
+
+    if (streamParseStrictIDOrReply(c, c->argv[4], &id, 0, NULL) != C_OK)
+        return;
+
+    const char *pid_str = c->argv[2]->ptr;
+    size_t pid_len = sdslen((sds)pid_str);
+    const char *iid_str = c->argv[3]->ptr;
+    size_t iid_len = sdslen((sds)iid_str);
+
+    if (pid_len == 0) {
+        addReplyError(c,"producer ID must be non-empty");
+        return;
+    }
+    if (iid_len == 0) {
+        addReplyError(c,"idempotent ID must be non-empty");
+        return;
+    }
+
+    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.nokeyerr);
+    if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
+    stream *s = kv->ptr;
+
+    if (!streamEntryExists(s, &id)) {
+        addReplyError(c, "No such message in stream");
+        return;
+    }
+
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+
+    idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
+    idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+    int found = idmpLookup(producer, entry, &id);
+    if (found) {
+        idmpEntryFree(entry, &s->alloc_size);
+        if (found == 1)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "IID already exists for this producer with a different stream ID");
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+        return;
+    }
+
+    idmpInsertEntry(s, producer, entry, &id);
+    trackStreamIdmpEntries(c, c->argv[1]);
+    addReply(c, shared.ok);
+    server.dirty++;
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+
+    keyModified(c, c->db, c->argv[1], kv, 0);
+}
+
 /* XACK <key> <group> <id> <id> ... <id>
  * Acknowledge a message as processed. In practical terms we just check the
  * pending entries list (PEL) of the group, and delete the PEL entry both from
@@ -5527,6 +5586,16 @@ static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entr
         return 1;
     }
     return 0;
+}
+
+/* Lookup IID in the producer's dict.
+ * Return: 0 = not found, 1 = found same ID, -1 = found different ID. */
+static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
+    dictEntry *de = dictFind(producer->idmp_dict, entry);
+    if (de == NULL)
+        return 0;
+    idmpEntry *existing = (idmpEntry *)dictGetKey(de);
+    return streamCompareID(&existing->id, id) == 0 ? 1 : -1;
 }
 
 /* Insert an idmpEntry into the producer's dict and linked list with the given stream ID. */
