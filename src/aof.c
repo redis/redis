@@ -2417,7 +2417,6 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                                                     batch_count,batch_dc) == 0)
                     {
                         raxStop(&ri);
-                        streamIteratorStop(&si);
                         return 0;
                     }
                     nack = scan;
