@@ -18,7 +18,7 @@ libfast_float: fast_float_strtod.o
 32bit: libfast_float
 
 fast_float_strtod.o: fast_float_strtod.cpp
-	$(CXX) $(FASTFLOAT_CFLAGS) -nostdlib -c fast_float_strtod.cpp $(FASTFLOAT_LDFLAGS)
+	$(CXX) $(FASTFLOAT_CFLAGS) -c fast_float_strtod.cpp $(FASTFLOAT_LDFLAGS)
 
 clean:
 	rm -f *.o
