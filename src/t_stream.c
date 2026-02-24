@@ -51,7 +51,7 @@ static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
-static int idmpLookupRecordAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, streamID *id, client *c);
+static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
@@ -3657,7 +3657,13 @@ void xidmprecordCommand(client *c) {
 
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
-    if (idmpLookupRecordAndReply(s, producer, entry, &id, c)) {
+    int found = idmpLookup(producer, entry, &id);
+    if (found) {
+        idmpEntryFree(entry, &s->alloc_size);
+        if (found == 1)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "IID already exists for this producer with a different stream ID");
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
         return;
@@ -5582,21 +5588,14 @@ static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entr
     return 0;
 }
 
-/* Lookup IID for XIDMPRECORD: if it already exists for this producer, free the probe
- * entry and reply OK (same stream ID) or error (different stream ID). Returns 1 if
- * caller should return (reply already sent), 0 to proceed with insert. */
-static int idmpLookupRecordAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, streamID *id, client *c) {
+/* Lookup IID in the producer's dict.
+ * Return: 0 = not found, 1 = found same ID, -1 = found different ID. */
+static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
     dictEntry *de = dictFind(producer->idmp_dict, entry);
     if (de == NULL)
         return 0;
     idmpEntry *existing = (idmpEntry *)dictGetKey(de);
-    idmpEntryFree(entry, &s->alloc_size);
-    if (streamCompareID(&existing->id, id) == 0) {
-        addReply(c, shared.ok);
-        return 1;
-    }
-    addReplyError(c, "IID already exists for this producer with a different stream ID");
-    return 1;
+    return streamCompareID(&existing->id, id) == 0 ? 1 : -1;
 }
 
 /* Insert an idmpEntry into the producer's dict and linked list with the given stream ID. */
