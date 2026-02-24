@@ -24,7 +24,7 @@
                 "Added the `idmp-duration`, `idmp-maxsize`, `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."
             ],
             [
-                "8.6.0",
+                "8.8.0",
                 "Added the `nacked-count` field to consumer groups in `FULL` output."
             ]
         ],

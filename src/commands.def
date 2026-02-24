@@ -10593,7 +10593,7 @@ commandHistory XINFO_STREAM_History[] = {
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
 {"7.2.0","Added the `active-time` field, and changed the meaning of `seen-time`."},
 {"8.6.0","Added the `idmp-duration`, `idmp-maxsize`, `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."},
-{"8.6.0","Added the `nacked-count` field to consumer groups in `FULL` output."},
+{"8.8.0","Added the `nacked-count` field to consumer groups in `FULL` output."},
 };
 #endif
 
