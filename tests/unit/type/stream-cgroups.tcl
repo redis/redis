@@ -3751,6 +3751,95 @@ start_server {
             set claimed [r XCLAIM mystream grp c2 0 1-0 3-0]
             assert_equal [llength $claimed] 2
         }
+
+        test {XNACK AOF rewrite batch split -- 65 NACKed entries with owned tail} {
+            r DEL mystream
+
+            # AOF_REWRITE_ITEMS_PER_CMD is 64.  65 NACKed entries with
+            # identical delivery_count force a batch split: the first
+            # XNACK FORCE command carries 64 IDs, the second carries
+            # just 1 (pel_nack_tail).  One owned entry after the NACK
+            # zone keeps nack_stop pointing to a real node.
+            set total_nack 65
+            set total [expr {$total_nack + 1}]
+
+            for {set i 1} {$i <= $total} {incr i} {
+                r XADD mystream $i-0 f v$i
+            }
+            r XGROUP CREATE mystream grp 0
+            r XREADGROUP GROUP grp c1 COUNT $total STREAMS mystream >
+
+            set nack_ids {}
+            for {set i 1} {$i <= $total_nack} {incr i} {
+                lappend nack_ids $i-0
+            }
+            r XNACK mystream grp FAIL IDS $total_nack {*}$nack_ids
+
+            set pending_before [r XPENDING mystream grp - + 200]
+            assert_equal [llength $pending_before] $total
+
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+
+            set pending_after [r XPENDING mystream grp - + 200]
+            assert_equal [llength $pending_after] $total
+
+            for {set i 0} {$i < $total_nack} {incr i} {
+                set entry [lindex $pending_after $i]
+                assert_equal [lindex $entry 0] "[expr {$i + 1}]-0"
+                assert_equal [lindex $entry 1] {}
+                assert_equal [lindex $entry 3] 1
+            }
+
+            # Last entry remains owned by c1
+            set last [lindex $pending_after $total_nack]
+            assert_equal [lindex $last 0] "$total-0"
+            assert_equal [lindex $last 1] c1
+
+            # NACKed entries are still claimable after reload
+            set claimed [r XCLAIM mystream grp c2 0 1-0 65-0]
+            assert_equal [llength $claimed] 2
+        }
+
+        test {XNACK AOF rewrite batch split -- entire PEL is NACK zone} {
+            r DEL mystream
+
+            # All 65 entries are NACKed (no owned tail), so the NACK
+            # zone IS the entire PEL and nack_stop is NULL during the
+            # AOF rewrite.  This exercises the NULL-sentinel path of
+            # the boundary check.
+            set total 65
+
+            for {set i 1} {$i <= $total} {incr i} {
+                r XADD mystream $i-0 f v$i
+            }
+            r XGROUP CREATE mystream grp 0
+            r XREADGROUP GROUP grp c1 COUNT $total STREAMS mystream >
+
+            set nack_ids {}
+            for {set i 1} {$i <= $total} {incr i} {
+                lappend nack_ids $i-0
+            }
+            r XNACK mystream grp FAIL IDS $total {*}$nack_ids
+
+            set pending_before [r XPENDING mystream grp - + 200]
+            assert_equal [llength $pending_before] $total
+
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+
+            set pending_after [r XPENDING mystream grp - + 200]
+            assert_equal [llength $pending_after] $total
+
+            for {set i 0} {$i < $total} {incr i} {
+                set entry [lindex $pending_after $i]
+                assert_equal [lindex $entry 0] "[expr {$i + 1}]-0"
+                assert_equal [lindex $entry 1] {}
+                assert_equal [lindex $entry 3] 1
+            }
+        }
     }
 
     test {XNACK FORCE creates new unowned PEL entry} {

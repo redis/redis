@@ -2382,20 +2382,21 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * (pel_time_head..pel_nack_tail). Consecutive entries with
              * the same delivery_count are batched into a single command.
              *
-             * The loops use "pel_prev != nack_end" as the boundary test:
-             * once we reach the node right after pel_nack_tail its
-             * pel_prev equals nack_end, stopping iteration. When
+             * nack_stop is the first node outside the NACK zone (or NULL
+             * when the zone extends to the end of the PEL). Both loops
+             * simply compare the current pointer against nack_stop. When
              * pel_nack_tail is NULL (no NACKed entries) the guard below
              * skips the whole block. */
             streamNACK *nack_end = group->pel_nack_tail;
             if (nack_end != NULL) {
+                streamNACK *nack_stop = nack_end->pel_next;
                 streamNACK *nack = group->pel_time_head;
-                while (nack && nack->pel_prev != nack_end) {
+                while (nack && nack != nack_stop) {
                     streamNACK *batch_start = nack;
                     uint64_t batch_dc = nack->delivery_count;
                     int batch_count = 0;
                     streamNACK *scan = nack;
-                    while (scan && scan->pel_prev != nack_end &&
+                    while (scan && scan != nack_stop &&
                            scan->delivery_count == batch_dc &&
                            batch_count < AOF_REWRITE_ITEMS_PER_CMD)
                     {
