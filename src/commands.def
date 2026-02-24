@@ -10485,6 +10485,33 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #define XGROUP_Keyspecs NULL
 #endif
 
+/********** XIDMPRECORD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XIDMPRECORD history */
+#define XIDMPRECORD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XIDMPRECORD tips */
+#define XIDMPRECORD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XIDMPRECORD key specs */
+keySpec XIDMPRECORD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* XIDMPRECORD argument table */
+struct COMMAND_ARG XIDMPRECORD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("iid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stream-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** XINFO CONSUMERS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -11945,6 +11972,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xdel","Returns the number of messages after removing them from a stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDEL_History,0,XDEL_Tips,0,xdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDEL_Keyspecs,1,NULL,2),.args=XDEL_Args},
 {MAKE_CMD("xdelex","Deletes one or multiple entries from the stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDELEX_History,0,XDELEX_Tips,0,xdelexCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDELEX_Keyspecs,1,NULL,3),.args=XDELEX_Args},
 {MAKE_CMD("xgroup","A container for consumer groups commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XGROUP_History,0,XGROUP_Tips,0,NULL,-2,0,0,XGROUP_Keyspecs,0,NULL,0),.subcommands=XGROUP_Subcommands},
+{MAKE_CMD("xidmprecord","An internal command for setting IDMP metadata on an existing stream message.","O(1)","8.6.2",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMPRECORD_History,0,XIDMPRECORD_Tips,0,xidmprecordCommand,5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XIDMPRECORD_Keyspecs,1,NULL,4),.args=XIDMPRECORD_Args},
 {MAKE_CMD("xinfo","A container for stream introspection commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_History,0,XINFO_Tips,0,NULL,-2,0,0,XINFO_Keyspecs,0,NULL,0),.subcommands=XINFO_Subcommands},
 {MAKE_CMD("xlen","Return the number of messages in a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XLEN_History,0,XLEN_Tips,0,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XLEN_Keyspecs,1,NULL,1),.args=XLEN_Args},
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args},

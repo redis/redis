@@ -4401,6 +4401,7 @@ void xlenCommand(client *c);
 void xreadCommand(client *c);
 void xgroupCommand(client *c);
 void xsetidCommand(client *c);
+void xidmprecordCommand(client *c);
 void xackCommand(client *c);
 void xackdelCommand(client *c);
 void xpendingCommand(client *c);
