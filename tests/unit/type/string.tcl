@@ -715,6 +715,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     }
 
     test {Extended SET PXAT option with a past expiration time} {
+        r set foo bar
         r debug set-active-expire 0
         set now [clock milliseconds]
         set expiredkeys [s expired_keys]
@@ -1265,7 +1266,6 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {Extended SET with IFDEQ - key exists and digest matches} {
         r set mykey "hello"
         set digest [r digest mykey]
-        puts $digest
         assert_equal "OK" [r set mykey "world" IFDEQ $digest]
         assert_equal "world" [r get mykey]
     }
