@@ -1705,7 +1705,7 @@ start_server {
             assert_error {*wrong number of arguments for 'xackdel' command} {r XACKDEL s g}
         }
 
-        test "XACKDEL should return -1 sentinels when key or group doesn't exist" {
+        test "XACKDEL should return empty array when key doesn't exist or group doesn't exist" {
             r DEL s
             assert_equal {-1 -1} [r XACKDEL s g IDS 2 1-1 2-2] ;# the key doesn't exist
 
@@ -1790,8 +1790,9 @@ start_server {
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
             r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
-            # KEEPREF: ACKs + deletes stream entries for the specified group,
-            # but preserves other groups' PEL references.
+            # Test XACKDEL with KEEPREF
+            # XACKDEL only deletes the message from the stream
+            # but does not clean up references in consumer groups' PELs
             assert_equal {1 1} [r XACKDEL mystream group1 KEEPREF IDS 2 1-0 2-0]
             assert_equal 0 [r XLEN mystream]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
@@ -3290,7 +3291,7 @@ start_server {
         }
     }
 
-    test {XNACK basic argument validation} {
+    test "XNACK basic argument validation" {
         assert_error "*wrong number of arguments*" {r XNACK}
         assert_error "*wrong number of arguments*" {r XNACK key}
         assert_error "*wrong number of arguments*" {r XNACK key group}
@@ -3299,7 +3300,7 @@ start_server {
         assert_error "*wrong number of arguments*" {r XNACK key group SILENT IDS 1}
     }
 
-    test {XNACK mode validation} {
+    test "XNACK mode validation" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3307,7 +3308,7 @@ start_server {
         assert_error "*mode must be SILENT, FAIL, or FATAL*" {r XNACK mystream grp BADMODE IDS 1 1-0}
     }
 
-    test {XNACK rejects multiple mode words} {
+    test "XNACK rejects multiple mode words" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3318,7 +3319,7 @@ start_server {
         assert_error "*expected IDS keyword*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
     }
 
-    test {XNACK IDS keyword validation} {
+    test "XNACK IDS keyword validation" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3326,7 +3327,7 @@ start_server {
         assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
     }
 
-    test {XNACK numids validation} {
+    test "XNACK numids validation" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3337,18 +3338,18 @@ start_server {
         assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
     }
 
-    test {XNACK on non-existent key returns NOGROUP error} {
+    test "XNACK on non-existent key returns NOGROUP error" {
         r DEL nosuchkey
         assert_error "*NOGROUP*" {r XNACK nosuchkey grp SILENT IDS 1 1-0}
     }
 
-    test {XNACK on non-existent group returns NOGROUP error} {
+    test "XNACK on non-existent group returns NOGROUP error" {
         r DEL mystream
         r XADD mystream 1-0 f v
         assert_error "*NOGROUP*" {r XNACK mystream nogroup SILENT IDS 1 1-0}
     }
 
-    test {XNACK invalid stream ID format} {
+    test "XNACK invalid stream ID format" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3356,7 +3357,7 @@ start_server {
         assert_error "*Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
     }
 
-    test {XNACK invalid RETRYCOUNT value} {
+    test "XNACK invalid RETRYCOUNT value" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3364,7 +3365,7 @@ start_server {
         assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
     }
 
-    test {XNACK RETRYCOUNT out of range} {
+    test "XNACK RETRYCOUNT out of range" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3373,7 +3374,7 @@ start_server {
         assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
     }
 
-    test {XNACK unrecognized option} {
+    test "XNACK unrecognized option" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3381,7 +3382,7 @@ start_server {
         assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
     }
 
-    test {XNACK extra args after numids IDs are rejected as bad option} {
+    test "XNACK extra args after numids IDs are rejected as bad option" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3392,13 +3393,13 @@ start_server {
         assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 2-0}
     }
 
-    test {XNACK on wrong key type returns type error} {
+    test "XNACK on wrong key type returns type error" {
         r DEL mykey
         r SET mykey "not a stream"
         assert_error "*WRONGTYPE*" {r XNACK mykey grp FAIL IDS 1 1-0}
     }
 
-    test {XNACK SILENT mode decrements delivery_count} {
+    test "XNACK SILENT mode decrements delivery_count" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3418,7 +3419,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 0
     }
 
-    test {XNACK SILENT clamps delivery_count at 0} {
+    test "XNACK SILENT clamps delivery_count at 0" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3439,7 +3440,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 0
     }
 
-    test {XNACK SILENT decrements delivery_count from higher values} {
+    test "XNACK SILENT decrements delivery_count from higher values" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3460,7 +3461,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 2
     }
 
-    test {XNACK FAIL mode keeps delivery_count unchanged} {
+    test "XNACK FAIL mode keeps delivery_count unchanged" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3477,7 +3478,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 1
     }
 
-    test {XNACK FATAL mode sets delivery_count to max} {
+    test "XNACK FATAL mode sets delivery_count to max" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3492,7 +3493,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 9223372036854775807
     }
 
-    test {XNACK releases entries regardless of owning consumer} {
+    test "XNACK releases entries regardless of owning consumer" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3514,7 +3515,7 @@ start_server {
         assert_equal [lindex $pending 1 1] {}
     }
 
-    test {XNACK skips IDs not in group PEL} {
+    test "XNACK skips IDs not in group PEL" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3524,7 +3525,7 @@ start_server {
         assert_equal 0 [r XNACK mystream grp FAIL IDS 1 9-9]
     }
 
-    test {XNACK multiple IDs at once} {
+    test "XNACK multiple IDs at once" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3542,7 +3543,7 @@ start_server {
         }
     }
 
-    test {XNACK removes entry from consumer PEL} {
+    test "XNACK removes entry from consumer PEL" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XADD mystream 2-0 f v2
@@ -3562,7 +3563,7 @@ start_server {
         assert_equal [lindex $c1_pending 0 0] 2-0
     }
 
-    test {XNACK ordering: NACKed entries at head of PEL with FIFO order} {
+    test "XNACK ordering: NACKed entries at head of PEL with FIFO order" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3607,7 +3608,7 @@ start_server {
         assert_equal [lindex [lindex $pel 3] 1] c1
     }
 
-    test {XNACK entry persists in PEL after XDEL of stream entry} {
+    test "XNACK entry persists in PEL after XDEL of stream entry" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3626,7 +3627,7 @@ start_server {
         assert_equal [lindex $pending 0 1] {}
     }
 
-    test {XNACK NACKed entry persists after XTRIM} {
+    test "XNACK NACKed entry persists after XTRIM" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3648,7 +3649,7 @@ start_server {
         assert_equal [lindex $pending 0 1] {}
     }
 
-    test {XNACK does not auto-create consumers} {
+    test "XNACK does not auto-create consumers" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3666,7 +3667,7 @@ start_server {
         assert_equal [dict get [lindex $info 0] consumers] 1
     }
 
-    test {XNACK without FORCE on already-NACKed entry is a no-op} {
+    test "XNACK without FORCE on already-NACKed entry is a no-op" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3685,7 +3686,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 1
     }
 
-    test {XNACK with duplicate IDs counts only first} {
+    test "XNACK with duplicate IDs counts only first" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3700,7 +3701,7 @@ start_server {
         assert_equal [lindex $pending 0 1] {}
     }
 
-    test {XNACK returns correct count for mixed valid and invalid IDs} {
+    test "XNACK returns correct count for mixed valid and invalid IDs" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3719,7 +3720,7 @@ start_server {
         }
     }
 
-    test {XNACK with IDs exceeding STREAMID_STATIC_VECTOR_LEN for heap allocation} {
+    test "XNACK with IDs exceeding STREAMID_STATIC_VECTOR_LEN for heap allocation" {
         r DEL mystream
         r XGROUP CREATE mystream grp $ MKSTREAM
 
@@ -3738,10 +3739,9 @@ start_server {
         foreach entry $pending {
             assert_equal [lindex $entry 1] {}
         }
-        r PING
     }
 
-    test {XNACK on empty PEL returns 0} {
+    test "XNACK on empty PEL returns 0" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3756,7 +3756,7 @@ start_server {
         assert_equal 0 [r XNACK mystream grp FAIL IDS 1 1-0]
     }
 
-    test {XNACK works inside MULTI/EXEC} {
+    test "XNACK works inside MULTI/EXEC" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3784,7 +3784,7 @@ start_server {
         assert_equal $found 1
     }
 
-    test {XNACK RETRYCOUNT overrides mode-based delivery count} {
+    test "XNACK RETRYCOUNT overrides mode-based delivery count" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3798,7 +3798,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 42
     }
 
-    test {XNACK RETRYCOUNT with SILENT mode overrides decrement} {
+    test "XNACK RETRYCOUNT with SILENT mode overrides decrement" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3811,7 +3811,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 10
     }
 
-    test {XNACK RETRYCOUNT 0 sets delivery_count to zero} {
+    test "XNACK RETRYCOUNT 0 sets delivery_count to zero" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3825,7 +3825,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 0
     }
 
-    test {XNACK FORCE creates new unowned PEL entry} {
+    test "XNACK FORCE creates new unowned PEL entry" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3847,7 +3847,7 @@ start_server {
         assert_equal [lindex $claimed 0 0] 1-0
     }
 
-    test {XNACK FORCE skips non-existent stream entries} {
+    test "XNACK FORCE skips non-existent stream entries" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3860,7 +3860,7 @@ start_server {
         assert_equal [lindex $info 0] 0
     }
 
-    test {XNACK FORCE with FATAL mode sets delivery_count to max} {
+    test "XNACK FORCE with FATAL mode sets delivery_count to max" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3872,7 +3872,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 9223372036854775807
     }
 
-    test {XNACK FORCE with SILENT mode sets delivery_count to 0} {
+    test "XNACK FORCE with SILENT mode sets delivery_count to 0" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3890,7 +3890,7 @@ start_server {
         assert_equal [lindex $pending 1 3] 0
     }
 
-    test {XNACK FORCE on already-owned PEL entry NACKs normally} {
+    test "XNACK FORCE on already-owned PEL entry NACKs normally" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -3911,7 +3911,7 @@ start_server {
         assert_equal [llength $c1_pending] 0
     }
 
-    test {XNACK FORCE on already-NACKed entry is a no-op} {
+    test "XNACK FORCE on already-NACKed entry is a no-op" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3930,7 +3930,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 1
     }
 
-    test {XNACK FORCE + RETRYCOUNT combination} {
+    test "XNACK FORCE + RETRYCOUNT combination" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3944,7 +3944,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 7
     }
 
-    test {XNACK FORCE + RETRYCOUNT with SILENT mode} {
+    test "XNACK FORCE + RETRYCOUNT with SILENT mode" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3958,7 +3958,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 5
     }
 
-    test {XNACK FORCE + RETRYCOUNT with FATAL mode} {
+    test "XNACK FORCE + RETRYCOUNT with FATAL mode" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3973,7 +3973,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 99
     }
 
-    test {XNACK NACKed entry can be reclaimed via XCLAIM} {
+    test "XNACK NACKed entry can be reclaimed via XCLAIM" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -3993,7 +3993,7 @@ start_server {
         assert_equal [lindex $pending 0 0] 1-0
     }
 
-    test {XNACK NACKed entry can be reclaimed via XAUTOCLAIM} {
+    test "XNACK NACKed entry can be reclaimed via XAUTOCLAIM" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -4014,7 +4014,7 @@ start_server {
         assert_equal [lindex $pending 0 0] 1-0
     }
 
-    test {XNACK NACKed entry can be reclaimed via XREADGROUP CLAIM} {
+    test "XNACK NACKed entry can be reclaimed via XREADGROUP CLAIM" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -4034,7 +4034,7 @@ start_server {
         assert_equal [lindex $pending 0 0] 1-0
     }
 
-    test {XNACK XACK works on NACKed (unowned) entry} {
+    test "XNACK XACK works on NACKed (unowned) entry" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -4051,7 +4051,7 @@ start_server {
         assert_equal [lindex $info 0] 0
     }
 
-    test {XNACK XPENDING shows NACKed entries with empty consumer} {
+    test "XNACK XPENDING shows NACKed entries with empty consumer" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4080,7 +4080,7 @@ start_server {
         assert_equal $found 1
     }
 
-    test {XNACK XREADGROUP pending read excludes NACKed entries} {
+    test "XNACK XREADGROUP pending read excludes NACKed entries" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4098,7 +4098,7 @@ start_server {
         assert_equal [lindex $entries 0 0] 2-0
     }
 
-    test {XNACK Consumer exists with 0 pending after all entries NACKed} {
+    test "XNACK Consumer exists with 0 pending after all entries NACKed" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4118,7 +4118,7 @@ start_server {
         assert_equal [dict get $grp consumers] 1
     }
 
-    test {XNACK effect on XINFO CONSUMERS pending count} {
+    test "XNACK effect on XINFO CONSUMERS pending count" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4140,7 +4140,7 @@ start_server {
         assert_equal [dict get $c1_info pending] 1
     }
 
-    test {XNACK XGROUP DESTROY cleans up NACKed entries} {
+    test "XNACK XGROUP DESTROY cleans up NACKed entries" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4162,7 +4162,7 @@ start_server {
         assert_equal [lindex $info 0] 0
     }
 
-    test {XNACK XGROUP DELCONSUMER works when group PEL has NACKed entries} {
+    test "XNACK XGROUP DELCONSUMER works when group PEL has NACKed entries" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4200,7 +4200,7 @@ start_server {
         assert_equal [llength $claimed] 1
     }
 
-    test {XNACK XINFO STREAM FULL shows empty consumer for NACKed entries} {
+    test "XNACK XINFO STREAM FULL shows empty consumer for NACKed entries" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4224,7 +4224,7 @@ start_server {
         assert_equal $found_nacked 1
     }
 
-    test {XNACK XINFO STREAM FULL nacked-count reflects nack zone size} {
+    test "XNACK XINFO STREAM FULL nacked-count reflects nack zone size" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4275,7 +4275,7 @@ start_server {
         assert_equal [dict get $group pel-count] 2
     }
 
-    test {XNACK XINFO STREAM FULL nacked-count with multiple groups} {
+    test "XNACK XINFO STREAM FULL nacked-count with multiple groups" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4294,7 +4294,7 @@ start_server {
         assert_equal [dict get $grp2 nacked-count] 0
     }
 
-    test {XNACK RDB save and load preserves NACKed entries} {
+    test "XNACK RDB save and load preserves NACKed entries" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4329,7 +4329,7 @@ start_server {
         assert_equal [lindex $claimed 0 0] 1-0
     } {} {external:skip needs:debug}
 
-    test {XNACK FATAL delivery_count survives RDB reload} {
+    test "XNACK FATAL delivery_count survives RDB reload" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
@@ -4346,7 +4346,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 9223372036854775807
     } {} {external:skip needs:debug}
 
-    test {XNACK FORCE-created entries survive RDB reload} {
+    test "XNACK FORCE-created entries survive RDB reload" {
         r DEL mystream
         r XADD mystream 1-0 f v1
         r XADD mystream 2-0 f v2
@@ -4379,7 +4379,7 @@ start_server {
     } {} {external:skip needs:debug}
 
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
-        test {XNACK entries survive AOF rewrite} {
+        test "XNACK entries survive AOF rewrite" {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
@@ -4431,7 +4431,7 @@ start_server {
             assert_equal [llength $claimed] 2
         }
 
-        test {XNACK AOF rewrite batch split -- 65 NACKed entries with owned tail} {
+        test "XNACK AOF rewrite batch split -- 65 NACKed entries with owned tail" {
             r DEL mystream
 
             # AOF_REWRITE_ITEMS_PER_CMD is 64.  65 NACKed entries with
@@ -4481,7 +4481,7 @@ start_server {
             assert_equal [llength $claimed] 2
         }
 
-        test {XNACK AOF rewrite batch split -- entire PEL is NACK zone} {
+        test "XNACK AOF rewrite batch split -- entire PEL is NACK zone" {
             r DEL mystream
 
             # All 65 entries are NACKed (no owned tail), so the NACK
@@ -4520,7 +4520,7 @@ start_server {
             }
         }
 
-        test {XNACK AOF rewrite with mixed delivery_counts batches correctly} {
+        test "XNACK AOF rewrite with mixed delivery_counts batches correctly" {
             r DEL mystream
 
             # Create entries with different delivery_counts in the NACK zone
@@ -4576,7 +4576,7 @@ start_server {
             }
         }
 
-        test {XNACK FORCE-created entries survive AOF rewrite} {
+        test "XNACK FORCE-created entries survive AOF rewrite" {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
