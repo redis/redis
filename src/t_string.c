@@ -157,8 +157,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
      * no insertion of new one), so we don't confuse modules. */
     if (expire && checkAlreadyExpired(milliseconds)) {
         if (found) {
-            dbGenericDelete(c->db, key, server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
-            robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+            dbDelete(c->db, key);
+            robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
             rewriteClientCommandVector(c, 2, aux, key);
             keyModified(c, c->db, key, NULL, 1);
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);

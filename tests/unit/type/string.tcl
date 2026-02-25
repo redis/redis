@@ -736,9 +736,9 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
         # Keys that have expired timestamp will be deleted immediately
         set now [clock milliseconds]
-        r config set lazyfree-lazy-expire no
+        r config set lazyfree-lazy-server-del no
         assert_equal {OK} [r set foo foo PXAT [expr $now-3000]]
-        r config set lazyfree-lazy-expire yes
+        r config set lazyfree-lazy-server-del yes
         assert_equal {OK} [r set bar bar PXAT [expr $now-3000]]
 
         # Verify the propagate of DEL and UNLINK.
