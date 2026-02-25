@@ -1436,6 +1436,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     test "Source write pause timeout" {
         # set timeout to 0, so the task will fail immediately when checking timeout
         R 0 config set cluster-slot-migration-write-pause-timeout 0
+        R 1 debug asm-failpoint "import-main-channel" "takeover"
 
         # start migration from node 0 to 1
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
@@ -1459,6 +1460,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set cluster-slot-migration-write-pause-timeout 10000
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
+        R 1 debug asm-failpoint "" ""
     }
 
     test "Sync buffer drain timeout" {
