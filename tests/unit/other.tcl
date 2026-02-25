@@ -16,6 +16,7 @@ start_server {tags {"other"}} {
         assert_match "*CONFIG <subcommand> *" [r CONFIG HELP]
         assert_match "*FUNCTION <subcommand> *" [r FUNCTION HELP]
         assert_match "*MODULE <subcommand> *" [r MODULE HELP]
+        assert_match "*HOTKEYS <subcommand> *" [r HOTKEYS HELP]
     }
 
     test {Coverage: MEMORY MALLOC-STATS} {
