@@ -153,7 +153,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
             return C_ERR;
 
         ftval *= 1000.0;  /* seconds => millisec */
-        if (ftval > LLONG_MAX) {
+        if (ftval > (long double)LLONG_MAX) {
             addReplyError(c, "timeout is out of range");
             return C_ERR;
         }
