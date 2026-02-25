@@ -665,6 +665,21 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {bar bar}
 
+    test {Extended SET GET option with a past expiration time and no previous value} {
+        r del foo
+        r debug set-active-expire 0
+        set now [clock milliseconds]
+        set expiredkeys [s expired_keys]
+        set old_value [r set foo baz GET PXAT [expr $now-3000]]
+        assert_equal $old_value {}
+        # Verify that expired_keys was incremented, even though
+        # the key was not added to the DB actually.
+        assert_equal [expr $expiredkeys + 1] [s expired_keys]
+        catch {r debug object foo} e
+        r debug set-active-expire 1
+        set e
+    } {ERR no such key} {needs:debug}
+
     test {Extended SET GET with incorrect type should result in wrong type error} {
       r del foo
       r rpush foo waffle
@@ -698,6 +713,43 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         r set foo bar pxat [expr [clock milliseconds] + 10000]
         assert_range [r ttl foo] 5 10
     }
+
+    test {Extended SET PXAT option with a past expiration time} {
+        r set foo bar
+        r debug set-active-expire 0
+        set now [clock milliseconds]
+        set expiredkeys [s expired_keys]
+        r set foo baz PXAT [expr $now-3000]
+        # Verify that expired_keys was incremented, even though
+        # the key was not added to the DB actually.
+        assert_equal [expr $expiredkeys + 1] [s expired_keys]
+        catch {r debug object foo} e
+        r debug set-active-expire 1
+        set e
+    } {ERR no such key} {needs:debug}
+
+    test {SET PXAT with a past expiration time will propagate it as DEL or UNLINK} {
+        r flushall
+        r set foo foo
+        r set bar bar
+        set repl [attach_to_replication_stream]
+
+        # Keys that have expired timestamp will be deleted immediately
+        set now [clock milliseconds]
+        r config set lazyfree-lazy-server-del no
+        assert_equal {OK} [r set foo foo PXAT [expr $now-3000]]
+        r config set lazyfree-lazy-server-del yes
+        assert_equal {OK} [r set bar bar PXAT [expr $now-3000]]
+
+        # Verify the propagate of DEL and UNLINK.
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+            {unlink bar}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {Extended SET using multiple options at once} {
         r set foo val
         assert {[r set foo bar xx px 10000] eq {OK}}
@@ -1215,7 +1267,6 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {Extended SET with IFDEQ - key exists and digest matches} {
         r set mykey "hello"
         set digest [r digest mykey]
-        puts $digest
         assert_equal "OK" [r set mykey "world" IFDEQ $digest]
         assert_equal "world" [r get mykey]
     }
