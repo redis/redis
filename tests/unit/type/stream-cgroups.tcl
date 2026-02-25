@@ -3291,8 +3291,6 @@ start_server {
         }
     }
 
-    # ---- XNACK tests ----
-
     test {XNACK basic argument validation} {
         assert_error "*wrong number of arguments*" {r XNACK}
         assert_error "*wrong number of arguments*" {r XNACK key}

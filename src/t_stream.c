@@ -1826,6 +1826,18 @@ static inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *grou
     alsoPropagate(dbid,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
+/* Propagate an XACK command to AOF and replicas. Used when a PEL entry is
+ * removed implicitly (e.g. entry no longer exists during XCLAIM/XAUTOCLAIM)
+ * and the NACK has no consumer, so XCLAIM propagation is not applicable. */
+static inline void streamPropagateXACK(int dbid, robj *key, robj *groupname, robj *id) {
+    robj *argv[4];
+    argv[0] = shared.xack;
+    argv[1] = key;
+    argv[2] = groupname;
+    argv[3] = id;
+    alsoPropagate(dbid,argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
+}
+
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
  * are created in the pending list of the stream and consumers. We need
  * to propagate this changes in the form of XCLAIM commands. */
@@ -3770,7 +3782,6 @@ cleanup:
 void xnackCommand(client *c) {
     streamCG *group = NULL;
     kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
-
     if (kv) {
         if (checkType(c,kv,OBJ_STREAM)) return;
         group = streamLookupCG(kv->ptr,c->argv[2]->ptr);
@@ -3848,14 +3859,12 @@ void xnackCommand(client *c) {
     stream *s = kv->ptr;
     int nacked = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
-
     for (int j = 0; j < id_count; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j]);
 
         void *result;
         int found = raxFind(group->pel,buf,sizeof(buf),&result);
-
         if (found) {
             streamNACK *nack = result;
 
@@ -3909,7 +3918,6 @@ void xnackCommand(client *c) {
         } else {
             continue;
         }
-
         nacked++;
     }
 
@@ -4440,12 +4448,7 @@ void xclaimCommand(client *c) {
                     streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                     propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
                 } else {
-                    robj *ack_argv[4];
-                    ack_argv[0] = shared.xack;
-                    ack_argv[1] = c->argv[1];
-                    ack_argv[2] = c->argv[2];
-                    ack_argv[3] = c->argv[j];
-                    alsoPropagate(c->db->id,ack_argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
+                    streamPropagateXACK(c->db->id,c->argv[1],c->argv[2],c->argv[j]);
                 }
                 server.dirty++;
                 /* Release the NACK */
@@ -4651,12 +4654,7 @@ void xautoclaimCommand(client *c) {
                 decrRefCount(idstr);
             } else {
                 robj *idstr = createObjectFromStreamID(&id);
-                robj *ack_argv[4];
-                ack_argv[0] = shared.xack;
-                ack_argv[1] = c->argv[1];
-                ack_argv[2] = c->argv[2];
-                ack_argv[3] = idstr;
-                alsoPropagate(c->db->id,ack_argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
+                streamPropagateXACK(c->db->id,c->argv[1],c->argv[2],idstr);
                 decrRefCount(idstr);
             }
             server.dirty++;
