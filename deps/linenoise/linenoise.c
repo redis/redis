@@ -120,6 +120,7 @@
 #include <assert.h>
 #include "linenoise.h"
 
+#define SEQ_BUFFER_MAX_LENGTH 8
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
@@ -1060,7 +1061,6 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 if (seq[1] >= '0' && seq[1] <= '9') {
                     /* Extended escape, read additional bytes.
                      * Examples: ESC [1;5C  ESC [3~ */
-                    enum { SEQ_BUFFER_MAX_LENGTH = 8 };
                     char seq_buffer[SEQ_BUFFER_MAX_LENGTH];
                     int i = 0;
                     seq_buffer[i++] = seq[1];
