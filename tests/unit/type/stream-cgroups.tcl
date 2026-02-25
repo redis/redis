@@ -3418,8 +3418,8 @@ start_server {
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
         assert_equal [lindex $pending 0 1] {}
-        # UINT32_MAX delivered as integer in RESP
-        assert_equal [lindex $pending 0 3] 4294967295
+        # LLONG_MAX delivered as integer in RESP
+        assert_equal [lindex $pending 0 3] 9223372036854775807
     }
 
     test {XNACK releases entries regardless of owning consumer} {
@@ -3693,8 +3693,8 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 1] {}
-        # UINT32_MAX delivered as integer in RESP
-        assert_equal [lindex $pending 0 3] 4294967295
+        # LLONG_MAX delivered as integer in RESP
+        assert_equal [lindex $pending 0 3] 9223372036854775807
     } {} {external:skip needs:debug}
 
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
@@ -3884,7 +3884,7 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 4294967295
+        assert_equal [lindex $pending 0 3] 9223372036854775807
     }
 
     test {XNACK RETRYCOUNT overrides mode-based delivery count} {
@@ -3893,7 +3893,7 @@ start_server {
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-        # FATAL would set UINT32_MAX, but RETRYCOUNT 42 overrides
+        # FATAL would set LLONG_MAX, but RETRYCOUNT 42 overrides
         assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0 RETRYCOUNT 42]
 
         set pending [r XPENDING mystream grp - + 10]

@@ -2036,7 +2036,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
-                nack->delivery_count += (nack->delivery_count < UINT32_MAX);
+                nack->delivery_count += (nack->delivery_count < LLONG_MAX);
                 pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
 
                 consumer->active_time = cmd_time_snapshot;
@@ -2260,7 +2260,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             addReplyNullArray(c);
         } else {
             streamNACK *nack = ri.data;
-            nack->delivery_count += (nack->delivery_count < UINT32_MAX);
+            nack->delivery_count += (nack->delivery_count < LLONG_MAX);
             pelListUpdate(group, nack, commandTimeSnapshot());
         }
         arraylen++;
@@ -3770,7 +3770,7 @@ cleanup:
  * Delivery counter behavior (when RETRYCOUNT is not specified):
  *   SILENT: decrement by 1 (undo the delivery increment)
  *   FAIL:   no change (already incremented during delivery)
- *   FATAL:  set to UINT32_MAX
+ *   FATAL:  set to LLONG_MAX
  *
  * RETRYCOUNT count: directly sets delivery_count to the specified value,
  *   overriding the mode-based adjustment.
@@ -3778,7 +3778,7 @@ cleanup:
  * FORCE: create new unowned PEL entries (consumer = NULL) for IDs that
  *   are not already in the group PEL. When FORCE creates an entry, the
  *   delivery counter is set to 0 (or to RETRYCOUNT if specified, or to
- *   UINT32_MAX if mode is FATAL). */
+ *   LLONG_MAX if mode is FATAL). */
 void xnackCommand(client *c) {
     streamCG *group = NULL;
     kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
@@ -3836,8 +3836,8 @@ void xnackCommand(client *c) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
                 return;
-            if (retrycount < 0 || retrycount > UINT32_MAX) {
-                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0 and <= " STRINGIFY(UINT32_MAX));
+            if (retrycount < 0) {
+                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0");
                 return;
             }
         } else {
@@ -3888,7 +3888,7 @@ void xnackCommand(client *c) {
                 case XNACK_FAIL:
                     break;
                 case XNACK_FATAL:
-                    nack->delivery_count = UINT32_MAX;
+                    nack->delivery_count = LLONG_MAX;
                     break;
                 }
             }
@@ -3909,7 +3909,7 @@ void xnackCommand(client *c) {
             } else {
                 nack->delivery_count = 0;
                 if (mode == XNACK_FATAL)
-                    nack->delivery_count = UINT32_MAX;
+                    nack->delivery_count = LLONG_MAX;
             }
 
             raxInsert(group->pel, buf, sizeof(buf), nack, NULL);
@@ -4384,8 +4384,8 @@ void xclaimCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[j],&retrycount,
                 "Invalid RETRYCOUNT option argument for XCLAIM")
                 != C_OK) goto cleanup;
-            if (retrycount < 0 || retrycount > UINT32_MAX) {
-                addReplyError(c,"ERR Invalid RETRYCOUNT option argument for XCLAIM, must be >= 0 and <= " STRINGIFY(UINT32_MAX));
+            if (retrycount < 0) {
+                addReplyError(c,"ERR Invalid RETRYCOUNT option argument for XCLAIM, must be >= 0");
                 goto cleanup;
             }
         } else if (!strcasecmp(opt,"LASTID") && moreargs) {
@@ -4502,7 +4502,7 @@ void xclaimCommand(client *c) {
             if (retrycount >= 0) {
                 nack->delivery_count = retrycount;
             } else if (!justid) {
-                nack->delivery_count += (nack->delivery_count < UINT32_MAX);
+                nack->delivery_count += (nack->delivery_count < LLONG_MAX);
             }
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
@@ -4691,7 +4691,7 @@ void xautoclaimCommand(client *c) {
 
         /* Increment the delivery attempts counter unless JUSTID option provided */
         if (!justid)
-            nack->delivery_count += (nack->delivery_count < UINT32_MAX);
+            nack->delivery_count += (nack->delivery_count < LLONG_MAX);
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
