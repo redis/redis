@@ -215,8 +215,9 @@ void trackingRememberKeys(client *tracking, client *executing) {
     }
     /* Shard channels are treated as special keys for client
      * library to rely on `COMMAND` command to discover the node
-     * to connect to. These channels doesn't need to be tracked. */
+     * to connect to. These channels don't need to be tracked. */
     if (executing->cmd->flags & CMD_PUBSUB) {
+        getKeysFreeResult(&result);
         return;
     }
 
