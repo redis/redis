@@ -42,9 +42,13 @@ start_server {tags {"dump"}} {
         set encoded [r dump foo]
         set now [clock milliseconds]
         r debug set-active-expire 0
+        set expiredkeys [s expired_keys]
         r restore foo [expr $now-3000] $encoded absttl REPLACE
         catch {r debug object foo} e
         r debug set-active-expire 1
+        # Verify that expired_keys was incremented, even though
+        # the key was not added to the DB actually.
+        assert_equal [expr $expiredkeys + 1] [s expired_keys]
         set e
     } {ERR no such key} {needs:debug}
 
