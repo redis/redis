@@ -219,7 +219,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         $rd BLPOP $key 0
         wait_for_blocked_clients_count 1
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
-        # When the client is blocked, no accumulation is made. This behaviour is identical to INFO COMMANDSTATS.
+        # When the client is blocked, no accumulation is made. This behavior is identical to INFO COMMANDSTATS.
         assert_empty_slot_stats $slot_stats $metrics_to_assert
 
         # Unblocking command.
@@ -269,7 +269,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         $r1 SET $key value
         $r1 GET $key
 
-        # CPU metric is not accumulated until EXEC is reached. This behaviour is identical to INFO COMMANDSTATS.
+        # CPU metric is not accumulated until EXEC is reached. This behavior is identical to INFO COMMANDSTATS.
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
         assert_empty_slot_stats $slot_stats $metrics_to_assert
 
