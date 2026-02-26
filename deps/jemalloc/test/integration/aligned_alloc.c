@@ -1,34 +1,51 @@
 #include "test/jemalloc_test.h"
 
-#define	CHUNK 0x400000
-/* #define MAXALIGN ((size_t)UINT64_C(0x80000000000)) */
-#define	MAXALIGN ((size_t)0x2000000LU)
-#define	NITER 4
+#define MAXALIGN (((size_t)1) << 23)
 
-TEST_BEGIN(test_alignment_errors)
-{
+/*
+ * On systems which can't merge extents, tests that call this function generate
+ * a lot of dirty memory very quickly.  Purging between cycles mitigates
+ * potential OOM on e.g. 32-bit Windows.
+ */
+static void
+purge(void) {
+	expect_d_eq(mallctl("arena.0.purge", NULL, NULL, NULL, 0), 0,
+	    "Unexpected mallctl error");
+}
+
+TEST_BEGIN(test_alignment_errors) {
 	size_t alignment;
 	void *p;
 
 	alignment = 0;
 	set_errno(0);
 	p = aligned_alloc(alignment, 1);
-	assert_false(p != NULL || get_errno() != EINVAL,
+	expect_false(p != NULL || get_errno() != EINVAL,
 	    "Expected error for invalid alignment %zu", alignment);
 
 	for (alignment = sizeof(size_t); alignment < MAXALIGN;
 	    alignment <<= 1) {
 		set_errno(0);
 		p = aligned_alloc(alignment + 1, 1);
-		assert_false(p != NULL || get_errno() != EINVAL,
+		expect_false(p != NULL || get_errno() != EINVAL,
 		    "Expected error for invalid alignment %zu",
 		    alignment + 1);
 	}
 }
 TEST_END
 
-TEST_BEGIN(test_oom_errors)
-{
+
+/*
+ * GCC "-Walloc-size-larger-than" warning detects when one of the memory
+ * allocation functions is called with a size larger than the maximum size that
+ * they support. Here we want to explicitly test that the allocation functions
+ * do indeed fail properly when this is the case, which triggers the warning.
+ * Therefore we disable the warning for these tests.
+ */
+JEMALLOC_DIAGNOSTIC_PUSH
+JEMALLOC_DIAGNOSTIC_IGNORE_ALLOC_SIZE_LARGER_THAN
+
+TEST_BEGIN(test_oom_errors) {
 	size_t alignment, size;
 	void *p;
 
@@ -41,7 +58,7 @@ TEST_BEGIN(test_oom_errors)
 #endif
 	set_errno(0);
 	p = aligned_alloc(alignment, size);
-	assert_false(p != NULL || get_errno() != ENOMEM,
+	expect_false(p != NULL || get_errno() != ENOMEM,
 	    "Expected error for aligned_alloc(%zu, %zu)",
 	    alignment, size);
 
@@ -54,7 +71,7 @@ TEST_BEGIN(test_oom_errors)
 #endif
 	set_errno(0);
 	p = aligned_alloc(alignment, size);
-	assert_false(p != NULL || get_errno() != ENOMEM,
+	expect_false(p != NULL || get_errno() != ENOMEM,
 	    "Expected error for aligned_alloc(%zu, %zu)",
 	    alignment, size);
 
@@ -66,20 +83,24 @@ TEST_BEGIN(test_oom_errors)
 #endif
 	set_errno(0);
 	p = aligned_alloc(alignment, size);
-	assert_false(p != NULL || get_errno() != ENOMEM,
+	expect_false(p != NULL || get_errno() != ENOMEM,
 	    "Expected error for aligned_alloc(&p, %zu, %zu)",
 	    alignment, size);
 }
 TEST_END
 
-TEST_BEGIN(test_alignment_and_size)
-{
+/* Re-enable the "-Walloc-size-larger-than=" warning */
+JEMALLOC_DIAGNOSTIC_POP
+
+TEST_BEGIN(test_alignment_and_size) {
+#define NITER 4
 	size_t alignment, size, total;
 	unsigned i;
 	void *ps[NITER];
 
-	for (i = 0; i < NITER; i++)
+	for (i = 0; i < NITER; i++) {
 		ps[i] = NULL;
+	}
 
 	for (alignment = 8;
 	    alignment <= MAXALIGN;
@@ -99,9 +120,10 @@ TEST_BEGIN(test_alignment_and_size)
 					    "size=%zu (%#zx): %s",
 					    alignment, size, size, buf);
 				}
-				total += malloc_usable_size(ps[i]);
-				if (total >= (MAXALIGN << 1))
+				total += TEST_MALLOC_SIZE(ps[i]);
+				if (total >= (MAXALIGN << 1)) {
 					break;
+				}
 			}
 			for (i = 0; i < NITER; i++) {
 				if (ps[i] != NULL) {
@@ -110,16 +132,26 @@ TEST_BEGIN(test_alignment_and_size)
 				}
 			}
 		}
+		purge();
 	}
+#undef NITER
+}
+TEST_END
+
+TEST_BEGIN(test_zero_alloc) {
+	void *res = aligned_alloc(8, 0);
+	assert(res);
+	size_t usable = TEST_MALLOC_SIZE(res);
+	assert(usable > 0);
+	free(res);
 }
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_alignment_errors,
 	    test_oom_errors,
-	    test_alignment_and_size));
+	    test_alignment_and_size,
+	    test_zero_alloc);
 }

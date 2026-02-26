@@ -1,239 +1,137 @@
-/******************************************************************************/
-#ifdef JEMALLOC_H_TYPES
+#ifndef JEMALLOC_INTERNAL_EXTENT_H
+#define JEMALLOC_INTERNAL_EXTENT_H
 
-typedef struct extent_node_s extent_node_t;
+#include "jemalloc/internal/ecache.h"
+#include "jemalloc/internal/ehooks.h"
+#include "jemalloc/internal/ph.h"
+#include "jemalloc/internal/rtree.h"
 
-#endif /* JEMALLOC_H_TYPES */
-/******************************************************************************/
-#ifdef JEMALLOC_H_STRUCTS
+/*
+ * This module contains the page-level allocator.  It chooses the addresses that
+ * allocations requested by other modules will inhabit, and updates the global
+ * metadata to reflect allocation/deallocation/purging decisions.
+ */
 
-/* Tree of extents.  Use accessor functions for en_* fields. */
-struct extent_node_s {
-	/* Arena from which this extent came, if any. */
-	arena_t			*en_arena;
+/*
+ * When reuse (and split) an active extent, (1U << opt_lg_extent_max_active_fit)
+ * is the max ratio between the size of the active extent and the new extent.
+ */
+#define LG_EXTENT_MAX_ACTIVE_FIT_DEFAULT 6
+extern size_t opt_lg_extent_max_active_fit;
 
-	/* Pointer to the extent that this tree node is responsible for. */
-	void			*en_addr;
+edata_t *ecache_alloc(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    ecache_t *ecache, edata_t *expand_edata, size_t size, size_t alignment,
+    bool zero, bool guarded);
+edata_t *ecache_alloc_grow(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    ecache_t *ecache, edata_t *expand_edata, size_t size, size_t alignment,
+    bool zero, bool guarded);
+void ecache_dalloc(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    ecache_t *ecache, edata_t *edata);
+edata_t *ecache_evict(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    ecache_t *ecache, size_t npages_min);
 
-	/* Total region size. */
-	size_t			en_size;
+void extent_gdump_add(tsdn_t *tsdn, const edata_t *edata);
+void extent_record(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks, ecache_t *ecache,
+    edata_t *edata);
+void extent_dalloc_gap(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    edata_t *edata);
+edata_t *extent_alloc_wrapper(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    void *new_addr, size_t size, size_t alignment, bool zero, bool *commit,
+    bool growing_retained);
+void extent_dalloc_wrapper(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    edata_t *edata);
+void extent_destroy_wrapper(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    edata_t *edata);
+bool extent_commit_wrapper(tsdn_t *tsdn, ehooks_t *ehooks, edata_t *edata,
+    size_t offset, size_t length);
+bool extent_decommit_wrapper(tsdn_t *tsdn, ehooks_t *ehooks, edata_t *edata,
+    size_t offset, size_t length);
+bool extent_purge_lazy_wrapper(tsdn_t *tsdn, ehooks_t *ehooks, edata_t *edata,
+    size_t offset, size_t length);
+bool extent_purge_forced_wrapper(tsdn_t *tsdn, ehooks_t *ehooks, edata_t *edata,
+    size_t offset, size_t length);
+edata_t *extent_split_wrapper(tsdn_t *tsdn, pac_t *pac,
+    ehooks_t *ehooks, edata_t *edata, size_t size_a, size_t size_b,
+    bool holding_core_locks);
+bool extent_merge_wrapper(tsdn_t *tsdn, pac_t *pac, ehooks_t *ehooks,
+    edata_t *a, edata_t *b);
+bool extent_commit_zero(tsdn_t *tsdn, ehooks_t *ehooks, edata_t *edata,
+    bool commit, bool zero, bool growing_retained);
+size_t extent_sn_next(pac_t *pac);
+bool extent_boot(void);
 
+JEMALLOC_ALWAYS_INLINE bool
+extent_neighbor_head_state_mergeable(bool edata_is_head,
+    bool neighbor_is_head, bool forward) {
 	/*
-	 * The zeroed flag is used by chunk recycling code to track whether
-	 * memory is zero-filled.
+	 * Head states checking: disallow merging if the higher addr extent is a
+	 * head extent.  This helps preserve first-fit, and more importantly
+	 * makes sure no merge across arenas.
 	 */
-	bool			en_zeroed;
-
-	/*
-	 * True if physical memory is committed to the extent, whether
-	 * explicitly or implicitly as on a system that overcommits and
-	 * satisfies physical memory needs on demand via soft page faults.
-	 */
-	bool			en_committed;
-
-	/*
-	 * The achunk flag is used to validate that huge allocation lookups
-	 * don't return arena chunks.
-	 */
-	bool			en_achunk;
-
-	/* Profile counters, used for huge objects. */
-	prof_tctx_t		*en_prof_tctx;
-
-	/* Linkage for arena's runs_dirty and chunks_cache rings. */
-	arena_runs_dirty_link_t	rd;
-	qr(extent_node_t)	cc_link;
-
-	union {
-		/* Linkage for the size/address-ordered tree. */
-		rb_node(extent_node_t)	szad_link;
-
-		/* Linkage for arena's huge and node_cache lists. */
-		ql_elm(extent_node_t)	ql_link;
-	};
-
-	/* Linkage for the address-ordered tree. */
-	rb_node(extent_node_t)	ad_link;
-};
-typedef rb_tree(extent_node_t) extent_tree_t;
-
-#endif /* JEMALLOC_H_STRUCTS */
-/******************************************************************************/
-#ifdef JEMALLOC_H_EXTERNS
-
-rb_proto(, extent_tree_szad_, extent_tree_t, extent_node_t)
-
-rb_proto(, extent_tree_ad_, extent_tree_t, extent_node_t)
-
-#endif /* JEMALLOC_H_EXTERNS */
-/******************************************************************************/
-#ifdef JEMALLOC_H_INLINES
-
-#ifndef JEMALLOC_ENABLE_INLINE
-arena_t	*extent_node_arena_get(const extent_node_t *node);
-void	*extent_node_addr_get(const extent_node_t *node);
-size_t	extent_node_size_get(const extent_node_t *node);
-bool	extent_node_zeroed_get(const extent_node_t *node);
-bool	extent_node_committed_get(const extent_node_t *node);
-bool	extent_node_achunk_get(const extent_node_t *node);
-prof_tctx_t	*extent_node_prof_tctx_get(const extent_node_t *node);
-void	extent_node_arena_set(extent_node_t *node, arena_t *arena);
-void	extent_node_addr_set(extent_node_t *node, void *addr);
-void	extent_node_size_set(extent_node_t *node, size_t size);
-void	extent_node_zeroed_set(extent_node_t *node, bool zeroed);
-void	extent_node_committed_set(extent_node_t *node, bool committed);
-void	extent_node_achunk_set(extent_node_t *node, bool achunk);
-void	extent_node_prof_tctx_set(extent_node_t *node, prof_tctx_t *tctx);
-void	extent_node_init(extent_node_t *node, arena_t *arena, void *addr,
-    size_t size, bool zeroed, bool committed);
-void	extent_node_dirty_linkage_init(extent_node_t *node);
-void	extent_node_dirty_insert(extent_node_t *node,
-    arena_runs_dirty_link_t *runs_dirty, extent_node_t *chunks_dirty);
-void	extent_node_dirty_remove(extent_node_t *node);
-#endif
-
-#if (defined(JEMALLOC_ENABLE_INLINE) || defined(JEMALLOC_EXTENT_C_))
-JEMALLOC_INLINE arena_t *
-extent_node_arena_get(const extent_node_t *node)
-{
-
-	return (node->en_arena);
+	if (forward) {
+		if (neighbor_is_head) {
+			return false;
+		}
+	} else {
+		if (edata_is_head) {
+			return false;
+		}
+	}
+	return true;
 }
 
-JEMALLOC_INLINE void *
-extent_node_addr_get(const extent_node_t *node)
-{
+JEMALLOC_ALWAYS_INLINE bool
+extent_can_acquire_neighbor(edata_t *edata, rtree_contents_t contents,
+    extent_pai_t pai, extent_state_t expected_state, bool forward,
+    bool expanding) {
+	edata_t *neighbor = contents.edata;
+	if (neighbor == NULL) {
+		return false;
+	}
+	/* It's not safe to access *neighbor yet; must verify states first. */
+	bool neighbor_is_head = contents.metadata.is_head;
+	if (!extent_neighbor_head_state_mergeable(edata_is_head_get(edata),
+	    neighbor_is_head, forward)) {
+		return false;
+	}
+	extent_state_t neighbor_state = contents.metadata.state;
+	if (pai == EXTENT_PAI_PAC) {
+		if (neighbor_state != expected_state) {
+			return false;
+		}
+		/* From this point, it's safe to access *neighbor. */
+		if (!expanding && (edata_committed_get(edata) !=
+		    edata_committed_get(neighbor))) {
+			/*
+			 * Some platforms (e.g. Windows) require an explicit
+			 * commit step (and writing to uncommitted memory is not
+			 * allowed).
+			 */
+			return false;
+		}
+	} else {
+		if (neighbor_state == extent_state_active) {
+			return false;
+		}
+		/* From this point, it's safe to access *neighbor. */
+	}
 
-	return (node->en_addr);
+	assert(edata_pai_get(edata) == pai);
+	if (edata_pai_get(neighbor) != pai) {
+		return false;
+	}
+	if (opt_retain) {
+		assert(edata_arena_ind_get(edata) ==
+		    edata_arena_ind_get(neighbor));
+	} else {
+		if (edata_arena_ind_get(edata) !=
+		    edata_arena_ind_get(neighbor)) {
+			return false;
+		}
+	}
+	assert(!edata_guarded_get(edata) && !edata_guarded_get(neighbor));
+
+	return true;
 }
 
-JEMALLOC_INLINE size_t
-extent_node_size_get(const extent_node_t *node)
-{
-
-	return (node->en_size);
-}
-
-JEMALLOC_INLINE bool
-extent_node_zeroed_get(const extent_node_t *node)
-{
-
-	return (node->en_zeroed);
-}
-
-JEMALLOC_INLINE bool
-extent_node_committed_get(const extent_node_t *node)
-{
-
-	assert(!node->en_achunk);
-	return (node->en_committed);
-}
-
-JEMALLOC_INLINE bool
-extent_node_achunk_get(const extent_node_t *node)
-{
-
-	return (node->en_achunk);
-}
-
-JEMALLOC_INLINE prof_tctx_t *
-extent_node_prof_tctx_get(const extent_node_t *node)
-{
-
-	return (node->en_prof_tctx);
-}
-
-JEMALLOC_INLINE void
-extent_node_arena_set(extent_node_t *node, arena_t *arena)
-{
-
-	node->en_arena = arena;
-}
-
-JEMALLOC_INLINE void
-extent_node_addr_set(extent_node_t *node, void *addr)
-{
-
-	node->en_addr = addr;
-}
-
-JEMALLOC_INLINE void
-extent_node_size_set(extent_node_t *node, size_t size)
-{
-
-	node->en_size = size;
-}
-
-JEMALLOC_INLINE void
-extent_node_zeroed_set(extent_node_t *node, bool zeroed)
-{
-
-	node->en_zeroed = zeroed;
-}
-
-JEMALLOC_INLINE void
-extent_node_committed_set(extent_node_t *node, bool committed)
-{
-
-	node->en_committed = committed;
-}
-
-JEMALLOC_INLINE void
-extent_node_achunk_set(extent_node_t *node, bool achunk)
-{
-
-	node->en_achunk = achunk;
-}
-
-JEMALLOC_INLINE void
-extent_node_prof_tctx_set(extent_node_t *node, prof_tctx_t *tctx)
-{
-
-	node->en_prof_tctx = tctx;
-}
-
-JEMALLOC_INLINE void
-extent_node_init(extent_node_t *node, arena_t *arena, void *addr, size_t size,
-    bool zeroed, bool committed)
-{
-
-	extent_node_arena_set(node, arena);
-	extent_node_addr_set(node, addr);
-	extent_node_size_set(node, size);
-	extent_node_zeroed_set(node, zeroed);
-	extent_node_committed_set(node, committed);
-	extent_node_achunk_set(node, false);
-	if (config_prof)
-		extent_node_prof_tctx_set(node, NULL);
-}
-
-JEMALLOC_INLINE void
-extent_node_dirty_linkage_init(extent_node_t *node)
-{
-
-	qr_new(&node->rd, rd_link);
-	qr_new(node, cc_link);
-}
-
-JEMALLOC_INLINE void
-extent_node_dirty_insert(extent_node_t *node,
-    arena_runs_dirty_link_t *runs_dirty, extent_node_t *chunks_dirty)
-{
-
-	qr_meld(runs_dirty, &node->rd, rd_link);
-	qr_meld(chunks_dirty, node, cc_link);
-}
-
-JEMALLOC_INLINE void
-extent_node_dirty_remove(extent_node_t *node)
-{
-
-	qr_remove(&node->rd, rd_link);
-	qr_remove(node, cc_link);
-}
-
-#endif
-
-#endif /* JEMALLOC_H_INLINES */
-/******************************************************************************/
-
+#endif /* JEMALLOC_INTERNAL_EXTENT_H */

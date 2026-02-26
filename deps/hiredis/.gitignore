@@ -4,3 +4,6 @@
 /*.so
 /*.dylib
 /*.a
+/*.pc
+*.dSYM
+tags

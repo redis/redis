@@ -1,31 +1,15 @@
 /*
- * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
  *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 
@@ -35,6 +19,15 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "sds.h"
+#include "connection.h"
+
+#define RIO_FLAG_READ_ERROR (1<<0)
+#define RIO_FLAG_WRITE_ERROR (1<<1)
+
+#define RIO_TYPE_FILE (1<<0)
+#define RIO_TYPE_BUFFER (1<<1)
+#define RIO_TYPE_CONN (1<<2)
+#define RIO_TYPE_FD (1<<3)
 
 struct _rio {
     /* Backend functions.
@@ -51,8 +44,8 @@ struct _rio {
      * computation. */
     void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
-    /* The current checksum */
-    uint64_t cksum;
+    /* The current checksum and flags (see RIO_FLAG_*) */
+    uint64_t cksum, flags;
 
     /* number of bytes read or written */
     size_t processed_bytes;
@@ -72,15 +65,33 @@ struct _rio {
             FILE *fp;
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
+            unsigned reclaim_cache:1; /* A flag to indicate reclaim cache after fsync */
         } file;
-        /* Multiple FDs target (used to write to N sockets). */
+        /* Connection object (used to read from socket) */
         struct {
-            int *fds;       /* File descriptors. */
-            int *state;     /* Error state of each fd. 0 (if ok) or errno. */
-            int numfds;
+            connection *conn;   /* Connection */
+            off_t pos;    /* pos in buf that was returned */
+            sds buf;      /* buffered data */
+            size_t read_limit;  /* don't allow to buffer/read more than that */
+            size_t read_so_far; /* amount of data read from the rio (not buffered) */
+        } conn;
+        /* FD target (used to write to pipe). */
+        struct {
+            int fd;       /* File descriptor. */
             off_t pos;
             sds buf;
-        } fdset;
+        } fd;
+        /* Multiple connections target (used to write to N sockets). */
+        struct {
+            struct {
+                connection *conn; /* Connection */
+                int failed;       /* If write failed on this connection. */
+            } *dst;
+
+            size_t n_dst;        /* Number of connections */
+            off_t pos;           /* Number of sent bytes */
+            sds buf;
+        } connset;
     } io;
 };
 
@@ -91,11 +102,14 @@ typedef struct _rio rio;
  * if needed. */
 
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
+    if (r->flags & (RIO_FLAG_WRITE_ERROR)) return 0;
     while (len) {
         size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);
-        if (r->write(r,buf,bytes_to_write) == 0)
+        if (r->write(r,buf,bytes_to_write) == 0) {
+            r->flags |= RIO_FLAG_WRITE_ERROR;
             return 0;
+        }
         buf = (char*)buf + bytes_to_write;
         len -= bytes_to_write;
         r->processed_bytes += bytes_to_write;
@@ -104,10 +118,13 @@ static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
 }
 
 static inline size_t rioRead(rio *r, void *buf, size_t len) {
+    if (r->flags & (RIO_FLAG_READ_ERROR)) return 0;
     while (len) {
         size_t bytes_to_read = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
-        if (r->read(r,buf,bytes_to_read) == 0)
+        if (r->read(r,buf,bytes_to_read) == 0) {
+            r->flags |= RIO_FLAG_READ_ERROR;
             return 0;
+        }
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_read);
         buf = (char*)buf + bytes_to_read;
         len -= bytes_to_read;
@@ -124,13 +141,39 @@ static inline int rioFlush(rio *r) {
     return r->flush(r);
 }
 
+/* Abort RIO asynchronously by setting read and write error flags. Subsequent
+ * rioRead()/rioWrite() calls will fail, letting the caller terminate safely. */
+static inline void rioAbort(rio *r) {
+    r->flags |= (RIO_FLAG_READ_ERROR | RIO_FLAG_WRITE_ERROR);
+}
+
+/* This function allows to know if there was a read error in any past
+ * operation, since the rio stream was created or since the last call
+ * to rioClearError(). */
+static inline int rioGetReadError(rio *r) {
+    return (r->flags & RIO_FLAG_READ_ERROR) != 0;
+}
+
+/* Like rioGetReadError() but for write errors. */
+static inline int rioGetWriteError(rio *r) {
+    return (r->flags & RIO_FLAG_WRITE_ERROR) != 0;
+}
+
+static inline void rioClearErrors(rio *r) {
+    r->flags &= ~(RIO_FLAG_READ_ERROR|RIO_FLAG_WRITE_ERROR);
+}
+
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
-void rioInitWithFdset(rio *r, int *fds, int numfds);
+void rioInitWithConn(rio *r, connection *conn, size_t read_limit);
+void rioInitWithFd(rio *r, int fd);
+void rioInitWithConnset(rio *r, connection **conns, size_t n_conns);
 
-void rioFreeFdset(rio *r);
+void rioFreeFd(rio *r);
+void rioFreeConn(rio *r, sds* out_remainingBufferedData);
+void rioFreeConnset(rio *r);
 
-size_t rioWriteBulkCount(rio *r, char prefix, int count);
+size_t rioWriteBulkCount(rio *r, char prefix, long count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);
 size_t rioWriteBulkLongLong(rio *r, long long l);
 size_t rioWriteBulkDouble(rio *r, double d);
@@ -140,5 +183,6 @@ int rioWriteBulkObject(rio *r, struct redisObject *obj);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
 void rioSetAutoSync(rio *r, off_t bytes);
-
+void rioSetReclaimCache(rio *r, int enabled); 
+uint8_t rioCheckType(rio *r);
 #endif

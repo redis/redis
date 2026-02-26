@@ -1,254 +1,195 @@
 #include "test/jemalloc_test.h"
 
-#ifdef JEMALLOC_FILL
-#  ifndef JEMALLOC_TEST_JUNK_OPT
-#    define JEMALLOC_TEST_JUNK_OPT "junk:true"
-#  endif
-const char *malloc_conf =
-    "abort:false,zero:false,redzone:true,quarantine:0," JEMALLOC_TEST_JUNK_OPT;
+#define arraylen(arr) (sizeof(arr)/sizeof(arr[0]))
+static size_t ptr_ind;
+static void *volatile ptrs[100];
+static void *last_junked_ptr;
+static size_t last_junked_usize;
+
+static void
+reset() {
+	ptr_ind = 0;
+	last_junked_ptr = NULL;
+	last_junked_usize = 0;
+}
+
+static void
+test_junk(void *ptr, size_t usize) {
+	last_junked_ptr = ptr;
+	last_junked_usize = usize;
+}
+
+static void
+do_allocs(size_t size, bool zero, size_t lg_align) {
+#define JUNK_ALLOC(...)							\
+	do {								\
+		assert(ptr_ind + 1 < arraylen(ptrs));			\
+		void *ptr = __VA_ARGS__;				\
+		assert_ptr_not_null(ptr, "");				\
+		ptrs[ptr_ind++] = ptr;					\
+		if (opt_junk_alloc && !zero) {				\
+			expect_ptr_eq(ptr, last_junked_ptr, "");	\
+			expect_zu_eq(last_junked_usize,			\
+			    TEST_MALLOC_SIZE(ptr), "");			\
+		}							\
+	} while (0)
+	if (!zero && lg_align == 0) {
+		JUNK_ALLOC(malloc(size));
+	}
+	if (!zero) {
+		JUNK_ALLOC(aligned_alloc(1 << lg_align, size));
+	}
+#ifdef JEMALLOC_OVERRIDE_MEMALIGN
+	if (!zero) {
+		JUNK_ALLOC(je_memalign(1 << lg_align, size));
+	}
 #endif
-
-static arena_dalloc_junk_small_t *arena_dalloc_junk_small_orig;
-static arena_dalloc_junk_large_t *arena_dalloc_junk_large_orig;
-static huge_dalloc_junk_t *huge_dalloc_junk_orig;
-static void *watch_for_junking;
-static bool saw_junking;
-
-static void
-watch_junking(void *p)
-{
-
-	watch_for_junking = p;
-	saw_junking = false;
-}
-
-static void
-arena_dalloc_junk_small_intercept(void *ptr, arena_bin_info_t *bin_info)
-{
-	size_t i;
-
-	arena_dalloc_junk_small_orig(ptr, bin_info);
-	for (i = 0; i < bin_info->reg_size; i++) {
-		assert_c_eq(((char *)ptr)[i], 0x5a,
-		    "Missing junk fill for byte %zu/%zu of deallocated region",
-		    i, bin_info->reg_size);
+#ifdef JEMALLOC_OVERRIDE_VALLOC
+	if (!zero && lg_align == LG_PAGE) {
+		JUNK_ALLOC(je_valloc(size));
 	}
-	if (ptr == watch_for_junking)
-		saw_junking = true;
-}
-
-static void
-arena_dalloc_junk_large_intercept(void *ptr, size_t usize)
-{
-	size_t i;
-
-	arena_dalloc_junk_large_orig(ptr, usize);
-	for (i = 0; i < usize; i++) {
-		assert_c_eq(((char *)ptr)[i], 0x5a,
-		    "Missing junk fill for byte %zu/%zu of deallocated region",
-		    i, usize);
+#endif
+	int zero_flag = zero ? MALLOCX_ZERO : 0;
+	JUNK_ALLOC(mallocx(size, zero_flag | MALLOCX_LG_ALIGN(lg_align)));
+	JUNK_ALLOC(mallocx(size, zero_flag | MALLOCX_LG_ALIGN(lg_align)
+	    | MALLOCX_TCACHE_NONE));
+	if (lg_align >= LG_SIZEOF_PTR) {
+		void *memalign_result;
+		int err = posix_memalign(&memalign_result, (1 << lg_align),
+		    size);
+		assert_d_eq(err, 0, "");
+		JUNK_ALLOC(memalign_result);
 	}
-	if (ptr == watch_for_junking)
-		saw_junking = true;
 }
 
-static void
-huge_dalloc_junk_intercept(void *ptr, size_t usize)
-{
-
-	huge_dalloc_junk_orig(ptr, usize);
+TEST_BEGIN(test_junk_alloc_free) {
+	bool zerovals[] = {false, true};
+	size_t sizevals[] = {
+		1, 8, 100, 1000, 100*1000
 	/*
-	 * The conditions under which junk filling actually occurs are nuanced
-	 * enough that it doesn't make sense to duplicate the decision logic in
-	 * test code, so don't actually check that the region is junk-filled.
+	 * Memory allocation failure is a real possibility in 32-bit mode.
+	 * Rather than try to check in the face of resource exhaustion, we just
+	 * rely more on the 64-bit tests.  This is a little bit white-box-y in
+	 * the sense that this is only a good test strategy if we know that the
+	 * junk pathways don't touch interact with the allocation selection
+	 * mechanisms; but this is in fact the case.
 	 */
-	if (ptr == watch_for_junking)
-		saw_junking = true;
-}
+#if LG_SIZEOF_PTR == 3
+		    , 10 * 1000 * 1000
+#endif
+	};
+	size_t lg_alignvals[] = {
+		0, 4, 10, 15, 16, LG_PAGE
+#if LG_SIZEOF_PTR == 3
+		    , 20, 24
+#endif
+	};
 
-static void
-test_junk(size_t sz_min, size_t sz_max)
-{
-	char *s;
-	size_t sz_prev, sz, i;
+#define JUNK_FREE(...)							\
+	do {								\
+		do_allocs(size, zero, lg_align);			\
+		for (size_t n = 0; n < ptr_ind; n++) {			\
+			void *ptr = ptrs[n];				\
+			__VA_ARGS__;					\
+			if (opt_junk_free) {				\
+				assert_ptr_eq(ptr, last_junked_ptr,	\
+				    "");				\
+				assert_zu_eq(usize, last_junked_usize,	\
+				    "");				\
+			}						\
+			reset();					\
+		}							\
+	} while (0)
+	for (size_t i = 0; i < arraylen(zerovals); i++) {
+		for (size_t j = 0; j < arraylen(sizevals); j++) {
+			for (size_t k = 0; k < arraylen(lg_alignvals); k++) {
+				bool zero = zerovals[i];
+				size_t size = sizevals[j];
+				size_t lg_align = lg_alignvals[k];
+				size_t usize = nallocx(size,
+				    MALLOCX_LG_ALIGN(lg_align));
 
-	if (opt_junk_free) {
-		arena_dalloc_junk_small_orig = arena_dalloc_junk_small;
-		arena_dalloc_junk_small = arena_dalloc_junk_small_intercept;
-		arena_dalloc_junk_large_orig = arena_dalloc_junk_large;
-		arena_dalloc_junk_large = arena_dalloc_junk_large_intercept;
-		huge_dalloc_junk_orig = huge_dalloc_junk;
-		huge_dalloc_junk = huge_dalloc_junk_intercept;
-	}
-
-	sz_prev = 0;
-	s = (char *)mallocx(sz_min, 0);
-	assert_ptr_not_null((void *)s, "Unexpected mallocx() failure");
-
-	for (sz = sallocx(s, 0); sz <= sz_max;
-	    sz_prev = sz, sz = sallocx(s, 0)) {
-		if (sz_prev > 0) {
-			assert_c_eq(s[0], 'a',
-			    "Previously allocated byte %zu/%zu is corrupted",
-			    ZU(0), sz_prev);
-			assert_c_eq(s[sz_prev-1], 'a',
-			    "Previously allocated byte %zu/%zu is corrupted",
-			    sz_prev-1, sz_prev);
-		}
-
-		for (i = sz_prev; i < sz; i++) {
-			if (opt_junk_alloc) {
-				assert_c_eq(s[i], 0xa5,
-				    "Newly allocated byte %zu/%zu isn't "
-				    "junk-filled", i, sz);
+				JUNK_FREE(free(ptr));
+				JUNK_FREE(dallocx(ptr, 0));
+				JUNK_FREE(dallocx(ptr, MALLOCX_TCACHE_NONE));
+				JUNK_FREE(dallocx(ptr, MALLOCX_LG_ALIGN(
+				    lg_align)));
+				JUNK_FREE(sdallocx(ptr, usize, MALLOCX_LG_ALIGN(
+				    lg_align)));
+				JUNK_FREE(sdallocx(ptr, usize,
+				    MALLOCX_TCACHE_NONE | MALLOCX_LG_ALIGN(lg_align)));
+				if (opt_zero_realloc_action
+				    == zero_realloc_action_free) {
+					JUNK_FREE(realloc(ptr, 0));
+				}
 			}
-			s[i] = 'a';
-		}
-
-		if (xallocx(s, sz+1, 0, 0) == sz) {
-			watch_junking(s);
-			s = (char *)rallocx(s, sz+1, 0);
-			assert_ptr_not_null((void *)s,
-			    "Unexpected rallocx() failure");
-			assert_true(!opt_junk_free || saw_junking,
-			    "Expected region of size %zu to be junk-filled",
-			    sz);
 		}
 	}
-
-	watch_junking(s);
-	dallocx(s, 0);
-	assert_true(!opt_junk_free || saw_junking,
-	    "Expected region of size %zu to be junk-filled", sz);
-
-	if (opt_junk_free) {
-		arena_dalloc_junk_small = arena_dalloc_junk_small_orig;
-		arena_dalloc_junk_large = arena_dalloc_junk_large_orig;
-		huge_dalloc_junk = huge_dalloc_junk_orig;
-	}
-}
-
-TEST_BEGIN(test_junk_small)
-{
-
-	test_skip_if(!config_fill);
-	test_junk(1, SMALL_MAXCLASS-1);
 }
 TEST_END
 
-TEST_BEGIN(test_junk_large)
-{
+TEST_BEGIN(test_realloc_expand) {
+	char *volatile ptr;
+	char *volatile expanded;
 
-	test_skip_if(!config_fill);
-	test_junk(SMALL_MAXCLASS+1, large_maxclass);
-}
-TEST_END
+	test_skip_if(!opt_junk_alloc);
 
-TEST_BEGIN(test_junk_huge)
-{
+	/* Realloc */
+	ptr = malloc(SC_SMALL_MAXCLASS);
+	expanded = realloc(ptr, SC_LARGE_MINCLASS);
+	expect_ptr_eq(last_junked_ptr, &expanded[SC_SMALL_MAXCLASS], "");
+	expect_zu_eq(last_junked_usize,
+	    SC_LARGE_MINCLASS - SC_SMALL_MAXCLASS, "");
+	free(expanded);
 
-	test_skip_if(!config_fill);
-	test_junk(large_maxclass+1, chunksize*2);
-}
-TEST_END
+	/* rallocx(..., 0) */
+	ptr = malloc(SC_SMALL_MAXCLASS);
+	expanded = rallocx(ptr, SC_LARGE_MINCLASS, 0);
+	expect_ptr_eq(last_junked_ptr, &expanded[SC_SMALL_MAXCLASS], "");
+	expect_zu_eq(last_junked_usize,
+	    SC_LARGE_MINCLASS - SC_SMALL_MAXCLASS, "");
+	free(expanded);
 
-arena_ralloc_junk_large_t *arena_ralloc_junk_large_orig;
-static void *most_recently_trimmed;
+	/* rallocx(..., nonzero) */
+	ptr = malloc(SC_SMALL_MAXCLASS);
+	expanded = rallocx(ptr, SC_LARGE_MINCLASS, MALLOCX_TCACHE_NONE);
+	expect_ptr_eq(last_junked_ptr, &expanded[SC_SMALL_MAXCLASS], "");
+	expect_zu_eq(last_junked_usize,
+	    SC_LARGE_MINCLASS - SC_SMALL_MAXCLASS, "");
+	free(expanded);
 
-static size_t
-shrink_size(size_t size)
-{
-	size_t shrink_size;
+	/* rallocx(..., MALLOCX_ZERO) */
+	ptr = malloc(SC_SMALL_MAXCLASS);
+	last_junked_ptr = (void *)-1;
+	last_junked_usize = (size_t)-1;
+	expanded = rallocx(ptr, SC_LARGE_MINCLASS, MALLOCX_ZERO);
+	expect_ptr_eq(last_junked_ptr, (void *)-1, "");
+	expect_zu_eq(last_junked_usize, (size_t)-1, "");
+	free(expanded);
 
-	for (shrink_size = size - 1; nallocx(shrink_size, 0) == size;
-	    shrink_size--)
-		; /* Do nothing. */
-
-	return (shrink_size);
-}
-
-static void
-arena_ralloc_junk_large_intercept(void *ptr, size_t old_usize, size_t usize)
-{
-
-	arena_ralloc_junk_large_orig(ptr, old_usize, usize);
-	assert_zu_eq(old_usize, large_maxclass, "Unexpected old_usize");
-	assert_zu_eq(usize, shrink_size(large_maxclass), "Unexpected usize");
-	most_recently_trimmed = ptr;
-}
-
-TEST_BEGIN(test_junk_large_ralloc_shrink)
-{
-	void *p1, *p2;
-
-	p1 = mallocx(large_maxclass, 0);
-	assert_ptr_not_null(p1, "Unexpected mallocx() failure");
-
-	arena_ralloc_junk_large_orig = arena_ralloc_junk_large;
-	arena_ralloc_junk_large = arena_ralloc_junk_large_intercept;
-
-	p2 = rallocx(p1, shrink_size(large_maxclass), 0);
-	assert_ptr_eq(p1, p2, "Unexpected move during shrink");
-
-	arena_ralloc_junk_large = arena_ralloc_junk_large_orig;
-
-	assert_ptr_eq(most_recently_trimmed, p1,
-	    "Expected trimmed portion of region to be junk-filled");
-}
-TEST_END
-
-static bool detected_redzone_corruption;
-
-static void
-arena_redzone_corruption_replacement(void *ptr, size_t usize, bool after,
-    size_t offset, uint8_t byte)
-{
-
-	detected_redzone_corruption = true;
-}
-
-TEST_BEGIN(test_junk_redzone)
-{
-	char *s;
-	arena_redzone_corruption_t *arena_redzone_corruption_orig;
-
-	test_skip_if(!config_fill);
-	test_skip_if(!opt_junk_alloc || !opt_junk_free);
-
-	arena_redzone_corruption_orig = arena_redzone_corruption;
-	arena_redzone_corruption = arena_redzone_corruption_replacement;
-
-	/* Test underflow. */
-	detected_redzone_corruption = false;
-	s = (char *)mallocx(1, 0);
-	assert_ptr_not_null((void *)s, "Unexpected mallocx() failure");
-	s[-1] = 0xbb;
-	dallocx(s, 0);
-	assert_true(detected_redzone_corruption,
-	    "Did not detect redzone corruption");
-
-	/* Test overflow. */
-	detected_redzone_corruption = false;
-	s = (char *)mallocx(1, 0);
-	assert_ptr_not_null((void *)s, "Unexpected mallocx() failure");
-	s[sallocx(s, 0)] = 0xbb;
-	dallocx(s, 0);
-	assert_true(detected_redzone_corruption,
-	    "Did not detect redzone corruption");
-
-	arena_redzone_corruption = arena_redzone_corruption_orig;
+	/*
+	 * Unfortunately, testing xallocx reliably is difficult to do portably
+	 * (since allocations can be expanded / not expanded differently on
+	 * different platforms.  We rely on manual inspection there -- the
+	 * xallocx pathway is easy to inspect, though.
+	 *
+	 * Likewise, we don't test the shrinking pathways.  It's difficult to do
+	 * so consistently (because of the risk of split failure or memory
+	 * exhaustion, in which case no junking should happen).  This is fine
+	 * -- junking is a best-effort debug mechanism in the first place.
+	 */
 }
 TEST_END
 
 int
-main(void)
-{
-
-	assert(!config_fill || opt_junk_alloc || opt_junk_free);
-	return (test(
-	    test_junk_small,
-	    test_junk_large,
-	    test_junk_huge,
-	    test_junk_large_ralloc_shrink,
-	    test_junk_redzone));
+main(void) {
+	junk_alloc_callback = &test_junk;
+	junk_free_callback = &test_junk;
+	/*
+	 * We check the last pointer junked.  If a reentrant call happens, that
+	 * might be an internal allocation.
+	 */
+	return test_no_reentrancy(
+	    test_junk_alloc_free,
+	    test_realloc_expand);
 }

@@ -1,0 +1,87 @@
+{
+    "HTTL": {
+        "summary": "Returns the TTL in seconds of a hash field.",
+        "complexity": "O(N) where N is the number of specified fields",
+        "group": "hash",
+        "since": "7.4.0",
+        "arity": -5,
+        "function": "httlCommand",
+        "history": [],
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Array of results. Returns empty array if the key does not exist.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The field does not exist.",
+                        "const": -2
+                    },
+                    {
+                        "description": "The field exists but has no associated expire.",
+                        "const": -1
+                    },
+                    {
+                        "description": "TTL in seconds.",
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "fields",
+                "token": "FIELDS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "numfields",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "field",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
+            }
+        ]
+    }
+}

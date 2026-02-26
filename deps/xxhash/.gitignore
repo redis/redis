@@ -1,0 +1,6 @@
+# Ignore:
+libxxhash.*
+xxh*sum
+
+# But include:
+!libxxhash.pc.in

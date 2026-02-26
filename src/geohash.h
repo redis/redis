@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2013-2014, yinqiwen <yinqiwen@gmail.com>
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>.
- * Copyright (c) 2015, Salvatore Sanfilippo <antirez@gmail.com>.
+ * Copyright (c) 2015-current, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,6 @@
 #define GEOHASH_H_
 
 #include <stddef.h>
-#include <stdint.h>
 #include <stdint.h>
 
 #if defined(__cplusplus)
@@ -90,6 +89,25 @@ typedef struct {
     GeoHashBits south_west;
 } GeoHashNeighbors;
 
+#define CIRCULAR_TYPE 1
+#define RECTANGLE_TYPE 2
+typedef struct {
+    int type; /* search type */
+    double xy[2]; /* search center point, xy[0]: lon, xy[1]: lat */
+    double conversion; /* km: 1000 */
+    double bounds[4]; /* bounds[0]: min_lon, bounds[1]: min_lat
+                       * bounds[2]: max_lon, bounds[3]: max_lat */
+    union {
+        /* CIRCULAR_TYPE */
+        double radius;
+        /* RECTANGLE_TYPE */
+        struct {
+            double height;
+            double width;
+        } r;
+    } t;
+} GeoShape;
+
 /*
  * 0:success
  * -1:failed
@@ -109,7 +127,6 @@ int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area);
 int geohashDecodeAreaToLongLat(const GeoHashArea *area, double *xy);
 int geohashDecodeToLongLatType(const GeoHashBits hash, double *xy);
 int geohashDecodeToLongLatWGS84(const GeoHashBits hash, double *xy);
-int geohashDecodeToLongLatMercator(const GeoHashBits hash, double *xy);
 void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors);
 
 #if defined(__cplusplus)

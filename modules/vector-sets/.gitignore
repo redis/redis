@@ -1,0 +1,11 @@
+__pycache__
+misc
+*.so
+*.xo
+*.o
+.DS_Store
+w2v
+word2vec.bin
+TODO
+*.txt
+*.rdb

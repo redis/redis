@@ -1,32 +1,38 @@
 #include "test/jemalloc_test.h"
 
-#define	CHUNK 0x400000
-/* #define MAXALIGN ((size_t)UINT64_C(0x80000000000)) */
-#define	MAXALIGN ((size_t)0x2000000LU)
-#define	NITER 4
+#define MAXALIGN (((size_t)1) << 23)
 
-TEST_BEGIN(test_alignment_errors)
-{
+/*
+ * On systems which can't merge extents, tests that call this function generate
+ * a lot of dirty memory very quickly.  Purging between cycles mitigates
+ * potential OOM on e.g. 32-bit Windows.
+ */
+static void
+purge(void) {
+	expect_d_eq(mallctl("arena.0.purge", NULL, NULL, NULL, 0), 0,
+	    "Unexpected mallctl error");
+}
+
+TEST_BEGIN(test_alignment_errors) {
 	size_t alignment;
 	void *p;
 
 	for (alignment = 0; alignment < sizeof(void *); alignment++) {
-		assert_d_eq(posix_memalign(&p, alignment, 1), EINVAL,
+		expect_d_eq(posix_memalign(&p, alignment, 1), EINVAL,
 		    "Expected error for invalid alignment %zu",
 		    alignment);
 	}
 
 	for (alignment = sizeof(size_t); alignment < MAXALIGN;
 	    alignment <<= 1) {
-		assert_d_ne(posix_memalign(&p, alignment + 1, 1), 0,
+		expect_d_ne(posix_memalign(&p, alignment + 1, 1), 0,
 		    "Expected error for invalid alignment %zu",
 		    alignment + 1);
 	}
 }
 TEST_END
 
-TEST_BEGIN(test_oom_errors)
-{
+TEST_BEGIN(test_oom_errors) {
 	size_t alignment, size;
 	void *p;
 
@@ -37,7 +43,7 @@ TEST_BEGIN(test_oom_errors)
 	alignment = 0x80000000LU;
 	size      = 0x80000000LU;
 #endif
-	assert_d_ne(posix_memalign(&p, alignment, size), 0,
+	expect_d_ne(posix_memalign(&p, alignment, size), 0,
 	    "Expected error for posix_memalign(&p, %zu, %zu)",
 	    alignment, size);
 
@@ -48,7 +54,7 @@ TEST_BEGIN(test_oom_errors)
 	alignment = 0x40000000LU;
 	size      = 0xc0000001LU;
 #endif
-	assert_d_ne(posix_memalign(&p, alignment, size), 0,
+	expect_d_ne(posix_memalign(&p, alignment, size), 0,
 	    "Expected error for posix_memalign(&p, %zu, %zu)",
 	    alignment, size);
 
@@ -58,29 +64,31 @@ TEST_BEGIN(test_oom_errors)
 #else
 	size = 0xfffffff0LU;
 #endif
-	assert_d_ne(posix_memalign(&p, alignment, size), 0,
+	expect_d_ne(posix_memalign(&p, alignment, size), 0,
 	    "Expected error for posix_memalign(&p, %zu, %zu)",
 	    alignment, size);
 }
 TEST_END
 
-TEST_BEGIN(test_alignment_and_size)
-{
+TEST_BEGIN(test_alignment_and_size) {
+#define NITER 4
 	size_t alignment, size, total;
 	unsigned i;
 	int err;
 	void *ps[NITER];
 
-	for (i = 0; i < NITER; i++)
+	for (i = 0; i < NITER; i++) {
 		ps[i] = NULL;
+	}
 
 	for (alignment = 8;
 	    alignment <= MAXALIGN;
 	    alignment <<= 1) {
 		total = 0;
-		for (size = 1;
+		for (size = 0;
 		    size < 3 * alignment && size < (1U << 31);
-		    size += (alignment >> (LG_SIZEOF_PTR-1)) - 1) {
+		    size += ((size == 0) ? 1 :
+		    (alignment >> (LG_SIZEOF_PTR-1)) - 1)) {
 			for (i = 0; i < NITER; i++) {
 				err = posix_memalign(&ps[i],
 				    alignment, size);
@@ -93,9 +101,10 @@ TEST_BEGIN(test_alignment_and_size)
 					    "size=%zu (%#zx): %s",
 					    alignment, size, size, buf);
 				}
-				total += malloc_usable_size(ps[i]);
-				if (total >= (MAXALIGN << 1))
+				total += TEST_MALLOC_SIZE(ps[i]);
+				if (total >= (MAXALIGN << 1)) {
 					break;
+				}
 			}
 			for (i = 0; i < NITER; i++) {
 				if (ps[i] != NULL) {
@@ -104,16 +113,16 @@ TEST_BEGIN(test_alignment_and_size)
 				}
 			}
 		}
+		purge();
 	}
+#undef NITER
 }
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_alignment_errors,
 	    test_oom_errors,
-	    test_alignment_and_size));
+	    test_alignment_and_size);
 }

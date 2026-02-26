@@ -1,0 +1,9 @@
+{
+    "MEMORY": {
+        "summary": "A container for memory diagnostics commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": -2
+    }
+}

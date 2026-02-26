@@ -1,0 +1,60 @@
+{
+    "SREM": {
+        "summary": "Removes one or more members from a set. Deletes the set if the last member was removed.",
+        "complexity": "O(N) where N is the number of members to be removed.",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": -3,
+        "function": "sremCommand",
+        "history": [
+            [
+                "2.4.0",
+                "Accepts multiple `member` arguments."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Number of members that were removed from the set, not including non existing members.",
+            "type": "integer",
+            "minimum": 0
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

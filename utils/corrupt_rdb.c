@@ -1,8 +1,12 @@
 /* Trivia program to corrupt an RDB file in order to check the RDB check
  * program behavior and effectiveness.
  *
- * Copyright (C) 2016 Salvatore Sanfilippo.
- * This software is released in the 3-clause BSD license. */
+ * Copyright (C) 2016-Present Redis Ltd. All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -21,8 +25,9 @@ int main(int argc, char **argv) {
     }
 
     srand(time(NULL));
+    char *filename = argv[1];
     cycles = atoi(argv[2]);
-    fd = open("dump.rdb",O_RDWR);
+    fd = open(filename,O_RDWR);
     if (fd == -1) {
         perror("open");
         exit(1);

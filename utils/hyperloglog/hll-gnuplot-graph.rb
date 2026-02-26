@@ -1,5 +1,8 @@
-# hll-err.rb - Copyright (C) 2014 Salvatore Sanfilippo
-# BSD license, See the COPYING file for more information.
+# hll-err.rb - Copyright (C) 2014-Present Redis Ltd.
+#
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # This program is suited to output average and maximum errors of
 # the Redis HyperLogLog implementation in a format suitable to print
@@ -30,7 +33,7 @@ def run_experiment(r,seed,max,step)
             elements << ele
             i += 1
         }
-        r.pfadd('hll',*elements)
+        r.pfadd('hll',elements)
         approx = r.pfcount('hll')
         err = approx-i
         rel_err = 100.to_f*err/i

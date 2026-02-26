@@ -1,0 +1,2 @@
+user alice on nopass ~* +@all
+user bob on nopass ~* &* +@all

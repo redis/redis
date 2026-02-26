@@ -1,4 +1,4 @@
-start_server {tags {"protocol"}} {
+start_server {tags {"protocol network"}} {
     test "Handle an empty query" {
         reconnect
         r write "\r\n"
@@ -15,7 +15,7 @@ start_server {tags {"protocol"}} {
 
     test "Out of range multibulk length" {
         reconnect
-        r write "*20000000\r\n"
+        r write "*3000000000\r\n"
         r flush
         assert_error "*invalid multibulk length*" {r read}
     }
@@ -72,7 +72,11 @@ start_server {tags {"protocol"}} {
     foreach seq [list "\x00" "*\x00" "$\x00"] {
         incr c
         test "Protocol desync regression test #$c" {
-            set s [socket [srv 0 host] [srv 0 port]]
+            if {$::tls} {
+                set s [::tls::socket [srv 0 host] [srv 0 port]]
+            } else {
+                set s [socket [srv 0 host] [srv 0 port]]
+            }
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]
@@ -98,6 +102,182 @@ start_server {tags {"protocol"}} {
         } {*Protocol error*}
     }
     unset c
+
+    # recover the broken connection
+    reconnect
+    r ping
+
+    # raw RESP response tests
+    r readraw 1
+
+    set nullres {*-1}
+    if {$::force_resp3} {
+        set nullres {_}
+    }
+
+    test "raw protocol response" {
+        r srandmember nonexisting_key
+    } "$nullres"
+
+    r deferred 1
+
+    test "raw protocol response - deferred" {
+        r srandmember nonexisting_key
+        r read
+    } "$nullres"
+
+    test "raw protocol response - multiline" {
+        r sadd ss a
+        assert_equal [r read] {:1}
+        r srandmember ss 100
+        assert_equal [r read] {*1}
+        assert_equal [r read] {$1}
+        assert_equal [r read] {a}
+    }
+
+    test "bulk reply protocol" {
+        # value=2 (int encoding)
+        r set crlf 2
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 7] "\$1\r\n2\r\n"
+
+        # value=2147483647 (int encoding)
+        r set crlf 2147483647
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 17] "\$10\r\n2147483647\r\n"
+
+        # value=-2147483648 (int encoding)
+        r set crlf -2147483648
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 18] "\$11\r\n-2147483648\r\n"
+
+        # value=-9223372036854775809 (embstr encoding)
+        r set crlf -9223372036854775809
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 27] "\$20\r\n-9223372036854775809\r\n"
+
+        # value=9223372036854775808 (embstr encoding)
+        r set crlf 9223372036854775808
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 26] "\$19\r\n9223372036854775808\r\n"
+
+        # normal sds (embstr encoding)
+        r set crlf aaaaaaaaaaaaaaaa
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 23] "\$16\r\naaaaaaaaaaaaaaaa\r\n"
+
+        # normal sds (raw string encoding) with 45 'a'
+        set rawstr [string repeat "a" 45]
+        r set crlf $rawstr
+        assert_equal [r rawread 5] "+OK\r\n"
+        r get crlf
+        assert_equal [r rawread 52] "\$45\r\n$rawstr\r\n"
+
+        r del crlf
+        assert_equal [r rawread 4] ":1\r\n"
+    }
+
+    # restore connection settings
+    r readraw 0
+    r deferred 0
+
+    # check the connection still works
+    assert_equal [r ping] {PONG}
+
+    test {RESP3 attributes} {
+        r hello 3
+        assert_equal {Some real reply following the attribute} [r debug protocol attrib]
+        assert_equal {key-popularity {key:123 90}} [r attributes]
+
+        # make sure attributes are not kept from previous command
+        r ping
+        assert_error {*attributes* no such element in array} {r attributes}
+
+        # restore state
+        r hello 2
+        set _ ""
+    } {} {needs:debug resp3}
+
+    test {RESP3 attributes readraw} {
+        r hello 3
+        r readraw 1
+        r deferred 1
+
+        r debug protocol attrib
+        assert_equal [r read] {|1}
+        assert_equal [r read] {$14}
+        assert_equal [r read] {key-popularity}
+        assert_equal [r read] {*2}
+        assert_equal [r read] {$7}
+        assert_equal [r read] {key:123}
+        assert_equal [r read] {:90}
+        assert_equal [r read] {$39}
+        assert_equal [r read] {Some real reply following the attribute}
+
+        # restore state
+        r readraw 0
+        r deferred 0
+        r hello 2
+        set _ {}
+    } {} {needs:debug resp3}
+
+    test {RESP3 attributes on RESP2} {
+        r hello 2
+        set res [r debug protocol attrib]
+        set _ $res
+    } {Some real reply following the attribute} {needs:debug}
+
+    test "test big number parsing" {
+        r hello 3
+        r debug protocol bignum
+    } {1234567999999999999999999999999999999} {needs:debug resp3}
+
+    test "test bool parsing" {
+        r hello 3
+        assert_equal [r debug protocol true] 1
+        assert_equal [r debug protocol false] 0
+        r hello 2
+        assert_equal [r debug protocol true] 1
+        assert_equal [r debug protocol false] 0
+        set _ {}
+    } {} {needs:debug resp3}
+
+    test "test verbatim str parsing" {
+        r hello 3
+        r debug protocol verbatim
+    } "This is a verbatim\nstring" {needs:debug resp3}
+
+    test "test large number of args" {
+        r flushdb
+        set args [split [string trim [string repeat "k v " 10000]]]
+        lappend args "{k}2" v2
+        r mset {*}$args
+        assert_equal [r get "{k}2"] v2
+    }
+    
+    test "test argument rewriting - issue 9598" {
+        # INCRBYFLOAT uses argument rewriting for correct float value propagation.
+        # We use it to make sure argument rewriting works properly. It's important 
+        # this test is run under valgrind to verify there are no memory leaks in 
+        # arg buffer handling.
+        r flushdb
+
+        # Test normal argument handling
+        r set k 0
+        assert_equal [r incrbyfloat k 1.0] 1
+        
+        # Test argument handing in multi-state buffers
+        r multi
+        r incrbyfloat k 1.0
+        assert_equal [r exec] 2
+    }
+
 }
 
 start_server {tags {"regression"}} {
@@ -113,5 +293,17 @@ start_server {tags {"regression"}} {
         $rd read
         $rd rpush nolist a
         $rd read
+        $rd close
     }
+}
+
+start_server {tags {"regression"}} {
+    test "Regression for a crash with cron release of client arguments" {
+        r write "*3\r\n"
+        r flush
+        after 3000 ;# wait for c->argv to be released due to timeout
+        r write "\$3\r\nSET\r\n\$3\r\nkey\r\n\$1\r\n0\r\n"
+        r flush
+        r read
+    } {OK}
 }

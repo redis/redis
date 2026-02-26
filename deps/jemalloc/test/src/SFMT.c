@@ -33,7 +33,7 @@
  *   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** 
+/**
  * @file  SFMT.c
  * @brief SIMD oriented Fast Mersenne Twister(SFMT)
  *
@@ -45,7 +45,7 @@
  *
  * The new BSD License is applied to this software, see LICENSE.txt
  */
-#define	SFMT_C_
+#define SFMT_C_
 #include "test/jemalloc_test.h"
 #include "test/SFMT-params.h"
 
@@ -108,7 +108,7 @@ struct sfmt_s {
 
 /*--------------------------------------
   FILE GLOBAL VARIABLES
-  internal state, index counter and flag 
+  internal state, index counter and flag
   --------------------------------------*/
 
 /** a parity check vector which certificate the period of 2^{MEXP} */
@@ -117,18 +117,18 @@ static uint32_t parity[4] = {PARITY1, PARITY2, PARITY3, PARITY4};
 /*----------------
   STATIC FUNCTIONS
   ----------------*/
-JEMALLOC_INLINE_C int idxof(int i);
+static inline int idxof(int i);
 #if (!defined(HAVE_ALTIVEC)) && (!defined(HAVE_SSE2))
-JEMALLOC_INLINE_C void rshift128(w128_t *out,  w128_t const *in, int shift);
-JEMALLOC_INLINE_C void lshift128(w128_t *out,  w128_t const *in, int shift);
+static inline void rshift128(w128_t *out,  w128_t const *in, int shift);
+static inline void lshift128(w128_t *out,  w128_t const *in, int shift);
 #endif
-JEMALLOC_INLINE_C void gen_rand_all(sfmt_t *ctx);
-JEMALLOC_INLINE_C void gen_rand_array(sfmt_t *ctx, w128_t *array, int size);
-JEMALLOC_INLINE_C uint32_t func1(uint32_t x);
-JEMALLOC_INLINE_C uint32_t func2(uint32_t x);
+static inline void gen_rand_all(sfmt_t *ctx);
+static inline void gen_rand_array(sfmt_t *ctx, w128_t *array, int size);
+static inline uint32_t func1(uint32_t x);
+static inline uint32_t func2(uint32_t x);
 static void period_certification(sfmt_t *ctx);
 #if defined(BIG_ENDIAN64) && !defined(ONLY64)
-JEMALLOC_INLINE_C void swap(w128_t *array, int size);
+static inline void swap(w128_t *array, int size);
 #endif
 
 #if defined(HAVE_ALTIVEC)
@@ -138,15 +138,15 @@ JEMALLOC_INLINE_C void swap(w128_t *array, int size);
 #endif
 
 /**
- * This function simulate a 64-bit index of LITTLE ENDIAN 
+ * This function simulate a 64-bit index of LITTLE ENDIAN
  * in BIG ENDIAN machine.
  */
 #ifdef ONLY64
-JEMALLOC_INLINE_C int idxof(int i) {
+static inline int idxof(int i) {
     return i ^ 1;
 }
 #else
-JEMALLOC_INLINE_C int idxof(int i) {
+static inline int idxof(int i) {
     return i;
 }
 #endif
@@ -160,7 +160,7 @@ JEMALLOC_INLINE_C int idxof(int i) {
  */
 #if (!defined(HAVE_ALTIVEC)) && (!defined(HAVE_SSE2))
 #ifdef ONLY64
-JEMALLOC_INLINE_C void rshift128(w128_t *out, w128_t const *in, int shift) {
+static inline void rshift128(w128_t *out, w128_t const *in, int shift) {
     uint64_t th, tl, oh, ol;
 
     th = ((uint64_t)in->u[2] << 32) | ((uint64_t)in->u[3]);
@@ -175,7 +175,7 @@ JEMALLOC_INLINE_C void rshift128(w128_t *out, w128_t const *in, int shift) {
     out->u[3] = (uint32_t)oh;
 }
 #else
-JEMALLOC_INLINE_C void rshift128(w128_t *out, w128_t const *in, int shift) {
+static inline void rshift128(w128_t *out, w128_t const *in, int shift) {
     uint64_t th, tl, oh, ol;
 
     th = ((uint64_t)in->u[3] << 32) | ((uint64_t)in->u[2]);
@@ -199,7 +199,7 @@ JEMALLOC_INLINE_C void rshift128(w128_t *out, w128_t const *in, int shift) {
  * @param shift the shift value
  */
 #ifdef ONLY64
-JEMALLOC_INLINE_C void lshift128(w128_t *out, w128_t const *in, int shift) {
+static inline void lshift128(w128_t *out, w128_t const *in, int shift) {
     uint64_t th, tl, oh, ol;
 
     th = ((uint64_t)in->u[2] << 32) | ((uint64_t)in->u[3]);
@@ -214,7 +214,7 @@ JEMALLOC_INLINE_C void lshift128(w128_t *out, w128_t const *in, int shift) {
     out->u[3] = (uint32_t)oh;
 }
 #else
-JEMALLOC_INLINE_C void lshift128(w128_t *out, w128_t const *in, int shift) {
+static inline void lshift128(w128_t *out, w128_t const *in, int shift) {
     uint64_t th, tl, oh, ol;
 
     th = ((uint64_t)in->u[3] << 32) | ((uint64_t)in->u[2]);
@@ -241,37 +241,37 @@ JEMALLOC_INLINE_C void lshift128(w128_t *out, w128_t const *in, int shift) {
  */
 #if (!defined(HAVE_ALTIVEC)) && (!defined(HAVE_SSE2))
 #ifdef ONLY64
-JEMALLOC_INLINE_C void do_recursion(w128_t *r, w128_t *a, w128_t *b, w128_t *c,
+static inline void do_recursion(w128_t *r, w128_t *a, w128_t *b, w128_t *c,
 				w128_t *d) {
     w128_t x;
     w128_t y;
 
     lshift128(&x, a, SL2);
     rshift128(&y, c, SR2);
-    r->u[0] = a->u[0] ^ x.u[0] ^ ((b->u[0] >> SR1) & MSK2) ^ y.u[0] 
+    r->u[0] = a->u[0] ^ x.u[0] ^ ((b->u[0] >> SR1) & MSK2) ^ y.u[0]
 	^ (d->u[0] << SL1);
-    r->u[1] = a->u[1] ^ x.u[1] ^ ((b->u[1] >> SR1) & MSK1) ^ y.u[1] 
+    r->u[1] = a->u[1] ^ x.u[1] ^ ((b->u[1] >> SR1) & MSK1) ^ y.u[1]
 	^ (d->u[1] << SL1);
-    r->u[2] = a->u[2] ^ x.u[2] ^ ((b->u[2] >> SR1) & MSK4) ^ y.u[2] 
+    r->u[2] = a->u[2] ^ x.u[2] ^ ((b->u[2] >> SR1) & MSK4) ^ y.u[2]
 	^ (d->u[2] << SL1);
-    r->u[3] = a->u[3] ^ x.u[3] ^ ((b->u[3] >> SR1) & MSK3) ^ y.u[3] 
+    r->u[3] = a->u[3] ^ x.u[3] ^ ((b->u[3] >> SR1) & MSK3) ^ y.u[3]
 	^ (d->u[3] << SL1);
 }
 #else
-JEMALLOC_INLINE_C void do_recursion(w128_t *r, w128_t *a, w128_t *b, w128_t *c,
+static inline void do_recursion(w128_t *r, w128_t *a, w128_t *b, w128_t *c,
 				w128_t *d) {
     w128_t x;
     w128_t y;
 
     lshift128(&x, a, SL2);
     rshift128(&y, c, SR2);
-    r->u[0] = a->u[0] ^ x.u[0] ^ ((b->u[0] >> SR1) & MSK1) ^ y.u[0] 
+    r->u[0] = a->u[0] ^ x.u[0] ^ ((b->u[0] >> SR1) & MSK1) ^ y.u[0]
 	^ (d->u[0] << SL1);
-    r->u[1] = a->u[1] ^ x.u[1] ^ ((b->u[1] >> SR1) & MSK2) ^ y.u[1] 
+    r->u[1] = a->u[1] ^ x.u[1] ^ ((b->u[1] >> SR1) & MSK2) ^ y.u[1]
 	^ (d->u[1] << SL1);
-    r->u[2] = a->u[2] ^ x.u[2] ^ ((b->u[2] >> SR1) & MSK3) ^ y.u[2] 
+    r->u[2] = a->u[2] ^ x.u[2] ^ ((b->u[2] >> SR1) & MSK3) ^ y.u[2]
 	^ (d->u[2] << SL1);
-    r->u[3] = a->u[3] ^ x.u[3] ^ ((b->u[3] >> SR1) & MSK4) ^ y.u[3] 
+    r->u[3] = a->u[3] ^ x.u[3] ^ ((b->u[3] >> SR1) & MSK4) ^ y.u[3]
 	^ (d->u[3] << SL1);
 }
 #endif
@@ -282,7 +282,7 @@ JEMALLOC_INLINE_C void do_recursion(w128_t *r, w128_t *a, w128_t *b, w128_t *c,
  * This function fills the internal state array with pseudorandom
  * integers.
  */
-JEMALLOC_INLINE_C void gen_rand_all(sfmt_t *ctx) {
+static inline void gen_rand_all(sfmt_t *ctx) {
     int i;
     w128_t *r1, *r2;
 
@@ -306,10 +306,10 @@ JEMALLOC_INLINE_C void gen_rand_all(sfmt_t *ctx) {
  * This function fills the user-specified array with pseudorandom
  * integers.
  *
- * @param array an 128-bit array to be filled by pseudorandom numbers.  
+ * @param array an 128-bit array to be filled by pseudorandom numbers.
  * @param size number of 128-bit pseudorandom numbers to be generated.
  */
-JEMALLOC_INLINE_C void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
+static inline void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
     int i, j;
     w128_t *r1, *r2;
 
@@ -343,7 +343,7 @@ JEMALLOC_INLINE_C void gen_rand_array(sfmt_t *ctx, w128_t *array, int size) {
 #endif
 
 #if defined(BIG_ENDIAN64) && !defined(ONLY64) && !defined(HAVE_ALTIVEC)
-JEMALLOC_INLINE_C void swap(w128_t *array, int size) {
+static inline void swap(w128_t *array, int size) {
     int i;
     uint32_t x, y;
 
@@ -476,7 +476,7 @@ uint32_t gen_rand32_range(sfmt_t *ctx, uint32_t limit) {
  * This function generates and returns 64-bit pseudorandom number.
  * init_gen_rand or init_by_array must be called before this function.
  * The function gen_rand64 should not be called after gen_rand32,
- * unless an initialization is again executed. 
+ * unless an initialization is again executed.
  * @return 64-bit pseudorandom number
  */
 uint64_t gen_rand64(sfmt_t *ctx) {
@@ -618,7 +618,7 @@ sfmt_t *init_gen_rand(uint32_t seed) {
 
     psfmt32[idxof(0)] = seed;
     for (i = 1; i < N32; i++) {
-	psfmt32[idxof(i)] = 1812433253UL * (psfmt32[idxof(i - 1)] 
+	psfmt32[idxof(i)] = 1812433253UL * (psfmt32[idxof(i - 1)]
 					    ^ (psfmt32[idxof(i - 1)] >> 30))
 	    + i;
     }
@@ -668,7 +668,7 @@ sfmt_t *init_by_array(uint32_t *init_key, int key_length) {
     } else {
 	count = N32;
     }
-    r = func1(psfmt32[idxof(0)] ^ psfmt32[idxof(mid)] 
+    r = func1(psfmt32[idxof(0)] ^ psfmt32[idxof(mid)]
 	      ^ psfmt32[idxof(N32 - 1)]);
     psfmt32[idxof(mid)] += r;
     r += key_length;
@@ -677,7 +677,7 @@ sfmt_t *init_by_array(uint32_t *init_key, int key_length) {
 
     count--;
     for (i = 1, j = 0; (j < count) && (j < key_length); j++) {
-	r = func1(psfmt32[idxof(i)] ^ psfmt32[idxof((i + mid) % N32)] 
+	r = func1(psfmt32[idxof(i)] ^ psfmt32[idxof((i + mid) % N32)]
 		  ^ psfmt32[idxof((i + N32 - 1) % N32)]);
 	psfmt32[idxof((i + mid) % N32)] += r;
 	r += init_key[j] + i;
@@ -686,7 +686,7 @@ sfmt_t *init_by_array(uint32_t *init_key, int key_length) {
 	i = (i + 1) % N32;
     }
     for (; j < count; j++) {
-	r = func1(psfmt32[idxof(i)] ^ psfmt32[idxof((i + mid) % N32)] 
+	r = func1(psfmt32[idxof(i)] ^ psfmt32[idxof((i + mid) % N32)]
 		  ^ psfmt32[idxof((i + N32 - 1) % N32)]);
 	psfmt32[idxof((i + mid) % N32)] += r;
 	r += i;
@@ -695,7 +695,7 @@ sfmt_t *init_by_array(uint32_t *init_key, int key_length) {
 	i = (i + 1) % N32;
     }
     for (j = 0; j < N32; j++) {
-	r = func2(psfmt32[idxof(i)] + psfmt32[idxof((i + mid) % N32)] 
+	r = func2(psfmt32[idxof(i)] + psfmt32[idxof((i + mid) % N32)]
 		  + psfmt32[idxof((i + N32 - 1) % N32)]);
 	psfmt32[idxof((i + mid) % N32)] ^= r;
 	r -= i;

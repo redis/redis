@@ -1,0 +1,35 @@
+name: redis_docs_sync
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  redis_docs_sync:
+    if: github.repository == 'redis/redis'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DOCS_APP_ID }}
+          private-key: ${{ secrets.DOCS_APP_PRIVATE_KEY }}
+
+      - name: Invoke workflow on redis/docs
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          RELEASE_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          LATEST_RELEASE=$(
+              curl -Ls \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              https://api.github.com/repos/redis/redis/releases/latest \
+              | jq -r '.tag_name'
+          )
+
+          if [[ "${LATEST_RELEASE}" == "${RELEASE_NAME}" ]]; then
+            gh workflow run -R redis/docs redis_docs_sync.yaml -f release="${RELEASE_NAME}"
+          fi

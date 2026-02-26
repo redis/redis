@@ -1,0 +1,22 @@
+{
+    "STOP": {
+        "summary": "Stops hotkeys tracking.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "8.6.0",
+        "arity": 2,
+        "container": "HOTKEYS",
+        "function": "hotkeysCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:SPECIAL"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}
+

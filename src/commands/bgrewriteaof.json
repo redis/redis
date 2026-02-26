@@ -1,0 +1,19 @@
+{
+    "BGREWRITEAOF": {
+        "summary": "Asynchronously rewrites the append-only file to disk.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": 1,
+        "function": "bgrewriteaofCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "reply_schema": {
+            "description": "A simple string reply indicating that the rewriting started or is about to start ASAP",
+            "type": "string"
+        }
+    }
+}

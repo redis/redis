@@ -7,32 +7,12 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "../redismodule.h"
@@ -129,6 +109,7 @@ int HelloTypeInsert_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     /* Insert the new element. */
     HelloTypeInsert(hto,value);
+    RedisModule_SignalKeyAsReady(ctx,argv[1]);
 
     RedisModule_ReplyWithLongLong(ctx,hto->len);
     RedisModule_ReplicateVerbatim(ctx);
@@ -160,7 +141,7 @@ int HelloTypeRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
     struct HelloTypeObject *hto = RedisModule_ModuleTypeGetValue(key);
     struct HelloTypeNode *node = hto ? hto->head : NULL;
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     long long arraylen = 0;
     while(node && count--) {
         RedisModule_ReplyWithLongLong(ctx,node->value);
@@ -190,6 +171,77 @@ int HelloTypeLen_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
+/* ====================== Example of a blocking command ==================== */
+
+/* Reply callback for blocking command HELLOTYPE.BRANGE, this will get
+ * called when the key we blocked for is ready: we need to check if we
+ * can really serve the client, and reply OK or ERR accordingly. */
+int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleString *keyname = RedisModule_GetBlockedClientReadyKey(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,keyname,REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_MODULE ||
+        RedisModule_ModuleTypeGetType(key) != HelloType)
+    {
+        RedisModule_CloseKey(key);
+        return REDISMODULE_ERR;
+    }
+
+    /* In case the key is able to serve our blocked client, let's directly
+     * use our original command implementation to make this example simpler. */
+    RedisModule_CloseKey(key);
+    return HelloTypeRange_RedisCommand(ctx,argv,argc-1);
+}
+
+/* Timeout callback for blocking command HELLOTYPE.BRANGE */
+int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
+}
+
+/* Private data freeing callback for HELLOTYPE.BRANGE command. */
+void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModule_Free(privdata);
+}
+
+/* HELLOTYPE.BRANGE key first count timeout -- This is a blocking version of
+ * the RANGE operation, in order to show how to use the API
+ * RedisModule_BlockClientOnKeys(). */
+int HelloTypeBRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 5) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
+        REDISMODULE_READ|REDISMODULE_WRITE);
+    int type = RedisModule_KeyType(key);
+    if (type != REDISMODULE_KEYTYPE_EMPTY &&
+        RedisModule_ModuleTypeGetType(key) != HelloType)
+    {
+        return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    /* Parse the timeout before even trying to serve the client synchronously,
+     * so that we always fail ASAP on syntax errors. */
+    long long timeout;
+    if (RedisModule_StringToLongLong(argv[4],&timeout) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx,
+            "ERR invalid timeout parameter");
+    }
+
+    /* Can we serve the reply synchronously? */
+    if (type != REDISMODULE_KEYTYPE_EMPTY) {
+        return HelloTypeRange_RedisCommand(ctx,argv,argc-1);
+    }
+
+    /* Otherwise let's block on the key. */
+    void *privdata = RedisModule_Alloc(100);
+    RedisModule_BlockClientOnKeys(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout,argv+1,1,privdata);
+    return REDISMODULE_OK;
+}
 
 /* ========================== "hellotype" type methods ======================= */
 
@@ -226,14 +278,26 @@ void HelloTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     }
 }
 
-void HelloTypeDigest(RedisModuleDigest *digest, void *value) {
-    REDISMODULE_NOT_USED(digest);
-    REDISMODULE_NOT_USED(value);
-    /* TODO: The DIGEST module interface is yet not implemented. */
+/* The goal of this function is to return the amount of memory used by
+ * the HelloType value. */
+size_t HelloTypeMemUsage(const void *value) {
+    const struct HelloTypeObject *hto = value;
+    struct HelloTypeNode *node = hto->head;
+    return sizeof(*hto) + sizeof(*node)*hto->len;
 }
 
 void HelloTypeFree(void *value) {
     HelloTypeReleaseObject(value);
+}
+
+void HelloTypeDigest(RedisModuleDigest *md, void *value) {
+    struct HelloTypeObject *hto = value;
+    struct HelloTypeNode *node = hto->head;
+    while(node) {
+        RedisModule_DigestAddLongLong(md,node->value);
+        node = node->next;
+    }
+    RedisModule_DigestEndSequence(md);
 }
 
 /* This function must be present on each Redis module. It is used in order to
@@ -245,7 +309,17 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"hellotype",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,HelloTypeRdbLoad,HelloTypeRdbSave,HelloTypeAofRewrite,HelloTypeDigest,HelloTypeFree);
+    RedisModuleTypeMethods tm = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = HelloTypeRdbLoad,
+        .rdb_save = HelloTypeRdbSave,
+        .aof_rewrite = HelloTypeAofRewrite,
+        .mem_usage = HelloTypeMemUsage,
+        .free = HelloTypeFree,
+        .digest = HelloTypeDigest
+    };
+
+    HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,&tm);
     if (HelloType == NULL) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hellotype.insert",
@@ -258,6 +332,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"hellotype.len",
         HelloTypeLen_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"hellotype.brange",
+        HelloTypeBRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

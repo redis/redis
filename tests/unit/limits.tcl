@@ -1,4 +1,9 @@
-start_server {tags {"limits"} overrides {maxclients 10}} {
+start_server {tags {"limits network external:skip"} overrides {maxclients 10}} {
+    if {$::tls} {
+        set expected_code "*I/O error*"
+    } else {
+        set expected_code "*ERR max*reached*"
+    }
     test {Check if maxclients works refusing connections} {
         set c 0
         catch {
@@ -12,5 +17,5 @@ start_server {tags {"limits"} overrides {maxclients 10}} {
         } e
         assert {$c > 8 && $c <= 10}
         set e
-    } {*ERR max*reached*}
+    } $expected_code
 }

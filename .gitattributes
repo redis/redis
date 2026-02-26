@@ -1,0 +1,6 @@
+# We set commands.c's merge driver to `binary` so when it conflicts during a
+# merge git will leave the local version unmodified. This way our Makefile
+# will rebuild it based on src/commands/*.json before trying to compile it.
+# Otherwise the file gets modified and gets the same timestamp as the .json
+# files. So the Makefile doesn't attempt to rebuild it before compiling.
+src/commands.c merge=binary

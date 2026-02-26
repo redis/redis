@@ -1,37 +1,18 @@
 /* SORT command and helper functions.
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
-
+#include "fast_float_strtod.h"
 #include "server.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
+#include "cluster.h"
 
 zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
@@ -59,9 +40,11 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
+    kvobj *kv;
     char *p, *f, *k;
     sds spat, ssub;
-    robj *keyobj, *fieldobj = NULL, *o;
+    robj *keyobj, *fieldobj = NULL, *val;
+
     int prefixlen, sublen, postfixlen, fieldlen;
 
     /* If the pattern is "#" return the substitution object itself in order
@@ -106,25 +89,31 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
-    o = lookupKeyRead(db,keyobj);
-    if (o == NULL) goto noobj;
+    kv = lookupKeyRead(db, keyobj);
+    if (kv == NULL) goto noobj;
 
     if (fieldobj) {
-        if (o->type != OBJ_HASH) goto noobj;
+        if (kv->type != OBJ_HASH) goto noobj;
 
-        /* Retrieve value from hash by the field name. The returend object
+        /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
-        o = hashTypeGetValueObject(o, fieldobj->ptr);
+        int isHashDeleted;
+        hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
+        kv = val;
+
+        if (isHashDeleted)
+            goto noobj;
+
     } else {
-        if (o->type != OBJ_STRING) goto noobj;
+        if (kv->type != OBJ_STRING) goto noobj;
 
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
-        incrRefCount(o);
+        incrRefCount(kv);
     }
     decrRefCount(keyobj);
     if (fieldobj) decrRefCount(fieldobj);
-    return o;
+    return kv;
 
 noobj:
     decrRefCount(keyobj);
@@ -186,41 +175,26 @@ int sortCompare(const void *s1, const void *s2) {
 
 /* The SORT command is the most complex command in Redis. Warning: this code
  * is optimized for speed and a bit less for readability */
-void sortCommand(client *c) {
+void sortCommandGeneric(client *c, int readonly) {
     list *operations;
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
     long limit_start = 0, limit_count = -1, start, end;
     int j, dontsort = 0, vectorlen;
     int getop = 0; /* GET operation counter */
-    int int_convertion_error = 0;
+    int int_conversion_error = 0;
     int syntax_error = 0;
     robj *sortval, *sortby = NULL, *storekey = NULL;
+    size_t oldsize = 0;
     redisSortObject *vector; /* Resulting vector to sort */
-
-    /* Lookup the key to sort. It must be of the right types */
-    sortval = lookupKeyRead(c->db,c->argv[1]);
-    if (sortval && sortval->type != OBJ_SET &&
-                   sortval->type != OBJ_LIST &&
-                   sortval->type != OBJ_ZSET)
-    {
-        addReply(c,shared.wrongtypeerr);
-        return;
-    }
-
+    int user_has_full_key_access = 0; /* ACL - used in order to verify 'get' and 'by' options can be used */
     /* Create a list of operations to perform for every sorted element.
      * Operations can be GET */
     operations = listCreate();
     listSetFreeMethod(operations,zfree);
     j = 2; /* options start at argv[2] */
 
-    /* Now we need to protect sortval incrementing its count, in the future
-     * SORT may have options able to overwrite/delete keys during the sorting
-     * and the sorted key itself may get destroyed */
-    if (sortval)
-        incrRefCount(sortval);
-    else
-        sortval = createQuicklistObject();
+    user_has_full_key_access = ACLUserCheckCmdWithUnrestrictedKeyAccess(c->user, c->cmd, c->argv, c->argc, CMD_KEY_ACCESS);
 
     /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {
@@ -241,7 +215,7 @@ void sortCommand(client *c) {
                 break;
             }
             j+=2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
+        } else if (readonly == 0 && !strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
             storekey = c->argv[j+1];
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
@@ -251,18 +225,63 @@ void sortCommand(client *c) {
             if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
                 dontsort = 1;
             } else {
-                /* If BY is specified with a real patter, we can't accept
-                 * it in cluster mode. */
-                if (server.cluster_enabled) {
-                    addReplyError(c,"BY option of SORT denied in Cluster mode.");
+                /* If BY is specified with a real pattern, we can't accept it in cluster mode,
+                 * unless we can make sure the keys formed by the pattern are in the same slot 
+                 * as the key to sort. */
+                if (server.cluster_enabled && patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) != getKeySlot(c->argv[1]->ptr)) {
+                    addReplyError(c, "BY option of SORT denied in Cluster mode when "
+                                 "keys formed by the pattern may be in different slots.");
+                    syntax_error++;
+                    break;
+                }
+
+                /* If the BY pattern slot is not equal with the slot of keys, we will record
+                 * an incompatible behavior as above comments. */
+                if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
+                    SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+                {
+                    if (patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) !=
+                        (int)keyHashSlot(c->argv[1]->ptr, sdslen(c->argv[1]->ptr)))
+                        server.stat_cluster_incompatible_ops++;
+                }
+
+                /* If BY is specified with a real pattern, we can't accept
+                 * it if no full ACL key access is applied for this command. */
+                if (!user_has_full_key_access) {
+                    addReplyError(c,"BY option of SORT denied due to insufficient ACL permissions.");
                     syntax_error++;
                     break;
                 }
             }
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
-            if (server.cluster_enabled) {
-                addReplyError(c,"GET option of SORT denied in Cluster mode.");
+            /* If GET is specified with a real pattern, we can't accept it in cluster mode,
+             * unless we can make sure the keys formed by the pattern are in the same slot 
+             * as the key to sort. The pattern # represents the key itself, so just skip
+             * pattern slot check. */
+            if (server.cluster_enabled &&
+                strcmp(c->argv[j+1]->ptr, "#") &&
+                patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) != getKeySlot(c->argv[1]->ptr))
+            {
+                addReplyError(c, "GET option of SORT denied in Cluster mode when "
+                              "keys formed by the pattern may be in different slots.");
+                syntax_error++;
+                break;
+            }
+
+            /* If the GET pattern slot is not equal with the slot of keys, we will record
+             * an incompatible behavior as above comments. */
+            if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
+                strcmp(c->argv[j+1]->ptr, "#") &&
+                SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+            {
+                if (patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) !=
+                    (int)keyHashSlot(c->argv[1]->ptr, sdslen(c->argv[1]->ptr)))
+                    server.stat_cluster_incompatible_ops++;
+            }
+
+            if (!user_has_full_key_access) {
+                addReplyError(c,"GET option of SORT denied due to insufficient ACL permissions.");
                 syntax_error++;
                 break;
             }
@@ -271,7 +290,7 @@ void sortCommand(client *c) {
             getop++;
             j++;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             syntax_error++;
             break;
         }
@@ -280,10 +299,28 @@ void sortCommand(client *c) {
 
     /* Handle syntax errors set during options parsing. */
     if (syntax_error) {
-        decrRefCount(sortval);
         listRelease(operations);
         return;
     }
+
+    /* Lookup the key to sort. It must be of the right types */
+    sortval = lookupKeyRead(c->db, c->argv[1]);
+    if (sortval && sortval->type != OBJ_SET &&
+                   sortval->type != OBJ_LIST &&
+                   sortval->type != OBJ_ZSET)
+    {
+        listRelease(operations);
+        addReplyErrorObject(c,shared.wrongtypeerr);
+        return;
+    }
+
+    /* Now we need to protect sortval incrementing its count, in the future
+     * SORT may have options able to overwrite/delete keys during the sorting
+     * and the sorted key itself may get destroyed */
+    if (sortval)
+        incrRefCount(sortval);
+    else
+        sortval = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
     /* When sorting a set with no sort specified, we must sort the output
      * so the result is consistent across scripting and replication.
@@ -293,7 +330,7 @@ void sortCommand(client *c) {
      * scripting and replication. */
     if (dontsort &&
         sortval->type == OBJ_SET &&
-        (storekey || c->flags & CLIENT_LUA))
+        (storekey || c->flags & CLIENT_SCRIPT))
     {
         /* Force ALPHA sorting */
         dontsort = 0;
@@ -302,10 +339,15 @@ void sortCommand(client *c) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET)
+    if (sortval->type == OBJ_ZSET) {
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+    }
 
-    /* Objtain the length of the object to sort. */
+    /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
     case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
@@ -313,8 +355,10 @@ void sortCommand(client *c) {
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
-    /* Perform LIMIT start,count sanity checking. */
-    start = (limit_start < 0) ? 0 : limit_start;
+    /* Perform LIMIT start,count sanity checking.
+     * And avoid integer overflow by limiting inputs to object sizes. */
+    start = min(max(limit_start, 0), vectorlen);
+    limit_count = min(max(limit_count, -1), vectorlen);
     end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
     if (start >= vectorlen) {
         start = vectorlen-1;
@@ -351,43 +395,49 @@ void sortCommand(client *c) {
          * Note that in this case we also handle LIMIT here in a direct
          * way, just getting the required range, as an optimization. */
         if (end >= start) {
-            listTypeIterator *li;
+            listTypeIterator li;
             listTypeEntry entry;
-            li = listTypeInitIterator(sortval,
+            listTypeInitIterator(&li, sortval,
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
 
-            while(j < vectorlen && listTypeNext(li,&entry)) {
+            while(j < vectorlen && listTypeNext(&li, &entry)) {
                 vector[j].obj = listTypeGet(&entry);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
             }
-            listTypeReleaseIterator(li);
+            listTypeResetIterator(&li);
             /* Fix start/end: output code is not aware of this optimization. */
             end -= start;
             start = 0;
         }
     } else if (sortval->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
+        listTypeIterator li;
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        listTypeInitIterator(&li, sortval, 0, LIST_TAIL);
+        while(listTypeNext(&li, &entry)) {
             vector[j].obj = listTypeGet(&entry);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        listTypeReleaseIterator(li);
+        listTypeResetIterator(&li);
     } else if (sortval->type == OBJ_SET) {
-        setTypeIterator *si = setTypeInitIterator(sortval);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
+        setTypeIterator si;
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, sortval);
+        while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
@@ -417,7 +467,7 @@ void sortCommand(client *c) {
 
         while(rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
-            sdsele = ln->ele;
+            sdsele = zslGetNodeElement(ln);
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
@@ -429,25 +479,30 @@ void sortCommand(client *c) {
         start = 0;
     } else if (sortval->type == OBJ_ZSET) {
         dict *set = ((zset*)sortval->ptr)->dict;
-        dictIterator *di;
+        dictIterator di;
         dictEntry *setele;
         sds sdsele;
-        di = dictGetIterator(set);
-        while((setele = dictNext(di)) != NULL) {
-            sdsele =  dictGetKey(setele);
+
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
+        dictInitIterator(&di, set);
+        while((setele = dictNext(&di)) != NULL) {
+            sdsele = zslGetNodeElement(dictGetKey(setele));
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else {
         serverPanic("Unknown type");
     }
     serverAssertWithInfo(c,sortval,j == vectorlen);
 
     /* Now it's time to load the right scores in the sorting vector */
-    if (dontsort == 0) {
+    if (!dontsort) {
         for (j = 0; j < vectorlen; j++) {
             robj *byval;
             if (sortby) {
@@ -465,11 +520,11 @@ void sortCommand(client *c) {
                 if (sdsEncodedObject(byval)) {
                     char *eptr;
 
-                    vector[j].u.score = strtod(byval->ptr,&eptr);
+                    vector[j].u.score = fast_float_strtod(byval->ptr,&eptr);
                     if (eptr[0] != '\0' || errno == ERANGE ||
                         isnan(vector[j].u.score))
                     {
-                        int_convertion_error = 1;
+                        int_conversion_error = 1;
                     }
                 } else if (byval->encoding == OBJ_ENCODING_INT) {
                     /* Don't need to decode the object if it's
@@ -487,9 +542,7 @@ void sortCommand(client *c) {
                 decrRefCount(byval);
             }
         }
-    }
 
-    if (dontsort == 0) {
         server.sort_desc = desc;
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
@@ -503,11 +556,11 @@ void sortCommand(client *c) {
     /* Send command output to the output buffer, performing the specified
      * GET/DEL/INCR/DECR operations if any. */
     outputlen = getop ? getop*(end-start+1) : end-start+1;
-    if (int_convertion_error) {
+    if (int_conversion_error) {
         addReplyError(c,"One or more scores can't be converted into double");
     } else if (storekey == NULL) {
         /* STORE option not specified, sent the sorting result to client */
-        addReplyMultiBulkLen(c,outputlen);
+        addReplyArrayLen(c,outputlen);
         for (j = start; j <= end; j++) {
             listNode *ln;
             listIter li;
@@ -517,11 +570,11 @@ void sortCommand(client *c) {
             while((ln = listNext(&li))) {
                 redisSortOperation *sop = ln->value;
                 robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                    vector[j].obj);
+                                               vector[j].obj);
 
                 if (sop->type == SORT_OP_GET) {
                     if (!val) {
-                        addReply(c,shared.nullbulk);
+                        addReplyNull(c);
                     } else {
                         addReplyBulk(c,val);
                         decrRefCount(val);
@@ -533,7 +586,9 @@ void sortCommand(client *c) {
             }
         }
     } else {
-        robj *sobj = createQuicklistObject();
+        /* We can't predict the size and encoding of the stored list, we
+         * assume it's a large list and then convert it at the end if needed. */
+        robj *sobj = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {
@@ -547,7 +602,7 @@ void sortCommand(client *c) {
                 while((ln = listNext(&li))) {
                     redisSortOperation *sop = ln->value;
                     robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                        vector[j].obj);
+                                                   vector[j].obj);
 
                     if (sop->type == SORT_OP_GET) {
                         if (!val) val = createStringObject("",0);
@@ -564,17 +619,26 @@ void sortCommand(client *c) {
                 }
             }
         }
+        
         if (outputlen) {
-            setKey(c->db,storekey,sobj);
+            listTypeTryConversion(sobj,LIST_CONV_AUTO,NULL,NULL);
+            setKey(c, c->db, storekey, &sobj, 0);
+            /* Ownership of sobj transferred to the db. Set to NULL to prevent
+             * freeing it below. */
+            sobj = NULL;
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;
-        } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c->db,storekey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
-            server.dirty++;
+            /* Ownership of sobj transferred to the db. No need to free it. */
+        } else {
+            if (dbDelete(c->db, storekey)) {
+                keyModified(c, c->db, storekey, NULL, 1);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
+                server.dirty++;
+            }
+            decrRefCount(sobj);
         }
-        decrRefCount(sobj);
+
         addReplyLongLong(c,outputlen);
     }
 
@@ -589,4 +653,13 @@ void sortCommand(client *c) {
             decrRefCount(vector[j].u.cmpobj);
     }
     zfree(vector);
+}
+
+/* SORT wrapper function for read-only mode. */
+void sortroCommand(client *c) {
+    sortCommandGeneric(c, 1);
+}
+
+void sortCommand(client *c) {
+    sortCommandGeneric(c, 0);
 }
