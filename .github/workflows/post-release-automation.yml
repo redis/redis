@@ -8,7 +8,7 @@ jobs:
   automate-release-scripts:
     # Only run for the main redis/redis repository (not forks)
     # Note: Only users with write access can publish releases, providing implicit authorization
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' || github.repository == 'stav-nachmias/fork-redis'
     runs-on: ubuntu-latest
     
     steps:
