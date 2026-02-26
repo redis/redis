@@ -3424,7 +3424,10 @@ int RM_ReplyWithCString(RedisModuleCtx *ctx, const char *buf) {
 int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReplyBulk(c,str);
+    /* Disable reply copy avoidance: the module string may belong to a datatype
+     * that could be lazy-freed by BIO thread, causing UAF if we hold a reference
+     * to it in the client reply list. */
+    addReplyBulkWithFlag(c,str,0);
     return REDISMODULE_OK;
 }
 
