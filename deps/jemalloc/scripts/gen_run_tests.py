@@ -31,7 +31,7 @@ for cc, cxx in (['gcc', 'g++'], ['clang', 'clang++']):
         cmd_ret = call([cc, "-v"])
         if cmd_ret == 0:
             possible_compilers.append((cc, cxx))
-    except:
+    except Exception:
         pass
 possible_compiler_opts = [
     '-m32',

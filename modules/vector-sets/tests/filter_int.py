@@ -477,7 +477,7 @@ class VSIMFilterAdvanced(TestCase):
                                      *[str(x) for x in generate_random_vector(self.dim)],
                                      'FILTER', '.category === "books"')  # Triple equals is invalid
             assert False, "Expected error for invalid filter syntax"
-        except:
+        except Exception:
             print("Invalid filter syntax correctly raised an error")
 
         # Test with extremely long complex expression
