@@ -17,6 +17,22 @@ start_server {tags {"bitops"}} {
         set results
     } {0 255 100}
 
+    test {BITFIELD signed SET and GET together} {
+        r del bits
+        set results [r bitfield bits set i8 0 255 set i8 0 100 get i8 0]
+    } {0 -1 100}
+ 
+    test {BITFIELD unsigned with SET, GET and INCRBY arguments} {
+        r del bits
+        set results [r bitfield bits set u8 0 255 incrby u8 0 100 get u8 0]
+    } {0 99 99}
+
+    test {BITFIELD with only key as argument} {
+        r del bits
+        set result [r bitfield bits]
+        assert {$result eq {}}
+    }
+
     test {BITFIELD #<idx> form} {
         r del bits
         set results {}
@@ -197,5 +213,51 @@ start_server {tags {"bitops"}} {
             assert {$res eq {0 0 60}}
         }
         r del mystring
+    }
+
+    test {BITFIELD_RO with only key as argument} {
+        set res [r bitfield_ro bits]
+        assert {$res eq {}}
+    }
+
+    test {BITFIELD_RO fails when write option is used} {
+        catch {r bitfield_ro bits set u8 0 100 get u8 0} err
+        assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {BITFIELD: setup slave} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {BITFIELD: write on master, read on slave} {
+            $master del bits
+            assert_equal 0 [$master bitfield bits set u8 0 255]
+            assert_equal 255 [$master bitfield bits set u8 0 100]
+            wait_for_ofs_sync $master $slave
+            assert_equal 100 [$slave bitfield_ro bits get u8 0]
+        }
+
+        test {BITFIELD_RO with only key as argument on read-only replica} {
+            set res [$slave bitfield_ro bits]
+            assert {$res eq {}}
+        }
+
+        test {BITFIELD_RO fails when write option is used on read-only replica} {
+            catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
+            assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
+        }
     }
 }

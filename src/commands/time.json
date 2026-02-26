@@ -1,0 +1,28 @@
+{
+    "TIME": {
+        "summary": "Returns the server time.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.6.0",
+        "arity": 1,
+        "function": "timeCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "FAST"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Array containing two elements: Unix time in seconds and microseconds.",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+                "type": "string",
+                "pattern": "[0-9]+"
+            }
+        }
+    }
+}

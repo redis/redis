@@ -1,0 +1,26 @@
+{
+    "MASTERS": {
+        "summary": "Returns a list of monitored Redis masters.",
+        "complexity": "O(N) where N is the number of masters",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of monitored Redis masters, and their state.",
+            "items": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

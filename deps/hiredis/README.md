@@ -1,10 +1,11 @@
-[![Build Status](https://travis-ci.org/redis/hiredis.png)](https://travis-ci.org/redis/hiredis)
 
-**This Readme reflects the latest changed in the master branch. See [v0.13.3](https://github.com/redis/hiredis/tree/v0.13.3) for the Readme and documentation for the latest release.**
+[![Build Status](https://github.com/redis/hiredis/actions/workflows/build.yml/badge.svg)](https://github.com/redis/hiredis/actions/workflows/build.yml)
+
+**This Readme reflects the latest changed in the master branch. See [v1.0.0](https://github.com/redis/hiredis/tree/v1.0.0) for the Readme and documentation for the latest release ([API/ABI history](https://abi-laboratory.pro/?view=timeline&l=hiredis)).**
 
 # HIREDIS
 
-Hiredis is a minimalistic C client library for the [Redis](http://redis.io/) database.
+Hiredis is a minimalistic C client library for the [Redis](https://redis.io/) database.
 
 It is minimalistic because it just adds minimal support for the protocol, but
 at the same time it uses a high level printf-alike API in order to make it
@@ -22,13 +23,45 @@ Redis version >= 1.2.0.
 The library comes with multiple APIs. There is the
 *synchronous API*, the *asynchronous API* and the *reply parsing API*.
 
+## Upgrading to `1.1.0`
+
+Almost all users will simply need to recompile their applications against the newer version of hiredis.
+
+**NOTE**:  Hiredis can now return `nan` in addition to `-inf` and `inf` in a `REDIS_REPLY_DOUBLE`.
+           Applications that deal with `RESP3` doubles should make sure to account for this.
+
+## Upgrading to `1.0.2`
+
+<span style="color:red">NOTE:  v1.0.1 erroneously bumped SONAME, which is why it is skipped here.</span>
+
+Version 1.0.2 is simply 1.0.0 with a fix for [CVE-2021-32765](https://github.com/redis/hiredis/security/advisories/GHSA-hfm9-39pp-55p2).  They are otherwise identical.
+
 ## Upgrading to `1.0.0`
 
-Version 1.0.0 marks a stable release of hiredis.
+Version 1.0.0 marks the first stable release of Hiredis.
 It includes some minor breaking changes, mostly to make the exposed API more uniform and self-explanatory.
 It also bundles the updated `sds` library, to sync up with upstream and Redis.
-For most applications a recompile against the new hiredis should be enough.
 For code changes see the [Changelog](CHANGELOG.md).
+
+_Note:  As described below, a few member names have been changed but most applications should be able to upgrade with minor code changes and recompiling._
+
+## IMPORTANT:  Breaking changes from `0.14.1` -> `1.0.0`
+
+* `redisContext` has two additional members (`free_privdata`, and `privctx`).
+* `redisOptions.timeout` has been renamed to `redisOptions.connect_timeout`, and we've added `redisOptions.command_timeout`.
+* `redisReplyObjectFunctions.createArray` now takes `size_t` instead of `int` for its length parameter.
+
+## IMPORTANT:  Breaking changes when upgrading from 0.13.x -> 0.14.x
+
+Bulk and multi-bulk lengths less than -1 or greater than `LLONG_MAX` are now
+protocol errors. This is consistent with the RESP specification. On 32-bit
+platforms, the upper bound is lowered to `SIZE_MAX`.
+
+Change `redisReply.len` to `size_t`, as it denotes the the size of a string
+
+User code should compare this to `size_t` values as well.  If it was used to
+compare to other values, casting might be necessary or can be removed, if
+casting was applied before.
 
 ## Upgrading from `<0.9.0`
 
@@ -56,6 +89,7 @@ an error state. The field `errstr` will contain a string with a description of
 the error. More information on errors can be found in the **Errors** section.
 After trying to connect to Redis using `redisConnect` you should
 check the `err` field to see if establishing the connection was successful:
+
 ```c
 redisContext *c = redisConnect("127.0.0.1", 6379);
 if (c == NULL || c->err) {
@@ -68,7 +102,73 @@ if (c == NULL || c->err) {
 }
 ```
 
+One can also use `redisConnectWithOptions` which takes a `redisOptions` argument
+that can be configured with endpoint information as well as many different flags
+to change how the `redisContext` will be configured.
+
+```c
+redisOptions opt = {0};
+
+/* One can set the endpoint with one of our helper macros */
+if (tcp) {
+    REDIS_OPTIONS_SET_TCP(&opt, "localhost", 6379);
+} else {
+    REDIS_OPTIONS_SET_UNIX(&opt, "/tmp/redis.sock");
+}
+
+/* And privdata can be specified with another helper */
+REDIS_OPTIONS_SET_PRIVDATA(&opt, myPrivData, myPrivDataDtor);
+
+/* Finally various options may be set via the `options` member, as described below */
+opt->options |= REDIS_OPT_PREFER_IPV4;
+```
+
+If a connection is lost, `int redisReconnect(redisContext *c)` can be used to restore the connection using the same endpoint and options as the given context.
+
+### Configurable redisOptions flags
+
+There are several flags you may set in the `redisOptions` struct to change default behavior.  You can specify the flags via the `redisOptions->options` member.
+
+| Flag | Description  |
+| --- | --- |
+| REDIS\_OPT\_NONBLOCK | Tells hiredis to make a non-blocking connection. |
+| REDIS\_OPT\_REUSEADDR | Tells hiredis to set the [SO_REUSEADDR](https://man7.org/linux/man-pages/man7/socket.7.html) socket option |
+| REDIS\_OPT\_PREFER\_IPV4<br>REDIS\_OPT\_PREFER_IPV6<br>REDIS\_OPT\_PREFER\_IP\_UNSPEC | Informs hiredis to either prefer IPv4 or IPv6 when invoking [getaddrinfo](https://man7.org/linux/man-pages/man3/gai_strerror.3.html).  `REDIS_OPT_PREFER_IP_UNSPEC` will cause hiredis to specify `AF_UNSPEC` in the getaddrinfo call, which means both IPv4 and IPv6 addresses will be searched simultaneously.<br>Hiredis prefers IPv4 by default. |
+| REDIS\_OPT\_NO\_PUSH\_AUTOFREE | Tells hiredis to not install the default RESP3 PUSH handler (which just intercepts and frees the replies).  This is useful in situations where you want to process these messages in-band. |
+| REDIS\_OPT\_NOAUTOFREEREPLIES | **ASYNC**: tells hiredis not to automatically invoke `freeReplyObject` after executing the reply callback. |
+| REDIS\_OPT\_NOAUTOFREE | **ASYNC**: Tells hiredis not to automatically free the `redisAsyncContext` on connection/communication failure, but only if the user makes an explicit call to `redisAsyncDisconnect` or `redisAsyncFree` |
+
 *Note: A `redisContext` is not thread-safe.*
+
+### Other configuration using socket options
+
+The following socket options are applied directly to the underlying socket.
+The values are not stored in the `redisContext`, so they are not automatically applied when reconnecting using `redisReconnect()`.
+These functions return `REDIS_OK` on success.
+On failure, `REDIS_ERR` is returned and the underlying connection is closed.
+
+To configure these for an asyncronous context (see *Asynchronous API* below), use `ac->c` to get the redisContext out of an asyncRedisContext.
+
+```C
+int redisEnableKeepAlive(redisContext *c);
+int redisEnableKeepAliveWithInterval(redisContext *c, int interval);
+```
+
+Enables TCP keepalive by setting the following socket options (with some variations depending on OS):
+
+* `SO_KEEPALIVE`;
+* `TCP_KEEPALIVE` or `TCP_KEEPIDLE`, value configurable using the `interval` parameter, default 15 seconds;
+* `TCP_KEEPINTVL` set to 1/3 of `interval`;
+* `TCP_KEEPCNT` set to 3.
+
+```C
+int redisSetTcpUserTimeout(redisContext *c, unsigned int timeout);
+```
+
+Set the `TCP_USER_TIMEOUT` Linux-specific socket option which is as described in the `tcp` man page:
+
+> When the value is greater than 0, it specifies the maximum amount of time in milliseconds that trans mitted data may remain unacknowledged before TCP will forcibly close the corresponding connection and return ETIMEDOUT to the application.
+> If the option value is specified as 0, TCP will use the system default.
 
 ### Sending commands
 
@@ -110,6 +210,8 @@ The standard replies that `redisCommand` are of the type `redisReply`. The
 `type` field in the `redisReply` should be used to test what kind of reply
 was received:
 
+### RESP2
+
 * **`REDIS_REPLY_STATUS`**:
     * The command replied with a status reply. The status string can be accessed using `reply->str`.
       The length of this string can be accessed using `reply->len`.
@@ -134,16 +236,51 @@ was received:
       and can be accessed via `reply->element[..index..]`.
       Redis may reply with nested arrays but this is fully supported.
 
+### RESP3
+
+Hiredis also supports every new `RESP3` data type which are as follows.  For more information about the protocol see the `RESP3` [specification.](https://github.com/antirez/RESP3/blob/master/spec.md)
+
+* **`REDIS_REPLY_DOUBLE`**:
+    * The command replied with a double-precision floating point number.
+      The value is stored as a string in the `str` member, and can be converted with `strtod` or similar.
+
+* **`REDIS_REPLY_BOOL`**:
+    * A boolean true/false reply.
+      The value is stored in the `integer` member and will be either `0` or `1`.
+
+* **`REDIS_REPLY_MAP`**:
+    * An array with the added invariant that there will always be an even number of elements.
+      The MAP is functionally equivalent to `REDIS_REPLY_ARRAY` except for the previously mentioned invariant.
+
+* **`REDIS_REPLY_SET`**:
+    * An array response where each entry is unique.
+      Like the MAP type, the data is identical to an array response except there are no duplicate values.
+
+* **`REDIS_REPLY_PUSH`**:
+    * An array that can be generated spontaneously by Redis.
+      This array response will always contain at least two subelements.  The first contains the type of `PUSH` message (e.g. `message`, or `invalidate`), and the second being a sub-array with the `PUSH` payload itself.
+
+* **`REDIS_REPLY_ATTR`**:
+    * An array structurally identical to a `MAP` but intended as meta-data about a reply.
+      _As of Redis 6.0.6 this reply type is not used in Redis_
+
+* **`REDIS_REPLY_BIGNUM`**:
+    * A string representing an arbitrarily large signed or unsigned integer value.
+      The number will be encoded as a string in the `str` member of `redisReply`.
+
+* **`REDIS_REPLY_VERB`**:
+    * A verbatim string, intended to be presented to the user without modification.
+      The string payload is stored in the `str` member, and type data is stored in the `vtype` member (e.g. `txt` for raw text or `md` for markdown).
+
 Replies should be freed using the `freeReplyObject()` function.
 Note that this function will take care of freeing sub-reply objects
 contained in arrays and nested arrays, so there is no need for the user to
 free the sub replies (it is actually harmful and will corrupt the memory).
 
-**Important:** the current version of hiredis (0.10.0) frees replies when the
+**Important:** the current version of hiredis (1.0.0) frees replies when the
 asynchronous API is used. This means you should not call `freeReplyObject` when
 you use this API. The reply is cleaned up by hiredis _after_ the callback
-returns. This behavior will probably change in future releases, so make sure to
-keep an eye on the changelog when upgrading (see issue #39).
+returns.  We may introduce a flag to make this configurable in future versions of the library.
 
 ### Cleaning up
 
@@ -187,7 +324,7 @@ following two execution paths:
     * Read from the socket until a single reply could be parsed
 
 The function `redisGetReply` is exported as part of the Hiredis API and can be used when a reply
-is expected on the socket. To pipeline commands, the only things that needs to be done is
+is expected on the socket. To pipeline commands, the only thing that needs to be done is
 filling up the output buffer. For this cause, two commands can be used that are identical
 to the `redisCommand` family, apart from not returning a reply:
 ```c
@@ -205,16 +342,16 @@ a single call to `read(2)`):
 redisReply *reply;
 redisAppendCommand(context,"SET foo bar");
 redisAppendCommand(context,"GET foo");
-redisGetReply(context,&reply); // reply for SET
+redisGetReply(context,(void**)&reply); // reply for SET
 freeReplyObject(reply);
-redisGetReply(context,&reply); // reply for GET
+redisGetReply(context,(void**)&reply); // reply for GET
 freeReplyObject(reply);
 ```
 This API can also be used to implement a blocking subscriber:
 ```c
 reply = redisCommand(context,"SUBSCRIBE foo");
 freeReplyObject(reply);
-while(redisGetReply(context,&reply) == REDIS_OK) {
+while(redisGetReply(context,(void *)&reply) == REDIS_OK) {
     // consume message
     freeReplyObject(reply);
 }
@@ -257,23 +394,48 @@ Redis. It returns a pointer to the newly created `redisAsyncContext` struct. The
 should be checked after creation to see if there were errors creating the connection.
 Because the connection that will be created is non-blocking, the kernel is not able to
 instantly return if the specified host and port is able to accept a connection.
+In case of error, it is the caller's responsibility to free the context using `redisAsyncFree()`
 
 *Note: A `redisAsyncContext` is not thread-safe.*
 
+An application function creating a connection might look like this:
+
 ```c
-redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
-if (c->err) {
-    printf("Error: %s\n", c->errstr);
-    // handle error
+void appConnect(myAppData *appData)
+{
+    redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
+    if (c->err) {
+        printf("Error: %s\n", c->errstr);
+        // handle error
+        redisAsyncFree(c);
+        c = NULL;
+    } else {
+        appData->context = c;
+        appData->connecting = 1;
+        c->data = appData; /* store application pointer for the callbacks */
+        redisAsyncSetConnectCallback(c, appOnConnect);
+        redisAsyncSetDisconnectCallback(c, appOnDisconnect);
+    }
 }
+
 ```
 
-The asynchronous context can hold a disconnect callback function that is called when the
-connection is disconnected (either because of an error or per user request). This function should
+
+The asynchronous context _should_ hold a *connect* callback function that is called when the connection
+attempt completes, either successfully or with an error.
+It _can_ also hold a *disconnect* callback function that is called when the
+connection is disconnected (either because of an error or per user request). Both callbacks should
 have the following prototype:
 ```c
 void(const redisAsyncContext *c, int status);
 ```
+
+On a *connect*, the `status` argument is set to `REDIS_OK` if the connection attempt succeeded.  In this
+case, the context is ready to accept commands.  If it is called with `REDIS_ERR` then the
+connection attempt failed. The `err` field in the context can be accessed to find out the cause of the error.
+After a failed connection attempt, the context object is automatically freed by the library after calling
+the connect callback.  This may be a good point to create a new context and retry the connection.
+
 On a disconnect, the `status` argument is set to `REDIS_OK` when disconnection was initiated by the
 user, or `REDIS_ERR` when the disconnection was caused by an error. When it is `REDIS_ERR`, the `err`
 field in the context can be accessed to find out the cause of the error.
@@ -281,11 +443,46 @@ field in the context can be accessed to find out the cause of the error.
 The context object is always freed after the disconnect callback fired. When a reconnect is needed,
 the disconnect callback is a good point to do so.
 
-Setting the disconnect callback can only be done once per context. For subsequent calls it will
-return `REDIS_ERR`. The function to set the disconnect callback has the following prototype:
+Setting the connect or disconnect callbacks can only be done once per context. For subsequent calls the
+api will return `REDIS_ERR`. The function to set the callbacks have the following prototype:
 ```c
+/* Alternatively you can use redisAsyncSetConnectCallbackNC which will be passed a non-const
+   redisAsyncContext* on invocation (e.g. allowing writes to the privdata member). */
+int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn);
 int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn);
 ```
+`ac->data` may be used to pass user data to both callbacks.  A typical implementation
+might look something like this:
+```c
+void appOnConnect(redisAsyncContext *c, int status)
+{
+    myAppData *appData = (myAppData*)c->data; /* get my application specific context*/
+    appData->connecting = 0;
+    if (status == REDIS_OK) {
+        appData->connected = 1;
+    } else {
+        appData->connected = 0;
+        appData->err = c->err;
+        appData->context = NULL; /* avoid stale pointer when callback returns */
+    }
+    appAttemptReconnect();
+}
+
+void appOnDisconnect(redisAsyncContext *c, int status)
+{
+    myAppData *appData = (myAppData*)c->data; /* get my application specific context*/
+    appData->connected = 0;
+    appData->err = c->err;
+    appData->context = NULL; /* avoid stale pointer when callback returns */
+    if (status == REDIS_OK) {
+        appNotifyDisconnectCompleted(mydata);
+    } else {
+        appNotifyUnexpectedDisconnect(mydata);
+        appAttemptReconnect();
+    }
+}
+```
+
 ### Sending commands and their callbacks
 
 In an asynchronous context, commands are automatically pipelined due to the nature of an event loop.
@@ -318,6 +515,14 @@ valid for the duration of the callback.
 
 All pending callbacks are called with a `NULL` reply when the context encountered an error.
 
+For every command issued, with the exception of **SUBSCRIBE** and **PSUBSCRIBE**, the callback is
+called exactly once.  Even if the context object id disconnected or deleted, every pending callback
+will be called with a `NULL` reply.
+
+For **SUBSCRIBE** and **PSUBSCRIBE**, the callbacks may be called repeatedly until an `unsubscribe`
+message arrives.  This will be the last invocation of the callback. In case of error, the callbacks
+may receive a final `NULL` reply instead.
+
 ### Disconnecting
 
 An asynchronous connection can be terminated using:
@@ -329,6 +534,15 @@ commands are no longer accepted and the connection is only terminated when all p
 have been written to the socket, their respective replies have been read and their respective
 callbacks have been executed. After this, the disconnection callback is executed with the
 `REDIS_OK` status and the context object is freed.
+
+The connection can be forcefully disconnected using
+```c
+void redisAsyncFree(redisAsyncContext *ac);
+```
+In this case, nothing more is written to the socket, all pending callbacks are called with a `NULL`
+reply and the disconnection callback is called with `REDIS_OK`, after which the context object
+is freed.
+
 
 ### Hooking it up to event library *X*
 
@@ -403,9 +617,205 @@ This should be done only in order to maximize performances when working with
 large payloads. The context should be set back to `REDIS_READER_MAX_BUF` again
 as soon as possible in order to prevent allocation of useless memory.
 
+### Reader max array elements
+
+By default the hiredis reply parser sets the maximum number of multi-bulk elements
+to 2^32 - 1 or 4,294,967,295 entries.  If you need to process multi-bulk replies
+with more than this many elements you can set the value higher or to zero, meaning
+unlimited with:
+```c
+context->reader->maxelements = 0;
+```
+
+## SSL/TLS Support
+
+### Building
+
+SSL/TLS support is not built by default and requires an explicit flag:
+
+    make USE_SSL=1
+
+This requires OpenSSL development package (e.g. including header files to be
+available.
+
+When enabled, SSL/TLS support is built into extra `libhiredis_ssl.a` and
+`libhiredis_ssl.so` static/dynamic libraries. This leaves the original libraries
+unaffected so no additional dependencies are introduced.
+
+### Using it
+
+First, you'll need to make sure you include the SSL header file:
+
+```c
+#include <hiredis/hiredis.h>
+#include <hiredis/hiredis_ssl.h>
+```
+
+You will also need to link against `libhiredis_ssl`, **in addition** to
+`libhiredis` and add `-lssl -lcrypto` to satisfy its dependencies.
+
+Hiredis implements SSL/TLS on top of its normal `redisContext` or
+`redisAsyncContext`, so you will need to establish a connection first and then
+initiate an SSL/TLS handshake.
+
+#### Hiredis OpenSSL Wrappers
+
+Before Hiredis can negotiate an SSL/TLS connection, it is necessary to
+initialize OpenSSL and create a context. You can do that in two ways:
+
+1. Work directly with the OpenSSL API to initialize the library's global context
+   and create `SSL_CTX *` and `SSL *` contexts. With an `SSL *` object you can
+   call `redisInitiateSSL()`.
+2. Work with a set of Hiredis-provided wrappers around OpenSSL, create a
+   `redisSSLContext` object to hold configuration and use
+   `redisInitiateSSLWithContext()` to initiate the SSL/TLS handshake.
+
+```c
+/* An Hiredis SSL context. It holds SSL configuration and can be reused across
+ * many contexts.
+ */
+redisSSLContext *ssl_context;
+
+/* An error variable to indicate what went wrong, if the context fails to
+ * initialize.
+ */
+redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
+
+/* Initialize global OpenSSL state.
+ *
+ * You should call this only once when your app initializes, and only if
+ * you don't explicitly or implicitly initialize OpenSSL it elsewhere.
+ */
+redisInitOpenSSL();
+
+/* Create SSL context */
+ssl_context = redisCreateSSLContext(
+    "cacertbundle.crt",     /* File name of trusted CA/ca bundle file, optional */
+    "/path/to/certs",       /* Path of trusted certificates, optional */
+    "client_cert.pem",      /* File name of client certificate file, optional */
+    "client_key.pem",       /* File name of client private key, optional */
+    "redis.mydomain.com",   /* Server name to request (SNI), optional */
+    &ssl_error);
+
+if(ssl_context == NULL || ssl_error != REDIS_SSL_CTX_NONE) {
+    /* Handle error and abort... */
+    /* e.g.
+    printf("SSL error: %s\n",
+        (ssl_error != REDIS_SSL_CTX_NONE) ?
+            redisSSLContextGetError(ssl_error) : "Unknown error");
+    // Abort
+    */
+}
+
+/* Create Redis context and establish connection */
+c = redisConnect("localhost", 6443);
+if (c == NULL || c->err) {
+    /* Handle error and abort... */
+}
+
+/* Negotiate SSL/TLS */
+if (redisInitiateSSLWithContext(c, ssl_context) != REDIS_OK) {
+    /* Handle error, in c->err / c->errstr */
+}
+```
+
+## RESP3 PUSH replies
+Redis 6.0 introduced PUSH replies with the reply-type `>`.  These messages are generated spontaneously and can arrive at any time, so must be handled using callbacks.
+
+### Default behavior
+Hiredis installs handlers on `redisContext` and `redisAsyncContext` by default, which will intercept and free any PUSH replies detected.  This means existing code will work as-is after upgrading to Redis 6 and switching to `RESP3`.
+
+### Custom PUSH handler prototypes
+The callback prototypes differ between `redisContext` and `redisAsyncContext`.
+
+#### redisContext
+```c
+void my_push_handler(void *privdata, void *reply) {
+    /* Handle the reply */
+
+    /* Note: We need to free the reply in our custom handler for
+             blocking contexts.  This lets us keep the reply if
+             we want. */
+    freeReplyObject(reply);
+}
+```
+
+#### redisAsyncContext
+```c
+void my_async_push_handler(redisAsyncContext *ac, void *reply) {
+    /* Handle the reply */
+
+    /* Note:  Because async hiredis always frees replies, you should
+              not call freeReplyObject in an async push callback. */
+}
+```
+
+### Installing a custom handler
+There are two ways to set your own PUSH handlers.
+
+1. Set `push_cb` or `async_push_cb` in the `redisOptions` struct and connect with `redisConnectWithOptions` or `redisAsyncConnectWithOptions`.
+    ```c
+    redisOptions = {0};
+    REDIS_OPTIONS_SET_TCP(&options, "127.0.0.1", 6379);
+    options->push_cb = my_push_handler;
+    redisContext *context = redisConnectWithOptions(&options);
+    ```
+2.  Call `redisSetPushCallback` or `redisAsyncSetPushCallback` on a connected context.
+    ```c
+    redisContext *context = redisConnect("127.0.0.1", 6379);
+    redisSetPushCallback(context, my_push_handler);
+    ```
+
+    _Note `redisSetPushCallback` and `redisAsyncSetPushCallback` both return any currently configured handler,  making it easy to override and then return to the old value._
+
+### Specifying no handler
+If you have a unique use-case where you don't want hiredis to automatically intercept and free PUSH replies, you will want to configure no handler at all.  This can be done in two ways.
+1.  Set the `REDIS_OPT_NO_PUSH_AUTOFREE` flag in `redisOptions` and leave the callback function pointer `NULL`.
+    ```c
+    redisOptions = {0};
+    REDIS_OPTIONS_SET_TCP(&options, "127.0.0.1", 6379);
+    options->options |= REDIS_OPT_NO_PUSH_AUTOFREE;
+    redisContext *context = redisConnectWithOptions(&options);
+    ```
+3.  Call `redisSetPushCallback` with `NULL` once connected.
+    ```c
+    redisContext *context = redisConnect("127.0.0.1", 6379);
+    redisSetPushCallback(context, NULL);
+    ```
+
+    _Note:  With no handler configured, calls to `redisCommand` may generate more than one reply, so this strategy is only applicable when there's some kind of blocking `redisGetReply()` loop (e.g. `MONITOR` or `SUBSCRIBE` workloads)._
+
+## Allocator injection
+
+Hiredis uses a pass-thru structure of function pointers defined in [alloc.h](https://github.com/redis/hiredis/blob/f5d25850/alloc.h#L41) that contain the currently configured allocation and deallocation functions.  By default they just point to libc (`malloc`, `calloc`, `realloc`, etc).
+
+### Overriding
+
+One can override the allocators like so:
+
+```c
+hiredisAllocFuncs myfuncs = {
+    .mallocFn = my_malloc,
+    .callocFn = my_calloc,
+    .reallocFn = my_realloc,
+    .strdupFn = my_strdup,
+    .freeFn = my_free,
+};
+
+// Override allocators (function returns current allocators if needed)
+hiredisAllocFuncs orig = hiredisSetAllocators(&myfuncs);
+```
+
+To reset the allocators to their default libc function simply call:
+
+```c
+hiredisResetAllocators();
+```
+
 ## AUTHORS
 
-Hiredis was written by Salvatore Sanfilippo (antirez at gmail) and
-Pieter Noordhuis (pcnoordhuis at gmail) and is released under the BSD license.  
-Hiredis is currently maintained by Matt Stancliff (matt at genges dot com) and
-Jan-Erik Rediger (janerik at fnordig dot com)
+Salvatore Sanfilippo (antirez at gmail),\
+Pieter Noordhuis (pcnoordhuis at gmail)\
+Michael Grunder (michael dot grunder at gmail)
+
+_Hiredis is released under the BSD license._

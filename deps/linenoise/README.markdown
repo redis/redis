@@ -21,7 +21,7 @@ So what usually happens is either:
  
 The result is a pollution of binaries without line editing support.
 
-So I spent more or less two hours doing a reality check resulting in this little library: is it *really* needed for a line editing library to be 20k lines of code? Apparently not, it is possibe to get a very small, zero configuration, trivial to embed library, that solves the problem. Smaller programs will just include this, supporing line editing out of the box. Larger programs may use this little library or just checking with configure if readline/libedit is available and resorting to Linenoise if not.
+So I spent more or less two hours doing a reality check resulting in this little library: is it *really* needed for a line editing library to be 20k lines of code? Apparently not, it is possibe to get a very small, zero configuration, trivial to embed library, that solves the problem. Smaller programs will just include this, supporting line editing out of the box. Larger programs may use this little library or just checking with configure if readline/libedit is available and resorting to Linenoise if not.
 
 ## Terminals, in 2010.
 
@@ -108,7 +108,7 @@ to search and re-edit already inserted lines of text.
 
 The followings are the history API calls:
 
-    int linenoiseHistoryAdd(const char *line);
+    int linenoiseHistoryAdd(const char *line, int is_sensitive);
     int linenoiseHistorySetMaxLen(int len);
     int linenoiseHistorySave(const char *filename);
     int linenoiseHistoryLoad(const char *filename);
@@ -125,6 +125,24 @@ function.
 Linenoise has direct support for persisting the history into an history
 file. The functions `linenoiseHistorySave` and `linenoiseHistoryLoad` do
 just that. Both functions return -1 on error and 0 on success.
+
+## Mask mode
+
+Sometimes it is useful to allow the user to type passwords or other
+secrets that should not be displayed. For such situations linenoise supports
+a "mask mode" that will just replace the characters the user is typing 
+with `*` characters, like in the following example:
+
+    $ ./linenoise_example
+    hello> get mykey
+    echo: 'get mykey'
+    hello> /mask
+    hello> *********
+
+You can enable and disable mask mode using the following two functions:
+
+    void linenoiseMaskModeEnable(void);
+    void linenoiseMaskModeDisable(void);
 
 ## Completion
 
@@ -222,3 +240,8 @@ Sometimes you may want to clear the screen as a result of something the
 user typed. You can do this by calling the following function:
 
     void linenoiseClearScreen(void);
+
+## Related projects
+
+* [Linenoise NG](https://github.com/arangodb/linenoise-ng) is a fork of Linenoise that aims to add more advanced features like UTF-8 support, Windows support and other features. Uses C++ instead of C as development language.
+* [Linenoise-swift](https://github.com/andybest/linenoise-swift) is a reimplementation of Linenoise written in Swift.

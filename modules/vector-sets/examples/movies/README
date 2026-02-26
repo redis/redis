@@ -1,0 +1,30 @@
+This example maps long form movies plots to movies titles.
+It will create fp32 and binary vectors (the two extremes).
+
+1. Install ollama, and install the embedding model "mxbai-embed-large"
+2. Download mpst_full_data.csv from https://www.kaggle.com/datasets/cryptexcode/mpst-movie-plot-synopses-with-tags
+3. python insert.py
+
+127.0.0.1:6379> VSIM many_movies_mxbai-embed-large_NOQUANT ELE "The Matrix"
+ 1) "The Matrix"
+ 2) "The Matrix Reloaded"
+ 3) "The Matrix Revolutions"
+ 4) "Commando"
+ 5) "Avatar"
+ 6) "Forbidden Planet"
+ 7) "Terminator Salvation"
+ 8) "Mandroid"
+ 9) "The Omega Code"
+10) "Coherence"
+
+127.0.0.1:6379> VSIM many_movies_mxbai-embed-large_BIN ELE "The Matrix"
+ 1) "The Matrix"
+ 2) "The Matrix Reloaded"
+ 3) "The Matrix Revolutions"
+ 4) "The Omega Code"
+ 5) "Forbidden Planet"
+ 6) "Avatar"
+ 7) "John Carter"
+ 8) "System Shock 2"
+ 9) "Coherence"
+10) "Tomorrowland"

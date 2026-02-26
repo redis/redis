@@ -1,57 +1,77 @@
+typedef struct extent_hooks_s extent_hooks_t;
+
 /*
  * void *
- * chunk_alloc(void *new_addr, size_t size, size_t alignment, bool *zero,
- *     bool *commit, unsigned arena_ind);
+ * extent_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size,
+ *     size_t alignment, bool *zero, bool *commit, unsigned arena_ind);
  */
-typedef void *(chunk_alloc_t)(void *, size_t, size_t, bool *, bool *, unsigned);
+typedef void *(extent_alloc_t)(extent_hooks_t *, void *, size_t, size_t, bool *,
+    bool *, unsigned);
 
 /*
  * bool
- * chunk_dalloc(void *chunk, size_t size, bool committed, unsigned arena_ind);
- */
-typedef bool (chunk_dalloc_t)(void *, size_t, bool, unsigned);
-
-/*
- * bool
- * chunk_commit(void *chunk, size_t size, size_t offset, size_t length,
- *     unsigned arena_ind);
- */
-typedef bool (chunk_commit_t)(void *, size_t, size_t, size_t, unsigned);
-
-/*
- * bool
- * chunk_decommit(void *chunk, size_t size, size_t offset, size_t length,
- *     unsigned arena_ind);
- */
-typedef bool (chunk_decommit_t)(void *, size_t, size_t, size_t, unsigned);
-
-/*
- * bool
- * chunk_purge(void *chunk, size_t size, size_t offset, size_t length,
- *     unsigned arena_ind);
- */
-typedef bool (chunk_purge_t)(void *, size_t, size_t, size_t, unsigned);
-
-/*
- * bool
- * chunk_split(void *chunk, size_t size, size_t size_a, size_t size_b,
+ * extent_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size,
  *     bool committed, unsigned arena_ind);
  */
-typedef bool (chunk_split_t)(void *, size_t, size_t, size_t, bool, unsigned);
+typedef bool (extent_dalloc_t)(extent_hooks_t *, void *, size_t, bool,
+    unsigned);
+
+/*
+ * void
+ * extent_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size,
+ *     bool committed, unsigned arena_ind);
+ */
+typedef void (extent_destroy_t)(extent_hooks_t *, void *, size_t, bool,
+    unsigned);
 
 /*
  * bool
- * chunk_merge(void *chunk_a, size_t size_a, void *chunk_b, size_t size_b,
- *     bool committed, unsigned arena_ind);
+ * extent_commit(extent_hooks_t *extent_hooks, void *addr, size_t size,
+ *     size_t offset, size_t length, unsigned arena_ind);
  */
-typedef bool (chunk_merge_t)(void *, size_t, void *, size_t, bool, unsigned);
+typedef bool (extent_commit_t)(extent_hooks_t *, void *, size_t, size_t, size_t,
+    unsigned);
 
-typedef struct {
-	chunk_alloc_t		*alloc;
-	chunk_dalloc_t		*dalloc;
-	chunk_commit_t		*commit;
-	chunk_decommit_t	*decommit;
-	chunk_purge_t		*purge;
-	chunk_split_t		*split;
-	chunk_merge_t		*merge;
-} chunk_hooks_t;
+/*
+ * bool
+ * extent_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size,
+ *     size_t offset, size_t length, unsigned arena_ind);
+ */
+typedef bool (extent_decommit_t)(extent_hooks_t *, void *, size_t, size_t,
+    size_t, unsigned);
+
+/*
+ * bool
+ * extent_purge(extent_hooks_t *extent_hooks, void *addr, size_t size,
+ *     size_t offset, size_t length, unsigned arena_ind);
+ */
+typedef bool (extent_purge_t)(extent_hooks_t *, void *, size_t, size_t, size_t,
+    unsigned);
+
+/*
+ * bool
+ * extent_split(extent_hooks_t *extent_hooks, void *addr, size_t size,
+ *     size_t size_a, size_t size_b, bool committed, unsigned arena_ind);
+ */
+typedef bool (extent_split_t)(extent_hooks_t *, void *, size_t, size_t, size_t,
+    bool, unsigned);
+
+/*
+ * bool
+ * extent_merge(extent_hooks_t *extent_hooks, void *addr_a, size_t size_a,
+ *     void *addr_b, size_t size_b, bool committed, unsigned arena_ind);
+ */
+typedef bool (extent_merge_t)(extent_hooks_t *, void *, size_t, void *, size_t,
+    bool, unsigned);
+
+struct extent_hooks_s {
+	extent_alloc_t		*alloc;
+	extent_dalloc_t		*dalloc;
+	extent_destroy_t	*destroy;
+	extent_commit_t		*commit;
+	extent_decommit_t	*decommit;
+	extent_purge_t		*purge_lazy;
+	extent_purge_t		*purge_forced;
+	extent_split_t		*split;
+	extent_merge_t		*merge;
+};

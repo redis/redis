@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2013-2014, yinqiwen <yinqiwen@gmail.com>
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>.
- * Copyright (c) 2015, Salvatore Sanfilippo <antirez@gmail.com>.
+ * Copyright (c) 2015-current, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,16 +47,9 @@ typedef struct {
     GeoHashNeighbors neighbors;
 } GeoHashRadius;
 
-int GeoHashBitsComparator(const GeoHashBits *a, const GeoHashBits *b);
 uint8_t geohashEstimateStepsByRadius(double range_meters, double lat);
-int geohashBoundingBox(double longitude, double latitude, double radius_meters,
-                        double *bounds);
-GeoHashRadius geohashGetAreasByRadius(double longitude,
-                                      double latitude, double radius_meters);
-GeoHashRadius geohashGetAreasByRadiusWGS84(double longitude, double latitude,
-                                           double radius_meters);
-GeoHashRadius geohashGetAreasByRadiusMercator(double longitude, double latitude,
-                                              double radius_meters);
+int geohashBoundingBox(GeoShape *shape, double *bounds);
+GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape);
 GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash);
 double geohashGetDistance(double lon1d, double lat1d,
                           double lon2d, double lat2d);
@@ -66,5 +59,7 @@ int geohashGetDistanceIfInRadius(double x1, double y1,
 int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
                                       double y2, double radius,
                                       double *distance);
+int geohashGetDistanceIfInRectangle(double width_m, double height_m, double x1, double y1,
+                                    double x2, double y2, double *distance);
 
 #endif /* GEOHASH_HELPER_HPP_ */

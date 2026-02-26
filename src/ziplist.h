@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-current, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,15 @@
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
 
+/* Each entry in the ziplist is either a string or an integer. */
+typedef struct {
+    /* When string is used, it is provided with the length (slen). */
+    unsigned char *sval;
+    unsigned int slen;
+    /* When integer is used, 'sval' is NULL, and lval holds the value. */
+    long long lval;
+} ziplistEntry;
+
 unsigned char *ziplistNew(void);
 unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where);
@@ -44,14 +53,22 @@ unsigned int ziplistGet(unsigned char *p, unsigned char **sval, unsigned int *sl
 unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
 unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num);
+unsigned char *ziplistReplace(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
-unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
+unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
 unsigned int ziplistLen(unsigned char *zl);
 size_t ziplistBlobLen(unsigned char *zl);
 void ziplistRepr(unsigned char *zl);
+typedef int (*ziplistValidateEntryCB)(unsigned char* p, unsigned int head_count, void* userdata);
+int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
+                             ziplistValidateEntryCB entry_cb, void *cb_userdata);
+void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
+void ziplistRandomPairs(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
+unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
+int ziplistSafeToAdd(unsigned char* zl, size_t add);
 
 #ifdef REDIS_TEST
-int ziplistTest(int argc, char *argv[]);
+int ziplistTest(int argc, char *argv[], int flags);
 #endif
 
 #endif /* _ZIPLIST_H */

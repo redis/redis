@@ -5,29 +5,12 @@
  *
  * ---------------------------------------------------------------------------
  *
- * Copyright(C) 2011-2014 Salvatore Sanfilippo <antirez@gmail.com>
+ * Copyright (c) 2011-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -57,7 +40,10 @@ static int label_margin_top = 1;
 struct sequence *createSparklineSequence(void) {
     struct sequence *seq = zmalloc(sizeof(*seq));
     seq->length = 0;
+    seq->labels = 0;
     seq->samples = NULL;
+    seq->min = 0.0f;
+    seq->max = 0.0f;
     return seq;
 }
 
@@ -92,7 +78,7 @@ void freeSparklineSequence(struct sequence *seq) {
  * ------------------------------------------------------------------------- */
 
 /* Render part of a sequence, so that render_sequence() call call this function
- * with differnent parts in order to create the full output without overflowing
+ * with different parts in order to create the full output without overflowing
  * the current terminal columns. */
 sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset, int len, int flags) {
     int j;

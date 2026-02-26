@@ -364,6 +364,7 @@ Table *luaH_new (lua_State *L, int narray, int nhash) {
   t->array = NULL;
   t->sizearray = 0;
   t->lsizenode = 0;
+  t->readonly = 0;
   t->node = cast(Node *, dummynode);
   setarrayvector(L, t, narray);
   setnodevector(L, t, nhash);
@@ -433,8 +434,7 @@ static TValue *newkey (lua_State *L, Table *t, const TValue *key) {
 ** search function for integers
 */
 const TValue *luaH_getnum (Table *t, int key) {
-  /* (1 <= key && key <= t->sizearray) */
-  if (cast(unsigned int, key-1) < cast(unsigned int, t->sizearray))
+  if (1 <= key && key <= t->sizearray)
     return &t->array[key-1];
   else {
     lua_Number nk = cast_num(key);

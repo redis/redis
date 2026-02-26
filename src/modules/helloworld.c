@@ -6,32 +6,12 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "../redismodule.h"
@@ -91,7 +71,7 @@ int HelloPushCall_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
 }
 
 /* HELLO.PUSH.CALL2
- * This is exaxctly as HELLO.PUSH.CALL, but shows how we can reply to the
+ * This is exactly as HELLO.PUSH.CALL, but shows how we can reply to the
  * client using directly a reply object that Call() returned. */
 int HelloPushCall2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -241,7 +221,6 @@ int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    RedisModuleCallReply *reply;
     RedisModule_AutoMemory(ctx);
 
     /* This will be replicated *after* the two INCR statements, since
@@ -258,8 +237,8 @@ int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     /* Using the "!" modifier we replicate the command if it
      * modified the dataset in some way. */
-    reply = RedisModule_Call(ctx,"INCR","c!","foo");
-    reply = RedisModule_Call(ctx,"INCR","c!","bar");
+    RedisModule_Call(ctx,"INCR","c!","foo");
+    RedisModule_Call(ctx,"INCR","c!","bar");
 
     RedisModule_ReplyWithLongLong(ctx,0);
 
@@ -346,7 +325,7 @@ int HelloToggleCase_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
 /* HELLO.MORE.EXPIRE key milliseconds.
  *
- * If they key has already an associated TTL, extends it by "milliseconds"
+ * If the key has already an associated TTL, extends it by "milliseconds"
  * milliseconds. Otherwise no operation is performed. */
 int HelloMoreExpire_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
@@ -444,7 +423,7 @@ int HelloLexRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     }
 
     int arraylen = 0;
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     while(!RedisModule_ZsetRangeEndReached(key)) {
         double score;
         RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key,&score);

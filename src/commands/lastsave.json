@@ -1,0 +1,26 @@
+{
+    "LASTSAVE": {
+        "summary": "Returns the Unix timestamp of the last successful save to disk.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": 1,
+        "function": "lastsaveCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "FAST"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "acl_categories": [
+            "ADMIN",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "UNIX TIME of the last DB save executed with success."
+        }
+    }
+}

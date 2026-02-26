@@ -1,0 +1,190 @@
+{
+    "XPENDING": {
+        "summary": "Returns the information and entries from a stream consumer group's pending entries list.",
+        "complexity": "O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -3,
+        "function": "xpendingCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `IDLE` option and exclusive range intervals."
+            ]
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Extended form, in case `start` was given.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": [
+                            {
+                                "description": "Entry ID",
+                                "type": "string",
+                                "pattern": "[0-9]+-[0-9]+"
+                            },
+                            {
+                                "description": "Consumer name",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Idle time",
+                                "type": "integer"
+                            },
+                            {
+                                "description": "Delivery count",
+                                "type": "integer"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "description": "Summary form, in case `start` was not given.",
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "Total number of pending messages",
+                            "type": "integer"
+                        },
+                        {
+                            "description": "Minimal pending entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        {
+                            "description": "Maximal pending entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
+                        },
+                        {
+                            "description": "Consuers with pending messages",
+                            "oneOf": [
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "array",
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                        "items": [
+                                            {
+                                                "description": "Consumer name",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "description": "Number of pending messages",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "type": "null",
+                                    "description": "When there are no consumers with pending messages"
+                                }
+                            ]
+                            
+                        }
+                    ]
+                },
+                {
+                    "description": "Summary form, in case `start` was not given and there are no pending messages.",
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "Total number of pending messages",
+                            "const": 0
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "group",
+                "type": "string"
+            },
+            {
+                "name": "filters",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "token": "IDLE",
+                        "name": "min-idle-time",
+                        "type": "integer",
+                        "optional": true,
+                        "since": "6.2.0"
+                    },
+                    {
+                        "name": "start",
+                        "type": "string"
+                    },
+                    {
+                        "name": "end",
+                        "type": "string"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "consumer",
+                        "type": "string",
+                        "optional": true
+                    }
+                ]
+            }
+        ]
+    }
+}

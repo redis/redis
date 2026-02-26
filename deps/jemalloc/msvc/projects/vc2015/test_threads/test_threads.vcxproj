@@ -310,8 +310,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="test_threads.cpp" />
-    <ClCompile Include="test_threads_main.cpp" />
+    <ClCompile Include="..\..\..\test_threads\test_threads.cpp" />
+    <ClCompile Include="..\..\..\test_threads\test_threads_main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\jemalloc\jemalloc.vcxproj">
@@ -319,7 +319,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="test_threads.h" />
+    <ClInclude Include="..\..\..\test_threads\test_threads.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

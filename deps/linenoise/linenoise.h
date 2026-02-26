@@ -58,13 +58,15 @@ void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
 char *linenoise(const char *prompt);
 void linenoiseFree(void *ptr);
-int linenoiseHistoryAdd(const char *line);
+int linenoiseHistoryAdd(const char *line, int is_sensitive);
 int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(const char *filename);
 int linenoiseHistoryLoad(const char *filename);
 void linenoiseClearScreen(void);
 void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
+void linenoiseMaskModeEnable(void);
+void linenoiseMaskModeDisable(void);
 
 #ifdef __cplusplus
 }

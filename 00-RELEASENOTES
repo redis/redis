@@ -9,8 +9,8 @@ Usually "unstable" is stable enough for you to use it in development environment
 however you should never use it in production environments. It is possible
 to download the latest stable release here:
 
-    http://download.redis.io/releases/redis-stable.tar.gz
+    https://download.redis.io/redis-stable.tar.gz
 
-More information is available at http://redis.io
+More information is available at https://redis.io
 
 Happy hacking!
