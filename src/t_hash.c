@@ -394,7 +394,6 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
-        /* Copy field name out of the listpack buffer before any reallocation. */
         if (!expiredFields) {
             expiredFields = zmalloc(sizeof(sds) * expiredFieldsCap);
         }
@@ -425,7 +424,6 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         unsigned long l = lpLength(lpt->lp) / 3;
         updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l + expired, l);
 
-        /* Propagate after lpDeleteRange() so the iterator is no longer live. */
         for (uint64_t i = 0; i < expired; i++) {
             propagateHashFieldDeletion(db, key, expiredFields[i], sdslen(expiredFields[i]));
             sdsfree(expiredFields[i]);
