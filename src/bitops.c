@@ -1173,10 +1173,9 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 
             for (i = 1; i < numkeys; i++) {
                 __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
-                /* Use ternary-logic to replace the separate AND+OR sequence. 
-                 * Truth-table imm8 0xF8 implements: c | (a & b). 
-                 * common_bits = common_bits | (lres & lkey). */
-                common_bits = _mm512_ternarylogic_epi32(lres, lkey, common_bits, 0xF8);
+                /* common_bits |= (lres & lkey): ternary-logic with imm8 0xEA == c|(a&b)
+                 * (a=lres, b=lkey, c=common_bits), replacing a separate AND+OR. */
+                common_bits = _mm512_ternarylogic_epi32(lres, lkey, common_bits, 0xEA);
 
                 lres = _mm512_xor_si512(lres, lkey);
             }
