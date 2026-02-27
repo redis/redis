@@ -365,6 +365,9 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
     uint64_t expired = 0, min = EB_EXPIRE_TIME_INVALID;
     unsigned char *ptr;
     listpackEx *lpt = kv->ptr;
+
+    ptr = lpFirst(lpt->lp);
+
     sds key = kvobjGetKey(kv);
 
     /* Collect field names before propagating. propagateHashFieldDeletion() may
@@ -373,8 +376,6 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
      * first and propagating after lpDeleteRange() keeps the iterator safe. */
     unsigned int expiredFieldsCap = 8;
     sds *expiredFields = NULL;
-
-    ptr = lpFirst(lpt->lp);
 
     while (ptr != NULL && (info->itemsExpired < info->maxToExpire)) {
         long long val;
