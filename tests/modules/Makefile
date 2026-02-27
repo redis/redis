@@ -85,7 +85,8 @@ TEST_MODULES = \
     internalsecret.so \
     configaccess.so \
     test_keymeta.so \
-    atomicslotmigration.so
+    atomicslotmigration.so \
+    hfe_listpackex_expire_crash.so
 
 .PHONY: all
 
