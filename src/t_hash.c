@@ -372,7 +372,7 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
      * lpRealloc() to move the buffer and leaving `ptr` dangling. Copying names
      * first and propagating after lpDeleteRange() keeps the iterator safe. */
     unsigned int expiredFieldsCap = 8;
-    sds *expiredFields = zmalloc(sizeof(sds) * expiredFieldsCap);
+    sds *expiredFields = NULL;
 
     ptr = lpFirst(lpt->lp);
 
@@ -394,6 +394,9 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
             break;
 
         /* Copy field name out of the listpack buffer before any reallocation. */
+        if (!expiredFields) {
+            expiredFields = zmalloc(sizeof(sds) * expiredFieldsCap);
+        }
         if (expired == expiredFieldsCap) {
             expiredFieldsCap *= 2;
             expiredFields = zrealloc(expiredFields, sizeof(sds) * expiredFieldsCap);
