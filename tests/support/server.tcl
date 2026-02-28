@@ -182,123 +182,47 @@ proc ping_server {host port} {
 }
 
 # Ping server with a timeout. Returns 1 if server responds within timeout_ms,
-# otherwise returns 0. This is useful for checking if a server is responsive
-# before attempting blocking operations.
-# The timeout covers both connection and read operations end-to-end.
+# otherwise returns 0. Uses blocking connect (instant on localhost) and
+# Tcl's event loop (fileevent + vwait + after) for a reliable read timeout.
 proc ping_server_with_timeout {host port timeout_ms} {
     set retval 0
     set fd {}
+    set wait_var "::ping_wait_[incr ::ping_server_uid]"
     if {[catch {
-        # Track overall deadline for connect + read
-        # Ensure at least 10ms timeout so loops run at least once
-        set effective_timeout [expr {max(10, $timeout_ms)}]
-        set deadline [expr {[clock milliseconds] + $effective_timeout}]
-
-        # Create socket with async connect to enforce timeout on connection
-        # For TLS: create async TCP socket first, wait for connect, then upgrade to TLS
-        set fd [socket -async $host $port]
-
-        # Configure for non-blocking I/O
-        fconfigure $fd -translation binary -blocking 0 -buffering full
-
-        # Wait for async connect to complete by polling for connection errors
-        # and attempting to send data. For async sockets:
-        # - fconfigure -error returns "" while connecting or if connected
-        # - fconfigure -error returns error message if connection failed
-        # - flush will fail with "socket is not connected" if still connecting
-        set connected 0
-        while {[clock milliseconds] < $deadline} {
-            # Check if socket has connection error
-            set err [fconfigure $fd -error]
-            if {$err ne ""} {
-                error "Connection failed: $err"
-            }
-            # Try to send PING and flush - flush will fail if not yet connected
-            if {![catch {
-                puts $fd "PING\r\n"
-                flush $fd
-            } flush_err]} {
-                set connected 1
-                break
-            }
-            # Log flush errors for debugging (typically "socket is not connected")
-            if {$::verbose && $flush_err ne ""} {
-                puts "Debug: flush failed during async connect: $flush_err"
-            }
-            # Clear any partial write from the failed attempt
-            after 10
-        }
-        if {!$connected} {
-            error "Connection timeout"
-        }
-
-        # For TLS connections, we need to start fresh with a TLS socket
-        # The async TCP socket above just verified the server is reachable
         if {$::tls} {
-            close $fd
-            set fd {}
-
-            # Create TLS socket with async option to avoid blocking on connect
-            set fd [::tls::socket -async $host $port]
-            fconfigure $fd -translation binary -blocking 0 -buffering full
-
-            # Wait for TLS handshake to complete with timeout
-            set tls_connected 0
-            while {[clock milliseconds] < $deadline} {
-                # tls::handshake returns 1 if complete, 0 if still in progress
-                if {[catch {::tls::handshake $fd} handshake_result]} {
-                    # Handshake failed with error
-                    error "TLS handshake failed: $handshake_result"
-                }
-                if {$handshake_result == 1} {
-                    set tls_connected 1
-                    break
-                }
-                after 10
-            }
-            if {!$tls_connected} {
-                error "TLS handshake timeout"
-            }
-
-            # Now send PING on the TLS socket
-            puts $fd "PING\r\n"
-            flush $fd
+            set fd [::tls::socket $host $port]
+        } else {
+            set fd [socket $host $port]
         }
+        fconfigure $fd -translation binary -buffering full
+        puts $fd "PING\r\n"
+        flush $fd
 
-        # Wait for response with remaining time from deadline
-        set reply ""
-        set got_reply 0
-        while {[clock milliseconds] < $deadline && !$got_reply} {
-            set line [gets $fd]
-            # Check if we got a real line (not blocked waiting for data)
-            # fblocked returns 1 if the last read would have blocked
-            # Note: Check ![fblocked] first - if we got data, use it even if EOF is also true
-            # (server may close connection immediately after sending response)
-            if {![fblocked $fd]} {
-                set reply $line
-                set got_reply 1
-            } elseif {[eof $fd]} {
-                # Connection closed by server without sending data
-                break
-            } else {
-                # Would block - wait and retry
-                after 10
+        # Use event loop for read timeout: whichever fires first unblocks vwait
+        set $wait_var ""
+        set timer [after $timeout_ms [list set $wait_var "timeout"]]
+        fileevent $fd readable [list set $wait_var "readable"]
+        vwait $wait_var
+
+        after cancel $timer
+        fileevent $fd readable {}
+
+        if {[set $wait_var] eq "readable"} {
+            set reply [gets $fd]
+            if {[string range $reply 0 0] eq {+} ||
+                [string range $reply 0 0] eq {-}} {
+                set retval 1
             }
-        }
-
-        if {$got_reply &&
-            ([string range $reply 0 0] eq {+} ||
-             [string range $reply 0 0] eq {-})} {
-            set retval 1
         }
         close $fd
         set fd {}
     } e]} {
-        # Ensure socket is closed on error to avoid FD leaks
         catch {if {$fd ne {}} {close $fd}}
     }
+    unset -nocomplain $wait_var
     return $retval
 }
+set ::ping_server_uid 0
 
 # Save configuration for a single server.
 # Arguments:
