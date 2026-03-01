@@ -18,12 +18,17 @@ static inline int nearestNextPowerOf2(unsigned int count) {
     return 1 << (32 - __builtin_clz(count-1));
 }
 
+/* Comparison function for qsort to sort slot indices */
+static inline int slotCompare(const void *a, const void *b) {
+    return (*(const int *)a) - (*(const int *)b);
+}
+
 /* Initialize the hotkeys structure and start tracking. If tracking keys in
  * specific slots is desired the user should pass along an already allocated and
- * populated slots array. The hotkeys structure takes ownership of the array and
- * will free it upon release. On failure the slots memory is released. */
+ * populated slotRangeArray. The hotkeys structure takes ownership of the array
+ * and will free it upon release. On failure the slots memory is released. */
 hotkeyStats *hotkeyStatsCreate(int count, int duration, int sample_ratio,
-                               int *slots, int slots_count, uint64_t tracked_metrics)
+                               slotRangeArray *slots, uint64_t tracked_metrics)
 {
     serverAssert(tracked_metrics & (HOTKEYS_TRACK_CPU | HOTKEYS_TRACK_NET));
 
@@ -44,7 +49,6 @@ hotkeyStats *hotkeyStatsCreate(int count, int duration, int sample_ratio,
     hotkeys->duration = duration;
     hotkeys->sample_ratio = sample_ratio;
     hotkeys->slots = slots;
-    hotkeys->numslots = slots_count;
     hotkeys->active = 1;
     hotkeys->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
     hotkeys->start = server.mstime;
@@ -62,20 +66,17 @@ void hotkeyStatsRelease(hotkeyStats *hotkeys) {
     if (!hotkeys) return;
     if (hotkeys->cpu) chkTopKRelease(hotkeys->cpu);
     if (hotkeys->net) chkTopKRelease(hotkeys->net);
-    zfree(hotkeys->slots);
+    slotRangeArrayFree(hotkeys->slots);
     getKeysFreeResult(&hotkeys->keys_result);
 
     zfree(hotkeys);
 }
 
 /* Helper function for hotkey tracking to check if a slot is in the selected
- * slots list. If numslots is 0 then all slots are selected. */
+ * slots list. If slots is NULL then all slots are selected. */
 static inline int isSlotSelected(hotkeyStats *hotkeys, int slot) {
-    if (hotkeys->numslots == 0) return 1;
-    for (int i = 0; i < hotkeys->numslots; i++) {
-        if (hotkeys->slots[i] == slot) return 1;
-    }
-    return 0;
+    if (hotkeys->slots == NULL) return 1;
+    return slotRangeArrayContains(hotkeys->slots, slot);
 }
 
 /* Preparation for updates of the hotkeyStats for the current command, f.e
@@ -112,8 +113,9 @@ void hotkeyStatsUpdateCurrentCmd(hotkeyStats *hotkeys, hotkeyMetrics metrics) {
     if (!hotkeys || !hotkeys->active) return;
     if (hotkeys->keys_result.numkeys == 0) return;
 
-    /* Don't update stats for nested calls */
-    if (server.execution_nesting) return;
+    /* Don't update stats for nested calls, except when inside MULTI/EXEC
+     * where we want to track each individual command. */
+    if (server.execution_nesting && !server.in_exec) return;
 
     serverAssert(hotkeys->current_client);
 
@@ -191,9 +193,9 @@ size_t hotkeysGetMemoryUsage(hotkeyStats *hotkeys) {
     if (hotkeys->net) {
         memory_usage += chkTopKGetMemoryUsage(hotkeys->net);
     }
-    /* Add memory for slots array if present */
+    /* Add memory for slotRangeArray if present */
     if (hotkeys->slots) {
-        memory_usage += sizeof(int) * hotkeys->numslots;
+        memory_usage += sizeof(slotRangeArray) + sizeof(slotRange) * hotkeys->slots->num_ranges;
     }
 
     return memory_usage;
@@ -211,8 +213,41 @@ static int64_t time_diff_ms(struct timeval a, struct timeval b) {
     return sec * 1000 + usec / 1000;
 }
 
+/* Helper function to output a slotRangeArray as array of arrays.
+ * Single slots become 1-element arrays, ranges become 2-element arrays. */
+static void addReplySlotRangeArray(client *c, slotRangeArray *slots) {
+    addReplyArrayLen(c, slots->num_ranges);
+    for (int i = 0; i < slots->num_ranges; i++) {
+        if (slots->ranges[i].start == slots->ranges[i].end) {
+            /* Single slot */
+            addReplyArrayLen(c, 1);
+            addReplyLongLong(c, slots->ranges[i].start);
+        } else {
+            /* Range */
+            addReplyArrayLen(c, 2);
+            addReplyLongLong(c, slots->ranges[i].start);
+            addReplyLongLong(c, slots->ranges[i].end);
+        }
+    }
+}
+
+/* Helper function to output selected-slots as array of arrays.
+ * If slots is NULL, outputs the local node's slot ranges (all slots in non-cluster mode). */
+static void addReplySelectedSlots(client *c, hotkeyStats *hotkeys) {
+    if (hotkeys->slots == NULL) {
+        /* No specific slots selected - return the local node's slot ranges */
+        slotRangeArray *slots = clusterGetLocalSlotRanges();
+        addReplySlotRangeArray(c, slots);
+        slotRangeArrayFree(slots);
+        return;
+    }
+
+    /* Slots are already stored as a sorted/merged slotRangeArray */
+    addReplySlotRangeArray(c, hotkeys->slots);
+}
+
 /* HOTKEYS command implementation
- * 
+ *
  * HOTKEYS START
  *         <METRICS count [CPU] [NET]>
  *         [COUNT k]
@@ -231,7 +266,33 @@ void hotkeysCommand(client *c) {
 
     char *sub = c->argv[1]->ptr;
 
-    if (!strcasecmp(sub, "START")) {
+    if (!strcasecmp(sub, "HELP")) {
+        const char *help[] = {
+            "START <METRICS count [CPU] [NET]> [COUNT k] [DURATION duration] [SAMPLE ratio] [SLOTS count slot...]",
+            "    Starts hotkeys tracking with specified metrics.",
+            "    * METRICS count [CPU] [NET]",
+            "        Specify count of metrics and choose amongst:",
+            "        - CPU: Track hotkeys by CPU time percentage",
+            "        - NET: Track hotkeys by network bytes percentage",
+            "    * COUNT k",
+            "        Specifies the value of K for the top-K hotkeys tracking. Default: 10",
+            "    * DURATION duration",
+            "        Specifies tracking duration in seconds. 0 means tracking will continue until manually stopped. Default: 0",
+            "    * SAMPLE ratio",
+            "        Keys are tracked with probability 1/ratio. Default: 1 (tracks every key)",
+            "    * SLOTS count slot...",
+            "        Specify which slots to track keys from. Only available in cluster mode. Default: empty (track all slots)",
+            "STOP",
+            "    Stop hotkeys tracking. Results are still available via GET",
+            "GET",
+            "    Get results from hotkeys tracking.",
+            "RESET",
+            "    Reset memory used for hotkeys tracking. Tracking must have been stopped.",
+            "    Results will no longer be available after this command.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(sub, "START")) {
         /* HOTKEYS START
          *         <METRICS count [CPU] [NET]>
          *         [COUNT k]
@@ -299,8 +360,7 @@ void hotkeysCommand(client *c) {
         int count = 10;  /* default */
         long duration = 0;  /* default: no auto-stop */
         int sample_ratio = 1;  /* default: track every key */
-        int slots_count = 0;
-        int *slots = NULL;
+        slotRangeArray *slots = NULL;
         while (j < c->argc) {
             int moreargs = (c->argc-1) - j;
             if (moreargs && !strcasecmp(c->argv[j]->ptr, "COUNT")) {
@@ -308,7 +368,7 @@ void hotkeysCommand(client *c) {
                 if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, 64,
                         &count_val, "COUNT must be between 1 and 64") != C_OK)
                 {
-                    zfree(slots);
+                    slotRangeArrayFree(slots);
                     return;
                 }
                 count = (int)count_val;
@@ -319,7 +379,7 @@ void hotkeysCommand(client *c) {
                 if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, 1000000,
                         &duration, "DURATION must be between 1 and 1000000") != C_OK)
                 {
-                    zfree(slots);
+                    slotRangeArrayFree(slots);
                     return;
                 }
                 duration *= 1000;
@@ -329,7 +389,7 @@ void hotkeysCommand(client *c) {
                 if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, INT_MAX,
                         &ratio_val, "SAMPLE ratio must be positive") != C_OK)
                 {
-                    zfree(slots);
+                    slotRangeArrayFree(slots);
                     return;
                 }
                 sample_ratio = (int)ratio_val;
@@ -342,7 +402,7 @@ void hotkeysCommand(client *c) {
 
                 if (slots) {
                     addReplyError(c, "SLOTS parameter already specified");
-                    zfree(slots);
+                    slotRangeArrayFree(slots);
                     return;
                 }
                 long slots_count_val;
@@ -354,41 +414,59 @@ void hotkeysCommand(client *c) {
                 {
                     return;
                 }
-                slots_count = (int)slots_count_val;
+                int slots_count = (int)slots_count_val;
 
                 /* Parse slot numbers */
                 if (j + 1 + slots_count >= c->argc) {
                     addReplyError(c, "not enough slot numbers provided");
                     return;
                 }
-                slots = zmalloc(sizeof(int) * slots_count);
+
+                /* Collect slots into a temporary array for sorting */
+                int *temp_slots = zmalloc(sizeof(int) * slots_count);
                 for (int i = 0; i < slots_count; i++) {
                     long slot_val;
                     if ((slot_val = getSlotOrReply(c, c->argv[j+2+i])) == -1) {
-                        zfree(slots);
+                        zfree(temp_slots);
                         return;
                     }
-                    /* Check for duplicate slot indices */
-                    for (int k = 0; k < i; ++k) {
-                        if (slots[k] == slot_val) {
+                    if (!clusterNodeCoversSlot(getMyClusterNode(), slot_val)) {
+                        addReplyErrorFormat(c, "slot %ld not handled by this node", slot_val);
+                        zfree(temp_slots);
+                        return;
+                    }
+
+                    /* Check for duplicate slot */
+                    for (int k = 0; k < i; k++) {
+                        if (temp_slots[k] == slot_val) {
                             addReplyError(c, "duplicate slot number");
-                            zfree(slots);
+                            zfree(temp_slots);
                             return;
                         }
                     }
 
-                    slots[i] = (int)slot_val;
+                    temp_slots[i] = (int)slot_val;
                 }
+
+                /* Sort the slots array */
+                qsort(temp_slots, slots_count, sizeof(int), slotCompare);
+
+                /* Build slotRangeArray from sorted slots */
+                for (int i = 0; i < slots_count; i++) {
+                    slots = slotRangeArrayAppend(slots, temp_slots[i]);
+                }
+                zfree(temp_slots);
+
                 j += 2 + slots_count;
             } else {
                 addReplyError(c, "syntax error");
-                if (slots) zfree(slots);
+                slotRangeArrayFree(slots);
                 return;
             }
         }
 
         hotkeyStats *hotkeys = hotkeyStatsCreate(count, duration, sample_ratio,
-                                                 slots, slots_count, tracked_metrics);
+                                                 slots, tracked_metrics);
  
         hotkeyStatsRelease(server.hotkeys);
         server.hotkeys = hotkeys;
@@ -471,11 +549,15 @@ void hotkeysCommand(client *c) {
             }
         }
 
-        int has_selected_slots = (server.hotkeys->numslots > 0);
+        int has_selected_slots = (server.hotkeys->slots != NULL);
         int has_sampling = (server.hotkeys->sample_ratio > 1);
 
+        /* We return an array of map for easy aggregation of results from
+         * different nodes. */
+        addReplyArrayLen(c, 1);
+
         int total_len = 7;
-        void *arraylenptr = addReplyDeferredLen(c);
+        void *maplenptr = addReplyDeferredLen(c);
 
         /* tracking-active */
         addReplyBulkCString(c, "tracking-active");
@@ -485,16 +567,13 @@ void hotkeysCommand(client *c) {
         addReplyBulkCString(c, "sample-ratio");
         addReplyLongLong(c, server.hotkeys->sample_ratio);
 
-        /* selected-slots */
+        /* selected-slots - array of arrays with merged ranges */
         addReplyBulkCString(c, "selected-slots");
-        addReplyArrayLen(c, server.hotkeys->numslots);
-        for (int i = 0; i < server.hotkeys->numslots; i++) {
-            addReplyLongLong(c, server.hotkeys->slots[i]);
-        }
+        addReplySelectedSlots(c, server.hotkeys);
 
-        /* sampled-command-selected-slots-us (conditional) */
+        /* sampled-commands-selected-slots-us (conditional) */
         if (has_sampling && has_selected_slots) {
-            addReplyBulkCString(c, "sampled-command-selected-slots-us");
+            addReplyBulkCString(c, "sampled-commands-selected-slots-us");
             addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots);
 
             total_len++;
@@ -591,7 +670,7 @@ void hotkeysCommand(client *c) {
             ++total_len;
         }
 
-        setDeferredMapLen(c, arraylenptr, total_len);
+        setDeferredMapLen(c, maplenptr, total_len);
 
     } else if (!strcasecmp(sub, "RESET")) {
         /* HOTKEYS RESET */

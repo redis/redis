@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag,vectorset'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag,vectorset,assert-keyspace'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -36,7 +36,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'ubuntu')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -68,12 +68,53 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
 
+  # Test with DEBUG_ASSERT_KEYSPACE enabled to verify keyspace consistency.
+  # This enables additional runtime checks after each command for:
+  # - Info keysizes histogram
+  # - Cluster slot stats
+  # Skips slow and defrag tests to avoid timeouts while maintaining good coverage.
+  # TODO: Fix ASM (atomic slot migration) compatibility with keysizes histogram tracking
+  test-debug-assert-keyspace:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'assert-keyspace')
+    timeout-minutes: 360
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERT_KEYSPACE'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: |
+        ./runtest --verbose --tags "-slow -defrag" \
+          --skipunit unit/cluster/slot-stats \
+          --skipunit unit/cluster/atomic-slot-migration \
+          --dump-logs ${{github.event.inputs.test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+
   test-ubuntu-jemalloc-fortify:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'fortify')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -112,7 +153,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'malloc')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -146,7 +187,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'malloc')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -180,7 +221,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, '32bit')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -220,7 +261,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -260,7 +301,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -300,7 +341,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'iothreads')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -332,7 +373,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'specific')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -410,7 +451,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'valgrind') && !contains(github.event.inputs.skiptests, 'redis')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -443,7 +484,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'valgrind') && !(contains(github.event.inputs.skiptests, 'modules') && contains(github.event.inputs.skiptests, 'unittest'))
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -475,7 +516,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'valgrind') && !contains(github.event.inputs.skiptests, 'redis')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -505,7 +546,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'valgrind') && !(contains(github.event.inputs.skiptests, 'modules') && contains(github.event.inputs.skiptests, 'unittest'))
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -537,7 +578,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'sanitizer')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     strategy:
       matrix:
         compiler: [ gcc, clang ]
@@ -581,7 +622,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'sanitizer')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     env:
       CC: clang # MSan works only with clang
     steps:
@@ -622,7 +663,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'sanitizer')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     strategy:
       matrix:
         compiler: [ gcc, clang ]
@@ -666,7 +707,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'sanitizer')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     strategy:
       fail-fast: false # let gcc and clang both run until the end even if one of them fails
       matrix:
@@ -711,7 +752,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'centos')
     container: quay.io/centos/centos:stream9
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -750,7 +791,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
     container: quay.io/centos/centos:stream9
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -793,7 +834,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
     container: quay.io/centos/centos:stream9
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -835,7 +876,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos') && !(contains(github.event.inputs.skiptests, 'redis') && contains(github.event.inputs.skiptests, 'modules'))
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -861,7 +902,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'sentinel')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -887,7 +928,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'cluster')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -916,7 +957,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - uses: maxim-lobanov/setup-xcode@v1
       with:
@@ -942,7 +983,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     env:
       CC: clang
       CXX: clang++
@@ -1042,7 +1083,7 @@ jobs:
 
   reply-schemas-validator:
     runs-on: ubuntu-latest
-    timeout-minutes: 14400
+    timeout-minutes: 360
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'reply-schema')
@@ -1086,7 +1127,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:20.04
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -1132,7 +1173,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls') && !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:20.04
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -1183,7 +1224,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls') && !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:20.04
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -1233,7 +1274,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'defrag')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -1261,7 +1302,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'vectorset')
-    timeout-minutes: 14400
+    timeout-minutes: 360
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'

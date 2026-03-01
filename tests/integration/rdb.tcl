@@ -80,6 +80,23 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     r del stream
 }
 
+start_server {overrides {loglevel verbose}} {
+    test {RDB load applies RESIZEDB hint to expand hash tables} {
+        # Populate keys and save RDB
+        r flushall sync
+        regexp {db=(\d+)} [r client info] -> dbid
+        # 500 keys with 3600 second expiration, 500 without
+        populate 500 "key1:" 3 0 false 3600
+        populate 500 "key2:" 3 0 false 0
+        r save
+
+        restart_server 0 true false
+
+        # Verify DB resize log message
+        verify_log_message 0 "*DB $dbid resized*1024 key*512 expire*" 0
+    }
+}
+
 # Helper function to start a server and kill it, just to check the error
 # logged.
 set defaults {}

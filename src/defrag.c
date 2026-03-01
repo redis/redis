@@ -968,34 +968,15 @@ static void defragIdmpProducer(idmpProducer *producer) {
     }
 }
 
-/* Defrag all IDMP producers and their dict/linked list entries. */
-void defragStreamIdmpProducers(stream *s) {
-    if (s->idmp_producers == NULL) return;
-
-    /* Defrag the producers rax tree itself */
-    rax *newrax = activeDefragAlloc(s->idmp_producers);
-    if (newrax)
-        s->idmp_producers = newrax;
-
-    /* Defrag the rax head node */
-    defragRaxNode(&s->idmp_producers->head, NULL);
-
-    /* Iterate through all producers and defrag each one */
-    raxIterator ri;
-    raxStart(&ri, s->idmp_producers);
-    /* Set the node callback to defrag internal rax nodes */
-    ri.node_cb = defragRaxNode;
-    raxSeek(&ri, "^", NULL, 0);
-    while (raxNext(&ri)) {
-        idmpProducer *producer = ri.data;
-        idmpProducer *newproducer = activeDefragAlloc(producer);
-        if (newproducer) {
-            raxSetData(ri.node, ri.data=newproducer);
-            producer = newproducer;
-        }
-        defragIdmpProducer(producer);
+static void* defragIdmpProducerCallback(raxIterator *ri, void *privdata) {
+    UNUSED(privdata);
+    idmpProducer *producer = ri->data;
+    idmpProducer *newproducer = activeDefragAlloc(producer);
+    if (newproducer) {
+        producer = newproducer;
     }
-    raxStop(&ri);
+    defragIdmpProducer(producer);
+    return newproducer; /* returns NULL if producer was not defragged */
 }
 
 void defragStream(defragKeysCtx *ctx, kvobj *ob) {
@@ -1028,8 +1009,9 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     }
 
     if (s->idmp_producers) {
-        /* Defrag the producers and all idmpEntry structures in their linked lists */
-        defragStreamIdmpProducers(s);
+        /* Update idmp_producers back-pointer to new stream */
+        s->idmp_producers->alloc_size = &s->alloc_size;
+        defragRadixTree(&s->idmp_producers, 0, defragIdmpProducerCallback, NULL);
     }
 }
 

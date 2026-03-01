@@ -2118,6 +2118,8 @@ void zremCommand(client *c) {
     int64_t oldlen = (int64_t) zsetLength(zobj);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(zobj);
+    if (zobj->encoding == OBJ_ENCODING_SKIPLIST)
+        dictPauseAutoResize(((zset*)zobj->ptr)->dict);
     for (j = 2; j < c->argc; j++) {
         if (zsetDel(zobj, c->argv[j]->ptr)) deleted++;
         if (zsetLength(zobj) == 0) {
@@ -2128,6 +2130,10 @@ void zremCommand(client *c) {
             keyremoved = 1;
             break;
         }
+    }
+    if (!keyremoved && zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        dictResumeAutoResize(((zset*)zobj->ptr)->dict);
+        dictShrinkIfNeeded(((zset*)zobj->ptr)->dict);
     }
 
     if (server.memory_tracking_enabled && !keyremoved)
