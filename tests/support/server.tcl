@@ -494,8 +494,9 @@ proc run_external_server_test {code overrides} {
     r script flush
     r config resetstat
 
-    # store configs using shared helper
-    set saved_config [save_single_server_config $client]
+    # Resolve client dynamically via srv (not the captured $client variable)
+    # to handle reconnections that replace the client in ::servers.
+    set saved_config [save_single_server_config [srv 0 "client"]]
 
     # apply overrides
     foreach {param val} $overrides {
@@ -524,8 +525,10 @@ proc run_external_server_test {code overrides} {
         }
     }
 
-    # restore configs using shared helper
-    restore_single_server_config $client $saved_config
+    # Resolve client dynamically from ::servers rather than using the captured
+    # $client variable. If a reconnect occurred during test execution, $client
+    # references the old (closed) connection while ::servers holds the new one.
+    restore_single_server_config [srv 0 "client"] $saved_config
 
     set srv [lpop ::servers]
     
