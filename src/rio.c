@@ -95,7 +95,11 @@ void rioInitWithBuffer(rio *r, sds s) {
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
-    if (!r->io.file.autosync) return fwrite(buf,len,1,r->io.file.fp);
+    if (!r->io.file.autosync) {
+        if (fwrite(buf,len,1,r->io.file.fp) == 0) return 0;
+        r->io.file.buffered += len;
+        return 1;
+    }
 
     size_t nwritten = 0;
     /* Incrementally write data to the file, avoid a single write larger than
