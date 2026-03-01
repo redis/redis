@@ -204,14 +204,9 @@ proc restore_server_configs {saved_configs} {
 
         # Check if server is responsive before attempting restore
         # This prevents hanging on paused/unresponsive servers
-        # Scale timeout by ::timeout_factor for slow environments (e.g., valgrind)
         set host [srv $level "host"]
         set port [srv $level "port"]
-        if {[info exists ::timeout_factor]} {
-            set ping_timeout [expr {500 * $::timeout_factor}]
-        } else {
-            set ping_timeout 500
-        }
+        set ping_timeout [expr {$::valgrind ? 5000 : 500}]
         if {![ping_server_with_timeout $host $port $ping_timeout]} {
             # Server unresponsive - skip restoration
             if {$::verbose} {
