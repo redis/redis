@@ -206,7 +206,7 @@ proc restore_server_configs {saved_configs} {
         # This prevents hanging on paused/unresponsive servers
         set host [srv $level "host"]
         set port [srv $level "port"]
-        set ping_timeout [expr {$::valgrind ? 5000 : 500}]
+        if {$::valgrind} {set ping_timeout 5000} else {set ping_timeout 500}
         if {![ping_server_with_timeout $host $port $ping_timeout]} {
             # Server unresponsive - skip restoration
             if {$::verbose} {
