@@ -325,10 +325,13 @@ proc test {name code {okpattern undefined} {tags {}}} {
         } else {
             # Re-raise, let handler up the stack take care of this.
             # But first, restore config if needed (since we won't reach the normal restoration code at the end)
+            # Save errorInfo before restore_server_configs, whose internal
+            # catch blocks would overwrite the global $::errorInfo.
+            set saved_errorInfo $::errorInfo
             if {$restore_config && [llength $saved_configs] > 0} {
                 restore_server_configs $saved_configs
             }
-            error $error $::errorInfo
+            error $error $saved_errorInfo
         }
     } else {
         if {$okpattern eq "undefined" || $okpattern eq $retval || [string match $okpattern $retval]} {
