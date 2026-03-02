@@ -86,7 +86,10 @@ TEST_MODULES = \
     configaccess.so \
     test_keymeta.so \
     atomicslotmigration.so \
-    hfe_listpackex_expire_crash.so
+    hfe_listpackex_expire_crash.so \
+    hfe_listpackex_hdel_crash.so \
+    hfe_ht_hset_crash.so \
+    hfe_ht_hdel_crash.so
 
 .PHONY: all
 
