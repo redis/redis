@@ -34,9 +34,10 @@ start_server {tags {"external:skip needs:debug"}} {
     r module load $testmodule_hfe_crash
 
     # ------------------------------------------------------------------
-    # Scenario 0: LISTPACK_EX + HSET
+    # Scenario 0: LISTPACK_EX + module job HSET
+    # listpack realloc causes dangling ptr
     # ------------------------------------------------------------------
-    test "HEXPIRE active-expire - listpackExExpire crash due to module post-notification job" {
+    test "HFE active-expire: LISTPACK_EX + module job HSET" {
         r config set hash-max-listpack-entries 128
         r config set hash-max-listpack-value 1100 ;# keep LISTPACK_EX after the 1000-byte HSET
         r debug set-active-expire 0
@@ -69,9 +70,10 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     # ------------------------------------------------------------------
-    # Scenario 1: LISTPACK_EX + HDEL
+    # Scenario 1: LISTPACK_EX + module job HDEL
+    # element shift causes dangling ptr
     # ------------------------------------------------------------------
-    test "HEXPIRE active-expire - listpackExExpire crash: LISTPACK_EX + HDEL of expired field" {
+    test "HFE active-expire: LISTPACK_EX + module job HDEL" {
         r config set hash-max-listpack-entries 128
         r config set hash-max-listpack-value 512
         r debug set-active-expire 0
@@ -108,9 +110,10 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     # ------------------------------------------------------------------
-    # Scenario 2: LISTPACK_EX + DEL
+    # Scenario 2: LISTPACK_EX + module job DEL
+    # hash freed mid-iteration (use-after-free)
     # ------------------------------------------------------------------
-    test "HEXPIRE active-expire - listpackExExpire crash: LISTPACK_EX + DEL of victim hash" {
+    test "HFE active-expire: LISTPACK_EX + module job DEL" {
         r config set hash-max-listpack-entries 128
         r config set hash-max-listpack-value 512
         r debug set-active-expire 0
@@ -136,9 +139,10 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     # ------------------------------------------------------------------
-    # Scenario 3: HT + HSET
+    # Scenario 3: HT + module job HSET
+    # Entry realloc causes dangling field ptr
     # ------------------------------------------------------------------
-    test "HEXPIRE active-expire - onFieldExpire crash: HT + HSET replaces expired field entry" {
+    test "HFE active-expire: HT + module job HSET" {
         r config set hash-max-listpack-entries 0
         r debug set-active-expire 0
         r del hfe_hset_ht_trigger hfe_hset_ht_victim
@@ -172,9 +176,10 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     # ------------------------------------------------------------------
-    # Scenario 4: HT + HDEL
+    # Scenario 4: HT + module job HDEL
+    # Entry freed causes dangling field ptr
     # ------------------------------------------------------------------
-    test "HEXPIRE active-expire - onFieldExpire crash: HT + HDEL of the expired field" {
+    test "HFE active-expire: HT + module job HDEL" {
         r config set hash-max-listpack-entries 0
         r debug set-active-expire 0
         r del hfe_hdel_ht_trigger hfe_hdel_ht_victim
@@ -208,9 +213,10 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     # ------------------------------------------------------------------
-    # Scenario 5: HT + DEL
+    # Scenario 5: HT + module job DEL
+    # hash freed mid-expiry (use-after-free)
     # ------------------------------------------------------------------
-    test "HEXPIRE active-expire - onFieldExpire crash: HT + DEL of victim hash" {
+    test "HFE active-expire: HT + module job DEL" {
         r config set hash-max-listpack-entries 0
         r debug set-active-expire 0
         r del hfe_del_ht_trigger hfe_del_ht_victim
