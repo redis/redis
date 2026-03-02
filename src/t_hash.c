@@ -370,6 +370,13 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
 
     sds key = kvobjGetKey(kv);
 
+    /* Collect field names before propagating. propagateHashFieldDeletion() may
+     * flush module post-notification jobs that write to this hash, causing
+     * lpRealloc() to move the buffer and leaving `ptr` dangling. Copying names
+     * first and propagating after lpDeleteRange() keeps the iterator safe. */
+    unsigned int expiredFieldsCap = 8;
+    sds *expiredFields = NULL;
+
     while (ptr != NULL && (info->itemsExpired < info->maxToExpire)) {
         long long val;
         int64_t flen;
@@ -387,7 +394,15 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
-        propagateHashFieldDeletion(db, key, (char *)((fref) ? fref : intbuf), flen);
+        if (!expiredFields) {
+            expiredFields = zmalloc(sizeof(sds) * expiredFieldsCap);
+        }
+        if (expired == expiredFieldsCap) {
+            expiredFieldsCap *= 2;
+            expiredFields = zrealloc(expiredFields, sizeof(sds) * expiredFieldsCap);
+        }
+        expiredFields[expired] = sdsnewlen(fref ? fref : intbuf, flen);
+
         server.stat_expired_subkeys++;
         if (activeEx) server.stat_expired_subkeys_active++;
 
@@ -408,8 +423,14 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         /* update keysizes */
         unsigned long l = lpLength(lpt->lp) / 3;
         updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l + expired, l);
+
+        for (uint64_t i = 0; i < expired; i++) {
+            propagateHashFieldDeletion(db, key, expiredFields[i], sdslen(expiredFields[i]));
+            sdsfree(expiredFields[i]);
+        }
     }
 
+    zfree(expiredFields);
     min = hashTypeGetMinExpire(kv, 1 /*accurate*/);
     info->nextExpireTime = min;
 }
