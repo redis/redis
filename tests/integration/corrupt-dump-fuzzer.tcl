@@ -150,6 +150,8 @@ foreach sanitize_dump {no yes} {
                         set restore_failed true
                         set report_and_restart true
                         incr stat_terminated_in_restore
+                        set by_signal [count_log_message 0 "crashed by signal"]
+                        incr stat_terminated_by_signal $by_signal
                         write_log_line 0 "corrupt payload: $printable_dump"
                         if {$sanitize_dump == yes} {
                             puts "Server crashed after RESTORE with payload: $printable_dump"
