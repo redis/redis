@@ -145,7 +145,16 @@ foreach sanitize_dump {no yes} {
                         }
                     }
                 } else {
-                    r ping ;# an attempt to check if the server didn't terminate (this will throw an error that will terminate the tests)
+                    # an attempt to check if the server didn't terminate
+                    if { [catch { r ping } err] } {
+                        set restore_failed true
+                        set report_and_restart true
+                        incr stat_terminated_in_restore
+                        write_log_line 0 "corrupt payload: $printable_dump"
+                        if {$sanitize_dump == yes} {
+                            puts "Server crashed after RESTORE with payload: $printable_dump"
+                        }
+                    }
                 }
 
                 set print_commands false
