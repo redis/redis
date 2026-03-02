@@ -689,21 +689,69 @@ void getrangeCommand(client *c) {
 }
 
 void mgetCommand(client *c) {
-    int j;
+    int numkeys = c->argc - 1;
 
-    addReplyArrayLen(c,c->argc-1);
-    for (j = 1; j < c->argc; j++) {
-        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-        if (o == NULL) {
-            addReplyNull(c);
-        } else {
-            if (o->type != OBJ_STRING) {
+    addReplyArrayLen(c, numkeys);
+
+    /* For a single key (or zero), just do the plain lookup. */
+    if (numkeys <= 1) {
+        if (numkeys == 1) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[1]);
+            if (o == NULL || o->type != OBJ_STRING)
                 addReplyNull(c);
-            } else {
-                addReplyBulk(c,o);
-            }
+            else
+                addReplyBulk(c, o);
         }
+        return;
     }
+
+    /* Determine the dict for the first key's slot (MGET requires all keys
+     * in the same slot in cluster mode). */
+    int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
+    dict *d = kvstoreGetDict(c->db->keys, slot);
+
+    /* If the dict is empty, reply NULLs but still call lookupKeyRead for
+     * side-effects (touch, stats, notifications). */
+    if (!d || dictSize(d) == 0) {
+        for (int j = 1; j < c->argc; j++) {
+            lookupKeyRead(c->db, c->argv[j]);
+            addReplyNull(c);
+        }
+        return;
+    }
+
+    /* Process keys in batches, using the dict prefetch state machine to
+     * warm the cache for every batch before the sequential lookups. */
+    #define MGET_BATCH 16
+    int j = 1;
+    while (j < c->argc) {
+        int batch_end = j + MGET_BATCH;
+        if (batch_end > c->argc) batch_end = c->argc;
+        int n = batch_end - j;
+
+        /* Collect key SDS pointers and per-key dict pointers. */
+        void *keys[MGET_BATCH];
+        dict  *dicts[MGET_BATCH];
+        for (int k = 0; k < n; k++) {
+            keys[k]  = c->argv[j + k]->ptr;
+            dicts[k] = d;
+        }
+
+        /* Run the prefetch state machine — after this call, dict buckets,
+         * entries, kv objects, and value data for all n keys are in cache. */
+        dictPrefetchKeys(dicts, keys, n, prefetchGetObjectValuePtr);
+
+        /* Sequential lookups + replies — hot in cache. */
+        for (int k = 0; k < n; k++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j + k]);
+            if (o == NULL || o->type != OBJ_STRING)
+                addReplyNull(c);
+            else
+                addReplyBulk(c, o);
+        }
+        j = batch_end;
+    }
+    #undef MGET_BATCH
 }
 
 void msetGenericCommand(client *c, int nx) {
