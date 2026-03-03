@@ -2304,8 +2304,13 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.dbg_assert_keysizes = 0; /* Disabled by default */
-    server.dbg_assert_alloc_per_slot = 0; /* Disabled by default */
+#if DEBUG_ASSERT_KEYSPACE
+    server.dbg_assert_keysizes = 1;
+    server.dbg_assert_alloc_per_slot = 1;
+#else
+    server.dbg_assert_keysizes = 0;
+    server.dbg_assert_alloc_per_slot = 0;
+#endif
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
@@ -3974,12 +3979,13 @@ void call(client *c, int flags) {
 
     /* Populate the per-key hotkey stats. Before updating stats for a command
      * we need to do some setup on the hotkeyStats structure. We only do this
-     * once during the outer-most call in case of nesting.
+     * once during the outer-most call in case of nesting. However, when we are
+     * inside a MULTI/EXEC block, we want to track each individual command.
      * NOTE: even though we update the network bytes during nested calls we
      * only update the duration, since the outer-most call records the whole
      * duration. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED) &&
-        !server.execution_nesting)
+        (!server.execution_nesting || server.in_exec))
     {
         /* First we need to prepare the hotkeyStats for updates */
         hotkeyStatsPreCurrentCmd(server.hotkeys, c);
@@ -4078,8 +4084,9 @@ void call(client *c, int flags) {
         hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
 
         /* Just like curr cmd setup we only do the cleanup in case we are not in
-         * a nested command. */
-        if (!server.execution_nesting)
+         * a nested command. For MULTI/EXEC, we do cleanup for each individual
+         * command. */
+        if (!server.execution_nesting || server.in_exec)
             hotkeyStatsPostCurrentCmd(server.hotkeys);
     }
 
@@ -6719,16 +6726,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Hotkeys */
-    if (server.hotkeys &&
-        (all_sections || (dictFind(section_dict,"hotkeys") != NULL)))
+    if (all_sections || (dictFind(section_dict,"hotkeys") != NULL))
     {
         if (sections++) info = sdscat(info,"\r\n"); 
 
-        info = sdscatprintf(info, "# Hotkeys\r\n"
-            "hotkeys-tracking-active:%d\r\n"
-            "hotkeys-cmd-cpu-time:%lld\r\n",
-            server.hotkeys->active ? 1 : 0,
-            server.hotkeys->cpu_time);
+        info = sdscatprintf(info, "# Hotkeys\r\n");
+        if (server.hotkeys) {
+            info = sdscatprintf(info,
+                "hotkeys-tracking-active:%d\r\n"
+                "hotkeys-cmd-cpu-time:%lld\r\n",
+                server.hotkeys->active ? 1 : 0,
+                server.hotkeys->cpu_time);
+        }
     }
 
     /* Modules */

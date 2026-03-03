@@ -523,6 +523,8 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
                              c->cmd->fullname); 
         } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
             *err = sdsnew("Script attempted to access a slot not served"); 
+        } else if (error_code == CLUSTER_REDIR_TRIMMING) {
+            *err = sdsnew("Script attempted to access a slot being trimmed");
         } else {
             /* error_code == CLUSTER_REDIR_MOVED || error_code == CLUSTER_REDIR_ASK */
             *err = sdsnew("Script attempted to access a non local key in a "

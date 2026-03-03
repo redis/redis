@@ -856,7 +856,7 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     if (num_producers == 0) return 0;
 
     /* Create the producers rax tree. */
-    s->idmp_producers = raxNew();
+    s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     if (s->idmp_producers == NULL) {
         return -1;
     }
@@ -3902,6 +3902,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             dbExpand(db, db_size, 0);
             dbExpandExpires(db, expires_size, 0);
             should_expand_db = 0;
+            serverLog(LL_VERBOSE, "DB %d resized: %lu key buckets, %lu expire buckets",
+                        db->id, kvstoreBuckets(db->keys), kvstoreBuckets(db->expires));
         }
 
         /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
@@ -3932,7 +3934,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
              * continue loading. */
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 if(empty_keys_skipped++ < 10)
-                    serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", key);
+                    serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", redactLogCstr(key));
                 sdsfree(key);
             } else {
                 sdsfree(key);

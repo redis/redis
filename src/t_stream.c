@@ -51,6 +51,7 @@ static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
+static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
@@ -2435,7 +2436,7 @@ void xaddCommand(client *c) {
     stream *s;
     if ((kv = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream)) == NULL) return;
     s = kv->ptr;
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
 
     /* IDMP: Check if IID already exists, save IID for later insertion */
     XXH128_hash_t hash;
@@ -2564,7 +2565,7 @@ void xrangeGenericCommand(client *c, int rev) {
     robj *startarg = rev ? c->argv[3] : c->argv[2];
     robj *endarg = rev ? c->argv[2] : c->argv[3];
     int startex = 0, endex = 0;
-    size_t old_alloc;
+    size_t old_alloc = 0;
     
     /* Parse start and end IDs. */
     if (streamParseIntervalIDOrReply(c,startarg,&startid,&startex,0) != C_OK)
@@ -2606,7 +2607,8 @@ void xrangeGenericCommand(client *c, int rev) {
         addReplyNullArray(c);
     } else {
         if (count == -1) count = 0;
-        old_alloc = kvobjAllocSize(kv);
+        if (server.memory_tracking_enabled)
+            old_alloc = kvobjAllocSize(kv);
         streamReplyWithRange(c,s,&startid,&endid,count,rev,-1,NULL,NULL,0,NULL,NULL);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
@@ -2653,7 +2655,7 @@ void xreadCommand(client *c) {
     int xreadgroup = sdslen(c->argv[0]->ptr) == 10; /* XREAD or XREADGROUP? */
     robj *groupname = NULL;
     robj *consumername = NULL;
-    size_t old_alloc;
+    size_t old_alloc = 0;
 
     /* Parse arguments. */
     for (int i = 1; i < c->argc; i++) {
@@ -2881,7 +2883,8 @@ void xreadCommand(client *c) {
             }
             consumer = streamLookupConsumer(groups[i],consumername->ptr);
             if (consumer == NULL) {
-                old_alloc = kvobjAllocSize(o);
+                if (server.memory_tracking_enabled)
+                    old_alloc = kvobjAllocSize(o);
                 consumer = streamCreateConsumer(s,groups[i],consumername->ptr,
                                                 c->argv[streams_arg+i],
                                                 c->db->id,SCC_DEFAULT);
@@ -2933,7 +2936,8 @@ void xreadCommand(client *c) {
             unsigned long propCount = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
-            old_alloc = kvobjAllocSize(o);
+            if (server.memory_tracking_enabled)
+                old_alloc = kvobjAllocSize(o);
             streamReplyWithRange(c,s,&start,NULL,count,0, min_idle_time,
                                  groups ? groups[i] : NULL,
                                  consumer, flags, &spi, &propCount);
@@ -3356,7 +3360,7 @@ void xgroupCommand(client *c) {
     int mkstream = 0;
     long long entries_read = SCG_INVALID_ENTRIES_READ;
     robj *o;
-    size_t old_alloc;
+    size_t old_alloc = 0;
 
     /* Everything but the "HELP" option requires a key and group name. */
     if (c->argc >= 4) {
@@ -3460,7 +3464,8 @@ NULL
             entries_read = s->entries_added;
         }
 
-        old_alloc = kvobjAllocSize(o);
+        if (server.memory_tracking_enabled)
+            old_alloc = kvobjAllocSize(o);
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
             if (server.memory_tracking_enabled)
@@ -3493,7 +3498,8 @@ NULL
         keyModified(c,c->db,c->argv[2],o,0);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
-            old_alloc = kvobjAllocSize(o);
+            if (server.memory_tracking_enabled)
+                old_alloc = kvobjAllocSize(o);
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
             if (server.memory_tracking_enabled)
@@ -3509,7 +3515,8 @@ NULL
             addReply(c,shared.czero);
         }
     } else if (!strcasecmp(opt,"CREATECONSUMER") && c->argc == 5) {
-        old_alloc = kvobjAllocSize(o);
+        if (server.memory_tracking_enabled)
+            old_alloc = kvobjAllocSize(o);
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
         keyModified(c,c->db,c->argv[2],o,0);
@@ -3522,7 +3529,8 @@ NULL
         if (consumer) {
             /* Delete the consumer and returns the number of pending messages
              * that were yet associated with such a consumer. */
-            old_alloc = kvobjAllocSize(o);
+            if (server.memory_tracking_enabled)
+                old_alloc = kvobjAllocSize(o);
             pending = raxSize(consumer->pel);
             streamDelConsumer(s,cg,consumer);
             if (server.memory_tracking_enabled)
@@ -3614,6 +3622,64 @@ void xsetidCommand(client *c) {
     keyModified(c,c->db,c->argv[1],kv,0);
 }
 
+/* XIDMPRECORD <key> <pid> <iid> <streamID>
+ * Set IDMP metadata (producer id + idempotency id) on an existing stream message. */
+void xidmprecordCommand(client *c) {
+    streamID id;
+
+    if (streamParseStrictIDOrReply(c, c->argv[4], &id, 0, NULL) != C_OK)
+        return;
+
+    const char *pid_str = c->argv[2]->ptr;
+    size_t pid_len = sdslen((sds)pid_str);
+    const char *iid_str = c->argv[3]->ptr;
+    size_t iid_len = sdslen((sds)iid_str);
+
+    if (pid_len == 0) {
+        addReplyError(c,"producer ID must be non-empty");
+        return;
+    }
+    if (iid_len == 0) {
+        addReplyError(c,"idempotent ID must be non-empty");
+        return;
+    }
+
+    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.nokeyerr);
+    if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
+    stream *s = kv->ptr;
+
+    if (!streamEntryExists(s, &id)) {
+        addReplyError(c, "No such message in stream");
+        return;
+    }
+
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+
+    idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
+    idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+    int found = idmpLookup(producer, entry, &id);
+    if (found) {
+        idmpEntryFree(entry, &s->alloc_size);
+        if (found == 1)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "IID already exists for this producer with a different stream ID");
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+        return;
+    }
+
+    idmpInsertEntry(s, producer, entry, &id);
+    trackStreamIdmpEntries(c, c->argv[1]);
+    addReply(c, shared.ok);
+    server.dirty++;
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+
+    keyModified(c, c->db, c->argv[1], kv, 0);
+}
+
 /* XACK <key> <group> <id> <id> ... <id>
  * Acknowledge a message as processed. In practical terms we just check the
  * pending entries list (PEL) of the group, and delete the PEL entry both from
@@ -3650,7 +3716,7 @@ void xackCommand(client *c) {
     }
 
     int acknowledged = 0;
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     for (int j = 3; j < c->argc; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j-3]);
@@ -3721,7 +3787,7 @@ void xackdelCommand(client *c) {
     }
 
     s = kv->ptr;
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     int first_entry = 0;
     int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
@@ -4149,7 +4215,7 @@ void xclaimCommand(client *c) {
 
     /* Do the actual claiming. */
     stream *s = o->ptr;
-    size_t old_alloc = kvobjAllocSize(o);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
@@ -4342,7 +4408,7 @@ void xautoclaimCommand(client *c) {
 
     /* Do the actual claiming. */
     stream *s = o->ptr;
-    size_t old_alloc = kvobjAllocSize(o);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
@@ -4471,7 +4537,7 @@ void xdelCommand(client *c) {
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
 
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
@@ -4569,7 +4635,7 @@ void xdelexCommand(client *c) {
     }
 
     stream *s = kv->ptr;
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     int first_entry = 0;
     int deleted = 0;
     addReplyArrayLen(c, args.numids);
@@ -4674,7 +4740,7 @@ void xtrimCommand(client *c) {
     stream *s = kv->ptr;
 
     /* Perform the trimming. */
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     int64_t deleted = streamTrim(s, &parsed_args);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
@@ -4774,7 +4840,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
     addReplyBulkCString(c,"iids-duplicates");
     addReplyLongLong(c,s->iids_duplicates);
 
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     if (!full) {
         /* XINFO STREAM <key> */
 
@@ -5522,6 +5588,16 @@ static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entr
     return 0;
 }
 
+/* Lookup IID in the producer's dict.
+ * Return: 0 = not found, 1 = found same ID, -1 = found different ID. */
+static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
+    dictEntry *de = dictFind(producer->idmp_dict, entry);
+    if (de == NULL)
+        return 0;
+    idmpEntry *existing = (idmpEntry *)dictGetKey(de);
+    return streamCompareID(&existing->id, id) == 0 ? 1 : -1;
+}
+
 /* Insert an idmpEntry into the producer's dict and linked list with the given stream ID. */
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id) {
     /* Set the stream ID and initialize next pointer */
@@ -5550,7 +5626,7 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len) {
     /* Create the producers rax tree if it doesn't exist */
     if (s->idmp_producers == NULL) {
-        s->idmp_producers = raxNew();
+        s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     }
 
     /* Look up the producer */

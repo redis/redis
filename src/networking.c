@@ -1263,13 +1263,14 @@ static int tryAvoidBulkStrCopyToReply(client *c, robj *obj, size_t len) {
     return C_OK;
 }
 
-/* Add a Redis Object as a bulk reply */
-void addReplyBulk(client *c, robj *obj) {
+/* Add a Redis Object as a bulk reply.
+ * If avoid_copy is non-zero, attempt to use copy avoidance optimization. */
+void addReplyBulkWithFlag(client *c, robj *obj, int avoid_copy) {
     if (_prepareClientToWrite(c) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
         const size_t len = sdslen(obj->ptr);
-        if (tryAvoidBulkStrCopyToReply(c, obj, len) == C_OK)
+        if (avoid_copy && tryAvoidBulkStrCopyToReply(c, obj, len) == C_OK)
             return;
         _addReplyLongLongBulk(c, len);
         _addReplyToBufferOrList(c,obj->ptr,len);
@@ -1287,6 +1288,11 @@ void addReplyBulk(client *c, robj *obj) {
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
     }
+}
+
+/* Add a Redis Object as a bulk reply */
+void addReplyBulk(client *c, robj *obj) {
+    addReplyBulkWithFlag(c, obj, 1);
 }
 
 /* Add a C buffer as bulk reply */
@@ -1599,7 +1605,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
         char addr[NET_ADDR_STR_LEN] = {0};
         char laddr[NET_ADDR_STR_LEN] = {0};
         connFormatAddr(conn, addr, sizeof(addr), 1);
-        connFormatAddr(conn, laddr, sizeof(addr), 0);
+        connFormatAddr(conn, laddr, sizeof(laddr), 0);
         serverLog(LL_VERBOSE,
                   "Accepted client connection in error state: %s (addr=%s laddr=%s)",
                   connGetLastError(conn), addr, laddr);
@@ -1638,7 +1644,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
         char addr[NET_ADDR_STR_LEN] = {0};
         char laddr[NET_ADDR_STR_LEN] = {0};
         connFormatAddr(conn, addr, sizeof(addr), 1);
-        connFormatAddr(conn, laddr, sizeof(addr), 0);
+        connFormatAddr(conn, laddr, sizeof(laddr), 0);
         serverLog(LL_WARNING,
                   "Error registering fd event for the new client connection: %s (addr=%s laddr=%s)",
                   connGetLastError(conn), addr, laddr);

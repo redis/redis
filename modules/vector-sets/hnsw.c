@@ -47,40 +47,45 @@
 #include "hnsw.h"
 #include "mixer.h"
 
-/* Define HAVE_POPCNT if the compiler supports the target("popcnt") attribute */
-#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__)))
+/* Check if we can compile SIMD code with function attributes.
+ * This defines HAVE_AVX2, HAVE_AVX512, and HAVE_POPCNT when the compiler
+ * supports the target() attribute for runtime CPU feature dispatch. */
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
     #if defined(__has_attribute) && __has_attribute(target)
+        #define HAVE_AVX2
+        #define HAVE_AVX512
         #define HAVE_POPCNT
-        #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
-    #else
-        #define ATTRIBUTE_TARGET_POPCNT
     #endif
+#endif
+
+#if defined(HAVE_POPCNT)
+    #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+    #define VSET_USE_POPCNT __builtin_cpu_supports("popcnt")
 #else
     #define ATTRIBUTE_TARGET_POPCNT
+    #define VSET_USE_POPCNT 0
 #endif
 
-/* Check if we can compile SIMD code with function attributes */
-#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
-#if defined(__has_attribute) && __has_attribute(target)
-#define HAVE_AVX2
-#define HAVE_AVX512
-#endif
-#endif
-
-#if defined (HAVE_AVX2)
+#if defined(HAVE_AVX2)
 #define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define ATTRIBUTE_TARGET_AVX2_POPCNT __attribute__((target("avx2,fma,popcnt")))
 #define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
 #else
 #define ATTRIBUTE_TARGET_AVX2
+#define ATTRIBUTE_TARGET_AVX2_POPCNT
 #define VSET_USE_AVX2 0
 #endif
 
 #if defined (HAVE_AVX512)
 #define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512bw,fma")))
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT __attribute__((target("avx512f,fma,avx512vpopcntdq,popcnt")))
 #define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
+#define VSET_USE_AVX512_VPOPCNT (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define ATTRIBUTE_TARGET_AVX512
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT
 #define VSET_USE_AVX512 0
+#define VSET_USE_AVX512_VPOPCNT 0
 #endif
 
 /* Include SIMD headers when supported */
@@ -606,9 +611,102 @@ float vectors_distance_q8(const int8_t *x, const int8_t *y, uint32_t dim,
     return distance;
 }
 
-/* Binary vectors distance. */
+#if defined(HAVE_AVX512) && defined(HAVE_POPCNT)
+/* AVX-512 vectorized binary distance calculation using VPOPCNTDQ.
+ * Processes 8 uint64_t (512 bits) per iteration.
+ * 
+ * Uses _mm512_popcnt_epi64 hardware popcount instruction which requires
+ * AVX512VPOPCNTDQ extension
+ */
+ATTRIBUTE_TARGET_AVX512_VPOPCNT
+static float vectors_distance_bin_avx512_vpopcnt(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+    uint32_t j = 0;
+
+    /* Process 8 uint64_t (512 bits) at a time with hardware popcount */
+    if (len >= 8) {
+        __m512i sum = _mm512_setzero_si512();
+        
+        for (; j + 7 < len; j += 8) {
+            __m512i vx = _mm512_loadu_si512((__m512i*)&x[j]);
+            __m512i vy = _mm512_loadu_si512((__m512i*)&y[j]);
+            __m512i vxor = _mm512_xor_si512(vx, vy);
+            
+            /* Hardware popcount for 64-bit integers (AVX512VPOPCNTDQ) */
+            __m512i popcnt = _mm512_popcnt_epi64(vxor);
+            sum = _mm512_add_epi64(sum, popcnt);
+        }
+        
+        /* Horizontal sum: reduce 8x 64-bit integers to scalar */
+        opposite = _mm512_reduce_add_epi64(sum);
+    }
+
+    /* Handle remaining elements */
+    for (; j < len; j++) {
+        uint64_t xor = x[j] ^ y[j];
+        opposite += __builtin_popcountll(xor);
+    }
+
+    return (float)opposite * 2.0f / dim;
+}
+#endif
+
+#if defined(HAVE_AVX2) && defined(HAVE_POPCNT)
+/* AVX2 vectorized binary distance calculation.
+ * Processes 4 uint64_t (256 bits) per iteration. */
+ATTRIBUTE_TARGET_AVX2_POPCNT
+static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+    uint32_t j = 0;
+
+    /* Process 4 uint64_t (256 bits) at a time */
+    if (len >= 4) {
+        for (; j + 3 < len; j += 4) {
+            __m256i vx = _mm256_loadu_si256((__m256i*)&x[j]);
+            __m256i vy = _mm256_loadu_si256((__m256i*)&y[j]);
+            __m256i vxor = _mm256_xor_si256(vx, vy);
+            
+            /* Extract and use hardware POPCNT instruction */
+            uint64_t xor_vals[4];
+            _mm256_storeu_si256((__m256i*)xor_vals, vxor);
+            
+            opposite += __builtin_popcountll(xor_vals[0]);
+            opposite += __builtin_popcountll(xor_vals[1]);
+            opposite += __builtin_popcountll(xor_vals[2]);
+            opposite += __builtin_popcountll(xor_vals[3]);
+        }
+    }
+
+    /* Handle remaining elements */
+    for (; j < len; j++) {
+        uint64_t xor = x[j] ^ y[j];
+        opposite += __builtin_popcountll(xor);
+    }
+
+    return (float)opposite * 2.0f / dim;
+}
+#endif
+
+/* Binary vectors distance with SIMD dispatch. */
 ATTRIBUTE_TARGET_POPCNT
 float vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+#if defined(HAVE_AVX512) && defined(HAVE_POPCNT)
+    /* AVX-512 with VPOPCNTDQ */
+    if (dim >= 512 && VSET_USE_AVX512_VPOPCNT) {
+        return vectors_distance_bin_avx512_vpopcnt(x, y, dim);
+    }
+#endif
+
+#if defined(HAVE_AVX2) && defined(HAVE_POPCNT)
+    /* AVX2 path: processes 4 uint64_t (256 bits) per iteration */
+    if (dim >= 256 && VSET_USE_AVX2 && VSET_USE_POPCNT) {
+        return vectors_distance_bin_avx2(x, y, dim);
+    }
+#endif
+
+    /* Fallback to scalar implementation with runtime POPCNT detection */
     return hnsw_vectors_distance_bin(x, y, dim);
 }
 

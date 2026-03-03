@@ -54,7 +54,7 @@ performed in the background, while the command is executed in the main thread.
 
 `NOQUANT` forces the vector to be created (in the first VADD call to a given key) without integer 8 quantization, which is otherwise the default.
 
-`BIN` forces the vector to use binary quantization instead of int8. This is much faster and uses less memory, but has impacts on the recall quality.
+`BIN` forces the vector to use binary quantization instead of int8. This is much faster and uses less memory, but has impacts on the recall quality. The distance is computed as normalized Hamming distance (`hamming_bits * 2 / dim`), yielding values in [0, 2] consistent with cosine distance semantics, not raw Hamming bit counts.
 
 `Q8` forces the vector to use signed 8 bit quantization. This is the default, and the option only exists in order to make sure to check at insertion time if the vector set is of the same format.
 

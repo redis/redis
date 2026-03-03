@@ -1235,7 +1235,8 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         /* Update dst obj cardinality in KEYSIZES */
         updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_LIST, oldlen, newlen);
         /* Update src obj cardinality in KEYSIZES by listElementsRemoved() */
-        listElementsRemoved(c, skey, wherefrom, kvsrc, 1, kvobjAllocSize(kvsrc), 1, NULL);
+        size_t srcsize = server.memory_tracking_enabled ? kvobjAllocSize(kvsrc) : 0;
+        listElementsRemoved(c, skey, wherefrom, kvsrc, 1, srcsize, 1, NULL);
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
 

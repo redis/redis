@@ -1,21 +1,19 @@
 {
-    "XCFGSET": {
-        "summary": "Sets the IDMP configuration parameters for a stream.",
+    "XIDMPRECORD": {
+        "summary": "An internal command for setting IDMP metadata on an existing stream message.",
         "complexity": "O(1)",
         "group": "stream",
-        "since": "8.6.0",
-        "arity": -2,
-        "function": "xcfgsetCommand",
+        "since": "8.6.2",
+        "arity": 5,
+        "function": "xidmprecordCommand",
         "command_flags": [
             "WRITE",
+            "DENYOOM",
             "FAST"
         ],
         "acl_categories": [
             "STREAM"
         ],
-        "reply_schema": {
-            "const": "OK"
-        },
         "key_specs": [
             {
                 "flags": [
@@ -43,17 +41,20 @@
                 "key_spec_index": 0
             },
             {
-                "name": "idmp-duration",
-                "type": "integer",
-                "token": "IDMP-DURATION",
-                "optional": true
+                "name": "pid",
+                "type": "string"
             },
             {
-                "name": "idmp-maxsize",
-                "type": "integer",
-                "token": "IDMP-MAXSIZE",
-                "optional": true
+                "name": "iid",
+                "type": "string"
+            },
+            {
+                "name": "stream-id",
+                "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }
