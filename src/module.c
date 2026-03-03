@@ -13583,7 +13583,8 @@ int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
 
 int setModuleEnumConfig(ModuleConfig *config, int val, const char **err) {
     RedisModuleString *error = NULL;
-    int return_code = config->set_fn.set_enum(config->name, val, config->privdata, &error);
+    char *rname = getRegisteredConfigName(config);
+    int return_code = config->set_fn.set_enum(rname, val, config->privdata, &error);
     propagateErrorString(error, err);
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
