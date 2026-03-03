@@ -324,7 +324,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
             # catch blocks would overwrite the global $::errorInfo.
             set saved_errorInfo $::errorInfo
             if {$restore_config && [llength $saved_configs] > 0} {
-                restore_server_configs $saved_configs
+                catch {restore_server_configs $saved_configs}
             }
             error $error $saved_errorInfo
         }
