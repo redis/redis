@@ -10,6 +10,8 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#include <sys/param.h>
+
 #ifdef __APPLE__
 #include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
 #include <AvailabilityMacros.h>
@@ -85,13 +87,25 @@
 #endif
 
 /* Test for accept4() */
-#if defined(__linux__) || defined(OpenBSD5_7) || \
-    (__FreeBSD__ >= 10 || __FreeBSD_version >= 1000000) || \
-    (defined(NetBSD8_0) || __NetBSD_Version__ >= 800000000)
+#if defined(__linux__) || (defined(OpenBSD) && OpenBSD >= 201505) || \
+    defined(__FreeBSD__) || \
+    (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000) || \
+    (defined(__DragonFly__) && __DragonFly_version >= 400305)
 #define HAVE_ACCEPT4 1
 #endif
 
-#if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
+/* Detect for pipe2() */
+#if defined(__linux__) || \
+    defined(__FreeBSD__) || \
+    (defined(__OpenBSD__) && OpenBSD >= 201505) || \
+    (defined(__DragonFly_version) && __DragonFly_version >= 400106) || \
+    (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 600000000)
+#define HAVE_PIPE2 1
+#endif
+
+/* Detect for kqueue */
+#if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || \
+    defined(__OpenBSD__) || defined (__NetBSD__) || defined(__DragonFly__)
 #define HAVE_KQUEUE 1
 #endif
 
@@ -330,7 +344,7 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 /* Test for posix_fadvise() */
-#if defined(__linux__) || __FreeBSD__ >= 10
+#if defined(__linux__) || defined(__FreeBSD__)
 #define HAVE_FADVISE
 #endif
 

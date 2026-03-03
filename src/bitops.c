@@ -796,11 +796,11 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     } else {
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         *strOldSize  = sdslen(o->ptr);
-        if (server.memory_tracking_per_slot)
-            oldAllocSize = stringObjectAllocSize(o);
+        if (server.memory_tracking_enabled)
+            oldAllocSize = kvobjAllocSize(o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
-        if (server.memory_tracking_per_slot)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldAllocSize, stringObjectAllocSize(o));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldAllocSize, kvobjAllocSize(o));
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
     }
     return o;
@@ -875,7 +875,7 @@ void setbitCommand(client *c) {
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
 
@@ -1447,7 +1447,7 @@ void bitopCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         server.dirty++;
     } else if (dbDelete(c->db,targetkey)) {
-        signalModifiedKey(c,c->db,targetkey);
+        keyModified(c,c->db,targetkey,NULL,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;
     }
@@ -1722,7 +1722,7 @@ void bitfieldGeneric(client *c, int flags) {
     kvobj *o;
     uint64_t bitoffset;
     int j, numops = 0, changes = 0;
-    size_t strOldSize, strGrowSize = 0;
+    size_t strOldSize = 0, strGrowSize = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
@@ -1951,7 +1951,7 @@ void bitfieldGeneric(client *c, int flags) {
             updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING,
                                strOldSize, strOldSize + strGrowSize);
         
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
     }

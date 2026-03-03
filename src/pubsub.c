@@ -483,7 +483,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
-            if (clusterSlotStatsEnabled())
+            if (clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_NET))
                 clusterSlotStatsAddNetworkBytesOutForShardedPubSubInternalPropagation(c, slot);
             updateClientMemUsageAndBucket(c);
             receivers++;

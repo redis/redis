@@ -30,7 +30,7 @@
 #
 # vwait forever
 
-package require Tcl 8.5
+package require Tcl 8.5-10
 package provide redis 0.1
 
 source [file join [file dirname [info script]] "response_transformers.tcl"]
@@ -165,6 +165,11 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set cmd "*[expr {[llength $argv]+1}]\r\n"
         append cmd "$[string length $method]\r\n$method\r\n"
         foreach a $argv {
+            # In Tcl 9.0, only convert to UTF-8 if the string contains non-byte characters
+            # to preserve binary data while handling unicode correctly
+            if {$::tcl_version >= 9.0 && [string match "*\[^\u0000-\u00ff\]*" $a]} {
+                set a [encoding convertto utf-8 $a]
+            }
             append cmd "$[string length $a]\r\n$a\r\n"
         }
         ::redis::redis_write $fd $cmd

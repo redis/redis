@@ -32,7 +32,7 @@ clean_environment: uninstall-rust
 # Keep all of the Rust stuff in one place
 install-rust:
 ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
-	@RUST_VERSION=1.88.0; \
+	@RUST_VERSION=1.93.1; \
 	ARCH="$$(uname -m)"; \
 	if ldd --version 2>&1 | grep -q musl; then LIBC_TYPE="musl"; else LIBC_TYPE="gnu"; fi; \
 	echo "Detected architecture: $${ARCH} and libc: $${LIBC_TYPE}"; \
@@ -40,24 +40,24 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 		'x86_64') \
 			if [ "$${LIBC_TYPE}" = "musl" ]; then \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-x86_64-unknown-linux-musl"; \
-				RUST_SHA256="200bcf3b5d574caededba78c9ea9d27e7afc5c6df4154ed0551879859be328e1"; \
+				RUST_SHA256="6a57ddfffa77bfa97ab325586b08fc1e96c3acb82ecc9f554cdb2ef748466ef2"; \
 			else \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-x86_64-unknown-linux-gnu"; \
-				RUST_SHA256="7b5437c1d18a174faae253a18eac22c32288dccfc09ff78d5ee99b7467e21bca"; \
+				RUST_SHA256="518872275a3648f735471d7add854d39171c5a6b17f423c4d7f931f52120c2af"; \
 			fi ;; \
 		'aarch64') \
 			if [ "$${LIBC_TYPE}" = "musl" ]; then \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-aarch64-unknown-linux-musl"; \
-				RUST_SHA256="f8b3a158f9e5e8cc82e4d92500dd2738ac7d8b5e66e0f18330408856235dec35"; \
+				RUST_SHA256="34f0ffb0cd3e334aeae344daae09984f951eeb842386406d4bdf11cd0b4c2b36"; \
 			else \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-aarch64-unknown-linux-gnu"; \
-				RUST_SHA256="d5decc46123eb888f809f2ee3b118d13586a37ffad38afaefe56aa7139481d34"; \
+				RUST_SHA256="701d55b62286bed013ceb2393ff7687d0953205605afaa15c62e2cd18024c32c"; \
 			fi ;; \
 		*) echo >&2 "Unsupported architecture: '$${ARCH}'"; exit 1 ;; \
 	esac; \
 	echo "Downloading and installing Rust standalone installer: $${RUST_INSTALLER}"; \
 	wget --quiet -O $${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/$${RUST_INSTALLER}.tar.xz; \
-	echo "$${RUST_SHA256} $${RUST_INSTALLER}.tar.xz" | sha256sum -c --quiet || { echo "Rust standalone installer checksum failed!"; exit 1; }; \
+	echo "$${RUST_SHA256} $${RUST_INSTALLER}.tar.xz" | sha256sum -c --status || { echo "Rust standalone installer checksum failed!"; exit 1; }; \
 	tar -xf $${RUST_INSTALLER}.tar.xz; \
 	(cd $${RUST_INSTALLER} && ./install.sh); \
 	rm -rf $${RUST_INSTALLER}

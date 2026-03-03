@@ -19,7 +19,7 @@
 # changes in many files) we decided to transform the response to RESP2
 # when running with --force-resp3
 
-package require Tcl 8.5
+package require Tcl 8.5-10
 
 namespace eval response_transformers {}
 

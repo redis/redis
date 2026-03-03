@@ -1026,7 +1026,14 @@ foreach type {single multiple single_multiple} {
                 break
             }
         }
-        r srem $myset {*}$members
+        r deferred 1
+        foreach m $members {
+            r srem $myset $m
+        }
+        foreach m $members {
+            r read
+        }
+        r deferred 0
     }
 
     proc verify_rehashing_completed_key {myset table_size keys} {

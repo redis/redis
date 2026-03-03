@@ -164,25 +164,29 @@ proc test_scan {type} {
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
-    test "{$type} SCAN with expired keys with TYPE filter" {
+    test "{$type} SCAN with expired keys with TYPE filter and PATTERN filter" {
         r flushdb
         # make sure that passive expiration is triggered by the scan
         r debug set-active-expire 0
 
         populate 1000
-        r set foo bar
-        r pexpire foo 1
+        r set key:foo bar
+        r pexpire key:foo 1
 
         # add a hash type key
-        r hset hash f v
-        r pexpire hash 1
+        r hset key:hash f v
+        r pexpire key:hash 1
+
+        # add a pattern key
+        r set boo far
+        r pexpire boo 1
 
         after 2
 
         set cur 0
         set keys {}
         while 1 {
-            set res [r scan $cur type "string" count 10]
+            set res [r scan $cur type "string" match key* count 10]
             set cur [lindex $res 0]
             set k [lindex $res 1]
             lappend keys {*}$k
@@ -191,12 +195,11 @@ proc test_scan {type} {
 
         assert_equal 1000 [llength $keys]
 
-        # make sure that expired key have been removed by scan command
-        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-        # TODO: uncomment in redis 8.0
-        # make sure that only the expired key in the type match will been removed by scan command
-        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-
+        # make sure that expired key have been removed by scan command, 
+        # pattern check before expired so key filtered by pattern will not be removed
+        # but expiration check is before type check so key:foo and key:hash will be removed
+        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        
         r debug set-active-expire 1
     } {OK} {needs:debug}
 

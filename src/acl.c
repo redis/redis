@@ -2,6 +2,9 @@
  * Copyright (c) 2018-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
@@ -802,7 +805,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
     {
         serverLog(LL_WARNING,
             "CRITICAL ERROR: User ACLs don't match final bitmap: '%s'",
-            rules);
+            redactLogCstr(rules));
         serverPanic("No bitmap match in ACLDescribeSelectorCommandRules()");
     }
     ACLFreeSelector(fake_selector);
@@ -1181,7 +1184,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                 /* Add the first-arg to the list of valid ones. */
                 serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
                                       "blocked command is a misuse of ACL and may get disabled "
-                                      "in the future (offender: +%s)", op+1);
+                                      "in the future (offender: +%s)", redactLogCstr(op+1));
                 ACLAddAllowedFirstArg(selector,cmd->id,sub);
             }
             ACLUpdateCommandRules(selector,op+1,1);
@@ -1854,6 +1857,15 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
+    /* Quick check if the user has all permissions, return early if so. */
+    if (likely(listFirst(u->selectors) != NULL)) {
+        aclSelector *s = listNodeValue(listFirst(u->selectors));
+        const uint32_t all_perms = SELECTOR_FLAG_ALLCOMMANDS |
+                                   SELECTOR_FLAG_ALLKEYS |
+                                   SELECTOR_FLAG_ALLCHANNELS;
+        if ((s->flags & all_perms) == all_perms) return ACL_OK;
+    }
+
     /* We have to pick a single error to log, the logic for picking is as follows:
      * 1) If no selector can execute the command, return the command.
      * 2) Return the last key or channel that no selector could match. */
@@ -2247,7 +2259,7 @@ int ACLLoadConfiguredUsers(void) {
                 const char *errmsg = ACLSetUserStringError();
                 serverLog(LL_WARNING,"Error loading ACL rule '%s' for "
                                      "the user named '%s': %s",
-                          aclrules[j],aclrules[0],errmsg);
+                                     redactLogCstr(aclrules[j]),redactLogCstr(aclrules[0]),errmsg);
                 return C_ERR;
             }
         }
@@ -2258,22 +2270,22 @@ int ACLLoadConfiguredUsers(void) {
             serverLog(LL_NOTICE, "The user '%s' is disabled (there is no "
                                  "'on' modifier in the user description). Make "
                                  "sure this is not a configuration error.",
-                      aclrules[0]);
+                                 redactLogCstr(aclrules[0]));
         }
     }
     return C_OK;
 }
 
 /* This function loads the ACL from the specified filename: every line
- * is validated and should be either empty or in the format used to specify
- * users in the redis.conf configuration or in the ACL file, that is:
+ * is validated and should be either empty, a comment, or in the format
+ * used to specify users in the redis.conf configuration or in the ACL file,
+ * that is:
  *
  *  user <username> ... rules ...
  *
- * Note that this function considers comments starting with '#' as errors
- * because the ACL file is meant to be rewritten, and comments would be
- * lost after the rewrite. Yet empty lines are allowed to avoid being too
- * strict.
+ * Lines starting with '#' are treated as comments and ignored. Note that
+ * comments will be lost after ACL SAVE rewrites the file. Empty lines are
+ * also allowed.
  *
  * One important part of implementing ACL LOAD, that uses this function, is
  * to avoid ending with broken rules if the ACL file is invalid for some
@@ -2325,8 +2337,8 @@ sds ACLLoadFromFile(const char *filename) {
 
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
-        /* Skip blank lines */
-        if (lines[i][0] == '\0') continue;
+        /* Skip blank lines and comments */
+        if (lines[i][0] == '\0' || lines[i][0] == '#') continue;
 
         /* Split into arguments */
         argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
@@ -2647,6 +2659,8 @@ void ACLUpdateInfoMetrics(int reason){
         server.acl_info.invalid_key_accesses++;
     } else if (reason == ACL_DENIED_CHANNEL) {
         server.acl_info.invalid_channel_accesses++;
+    } else if (reason == ACL_INVALID_TLS_CERT_AUTH) {
+        server.acl_info.acl_access_denied_tls_cert++;
     } else {
         serverPanic("Unknown ACL_DENIED encoding");
     }
@@ -3091,6 +3105,7 @@ void aclCommand(client *c) {
             case ACL_DENIED_KEY: reasonstr="key"; break;
             case ACL_DENIED_CHANNEL: reasonstr="channel"; break;
             case ACL_DENIED_AUTH: reasonstr="auth"; break;
+            case ACL_INVALID_TLS_CERT_AUTH: reasonstr = "tls-cert"; break;
             default: reasonstr="unknown";
             }
             addReplyBulkCString(c,reasonstr);

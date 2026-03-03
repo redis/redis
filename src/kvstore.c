@@ -22,13 +22,12 @@
 #include "fwtree.h"
 #include "redisassert.h"
 #include "monotonic.h"
-#include "server.h"
-
 
 #define UNUSED(V) ((void) V)
 
 struct _kvstore {
     int flags;
+    kvstoreType *type;
     dictType dtype;
     dict **dicts;
     long long num_dicts;
@@ -43,18 +42,6 @@ struct _kvstore {
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
     void *metadata[];                      /* conditionally allocated based on "flags" */
 };
-
-/* Basic metadata allocated per dict */
-typedef struct {
-    listNode *rehashing_node;   /* list node in rehashing list */
-} kvstoreDictMetaBase;
-
-/* Conditionally metadata allocated per dict (specifically for keysizes histogram) */
-typedef struct {
-    kvstoreDictMetaBase base; /* must be first in struct ! */
-    /* External metadata */
-    kvstoreDictMetadata meta;
-} kvstoreDictMetaEx;
 
 /**********************************/
 /*** Helpers **********************/
@@ -134,15 +121,18 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
         kvstoreDictSize(kvs, didx) != 0 ||
         kvstoreDictIsRehashingPaused(kvs, didx))
         return;
-#ifdef REDIS_TEST
-    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
-        kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(kvs->dicts[didx]);
-        serverAssert(metadata->meta.alloc_size == 0);
-    }
-#endif
+
+    /* Use callback if provided to check if dict can be freed */
+    if (kvs->type->canFreeDict && !kvs->type->canFreeDict(kvs, didx))
+        return;
+
     dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
+}
+
+void kvstoreFreeDictIfNeeded(kvstore *kvs, int didx) {
+    freeDictIfNeeded(kvs, didx);
 }
 
 /**********************************/
@@ -191,28 +181,10 @@ static void kvstoreDictBucketChanged(dict *d, long long delta) {
     kvs->bucket_count += delta;
 }
 
-/* Returns the size of the DB dict base metadata in bytes. */
-static size_t kvstoreDictMetaBaseSize(dict *d) {
+/* Returns the size of the DB dict extended metadata in bytes. */
+static size_t kvstoreDictBaseMetaSize(dict *d) {
     UNUSED(d);
     return sizeof(kvstoreDictMetaBase);
-}
-/* Returns the size of the DB dict extended metadata in bytes. */
-static size_t kvstoreDictMetadataExtendSize(dict *d) {
-    UNUSED(d);
-    return sizeof(kvstoreDictMetaEx);
-}
-
-void kvstoreTrackDeallocation(dict *d, void *kv) {
-    if (!server.memory_tracking_per_slot) return;
-    kvstore *kvs = d->type->userdata;
-    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
-        kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(d);
-        size_t alloc_size = kvobjAllocSize(kv);
-#ifdef REDIS_TEST
-        serverAssert(alloc_size <= metadata->meta.alloc_size);
-#endif
-        metadata->meta.alloc_size -= alloc_size;
-    }
 }
 
 /**********************************/
@@ -222,32 +194,32 @@ void kvstoreTrackDeallocation(dict *d, void *kv) {
 /* Create an array of dictionaries
  * num_dicts_bits is the log2 of the amount of dictionaries needed (e.g. 0 for 1 dict,
  * 3 for 8 dicts, etc.) */
-kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
+kvstore *kvstoreCreate(kvstoreType *type, dictType *dtype, int num_dicts_bits, int flags) {
     /* We can't support more than 2^16 dicts because we want to save 48 bits
      * for the dict cursor, see kvstoreScan */
     assert(num_dicts_bits <= 16);
+    assert(!type->dictMetadataBytes || type->dictMetadataBytes(NULL) >= sizeof(kvstoreDictMetaBase));
 
     /* Calc kvstore size */   
     size_t kvsize = sizeof(kvstore);
     /* Conditionally calc also histogram size */
-    if (flags & KVSTORE_ALLOC_META_KEYS_HIST) 
-        kvsize += sizeof(kvstoreMetadata);
+    if (type->kvstoreMetadataBytes)
+        kvsize += type->kvstoreMetadataBytes(NULL);
     
     kvstore *kvs = zcalloc(kvsize);
-    memcpy(&kvs->dtype, type, sizeof(kvs->dtype));
+    memcpy(&kvs->dtype, dtype, sizeof(kvs->dtype));
     kvs->flags = flags;
+    kvs->type = type;
 
     /* kvstore must be the one to set these callbacks, so we make sure the
      * caller didn't do it */
-    assert(!type->userdata);
-    assert(!type->dictMetadataBytes);
-    assert(!type->rehashingStarted);
-    assert(!type->rehashingCompleted);
+    assert(!dtype->userdata);
+    assert(!dtype->dictMetadataBytes);
+    assert(!dtype->rehashingStarted);
+    assert(!dtype->rehashingCompleted);
     kvs->dtype.userdata = kvs;
-    if (flags & KVSTORE_ALLOC_META_KEYS_HIST)
-        kvs->dtype.dictMetadataBytes = kvstoreDictMetadataExtendSize;
-    else
-        kvs->dtype.dictMetadataBytes = kvstoreDictMetaBaseSize;
+    kvs->dtype.dictMetadataBytes = type->dictMetadataBytes ?
+        type->dictMetadataBytes : kvstoreDictBaseMetaSize;
     kvs->dtype.rehashingStarted = kvstoreDictRehashingStarted;
     kvs->dtype.rehashingCompleted = kvstoreDictRehashingCompleted;
     kvs->dtype.bucketChanged = kvstoreDictBucketChanged;
@@ -278,16 +250,12 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
-        if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
-            kvstoreDictMetaEx *metaExt = (kvstoreDictMetaEx *) metadata;
-            memset(&metaExt->meta.keysizes_hist, 0, sizeof(metaExt->meta.keysizes_hist));
-        }
         dictEmpty(d, callback);
+        if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx);
         freeDictIfNeeded(kvs, didx);
     }
 
-    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST)
-        memset(kvstoreGetMetadata(kvs), 0, sizeof(kvstoreMetadata));
+    if (kvs->type->onKvstoreEmpty) kvs->type->onKvstoreEmpty(kvs);
 
     listEmpty(kvs->rehashing);
 
@@ -308,13 +276,7 @@ void kvstoreRelease(kvstore *kvs) {
         kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
-#ifdef REDIS_TEST
-        dictEmpty(d, NULL);
-        if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
-            kvstoreDictMetaEx *metaEx = (kvstoreDictMetaEx *)metadata;
-            serverAssert(metaEx->meta.alloc_size == 0);
-        }
-#endif
+        if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx);
         dictRelease(d);
     }
     zfree(kvs->dicts);
@@ -342,11 +304,7 @@ unsigned long kvstoreBuckets(kvstore *kvs) {
 
 size_t kvstoreMemUsage(kvstore *kvs) {
     size_t mem = sizeof(*kvs);
-    size_t metaSize = sizeof(kvstoreDictMetaBase);
-
-    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST)
-        metaSize = sizeof(kvstoreDictMetaEx);
-    
+    size_t metaSize = kvs->dtype.dictMetadataBytes(NULL);
     unsigned long long keys_count = kvstoreSize(kvs);
     mem += keys_count * dictEntryMemUsage(kvs->dtype.no_value) +
            kvstoreBuckets(kvs) * sizeof(dictEntry*) +
@@ -427,9 +385,10 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
  */
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb) {
     for (int i = 0; i < kvs->num_dicts; i++) {
-        dict *d = kvstoreGetDict(kvs, i);
-        if (!d || (skip_cb && skip_cb(i)))
-            continue;
+        if (skip_cb && skip_cb(i)) continue;
+        dict *d = createDictIfNeeded(kvs, i);
+        if (!d) continue;
+
         int result = try_expand ? dictTryExpand(d, newsize) : dictExpand(d, newsize);
         if (try_expand && result == DICT_ERR)
             return 0;
@@ -564,9 +523,11 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
     return fwTreeFindIndex(kvs->dict_sizes, target);
 }
 
-/* Wrapper for kvstoreFindDictIndexByKeyIndex to get the first non-empty dict index in the kvstore. */
+/* Get the first non-empty dict index in the kvstore. Returns -1 if kvstore is empty. */
 int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs) {
-    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+    if (kvstoreSize(kvs) == 0)
+        return -1;
+    if (kvs->num_dicts == 1)
         return 0;
     return fwTreeFindFirstNonEmpty(kvs->dict_sizes);
 }
@@ -594,9 +555,9 @@ int kvstoreNumDicts(kvstore *kvs) {
 
 /* Move dict from one kvstore to another. */
 void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
-    serverAssert(kvs->num_dicts > didx);
-    serverAssert(kvs->num_dicts == dst->num_dicts);
-    serverAssert(dst->dicts[didx] == NULL);
+    assert(kvs->num_dicts > didx);
+    assert(kvs->num_dicts == dst->num_dicts);
+    assert(dst->dicts[didx] == NULL);
 
     dict *d = kvs->dicts[didx];
     if (d == NULL) return;
@@ -638,7 +599,8 @@ void kvstoreIteratorReset(kvstoreIterator *kvs_it) {
     dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
     /* In the safe iterator context, we may delete entries. */
-    freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
+    if (kvs_it->didx != -1)
+        freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
 }
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete.
@@ -748,13 +710,6 @@ unsigned long kvstoreDictSize(kvstore *kvs, int didx)
     if (!d)
         return 0;
     return dictSize(d);
-}
-
-size_t kvstoreDictAllocSize(kvstore *kvs, int didx)
-{
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(kvs, didx);
-    if (!dictMeta) return 0;
-    return dictMeta->alloc_size;
 }
 
 void kvstoreInitDictIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx)
@@ -935,9 +890,7 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
     dict *d = createDictIfNeeded(kvs, didx);
-    dictUseStoredKeyApi(d, 1);
     dictEntry *ret = dictAddRaw(d, key, existing);
-    dictUseStoredKeyApi(d, 0);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
@@ -980,17 +933,19 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
     return ret;
 }
 
-kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx) {
+void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded) {
     dict *d = kvstoreGetDict(kvs, didx);
-    if ((!d) || (!(kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST)))
-        return NULL;
-    
-    kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(d);
-    return &(metadata->meta);
+    if (!d) {
+        if (!createIfNeeded) return NULL;
+        d = createDictIfNeeded(kvs, didx);
+    }
+    return dictMetadata(d);
 }
 
-kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs) {
-    return (kvstoreMetadata *) &kvs->metadata;
+void *kvstoreGetMetadata(kvstore *kvs) {
+    if (!kvs->type->kvstoreMetadataBytes)
+        return NULL;
+    return &kvs->metadata;
 }
 
 #ifdef REDIS_TEST
@@ -1037,6 +992,14 @@ dictType KvstoreDictTestType = {
     NULL
 };
 
+kvstoreType KvstoreTestType = {
+    NULL, /* kvstore metadata size */
+    NULL, /* dict metadata size */
+    NULL, /* can free dict */
+    NULL, /* on kvstore empty */
+    NULL, /* on dict empty */
+};
+
 char *stringFromInt(int value) {
     char buf[32];
     int len;
@@ -1067,8 +1030,8 @@ int kvstoreTest(int argc, char **argv, int flags) {
 
     int didx = 0;
     int curr_slot = 0;
-    kvstore *kvs1 = kvstoreCreate(&KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    kvstore *kvs2 = kvstoreCreate(&KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+    kvstore *kvs1 = kvstoreCreate(&KvstoreTestType, &KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    kvstore *kvs2 = kvstoreCreate(&KvstoreTestType, &KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
 
     TEST("Add 16 keys") {
         for (i = 0; i < 16; i++) {
@@ -1081,6 +1044,14 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(kvstoreSize(kvs1) == 16);
         assert(kvstoreDictSize(kvs2, didx) == 16);
         assert(kvstoreSize(kvs2) == 16);
+    }
+
+    TEST("kvstoreIterator creating and releasing without kvstoreIteratorNextDict()") {
+        kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+        kvstoreIterator kvs_iter;
+        kvstoreIteratorInit(&kvs_iter, kvs);
+        kvstoreIteratorReset(&kvs_iter);
+        kvstoreRelease(kvs);
     }
 
     TEST("kvstoreIterator case 1: removing all keys does not delete the empty dict") {
@@ -1159,7 +1130,7 @@ int kvstoreTest(int argc, char **argv, int flags) {
 
     TEST("Verify that a rehashing dict's node in the rehashing list is correctly updated after defragmentation") {
         unsigned long cursor = 0;
-        kvstore *kvs = kvstoreCreate(&KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
         for (i = 0; i < 256; i++) {
             de = kvstoreDictAddRaw(kvs, 0, stringFromInt(i), NULL);
             if (listLength(kvs->rehashing)) break;
@@ -1171,8 +1142,8 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("Verify non-empty dict count is correctly updated") {
-        kvstore *kvs = kvstoreCreate(&KvstoreDictTestType, 2, 
-                            KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_ALLOC_META_KEYS_HIST);
+        kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictTestType, 2, 
+                            KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
         for (int idx = 0; idx < 4; idx++) {
             for (i = 0; i < 16; i++) {
                 de = kvstoreDictAddRaw(kvs, idx, stringFromInt(i), NULL);

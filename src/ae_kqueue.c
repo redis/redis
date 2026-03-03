@@ -101,31 +101,24 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
-    struct kevent ke;
+    struct kevent evs[2];
+    int nch = 0;
 
-    if (mask & AE_READABLE) {
-        EV_SET(&ke, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
-    }
-    if (mask & AE_WRITABLE) {
-        EV_SET(&ke, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
-        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
-    }
-    return 0;
+    if (mask & AE_READABLE) EV_SET(evs + nch++, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+    if (mask & AE_WRITABLE) EV_SET(evs + nch++, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
+
+    return kevent(state->kqfd, evs, nch, NULL, 0, NULL);
 }
 
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
-    struct kevent ke;
+    struct kevent evs[2];
+    int nch = 0;
 
-    if (mask & AE_READABLE) {
-        EV_SET(&ke, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
-    }
-    if (mask & AE_WRITABLE) {
-        EV_SET(&ke, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
-    }
+    if (mask & AE_READABLE) EV_SET(evs + nch++, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    if (mask & AE_WRITABLE) EV_SET(evs + nch++, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+
+    kevent(state->kqfd, evs, nch, NULL, 0, NULL);
 }
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {

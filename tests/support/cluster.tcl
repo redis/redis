@@ -14,7 +14,7 @@
 # $c get foo
 # $c close
 
-package require Tcl 8.5
+package require Tcl 8.5-10
 package provide redis_cluster 0.1
 
 namespace eval redis_cluster {}

@@ -174,6 +174,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     }
 
     intvl = idle/3;
+    if (intvl < 10) intvl = 10; /* kernel expects at least 10 seconds */
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
@@ -196,9 +197,7 @@ int anetKeepAlive(char *err, int fd, int interval)
 
     /* Note that the consequent probes will not be sent at equal intervals on Solaris,
      * but will be sent using the exponential backoff algorithm. */
-    intvl = idle/3;
-    cnt = 3;
-    int time_to_abort = intvl * cnt;
+    int time_to_abort = idle;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort))) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
@@ -716,7 +715,7 @@ error:
  * and one of the use cases is O_CLOEXEC|O_NONBLOCK. */
 int anetPipe(int fds[2], int read_flags, int write_flags) {
     int pipe_flags = 0;
-#if defined(__linux__) || defined(__FreeBSD__)
+#ifdef HAVE_PIPE2
     /* When possible, try to leverage pipe2() to apply flags that are common to both ends.
      * There is no harm to set O_CLOEXEC to prevent fd leaks. */
     pipe_flags = O_CLOEXEC | (read_flags & write_flags);

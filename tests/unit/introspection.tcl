@@ -1066,8 +1066,14 @@ test {IO threads client number} {
 
 test {Clients are evenly distributed among io threads} {
     start_server {overrides {io-threads 4} tags {external:skip}} {
-        set cur_clients [s connected_clients]
-        assert_equal $cur_clients 1
+        # There might be a client used for health checks (to detect if the server is up)
+        # that has not been freed timely. This can lead to an inaccurate count of
+        # connectedclients processed by IO threads.
+        wait_for_condition 1000 10 {
+            [s connected_clients] eq 1
+        } else {
+            fail "Fail to wait for connected_clients to be 1"
+        }
         global rdclients
         for {set i 1} {$i < 9} {incr i} {
             set rdclients($i) [redis_deferring_client]
@@ -1091,5 +1097,32 @@ test {Clients are evenly distributed among io threads} {
         for {set i 1} {$i <= 3} {incr i} {
             assert_equal [get_io_thread_clients $i] 3
         }
+    }
+}
+
+# Test insecure configuration warnings
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "*"} wait_ready false} {
+    test {Warning shown when no auth and binding all interfaces} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require authentication and is not protected by network restrictions*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "127.0.0.1"}} {
+    test {Warning shown for configured interface when binding specific address} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require authentication*configured network interface*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {protected-mode yes}} {
+    test {Warning shown for local clients when protected mode is on} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require authentication*local client*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {requirepass secret}} {
+    test {No warning shown when password is set} {
+        # Check that the warning does NOT appear
+        set loglines [exec cat [srv 0 stdout]]
+        assert_equal 0 [string match "*WARNING: Redis does not require authentication*" $loglines]
     }
 }

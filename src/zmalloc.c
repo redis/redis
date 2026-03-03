@@ -81,14 +81,18 @@ void je_free_with_usize(void *ptr, size_t *usize);
 
 #define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
 #define THREAD_MASK (MAX_THREADS - 1)
+#define PEAK_CHECK_THRESHOLD (1024 * 100) /* 100KB */
 
 typedef struct used_memory_entry {
     redisAtomic long long used_memory;
-    char padding[CACHE_LINE_SIZE - sizeof(long long)];
+    redisAtomic long long last_peak_check;
+    char padding[CACHE_LINE_SIZE - sizeof(long long) - sizeof(long long)];
 } used_memory_entry;
 
 static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_THREADS];
 static redisAtomic size_t num_active_threads = 0;
+static redisAtomic size_t zmalloc_peak = 0;
+static redisAtomic time_t zmalloc_peak_time = 0;
 static __thread long my_thread_index = -1;
 
 static inline void init_my_thread_index(void) {
@@ -98,9 +102,46 @@ static inline void init_my_thread_index(void) {
     }
 }
 
-static void update_zmalloc_stat_alloc(long long num) {
+static void update_zmalloc_stat_alloc(long long bytes_delta) {
     init_my_thread_index();
-    atomicIncr(used_memory[my_thread_index].used_memory, num);
+
+    /* Per-thread allocation counter and the last counter value at which we ran a
+     * global peak check (throttles how often we call zmalloc_used_memory()). */
+    long long thread_used, thread_last_peak_check_used;
+    atomicIncrGet(used_memory[my_thread_index].used_memory, thread_used, bytes_delta);
+    atomicGet(used_memory[my_thread_index].last_peak_check, thread_last_peak_check_used);
+
+    /* Only run the (expensive) global used/peak check after this thread's
+     * allocation counter has advanced enough since the last check. */
+    if (unlikely(thread_used - thread_last_peak_check_used > PEAK_CHECK_THRESHOLD)) {
+        /* Snapshot of global used memory across all threads. */
+        size_t used_mem = zmalloc_used_memory();
+
+        /* Current published global peak. */
+        size_t published_peak;
+        atomicGet(zmalloc_peak, published_peak);
+
+        if (used_mem > published_peak) {
+            /* Try to publish `used_mem` as the new global peak.
+             *
+             * Another thread may update `zmalloc_peak` concurrently. Use a CAS loop:
+             * on failure, `old_peak` is refreshed with the latest peak value, and we
+             * retry only while our snapshot still exceeds it. */
+            size_t old_peak = published_peak;
+            while (used_mem > old_peak && !atomicCompareExchange(size_t, zmalloc_peak, old_peak, used_mem)) {
+                /* CAS failed: `old_peak` now holds the current `zmalloc_peak`. */
+            }
+
+            /* If we raised the peak, record when it was reached. */
+            if (used_mem > old_peak) {
+                atomicSet(zmalloc_peak_time, time(NULL));
+            }
+        }
+
+        /* Record the thread counter value at which we last ran a global peak check,
+         * to throttle future checks for this thread. */
+        atomicSet(used_memory[my_thread_index].last_peak_check, thread_used);
+    }
 }
 
 static void update_zmalloc_stat_free(long long num) {
@@ -183,7 +224,7 @@ void *zmalloc_usable(size_t size, size_t *usable) {
     void *ptr = ztrymalloc_usable_internal(size, &usable_size);
     if (!ptr) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
-    ptr = extend_to_usable(ptr, usable_size);
+    if (ptr) ptr = extend_to_usable(ptr, usable_size);
 #endif
     if (usable) *usable = usable_size;
     return ptr;
@@ -536,6 +577,18 @@ size_t zmalloc_used_memory(void) {
         total_mem += thread_used_mem;
     }
     return total_mem;
+}
+
+size_t zmalloc_get_peak_memory(void) {
+    size_t peak;
+    atomicGet(zmalloc_peak, peak);
+    return peak;
+}
+
+time_t zmalloc_get_peak_memory_time(void) {
+    time_t t;
+    atomicGet(zmalloc_peak_time, t);
+    return t;
 }
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
