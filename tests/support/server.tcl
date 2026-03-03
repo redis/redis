@@ -182,23 +182,50 @@ proc ping_server {host port} {
 }
 
 # Ping server with a timeout. Returns 1 if server responds within timeout_ms,
-# otherwise returns 0. Uses blocking connect (instant on localhost) and
-# Tcl's event loop (fileevent + vwait + after) for a reliable read timeout.
+# otherwise returns 0. Uses blocking TCP connect (instant on localhost) and
+# Tcl's event loop (fileevent + vwait + after) for reliable timeouts.
+# For TLS, the handshake is performed separately in non-blocking mode so that
+# a paused/unresponsive server triggers the timeout instead of hanging.
 proc ping_server_with_timeout {host port timeout_ms} {
     set retval 0
     set fd {}
     set wait_var "::ping_wait_[incr ::ping_server_uid]"
     if {[catch {
+        # TCP connect is always blocking: instant on localhost even if the
+        # server process is paused, because the kernel handles SYN/ACK.
+        set fd [socket $host $port]
+
         if {$::tls} {
-            set fd [::tls::socket $host $port]
-        } else {
-            set fd [socket $host $port]
+            # Perform TLS handshake in non-blocking mode with a timeout.
+            # We avoid ::tls::socket because it blocks indefinitely when the
+            # server is paused (SIGSTOP) -- the TLS handshake requires active
+            # server participation that a paused process cannot provide.
+            ::tls::import $fd \
+                -cafile "$::tlsdir/ca.crt" \
+                -certfile "$::tlsdir/client.crt" \
+                -keyfile "$::tlsdir/client.key"
+            fconfigure $fd -blocking 0
+            set hs_done 0
+            set hs_end [expr {[clock milliseconds] + $timeout_ms}]
+            while {!$hs_done && [clock milliseconds] < $hs_end} {
+                if {[catch {set hs_done [::tls::handshake $fd]}]} break
+                if {!$hs_done} {
+                    set $wait_var ""
+                    after 10 [list set $wait_var "x"]
+                    vwait $wait_var
+                }
+            }
+            if {!$hs_done} {
+                error "TLS handshake did not complete"
+            }
+            fconfigure $fd -blocking 1
         }
+
         fconfigure $fd -translation binary -buffering full
         puts $fd "PING\r\n"
         flush $fd
 
-        # Use event loop for read timeout: whichever fires first unblocks vwait
+        # Read timeout via event loop: whichever fires first unblocks vwait
         set $wait_var ""
         set timer [after $timeout_ms [list set $wait_var "timeout"]]
         fileevent $fd readable [list set $wait_var "readable"]
