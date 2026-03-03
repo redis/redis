@@ -249,6 +249,10 @@ client *createClient(connection *conn) {
     c->net_input_bytes = 0;
     c->net_output_bytes = 0;
     c->commands_processed = 0;
+    c->last_ts_when_counted_as_active = 0;
+    c->stat_total_read_events = 0;
+    c->stat_avg_pipeline_length_sum = 0;
+    c->stat_avg_pipeline_length_cnt = 0;
     c->task = NULL;
     c->node_id = NULL;
     atomicSet(c->pending_read, 0);
@@ -3508,6 +3512,8 @@ int isClientReadErrorFatal(client *c) {
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
+    server.stat_total_client_process_input_buff_events++;
+
     /* We limit the lookahead for unauthenticated connections to 1.
      * This is both to reduce memory overhead, and to prevent errors: AUTH can
      * affect the handling of succeeding commands. Parsing of "large"
@@ -3542,6 +3548,7 @@ int processInputBuffer(client *c) {
         /* Determine if we need to parse more commands from the query buffer.
          * Only parse when there are no ready commands waiting to be processed. */
         const int parse_more = !c->pending_cmds.ready_len;
+        int pending_cmd_before_reading = c->pending_cmds.ready_len;
 
         /* Parse up to lookahead commands only if we don't have enough ready commands */
         while (parse_more && c->pending_cmds.ready_len < lookahead &&
@@ -3595,6 +3602,14 @@ int processInputBuffer(client *c) {
             preprocessCommand(c, pcmd);
             pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
             resetClientQbufState(c);
+        }
+
+        if (c->pending_cmds.ready_len != pending_cmd_before_reading) {
+            server.stat_avg_pipeline_length_sum += c->pending_cmds.ready_len;
+            server.stat_avg_pipeline_length_cnt++;
+
+            c->stat_avg_pipeline_length_sum += c->pending_cmds.ready_len;
+            c->stat_avg_pipeline_length_cnt++;
         }
 
         /* Try to consume the next ready command from the pending command list. */
@@ -3706,6 +3721,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     c->read_error = 0;
+
+    c->stat_total_read_events++;
+    statsUpdateActiveClients(c);
 
     /* Update the number of reads of io threads on server */
     atomicIncr(server.stat_io_reads_processed[c->running_tid], 1);
@@ -4006,7 +4024,10 @@ sds catClientInfoString(sds s, client *client) {
         " io-thread=%i", client->tid,
         " tot-net-in=%U", client->net_input_bytes,
         " tot-net-out=%U", client->net_output_bytes,
-        " tot-cmds=%U", client->commands_processed));
+        " tot-cmds=%U", client->commands_processed,
+        " read-events=%U", (unsigned long long)client->stat_total_read_events,
+        " avg-pipeline-len-sum=%U", (unsigned long long)client->stat_avg_pipeline_length_sum,
+        " avg-pipeline-len-cnt=%U", (unsigned long long)client->stat_avg_pipeline_length_cnt));
 
     if (paused) resumeIOThread(client->running_tid);
     return ret;
