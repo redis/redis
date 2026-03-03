@@ -572,6 +572,10 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
 void rioSetAutoSync(rio *r, off_t bytes) {
     if(r->write != rioFileIO.write) return;
     r->io.file.autosync = bytes;
+    /* When disabling autosync, reset buffered to 0 to prevent assertion
+     * failures if autosync is later re-enabled with a value smaller than
+     * the accumulated buffered amount. */
+    if (bytes == 0) r->io.file.buffered = 0;
 }
 
 /* Set the file-based rio object to reclaim cache after every auto-sync.
