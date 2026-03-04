@@ -607,6 +607,40 @@ start_server {tags {"info" "external:skip"}} {
     }
 }
 
+start_server {tags {"info" "external:skip"} overrides {io-threads 4 io-threads-do-reads yes}} {
+    test {clients: active_clients with io-thread one-by-one commands} {
+        r config resetstat
+
+        set clients {}
+        set clients_num 16
+        for {set i 0} {$i < $clients_num} {incr i} {
+            lappend clients [redis_client]
+        }
+
+        # Run request/response (non-pipelined) traffic on many clients.
+        for {set round 0} {$round < 5} {incr round} {
+            set i 0
+            foreach c $clients {
+                $c set key:$round:$i value
+                incr i
+            }
+        }
+
+        # We are still within the 512ms active-client window.
+        set info [r info clients]
+        set ac [getInfoProperty $info active_clients]
+
+        foreach c $clients {
+            $c close
+        }
+
+        # The query client itself is active; additional active clients should
+        # also be counted. If this is <= 1, IO-thread one-by-one traffic was
+        # likely missed by active-client accounting.
+        assert_morethan_equal $ac 2
+    }
+}
+
 start_server {tags {"info" "external:skip"}} {
     test {memory: database and pubsub overhead and rehashing dict count} {
         r flushall
