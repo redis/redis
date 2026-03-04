@@ -1882,7 +1882,7 @@ size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full) {
             if (stats->clvector[i] == 0) continue;
             if (l >= bufsize) break;
             l += snprintf(buf + l, bufsize - l,
-                          "   %ld: %ld (%.02f%%)\n",
+                          "   %lu: %lu (%.02f%%)\n",
                           i, stats->clvector[i], ((float) stats->clvector[i] / stats->htSize) * 100);
         }
     }

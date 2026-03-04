@@ -271,6 +271,8 @@ static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
         te = te->next;
     }
 
+    if (earliest == NULL) return -1;
+
     monotime now = getMonotonicUs();
     return (now >= earliest->when) ? 0 : earliest->when - now;
 }

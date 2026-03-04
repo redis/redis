@@ -8644,7 +8644,7 @@ static void vsetRecallMode(void) {
     unsigned int dim = reply->integer;
     freeReplyObject(reply);
 
-    printf("\n# Testing recall for vector set: %s (dimension: %d)\n",
+    printf("\n# Testing recall for vector set: %s (dimension: %u)\n",
            config.vset_recall_key, dim);
     printf("# Mixing %d random element vectors, top %d results, EF=%d\n\n",
            ele_count, vsim_count, vsim_ef);

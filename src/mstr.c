@@ -247,7 +247,7 @@ void mstrPrint(mstr s, struct mstrKind *kind, int verbose) {
             if (tmp & 0x1) {
                 int mSize = kind->metaSize[i];
                 void *mRef = mstrMetaRef(s, kind, i);
-                printf("[%p] >> meta[%d]:", mRef, i);
+                printf("[%p] >> meta[%u]:", mRef, i);
                 for (int j = 0 ; j < mSize ; ++j) {
                     printf(" 0x%02x", ((unsigned char *) mRef)[j]);
                 }
