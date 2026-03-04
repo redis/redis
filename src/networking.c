@@ -3512,7 +3512,12 @@ int isClientReadErrorFatal(client *c) {
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
-    server.stat_total_client_process_input_buff_events++;
+    atomicIncr(server.stat_total_client_process_input_buff_events, 1);
+
+    /* Keep active-client window updates in main thread only to avoid races
+     * with serverCron() maintenance of the circular slots. */
+    if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+        statsUpdateActiveClients(c);
 
     /* We limit the lookahead for unauthenticated connections to 1.
      * This is both to reduce memory overhead, and to prevent errors: AUTH can
@@ -3605,8 +3610,8 @@ int processInputBuffer(client *c) {
         }
 
         if (c->pending_cmds.ready_len != pending_cmd_before_reading) {
-            server.stat_avg_pipeline_length_sum += c->pending_cmds.ready_len;
-            server.stat_avg_pipeline_length_cnt++;
+            atomicIncr(server.stat_avg_pipeline_length_sum, c->pending_cmds.ready_len);
+            atomicIncr(server.stat_avg_pipeline_length_cnt, 1);
 
             c->stat_avg_pipeline_length_sum += c->pending_cmds.ready_len;
             c->stat_avg_pipeline_length_cnt++;
@@ -3723,7 +3728,6 @@ void readQueryFromClient(connection *conn) {
     c->read_error = 0;
 
     c->stat_total_read_events++;
-    statsUpdateActiveClients(c);
 
     /* Update the number of reads of io threads on server */
     atomicIncr(server.stat_io_reads_processed[c->running_tid], 1);

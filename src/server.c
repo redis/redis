@@ -86,7 +86,7 @@ struct redisServer server; /* Server global state */
 /* Snapshot of server.stat_total_client_process_input_buff_events taken in
  * afterSleep() and compared in beforeSleep() to detect event loop cycles
  * where client input buffers were processed. */
-size_t stat_prev_total_client_process_input_buff_events = 0;
+long long stat_prev_total_client_process_input_buff_events = 0;
 
 /*============================ Internal prototypes ========================== */
 
@@ -2039,7 +2039,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
 
-    if (stat_prev_total_client_process_input_buff_events != server.stat_total_client_process_input_buff_events)
+    long long total_client_process_input_buff_events;
+    atomicGet(server.stat_total_client_process_input_buff_events, total_client_process_input_buff_events);
+    if (stat_prev_total_client_process_input_buff_events != total_client_process_input_buff_events)
         server.stat_eventloop_cycles_with_clients_input_buff_processing++;
 
     /* Record max command count per cycle. */
@@ -2091,7 +2093,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         /* Set the eventloop command count at start. */
         server.el_cmd_cnt_start = server.stat_numcommands;
 
-        stat_prev_total_client_process_input_buff_events = server.stat_total_client_process_input_buff_events;
+        atomicGet(server.stat_total_client_process_input_buff_events, stat_prev_total_client_process_input_buff_events);
     }
 
     /* Set running after waking up */
@@ -2866,10 +2868,11 @@ void resetServerStats(void) {
     server.stat_cluster_incompatible_ops = 0;
     server.stat_total_prefetch_batches = 0;
     server.stat_total_prefetch_entries = 0;
-    server.stat_avg_pipeline_length_sum = 0;
-    server.stat_avg_pipeline_length_cnt = 0;
-    server.stat_total_client_process_input_buff_events = 0;
+    atomicSet(server.stat_avg_pipeline_length_sum, 0);
+    atomicSet(server.stat_avg_pipeline_length_cnt, 0);
+    atomicSet(server.stat_total_client_process_input_buff_events, 0);
     server.stat_eventloop_cycles_with_clients_input_buff_processing = 0;
+    stat_prev_total_client_process_input_buff_events = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -6555,6 +6558,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
+        long long stat_total_client_process_input_buff_events;
+        long long stat_avg_pipeline_length_sum;
+        long long stat_avg_pipeline_length_cnt;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -6565,6 +6571,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
         atomicGet(server.stat_client_qbuf_limit_disconnections, stat_client_qbuf_limit_disconnections);
+        atomicGet(server.stat_total_client_process_input_buff_events, stat_total_client_process_input_buff_events);
+        atomicGet(server.stat_avg_pipeline_length_sum, stat_avg_pipeline_length_sum);
+        atomicGet(server.stat_avg_pipeline_length_cnt, stat_avg_pipeline_length_cnt);
 
         /* If we calculated the total reads and writes in the threads section,
          * we don't need to do it again, and also keep the values consistent. */
@@ -6646,10 +6655,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
             "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION),
             "eventloop_cycles_with_clients_processing:%zu\r\n", server.stat_eventloop_cycles_with_clients_input_buff_processing,
-            "total_client_processing_events:%zu\r\n", server.stat_total_client_process_input_buff_events,
-            "avg_pipeline_length_sum:%lld\r\n", server.stat_avg_pipeline_length_sum,
-            "avg_pipeline_length_cnt:%lld\r\n", server.stat_avg_pipeline_length_cnt,
-            "avg_pipeline_length:%.2f\r\n", server.stat_avg_pipeline_length_cnt ? (float)server.stat_avg_pipeline_length_sum / server.stat_avg_pipeline_length_cnt : 0));
+            "total_client_processing_events:%lld\r\n", stat_total_client_process_input_buff_events,
+            "avg_pipeline_length_sum:%lld\r\n", stat_avg_pipeline_length_sum,
+            "avg_pipeline_length_cnt:%lld\r\n", stat_avg_pipeline_length_cnt,
+            "avg_pipeline_length:%.2f\r\n", stat_avg_pipeline_length_cnt ? (float)stat_avg_pipeline_length_sum / stat_avg_pipeline_length_cnt : 0));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);
