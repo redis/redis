@@ -34,6 +34,18 @@ start_server {tags {"modules external:skip"}} {
         set e
     } {*Invalid*}
 
+    test {DataType: RM_SaveDataTypeToString handles io.error without leaking} {
+        r datatype.set dtkey -1111 MyString
+        r datatype.save_io_error 1
+
+        # Triggers RM_SaveDataTypeToString error path
+        catch {r datatype.dump dtkey} e
+        assert_equal $e "Failed to save"
+
+        # Reset flag for subsequent tests
+        r datatype.save_io_error 0
+    }
+
     test {DataType: ModuleTypeReplaceValue() happy path works} {
         r datatype.set key-a 1 AAA
         r datatype.set key-b 2 BBB
