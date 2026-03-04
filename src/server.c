@@ -6645,8 +6645,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_cmd_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CMD].sum,
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
             "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION),
-            "eventloop_cycles_with_clients_processing:%lu\r\n", server.stat_eventloop_cycles_with_clients_input_buff_processing,
-            "total_client_processing_events:%lu\r\n", server.stat_total_client_process_input_buff_events,
+            "eventloop_cycles_with_clients_processing:%zu\r\n", server.stat_eventloop_cycles_with_clients_input_buff_processing,
+            "total_client_processing_events:%zu\r\n", server.stat_total_client_process_input_buff_events,
             "avg_pipeline_length_sum:%lld\r\n", server.stat_avg_pipeline_length_sum,
             "avg_pipeline_length_cnt:%lld\r\n", server.stat_avg_pipeline_length_cnt,
             "avg_pipeline_length:%.2f\r\n", server.stat_avg_pipeline_length_cnt ? (float)server.stat_avg_pipeline_length_sum / server.stat_avg_pipeline_length_cnt : 0));
