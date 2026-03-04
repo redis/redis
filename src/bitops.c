@@ -941,21 +941,13 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         return 0;
     }
 
-    /* Unlike other operations that do the same with all source keys
-     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
-     * but the first one. We first store that disjunction in `lres` and later 
-     * compute the final operation using the first source key. */
-    if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR) {
-        memcpy(res, keys[0], minlen);
-    }
-
     const __m256i max256 = _mm256_set1_epi64x(-1);
     const __m256i zero256 = _mm256_set1_epi64x(0);
 
     switch (op) {
     case BITOP_AND:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
 
             for (i = 1; i < numkeys; i++) {
                 __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
@@ -972,7 +964,9 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
     case BITOP_ANDOR:
     case BITOP_OR:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = (op == BITOP_OR) ?
+                _mm256_lddqu_si256((__m256i*)(keys[0]+processed)) :
+                zero256;
 
             for (i = 1; i < numkeys; i++) {
                 __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
@@ -986,7 +980,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_XOR:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
 
             for (i = 1; i < numkeys; i++) {
                 __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
@@ -1000,7 +994,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_NOT:
         while (minlen >= step) {
-             __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+             __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
             lres = _mm256_xor_si256(lres, max256);
             _mm256_storeu_si256((__m256i*)res, lres);
             res += step;
@@ -1010,7 +1004,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_ONE:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
             __m256i common_bits = zero256;
 
             for (i = 1; i < numkeys; i++) {
@@ -1099,21 +1093,12 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
         return 0;
     }
 
-    /* Unlike other operations that do the same with all source keys
-     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
-     * but the first one. We first store that disjunction in `lres` and later 
-     * compute the final operation using the first source key. */
-    if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR) {
-        memcpy(res, keys[0], minlen);
-    }
-
     const __m512i max512 = _mm512_set1_epi64(-1);
     const __m512i zero512 = _mm512_set1_epi64(0);
-
     switch (op) {
     case BITOP_AND:
         while (minlen >= step) {
-            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
 
             for (i = 1; i < numkeys; i++) {
                 __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
@@ -1130,7 +1115,9 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
     case BITOP_ANDOR:
     case BITOP_OR:
         while (minlen >= step) {
-            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i lres = (op == BITOP_OR) ?
+                _mm512_loadu_si512((__m512i*)(keys[0]+processed)) :
+                zero512;
 
             for (i = 1; i < numkeys; i++) {
                 __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
@@ -1144,7 +1131,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_XOR:
         while (minlen >= step) {
-            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
 
             for (i = 1; i < numkeys; i++) {
                 __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
@@ -1158,7 +1145,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_NOT:
         while (minlen >= step) {
-            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
             lres = _mm512_xor_si512(lres, max512);
             _mm512_storeu_si512((__m512i*)res, lres);
             res += step;
@@ -1168,7 +1155,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_ONE:
         while (minlen >= step) {
-            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
             __m512i common_bits = zero512;
 
             for (i = 1; i < numkeys; i++) {
