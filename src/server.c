@@ -6020,10 +6020,10 @@ void statsUpdateActiveClients(client *c) {
     if (current_window_ts != active_clients_window_ts) {
         /* Clear every slot crossed since the last update. Cap at one full
          * window so large time gaps still clear each slot exactly once. */
-        int slots_to_clear = (current_window_ts - active_clients_window_ts) / SLOT_DURATION_MS;
+        long long slots_to_clear = (current_window_ts - active_clients_window_ts) / SLOT_DURATION_MS;
         if (slots_to_clear > WINDOW_SLOTS) slots_to_clear = WINDOW_SLOTS;
         int prev_slot = (active_clients_window_ts / SLOT_DURATION_MS) % WINDOW_SLOTS;
-        for (int i = 1; i <= slots_to_clear; i++) {
+        for (int i = 1; i <= (int)slots_to_clear; i++) {
             active_clients_window[(prev_slot + i) % WINDOW_SLOTS] = 0;
         }
         active_clients_window_ts = current_window_ts;
@@ -6658,7 +6658,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_client_processing_events:%lld\r\n", stat_total_client_process_input_buff_events,
             "avg_pipeline_length_sum:%lld\r\n", stat_avg_pipeline_length_sum,
             "avg_pipeline_length_cnt:%lld\r\n", stat_avg_pipeline_length_cnt,
-            "avg_pipeline_length:%.2f\r\n", stat_avg_pipeline_length_cnt ? (float)stat_avg_pipeline_length_sum / stat_avg_pipeline_length_cnt : 0));
+            "avg_pipeline_length:%.2f\r\n", stat_avg_pipeline_length_cnt ? (double)stat_avg_pipeline_length_sum / stat_avg_pipeline_length_cnt : 0));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);
