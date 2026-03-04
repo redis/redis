@@ -339,7 +339,7 @@ void prefetchCommands(void) {
     /* Prefetch argv's for all pending commands */
     for (size_t i = 0; i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
-        if (unlikely(pcmd->argc <= 0)) continue;
+        if (unlikely(pcmd->argc <= 0 || !pcmd->argv)) continue;
         for (int j = 0; j < pcmd->argc; j++) {
             redis_prefetch_read(pcmd->argv[j]);
         }
@@ -348,7 +348,7 @@ void prefetchCommands(void) {
     /* Prefetch the argv->ptr if required */
     for (size_t i = 0; i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
-        if (unlikely(pcmd->argc <= 1)) continue;
+        if (unlikely(pcmd->argc <= 1 || !pcmd->argv)) continue;
         /* Skip the first argument (command name), as it's typically short */
         for (int j = 1; j < pcmd->argc; j++) {
             if (pcmd->argv[j]->encoding == OBJ_ENCODING_RAW) {
@@ -367,6 +367,7 @@ void prefetchCommands(void) {
 
     /* Get the keys ptrs - we do it here after the key obj was prefetched. */
     for (size_t i = 0; i < batch->key_count; i++) {
+        if (unlikely(batch->keys[i] == NULL)) continue;
         batch->keys[i] = ((robj *)batch->keys[i])->ptr;
     }
 
