@@ -2039,10 +2039,15 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
 
-    long long total_client_process_input_buff_events;
-    atomicGet(server.stat_total_client_process_input_buff_events, total_client_process_input_buff_events);
-    if (stat_prev_total_client_process_input_buff_events != total_client_process_input_buff_events)
-        server.stat_eventloop_cycles_with_clients_input_buff_processing++;
+    /* The snapshot is refreshed in afterSleep() only for regular event-loop
+     * cycles. Skip mini-cycles from processEventsWhileBlocked() to avoid
+     * repeatedly comparing against a stale snapshot. */
+    if (!ProcessingEventsWhileBlocked) {
+        long long total_client_process_input_buff_events;
+        atomicGet(server.stat_total_client_process_input_buff_events, total_client_process_input_buff_events);
+        if (stat_prev_total_client_process_input_buff_events != total_client_process_input_buff_events)
+            server.stat_eventloop_cycles_with_clients_input_buff_processing++;
+    }
 
     /* Record max command count per cycle. */
     if (server.stat_numcommands > server.el_cmd_cnt_start) {
