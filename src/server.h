@@ -1096,8 +1096,9 @@ static_assert(offsetof(payloadHeader, payload_len) == 0, "payload_len must be at
  * we store pointers to object and string itself */
 typedef struct __attribute__((__packed__)) bulkStrRef {
     robj *obj; /* pointer to object used for reference count management */
+    size_t len; /* bulk string length */
     unsigned int prefix_cnt;
-    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n */
+    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n, filled when writing */
     char crlf[2]; /* \r\n */
 } bulkStrRef;
 
@@ -3157,6 +3158,7 @@ void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
+unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 void deferredAfterErrorReply(client *c, list *errors);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
