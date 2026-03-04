@@ -3610,10 +3610,11 @@ int processInputBuffer(client *c) {
         }
 
         if (c->pending_cmds.ready_len != pending_cmd_before_reading) {
-            atomicIncr(server.stat_avg_pipeline_length_sum, c->pending_cmds.ready_len);
+            int newly_parsed_cmds = c->pending_cmds.ready_len - pending_cmd_before_reading;
+            atomicIncr(server.stat_avg_pipeline_length_sum, newly_parsed_cmds);
             atomicIncr(server.stat_avg_pipeline_length_cnt, 1);
 
-            c->stat_avg_pipeline_length_sum += c->pending_cmds.ready_len;
+            c->stat_avg_pipeline_length_sum += newly_parsed_cmds;
             c->stat_avg_pipeline_length_cnt++;
         }
 
