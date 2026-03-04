@@ -3300,6 +3300,20 @@ start_server {
         assert_error "*wrong number of arguments*" {r XNACK key group SILENT IDS 1}
     }
 
+    test "XNACK unrecognized option rejected at any position" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL BADOPT IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT BADOPT IDS 1 1-0 FORCE}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT FORCE BADOPT IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL RETRYCOUNT 5 BADOPT IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 5 BADOPT}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL FORCE IDS 1 1-0 BADOPT RETRYCOUNT 5}
+    }
+
     test "XNACK mode validation" {
         r DEL mystream
         r XADD mystream 1-0 f v
@@ -3313,10 +3327,10 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp FAIL FATAL IDS 1 1-0}
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT FAIL IDS 1 1-0}
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp FATAL SILENT IDS 1 1-0}
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL FATAL IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT FAIL IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FATAL SILENT IDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
     }
 
     test "XNACK IDS keyword validation" {
@@ -3324,7 +3338,8 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
+        assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT FORCE RETRYCOUNT 5}
     }
 
     test "XNACK numids validation" {
@@ -3357,21 +3372,16 @@ start_server {
         assert_error "*Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
     }
 
-    test "XNACK invalid RETRYCOUNT value" {
+    test "XNACK RETRYCOUNT validation" {
         r DEL mystream
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
         assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
-    }
-
-    test "XNACK RETRYCOUNT out of range" {
-        r DEL mystream
-        r XADD mystream 1-0 f v
-        r XGROUP CREATE mystream grp 0
-        r XREADGROUP GROUP grp c1 STREAMS mystream >
         assert_error "*Invalid RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
         assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
+        assert_error "*missing value after RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
+        assert_error "*wrong number of arguments*" {r XNACK mystream grp FAIL RETRYCOUNT}
     }
 
     test "XNACK unrecognized option" {
@@ -3972,6 +3982,38 @@ start_server {
         assert_equal [lindex $pending 0 1] {}
         assert_equal [lindex $pending 0 3] 99
     }
+
+    test "XNACK flexible IDS position - options accepted before and after IDS block" {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XADD mystream 3-0 f v3
+        r XGROUP CREATE mystream grp 0
+
+        # FORCE before IDS
+        assert_equal 1 [r XNACK mystream grp FAIL FORCE IDS 1 1-0]
+        r XACK mystream grp 1-0
+
+        # RETRYCOUNT before IDS
+        assert_equal 1 [r XNACK mystream grp FAIL FORCE RETRYCOUNT 42 IDS 1 1-0]
+        r XACK mystream grp 1-0
+
+        # RETRYCOUNT before, FORCE after IDS
+        assert_equal 1 [r XNACK mystream grp FAIL RETRYCOUNT 5 IDS 1 1-0 FORCE]
+        r XACK mystream grp 1-0
+
+        # FORCE before, RETRYCOUNT after IDS
+        assert_equal 1 [r XNACK mystream grp FAIL FORCE IDS 1 1-0 RETRYCOUNT 3]
+        r XACK mystream grp 1-0
+
+        # Multiple IDs with options before IDS
+        assert_equal 3 [r XNACK mystream grp FAIL RETRYCOUNT 10 IDS 3 1-0 2-0 3-0 FORCE]
+        r XACK mystream grp 1-0 2-0 3-0
+
+        # Canonical order still works
+        assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 20 FORCE]
+    }
+
 
     test "XNACK NACKed entry can be reclaimed via XCLAIM" {
         r DEL mystream

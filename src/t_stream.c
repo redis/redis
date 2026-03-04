@@ -3806,33 +3806,35 @@ void xnackCommand(client *c) {
         return;
     }
 
-    if (strcasecmp(c->argv[4]->ptr,"IDS") != 0) {
-        addReplyError(c,"ERR syntax error, expected IDS keyword");
-        return;
-    }
-
-    long long numids;
-    if (getLongLongFromObjectOrReply(c,c->argv[5],&numids,NULL) != C_OK)
-        return;
-
-    if (numids < 1) {
-        addReplyError(c,"ERR numids must be positive");
-        return;
-    }
-
-    if (numids > (c->argc - 6)) {
-        addReplyError(c,"ERR number of IDs doesn't match numids");
-        return;
-    }
-
-    int ids_end = 6 + (int)numids;
-
+    int ids_start = 0;
+    long long numids = 0;
     int force = 0;
     long long retrycount = -1;
-    for (int i = ids_end; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr,"FORCE")) {
+    for (int i = 4; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr,"IDS")) {
+            if (i + 1 >= c->argc) {
+                addReplyError(c,"ERR syntax error, missing numids after IDS");
+                return;
+            }
+            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&numids,NULL) != C_OK)
+                return;
+            if (numids < 1) {
+                addReplyError(c,"ERR numids must be positive");
+                return;
+            }
+            ids_start = i + 2;
+            if (ids_start + numids > c->argc) {
+                addReplyError(c,"ERR number of IDs doesn't match numids");
+                return;
+            }
+            i = ids_start + (int)numids - 1;
+        } else if (!strcasecmp(c->argv[i]->ptr,"FORCE")) {
             force = 1;
-        } else if (!strcasecmp(c->argv[i]->ptr,"RETRYCOUNT") && i + 1 < c->argc) {
+        } else if (!strcasecmp(c->argv[i]->ptr,"RETRYCOUNT")) {
+            if (i + 1 >= c->argc) {
+                addReplyError(c,"ERR syntax error, missing value after RETRYCOUNT");
+                return;
+            }
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
                 return;
@@ -3847,13 +3849,18 @@ void xnackCommand(client *c) {
         }
     }
 
+    if (ids_start == 0) {
+        addReplyError(c,"ERR syntax error, expected IDS keyword");
+        return;
+    }
+
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
-    int id_count = (int)numids; /* safe: numids bounded by argc */
+    int id_count = (int)numids;
     if (id_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*id_count);
     for (int j = 0; j < id_count; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[6+j],&ids[j],0,NULL) != C_OK) goto cleanup;
+        if (streamParseStrictIDOrReply(c,c->argv[ids_start+j],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
     stream *s = kv->ptr;
