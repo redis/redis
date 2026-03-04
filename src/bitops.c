@@ -959,6 +959,10 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
             minlen -= step;
         }
         break;
+    /* Unlike other operations that do the same with all source keys
+     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
+     * but the first one. We first store that disjunction in `lres` and later
+     * compute the final operation using the first source key. */
     case BITOP_DIFF:
     case BITOP_DIFF1:
     case BITOP_ANDOR:
@@ -1110,6 +1114,10 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
             minlen -= step;
         }
         break;
+    /* Unlike other operations that do the same with all source keys
+     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
+     * but the first one. We first store that disjunction in `lres` and later
+     * compute the final operation using the first source key. */
     case BITOP_DIFF:
     case BITOP_DIFF1:
     case BITOP_ANDOR:
