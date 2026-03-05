@@ -54,14 +54,6 @@ array set ::redis::testing_resp3 {} ;# Indicating if the current client is using
 set ::force_resp3 0
 set ::log_req_res 0
 
-# Returns 1 if the string contains at least one character with a code point
-# above U+00FF (i.e. a character that cannot be represented as a single byte).
-# Uses regexp rather than "string match *[^\u0000-\u00ff]*" to avoid the
-# catastrophic backtracking bug in Tcl 9.0's glob engine.
-proc has_unicode_above_255 {s} {
-    return [regexp {[^\u0000-\u00ff]} $s]
-}
-
 proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
         package require tls
@@ -173,10 +165,11 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set cmd "*[expr {[llength $argv]+1}]\r\n"
         append cmd "$[string length $method]\r\n$method\r\n"
         foreach a $argv {
-            # Tcl 9.0: encode non-byte characters as UTF-8 so the byte length
-            # sent in the RESP header matches the actual payload size.
-            # Pure-binary arguments are left untouched to avoid corruption.
-            if {$::tcl_version >= 9.0 && [has_unicode_above_255 $a]} {
+            # In Tcl 9.0, only convert to UTF-8 if the string contains non-byte characters
+            # to preserve binary data while handling unicode correctly
+            # Uses regexp rather than "string match *[^\u0000-\u00ff]*" to avoid the
+            # catastrophic backtracking bug in Tcl 9.0's glob engine.
+            if {$::tcl_version >= 9.0 && [regexp {[^\u0000-\u00ff]} $a]} {
                 set a [encoding convertto utf-8 $a]
             }
             append cmd "$[string length $a]\r\n$a\r\n"
