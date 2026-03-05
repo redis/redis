@@ -2049,7 +2049,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
-
     /* Record max command count per cycle. */
     if (server.stat_numcommands > server.el_cmd_cnt_start) {
         long long el_command_cnt = server.stat_numcommands - server.el_cmd_cnt_start;
