@@ -244,7 +244,9 @@ proc ping_server_with_timeout {host port timeout_ms} {
         close $fd
         set fd {}
     } e]} {
-        catch {if {$fd ne {}} {close $fd}}
+        if {$fd ne {}} {
+            catch {close $fd}
+        }
     }
     unset -nocomplain $wait_var
     return $retval
