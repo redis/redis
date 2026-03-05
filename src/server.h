@@ -587,7 +587,7 @@ typedef enum {
 #define SLAVE_REQ_SLOTS_SNAPSHOT        (1 << 2) /* Only slots snapshot is required */
 #define SLAVE_REQ_RDB_CHANNEL           (1 << 3) /* Use rdb channel replication, transfer RDB background */
 #define SLAVE_REQ_RDB_NO_COMPRESS       (1 << 4) /* Don't enable RDB compression */
-#define SLAVE_REQ_RDB_NO_CHECKSUM       (1 << 4) /* Don't enable RDB checksum */
+#define SLAVE_REQ_RDB_NO_CHECKSUM       (1 << 5) /* Don't enable RDB checksum */
 /* Mask of all bits in the slave requirements bitfield that represent non-standard (filtered) RDB requirements */
 #define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS | SLAVE_REQ_SLOTS_SNAPSHOT)
 
