@@ -16,20 +16,6 @@ static int load_encver = 0;
 static volatile int slow_loading = 0;
 static volatile int is_in_slow_loading = 0;
 
-/* used to test error handing in RM_SaveDataTypeToString */
-static volatile int save_io_error = 0;
-
-/* Mock struct matching RedisModuleIO (src/server.h) to access error field.
- * No public API exists to set io.error, so we cast to this layout.
- * Note: depends on field layout - inserting/deleting fields before 'error'
- * in RedisModuleIO will break this. */
-typedef struct {
-    size_t bytes;
-    void *rio;
-    void *entity;
-    int error;
-} MockRedisModuleIO;
-
 #define DATATYPE_ENC_VER 1
 
 typedef struct {
@@ -63,12 +49,6 @@ static void *datatype_load(RedisModuleIO *io, int encver) {
 }
 
 static void datatype_save(RedisModuleIO *io, void *value) {
-    if (save_io_error) {
-        MockRedisModuleIO *mock_io = (MockRedisModuleIO *)io;
-        mock_io->error = 1;
-        return;
-    }
-
     DataType *dt = (DataType *) value;
     RedisModule_SaveSigned(io, dt->intval);
     RedisModule_SaveString(io, dt->strval);
@@ -254,24 +234,6 @@ static int datatype_is_in_slow_loading(RedisModuleCtx *ctx, RedisModuleString **
     return REDISMODULE_OK;
 }
 
-/* used to test error handling in RM_SaveDataTypeToString */
-static int datatype_save_io_error(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    if (argc != 2) {
-        RedisModule_WrongArity(ctx);
-        return REDISMODULE_OK;
-    }
-
-    long long ll;
-    if (RedisModule_StringToLongLong(argv[1], &ll) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "Invalid integer value");
-        return REDISMODULE_OK;
-    }
-    save_io_error = ll;
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-    return REDISMODULE_OK;
-}
-
 int createDataTypeBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -345,10 +307,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "datatype.is_in_slow_loading", datatype_is_in_slow_loading,
-                                  "allow-loading", 0, 0, 0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "datatype.save_io_error", datatype_save_io_error,
                                   "allow-loading", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
