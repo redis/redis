@@ -83,9 +83,9 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /* Global vars */
 struct redisServer server; /* Server global state */
 
-/* Snapshot of server.stat_total_client_process_input_buff_events taken in
- * afterSleep() and compared in beforeSleep() to detect event loop cycles
- * where client input buffers were processed. */
+/* Snapshot of server.stat_total_client_process_input_buff_events used in
+ * beforeSleep() to detect event loop cycles where client input buffers
+ * were processed. */
 long long stat_prev_total_client_process_input_buff_events = 0;
 
 /*============================ Internal prototypes ========================== */
@@ -2003,6 +2003,17 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         }
     }
 
+    /* Detect cycles with client input processing.
+     * Compare and refresh the snapshot here (not in afterSleep()) so IO-thread updates during aeApiPoll() are not missed.
+     * Run this before dispatching new IO-thread work. */
+    if (!ProcessingEventsWhileBlocked) {
+        long long total_client_process_input_buff_events;
+        atomicGet(server.stat_total_client_process_input_buff_events, total_client_process_input_buff_events);
+        if (stat_prev_total_client_process_input_buff_events != total_client_process_input_buff_events)
+            server.stat_eventloop_cycles_with_clients_input_buff_processing++;
+        stat_prev_total_client_process_input_buff_events = total_client_process_input_buff_events;
+    }
+
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWrites();
 
@@ -2038,16 +2049,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
-
-    /* The snapshot is refreshed in afterSleep() only for regular event-loop
-     * cycles. Skip mini-cycles from processEventsWhileBlocked() to avoid
-     * repeatedly comparing against a stale snapshot. */
-    if (!ProcessingEventsWhileBlocked) {
-        long long total_client_process_input_buff_events;
-        atomicGet(server.stat_total_client_process_input_buff_events, total_client_process_input_buff_events);
-        if (stat_prev_total_client_process_input_buff_events != total_client_process_input_buff_events)
-            server.stat_eventloop_cycles_with_clients_input_buff_processing++;
-    }
 
     /* Record max command count per cycle. */
     if (server.stat_numcommands > server.el_cmd_cnt_start) {
@@ -2097,8 +2098,6 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         server.el_start = getMonotonicUs();
         /* Set the eventloop command count at start. */
         server.el_cmd_cnt_start = server.stat_numcommands;
-
-        atomicGet(server.stat_total_client_process_input_buff_events, stat_prev_total_client_process_input_buff_events);
     }
 
     /* Set running after waking up */

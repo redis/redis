@@ -3514,8 +3514,9 @@ int isClientReadErrorFatal(client *c) {
 int processInputBuffer(client *c) {
     atomicIncr(server.stat_total_client_process_input_buff_events, 1);
 
-    /* Keep active-client window updates in main thread only to avoid races
-     * with serverCron() maintenance of the circular slots. */
+    /* Keep active-client window updates on main-thread paths only (here and
+     * in IO-thread handoff processing) to avoid races with serverCron()
+     * maintenance of the circular slots. */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
         statsUpdateActiveClients(c);
 
