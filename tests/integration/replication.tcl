@@ -1879,8 +1879,11 @@ start_server {tags {"repl external:skip"}} {
                 $master config set repl-diskless-sync yes
                 $master config set repl-diskless-sync-delay 0
                 $master set testkey "testvalue"
+                
+                # Force a full resync by resetting the slave
+                $slave slaveof no one
                 $slave slaveof $master_host $master_port
-
+                
                 # Wait for replication to complete again
                 wait_for_condition 100 1000 {
                     [lindex [$slave role] 0] eq {slave} &&
