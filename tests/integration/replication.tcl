@@ -1832,3 +1832,48 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+# Test for issue #14838: No crash when prefetchCommands handles NULL argv and keys during replication
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    start_server {} {
+        set slave [srv 0 client]
+
+        test {Prefetch handles NULL argv gracefully during RDB replication} {
+            # Configure master for diskless sync to trigger prefetch code path
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 500
+
+            # Create data on the master  
+            $master set test_key "test_value"
+            $master set another_key "another_value"
+
+            # Start replication from the slave
+            $slave slaveof $master_host $master_port
+
+            # Use a longer timeout and wait for replication to complete
+            set retry 200
+            while {$retry > 0} {
+                set role [lindex [$slave role] 0]
+                set info [$slave info replication]
+                
+                if {$role eq {slave} && [string match {*master_link_status:up*} $info]} {
+                    break
+                }
+                incr retry -1
+                after 100
+            }
+
+            if {$retry == 0} {
+                fail "Replica did not complete synchronization"
+            }
+
+            # Verify the replicated data
+            assert_equal "test_value" [$slave get test_key]
+            assert_equal "another_value" [$slave get another_key]
+        }
+    }
+}
