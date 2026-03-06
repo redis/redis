@@ -83,7 +83,7 @@ ifeq ($(DISABLE_WERRORS),yes)
 			\( -name "Makefile" \
 			-o -name "*.mk" \
 			-o -name "CMakeLists.txt" \) \
-			-exec sed -i 's/-Werror//g' {} +; \
+			-exec sh -c 'for f do sed "s/-Werror//g" "$$f" > "$$f.tmp" && mv "$$f.tmp" "$$f"; done' _ {} +; \
 	done
 endif
 
