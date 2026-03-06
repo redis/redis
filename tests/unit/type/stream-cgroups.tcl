@@ -3380,7 +3380,7 @@ start_server {
         assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
         assert_error "*Invalid RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
         assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
-        assert_error "*missing value after RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
+        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
         assert_error "*wrong number of arguments*" {r XNACK mystream grp FAIL RETRYCOUNT}
     }
 

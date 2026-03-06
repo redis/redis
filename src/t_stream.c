@@ -2038,7 +2038,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
-                nack->delivery_count += (nack->delivery_count < LLONG_MAX);
+                nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
                 pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
 
                 consumer->active_time = cmd_time_snapshot;
@@ -2262,7 +2262,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             addReplyNullArray(c);
         } else {
             streamNACK *nack = ri.data;
-            nack->delivery_count += (nack->delivery_count < LLONG_MAX);
+            nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
             pelListUpdate(group, nack, commandTimeSnapshot());
         }
         arraylen++;
@@ -3813,11 +3813,9 @@ void xnackCommand(client *c) {
     int force = 0;
     long long retrycount = -1;
     for (int i = 4; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr,"IDS")) {
-            if (i + 1 >= c->argc) {
-                addReplyError(c,"ERR syntax error, missing numids after IDS");
-                return;
-            }
+        int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
+        char *opt = c->argv[i]->ptr;
+        if (!strcasecmp(opt,"IDS") && moreargs) {
             long numids_long;
             if (getRangeLongFromObjectOrReply(c,c->argv[i+1],1,INT_MAX,
                 &numids_long,"numids must be a positive integer") != C_OK)
@@ -3829,13 +3827,9 @@ void xnackCommand(client *c) {
                 return;
             }
             i = ids_start + numids - 1;
-        } else if (!strcasecmp(c->argv[i]->ptr,"FORCE")) {
+        } else if (!strcasecmp(opt,"FORCE")) {
             force = 1;
-        } else if (!strcasecmp(c->argv[i]->ptr,"RETRYCOUNT")) {
-            if (i + 1 >= c->argc) {
-                addReplyError(c,"ERR syntax error, missing value after RETRYCOUNT");
-                return;
-            }
+        } else if (!strcasecmp(opt,"RETRYCOUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
                 return;
@@ -4509,7 +4503,7 @@ void xclaimCommand(client *c) {
             if (retrycount >= 0) {
                 nack->delivery_count = retrycount;
             } else if (!justid) {
-                nack->delivery_count += (nack->delivery_count < LLONG_MAX);
+                nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
             }
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
@@ -4698,7 +4692,7 @@ void xautoclaimCommand(client *c) {
 
         /* Increment the delivery attempts counter unless JUSTID option provided */
         if (!justid)
-            nack->delivery_count += (nack->delivery_count < LLONG_MAX);
+            nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
