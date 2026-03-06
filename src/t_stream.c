@@ -755,9 +755,11 @@ typedef struct {
 #define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
 #define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
 
-#define XNACK_SILENT 0
-#define XNACK_FAIL   1
-#define XNACK_FATAL  2
+/* XNACK mode flags – control how the delivery counter is adjusted when
+ * a pending entry is released back to the group (NACKed). */
+#define XNACK_SILENT 0  /* Decrement delivery_count by 1 (undo the delivery) */
+#define XNACK_FAIL   1  /* Keep delivery_count unchanged */
+#define XNACK_FATAL  2  /* Set delivery_count to LLONG_MAX (permanent failure) */
 
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
@@ -3807,7 +3809,7 @@ void xnackCommand(client *c) {
     }
 
     int ids_start = 0;
-    long long numids = 0;
+    int numids = 0;
     int force = 0;
     long long retrycount = -1;
     for (int i = 4; i < c->argc; i++) {
@@ -3816,18 +3818,17 @@ void xnackCommand(client *c) {
                 addReplyError(c,"ERR syntax error, missing numids after IDS");
                 return;
             }
-            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&numids,NULL) != C_OK)
+            long numids_long;
+            if (getRangeLongFromObjectOrReply(c,c->argv[i+1],1,INT_MAX,
+                &numids_long,"numids must be a positive integer") != C_OK)
                 return;
-            if (numids < 1) {
-                addReplyError(c,"ERR numids must be positive");
-                return;
-            }
+            numids = (int)numids_long;
             ids_start = i + 2;
-            if (ids_start + numids > c->argc) {
+            if (numids > (c->argc - ids_start)) {
                 addReplyError(c,"ERR number of IDs doesn't match numids");
                 return;
             }
-            i = ids_start + (int)numids - 1;
+            i = ids_start + numids - 1;
         } else if (!strcasecmp(c->argv[i]->ptr,"FORCE")) {
             force = 1;
         } else if (!strcasecmp(c->argv[i]->ptr,"RETRYCOUNT")) {
@@ -3856,17 +3857,16 @@ void xnackCommand(client *c) {
 
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
-    int id_count = (int)numids;
-    if (id_count > STREAMID_STATIC_VECTOR_LEN)
-        ids = zmalloc(sizeof(streamID)*id_count);
-    for (int j = 0; j < id_count; j++) {
+    if (numids > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*numids);
+    for (int j = 0; j < numids; j++) {
         if (streamParseStrictIDOrReply(c,c->argv[ids_start+j],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
     stream *s = kv->ptr;
     int nacked = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
-    for (int j = 0; j < id_count; j++) {
+    for (int j = 0; j < numids; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j]);
 

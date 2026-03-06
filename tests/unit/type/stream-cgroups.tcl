@@ -3347,9 +3347,9 @@ start_server {
         r XADD mystream 1-0 f v
         r XGROUP CREATE mystream grp 0
         r XREADGROUP GROUP grp c1 STREAMS mystream >
-        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp SILENT IDS abc 1-0}
-        assert_error "*numids must be positive*" {r XNACK mystream grp SILENT IDS 0 1-0}
-        assert_error "*numids must be positive*" {r XNACK mystream grp SILENT IDS -1 1-0}
+        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS abc 1-0}
+        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS 0 1-0}
+        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS -1 1-0}
         assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
     }
 

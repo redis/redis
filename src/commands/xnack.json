@@ -79,6 +79,18 @@
                         "multiple": true
                     }
                 ]
+            },
+            {
+                "token": "RETRYCOUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "force",
+                "token": "FORCE",
+                "type": "pure-token",
+                "optional": true
             }
         ],
         "reply_schema": {
