@@ -1,4 +1,6 @@
 #!/bin/sh
+# Raise open files limit (macOS default 256 is too low for tests).
+ulimit -n 4096 2>/dev/null || true
 TCL_VERSIONS="8.5 8.6 8.7 9.0"
 TCLSH=""
 [ -z "$MAKE" ] && MAKE=make
