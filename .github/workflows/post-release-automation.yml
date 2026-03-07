@@ -16,7 +16,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Fetch all history for git archive
-      
+
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DOCS_APP_ID }}
+          private-key: ${{ secrets.DOCS_APP_PRIVATE_KEY }}
+
+      - name: Check for uploaded assets
+        run: |
+          ASSETS=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }} --jq '.assets')
+          echo "Assets: ${ASSETS}"
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+
       - name: Extract and validate release information
         id: release-info
         env:
