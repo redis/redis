@@ -21,11 +21,13 @@ jobs:
         id: release-info
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
-          IS_LATEST: ${{ github.event.release.latest }}
+          IS_LATEST: ${{ github.event.release.prerelease == 'false' }}
+          RELEASE_LABEL: ${{ github.event.release.label }}
         run: |
           # Extract tag name from the release event (via env var to prevent injection)
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Release tag: ${TAG_NAME}"
+          echo "Release label: ${RELEASE_LABEL}"
 
           # Determine release type based on "latest" label
           if [[ "${IS_LATEST}" == "true" ]]; then
