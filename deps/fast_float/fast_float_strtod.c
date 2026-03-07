@@ -1,5 +1,6 @@
 #define FFC_IMPL
 #include "ffc.h"
+#include "fast_float_strtod.h"
 #include <string.h>
 #include <errno.h>
 
@@ -26,12 +27,13 @@ static const ffc_parse_options REDIS_FFC_OPTIONS = {
  * in the number is put in *ENDPTR.  */
 
 double fast_float_strtod(const char *nptr, char **endptr) {
-  double result = 0.0;
-  // nocommit I do not like that we are calling strlen here, as the algorithm is designed to
-  // parse a double from within a larger buffer, and indicate the stop point. Is nptr ever a larger buffer
-  // It would be better to accept a `len` and allow the caller to call strlen or provide the buffer len if they have it
+  return fast_float_strtod_len(nptr, strlen(nptr), endptr);
+}
 
-  ffc_result answer = ffc_from_chars_double_options(nptr, nptr + strlen(nptr), &result, REDIS_FFC_OPTIONS);
+double fast_float_strtod_len(const char *nptr, size_t len, char **endptr) {
+  double result = 0.0;
+
+  ffc_result answer = ffc_from_chars_double_options(nptr, nptr + len, &result, REDIS_FFC_OPTIONS);
   if (answer.outcome != FFC_OUTCOME_OK) {
     errno = EINVAL;
   }
