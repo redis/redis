@@ -1,8 +1,13 @@
-#include "fast_float.h"
-#include <iostream>
-#include <string>
-#include <system_error>
-#include <cerrno>
+#define FFC_IMPL
+#include "ffc.h"
+#include <string.h>
+#include <errno.h>
+
+// scientific+fixed, allow leading plus, decimal point as '.'
+static const ffc_parse_options REDIS_FFC_OPTIONS = {
+  .format = FFC_PRESET_GENERAL | FFC_FORMAT_FLAG_ALLOW_LEADING_PLUS,
+  .decimal_point = '.'
+};
 
 /* Convert NPTR to a double using the fast_float library.
  *
@@ -19,11 +24,16 @@
  *               be performed, returns 0.0.
  * If ENDPTR is not NULL, a pointer to the character after the last one used
  * in the number is put in *ENDPTR.  */
-extern "C" double fast_float_strtod(const char *nptr, char **endptr) {
+
+double fast_float_strtod(const char *nptr, char **endptr) {
   double result = 0.0;
-  auto answer = fast_float::from_chars(nptr, nptr + strlen(nptr), result);
-  if (answer.ec != std::errc()) {
-    errno = EINVAL;  // Fallback to  for other errors
+  // nocommit I do not like that we are calling strlen here, as the algorithm is designed to
+  // parse a double from within a larger buffer, and indicate the stop point. Is nptr ever a larger buffer
+  // It would be better to accept a `len` and allow the caller to call strlen or provide the buffer len if they have it
+
+  ffc_result answer = ffc_from_chars_double_options(nptr, nptr + strlen(nptr), &result, REDIS_FFC_OPTIONS);
+  if (answer.outcome != FFC_OUTCOME_OK) {
+    errno = EINVAL;
   }
   if (endptr != NULL) {
     *endptr = (char *)answer.ptr;
