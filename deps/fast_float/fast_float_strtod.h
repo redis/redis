@@ -8,8 +8,7 @@
 extern "C"
 {
 #endif
-    double fast_float_strtod_len(const char *in, size_t len, char **out);
-    double fast_float_strtod(const char *in, char **out);
+    double fast_float_strtod(const char *str, size_t len, char **endptr);
 
 #if defined(__cplusplus)
 }

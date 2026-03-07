@@ -26,19 +26,15 @@ static const ffc_parse_options REDIS_FFC_OPTIONS = {
  * If ENDPTR is not NULL, a pointer to the character after the last one used
  * in the number is put in *ENDPTR.  */
 
-double fast_float_strtod(const char *nptr, char **endptr) {
-  return fast_float_strtod_len(nptr, strlen(nptr), endptr);
-}
-
-double fast_float_strtod_len(const char *nptr, size_t len, char **endptr) {
+double fast_float_strtod(const char *str, size_t len, char **out) {
   double result = 0.0;
 
-  ffc_result answer = ffc_from_chars_double_options(nptr, nptr + len, &result, REDIS_FFC_OPTIONS);
+  ffc_result answer = ffc_from_chars_double_options(str, str + len, &result, REDIS_FFC_OPTIONS);
   if (answer.outcome != FFC_OUTCOME_OK) {
     errno = EINVAL;
   }
-  if (endptr != NULL) {
-    *endptr = (char *)answer.ptr;
+  if (out != NULL) {
+    *out = (char *)answer.ptr;
   }
   return result;
 }

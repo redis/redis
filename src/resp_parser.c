@@ -131,7 +131,7 @@ static int parseDouble(ReplyParser *parser, void *p_ctx) {
     size_t len = p-proto-1;
     double d;
     if (len <= MAX_LONG_DOUBLE_CHARS) {
-        d = fast_float_strtod_len(proto + 1, len, NULL); /* We expect a valid representation. */
+        d = fast_float_strtod_len(proto+1,len,NULL); /* We expect a valid representation. */
     } else {
         d = 0;
     }
