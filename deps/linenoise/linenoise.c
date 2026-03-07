@@ -120,6 +120,7 @@
 #include <assert.h>
 #include "linenoise.h"
 
+#define SEQ_BUFFER_MAX_LENGTH 8
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
@@ -1060,15 +1061,14 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 if (seq[1] >= '0' && seq[1] <= '9') {
                     /* Extended escape, read additional bytes.
                      * Examples: ESC [1;5C  ESC [3~ */
-                    const int seq_buffer_max_length = 8;
-                    char seq_buffer[seq_buffer_max_length];
+                    char seq_buffer[SEQ_BUFFER_MAX_LENGTH];
                     int i = 0;
                     seq_buffer[i++] = seq[1];
 
                     /* Read more bytes until we see a CSI final byte (range @..~).
-                     * Use seq_buffer_max_length-1 to reserve one position for '\0'. */
+                     * Use SEQ_BUFFER_MAX_LENGTH-1 to reserve one position for '\0'. */
                     char seq_char;
-                    while (i < seq_buffer_max_length-1 && read(l.ifd, &seq_char, 1) == 1) {
+                    while (i < SEQ_BUFFER_MAX_LENGTH - 1 && read(l.ifd, &seq_char, 1) == 1) {
                         seq_buffer[i++] = seq_char;
                         if (seq_char >= '@' && seq_char <= '~') break; /* CSI final byte */
                     }
