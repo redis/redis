@@ -22,20 +22,14 @@ jobs:
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
-          IS_LATEST: ${{ github.event.release.prerelease == 'false' }}
-          RELEASE_ASSETS: ${{ toJSON(github.event.release.assets) }}
         run: |
           # Extract tag name from the release event (via env var to prevent injection)
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Release tag: ${TAG_NAME}"
           echo "Is prerelease: ${IS_PRERELEASE}"
 
-          # Log release asset labels
-          echo "Release assets and labels:"
-          echo "${RELEASE_ASSETS}" | jq -r '.[] | "  - Asset: \(.name), Label: \(.label // "none")"'
-
-          # Determine release type based on "latest" label
-          if [[ "${IS_LATEST}" == "true" ]]; then
+          # Determine release type based on prerelease flag
+          if [[ "${IS_PRERELEASE}" == "false" ]]; then
             echo "release_type=latest" >> $GITHUB_OUTPUT
             echo "Detected latest release: ${TAG_NAME}"
           else
