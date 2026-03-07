@@ -22,11 +22,13 @@ jobs:
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          RELEASE_ASSETS: ${{ toJSON(github.event.release.assets) }}
         run: |
           # Extract tag name from the release event (via env var to prevent injection)
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Release tag: ${TAG_NAME}"
           echo "Is prerelease: ${IS_PRERELEASE}"
+          echo "Assets: ${RELEASE_ASSETS}"
 
           # Determine release type based on prerelease flag
           if [[ "${IS_PRERELEASE}" == "false" ]]; then
