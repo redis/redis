@@ -1316,7 +1316,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         if {[string match {*stream-done*} [migration_status 0 $task_id state]]} {
             wait_for_condition 1000 20 {
                 [string match {*failed*} [migration_status 0 $task_id state]] &&
-                [string match {*Server paused*} [migration_status 0 $task_id last_error]]
+                [string match {*Write pause timeout*} [migration_status 0 $task_id last_error]]
             } else {
                 fail "ASM task did not fail"
             }
@@ -1433,9 +1433,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
     }
 
-    test "Source server paused timeout" {
+    test "Source write pause timeout" {
         # set timeout to 0, so the task will fail immediately when checking timeout
         R 0 config set cluster-slot-migration-write-pause-timeout 0
+        R 1 debug asm-failpoint "import-main-channel" "takeover"
 
         # start migration from node 0 to 1
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
@@ -1444,10 +1445,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set slot0_key [slot_key 0 mykey]
         set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 $slot0_key]
 
-        # node 0 will fail since server paused timeout
+        # node 0 will fail due to write pause timeout
         wait_for_condition 2000 10 {
             [string match {*failed*} [migration_status 0 $task_id state]] &&
-            [string match {*Server paused timeout*} \
+            [string match {*Write pause timeout*} \
                 [migration_status 0 $task_id last_error]]
         } else {
             fail "ASM task did not fail"
@@ -1459,6 +1460,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set cluster-slot-migration-write-pause-timeout 10000
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
+        R 1 debug asm-failpoint "" ""
     }
 
     test "Sync buffer drain timeout" {

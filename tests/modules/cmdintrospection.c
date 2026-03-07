@@ -87,33 +87,19 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             {
                 .name = "idmp",
                 .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .since = "8.6.0",
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                 .subargs = (RedisModuleCommandArg[]){
                     {
-                        .name = "idmpauto-with-pid",
-                        .type = REDISMODULE_ARG_TYPE_BLOCK,
-                        .subargs = (RedisModuleCommandArg[]){
-                            {
-                                .name = "idmpauto-token",
-                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                                .token = "IDMPAUTO"
-                            },
-                            {
-                                .name = "pid",
-                                .type = REDISMODULE_ARG_TYPE_STRING,
-                            },
-                            {0}
-                        }
+                        .name = "pid",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .token = "IDMPAUTO"
                     },
                     {
-                        .name = "idmp-with-pid-iid",
+                        .name = "idmp",
                         .type = REDISMODULE_ARG_TYPE_BLOCK,
+                        .token = "IDMP",
                         .subargs = (RedisModuleCommandArg[]){
-                            {
-                                .name = "idmp-token",
-                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                                .token = "IDMP"
-                            },
                             {
                                 .name = "pid",
                                 .type = REDISMODULE_ARG_TYPE_STRING,

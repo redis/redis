@@ -10058,23 +10058,16 @@ struct COMMAND_ARG XADD_condition_Subargs[] = {
 {MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* XADD idmp idmpauto_with_pid argument table */
-struct COMMAND_ARG XADD_idmp_idmpauto_with_pid_Subargs[] = {
-{MAKE_ARG("idmpauto-token",ARG_TYPE_PURE_TOKEN,-1,"IDMPAUTO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* XADD idmp idmp_with_pid_iid argument table */
-struct COMMAND_ARG XADD_idmp_idmp_with_pid_iid_Subargs[] = {
-{MAKE_ARG("idmp-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+/* XADD idmp idmp argument table */
+struct COMMAND_ARG XADD_idmp_idmp_Subargs[] = {
 {MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("iid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* XADD idmp argument table */
 struct COMMAND_ARG XADD_idmp_Subargs[] = {
-{MAKE_ARG("idmpauto-with-pid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_idmp_idmpauto_with_pid_Subargs},
-{MAKE_ARG("idmp-with-pid-iid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=XADD_idmp_idmp_with_pid_iid_Subargs},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,"IDMPAUTO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("idmp",ARG_TYPE_BLOCK,-1,"IDMP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_idmp_idmp_Subargs},
 };
 
 /* XADD trim strategy argument table */
@@ -10114,7 +10107,7 @@ struct COMMAND_ARG XADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=XADD_condition_Subargs},
-{MAKE_ARG("idmp",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XADD_idmp_Subargs},
+{MAKE_ARG("idmp",ARG_TYPE_ONEOF,-1,NULL,NULL,"8.6.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=XADD_idmp_Subargs},
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=XADD_trim_Subargs},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_selector_Subargs},
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_data_Subargs},
@@ -10173,23 +10166,11 @@ keySpec XCFGSET_Keyspecs[1] = {
 };
 #endif
 
-/* XCFGSET idmp_duration_block argument table */
-struct COMMAND_ARG XCFGSET_idmp_duration_block_Subargs[] = {
-{MAKE_ARG("idmp-duration-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP-DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("duration",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* XCFGSET idmp_maxsize_block argument table */
-struct COMMAND_ARG XCFGSET_idmp_maxsize_block_Subargs[] = {
-{MAKE_ARG("idmp-maxsize-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP-MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
 /* XCFGSET argument table */
 struct COMMAND_ARG XCFGSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("idmp-duration-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_idmp_duration_block_Subargs},
-{MAKE_ARG("idmp-maxsize-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_idmp_maxsize_block_Subargs},
+{MAKE_ARG("idmp-duration",ARG_TYPE_INTEGER,-1,"IDMP-DURATION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("idmp-maxsize",ARG_TYPE_INTEGER,-1,"IDMP-MAXSIZE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** XCLAIM ********************/

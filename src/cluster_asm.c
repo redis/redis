@@ -1031,7 +1031,7 @@ void asmLogTaskEvent(asmTask *task, int event) {
                       task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_STARTED:
-            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (keys at start: %llu)",
+            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (number of keys at start: %llu)",
                       task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_FAILED:
@@ -1213,6 +1213,11 @@ static void asmTaskCancel(asmTask *task, const char *reason) {
 void asmImportTakeover(asmTask *task) {
     serverAssert(task->state == ASM_WAIT_STREAM_EOF ||
                  task->state == ASM_STREAMING_BUF);
+
+    if (unlikely(asmDebugIsFailPointActive(ASM_IMPORT_MAIN_CHANNEL, ASM_TAKEOVER))) {
+        /* Do not take over slots to test timeout scenario. */
+        return;
+    }
 
     /* Free the main channel connection since it is no longer needed. */
     serverAssert(task->main_channel_conn != NULL);
@@ -2069,6 +2074,7 @@ void clusterSyncSlotsCommand(client *c) {
                 return;
             }
             task->dest_offset = offset;
+            /* Detailed ACK progress log (for debugging handoff/drain issues). */
             serverLog(LL_DEBUG, "CLUSTER SYNCSLOTS ACK received, dest state: %s, "
                                 "updated dest offset to %lld, source offset: %lld",
                 asmTaskStateToString(dest_state), task->dest_offset, task->source_offset);
@@ -2559,28 +2565,9 @@ void asmBeforeSleep(void) {
             return;
         }
 
-        if (task->state == ASM_HANDOFF) {
-            /* To avoid long pause, we fail the task if the pause takes too long. */
-            if (server.mstime - task->paused_time >= server.asm_write_pause_timeout) {
-                asmTaskSetFailed(task, "Server paused timeout");
-                return;
-            }
+        /* Send STREAM-EOF if the destination drained the command stream. */
+        if (task->state == ASM_HANDOFF)
             asmSendStreamEofIfDrained(task);
-        } else if (task->state == ASM_STREAM_EOF) {
-            /* In state ASM_STREAM_EOF (server is still paused), we are waiting
-             * for the destination node to broadcast the slot ownership change.
-             * But maybe the destination node is failed or network is not available,
-             * the source node may be paused forever. So we fail the task if it
-             * takes too long.
-             *
-             * NOTE: There is a tricky case where the destination node may advertise
-             * ownership of the slot, causing a temporary configuration conflict.
-             * However, the configuration will eventually converge. In most cases,
-             * the destination node becomes the winner, since it bumps its config
-             * epoch before taking over slot ownership. */
-            if (server.mstime - task->paused_time >= server.asm_write_pause_timeout)
-                asmTaskSetFailed(task, "Server paused timeout");
-        }
     }
 }
 
@@ -2650,6 +2637,25 @@ void asmCron(void) {
                         (task->dest_accum_applied_time - task->dest_slots_snapshot_time) * 2))
             {
                 asmTaskSetFailed(task, "Sync buffer drain timeout");
+            }
+        } else if (task->state == ASM_HANDOFF || task->state == ASM_STREAM_EOF) {
+            /* In these states, writes are still paused while waiting for the 
+             * destination to broadcast the slot ownership change. If the 
+             * destination fails or becomes unreachable, the source could remain 
+             * paused indefinitely, so we enforce a timeout and fail the task.
+             * 
+             * NOTE: There is a tricky case where the destination node may 
+             * advertise ownership of the slot after the source node resumes 
+             * writes, causing a temporary configuration conflict. However, the
+             * configuration will eventually converge. In most cases, the
+             * destination node becomes the winner, since it bumps its config 
+             * epoch before taking over slot ownership. During this window, 
+             * writes accepted by the source will not be replicated to the
+             * destination and those writes will be lost.*/
+            if (server.mstime - task->paused_time >= server.asm_write_pause_timeout) {
+                asmTaskSetFailed(task, "Write pause timeout during slot handoff: destination did not take ownership within %lld ms.",
+                                 server.asm_write_pause_timeout);
+                return;
             }
         }
     }
@@ -2998,7 +3004,48 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
     asmUnblockMasterAfterTrim();
 }
 
-/* Trim the slots, return the trim method used.
+/* Trimming of slots can be triggered in several cases: 
+ *  - After a successful ASM migrate operation: slots are migrated away from
+ *    this node and keys that are no longer owned must be removed.
+ *  - After a failed ASM import operation: partially imported slot data must
+ *    be cleaned up.
+ *  - Due to user initiated SFLUSH command.
+ * 
+ * Redis supports two trimming methods: background trim and active trim.
+ * 
+ * Background trim: In cluster mode, Redis maintains per-slot data structures 
+ * for keys, expires, and subexpires. This makes it possible to efficiently 
+ * detach all data associated with a given slot in a single step. During trimming, 
+ * these slot-specific data structures are handed off to a BIO thread for 
+ * asynchronous cleanup, similar to how FLUSHALL or FLUSHDB operate. This is the 
+ * default trimming method.
+ * 
+ * Active trim: Unlike Redis itself, some modules may not maintain per-slot data
+ * structures and therefore cannot drop related slots data in a single operation.
+ * To support these cases, Redis introduces active trim, where key deletion 
+ * occurs in the main thread instead. This is not a blocking operation, trimming
+ * runs concurrently in the main thread, periodically removing keys during the
+ * cron loop. Each deletion triggers a keyspace notification so that modules can
+ * react to individual key removals. While active trim is less efficient, it 
+ * ensures backward compatibility for modules during the transition period.
+
+ * Before starting the trim, Redis checks whether any module is subscribed to 
+ * REDISMODULE_NOTIFY_KEY_TRIMMED keyspace event. If such subscribers exist,
+ * active trim is used; otherwise, background trim is triggered. Going forward,
+ * modules are expected to adopt background trim and active trim will be phased 
+ * out once modules migrate to the new method.
+ *
+ * Active trim is also preferred if there is any client that is using client
+ * tracking feature (client-side caching). In the client tracking protocol, 
+ * there is currently no mechanism to signal that only specific slots have been
+ * flushed. So, iterating over all keys in the slots and sending invalidation 
+ * notifications would be a blocking operation. To avoid this, if there is any 
+ * client that is using client tracking feature, Redis triggers active trim. 
+ * During trimming, it sends invalidation notifications for each key being trimmed.
+ * In the future, the client tracking protocol can be extended to support slot-based
+ * invalidation, allowing background trim to be used in this case as well.
+ * 
+ * Trim the slots, return the trim method used.
  * If client_id is non-zero, the client will be unblocked when trim completes.
  * If migration_cleanup is true, this is a migration cleanup of slots no longer owned. */
 int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
@@ -3027,14 +3074,15 @@ int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration
 
 /* Schedule a trim job for the specified slot ranges. The job will be
  * deferred and handled later in asmBeforeSleep(). We delay the trim jobs to
- * asmBeforeSleep() to ensure it only runs when there is no write pause. */
+ * asmBeforeSleep() to ensure it only runs when there is no write pause. 
+ * For trim method details, see asmTrimSlots(). */
 void asmTrimJobSchedule(slotRangeArray *slots) {
     listAddNodeTail(asmManager->pending_trim_jobs, slotRangeArrayDup(slots));
 }
 
 /* Process any pending trim jobs. */
 void asmTrimJobProcessPending(void) {
-    /* Check if there is any pending trim job and we can propagate it. */
+    /* Check if there is any pending trim jobs. */
     if (listLength(asmManager->pending_trim_jobs) == 0 ||
         asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
     {
@@ -3051,7 +3099,7 @@ void asmTrimJobProcessPending(void) {
 
     /* Determine if we can start the trim job:
      * - require client writes not paused (so key deletions are allowed)
-     * - require replicas not paused (so TRIMSLOTS can be propagated).
+     * - require replica traffic is not paused (so TRIMSLOTS can be propagated).
      * - require trim is not disabled via RedisModule_ClusterDisableTrim().
      */
     static int logged = 0;

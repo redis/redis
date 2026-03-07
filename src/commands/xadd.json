@@ -91,32 +91,19 @@
                 "name": "idmp",
                 "type": "oneof",
                 "optional": true,
+                "since": "8.6.0",
                 "arguments": [
                     {
-                        "name": "idmpauto-with-pid",
-                        "type": "block",
-                        "arguments": [
-                            {
-                                "token": "IDMPAUTO",
-                                "name": "idmpauto-token",
-                                "type": "pure-token"
-                            },
-                            {
-                                "name": "pid",
-                                "type": "string",
-                                "display_text": "producer-id"
-                            }
-                        ]
+                        "token": "IDMPAUTO",
+                        "type": "string",
+                        "name": "pid",
+                        "display_text": "producer-id"
                     },
                     {
-                        "name": "idmp-with-pid-iid",
+                        "token": "IDMP",
                         "type": "block",
+                        "name": "idmp",
                         "arguments": [
-                            {
-                                "token": "IDMP",
-                                "name": "idmp-token",
-                                "type": "pure-token"
-                            },
                             {
                                 "name": "pid",
                                 "type": "string",
