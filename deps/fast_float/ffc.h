@@ -115,8 +115,14 @@ extern "C" {
 
 #define FFC_VERSION_YEAR  26
 #define FFC_VERSION_MONTH 03
-#define FFC_VERSION_BUILD 02
+#define FFC_VERSION_BUILD 03
 #define FFC_VERSION ((FFC_VERSION_YEAR << 16) | (FFC_VERSION_MONTH << 8) | (FFC_VERSION_BUILD))
+#define FFC_VERSION_STRINGIFY_(x) #x
+#define FFC_VERSION_STRINGIFY(x) FFC_VERSION_STRINGIFY_(x)
+#define FFC_VERSION_STRING \
+  FFC_VERSION_STRINGIFY(FFC_VERSION_YEAR) "." \
+  FFC_VERSION_STRINGIFY(FFC_VERSION_MONTH) "." \
+  FFC_VERSION_STRINGIFY(FFC_VERSION_BUILD)
 
 #include <stddef.h>
 #include <stdint.h>
@@ -1640,7 +1646,8 @@ bool ffc_sv_try_extend(ffc_sv* sv, ffc_bigint_limb_span s) {
 // create from existing limb span.
 ffc_internal ffc_inline
 ffc_sv ffc_sv_create(ffc_bigint_limb_span s) {
-  ffc_sv new_one = {0};
+  ffc_sv new_one;
+  new_one.len = 0;
   ffc_sv_try_extend(&new_one, s);
   return new_one;
 }
