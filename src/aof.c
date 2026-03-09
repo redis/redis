@@ -2199,12 +2199,12 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
 
 /* Helper for rewriteStreamObject(): emit a single XNACK FORCE command that
  * reconstructs one or more NACKed (unowned) PEL entries sharing the same
- * delivery_count. The caller is responsible for batching (up to
- * AOF_REWRITE_ITEMS_PER_CMD IDs). Returns 0 on error, 1 on success. */
+ * delivery_count. `ids` points to an array of `count` streamIDs (at most
+ * AOF_REWRITE_ITEMS_PER_CMD). Returns 0 on error, 1 on success. */
 int rioWriteStreamNackedEntries(rio *r, robj *key, const char *groupname,
-                                size_t groupname_len, streamNACK *first,
+                                size_t groupname_len, streamID *ids,
                                 int count, uint64_t delivery_count) {
-    serverAssert(count > 0);
+    serverAssert(count > 0 && count <= AOF_REWRITE_ITEMS_PER_CMD);
 
     /* XNACK <key> <group> FAIL IDS <n> <id..> RETRYCOUNT <cnt> FORCE
      * 6 fixed tokens before IDs + count IDs + 3 fixed tokens after. */
@@ -2216,10 +2216,8 @@ int rioWriteStreamNackedEntries(rio *r, robj *key, const char *groupname,
     if (rioWriteBulkString(r,"IDS",3) == 0) return 0;
     if (rioWriteBulkLongLong(r,count) == 0) return 0;
 
-    streamNACK *nack = first;
-    for (int i = 0; i < count && nack != NULL; i++) {
-        if (rioWriteBulkStreamID(r,&nack->id) == 0) return 0;
-        nack = nack->pel_next;
+    for (int i = 0; i < count; i++) {
+        if (rioWriteBulkStreamID(r,&ids[i]) == 0) return 0;
     }
 
     if (rioWriteBulkString(r,"RETRYCOUNT",10) == 0) return 0;
@@ -2398,28 +2396,26 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * skips the whole block. */
             streamNACK *nack_end = group->pel_nack_tail;
             if (nack_end != NULL) {
+                streamID batch_ids[AOF_REWRITE_ITEMS_PER_CMD];
                 streamNACK *nack_stop = nack_end->pel_next;
                 streamNACK *nack = group->pel_time_head;
                 while (nack && nack != nack_stop) {
-                    streamNACK *batch_start = nack;
-                    uint64_t batch_dc = nack->delivery_count;
                     int batch_count = 0;
-                    streamNACK *scan = nack;
-                    while (scan && scan != nack_stop &&
-                           scan->delivery_count == batch_dc &&
+                    uint64_t batch_dc = nack->delivery_count;
+                    while (nack && nack != nack_stop &&
+                           nack->delivery_count == batch_dc &&
                            batch_count < AOF_REWRITE_ITEMS_PER_CMD)
                     {
-                        batch_count++;
-                        scan = scan->pel_next;
+                        batch_ids[batch_count++] = nack->id;
+                        nack = nack->pel_next;
                     }
                     if (rioWriteStreamNackedEntries(r,key,(char*)ri.key,
-                                                    ri.key_len,batch_start,
+                                                    ri.key_len,batch_ids,
                                                     batch_count,batch_dc) == 0)
                     {
                         raxStop(&ri);
                         return 0;
                     }
-                    nack = scan;
                 }
             }
         }
