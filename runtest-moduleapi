@@ -1,7 +1,7 @@
 #!/bin/sh
 # Raise open files limit (macOS default 256 is too low for tests).
-TERMINAL_OPEN_FD_LIMIT=$(ulimit -n 2>/dev/null)
-if [ -n "$TERMINAL_OPEN_FD_LIMIT" ] && [ "$TERMINAL_OPEN_FD_LIMIT" != "unlimited" ] && [ "$TERMINAL_OPEN_FD_LIMIT" -lt 1024 ]; then
+OPEN_FILE_LIMIT=$(ulimit -n 2>/dev/null)
+if [ -n "$OPEN_FILE_LIMIT" ] && [ "$OPEN_FILE_LIMIT" != "unlimited" ] && [ "$OPEN_FILE_LIMIT" -lt 1024 ]; then
     ulimit -n 1024 2>/dev/null || true
 fi
 TCL_VERSIONS="8.5 8.6 8.7 9.0"
