@@ -3381,7 +3381,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
              * position and re-insert it into the NACK zone. */
             if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_5) {
                 uint64_t nacked_count = rdbLoadLen(rdb, NULL);
-                if (rioGetReadError(rdb)) {
+                if (nacked_count == RDB_LENERR) {
                     rdbReportReadError("Stream NACK zone count loading failed.");
                     decrRefCount(o);
                     return NULL;
