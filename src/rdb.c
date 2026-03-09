@@ -812,12 +812,13 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
         /* Find the first non-expired entry. The linked list is ordered by
          * timestamp, so all entries after the first valid one are also valid. */
         idmpEntry *first_valid = producer->idmp_head;
-        while (first_valid && first_valid->id.ms <= expire_time)
+        size_t expired = 0;
+        while (first_valid && first_valid->id.ms <= expire_time) {
             first_valid = first_valid->next;
+            expired++;
+        }
 
-        /* Count non-expired entries. */
-        size_t count = 0;
-        for (idmpEntry *e = first_valid; e != NULL; e = e->next) count++;
+        size_t count = dictSize(producer->idmp_dict) - expired;
         if ((n = rdbSaveLen(rdb, count)) == -1) {
             raxStop(&ri);
             return -1;
