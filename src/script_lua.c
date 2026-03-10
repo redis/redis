@@ -636,10 +636,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
         lua_rawget(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
-            sds ok = sdsnew(lua_tostring(lua,-1));
-            sdsmapchars(ok,"\r\n","  ",2);
-            addReplyStatusLength(c, ok, sdslen(ok));
-            sdsfree(ok);
+            addReplyStatusSafe(c, lua_tostring(lua,-1));
             lua_pop(lua,2);
             return;
         }
@@ -1727,7 +1724,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
                                       err_info.source,
                                       err_info.line);
             }
-            addReplyErrorSdsEx(c, final_msg, err_info.ignore_err_stats_update? ERR_REPLY_FLAG_NO_STATS_UPDATE : 0);
+            addReplyErrorSdsExSafe(c, final_msg, err_info.ignore_err_stats_update? ERR_REPLY_FLAG_NO_STATS_UPDATE : 0);
             luaErrorInformationDiscard(&err_info);
         }
         lua_pop(lua,1); /* Consume the Lua error */

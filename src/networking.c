@@ -766,6 +766,13 @@ void addReplyErrorSdsEx(client *c, sds err, int flags) {
     sdsfree(err);
 }
 
+/* See addReplyErrorLength for expectations from the input string.
+ * The string is safe to contain \r and \n anywhere. */
+void addReplyErrorSdsExSafe(client *c, sds err, int flags) {
+    err = sdsmapchars(err, "\r\n", "  ",  2);
+    addReplyErrorSdsEx(c, err, flags);
+}
+
 /* See addReplyErrorLength for expectations from the input string. */
 /* As a side effect the SDS string is freed. */
 void addReplyErrorSds(client *c, sds err) {
@@ -832,11 +839,23 @@ void addReplyStatus(client *c, const char *status) {
     addReplyStatusLength(c,status,strlen(status));
 }
 
+/* Like addReplyStatus() but the string is safe to contain \r and \n anywhere. */
+void addReplyStatusSafe(client *c, const char *status) {
+    sds s = sdsmapchars(sdsnew(status), "\r\n", "  ",  2);
+    addReplyStatusLength(c,s,sdslen(s));
+    sdsfree(s);
+}
+
 void addReplyStatusFormat(client *c, const char *fmt, ...) {
     va_list ap;
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
+    /* Trim any newlines at the end (ones will be added by addReplyStatusLength) */
+    s = sdstrim(s, "\r\n");
+    /* Make sure there are no newlines in the middle of the string, otherwise
+     * invalid protocol is emitted. */
+    s = sdsmapchars(s, "\r\n", "  ",  2);
     addReplyStatusLength(c,s,sdslen(s));
     sdsfree(s);
 }
