@@ -2653,9 +2653,14 @@ static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
+#define REDIS_AGGR_COUNT 4
+
+inline static double zuiWeightedScore(double score, double weight, int aggregate) {
+    return (aggregate == REDIS_AGGR_COUNT) ? weight : weight * score;
+}
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
-    if (aggregate == REDIS_AGGR_SUM) {
+    if (aggregate == REDIS_AGGR_SUM || aggregate == REDIS_AGGR_COUNT) {
         *target = *target + val;
         /* The result of adding two doubles is NaN when one variable
          * is +inf and the other is -inf. When these numbers are added,
@@ -2959,6 +2964,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     aggregate = REDIS_AGGR_MIN;
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
+                } else if (!strcasecmp(c->argv[j]->ptr,"count")) {
+                    aggregate = REDIS_AGGR_COUNT;
                 } else {
                     zfree(src);
                     addReplyErrorObject(c,shared.syntaxerr);
@@ -3015,17 +3022,17 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             while (zuiNext(&src[0],&zval)) {
                 double score, value;
 
-                score = src[0].weight * zval.score;
+                score = zuiWeightedScore(zval.score, src[0].weight, aggregate);
                 if (isnan(score)) score = 0;
 
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
                     if (src[j].subject == src[0].subject) {
-                        value = zval.score*src[j].weight;
+                        value = zuiWeightedScore(zval.score, src[j].weight, aggregate);
                         zunionInterAggregate(&score,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
-                        value *= src[j].weight;
+                        value = zuiWeightedScore(value, src[j].weight, aggregate);
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
                         break;
@@ -3072,7 +3079,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
                 /* Initialize value */
-                score = src[i].weight * zval.score;
+                score = zuiWeightedScore(zval.score, src[i].weight, aggregate);
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the dict (which stores node pointers). */
