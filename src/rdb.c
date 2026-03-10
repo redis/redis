@@ -818,6 +818,7 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
             expired++;
         }
 
+        /* Save the number of entries for this producer. */
         size_t count = dictSize(producer->idmp_dict) - expired;
         if ((n = rdbSaveLen(rdb, count)) == -1) {
             raxStop(&ri);
