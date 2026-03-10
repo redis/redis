@@ -2068,9 +2068,10 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
     sds selector = NULL;
     for (int j = 0; j < argc; j++) {
         char *op = argv[j];
+        size_t len = sdslen(op);
 
-        if (open_bracket_start == -1 &&
-            (op[0] == '(' && op[sdslen(op) - 1] != ')')) {
+        if (open_bracket_start == -1 && len > 0 &&
+            (op[0] == '(' && op[len - 1] != ')')) {
             selector = sdsdup(argv[j]);
             open_bracket_start = j;
             continue;
@@ -2078,9 +2079,9 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
 
         if (open_bracket_start != -1) {
             selector = sdscatfmt(selector, " %s", op);
-            if (op[sdslen(op) - 1] == ')') {
+            if (len > 0 && op[len - 1] == ')') {
                 open_bracket_start = -1;
-                acl_args[*merged_argc] = selector;                        
+                acl_args[*merged_argc] = selector;
                 (*merged_argc)++;
             }
             continue;
