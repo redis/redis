@@ -3550,6 +3550,7 @@ void updateLoadingFileName(char* filename) {
 void stopLoading(int success) {
     server.loading = 0;
     server.async_loading = 0;
+    server.loading_skip_checksum = 0;
     blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
 
@@ -3587,7 +3588,7 @@ void stopSaving(int success) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
-    if (server.rdb_checksum && !(r->flags & RIO_FLAG_NO_CHECKSUM))
+    if (server.rdb_checksum && !server.loading_skip_checksum)
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
@@ -4017,9 +4018,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         uint64_t cksum, expected = rdb->cksum;
 
         if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
-        if (server.rdb_checksum && !server.skip_checksum_validation) {
+        if (server.rdb_checksum && !server.loading_skip_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
-            if (cksum == 0 || (rdb->flags & RIO_FLAG_NO_CHECKSUM)) {
+            if (cksum == 0) {
                 serverLog(LL_NOTICE,"RDB file was saved with checksum disabled: no check performed.");
             } else if (cksum != expected) {
                 serverLog(LL_WARNING,"Wrong RDB checksum expected: (%llx) but "
