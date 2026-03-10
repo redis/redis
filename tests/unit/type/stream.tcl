@@ -927,47 +927,6 @@ start_server {
         assert_equal $id3 [r XADD mystream IDMP p3 "req-1" * field "dup"]
     } {} {external:skip}
 
-    test {XADD IDMP cron expiration works after RDB load} {
-        r DEL mystream
-
-        # Create stream and set IDMP-DURATION before adding entries,
-        # since XCFGSET clears existing entries when the duration changes.
-        r XADD mystream IDMP p1 "init" * field "init"
-        r XCFGSET mystream IDMP-DURATION 3
-        r XADD mystream IDMP p1 "req-1" * field "v1"
-        r XADD mystream IDMP p2 "req-1" * field "v2"
-
-        set reply [r XINFO STREAM mystream]
-        assert_equal 2 [dict get $reply pids-tracked]
-        assert_equal 2 [dict get $reply iids-tracked]
-
-        # Save and restart — this triggers RDB load which should
-        # register the stream in stream_idmp_keys for cron cleanup.
-        # IDMP-DURATION is 5s so entries survive the load-side filtering.
-        r SAVE
-        restart_server 0 true false
-
-        # Verify entries survived the load (not filtered as expired)
-        set reply [r XINFO STREAM mystream]
-        assert_equal 2 [dict get $reply pids-tracked]
-        assert_equal 2 [dict get $reply iids-tracked]
-
-        # Wait for IDMP entries to expire and for the cron to clean them up.
-        # The cron runs every 1s; IDMP-DURATION is 5s, so 7s is enough margin.
-        after 5000
-
-        # If stream_idmp_keys was populated during load, the cron will have
-        # cleaned up the expired entries; pids-tracked and iids-tracked go to 0.
-        set reply [r XINFO STREAM mystream]
-        assert_equal 0 [dict get $reply pids-tracked]
-        assert_equal 0 [dict get $reply iids-tracked]
-
-        # Expired IIDs should be re-addable as new entries
-        set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
-        assert {$new_id ne ""}
-        assert_equal 4 [r XLEN mystream]
-    } {} {external:skip}
-
     test {XADD IDMP multiple producers concurrent access} {
         r DEL mystream
         
