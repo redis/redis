@@ -4159,6 +4159,12 @@ void quitCommand(client *c) {
     c->flags |= CLIENT_CLOSE_AFTER_REPLY;
 }
 
+/* Pasten the current client */
+void pastenCommand(client *c) {
+    addReplyLongLong(c, 73);
+}
+
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
