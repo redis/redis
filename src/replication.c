@@ -2438,9 +2438,10 @@ void readSyncBulkPayload(connection *conn) {
         /* Set disklessLoadingRio before calling emptyData() which may yield
          * back to networking. */
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
-        /* Disable checksum verification when diskless loading, and we requested
-         * master to not send checksum either. */
-        rdb.flags |= RIO_FLAG_NO_CHECKSUM;
+        /* Disable checksum verification when diskless on both master and replica.
+         * The RDB checksum is designed to detect disk corruption, but if the data
+         * never touched disk, we can skip verification. */
+        if (usemark) rdb.flags |= RIO_FLAG_NO_CHECKSUM;
         disklessLoadingRio = &rdb;
 
         /* Empty db */

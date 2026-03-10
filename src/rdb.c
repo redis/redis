@@ -4301,11 +4301,10 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        /* Disable RDB compression if requested. */
+        /* Disable RDB compression and checksum in the fork child if requested.
+         * The parent's configuration is not affected. */
         if (req & SLAVE_REQ_RDB_NO_COMPRESS)
             server.rdb_compression = 0;
-
-        /* Disable RDB checksum if requested. */
         if (req & SLAVE_REQ_RDB_NO_CHECKSUM)
             server.rdb_checksum = 0;
 
