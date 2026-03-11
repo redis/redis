@@ -557,7 +557,10 @@ int processClientsFromIOThread(IOThread *t) {
     size_t processed = listLength(mainThreadProcessingClients[t->id]);
     if (processed == 0) return 0;
 
-    monotime start = getMonotonicUs();
+    monotime start = 0;
+    if (server.execution_nesting == 0) {
+        start = getMonotonicUs();
+    }
 
     int prefetch_clients = 0;
     /* We may call processClientsFromIOThread reentrantly, so we need to
@@ -656,7 +659,9 @@ int processClientsFromIOThread(IOThread *t) {
     /* Accumulate time spent by main thread for clients from IO threads.
      * Because this metric increases linearly with the number of requests, 
      * it is well-suited for determining whether the main thread has become a bottleneck. */
-    server.io_threaded_client_processed_time += getMonotonicUs() - start;
+    if (server.execution_nesting == 0) {
+        server.io_threaded_client_processed_time += getMonotonicUs() - start;
+    }
 
     /* Send the clients to io thread without pending size check, since main thread
      * may process clients from other io threads, so we need to send them to the
