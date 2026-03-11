@@ -2839,6 +2839,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                             rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
                             dictRelease(dupSearchDict);
                             sdsfree(field);
+                            lpFree(lp);
                             zfree(encoded);
                             o->ptr = NULL;
                             decrRefCount(o);
