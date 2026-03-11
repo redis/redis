@@ -73,7 +73,6 @@ jobs:
   # - Info keysizes histogram
   # - Cluster slot stats
   # Skips slow and defrag tests to avoid timeouts while maintaining good coverage.
-  # TODO: Fix ASM (atomic slot migration) compatibility with keysizes histogram tracking
   test-debug-assert-keyspace:
     runs-on: ubuntu-latest
     if: |
@@ -102,8 +101,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --verbose --tags "-slow -defrag" \
-          --skipunit unit/cluster/slot-stats \
-          --skipunit unit/cluster/atomic-slot-migration \
           --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')

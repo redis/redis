@@ -3,6 +3,7 @@
 #include "atomicvar.h"
 #include "functions.h"
 #include "cluster.h"
+#include "cluster_asm.h"
 #include "ebuckets.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
@@ -17,13 +18,49 @@ void lazyfreeFreeObject(void *args[]) {
     atomicIncr(lazyfreed_objects,1);
 }
 
+/* Populate delta histograms by iterating through keys in the kvstore. To be 
+ * deduced from the main db histogram later on kvsAsyncFreeDoneCB */
+static void populateDeltaHistograms(kvstore *kvs, asmTrimCtx *ctx) {
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, kvs);
+    dictEntry *de;
+
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+        kvobj *kv = dictGetKV(de);
+        if ((!kv) || (kv->type >= OBJ_TYPE_BASIC_MAX)) continue;
+
+        /* Update keysizes_hist delta */
+        size_t len = getObjectLength(kv);
+        int bin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
+        ctx->delta_keysizes_hist[kv->type][bin]++;
+
+        /* Update allocsizes_hist delta */
+        if (server.memory_tracking_enabled) {
+            size_t alloc_size = kvobjAllocSize(kv);
+            if (alloc_size > 0) {
+                int bin = log2ceil(alloc_size) + 1;
+                ctx->delta_allocsizes_hist[kv->type][bin]++;
+            }
+        }
+    }
+    kvstoreIteratorReset(&kvs_it);
+}
+
 /* Release a database from the lazyfree thread. The 'db' pointer is the
  * database which was substituted with a fresh one in the main thread
- * when the database was logically deleted. */
-void lazyfreeFreeDatabase(void *args[]) {
+ * when the database was logically deleted.
+ *
+ * If args[3] is provided, it's an asmTrimCtx for tracking histogram deltas
+ * during ASM background trim. */
+void kvsLazyfreeFree(void *args[]) {
     kvstore *da1 = args[0];
     kvstore *da2 = args[1];
     estore *subexpires = args[2];
+    asmTrimCtx *ctx = args[3];  /* Optional: ASM trim context */
+
+    /* If ASM context provided, populate delta histograms */
+    if (ctx) populateDeltaHistograms(da1, ctx);
+
     estoreRelease(subexpires);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
@@ -293,13 +330,16 @@ void emptyDbAsync(redisDb *db) {
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
-    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires);
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, NULL);
 }
 
-/* Empty a Redis DB data asynchronously. */
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires) {
+/* Empty a kvstore asynchronously with optional ASM context for histogram tracking.
+ * Used by ASM background trim to track histogram deltas. The context is populated
+ * in the BIO thread, and the completion callback should be scheduled separately
+ * by the caller. */
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, asmTrimCtx *ctx) {
     atomicIncr(lazyfree_objects, kvstoreSize(keys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, keys, expires, hexpires);
+    bioCreateLazyFreeJob(kvsLazyfreeFree, 4, keys, expires, hexpires, ctx);
 }
 
 /* Free the key tracking table.

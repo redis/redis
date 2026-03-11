@@ -1761,14 +1761,13 @@ int clusterIsMySlot(int slot) {
     return getMyClusterNode() == getNodeBySlot(slot);
 }
 
-void replySlotsFlushAndFree(client *c, slotRangeArray *slots) {
+void replySlotsFlush(client *c, slotRangeArray *slots) {
     addReplyArrayLen(c, slots->num_ranges);
     for (int i = 0 ; i < slots->num_ranges ; i++) {
         addReplyArrayLen(c, 2);
         addReplyLongLong(c, slots->ranges[i].start);
         addReplyLongLong(c, slots->ranges[i].end);
     }
-    slotRangeArrayFree(slots);
 }
 
 /* Normalizes (sorts and merges adjacent ranges), checks that slot ranges are
@@ -2193,6 +2192,8 @@ void sflushCommand(client *c) {
         flags |= EMPTYDB_ASYNC; /* Run as ASYNC */
         blocking_async = 1;
     }
+    
+    asmTrimCtx *trim_ctx = asmTrimCtxCreate(myslots, server.db[0].keys);
 
     /* Trim the slots if running in async mode and not loading from AOF,
      * otherwise delete the keys synchronously. */
@@ -2200,7 +2201,7 @@ void sflushCommand(client *c) {
         /* Update dirty stats before trimming. */
         server.dirty += getKeyCountInSlotRangeArray(myslots);
         /* Pass client id for active trim to unblock client when trim completes. */
-        trim_method = asmTrimSlots(myslots, blocking_async ? c->id : 0, 0);
+        trim_method = asmTrimSlots(trim_ctx, blocking_async ? c->id : CLIENT_ID_NONE, 0);
     } else {
         clusterDelKeysInSlotRangeArray(myslots, 1);
     }
@@ -2217,15 +2218,13 @@ void sflushCommand(client *c) {
      *   unblock client and reply in active trim completion. */
     if (blocking_async && trim_method != ASM_TRIM_METHOD_NONE) {
         blockClientForAsyncFlush(c);
-        if (trim_method == ASM_TRIM_METHOD_BG)
-            bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, myslots);
-        else /* ASM_TRIM_METHOD_ACTIVE, just free the slot ranges */
-            slotRangeArrayFree(myslots);
     } else {
         /* Reply with slot ranges that were flushed. SYNC and ASYNC mode will be
          * replied here immediately. */
-        replySlotsFlushAndFree(c, myslots);
+        replySlotsFlush(c, trim_ctx->slots);
     }
+
+    asmTrimCtxRelease(trim_ctx); /* if bg trim, released later by kvsAsyncFreeDoneCB() */
 }
 
 /* The READWRITE command just clears the READONLY command state. */

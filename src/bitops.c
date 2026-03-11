@@ -883,8 +883,7 @@ void setbitCommand(client *c) {
          * update the keysizes histogram. Otherwise, the histogram already 
          * updated in lookupStringForBitCommand() by calling dbAdd(). */
         if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, 
-                               strOldSize, strOldSize + strGrowSize);
+            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
     }
 
     /* Return original value. */
@@ -1948,8 +1947,7 @@ void bitfieldGeneric(client *c, int flags) {
          * update the keysizes histogram. Otherwise, the histogram already 
          * updated in lookupStringForBitCommand() by calling dbAdd(). */
         if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING,
-                               strOldSize, strOldSize + strGrowSize);
+            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
         
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);

@@ -346,7 +346,7 @@ static void dictDestructorKV(dict *d, void *key) {
         /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
          * (e.g. in lazy free context). */
         if (kvstoreMeta)
-            updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, alloc_size, -1);
+            kvsUpdateHistogram(kvstoreMeta->allocsizes_hist, kv->type, alloc_size, -1);
     }
     decrRefCount(kv);
 }
@@ -535,11 +535,11 @@ static void kvstoreOnEmpty(kvstore *kvs) {
 
 static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
     kvstoreDictMetadata *meta = kvstoreGetDictMeta(kvs, didx, 0);
+    UNUSED(meta);
 #ifdef DEBUG_ASSERTIONS
     dictEmpty(kvstoreGetDict(kvs, didx), NULL);
 #endif
     debugServerAssert(meta->alloc_size == 0);
-    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
 }
 
 /* Return 1 if currently we allow dict to expand. Dict may allocate huge
@@ -2305,11 +2305,9 @@ void initServerConfig(void) {
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
 #if DEBUG_ASSERT_KEYSPACE
-    server.dbg_assert_keysizes = 1;
-    server.dbg_assert_alloc_per_slot = 1;
+    server.dbg_assert_flags = DBG_ASSERT_KEYSIZES | DBG_ASSERT_ALLOC_SLOT;
 #else
-    server.dbg_assert_keysizes = 0;
-    server.dbg_assert_alloc_per_slot = 0;
+    server.dbg_assert_flags = 0;
 #endif
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
@@ -4169,13 +4167,9 @@ void afterCommand(client *c) {
     if (!server.execution_nesting)
         listJoin(c->reply, server.pending_push_messages);
 
-    /* Assert keysizes histogram if enabled */
-    if (unlikely(server.dbg_assert_keysizes))
-        dbgAssertKeysizesHist(c->db);
-
-    /* Assert per-slot alloc_size if enabled */
-    if (unlikely(server.dbg_assert_alloc_per_slot))
-        dbgAssertAllocSizePerSlot(c->db);
+    /* Run debug assertions if any are enabled */
+    if (unlikely(server.dbg_assert_flags))
+        dbgRunAssertions(c->db);
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

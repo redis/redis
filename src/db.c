@@ -76,8 +76,7 @@ void updateLRM(robj *o) {
  * represents the number of keys with a size in the range 2^i and 2^(i+1) 
  * exclusive. oldLen/newLen must be smaller than 2^48, and if their value 
  * equals -1, it means that the key is being created/deleted, respectively. Each
- * data type has its own histogram and it is per database (In addition, there is 
- * histogram per slot for future cluster use).
+ * data type has its own histogram and it is maintained per database.
  *
  * Example mapping of key lengths to bins:
  *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
@@ -85,19 +84,13 @@ void updateLRM(robj *o) {
  * Since strings can be zero length, the histogram also tracks:
  *               [0,1)->0
  */
-void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t type, int64_t oldLen, int64_t newLen) {
+void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
     if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
         return;
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
         debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-        /* If following a key deletion it is last one in slot's dict, then
-         * slot's dict might get released as well. Verify if metadata is not NULL. */
-        if (dictHist) {
-            dictHist[type][old_bin]--;
-            debugServerAssert(dictHist[type][old_bin] >= 0);
-        }
         kvstoreHist[type][old_bin]--;
         debugServerAssert(kvstoreHist[type][old_bin] >= 0);
     } else {
@@ -105,11 +98,6 @@ void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t ty
         if (oldLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily
              * dbAdd() empty collection, and only after add elements. */
-
-            if (dictHist) {
-                dictHist[type][0]--;
-                debugServerAssert(dictHist[type][0] >= 0);
-            }
             kvstoreHist[type][0]--;
             debugServerAssert(kvstoreHist[type][0] >= 0);
         }
@@ -118,31 +106,24 @@ void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t ty
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
         debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
-        /* If following a key deletion it is last one in slot's dict, then
-         * slot's dict might get released as well. Verify if metadata is not NULL. */
-        if (dictHist) dictHist[type][new_bin]++;
         kvstoreHist[type][new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily
              * dbAdd() empty collection, and only after add elements. */
-
-            if (dictHist) dictHist[type][0]++;
             kvstoreHist[type][0]++;
         }
     }
 }
 
-void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen) {
+void updateKeysizesHist(redisDb *db, uint32_t type, int64_t oldLen, int64_t newLen) {
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
-    updateSlotHist(kvstoreMeta->keysizes_hist, dictMeta ? dictMeta->keysizes_hist : NULL, type, oldLen, newLen);
+    kvsUpdateHistogram(kvstoreMeta->keysizes_hist, type, oldLen, newLen);
 }
 
 void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize) {
     debugServerAssert(server.memory_tracking_enabled);
-    kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
 
     /* Early return if nothing changed */
@@ -160,7 +141,8 @@ void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int6
     }
 
     /* Update allocation size histogram */
-    updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, oldsize, newsize);
+    kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
+    kvsUpdateHistogram(kvstoreMeta->allocsizes_hist, kv->type, oldsize, newsize);
 }
 
 static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
@@ -201,34 +183,16 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
     }
 }
 
-/* Assert keysizes histogram (For debugging only)
- *
- * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
- */
-void dbgAssertKeysizesHist(redisDb *db) {
-    /* Don't assert during nested calls. Intermediate state may be inconsistent. */
-    if (server.execution_nesting) return;
-
-    /* Don't assert during RDB loading. Database may be in inconsistent state. */
-    if (server.loading || server.async_loading) return;
-
+/* Assert keysizes histogram (For debugging only) */
+static void dbgAssertKeysizesHist(redisDb *db) {
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength, "dbgAssertKeysizesHist");
     if (server.memory_tracking_enabled)
         dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize, "dbgAssertAllocsizesHist");
 }
 
-/* Assert per-slot alloc_size (For debugging only)
- *
- * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
- */
-void dbgAssertAllocSizePerSlot(redisDb *db) {
-    /* Don't assert during nested calls. Intermediate state may be inconsistent. */
-    if (server.execution_nesting) return;
-
-    /* Don't assert during RDB loading. Database may be in inconsistent state. */
-    if (server.loading || server.async_loading) return;
-
+/* Assert per-slot alloc_size (For debugging only) */
+static void dbgAssertAllocSizePerSlot(redisDb *db) {
     if (!server.memory_tracking_enabled) return;
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
@@ -250,6 +214,32 @@ void dbgAssertAllocSizePerSlot(redisDb *db) {
         serverPanic("dbgAssertAllocSizePerSlot: slot=%d expected=%zu actual=%zu",
                     slot, want, have);
     }
+}
+
+/* Run debug assertions based on server.dbg_assert_flags.
+ *
+ * DBG_ASSERT_KEYSIZES:   Triggered by DEBUG KEYSIZES-HIST-ASSERT 1
+ * DBG_ASSERT_ALLOC_SLOT: Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+ */
+void dbgRunAssertions(redisDb *db) {
+    /* Don't assert during nested calls. Intermediate state may be inconsistent. */
+    if (server.execution_nesting) return;
+
+    /* Don't assert during RDB loading. Database may be in inconsistent state. */
+    if (server.loading || server.async_loading) return;
+
+    /* Don't assert during ASM background trim. Histogram delta hasn't been applied yet. */
+    if (asmIsBgTrimRunning()) return;
+
+    /* Don't assert during ASM import. Keys are being added from source node
+     * while tracking may be inconsistent during the import process. */
+    if (asmImportInProgress()) return;
+
+    if (server.dbg_assert_flags & DBG_ASSERT_KEYSIZES)
+        dbgAssertKeysizesHist(db);
+
+    if (server.dbg_assert_flags & DBG_ASSERT_ALLOC_SLOT)
+        dbgAssertAllocSizePerSlot(db);
 }
 
 /* Lookup a kvobj for read or write operations, or return NULL if the it is not
@@ -450,7 +440,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
-    updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
+    updateKeysizesHist(db, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     *valref = kv;
@@ -555,7 +545,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
                    keyMetaSpec->numMeta * sizeof(uint64_t));
     }
 
-    updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
+    updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     return *valref = kv;
@@ -682,10 +672,10 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     if (updateKeySizes) {
         /* Save one call if old and new are the same type */
         if (oldtype == kvNew->type) {
-            updateKeysizesHist(db, slot, oldtype, oldlen, newlen);
+            updateKeysizesHist(db, oldtype, oldlen, newlen);
         } else {
-            updateKeysizesHist(db, slot, oldtype, oldlen, -1);
-            updateKeysizesHist(db, slot, kvNew->type, -1, newlen);
+            updateKeysizesHist(db, oldtype, oldlen, -1);
+            updateKeysizesHist(db, kvNew->type, -1, newlen);
         }
     }
 
@@ -892,7 +882,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* remove key from histogram */
         if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
-            updateKeysizesHist(db, slot, type, oldlen, -1);
+            updateKeysizesHist(db, type, oldlen, -1);
         return 1;
     } else {
         return 0;
@@ -1234,15 +1224,38 @@ void blockClientForAsyncFlush(client *c) {
     blockClient(c, BLOCKED_LAZYFREE);
 }
 
-/* CB function on blocking ASYNC FLUSH completion.
- * We will unblock the client and send the proper reply. */
-void unblockClientForAsyncFlush(uint64_t client_id, void *userdata) {
-    slotRangeArray *slots = userdata;
+/* CB function on blocking ASYNC FLUSH/TRIM completion.
+ * We will unblock the client and send the proper reply if provided. */
+void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
+
+    /* If ASM Trim context provided, apply histogram delta */
+    asmTrimCtx *ctx = userdata;
+    if (ctx) {
+        kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
+        /* Apply histogram delta only if target_kvstore hasn't changed */
+        if (ctx->target_kvstore == server.db[0].keys && meta) {
+            for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
+                for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+                    meta->keysizes_hist[type][bin] -= ctx->delta_keysizes_hist[type][bin];
+                    meta->allocsizes_hist[type][bin] -= ctx->delta_allocsizes_hist[type][bin];
+                }
+            }
+        }
+        asmBgTrimCounterDecr();
+    }
+
+    unblockClientForAsyncFlush(client_id, (ctx) ? ctx->slots : NULL);
+
+    /* Release context and slots */
+    asmTrimCtxRelease(ctx);
+}
+
+/* Unblock client on async flush/trim completion */
+void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots) {
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists and being blocked. */
     if (!(c && c->flags & CLIENT_BLOCKED)) {
-        slotRangeArrayFree(slots);
         return;
     }
 
@@ -1255,7 +1268,7 @@ void unblockClientForAsyncFlush(uint64_t client_id, void *userdata) {
 
     /* Only SFLUSH command pass user data pointer. */
     if (slots)
-        replySlotsFlushAndFree(c, slots);
+        replySlotsFlush(c, slots);
     else
         addReply(c, shared.ok);
 
@@ -1309,7 +1322,7 @@ int flushCommandCommon(client *c, int type, int flags) {
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
         blockClientForAsyncFlush(c);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, unblockClientForAsyncFlush, c->id, NULL);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, NULL);
     }
 
 #if defined(USE_JEMALLOC)

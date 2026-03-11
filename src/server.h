@@ -1188,6 +1188,15 @@ typedef struct {
     keysizesHist allocsizes_hist;
 } kvstoreMetadata;
 
+/* Context for ASM background trim with delta histogram tracking */
+typedef struct asmTrimCtx {
+    int refcount;                      /* For shared bg/main thread ownership */
+    struct slotRangeArray *slots;      /* Slot ranges being trimmed */
+    kvstore *target_kvstore;           /* Target kvstore to update (for validation) */
+    keysizesHist delta_keysizes_hist;  /* Delta populated by BIO thread */
+    keysizesHist delta_allocsizes_hist;/* Delta populated by BIO thread */
+} asmTrimCtx;
+
 /* Like kvstoreMetadata, this one per dict */
 typedef struct {
     kvstoreDictMetaBase base;   /* must be first in struct ! */
@@ -1195,7 +1204,6 @@ typedef struct {
     uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
     uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
     uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
-    keysizesHist keysizes_hist;
 } kvstoreDictMetadata;
 
 /* forward declaration for functions ctx */
@@ -1335,6 +1343,8 @@ typedef struct {
 #define CLIENT_ID_AOF (UINT64_MAX) /* Reserved ID for the AOF client. If you
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
+#define CLIENT_ID_NONE (0)         /* Non-existent client ID, used when no client
+                                      is associated with an operation. */
 
 /* Replication backlog is not a separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
@@ -2498,9 +2508,12 @@ struct redisServer {
     int reply_copy_avoidance_enabled; /* Is reply copy avoidance enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
-    int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
-    int dbg_assert_alloc_per_slot; /* Assert per-slot alloc_size after each command */
+    unsigned int dbg_assert_flags; /* Bitmask of debug assertions to run after each command */
 };
+
+/* Debug assertion flags for server.dbg_assert_flags */
+#define DBG_ASSERT_KEYSIZES    (1 << 0) /* Assert keysizes histogram */
+#define DBG_ASSERT_ALLOC_SLOT  (1 << 1) /* Assert per-slot alloc_size */
 
 /* we use 6 so that all getKeyResult fits a cacheline */
 #define MAX_KEYS_BUFFER 6
@@ -3880,11 +3893,10 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
 int moduleSetNumericConfig(client *c, sds name, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
-void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
+void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen);
+void updateKeysizesHist(redisDb *db, uint32_t type, int64_t oldLen, int64_t newLen);
 void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize);
-void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t type, int64_t oldLen, int64_t newLen);
-void dbgAssertKeysizesHist(redisDb *db);
-void dbgAssertAllocSizePerSlot(redisDb *db);
+void dbgRunAssertions(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
@@ -3942,9 +3954,10 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
-void replySlotsFlushAndFree(client *c, struct slotRangeArray *slots);
+void replySlotsFlush(client *c, struct slotRangeArray *slots);
 int flushCommandCommon(client *c, int type, int flags);
-void unblockClientForAsyncFlush(uint64_t client_id, void *userdata);
+void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata);
+void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots);
 void blockClientForAsyncFlush(client *c);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
@@ -3964,7 +3977,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, struct asmTrimCtx *ctx);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);

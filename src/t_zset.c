@@ -2078,7 +2078,7 @@ void zaddGenericCommand(client *c, int flags) {
     server.dirty += (added+updated);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
-    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, llen, llen+added);
+    updateKeysizesHist(c->db, OBJ_ZSET, llen, llen+added);
 
 reply_to_client:
     if (incr) { /* ZINCRBY or INCR option. */
@@ -2146,7 +2146,7 @@ void zremCommand(client *c) {
             newlen = -1; /* means key got deleted */
         }
 
-        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
         keyModified(c, c->db, key, keyremoved ? NULL : zobj, 1);
         server.dirty += deleted;
     }
@@ -2278,7 +2278,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             newlen = zsetLength(zobj);
             oldlen = newlen + deleted;
         }
-        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
     }
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
@@ -4342,7 +4342,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
         newlen = -1; 
     }
-    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
+    updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
     keyModified(c, c->db, key, (newlen > 0) ? zobj : NULL, 1);
 
     if (c->cmd->proc == zmpopCommand) {
