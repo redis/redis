@@ -933,7 +933,7 @@ start_server {
         # Create stream and set IDMP-DURATION before adding entries,
         # since XCFGSET clears existing entries when the duration changes.
         r XADD mystream IDMP p1 "init" * field "init"
-        r XCFGSET mystream IDMP-DURATION 3
+        r XCFGSET mystream IDMP-DURATION 1
         r XADD mystream IDMP p1 "req-1" * field "v1"
         r XADD mystream IDMP p2 "req-1" * field "v2"
 
@@ -943,7 +943,6 @@ start_server {
 
         # Save and restart — this triggers RDB load which should
         # register the stream in stream_idmp_keys for cron cleanup.
-        # IDMP-DURATION is 5s so entries survive the load-side filtering.
         r SAVE
         restart_server 0 true false
 
@@ -953,14 +952,13 @@ start_server {
         assert_equal 2 [dict get $reply iids-tracked]
 
         # Wait for IDMP entries to expire and for the cron to clean them up.
-        # The cron runs every 1s; IDMP-DURATION is 5s, so 7s is enough margin.
-        after 5000
-
-        # If stream_idmp_keys was populated during load, the cron will have
-        # cleaned up the expired entries; pids-tracked and iids-tracked go to 0.
-        set reply [r XINFO STREAM mystream]
-        assert_equal 0 [dict get $reply pids-tracked]
-        assert_equal 0 [dict get $reply iids-tracked]
+        # Poll instead of a fixed sleep so the test finishes as soon as possible.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after RDB load"
+        }
 
         # Expired IIDs should be re-addable as new entries
         set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
