@@ -3162,7 +3162,7 @@ int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
          * - Schedule completion cb to deduce delta histogram from DB */
         asmTrimCtxRetain(ctx);
         asmTriggerBackgroundTrim(ctx, migration_cleanup);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, CLIENT_ID_NONE, ctx);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, client_id, ctx);
     }
 
     return activetrim ? ASM_TRIM_METHOD_ACTIVE : ASM_TRIM_METHOD_BG;
@@ -3222,7 +3222,7 @@ void asmTrimJobProcessPending(void) {
     while ((ln = listNext(&li)) != NULL) {
         slotRangeArray *slots = listNodeValue(ln);
         asmTrimCtx *ctx = asmTrimCtxCreate(slots, server.db[0].keys);
-        asmTrimSlots(ctx, 0, 1);  
+        asmTrimSlots(ctx, CLIENT_ID_NONE, 1);  
         propagateTrimSlots(slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
         asmTrimCtxRelease(ctx); /* Release ctx (if bg trim, released later by kvsAsyncFreeDoneCB) */
@@ -3476,7 +3476,7 @@ void trimslotsCommand(client *c) {
             }
         }
         asmTrimCtx *ctx = asmTrimCtxCreate(slots, server.db[0].keys);
-        asmTrimSlots(ctx, 0, 1);
+        asmTrimSlots(ctx, CLIENT_ID_NONE, 1);
         /* Release ctx - if bg trim, will be freed when BIO completes */
         asmTrimCtxRelease(ctx);
     }
