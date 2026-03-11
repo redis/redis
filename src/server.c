@@ -6549,6 +6549,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "io_threaded_writes_processed:%lld\r\n", stat_io_writes_processed,
             "io_threaded_total_prefetch_batches:%lld\r\n", server.stat_total_prefetch_batches,
             "io_threaded_total_prefetch_entries:%lld\r\n", server.stat_total_prefetch_entries,
+            "io_threaded_client_processed_time:%llu\r\n", (unsigned long long) server.io_threaded_client_processed_time / 1000,
             "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
