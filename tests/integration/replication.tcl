@@ -20,55 +20,55 @@ proc log_file_matches {log pattern} {
 }
 
 start_server {tags {"repl network external:skip"}} {
-    set slave [srv 0 client]
-    set slave_host [srv 0 host]
-    set slave_port [srv 0 port]
-    set slave_log [srv 0 stdout]
+    set replication [srv 0 client]
+    set replication_host [srv 0 host]
+    set replication_port [srv 0 port]
+    set replication_log [srv 0 stdout]
     start_server {} {
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]
 
         # Configure the master in order to hang waiting for the BGSAVE
-        # operation, so that the slave remains in the handshake state.
+        # operation, so that the replication remains in the handshake state.
         $master config set repl-diskless-sync yes
         $master config set repl-diskless-sync-delay 1000
 
         # Start the replication process...
-        $slave slaveof $master_host $master_port
+        $replication replicaof $master_host $master_port
 
-        test {Slave enters handshake} {
+        test {Replication enters handshake} {
             wait_for_condition 50 1000 {
-                [string match *handshake* [$slave role]]
+                [string match *handshake* [$replication role]]
             } else {
                 fail "Replica does not enter handshake state"
             }
         }
 
-        test {Slave enters wait_bgsave} {
+        test {Replication enters wait_bgsave} {
             # Wait until the rdbchannel is connected to prevent the following
             # 'debug sleep' occurring during the rdbchannel handshake.
             wait_for_condition 50 1000 {
                 [string match *state=wait_bgsave* [$master info replication]] &&
-                [llength [split [string trim [$master client list type slave]] "\r\n"]] == 2
+                [llength [split [string trim [$master client list type replica]] "\r\n"]] == 2
             } else {
                 fail "Replica does not enter wait_bgsave state"
             }
         }
 
-        # Use a short replication timeout on the slave, so that if there
+        # Use a short replication timeout on the replication, so that if there
         # are no bugs the timeout is triggered in a reasonable amount
         # of time.
-        $slave config set repl-timeout 5
+        $replication config set repl-timeout 5
 
         # But make the master unable to send
-        # the periodic newlines to refresh the connection. The slave
+        # the periodic newlines to refresh the connection. The replication
         # should detect the timeout.
         $master debug sleep 10
 
-        test {Slave is able to detect timeout during handshake} {
+        test {replication is able to detect timeout during handshake} {
             wait_for_condition 50 1000 {
-                [log_file_matches $slave_log "*Timeout connecting to the MASTER*"]
+                [log_file_matches $replication_log "*Timeout connecting to the MASTER*"]
             } else {
                 fail "Replica is not able to detect timeout"
             }
@@ -85,8 +85,8 @@ start_server {tags {"repl external:skip"}} {
         set B_host [srv 0 host]
         set B_port [srv 0 port]
 
-        test {Set instance A as slave of B} {
-            $A slaveof $B_host $B_port
+        test {Set instance A as replication of B} {
+            $A replicaof $B_host $B_port
             wait_for_condition 50 100 {
                 [lindex [$A role] 0] eq {slave} &&
                 [string match {*master_link_status:up*} [$A info replication]]
@@ -186,8 +186,8 @@ start_server {tags {"repl external:skip"}} {
             wait_for_blocked_client
 
             # Turn B into master of A
-            $A slaveof no one
-            $B slaveof $A_host $A_port
+            $A replicaof no one
+            $B replicaof $A_host $A_port
             wait_for_condition 50 100 {
                 [lindex [$B role] 0] eq {slave} &&
                 [string match {*master_link_status:up*} [$B info replication]]
@@ -224,9 +224,9 @@ start_server {tags {"repl external:skip"}} {
             s role
         } {master}
 
-        test {SLAVEOF should start with link status "down"} {
+        test {REPLICAOF should start with link status "down"} {
             r multi
-            r slaveof [srv -1 host] [srv -1 port]
+            r replicaof [srv -1 host] [srv -1 port]
             r info replication
             r exec
         } {*master_link_status:down*}
@@ -301,21 +301,21 @@ start_server {tags {"repl external:skip"}} {
             close_replication_stream $repl
         }
 
-        test {ROLE in master reports master with a slave} {
+        test {ROLE in master reports master with a replication} {
             set res [r -1 role]
-            lassign $res role offset slaves
+            lassign $res role offset replications
             assert {$role eq {master}}
             assert {$offset > 0}
-            assert {[llength $slaves] == 1}
-            lassign [lindex $slaves 0] master_host master_port slave_offset
-            assert {$slave_offset <= $offset}
+            assert {[llength $replications] == 1}
+            lassign [lindex $replications 0] master_host master_port replication_offset
+            assert {$replication_offset <= $offset}
         }
 
-        test {ROLE in slave reports slave in connected state} {
+        test {ROLE in replication reports replication in connected state} {
             set res [r role]
-            lassign $res role master_host master_port slave_state slave_offset
+            lassign $res role master_host master_port replication_state replication_offset
             assert {$role eq {slave}}
-            assert {$slave_state eq {connected}}
+            assert {$replication_state eq {connected}}
         }
     }
 }
@@ -329,19 +329,19 @@ foreach mdl {no yes} rdbchannel {no yes} {
             $master config set repl-diskless-sync-max-replicas 3
             set master_host [srv 0 host]
             set master_port [srv 0 port]
-            set slaves {}
+            set replications {}
             start_server {overrides {save {}}} {
-                lappend slaves [srv 0 client]
+                lappend replications [srv 0 client]
                 start_server {overrides {save {}}} {
-                    lappend slaves [srv 0 client]
+                    lappend replications [srv 0 client]
                     start_server {overrides {save {}}} {
-                        lappend slaves [srv 0 client]
+                        lappend replications [srv 0 client]
                         test "Connect multiple replicas at the same time (issue #141), master diskless=$mdl, replica diskless=$sdl, rdbchannel=$rdbchannel" {
 
                             $master config set repl-rdb-channel $rdbchannel
-                            [lindex $slaves 0] config set repl-rdb-channel $rdbchannel
-                            [lindex $slaves 1] config set repl-rdb-channel $rdbchannel
-                            [lindex $slaves 2] config set repl-rdb-channel $rdbchannel
+                            [lindex $replications 0] config set repl-rdb-channel $rdbchannel
+                            [lindex $replications 1] config set repl-rdb-channel $rdbchannel
+                            [lindex $replications 2] config set repl-rdb-channel $rdbchannel
 
                             # start load handles only inside the test, so that the test can be skipped
                             set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000000]
@@ -351,15 +351,15 @@ foreach mdl {no yes} rdbchannel {no yes} {
                             set load_handle4 [start_write_load $master_host $master_port 4]
                             after 5000 ;# wait for some data to accumulate so that we have RDB part for the fork
 
-                            # Send SLAVEOF commands to slaves
-                            [lindex $slaves 0] config set repl-diskless-load $sdl
-                            [lindex $slaves 1] config set repl-diskless-load $sdl
-                            [lindex $slaves 2] config set repl-diskless-load $sdl
-                            [lindex $slaves 0] slaveof $master_host $master_port
-                            [lindex $slaves 1] slaveof $master_host $master_port
-                            [lindex $slaves 2] slaveof $master_host $master_port
+                            # Send REPLICAOF commands to replications
+                            [lindex $replications 0] config set repl-diskless-load $sdl
+                            [lindex $replications 1] config set repl-diskless-load $sdl
+                            [lindex $replications 2] config set repl-diskless-load $sdl
+                            [lindex $replications 0] replicaof $master_host $master_port
+                            [lindex $replications 1] replicaof $master_host $master_port
+                            [lindex $replications 2] replicaof $master_host $master_port
 
-                            # Wait for all the three slaves to reach the "online"
+                            # Wait for all the three replications to reach the "online"
                             # state from the POV of the master.
                             set retry 500
                             while {$retry} {
@@ -372,18 +372,18 @@ foreach mdl {no yes} rdbchannel {no yes} {
                                 }
                             }
                             if {$retry == 0} {
-                                error "assertion:Slaves not correctly synchronized"
+                                error "assertion:Replications not correctly synchronized"
                             }
 
-                            # Wait that slaves acknowledge they are online so
+                            # Wait that replications acknowledge they are online so
                             # we are sure that DBSIZE and DEBUG DIGEST will not
                             # fail because of timing issues.
                             wait_for_condition 500 100 {
-                                [lindex [[lindex $slaves 0] role] 3] eq {connected} &&
-                                [lindex [[lindex $slaves 1] role] 3] eq {connected} &&
-                                [lindex [[lindex $slaves 2] role] 3] eq {connected}
+                                [lindex [[lindex $replications 0] role] 3] eq {connected} &&
+                                [lindex [[lindex $replications 1] role] 3] eq {connected} &&
+                                [lindex [[lindex $replications 2] role] 3] eq {connected}
                             } else {
-                                fail "Slaves still not connected after some time"
+                                fail "Replications still not connected after some time"
                             }
 
                             # Stop the write load
@@ -396,15 +396,15 @@ foreach mdl {no yes} rdbchannel {no yes} {
                             # Make sure no more commands processed
                             wait_load_handlers_disconnected -3
 
-                            wait_for_ofs_sync $master [lindex $slaves 0]
-                            wait_for_ofs_sync $master [lindex $slaves 1]
-                            wait_for_ofs_sync $master [lindex $slaves 2]
+                            wait_for_ofs_sync $master [lindex $replications 0]
+                            wait_for_ofs_sync $master [lindex $replications 1]
+                            wait_for_ofs_sync $master [lindex $replications 2]
 
                             # Check digests
                             set digest [$master debug digest]
-                            set digest0 [[lindex $slaves 0] debug digest]
-                            set digest1 [[lindex $slaves 1] debug digest]
-                            set digest2 [[lindex $slaves 2] debug digest]
+                            set digest0 [[lindex $replications 0] debug digest]
+                            set digest1 [[lindex $replications 1] debug digest]
+                            set digest2 [[lindex $replications 2] debug digest]
                             assert {$digest ne 0000000000000000000000000000000000000000}
                             assert {$digest eq $digest0}
                             assert {$digest eq $digest1}
@@ -424,24 +424,24 @@ start_server {tags {"repl external:skip"} overrides {save {}}} {
     start_server {overrides {save {}}} {
         test "Master stream is correctly processed while the replica has a script in -BUSY state" {
             set load_handle0 [start_write_load $master_host $master_port 3]
-            set slave [srv 0 client]
-            $slave config set lua-time-limit 500
-            $slave slaveof $master_host $master_port
+            set replication [srv 0 client]
+            $replication config set lua-time-limit 500
+            $replication replicaof $master_host $master_port
 
-            # Wait for the slave to be online
+            # Wait for the replication to be online
             wait_for_condition 500 100 {
-                [lindex [$slave role] 3] eq {connected}
+                [lindex [$replication role] 3] eq {connected}
             } else {
                 fail "Replica still not connected after some time"
             }
 
             # Wait some time to make sure the master is sending data
-            # to the slave.
+            # to the replication.
             after 5000
 
-            # Stop the ability of the slave to process data by sendig
+            # Stop the ability of the replication to process data by sendig
             # a script that will put it in BUSY state.
-            $slave eval {for i=1,3000000000 do end} 0
+            $replication eval {for i=1,3000000000 do end} 0
 
             # Wait some time again so that more master stream will
             # be processed.
@@ -452,7 +452,7 @@ start_server {tags {"repl external:skip"} overrides {save {}}} {
 
             # number of keys
             wait_for_condition 500 100 {
-                [$master debug digest] eq [$slave debug digest]
+                [$master debug digest] eq [$replication debug digest]
             } else {
                 fail "Different datasets between replica and master"
             }
@@ -482,7 +482,7 @@ foreach testType {Successful Aborted} rdbchannel {yes no} {
 
             # Put different data sets on the master and replica
             # We need to put large keys on the master since the replica replies to info only once in 2mb
-            $replica debug populate 200 slave 10
+            $replica debug populate 200 replication 10
             $master debug populate 1000 master 100000
             $master config set rdbcompression no
 
@@ -592,7 +592,7 @@ foreach testType {Successful Aborted} {
 
             # Put different data sets on the master and replica
             # We need to put large keys on the master since the replica replies to info only once in 2mb
-            $replica debug populate 2000 slave 10
+            $replica debug populate 2000 replication 10
             $master debug populate 2000 master 100000
             $master config set rdbcompression no
 
@@ -1211,9 +1211,9 @@ test {replicaof right after disconnection} {
 
 test {Kill rdb child process if its dumping RDB is not useful} {
     start_server {tags {"repl"}} {
-        set slave1 [srv 0 client]
+        set replication1 [srv 0 client]
         start_server {} {
-            set slave2 [srv 0 client]
+            set replication2 [srv 0 client]
             start_server {} {
                 set master [srv 0 client]
                 set master_host [srv 0 host]
@@ -1226,8 +1226,8 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 $master config set repl-diskless-sync no
                 $master config set save ""
 
-                $slave1 slaveof $master_host $master_port
-                $slave2 slaveof $master_host $master_port
+                $replication1 replicaof $master_host $master_port
+                $replication2 replicaof $master_host $master_port
 
                 # Wait for starting child
                 wait_for_condition 50 100 {
@@ -1238,14 +1238,14 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                     fail "rdb child didn't start"
                 }
 
-                # Slave1 disconnect with master
-                $slave1 slaveof no one
-                # Shouldn't kill child since another slave wait for rdb
+                # Replication1 disconnect with master
+                $replication1 replicaof no one
+                # Shouldn't kill child since another replication wait for rdb
                 after 100
                 assert {[s 0 rdb_bgsave_in_progress] == 1}
 
-                # Slave2 disconnect with master
-                $slave2 slaveof no one
+                # Replication2 disconnect with master
+                $replication2 replicaof no one
                 # Should kill child
                 wait_for_condition 1000 10 {
                     [s 0 rdb_bgsave_in_progress] eq 0
@@ -1255,8 +1255,8 @@ test {Kill rdb child process if its dumping RDB is not useful} {
 
                 # If have save parameters, won't kill child
                 $master config set save "900 1"
-                $slave1 slaveof $master_host $master_port
-                $slave2 slaveof $master_host $master_port
+                $replication1 replicaof $master_host $master_port
+                $replication2 replicaof $master_host $master_port
                 wait_for_condition 50 100 {
                     ([s 0 rdb_bgsave_in_progress] == 1) &&
                     ([string match "*wait_bgsave*" [s 0 slave0]]) &&
@@ -1264,8 +1264,8 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 } else {
                     fail "rdb child didn't start"
                 }
-                $slave1 slaveof no one
-                $slave2 slaveof no one
+                $replication1 replicaof no one
+                $replication2 replicaof no one
                 after 200
                 assert {[s 0 rdb_bgsave_in_progress] == 1}
                 catch {$master shutdown nosave}
@@ -1292,17 +1292,17 @@ start_server {tags {"repl external:skip"}} {
 
             start_server {} {
                 # Full sync with master1
-                r slaveof $master1_host $master1_port
+                r replicaof $master1_host $master1_port
                 wait_for_sync r
                 assert_equal "b" [r get a]
 
                 # Let sub replicas sync with me
-                $sub_replica slaveof [srv 0 host] [srv 0 port]
+                $sub_replica replicaof [srv 0 host] [srv 0 port]
                 wait_for_sync $sub_replica
                 assert_equal "b" [$sub_replica get a]
 
                 # Full sync with master2, and then kill master2 before finishing dumping RDB
-                r slaveof $master2_host $master2_port
+                r replicaof $master2_host $master2_port
                 wait_for_condition 50 100 {
                     ([s -2 rdb_bgsave_in_progress] == 1) &&
                         ([string match "*wait_bgsave*" [s -2 slave0]] ||
@@ -1323,7 +1323,7 @@ start_server {tags {"repl external:skip"}} {
                     set full_sync [s -3 sync_full]
                     set partial_sync [s -3 sync_partial_ok]
                     # Partial sync with master1
-                    r slaveof $master1_host $master1_port
+                    r replicaof $master1_host $master1_port
                     wait_for_sync r
                     # master1 accepts partial sync instead of full sync
                     assert_equal $full_sync [s -3 sync_full]
@@ -1469,15 +1469,15 @@ start_server {tags {"repl external:skip"}} {
     set master_port [srv 0 port]
     $master debug SET-ACTIVE-EXPIRE 0
     start_server {} {
-        set slave [srv 0 client]
-        $slave debug SET-ACTIVE-EXPIRE 0
-        $slave slaveof $master_host $master_port
+        set replication [srv 0 client]
+        $replication debug SET-ACTIVE-EXPIRE 0
+        $replication replicaof $master_host $master_port
 
         test "Test replication with lazy expire" {
             # wait for replication to be in sync
             wait_for_condition 50 100 {
-                [lindex [$slave role] 0] eq {slave} &&
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$replication role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Can't turn the instance into a replica"
             }
@@ -1489,7 +1489,7 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 1 [$master wait 1 0]
 
             assert_equal "set" [$master type s]
-            assert_equal "set" [$slave type s]
+            assert_equal "set" [$replication type s]
         }
     }
 }
@@ -1550,10 +1550,10 @@ start_server {tags {"repl external:skip"} overrides {save {}}} {
     populate 10000 master 10
 
     start_server {overrides {save {} rdb-del-sync-files yes loading-process-events-interval-bytes 1024}} {
-        test "Allow appendonly config change while loading rdb on slave" {
+        test "Allow appendonly config change while loading rdb on replication" {
             set replica [srv 0 client]
 
-            # While loading rdb on slave, verify appendonly config changes are allowed
+            # While loading rdb on replication, verify appendonly config changes are allowed
             # 1- Change appendonly config from no to yes
             $replica config set appendonly no
             $replica config set key-load-delay 100
@@ -1669,56 +1669,56 @@ start_server {tags {"repl external:skip"}} {
     set master_port [srv 0 port]
 
     start_server {} {
-        set slave [srv 0 client]
-        $slave slaveof $master_host $master_port
+        set replication [srv 0 client]
+        $replication replicaof $master_host $master_port
 
         test "Accumulate repl_total_disconnect_time with delayed reconnection" {
             wait_for_condition 50 100 {
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Initial replica setup failed"
             }
 
             # Simulate disconnect by pointing to invalid master
-            $slave slaveof $master_host 0
+            $replication replicaof $master_host 0
             after 1000
 
-            $slave slaveof $master_host $master_port
+            $replication replicaof $master_host $master_port
 
             wait_for_condition 50 100 {
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Initial replica setup failed"
             }
-            assert {[status $slave total_disconnect_time_sec] >= 1}
+            assert {[status $replication total_disconnect_time_sec] >= 1}
         }
 
-        test "Test the total_disconnect_time_sec incr after slaveof no one" {
-            $slave slaveof no one
+        test "Test the total_disconnect_time_sec incr after replicaof no one" {
+            $replication replicaof no one
             after 1000
-            $slave slaveof $master_host $master_port
+            $replication replicaof $master_host $master_port
             wait_for_condition 50 100 {
-                [lindex [$slave role] 0] eq {slave} &&
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$replication role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Can't turn the instance into a replica"
             }
-            assert {[status $slave total_disconnect_time_sec] >= 2}
+            assert {[status $replication total_disconnect_time_sec] >= 2}
         }
 
         test "Test correct replication disconnection time counters behavior" {
             # Simulate disconnection
-            $slave slaveof $master_host 0
+            $replication replicaof $master_host 0
 
             after 1000
 
-            set total_disconnect_time [status $slave total_disconnect_time_sec]
-            set link_down_since [status $slave master_link_down_since_seconds]
+            set total_disconnect_time [status $replication total_disconnect_time_sec]
+            set link_down_since [status $replication master_link_down_since_seconds]
 
             # Restore real master
-            $slave slaveof $master_host $master_port
+            $replication replicaof $master_host $master_port
             wait_for_condition 50 100 {
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Replication did not reconnect"
             }
@@ -1728,7 +1728,7 @@ start_server {tags {"repl external:skip"}} {
             assert {$total_disconnect_time > $link_down_since}
 
             #  total_disconnect_time_reconnect can be up to 5 seconds more than total_disconnect_time due to reconnection time
-            set total_disconnect_time_reconnect [status $slave total_disconnect_time_sec]
+            set total_disconnect_time_reconnect [status $replication total_disconnect_time_sec]
             assert {$total_disconnect_time_reconnect >= $total_disconnect_time && $total_disconnect_time_reconnect <= $total_disconnect_time + 5}
         }
     }
@@ -1740,51 +1740,51 @@ start_server {tags {"repl external:skip"}} {
     set master_port [srv 0 port]
 
     start_server {} {
-        set slave [srv 0 client]
-        $slave slaveof $master_host $master_port
+        set replication [srv 0 client]
+        $replication replicaof $master_host $master_port
 
         # Test: Normal establishment of the master link
         test "Test normal establishment process of the master link" {
             wait_for_condition 50 100 {
-                [lindex [$slave role] 0] eq {slave} &&
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$replication role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 1 [status $slave master_current_sync_attempts]
-            assert_equal 1 [status $slave master_total_sync_attempts]
+            assert_equal 1 [status $replication master_current_sync_attempts]
+            assert_equal 1 [status $replication master_total_sync_attempts]
         }
 
-        # Test: Sync attempts reset after 'slaveof no one'
-        test "Test sync attempts reset after slaveof no one" {
-            $slave slaveof no one
-            $slave slaveof $master_host $master_port
+        # Test: Sync attempts reset after 'replicaof no one'
+        test "Test sync attempts reset after replicaof no one" {
+            $replication replicaof no one
+            $replication replicaof $master_host $master_port
 
             wait_for_condition 50 100 {
-                [lindex [$slave role] 0] eq {slave} &&
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$replication role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 1 [status $slave master_current_sync_attempts]
-            assert_equal 1 [status $slave master_total_sync_attempts]
+            assert_equal 1 [status $replication master_current_sync_attempts]
+            assert_equal 1 [status $replication master_total_sync_attempts]
         }
 
         # Test: Sync attempts reset on master reconnect
         test "Test sync attempts reset on master reconnect" {
-            $slave client kill type master
+            $replication client kill type master
 
             wait_for_condition 50 100 {
-                [lindex [$slave role] 0] eq {slave} &&
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$replication role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 1 [status $slave master_current_sync_attempts]
-            assert_equal 2 [status $slave master_total_sync_attempts]
+            assert_equal 1 [status $replication master_current_sync_attempts]
+            assert_equal 2 [status $replication master_total_sync_attempts]
         }
 
         # Test: Sync attempts reset on master switch
@@ -1792,40 +1792,40 @@ start_server {tags {"repl external:skip"}} {
             start_server {} {
                 set new_master_host [srv 0 host]
                 set new_master_port [srv 0 port]
-                $slave slaveof $new_master_host $new_master_port
+                $replication replicaof $new_master_host $new_master_port
 
                 wait_for_condition 50 100 {
-                    [lindex [$slave role] 0] eq {slave} &&
-                    [string match {*master_link_status:up*} [$slave info replication]]
+                    [lindex [$replication role] 0] eq {slave} &&
+                    [string match {*master_link_status:up*} [$replication info replication]]
                 } else {
                     fail "Can't turn the instance into a replica"
                 }
 
-                assert_equal 1 [status $slave master_current_sync_attempts]
-                assert_equal 1 [status $slave master_total_sync_attempts]
+                assert_equal 1 [status $replication master_current_sync_attempts]
+                assert_equal 1 [status $replication master_total_sync_attempts]
             }
         }
 
         # Test: Replication current attempts counter behavior
         test "Replication current attempts counter behavior" {
-            $slave slaveof $master_host $master_port
+            $replication replicaof $master_host $master_port
 
             # Wait until replica state becomes "connected"
             wait_for_condition 1000 50 {
-                [lindex [$slave role] 0] eq {slave} &&
-                [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$replication role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replication info replication]]
             } else {
-                fail "slave did not connect to master."
+                fail "replication did not connect to master."
             }
 
-            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 1 [status $replication master_current_sync_attempts]
 
             # Connect to an invalid master
-            $slave slaveof $master_host 0
+            $replication replicaof $master_host 0
 
             # Expect current sync attempts to increase
             wait_for_condition 100 50 {
-                [status $slave master_current_sync_attempts] >= 2
+                [status $replication master_current_sync_attempts] >= 2
             } else {
                 fail "Timeout waiting for master_current_sync_attempts"
             }
