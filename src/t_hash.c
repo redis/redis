@@ -2208,10 +2208,9 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
-
             /* Ensure only one FIELDS argument is provided */
             if (*first_field_pos != -1) {
-                addReplyError(c, "wrong number of arguments");
+                addReplyError(c, "FIELDS keyword specified multiple times");
                 return C_ERR;
             }
 
