@@ -3550,6 +3550,7 @@ void updateLoadingFileName(char* filename) {
 void stopLoading(int success) {
     server.loading = 0;
     server.async_loading = 0;
+    server.loading_skip_checksum = 0;
     blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
 
@@ -3587,7 +3588,7 @@ void stopSaving(int success) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
-    if (server.rdb_checksum)
+    if (server.rdb_checksum && !server.loading_skip_checksum)
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
@@ -4017,7 +4018,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         uint64_t cksum, expected = rdb->cksum;
 
         if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
-        if (server.rdb_checksum && !server.skip_checksum_validation) {
+        if (server.rdb_checksum && !server.loading_skip_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
             if (cksum == 0) {
                 serverLog(LL_NOTICE,"RDB file was saved with checksum disabled: no check performed.");
@@ -4301,9 +4302,12 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        /* Disable RDB compression if requested. */
+        /* Disable RDB compression and checksum in the fork child if requested.
+         * The parent's configuration is not affected. */
         if (req & SLAVE_REQ_RDB_NO_COMPRESS)
             server.rdb_compression = 0;
+        if (req & SLAVE_REQ_RDB_NO_CHECKSUM)
+            server.rdb_checksum = 0;
 
         if (req & SLAVE_REQ_SLOTS_SNAPSHOT) {
             /* Slots snapshot is required */
