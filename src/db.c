@@ -187,13 +187,17 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
 static void dbgAssertKeysizesHist(redisDb *db) {
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength, "dbgAssertKeysizesHist");
-    if (server.memory_tracking_enabled)
-        dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize, "dbgAssertAllocsizesHist");
 }
 
 /* Assert per-slot alloc_size (For debugging only) */
 static void dbgAssertAllocSizePerSlot(redisDb *db) {
     if (!server.memory_tracking_enabled) return;
+    
+    /* Check allocsizes histogram per db */
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize, "dbgAssertAllocsizesHist");
+    
+    /* Check alloc_size per slot */    
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
     kvstoreIterator kvs_it;
