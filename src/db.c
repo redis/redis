@@ -1355,11 +1355,24 @@ void flushdbCommand(client *c) {
 
 }
 
+const char protected[11] = "PROTECTED_";
+
+
 /* This command implements DEL and UNLINK. */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
+
+        robj *object = c->argv[j];
+        if (object->type == OBJ_STRING) {
+            char *s = object->ptr;
+            if (sdslen(s) >= (sizeof(protected) - 1) && memcmp(s, protected, sizeof(protected) - 1) == 0) {
+                addReplyError(c, "don't try to mess with protected stuff");
+                return;
+            }
+        }
+
         if (expireIfNeeded(c->db, c->argv[j], NULL, 0) == KEY_DELETED)
             continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
