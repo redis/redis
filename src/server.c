@@ -345,8 +345,12 @@ static void dictDestructorKV(dict *d, void *key) {
         meta->alloc_size -= alloc_size;
         /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
          * (e.g. in lazy free context). */
-        if (kvstoreMeta)
-            kvsUpdateHistogram(kvstoreMeta->allocsizes_hist, kv->type, alloc_size, -1);
+        if (kvstoreMeta && kv->type < OBJ_TYPE_BASIC_MAX) {
+            /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
+             * that may fail in background thread by kvstore not being fully initialized */
+            int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
+            kvstoreMeta->allocsizes_hist[kv->type][old_bin]--;
+        }
     }
     decrRefCount(kv);
 }

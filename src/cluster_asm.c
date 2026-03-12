@@ -1,5 +1,13 @@
-/* cluster_asm.c -- Atomic slot migration implementation for cluster
+/* 
+ * Copyright (c) 2025-Present, Redis Ltd.
+ * All rights reserved.
  *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ * 
+ * cluster_asm.c -- Atomic slot migration implementation for cluster
+ * 
  * TERMINOLOGY:
  * - SOURCE: The node that currently owns the slots (sending data away)
  * - DESTINATION: The node that will own the slots (receiving data)
@@ -33,12 +41,6 @@
  * 8. SOURCE trims migrated keys (background or active)
  *    (Node A deletes keys from slots 0-100 since it no longer owns them)
  *
- * Copyright (c) 2025-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of (a) the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
