@@ -273,22 +273,12 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
     if (child == NULL) return NULL;
 
     /* Make space in the original node. */
-    size_t usable = rax_malloc_usable_size(n);
-    if (usable >= newlen) {
-        /* Existing allocation has room -- skip realloc entirely. */
-    } else {
-        /* Grow with 2x factor to amortize future inserts. */
-        size_t growlen = newlen < 1024 ? newlen * 2 : newlen + 1024;
-        raxNode *newn = raxNodeRealloc(rax, n, growlen);
-        if (newn == NULL) {
-            newn = raxNodeRealloc(rax, n, newlen);
-            if (newn == NULL) {
-                raxFreeNode(rax, child);
-                return NULL;
-            }
-        }
-        n = newn;
+    raxNode *newn = raxNodeRealloc(rax,n,newlen);
+    if (newn == NULL) {
+        raxFreeNode(rax,child);
+        return NULL;
     }
+    n = newn;
 
     /* After the reallocation, we have up to 8/16 (depending on the system
      * pointer size, and the required node padding) bytes at the end, that is,
