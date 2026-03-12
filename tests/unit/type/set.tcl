@@ -321,6 +321,28 @@ foreach type {single multiple single_multiple} {
         assert_equal 0 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
     }
 
+    test "SUNIONCARD APPROX with large sets is within HLL error margin" {
+        r del bigset1{t} bigset2{t}
+        set n 10000
+        for {set i 0} {$i < $n} {incr i} {
+            r sadd bigset1{t} "elem_a_$i"
+        }
+        for {set i 5000} {$i < [expr {$n + 5000}]} {incr i} {
+            r sadd bigset2{t} "elem_b_$i"
+        }
+
+        set exact [r sunioncard 2 bigset1{t} bigset2{t}]
+        set approx_val [r sunioncard 2 bigset1{t} bigset2{t} APPROX]
+
+        set error_pct [expr {abs($approx_val - $exact) * 100.0 / $exact}]
+        assert {$error_pct < 5.0}
+
+        set approx_limited [r sunioncard 2 bigset1{t} bigset2{t} APPROX LIMIT 5000]
+        assert_equal 5000 $approx_limited
+
+        r del bigset1{t} bigset2{t}
+    }
+
     foreach {type} {regular intset} {
         # Create sets setN{t} where N = 1..5
         if {$type eq "regular"} {

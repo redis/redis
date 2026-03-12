@@ -14,6 +14,7 @@
 
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "hyperloglog.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -1840,6 +1841,8 @@ void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
 }
 
+#define HLL_APPROX_CHECK_INTERVAL 1024
+
 /* SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
 void sunioncardCommand(client *c) {
     long j;
@@ -1879,11 +1882,6 @@ void sunioncardCommand(client *c) {
         return;
     }
 
-    if (approx) {
-        /* TODO: Implement HLL-based approximate union cardinality.
-         * For now, fall through to exact mode. */
-    }
-
     setopsrc *sets = zmalloc(sizeof(setopsrc) * numkeys);
     for (j = 0; j < numkeys; j++) {
         kvobj *setobj = lookupKeyRead(c->db, c->argv[2 + j]);
@@ -1901,6 +1899,65 @@ void sunioncardCommand(client *c) {
             sets[j].oldsize = kvobjAllocSize(setobj);
     }
 
+    if (approx) {
+        /* HLL-based approximate cardinality: use a temporary HLL object
+         * with the standard sparse→dense encoding (same as PFADD). */
+        robj *hllobj = createHLLObject();
+
+        setTypeIterator si;
+        char *str;
+        size_t len = 0;
+        int64_t llval = 0;
+        int encoding;
+        long elements_processed = 0;
+        int early_exit = 0;
+
+        for (j = 0; j < numkeys && !early_exit; j++) {
+            if (!sets[j].set) continue;
+
+            setTypeInitIterator(&si, sets[j].set);
+            while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+                if (str != NULL) {
+                    hllAdd(hllobj, (unsigned char *)str, len);
+                } else {
+                    char buf[LONG_STR_SIZE];
+                    size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
+                    hllAdd(hllobj, (unsigned char *)buf, slen);
+                }
+
+                elements_processed++;
+                if (have_limit &&
+                    (elements_processed % HLL_APPROX_CHECK_INTERVAL == 0)) {
+                    uint64_t est = hllCount(hllobj->ptr, NULL);
+                    if (est >= (uint64_t)limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                }
+            }
+            setTypeResetIterator(&si);
+        }
+
+        uint64_t cardinality = hllCount(hllobj->ptr, NULL);
+        if (have_limit && cardinality > (uint64_t)limit)
+            cardinality = (uint64_t)limit;
+
+        if (server.memory_tracking_enabled) {
+            for (j = 0; j < numkeys; j++) {
+                robj *obj = sets[j].set;
+                if (!obj) continue;
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[2 + j]->ptr), obj,
+                                    sets[j].oldsize, kvobjAllocSize(obj));
+            }
+        }
+
+        addReplyLongLong(c, (long long)cardinality);
+        decrRefCount(hllobj);
+        zfree(sets);
+        return;
+    }
+
+    /* Exact cardinality: build a temporary union set. */
     int dstset_encoding = OBJ_ENCODING_INTSET;
     for (j = 0; j < numkeys; j++) {
         if (!sets[j].set) continue;
