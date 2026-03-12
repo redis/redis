@@ -272,13 +272,17 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
     raxNode *child = raxNewNode(rax,0,0);
     if (child == NULL) return NULL;
 
-    /* Make space in the original node. */
-    raxNode *newn = raxNodeRealloc(rax,n,newlen);
-    if (newn == NULL) {
-        raxFreeNode(rax,child);
-        return NULL;
+    /* Make space in the original node. If the current allocation already
+     * has enough usable bytes (common with jemalloc size-class rounding),
+     * skip the realloc entirely. */
+    if (rax_malloc_usable_size(n) < newlen) {
+        raxNode *newn = raxNodeRealloc(rax,n,newlen);
+        if (newn == NULL) {
+            raxFreeNode(rax,child);
+            return NULL;
+        }
+        n = newn;
     }
-    n = newn;
 
     /* After the reallocation, we have up to 8/16 (depending on the system
      * pointer size, and the required node padding) bytes at the end, that is,
