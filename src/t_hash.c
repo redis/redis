@@ -2205,18 +2205,15 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
     *first_field_pos = -1;
     *field_count = -1;
     *expire_time_pos = -1;
-    int fields_argv_count = 0;
 
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
 
             /* Ensure only one FIELDS argument is provided */
-            if (fields_argv_count) {
+            if (*first_field_pos != -1) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
             }
-
-            fields_argv_count = 1;
 
             int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
             long val;
