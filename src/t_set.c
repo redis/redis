@@ -1840,6 +1840,124 @@ void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
 }
 
+/* SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
+void sunioncardCommand(client *c) {
+    long j;
+    long numkeys = 0;
+    long limit = 0;
+    int have_limit = 0;
+    int approx = 0;
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+            have_limit = 1;
+        } else if (!strcasecmp(opt, "APPROX")) {
+            approx = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    if (have_limit && limit == 0) {
+        addReplyLongLong(c, 0);
+        return;
+    }
+
+    if (approx) {
+        /* TODO: Implement HLL-based approximate union cardinality.
+         * For now, fall through to exact mode. */
+    }
+
+    setopsrc *sets = zmalloc(sizeof(setopsrc) * numkeys);
+    for (j = 0; j < numkeys; j++) {
+        kvobj *setobj = lookupKeyRead(c->db, c->argv[2 + j]);
+        if (!setobj) {
+            sets[j].set = NULL;
+            sets[j].oldsize = 0;
+            continue;
+        }
+        if (checkType(c, setobj, OBJ_SET)) {
+            zfree(sets);
+            return;
+        }
+        sets[j].set = setobj;
+        if (server.memory_tracking_enabled)
+            sets[j].oldsize = kvobjAllocSize(setobj);
+    }
+
+    int dstset_encoding = OBJ_ENCODING_INTSET;
+    for (j = 0; j < numkeys; j++) {
+        if (!sets[j].set) continue;
+        if (dstset_encoding == OBJ_ENCODING_INTSET &&
+            (sets[j].set->encoding == OBJ_ENCODING_LISTPACK ||
+             sets[j].set->encoding == OBJ_ENCODING_HT)) {
+            dstset_encoding = OBJ_ENCODING_HT;
+            break;
+        }
+    }
+
+    robj *dstset;
+    if (dstset_encoding == OBJ_ENCODING_INTSET) {
+        dstset = createIntsetObject();
+    } else {
+        dstset = createSetObject();
+    }
+
+    long cardinality = 0;
+    setTypeIterator si;
+    char *str;
+    size_t len = 0;
+    int64_t llval = 0;
+    int encoding;
+    int early_exit = 0;
+
+    for (j = 0; j < numkeys && !early_exit; j++) {
+        if (!sets[j].set) continue;
+
+        setTypeInitIterator(&si, sets[j].set);
+        while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+            cardinality += setTypeAddAux(dstset, str, len, llval,
+                                         encoding == OBJ_ENCODING_HT);
+            if (have_limit && cardinality >= limit) {
+                cardinality = limit;
+                early_exit = 1;
+                break;
+            }
+        }
+        setTypeResetIterator(&si);
+    }
+
+    if (server.memory_tracking_enabled) {
+        for (j = 0; j < numkeys; j++) {
+            robj *obj = sets[j].set;
+            if (!obj) continue;
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[2 + j]->ptr), obj,
+                                sets[j].oldsize, kvobjAllocSize(obj));
+        }
+    }
+
+    addReplyLongLong(c, cardinality);
+    server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
+                                      decrRefCount(dstset);
+    zfree(sets);
+}
+
 /* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION);
