@@ -492,13 +492,21 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
             }
             if (j != h->size) break;
         } else {
-            /* Even when h->size is large, linear scan provides good
-             * performances compared to other approaches that are in theory
-             * more sounding, like performing a binary search. */
-            for (j = 0; j < h->size; j++) {
-                if (v[j] == s[i]) break;
+            /* Children are sorted. Check the last child first: for
+             * sequential inserts the match is almost always at the end,
+             * and for random keys the extra compare is negligible vs
+             * the O(n) scan that follows on miss. */
+            if (v[h->size - 1] == s[i]) {
+                j = h->size - 1;
+            } else if (s[i] > v[h->size - 1]) {
+                j = h->size;
+                break;
+            } else {
+                for (j = 0; j < h->size; j++) {
+                    if (v[j] == s[i]) break;
+                }
+                if (j == h->size) break;
             }
-            if (j == h->size) break;
             i++;
         }
 
