@@ -3399,7 +3399,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         return NULL;
                     }
                     streamNACK *nack = result;
-                    if (deep_integrity_validation && nack->consumer != NULL) {
+                    if (nack->consumer != NULL) {
                         rdbReportCorruptRDB("Stream NACK zone entry has a "
                                             "consumer assigned");
                         decrRefCount(o);
