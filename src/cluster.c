@@ -2184,6 +2184,19 @@ void sflushCommand(client *c) {
     }
     slotRangeArrayFree(slots);
 
+    /* If the selected slots are exactly the same as the local slots, we can
+     * simply flush the entire DB by flushCommandCommon. */
+    slotRangeArray *local_slots = clusterGetLocalSlotRanges();
+    int all_slots_covered = slotRangeArrayIsEqual(myslots, local_slots);
+    slotRangeArrayFree(local_slots);
+    if (all_slots_covered) {
+        /* If not flush as blocking async, then reply immediately */
+        if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0) {
+            replySlotsFlushAndFree(c, myslots);
+        }
+        return;
+    }
+
     /* Cancel all ASM tasks that overlap with the given slot ranges. */
     clusterAsmCancelBySlotRangeArray(myslots, c->argv[0]->ptr);
 
