@@ -4230,7 +4230,7 @@ void xpendingCommand(client *c) {
                 addReplyBulkCBuffer(c,"",0);
             }
 
-            /* Milliseconds elapsed since last delivery (-1 if never delivered). */
+            /* Milliseconds elapsed since last delivery (-1 if unowned / NACKed). */
             mstime_t elapsed;
             if (nack->consumer) {
                 elapsed = now - nack->delivery_time;
@@ -4449,6 +4449,8 @@ void xclaimCommand(client *c) {
                     streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                     propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
                 } else {
+                    /* Unowned NACK (NACK zone entry from XNACK) — can't use
+                     * XCLAIM propagation without a consumer; use XACK instead. */
                     streamPropagateXACK(c->db->id,c->argv[1],c->argv[2],c->argv[j]);
                 }
                 server.dirty++;
@@ -4654,6 +4656,8 @@ void xautoclaimCommand(client *c) {
                 streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
                 decrRefCount(idstr);
             } else {
+                /* Unowned NACK (NACK zone entry from XNACK) — can't use
+                 * XCLAIM propagation without a consumer; use XACK instead. */
                 robj *idstr = createObjectFromStreamID(&id);
                 streamPropagateXACK(c->db->id,c->argv[1],c->argv[2],idstr);
                 decrRefCount(idstr);
