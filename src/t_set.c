@@ -21,7 +21,8 @@
  *----------------------------------------------------------------------------*/
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op);
+                              robj *dstkey, int op,
+                              int cardinality_only, long limit);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a listpack
@@ -854,7 +855,7 @@ void spopWithCountCommand(client *c) {
      * the number of elements inside the set: simply return the whole set. */
     if (count >= size) {
         /* We just return the entire set */
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION,0,0);
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
@@ -1634,7 +1635,8 @@ void sinterstoreCommand(client *c) {
 }
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op) {
+                              robj *dstkey, int op,
+                              int cardinality_only, long limit) {
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator si;
     robj *dstset = NULL;
@@ -1728,12 +1730,18 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
          * temporary set. */
-        for (j = 0; j < setnum; j++) {
+        int early_exit = 0;
+        for (j = 0; j < setnum && !early_exit; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                if (cardinality_only && limit > 0 && cardinality >= limit) {
+                    cardinality = limit;
+                    early_exit = 1;
+                    break;
+                }
             }
             setTypeResetIterator(&si);
         }
@@ -1801,7 +1809,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
-    if (!dstkey) {
+    if (cardinality_only) {
+        addReplyLongLong(c, cardinality);
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
+                                          decrRefCount(dstset);
+    } else if (!dstkey) {
         addReplySetLen(c,cardinality);
         setTypeInitIterator(&si, dstset);
         while (setTypeNext(&si, &str, &len, &llval) != -1) {
@@ -1838,7 +1850,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* SUNION key [key ...] */
 void sunionCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION,0,0);
 }
 
 #define HLL_APPROX_CHECK_INTERVAL 1024
@@ -1882,26 +1894,26 @@ void sunioncardCommand(client *c) {
         return;
     }
 
-    setopsrc *sets = zmalloc(sizeof(setopsrc) * numkeys);
-    for (j = 0; j < numkeys; j++) {
-        kvobj *setobj = lookupKeyRead(c->db, c->argv[2 + j]);
-        if (!setobj) {
-            sets[j].set = NULL;
-            sets[j].oldsize = 0;
-            continue;
-        }
-        if (checkType(c, setobj, OBJ_SET)) {
-            zfree(sets);
-            return;
-        }
-        sets[j].set = setobj;
-        if (server.memory_tracking_enabled)
-            sets[j].oldsize = kvobjAllocSize(setobj);
-    }
-
     if (approx) {
         /* HLL-based approximate cardinality: use a temporary HLL object
          * with the standard sparse→dense encoding (same as PFADD). */
+        setopsrc *sets = zmalloc(sizeof(setopsrc) * numkeys);
+        for (j = 0; j < numkeys; j++) {
+            kvobj *setobj = lookupKeyRead(c->db, c->argv[2 + j]);
+            if (!setobj) {
+                sets[j].set = NULL;
+                sets[j].oldsize = 0;
+                continue;
+            }
+            if (checkType(c, setobj, OBJ_SET)) {
+                zfree(sets);
+                return;
+            }
+            sets[j].set = setobj;
+            if (server.memory_tracking_enabled)
+                sets[j].oldsize = kvobjAllocSize(setobj);
+        }
+
         robj *hllobj = createHLLObject();
 
         setTypeIterator si;
@@ -1957,77 +1969,24 @@ void sunioncardCommand(client *c) {
         return;
     }
 
-    /* Exact cardinality: build a temporary union set. */
-    int dstset_encoding = OBJ_ENCODING_INTSET;
-    for (j = 0; j < numkeys; j++) {
-        if (!sets[j].set) continue;
-        if (dstset_encoding == OBJ_ENCODING_INTSET &&
-            (sets[j].set->encoding == OBJ_ENCODING_LISTPACK ||
-             sets[j].set->encoding == OBJ_ENCODING_HT)) {
-            dstset_encoding = OBJ_ENCODING_HT;
-            break;
-        }
-    }
-
-    robj *dstset;
-    if (dstset_encoding == OBJ_ENCODING_INTSET) {
-        dstset = createIntsetObject();
-    } else {
-        dstset = createSetObject();
-    }
-
-    long cardinality = 0;
-    setTypeIterator si;
-    char *str;
-    size_t len = 0;
-    int64_t llval = 0;
-    int encoding;
-    int early_exit = 0;
-
-    for (j = 0; j < numkeys && !early_exit; j++) {
-        if (!sets[j].set) continue;
-
-        setTypeInitIterator(&si, sets[j].set);
-        while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
-            cardinality += setTypeAddAux(dstset, str, len, llval,
-                                         encoding == OBJ_ENCODING_HT);
-            if (have_limit && cardinality >= limit) {
-                cardinality = limit;
-                early_exit = 1;
-                break;
-            }
-        }
-        setTypeResetIterator(&si);
-    }
-
-    if (server.memory_tracking_enabled) {
-        for (j = 0; j < numkeys; j++) {
-            robj *obj = sets[j].set;
-            if (!obj) continue;
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[2 + j]->ptr), obj,
-                                sets[j].oldsize, kvobjAllocSize(obj));
-        }
-    }
-
-    addReplyLongLong(c, cardinality);
-    server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
-                                      decrRefCount(dstset);
-    zfree(sets);
+    /* Exact path: delegate to the generic union/diff function. */
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
+                             SET_OP_UNION, 1, limit);
 }
 
 /* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION,0,0);
 }
 
 /* SDIFF key [key ...] */
 void sdiffCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF,0,0);
 }
 
 /* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0);
 }
 
 void sscanCommand(client *c) {
