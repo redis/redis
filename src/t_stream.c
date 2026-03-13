@@ -2474,6 +2474,8 @@ void xaddCommand(client *c) {
         if (idmpLookupAndReply(s, producer, entry, c)) {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
+            keyModified(c,c->db,c->argv[1],kv,0);
+            server.dirty++;
             return;
         }
     }
