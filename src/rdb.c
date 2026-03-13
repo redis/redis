@@ -3409,38 +3409,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     pelListInsertNacked(cgroup, nack);
                 }
 
-                if (deep_integrity_validation) {
-                    /* Verify entries outside the NACK zone all have a
-                     * consumer assigned. */
-                    streamNACK *cur = cgroup->pel_nack_tail ?
-                                     cgroup->pel_nack_tail->pel_next :
-                                     cgroup->pel_time_head;
-                    while (cur) {
-                        if (!cur->consumer) {
-                            rdbReportCorruptRDB("Stream CG PEL entry without "
-                                                "consumer outside NACK zone");
-                            decrRefCount(o);
-                            return NULL;
-                        }
-                        cur = cur->pel_next;
+            }
+
+            /* Verify entries outside the NACK zone all have a consumer
+             * assigned. For old RDB types pel_nack_tail is NULL, so
+             * this walks the entire PEL — equivalent to checking all. */
+            if (deep_integrity_validation) {
+                streamNACK *cur = cgroup->pel_nack_tail ?
+                                 cgroup->pel_nack_tail->pel_next :
+                                 cgroup->pel_time_head;
+                while (cur) {
+                    if (!cur->consumer) {
+                        rdbReportCorruptRDB("Stream CG PEL entry without "
+                                            "consumer outside NACK zone");
+                        decrRefCount(o);
+                        return NULL;
                     }
-                }
-            } else {
-                /* Old RDB type: verify all PEL entries have consumers. */
-                if (deep_integrity_validation) {
-                    raxIterator ri_cg_pel;
-                    raxStart(&ri_cg_pel,cgroup->pel);
-                    raxSeek(&ri_cg_pel,"^",NULL,0);
-                    while(raxNext(&ri_cg_pel)) {
-                        streamNACK *nack = ri_cg_pel.data;
-                        if (!nack->consumer) {
-                            raxStop(&ri_cg_pel);
-                            rdbReportCorruptRDB("Stream CG PEL entry without consumer");
-                            decrRefCount(o);
-                            return NULL;
-                        }
-                    }
-                    raxStop(&ri_cg_pel);
+                    cur = cur->pel_next;
                 }
             }
         }
