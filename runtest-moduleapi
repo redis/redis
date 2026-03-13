@@ -59,4 +59,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/crash \
 --single unit/moduleapi/internalsecret \
 --single unit/moduleapi/configaccess \
+--single unit/moduleapi/keymeta \
 "${@}"
