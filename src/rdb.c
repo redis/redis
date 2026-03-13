@@ -712,10 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        if (streamHasNackedEntries(o->ptr))
             return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
-        else
-            return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -1265,8 +1262,6 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
 
         if (num_cgroups) {
-            int has_nacked = streamHasNackedEntries(s);
-
             /* Serialize each consumer group. */
             raxStart(&ri,s->cgroups);
             raxSeek(&ri,"^",NULL,0);
@@ -1313,28 +1308,26 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
 
-                /* Save NACK zone only when using RDB_TYPE_STREAM_LISTPACKS_5. */
-                if (has_nacked) {
-                    uint64_t nacked_count = pelListNackedCount(cg);
-                    if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
-                        raxStop(&ri);
-                        return -1;
-                    }
-                    nwritten += n;
+                /* Save NACK zone: count followed by the IDs of NACKed entries. */
+                uint64_t nacked_count = pelListNackedCount(cg);
+                if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
 
-                    if (cg->pel_nack_tail) {
-                        streamNACK *nack = cg->pel_time_head;
-                        while (nack) {
-                            unsigned char buf[sizeof(streamID)];
-                            streamEncodeID(buf, &nack->id);
-                            if ((n = rdbWriteRaw(rdb, buf, sizeof(buf))) == -1) {
-                                raxStop(&ri);
-                                return -1;
-                            }
-                            nwritten += n;
-                            if (nack == cg->pel_nack_tail) break;
-                            nack = nack->pel_next;
+                if (cg->pel_nack_tail) {
+                    streamNACK *nack = cg->pel_time_head;
+                    while (nack) {
+                        unsigned char buf[sizeof(streamID)];
+                        streamEncodeID(buf, &nack->id);
+                        if ((n = rdbWriteRaw(rdb, buf, sizeof(buf))) == -1) {
+                            raxStop(&ri);
+                            return -1;
                         }
+                        nwritten += n;
+                        if (nack == cg->pel_nack_tail) break;
+                        nack = nack->pel_next;
                     }
                 }
             }
