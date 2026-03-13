@@ -834,7 +834,7 @@ static void showLatencyReport(void) {
         return;
     }
 
-    const float reqpersec = (float)config.requests_finished/((float)config.totlatency/1000.0f);
+    const float reqpersec = config.totlatency > 0 ? (float)config.requests_finished/((float)config.totlatency/1000.0f) : 0.0f;
     const float p0 = ((float) hdr_min(config.latency_histogram))/1000.0f;
     const float p50 = hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f;
     const float p95 = hdr_value_at_percentile(config.latency_histogram, 95.0 )/1000.0f;
@@ -1680,16 +1680,8 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
 
-    double avg_mean = 0.0;
-    double overall_mean = 0.0;
-    if (config.current_sec_latency_histogram->total_count > 0) {
-        avg_mean = hdr_mean(config.current_sec_latency_histogram)/1000.0f;
-    }
-    if (config.latency_histogram->total_count > 0) {
-        overall_mean = hdr_mean(config.latency_histogram)/1000.0f;
-    }
     printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
-    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, avg_mean, overall_mean);
+    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
     config.last_printed_bytes = printed_bytes;
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
