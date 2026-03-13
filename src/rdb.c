@@ -712,7 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-            return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
