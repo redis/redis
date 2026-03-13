@@ -2390,8 +2390,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * the same delivery_count are batched into a single command.
              *
              * nack_stop is the first node outside the NACK zone (or NULL
-             * when the zone extends to the end of the PEL). Both loops
-             * simply compare the current pointer against nack_stop. When
+             * when the zone extends to the end of the PEL). When
              * pel_nack_tail is NULL (no NACKed entries) the guard below
              * skips the whole block. */
             streamNACK *nack_end = group->pel_nack_tail;
@@ -2399,23 +2398,26 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 streamID batch_ids[AOF_REWRITE_ITEMS_PER_CMD];
                 streamNACK *nack_stop = nack_end->pel_next;
                 streamNACK *nack = group->pel_time_head;
+                int batch_count = 0;
+                uint64_t batch_dc = 0;
                 while (nack && nack != nack_stop) {
-                    int batch_count = 0;
-                    uint64_t batch_dc = nack->delivery_count;
-                    while (nack && nack != nack_stop &&
-                           nack->delivery_count == batch_dc &&
-                           batch_count < AOF_REWRITE_ITEMS_PER_CMD)
+                    if (batch_count == 0) batch_dc = nack->delivery_count;
+                    batch_ids[batch_count++] = nack->id;
+                    streamNACK *next = nack->pel_next;
+                    if (batch_count >= AOF_REWRITE_ITEMS_PER_CMD ||
+                        !next || next == nack_stop ||
+                        next->delivery_count != batch_dc)
                     {
-                        batch_ids[batch_count++] = nack->id;
-                        nack = nack->pel_next;
+                        if (rioWriteStreamNackedEntries(r,key,(char*)ri.key,
+                                                        ri.key_len,batch_ids,
+                                                        batch_count,batch_dc) == 0)
+                        {
+                            raxStop(&ri);
+                            return 0;
+                        }
+                        batch_count = 0;
                     }
-                    if (rioWriteStreamNackedEntries(r,key,(char*)ri.key,
-                                                    ri.key_len,batch_ids,
-                                                    batch_count,batch_dc) == 0)
-                    {
-                        raxStop(&ri);
-                        return 0;
-                    }
+                    nack = next;
                 }
             }
         }
