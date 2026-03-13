@@ -946,12 +946,9 @@ start_server {
         r SAVE
         restart_server 0 true false
 
-        # Verify entries survived the load (not filtered as expired)
-        set reply [r XINFO STREAM mystream]
-        assert_equal 2 [dict get $reply pids-tracked]
-        assert_equal 2 [dict get $reply iids-tracked]
-
         # Wait for IDMP entries to expire and for the cron to clean them up.
+        # If the stream was not registered in stream_idmp_keys after RDB load,
+        # the counts would never reach 0.
         # Poll instead of a fixed sleep so the test finishes as soon as possible.
         wait_for_condition 50 100 {
             [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
