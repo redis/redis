@@ -2317,6 +2317,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
         }
     }
 
+    /* Ensure FIELDS is specified */
+    if (*first_field_pos == -1) {
+        addReplyError(c, "missing FIELDS argument");
+        return C_ERR;
+    }
+
     /* Validate command-specific argument compatibility */
     if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
         (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST))) {
