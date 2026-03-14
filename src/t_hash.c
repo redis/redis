@@ -3632,7 +3632,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
     }
 
     /* Ensure FIELDS is specified */
-    if (args->firstFieldPos == -1) {
+    if (args->fieldsPos == -1) {
         addReplyError(c, "missing FIELDS argument");
         return C_ERR;
     }
