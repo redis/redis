@@ -3631,6 +3631,12 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
         return C_ERR;
     }
 
+    /* Ensure FIELDS is specified */
+    if (args->firstFieldPos == -1) {
+        addReplyError(c, "missing FIELDS argument");
+        return C_ERR;
+    }
+
     if (__builtin_popcount(args->expireCondition & (HFE_NX|HFE_XX|HFE_GT|HFE_LT)) > 1) {
         addReplyError(c, "Multiple condition flags specified");
         return C_ERR;
