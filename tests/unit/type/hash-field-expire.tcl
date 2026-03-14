@@ -969,21 +969,21 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS 9223372036854775808 a}
 
             # Only one of EX, PX, EXAT, PXAT or PERSIST can be specified
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 PX 1000 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 EXAT 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 EX 1000 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 PX 1000 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 100 EXAT 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 100 PXAT 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 100 EX 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 100 EXAT 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 PERSIST FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PERSIST EX 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 EX 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 EXAT 100 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 10 PX 10 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 10 PXAT 10 FIELDS 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PERSIST PERSIST FIELDS 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 PX 1000 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 EXAT 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 EX 1000 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 PX 1000 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 100 EXAT 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 100 PXAT 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 100 EX 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 100 EXAT 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 PERSIST FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PERSIST EX 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EX 100 EX 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 EXAT 100 EXAT 100 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 10 PX 10 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 10 PXAT 10 FIELDS 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PERSIST PERSIST FIELDS 1 a}
         }
 
         test "HGETEX - input validation (expire time) ($type)" {
@@ -1143,6 +1143,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*unknown argument*} {r hsetex myhash 1 fields 1 a b}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 1 a}
             assert_error {*unknown argument*} {r hsetex myhash persist fields 1 a b c}
+            assert_error {*unknown argument*} {r hsetex myhash ex 100 persist fields 1 a b c}
 
             # Only one of FNX or FXX
             assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fxx EX 100 fields 1 a b}
