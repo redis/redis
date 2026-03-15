@@ -6577,6 +6577,13 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
 
+/* Returns the user associated with the context via RM_SetContextUser.
+ * Returns NULL if no user was set on the context.
+ * The returned pointer is borrowed from the context — do NOT free it. */
+const RedisModuleUser *RM_GetContextUser(RedisModuleCtx *ctx) {
+    return ctx->user;
+}
+
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
  * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
  * items (which equals to the length of the allocated argv).
@@ -15491,6 +15498,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetContextUser);
+    REGISTER_API(GetContextUser);
     REGISTER_API(SetModuleUserACL);
     REGISTER_API(SetModuleUserACLString);
     REGISTER_API(GetModuleUserACLString);
