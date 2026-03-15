@@ -1674,9 +1674,9 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
         return SHOW_THROUGHPUT_INTERVAL;
     }
     const float dt = (float)(current_tick-config.start)/1000.0;
-    const float rps = (float)requests_finished/dt;
+    const float rps = dt > 0 ? (float)requests_finished/dt : 0.0f;
     const float instantaneous_dt = (float)(current_tick-config.previous_tick)/1000.0;
-    const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
+    const float instantaneous_rps = instantaneous_dt > 0 ? (float)(requests_finished-previous_requests_finished)/instantaneous_dt : 0.0f;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
     printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
