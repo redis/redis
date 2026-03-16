@@ -780,6 +780,8 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
 
 /* Serialize the IDMP entries for a stream into the RDB file.
  * This saves all the idempotent producer tracking entries (IID -> stream ID mappings).
+ * Expired entries are filtered out. Producers whose entries all expired are still
+ * written with count=0; the load side skips them.
  * Format: num_producers, then for each producer: pid, num_entries, entries... */
 ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
     ssize_t n, nwritten = 0;
@@ -790,6 +792,8 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
     nwritten += n;
 
     if (num_producers == 0) return nwritten;
+
+    uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
 
     /* Iterate through all producers. */
     raxIterator ri;
@@ -805,16 +809,25 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
         }
         nwritten += n;
 
+        /* Find the first non-expired entry. The linked list is ordered by
+         * timestamp, so all entries after the first valid one are also valid. */
+        idmpEntry *first_valid = producer->idmp_head;
+        size_t expired = 0;
+        while (first_valid && first_valid->id.ms <= expire_time) {
+            first_valid = first_valid->next;
+            expired++;
+        }
+
         /* Save the number of entries for this producer. */
-        size_t count = dictSize(producer->idmp_dict);
+        size_t count = dictSize(producer->idmp_dict) - expired;
         if ((n = rdbSaveLen(rdb, count)) == -1) {
             raxStop(&ri);
             return -1;
         }
         nwritten += n;
 
-        /* Iterate through the linked list and save each entry in insertion order. */
-        idmpEntry *entry = producer->idmp_head;
+        /* Save each non-expired entry in insertion order. */
+        idmpEntry *entry = first_valid;
         while (entry != NULL) {
             /* Save the IID string (length + data). */
             if ((n = rdbSaveRawString(rdb,(unsigned char *)entry->iid,entry->iid_len)) == -1) {
@@ -855,24 +868,34 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
 
     if (num_producers == 0) return 0;
 
+    uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
+
     /* Create the producers rax tree. */
     s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     if (s->idmp_producers == NULL) {
         return -1;
     }
 
+    /* Track pid across error paths so cleanup can free it. */
+    char *pid = NULL;
+    size_t pid_len = 0;
+
     /* Load each producer. */
     for (uint64_t p = 0; p < num_producers; p++) {
         /* Load the producer ID (pid). */
-        size_t pid_len;
-        char *pid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &pid_len);
+        pid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &pid_len);
         if (pid == NULL) goto cleanup;
 
         /* Load the number of entries for this producer. */
         uint64_t count = rdbLoadLen(rdb, NULL);
-        if (count == RDB_LENERR) {
+        if (count == RDB_LENERR) goto cleanup;
+
+        /* Skip producers with 0 entries (written by save when all entries
+         * were expired). Just consume the RDB data and move on. */
+        if (count == 0) {
             sdsfree(pid);
-            goto cleanup;
+            pid = NULL;
+            continue;
         }
 
         /* Create the producer. */
@@ -880,7 +903,6 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
 
         /* Insert producer into rax tree. */
         int inserted = raxTryInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL);
-        sdsfree(pid);
         if (!inserted) {
             idmpProducerFree(producer, &s->alloc_size);
             goto cleanup;
@@ -900,6 +922,12 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             if (rioGetReadError(rdb)) {
                 sdsfree(iid);
                 goto cleanup;
+            }
+
+            /* Skip entries that have already expired. */
+            if (id.ms <= expire_time) {
+                sdsfree(iid);
+                continue;
             }
 
             /* Create the idmpEntry. */
@@ -926,10 +954,26 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
                 }
             }
         }
+
+        /* If all entries were expired, remove the empty producer. */
+        if (producer->idmp_head == NULL) {
+            raxRemove(s->idmp_producers, (unsigned char *)pid, pid_len, NULL);
+            idmpProducerFree(producer, &s->alloc_size);
+        }
+        sdsfree(pid);
+        pid = NULL;
     }
+
+    /* If no producers remain after filtering, free the rax tree. */
+    if (raxSize(s->idmp_producers) == 0) {
+        raxFree(s->idmp_producers);
+        s->idmp_producers = NULL;
+    }
+
     return 0;
 
 cleanup:
+    if (pid) sdsfree(pid);
     /* Clean up partially constructed producers tree on error.
      * This prevents use-after-free when the stream is later freed. */
     if (s->idmp_producers) {
@@ -2839,6 +2883,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                             rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
                             dictRelease(dupSearchDict);
                             sdsfree(field);
+                            lpFree(lp);
                             zfree(encoded);
                             o->ptr = NULL;
                             decrRefCount(o);
