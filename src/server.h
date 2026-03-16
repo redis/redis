@@ -4337,6 +4337,7 @@ void sunionCommand(client *c);
 void sunioncardCommand(client *c);
 void sunionstoreCommand(client *c);
 void sdiffCommand(client *c);
+void sdiffcardCommand(client *c);
 void sdiffstoreCommand(client *c);
 void sscanCommand(client *c);
 void syncCommand(client *c);

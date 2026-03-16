@@ -348,6 +348,99 @@ foreach type {single multiple single_multiple} {
         r del bigset1{t} bigset2{t}
     }
 
+    test "SDIFFCARD with illegal arguments" {
+        assert_error "ERR wrong number of arguments for 'sdiffcard' command" {r sdiffcard}
+        assert_error "ERR wrong number of arguments for 'sdiffcard' command" {r sdiffcard 1}
+
+        assert_error "ERR numkeys*" {r sdiffcard 0 myset{t}}
+        assert_error "ERR numkeys*" {r sdiffcard a myset{t}}
+
+        assert_error "ERR Number of keys*" {r sdiffcard 2 myset{t}}
+        assert_error "ERR Number of keys*" {r sdiffcard 3 myset{t} myset2{t}}
+
+        assert_error "ERR syntax error*" {r sdiffcard 1 myset{t} myset2{t}}
+        assert_error "ERR syntax error*" {r sdiffcard 1 myset{t} bar_arg}
+        assert_error "ERR syntax error*" {r sdiffcard 1 myset{t} LIMIT}
+
+        assert_error "ERR LIMIT*" {r sdiffcard 1 myset{t} LIMIT -1}
+        assert_error "ERR LIMIT*" {r sdiffcard 1 myset{t} LIMIT a}
+    }
+
+    test "SDIFFCARD against non-set should throw error" {
+        r del set{t}
+        r sadd set{t} a b c
+        r set key1{t} x
+
+        assert_error "WRONGTYPE*" {r sdiffcard 1 key1{t}}
+        assert_error "WRONGTYPE*" {r sdiffcard 2 set{t} key1{t}}
+        assert_error "WRONGTYPE*" {r sdiffcard 2 key1{t} noset{t}}
+    }
+
+    test "SDIFFCARD against non-existing key" {
+        assert_equal 0 [r sdiffcard 1 non-existing-key]
+        assert_equal 0 [r sdiffcard 1 non-existing-key limit 0]
+        assert_equal 0 [r sdiffcard 1 non-existing-key limit 10]
+    }
+
+    test "SDIFFCARD basic" {
+        r del s0{t} s1{t} s2{t}
+        r sadd s0{t} a b c d e
+        r sadd s1{t} c d x
+        r sadd s2{t} e y
+        assert_equal 2 [r sdiffcard 3 s0{t} s1{t} s2{t}]
+    }
+
+    test "SDIFFCARD with LIMIT" {
+        r del s0{t} s1{t} s2{t}
+        r sadd s0{t} a b c d e
+        r sadd s1{t} c d x
+        r sadd s2{t} e y
+        assert_equal 1 [r sdiffcard 3 s0{t} s1{t} s2{t} LIMIT 1]
+        assert_equal 2 [r sdiffcard 3 s0{t} s1{t} s2{t} LIMIT 10]
+    }
+
+    test "SDIFFCARD LIMIT 0 means no limit" {
+        r del s0{t} s1{t} s2{t}
+        r sadd s0{t} a b c d e
+        r sadd s1{t} c d x
+        r sadd s2{t} e y
+        assert_equal 2 [r sdiffcard 3 s0{t} s1{t} s2{t} LIMIT 0]
+    }
+
+    test "SDIFFCARD with APPROX flag follows exact path" {
+        r del s0{t} s1{t}
+        r sadd s0{t} a b c
+        r sadd s1{t} c d
+        set exact [r sdiffcard 2 s0{t} s1{t}]
+        set approx [r sdiffcard 2 s0{t} s1{t} APPROX]
+        assert_equal $exact $approx
+    }
+
+    test "SDIFFCARD with first set empty" {
+        r del s0{t} s1{t}
+        r sadd s1{t} a b c
+        assert_equal 0 [r sdiffcard 2 s0{t} s1{t}]
+    }
+
+    test "SDIFFCARD single key" {
+        r del s0{t}
+        r sadd s0{t} a b c d e
+        assert_equal 5 [r sdiffcard 1 s0{t}]
+        assert_equal 3 [r sdiffcard 1 s0{t} LIMIT 3]
+    }
+
+    test "SDIFFCARD with same set twice" {
+        r del s0{t}
+        r sadd s0{t} a b c
+        assert_equal 0 [r sdiffcard 2 s0{t} s0{t}]
+    }
+
+    test "SDIFFCARD with missing subtrahend key" {
+        r del s0{t}
+        r sadd s0{t} a b c
+        assert_equal 3 [r sdiffcard 2 s0{t} nonexistent{t}]
+    }
+
     foreach {type} {regular intset} {
         # Create sets setN{t} where N = 1..5
         if {$type eq "regular"} {
@@ -500,6 +593,33 @@ foreach type {single multiple single_multiple} {
                 assert_encoding intset setres{t}
             }
             assert_equal {1 2 3 4} [lsort [r smembers setres{t}]]
+        }
+
+        test "SDIFFCARD with two sets - $type" {
+            set expected [llength [lsort [r sdiff set1{t} set4{t}]]]
+            assert_equal $expected [r sdiffcard 2 set1{t} set4{t}]
+            assert_equal $expected [r sdiffcard 2 set1{t} set4{t} LIMIT 0]
+            assert_equal 3 [r sdiffcard 2 set1{t} set4{t} LIMIT 3]
+            assert_equal $expected [r sdiffcard 2 set1{t} set4{t} LIMIT 10000]
+        }
+
+        test "SDIFFCARD with three sets - $type" {
+            set expected [llength [lsort [r sdiff set1{t} set4{t} set5{t}]]]
+            assert_equal $expected [r sdiffcard 3 set1{t} set4{t} set5{t}]
+            assert_equal $expected [r sdiffcard 3 set1{t} set4{t} set5{t} LIMIT 0]
+            assert_equal 2 [r sdiffcard 3 set1{t} set4{t} set5{t} LIMIT 2]
+            assert_equal $expected [r sdiffcard 3 set1{t} set4{t} set5{t} LIMIT 10000]
+        }
+
+        test "SDIFFCARD with non existing keys - $type" {
+            set expected [llength [lsort [r sdiff set1{t} set4{t}]]]
+            assert_equal $expected [r sdiffcard 4 set1{t} nokey1{t} set4{t} nokey2{t}]
+        }
+
+        test "SDIFFCARD APPROX with two sets - $type" {
+            set exact [r sdiffcard 2 set1{t} set4{t}]
+            set approx [r sdiffcard 2 set1{t} set4{t} APPROX]
+            assert_equal $exact $approx
         }
 
         test "SINTER/SUNION/SDIFF with three same sets - $type" {

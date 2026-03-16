@@ -1822,8 +1822,15 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                     break;
             }
             if (j == setnum) {
-                /* There is no other set with this element. Add it. */
-                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                /* There is no other set with this element. Add or count it if cardinality_only. */
+                if (cardinality_only) {
+                    cardinality++;
+                    if (limit > 0 && cardinality >= limit) {
+                        break; /* We reached the limit, break from the while loop iterating sets[0] */
+                    }
+                } else {
+                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                }
             }
         }
         setTypeResetIterator(&si);
@@ -1862,6 +1869,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
         }
+    }
+
+    /* For cardinality-only mode, clamp to the limit. This handles cases
+     * where early termination was not possible (e.g. DIFF algo 2). */
+    if (cardinality_only && limit > 0 && cardinality > limit) {
+        cardinality = limit;
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
@@ -1966,6 +1979,42 @@ void sdiffCommand(client *c) {
 /* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0,0);
+}
+
+/* SDIFFCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
+void sdiffcardCommand(client *c) {
+    long j;
+    long numkeys = 0;
+    long limit = 0; /* 0 means no limit. */
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+        } else if (!strcasecmp(opt, "APPROX")) {
+            /* TODO: HLL-based approximate cardinality not yet implemented.
+             * For now, fall through to the exact path. */
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
+                             SET_OP_DIFF, 1, limit);
 }
 
 void sscanCommand(client *c) {

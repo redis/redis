@@ -9058,6 +9058,33 @@ struct COMMAND_ARG SDIFF_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** SDIFFCARD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SDIFFCARD history */
+#define SDIFFCARD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SDIFFCARD tips */
+#define SDIFFCARD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SDIFFCARD key specs */
+keySpec SDIFFCARD_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
+};
+#endif
+
+/* SDIFFCARD argument table */
+struct COMMAND_ARG SDIFFCARD_Args[] = {
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("approx",ARG_TYPE_PURE_TOKEN,-1,"APPROX",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /********** SDIFFSTORE ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -12572,6 +12599,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("sadd","Adds one or more members to a set. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SADD_History,1,SADD_Tips,0,saddCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,SADD_Keyspecs,1,NULL,2),.args=SADD_Args},
 {MAKE_CMD("scard","Returns the number of members in a set.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SCARD_History,0,SCARD_Tips,0,scardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SCARD_Keyspecs,1,NULL,1),.args=SCARD_Args},
 {MAKE_CMD("sdiff","Returns the difference of multiple sets.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFF_History,0,SDIFF_Tips,1,sdiffCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SDIFF_Keyspecs,1,NULL,1),.args=SDIFF_Args},
+{MAKE_CMD("sdiffcard","Returns the number of members of the difference between the first set and all successive sets.","O(N) where N is the total number of elements in all given sets.","8.8.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFFCARD_History,0,SDIFFCARD_Tips,0,sdiffcardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SDIFFCARD_Keyspecs,1,sintercardGetKeys,4),.args=SDIFFCARD_Args},
 {MAKE_CMD("sdiffstore","Stores the difference of multiple sets in a key.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFFSTORE_History,0,SDIFFSTORE_Tips,0,sdiffstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SDIFFSTORE_Keyspecs,2,NULL,2),.args=SDIFFSTORE_Args},
 {MAKE_CMD("sinter","Returns the intersect of multiple sets.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTER_History,0,SINTER_Tips,1,sinterCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SINTER_Keyspecs,1,NULL,1),.args=SINTER_Args},
 {MAKE_CMD("sintercard","Returns the number of members of the intersect of multiple sets.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTERCARD_History,0,SINTERCARD_Tips,0,sinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SINTERCARD_Keyspecs,1,sintercardGetKeys,3),.args=SINTERCARD_Args},
