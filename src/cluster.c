@@ -2159,8 +2159,7 @@ void sflushCommand(client *c) {
     slotRangeArray *slots = parseSlotRangesOrReply(c, argc, 1);
     if (!slots) return;
 
-    /* If client is AOF or master, we must obey the slot ranges.
-     * NOTE: we should exclude CLIENT_PSEUDO_MASTER when merging into fork. */
+    /* If client is AOF or master, we must obey the slot ranges. */
     int must_obey = mustObeyClient(c);
 
     /* Iterate and find the slot ranges that belong to this node. Save them in
