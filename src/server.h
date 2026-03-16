@@ -2608,6 +2608,7 @@ enum {
     PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,     /* Command parsing is incomplete, still waiting for more data */
     PENDING_CMD_FLAG_PREPROCESSED = 1 << 1,   /* This command has passed pre-processing */
     PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
+    PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */

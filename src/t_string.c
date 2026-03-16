@@ -720,6 +720,25 @@ void mgetCommand(client *c) {
         return;
     }
 
+    /* Skip intra-command prefetching if the cross-command batch (I/O thread
+     * path or main-thread pipeline path) already prefetched our keys.
+     * Running both causes redundant work and measurable regressions with
+     * many I/O threads. */
+    int already_prefetched = c->current_pending_cmd &&
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+
+    if (already_prefetched) {
+        /* Keys are already warm in cache — plain sequential lookups. */
+        for (int j = 1; j < c->argc; j++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+            if (o == NULL || o->type != OBJ_STRING)
+                addReplyNull(c);
+            else
+                addReplyBulk(c, o);
+        }
+        return;
+    }
+
     /* Process keys in batches, using the dict prefetch state machine to
      * warm the cache for every batch before the sequential lookups. */
     #define MGET_BATCH 16
