@@ -1645,8 +1645,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     size_t len = 0;
     int64_t llval = 0;
     int encoding;
-    int j, cardinality = 0;
-    int diff_algo = 1;
+    int j, diff_algo = 1;
+    long cardinality = 0;
     int sameset = 0; 
 
     for (j = 0; j < setnum; j++) {
