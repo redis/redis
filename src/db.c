@@ -1241,6 +1241,9 @@ void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
                 }
             }
         }
+        /* Decrement counter unconditionally to track job completion. If kvstore was
+         * replaced (e.g., by FLUSHALL), the new histogram is already consistent (reset
+         * to 0 for empty DB), so it's safe to resume assertions when counter reaches 0. */
         asmBgTrimCounterDecr();
     }
 
