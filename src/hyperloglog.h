@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "object.h"
 
 struct hllhdr {
     char magic[4];      /* "HYLL" */
