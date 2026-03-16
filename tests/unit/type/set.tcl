@@ -439,6 +439,18 @@ foreach type {single multiple single_multiple} {
             assert_equal $expected [r sunioncard 4 nokey1{t} set1{t} set2{t} nokey2{t}]
         }
 
+        test "SUNIONCARD APPROX with two sets - $type" {
+            set exact [r sunioncard 2 set1{t} set2{t}]
+            set approx [r sunioncard 2 set1{t} set2{t} APPROX]
+            set error_pct [expr {abs($approx - $exact) * 100.0 / $exact}]
+            assert {$error_pct < 5.0}
+        }
+
+        test "SUNIONCARD APPROX with LIMIT - $type" {
+            assert_equal 0 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
+            assert_equal 10 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 10]
+        }
+
         test "SUNIONSTORE with two sets - $type" {
             r sunionstore setres{t} set1{t} set2{t}
             assert_encoding $bigenc setres{t}
