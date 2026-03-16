@@ -352,8 +352,9 @@ static void dictDestructorKV(dict *d, void *key) {
          * (e.g. in lazy free context). */
         if (kvstoreMeta && kv->type < OBJ_TYPE_BASIC_MAX) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
-             * that may fail in background thread by kvstore not being fully initialized */
+             * that may fail in bg thread as kvstore might not being fully initialized */
             int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
+            debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
             kvstoreMeta->allocsizes_hist[kv->type][old_bin]--;
         }
     }

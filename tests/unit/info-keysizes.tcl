@@ -210,7 +210,7 @@ proc test_all_keysizes { {replMode 0} } {
         $server PFADD hll3 x$i y$i z$i
         $server PFMERGE hll4 hll1 hll2 hll3
         $server PFCOUNT hll1 hll2 hll3 hll4
-            run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
         }
         # DEL
         run_cmd_verify_hist {$server DEL hll4} {__EVAL_DB_HIST__ 0}

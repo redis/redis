@@ -235,10 +235,6 @@ void dbgRunAssertions(redisDb *db) {
     /* Don't assert during ASM background trim. Histogram delta hasn't been applied yet. */
     if (asmIsBgTrimRunning()) return;
 
-    /* Don't assert during ASM import. Keys are being added from source node
-     * while tracking may be inconsistent during the import process. */
-    if (asmImportInProgress()) return;
-
     if (server.dbg_assert_flags & DBG_ASSERT_KEYSIZES)
         dbgAssertKeysizesHist(db);
 
