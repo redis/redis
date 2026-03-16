@@ -306,11 +306,11 @@ foreach type {single multiple single_multiple} {
         assert_equal $exact $approx
     }
 
-    test "SUNIONCARD LIMIT 0 returns 0 immediately" {
+    test "SUNIONCARD LIMIT 0 means no limit" {
         r del set1{t} set2{t}
         r sadd set1{t} a b c
         r sadd set2{t} c d e
-        assert_equal 0 [r sunioncard 2 set1{t} set2{t} LIMIT 0]
+        assert_equal 5 [r sunioncard 2 set1{t} set2{t} LIMIT 0]
     }
 
     test "SUNIONCARD with both APPROX and LIMIT" {
@@ -318,7 +318,7 @@ foreach type {single multiple single_multiple} {
         r sadd set1{t} a b c
         r sadd set2{t} c d e
         assert_equal 3 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 3]
-        assert_equal 0 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
+        assert_equal 5 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
     }
 
     test "SUNIONCARD APPROX with large sets is within HLL error margin" {
@@ -421,7 +421,7 @@ foreach type {single multiple single_multiple} {
         test "SUNIONCARD with two sets - $type" {
             set expected [llength [lsort -uniq "[r smembers set1{t}] [r smembers set2{t}]"]]
             assert_equal $expected [r sunioncard 2 set1{t} set2{t}]
-            assert_equal 0 [r sunioncard 2 set1{t} set2{t} LIMIT 0]
+            assert_equal $expected [r sunioncard 2 set1{t} set2{t} LIMIT 0]
             assert_equal 3 [r sunioncard 2 set1{t} set2{t} LIMIT 3]
             assert_equal $expected [r sunioncard 2 set1{t} set2{t} LIMIT 10000]
         }
@@ -429,7 +429,7 @@ foreach type {single multiple single_multiple} {
         test "SUNIONCARD against three sets - $type" {
             set expected [llength [lsort -uniq "[r smembers set1{t}] [r smembers set2{t}] [r smembers set3{t}]"]]
             assert_equal $expected [r sunioncard 3 set1{t} set2{t} set3{t}]
-            assert_equal 0 [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 0]
+            assert_equal $expected [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 0]
             assert_equal 2 [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 2]
             assert_equal $expected [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 10000]
         }
@@ -447,7 +447,8 @@ foreach type {single multiple single_multiple} {
         }
 
         test "SUNIONCARD APPROX with LIMIT - $type" {
-            assert_equal 0 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
+            set approx_no_limit [r sunioncard 2 set1{t} set2{t} APPROX]
+            assert_equal $approx_no_limit [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
             assert_equal 10 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 10]
         }
 

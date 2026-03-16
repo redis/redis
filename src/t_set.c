@@ -1859,8 +1859,7 @@ void sunionCommand(client *c) {
 void sunioncardCommand(client *c) {
     long j;
     long numkeys = 0;
-    long limit = 0;
-    int have_limit = 0;
+    long limit = 0; /* 0 means no limit. */
     int approx = 0;
 
     if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
@@ -1880,18 +1879,12 @@ void sunioncardCommand(client *c) {
             if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
                                                  "LIMIT can't be negative") != C_OK)
                 return;
-            have_limit = 1;
         } else if (!strcasecmp(opt, "APPROX")) {
             approx = 1;
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
-    }
-
-    if (have_limit && limit == 0) {
-        addReplyLongLong(c, 0);
-        return;
     }
 
     if (approx) {
@@ -1938,7 +1931,7 @@ void sunioncardCommand(client *c) {
                 }
 
                 elements_processed++;
-                if (have_limit &&
+                if (limit > 0 &&
                     (elements_processed % HLL_APPROX_CHECK_INTERVAL == 0)) {
                     uint64_t est = hllCount(hllobj->ptr, NULL);
                     if (est >= (uint64_t)limit) {
@@ -1951,7 +1944,7 @@ void sunioncardCommand(client *c) {
         }
 
         uint64_t cardinality = hllCount(hllobj->ptr, NULL);
-        if (have_limit && cardinality > (uint64_t)limit)
+        if (limit > 0 && cardinality > (uint64_t)limit)
             cardinality = (uint64_t)limit;
 
         if (server.memory_tracking_enabled) {
