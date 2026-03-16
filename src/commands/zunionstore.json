@@ -103,7 +103,8 @@
                     {
                         "name": "count",
                         "type": "pure-token",
-                        "token": "COUNT"
+                        "token": "COUNT",
+                        "since": "8.8.0"
                     }
                 ]
             }
