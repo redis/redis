@@ -306,7 +306,7 @@ foreach trim_method {"active" "bg"} {
 
         # SFLUSH with multiple ranges that together cover all local slots.
         # If the selected slots are exactly the same as the local slots, we can
-        # simply flush the entire DB by calling flushCommandCommon.
+        # simply flush the entire DB.
         assert_match "{0 8191}" [R 0 SFLUSH 0 1000 1001 5000 5001 8191]
         assert {[R 0 DBSIZE] == 0}
 
@@ -314,8 +314,8 @@ foreach trim_method {"active" "bg"} {
         wait_for_ofs_sync [Rn 0] [Rn 2]
         assert {[R 2 DBSIZE] == 0}
 
-        # Verify active_trim_completed counter did NOT increase since it uses
-        # the flushCommandCommon optimization path instead of asmTrimSlots.
+        # Verify active_trim_completed counter did NOT increase since it will trigger
+        # flush (similar to flushdb command) instead of triggering trim.
         assert_equal [CI 0 cluster_slot_migration_stats_active_trim_completed] $prev_trim_done
         assert_equal [CI 2 cluster_slot_migration_stats_active_trim_completed] $prev_trim_done2
     }
