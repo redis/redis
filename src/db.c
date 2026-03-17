@@ -1117,7 +1117,7 @@ void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        if (getKeySlot(key->ptr) == slot) {
+        if (calculateKeySlot(key->ptr) == slot) {
             if (dictAdd(dst, key, dictGetVal(de)) == DICT_OK) {
                 incrRefCount(key);
             }
@@ -2475,9 +2475,8 @@ void copyCommand(client *c) {
     if (kvCopy->type == OBJ_STREAM) {
         stream *s = kvCopy->ptr;
         if (s->idmp_producers != NULL) {
-            incrRefCount(newkey);
-            if (dictAddRaw(dst->stream_idmp_keys, newkey, NULL) == NULL)
-                decrRefCount(newkey);
+            if (dictAdd(dst->stream_idmp_keys, newkey, NULL) == DICT_OK)
+                incrRefCount(newkey);
         }
     }
 
