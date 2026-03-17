@@ -829,8 +829,14 @@ static void createMissingClients(client c) {
 
 static void showLatencyReport(void) {
     if (config.latency_histogram->total_count == 0) {
-        printf("====== %s ======\n", config.title);
-        printf("No latency samples collected\n");
+        if (config.csv) {
+            printf("\"%s\",\"0.00\",\"0.000\",\"0.000\",\"0.000\",\"0.000\",\"0.000\",\"0.000\"\n", config.title);
+        } else if (config.quiet) {
+            printf("%s: 0.00 requests per second, p50=0.000 msec\n", config.title);
+        } else {
+            printf("====== %s ======\n", config.title);
+            printf("No latency samples collected\n");
+        }
         return;
     }
 
