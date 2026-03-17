@@ -2189,6 +2189,11 @@ void renameGenericCommand(client *c, int nx) {
         /* Overwrite: delete the old key before creating the new one
          * with the same name. */
         desttype = destval->type;
+        if (desttype == OBJ_STREAM) {
+            stream *ds = destval->ptr;
+            if (ds->idmp_producers != NULL)
+                dictDelete(c->db->stream_idmp_keys, c->argv[2]);
+        }
         dbDelete(c->db,c->argv[2]);
         overwritten = 1;
     }
@@ -2226,8 +2231,8 @@ void renameGenericCommand(client *c, int nx) {
 
     /* Re-register stream IDMP tracking under the new key name. */
     if (hadIdmpTracking) {
-        incrRefCount(c->argv[2]);
-        dictAdd(c->db->stream_idmp_keys, c->argv[2], NULL);
+        if (dictAdd(c->db->stream_idmp_keys, c->argv[2], NULL) == DICT_OK)
+            incrRefCount(c->argv[2]);
     }
 
     keyModified(c,c->db,c->argv[1],NULL,1);
@@ -2337,8 +2342,8 @@ void moveCommand(client *c) {
 
     /* Register stream IDMP tracking in the destination DB. */
     if (hadIdmpTracking) {
-        incrRefCount(c->argv[1]);
-        dictAdd(dst->stream_idmp_keys, c->argv[1], NULL);
+        if (dictAdd(dst->stream_idmp_keys, c->argv[1], NULL) == DICT_OK)
+            incrRefCount(c->argv[1]);
     }
 
     keyModified(c,src,c->argv[1],NULL,1);
@@ -2446,6 +2451,11 @@ void copyCommand(client *c) {
     }
 
     if (delete) {
+        if (destoldtype == OBJ_STREAM) {
+            stream *ds = destval->ptr;
+            if (ds->idmp_producers != NULL)
+                dictDelete(dst->stream_idmp_keys, newkey);
+        }
         dbDelete(dst,newkey);
     }
 
