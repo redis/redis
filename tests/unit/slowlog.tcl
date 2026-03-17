@@ -273,16 +273,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal 1 [getInfoProperty $info slowlog_commands_count]
         set sum1 [getInfoProperty $info slowlog_commands_time_ms_sum]
         set max1 [getInfoProperty $info slowlog_commands_time_ms_max]
-        assert_morethan $sum1 100
-        assert_morethan $max1 100
+        assert_morethan $sum1 190
+        assert_morethan $max1 190
 
         r debug sleep 0.3
         set info [r info stats]
         assert_equal 2 [getInfoProperty $info slowlog_commands_count]
         set sum2 [getInfoProperty $info slowlog_commands_time_ms_sum]
         set max2 [getInfoProperty $info slowlog_commands_time_ms_max]
-        assert_morethan $sum2 $sum1
-        assert_morethan $max2 $max1
+        assert_morethan $sum2 490
+        assert_morethan $max2 290
     } {} {needs:debug}
 
     test {SLOWLOG - INFO STATS slowlog metrics survive SLOWLOG RESET} {
@@ -336,8 +336,8 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         regexp {slowlog_time_ms_sum=([0-9.]+)} $cmdstat -> sl_sum
         regexp {slowlog_time_ms_max=([0-9.]+)} $cmdstat -> sl_max
         assert_equal 2 $sl_count
-        assert_morethan $sl_sum 400
-        assert_morethan $sl_max 200
+        assert_morethan $sl_sum 490
+        assert_morethan $sl_max 290
     } {} {needs:debug}
 
     test {SLOWLOG - INFO COMMANDSTATS slowlog metrics only on commands that are slow} {
