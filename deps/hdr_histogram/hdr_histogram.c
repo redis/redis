@@ -733,10 +733,6 @@ int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percen
 
 double hdr_mean(const struct hdr_histogram* h)
 {
-    if (h->total_count == 0) {
-        return 0.0;
-    }
-
     struct hdr_iter iter;
     int64_t total = 0;
 
@@ -755,10 +751,6 @@ double hdr_mean(const struct hdr_histogram* h)
 
 double hdr_stddev(const struct hdr_histogram* h)
 {
-    if (h->total_count == 0) {
-        return 0.0;
-    }
-
     double mean = hdr_mean(h);
     double geometric_dev_total = 0.0;
 
