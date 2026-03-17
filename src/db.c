@@ -25,6 +25,7 @@
 #include <ctype.h>
 #include "bio.h"
 #include "keymeta.h"
+#include "fifo_queue.h"
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -1579,7 +1580,7 @@ void keysCommand(client *c) {
 
 /* Data used by the dict scan callback. */
 typedef struct {
-    list *keys;   /* elements that collect from dict */
+    fifoQueue *keys;   /* elements that collect from dict */
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
@@ -1611,9 +1612,9 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     Entry *hashEntry = NULL;
     scanData *data = (scanData *)privdata;
-    list *keys = data->keys;
+    fifoQueue *keys = data->keys;
     robj *o = data->o;
-    sds val = NULL;
+    void *val = NULL;  /* sds for hash, zskiplistNode* for zset */
     void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
     void *keyStr;
     data->sampled++;
@@ -1673,16 +1674,14 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
             return;
 
     } else if (o->type == OBJ_ZSET) {
-        char buf[MAX_LONG_DOUBLE_CHARS];
-        int len = ld2string(buf, sizeof(buf), znode->score, LD_STR_AUTO);
-        key = sdsdup(keyStr);
-        val = sdsnewlen(buf, len);
+        key = keyStr;
+        val = znode;  /* Store znode pointer; convert score to string at reply time */
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, key);
-    if (val && !data->no_values) listAddNodeTail(keys, val);
+    fifoQueueEnqueue(keys, key);
+    if (val && !data->no_values) fifoQueueEnqueue(keys, val);
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
@@ -1755,7 +1754,6 @@ static int scanShouldSkipDict(dict *d, int didx) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     int i, j;
-    listNode *node;
     long count = 10;
     sds pat = NULL;
     sds typename = NULL;
@@ -1840,19 +1838,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         ht = zs->dict;
     }
 
-    list *keys = listCreate();
-    /* Set a free callback for the contents of the collected keys list.
-     * For the main keyspace dict, and when we scan a key that's dict encoded
-     * (we have 'ht'), we don't need to define free method because the strings
-     * in the list are just a shallow copy from the pointer in the dictEntry.
-     * When scanning a key with other encodings (e.g. listpack), we need to
-     * free the temporary strings we add to that list.
-     * The exception to the above is ZSET, where we do allocate temporary
-     * strings even when scanning a dict. */
-    if (o && (!ht || o->type == OBJ_ZSET)) {
-        listSetFreeMethod(keys, sdsfreegeneric);
-    }
-
     /* For main dictionary scan or data structure using hashtable. */
     if (!o || ht) {
         /* We set the max number of iterations to ten times the specified
@@ -1862,7 +1847,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         long maxiterations = count*10;
 
         /* We pass scanData which have three pointers to the callback:
-         * 1. data.keys: the list to which it will add new elements;
+         * 1. data.keys: the fifo queue to which it will add new elements;
          * 2. data.o: the object containing the dictionary so that
          * it is possible to fetch more data in a type-dependent way;
          * 3. data.type: the specified type scan in the db, LLONG_MAX means
@@ -1870,10 +1855,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * 4. data.pattern: the pattern string;
          * 5. data.sampled: the maxiteration limit is there in case we're
          * working on an empty dict, one with a lot of empty buckets, and
-         * for the buckets are not empty, we need to limit the spampled number
+         * for the buckets are not empty, we need to limit the sampled number
          * to prevent a long hang time caused by filtering too many keys;
          * 6. data.no_values: to control whether values will be returned or
          * only keys are returned. */
+        fifoQueue *keys = fifoQueueCreate();
         scanData data = {
             .keys = keys,
             .o = o,
@@ -1890,19 +1876,52 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         if (o == NULL && use_pattern && server.cluster_enabled) {
             onlydidx = patternHashSlot(pat, patlen);
         }
+        /* Low-count scans that always start from cursor 0 (for example, repeated
+         * "SCAN 0" microbenchmarks) regress when prefetch is forced on because
+         * dictScan advances in prefetch-sized chunks and returns many more
+         * elements per call. Keep prefetch for larger COUNT values and for
+         * resumed scans (non-zero cursor), where it is beneficial. */
+        int use_prefetch = (count >= 16) || (cursor != 0);
+
         do {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, scanShouldSkipDict, &data);
+                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, use_prefetch, scanCallback, scanShouldSkipDict, &data);
             } else {
-                cursor = dictScan(ht, cursor, scanCallback, &data);
+                cursor = dictScan(ht, cursor, use_prefetch, scanCallback, &data);
             }
         } while (cursor && maxiterations-- && data.sampled < count);
+
+        /* Reply to the client. */
+        addReplyArrayLen(c, 2);
+        addReplyBulkLongLong(c,cursor);
+
+        addReplyArrayLen(c, fifoQueueSize(keys));
+        void *key;
+        while ((key = fifoQueueDequeue(keys))) {
+            addReplyBulkCBuffer(c, key, sdslen(key));
+
+            /* Only HSCAN and ZSCAN have values. For SCAN and SSCAN, only keys are enqueued. */
+            if (o && (o->type == OBJ_HASH || o->type == OBJ_ZSET) && !no_values) {
+                void *val = fifoQueueDequeue(keys);
+                if (o->type == OBJ_ZSET) {
+                    /* val is a zskiplistNode*; convert score to string on the stack */
+                    zskiplistNode *zn = (zskiplistNode*)val;
+                    char buf[MAX_D2STRING_CHARS];
+                    int len = d2string(buf, sizeof(buf), zn->score);
+                    addReplyBulkCBuffer(c, buf, len);
+                } else {
+                    /* Hash values are sds pointers into the dict */
+                    addReplyBulkCBuffer(c, val, sdslen(val));
+                }
+            }
+        }
+
+        fifoQueueDestroy(keys);
     } else if (o->type == OBJ_SET) {
         unsigned long array_reply_len = 0;
         void *replylen = NULL;
-        listRelease(keys);
         char *str;
         char buf[LONG_STR_SIZE];
         size_t len;
@@ -1948,7 +1967,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned long array_reply_len = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
-        listRelease(keys);
 
         /* Reply to the client. */
         addReplyArrayLen(c, 2);
@@ -1999,7 +2017,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
 
-        listRelease(keys);
         /* Reply to the client. */
         addReplyArrayLen(c, 2);
         /* Cursor is always 0 given we iterate over all set */
@@ -2040,19 +2057,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     } else {
         serverPanic("Not handled encoding in SCAN.");
     }
-
-    /* Step 3: Reply to the client. */
-    addReplyArrayLen(c, 2);
-    addReplyBulkLongLong(c,cursor);
-
-    addReplyArrayLen(c, listLength(keys));
-    while ((node = listFirst(keys)) != NULL) {
-        void *key = listNodeValue(node);
-        addReplyBulkCBuffer(c, key, sdslen(key));
-        listDelNode(keys, node);
-    }
-
-    listRelease(keys);
 }
 
 /* The SCAN command completely relies on scanGenericCommand. */
@@ -3036,7 +3040,7 @@ unsigned long long dbSize(redisDb *db) {
 }
 
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata) {
-    return kvstoreScan(db->keys, cursor, -1, scan_cb, scanShouldSkipDict, privdata);
+    return kvstoreScan(db->keys, cursor, -1, 0, scan_cb, scanShouldSkipDict, privdata);
 }
 
 /* -----------------------------------------------------------------------------

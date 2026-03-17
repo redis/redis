@@ -428,7 +428,7 @@ void activeExpireCycle(int type) {
             int origin_ttl_samples = data.ttl_samples;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, expirySamplingShouldSkipDict, &data);
+                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, 0, expireScanCallback, expirySamplingShouldSkipDict, &data);
                 if (db->expires_cursor == 0) {
                     db_done = 1;
                     break;
