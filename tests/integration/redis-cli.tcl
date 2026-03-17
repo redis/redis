@@ -857,7 +857,7 @@ start_server {tags {"cli external:skip"}} {
         catch {exec {*}$cmd 2>@1} result
         assert_match "*Scanning the entire keyspace*" $result
 
-        # The "Note:" line with Mean/ StdDeviation is only printed when displayKeyStatsSizeDist()
+        # The "Note:" line with Mean/StdDeviation is only printed when displayKeyStatsSizeDist()
         # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
         assert_match "*No key size samples collected*" $result
     }

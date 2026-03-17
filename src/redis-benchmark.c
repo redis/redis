@@ -832,8 +832,10 @@ static void showLatencyReport(void) {
         if (config.csv) {
             printf("\"%s\",\"0.00\",\"0.000\",\"0.000\",\"0.000\",\"0.000\",\"0.000\",\"0.000\"\n", config.title);
         } else if (config.quiet) {
+            printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
             printf("%s: 0.00 requests per second, p50=0.000 msec\n", config.title);
         } else {
+            printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
             printf("====== %s ======\n", config.title);
             printf("No latency samples collected\n");
         }
