@@ -1118,8 +1118,9 @@ void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         if (getKeySlot(key->ptr) == slot) {
-            incrRefCount(key);
-            dictAdd(dst, key, dictGetVal(de));
+            if (dictAdd(dst, key, dictGetVal(de)) == DICT_OK) {
+                incrRefCount(key);
+            }
             dictDelete(src, key);
         }
     }

@@ -1068,53 +1068,53 @@ start_server {
     }
 
     test {XADD IDMP tracking survives RENAME} {
-        r DEL mystream
-        r DEL newstream
+        r DEL idmpstream{t}
+        r DEL idmpnewstream{t}
 
-        r XADD mystream IDMP p1 "init" * field "init"
-        r XCFGSET mystream IDMP-DURATION 2
-        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        r XADD idmpstream{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstream{t} IDMP-DURATION 2
+        set id1 [r XADD idmpstream{t} IDMP p1 "req-1" * field "v1"]
 
-        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM idmpstream{t}] pids-tracked]
 
-        r RENAME mystream newstream
+        r RENAME idmpstream{t} idmpnewstream{t}
 
         # Deduplication should still work under the new name.
-        set id1_dup [r XADD newstream IDMP p1 "req-1" * field "dup"]
+        set id1_dup [r XADD idmpnewstream{t} IDMP p1 "req-1" * field "dup"]
         assert_equal $id1 $id1_dup
 
         # IDMP entries should still expire via cron after rename.
         wait_for_condition 50 100 {
-            [dict get [r XINFO STREAM newstream] pids-tracked] == 0 &&
-            [dict get [r XINFO STREAM newstream] iids-tracked] == 0
+            [dict get [r XINFO STREAM idmpnewstream{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpnewstream{t}] iids-tracked] == 0
         } else {
             fail "IDMP entries were not cleaned up after RENAME"
         }
 
-        set id2 [r XADD newstream IDMP p1 "req-1" * field "v2"]
+        set id2 [r XADD idmpnewstream{t} IDMP p1 "req-1" * field "v2"]
         assert {$id1 ne $id2}
     }
 
     test {XADD IDMP tracking survives COPY} {
-        r DEL mystream
-        r DEL copystream
+        r DEL idmpstream{t}
+        r DEL idmpcopy{t}
 
-        r XADD mystream IDMP p1 "init" * field "init"
-        r XCFGSET mystream IDMP-DURATION 2
-        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        r XADD idmpstream{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstream{t} IDMP-DURATION 2
+        set id1 [r XADD idmpstream{t} IDMP p1 "req-1" * field "v1"]
 
         # Add a second producer so we can verify multi-producer copy.
-        r XADD mystream IDMP p2 "req-A" * field "vA"
+        r XADD idmpstream{t} IDMP p2 "req-A" * field "vA"
 
-        set info [r XINFO STREAM mystream]
+        set info [r XINFO STREAM idmpstream{t}]
         assert_equal 2 [dict get $info pids-tracked]
         assert_equal 2 [dict get $info iids-tracked]
 
-        r COPY mystream copystream
+        r COPY idmpstream{t} idmpcopy{t}
 
         # Verify all IDMP metadata is preserved on the copy.
-        set copy_info [r XINFO STREAM copystream]
-        set orig_info [r XINFO STREAM mystream]
+        set copy_info [r XINFO STREAM idmpcopy{t}]
+        set orig_info [r XINFO STREAM idmpstream{t}]
         assert_equal [dict get $orig_info idmp-duration]    [dict get $copy_info idmp-duration]
         assert_equal [dict get $orig_info idmp-maxsize]     [dict get $copy_info idmp-maxsize]
         assert_equal [dict get $orig_info pids-tracked]     [dict get $copy_info pids-tracked]
@@ -1123,22 +1123,22 @@ start_server {
         assert_equal [dict get $orig_info iids-duplicates]  [dict get $copy_info iids-duplicates]
 
         # Deduplication should work on the copy for both producers.
-        set id1_dup [r XADD copystream IDMP p1 "req-1" * field "dup"]
+        set id1_dup [r XADD idmpcopy{t} IDMP p1 "req-1" * field "dup"]
         assert_equal $id1 $id1_dup
 
         # Original should still deduplicate independently.
-        set id1_dup_orig [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        set id1_dup_orig [r XADD idmpstream{t} IDMP p1 "req-1" * field "dup"]
         assert_equal $id1 $id1_dup_orig
 
         # IDMP entries should expire via cron on the copy.
         wait_for_condition 50 100 {
-            [dict get [r XINFO STREAM copystream] pids-tracked] == 0 &&
-            [dict get [r XINFO STREAM copystream] iids-tracked] == 0
+            [dict get [r XINFO STREAM idmpcopy{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpcopy{t}] iids-tracked] == 0
         } else {
             fail "IDMP entries were not cleaned up on copied stream"
         }
 
-        set id2 [r XADD copystream IDMP p1 "req-1" * field "v2"]
+        set id2 [r XADD idmpcopy{t} IDMP p1 "req-1" * field "v2"]
         assert {$id1 ne $id2}
     }
 
