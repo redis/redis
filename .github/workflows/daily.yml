@@ -107,11 +107,11 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
 
-  test-ubuntu-arm-libc:
+  test-ubuntu-arm-libc-malloc:
     runs-on: ubuntu-24.04-arm
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'ubuntu') && !contains(github.event.inputs.skipjobs, 'arm') && !contains(github.event.inputs.skipjobs, 'libc')
+      !contains(github.event.inputs.skipjobs, 'ubuntu') && !contains(github.event.inputs.skipjobs, 'arm') && !contains(github.event.inputs.skipjobs, 'malloc')
     timeout-minutes: 360
     steps:
       - name: prep
