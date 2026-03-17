@@ -1067,6 +1067,117 @@ start_server {
         assert {$id2 ne $id3}
     }
 
+    test {XADD IDMP tracking survives RENAME} {
+        r DEL mystream
+        r DEL newstream
+
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+
+        r RENAME mystream newstream
+
+        # Deduplication should still work under the new name.
+        set id1_dup [r XADD newstream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # IDMP entries should still expire via cron after rename.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM newstream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM newstream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after RENAME"
+        }
+
+        set id2 [r XADD newstream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+    }
+
+    test {XADD IDMP tracking survives COPY} {
+        r DEL mystream
+        r DEL copystream
+
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        # Add a second producer so we can verify multi-producer copy.
+        r XADD mystream IDMP p2 "req-A" * field "vA"
+
+        set info [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $info pids-tracked]
+        assert_equal 2 [dict get $info iids-tracked]
+
+        r COPY mystream copystream
+
+        # Verify all IDMP metadata is preserved on the copy.
+        set copy_info [r XINFO STREAM copystream]
+        set orig_info [r XINFO STREAM mystream]
+        assert_equal [dict get $orig_info idmp-duration]    [dict get $copy_info idmp-duration]
+        assert_equal [dict get $orig_info idmp-maxsize]     [dict get $copy_info idmp-maxsize]
+        assert_equal [dict get $orig_info pids-tracked]     [dict get $copy_info pids-tracked]
+        assert_equal [dict get $orig_info iids-tracked]     [dict get $copy_info iids-tracked]
+        assert_equal [dict get $orig_info iids-added]       [dict get $copy_info iids-added]
+        assert_equal [dict get $orig_info iids-duplicates]  [dict get $copy_info iids-duplicates]
+
+        # Deduplication should work on the copy for both producers.
+        set id1_dup [r XADD copystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # Original should still deduplicate independently.
+        set id1_dup_orig [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup_orig
+
+        # IDMP entries should expire via cron on the copy.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM copystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM copystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up on copied stream"
+        }
+
+        set id2 [r XADD copystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+    }
+
+    test {XADD IDMP tracking survives MOVE} {
+        set db0 [redis_client]
+        $db0 SELECT 0
+        $db0 FLUSHDB
+        set db1 [redis_client]
+        $db1 SELECT 1
+        $db1 FLUSHDB
+
+        $db0 XADD mystream IDMP p1 "init" * field "init"
+        $db0 XCFGSET mystream IDMP-DURATION 2
+        set id1 [$db0 XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [$db0 XINFO STREAM mystream] pids-tracked]
+
+        $db0 MOVE mystream 1
+
+        # Deduplication should work in the destination DB.
+        set id1_dup [$db1 XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # IDMP entries should still expire via cron in the new DB.
+        wait_for_condition 50 100 {
+            [dict get [$db1 XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [$db1 XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            $db0 close
+            $db1 close
+            fail "IDMP entries were not cleaned up after MOVE"
+        }
+
+        set id2 [$db1 XADD mystream IDMP p1 "req-1" * field "v2"]
+        $db0 close
+        $db1 close
+        assert {$id1 ne $id2}
+    } {} {singledb:skip}
+
     test {XADD IDMP multiple producers concurrent access} {
         r DEL mystream
         

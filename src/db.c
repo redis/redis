@@ -2199,6 +2199,17 @@ void renameGenericCommand(client *c, int nx) {
     if (srctype == OBJ_HASH)
         minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
 
+    /* If stream with IDMP tracking, remove old key before dbDelete()
+     * so we can re-register under the new name after the rename. */
+    int hadIdmpTracking = 0;
+    if (srctype == OBJ_STREAM) {
+        stream *s = o->ptr;
+        if (s->idmp_producers != NULL) {
+            dictDelete(c->db->stream_idmp_keys, c->argv[1]);
+            hadIdmpTracking = 1;
+        }
+    }
+
     /* Prepare metadata for the renamed key */
     KeyMetaSpec keymeta;
     keyMetaSpecInit(&keymeta);
@@ -2211,6 +2222,12 @@ void renameGenericCommand(client *c, int nx) {
     /* If hash with HFEs, register in DB subexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
+
+    /* Re-register stream IDMP tracking under the new key name. */
+    if (hadIdmpTracking) {
+        incrRefCount(c->argv[2]);
+        dictAdd(c->db->stream_idmp_keys, c->argv[2], NULL);
+    }
 
     keyModified(c,c->db,c->argv[1],NULL,1);
     keyModified(c,c->db,c->argv[2],NULL,1); /* LRM already updated by dbAddInternal */
@@ -2290,7 +2307,18 @@ void moveCommand(client *c) {
      * object since it embeds ExpireMeta that is used by subexpires */
     if (kv->type == OBJ_HASH)
         hashExpireTime = estoreRemove(src->subexpires, slot, kv);
-    
+
+    /* If stream with IDMP tracking, remove from source before dbDelete()
+     * so we can re-register in the destination DB. */
+    int hadIdmpTracking = 0;
+    if (kv->type == OBJ_STREAM) {
+        stream *s = kv->ptr;
+        if (s->idmp_producers != NULL) {
+            dictDelete(src->stream_idmp_keys, c->argv[1]);
+            hadIdmpTracking = 1;
+        }
+    }
+
     /* Move a side metadata before dbDelete() */
     KeyMetaSpec keymeta;
     keyMetaSpecInit(&keymeta);
@@ -2305,6 +2333,12 @@ void moveCommand(client *c) {
      * hash to subexpires of `dst` only after dbDelete(). */
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
+
+    /* Register stream IDMP tracking in the destination DB. */
+    if (hadIdmpTracking) {
+        incrRefCount(c->argv[1]);
+        dictAdd(dst->stream_idmp_keys, c->argv[1], NULL);
+    }
 
     keyModified(c,src,c->argv[1],NULL,1);
     keyModified(c,dst,c->argv[1],NULL,1); /* LRM already updated by dbAddInternal */
@@ -2425,6 +2459,16 @@ void copyCommand(client *c) {
      * on fields and need to register it in global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
+
+    /* Register copied stream with IDMP producers for cron-based expiration. */
+    if (kvCopy->type == OBJ_STREAM) {
+        stream *s = kvCopy->ptr;
+        if (s->idmp_producers != NULL) {
+            incrRefCount(newkey);
+            if (dictAddRaw(dst->stream_idmp_keys, newkey, NULL) == NULL)
+                decrRefCount(newkey);
+        }
+    }
 
     /* OK! key copied. Signal modification (LRM already updated by dbAddInternal) */
     keyModified(c,dst,c->argv[2],NULL,1);
