@@ -4387,10 +4387,6 @@ void xclaimCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[j],&retrycount,
                 "Invalid RETRYCOUNT option argument for XCLAIM")
                 != C_OK) goto cleanup;
-            if (retrycount < 0) {
-                addReplyError(c,"ERR Invalid RETRYCOUNT option argument for XCLAIM, must be >= 0");
-                goto cleanup;
-            }
         } else if (!strcasecmp(opt,"LASTID") && moreargs) {
             j++;
             if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0,NULL) != C_OK) goto cleanup;
