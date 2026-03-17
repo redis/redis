@@ -974,7 +974,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PX 100 EXAT 100 FIELDS 1 a}
             assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PXAT 100 EX 100 FIELDS 1 a}
             assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r HGETEX h1 PERSIST EX 100 FIELDS 1 a}
-                                                        }
+        }
 
         test "HGETEX - input validation (expire time) ($type)" {
             assert_error "*value is not an integer or out of range*" {r HGETEX h1 EX bla FIELDS 1 a}
