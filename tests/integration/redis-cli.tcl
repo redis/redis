@@ -859,7 +859,7 @@ start_server {tags {"cli external:skip"}} {
 
         # The "Note:" line with Mean/ StdDeviation is only printed when displayKeyStatsSizeDist()
         # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
-        assert_no_match "*Note: 0.01% size precision*" $result
+        assert_match "*No key size samples collected*" $result
     }
 }
 
