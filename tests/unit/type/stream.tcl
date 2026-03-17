@@ -963,6 +963,110 @@ start_server {
         assert_equal 4 [r XLEN mystream]
     } {} {external:skip}
 
+    test {XADD IDMP expiry still works after SAVE + process restart} {
+        r DEL mystream
+
+        # Create stream and set IDMP-DURATION before adding entries,
+        # since XCFGSET clears existing entries when the duration changes.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 1
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        r SAVE
+        restart_server 0 true false
+
+        # Dedup state should be restored immediately after restart.
+        set id1_dup [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # After duration expires, same IID should no longer deduplicate.
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up after restart"
+        }
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+        assert_equal 3 [r XLEN mystream]
+    } {} {external:skip}
+
+    test {XADD IDMP tracking survives SWAPDB} {
+        # Use dedicated clients for DB 0 and DB 1 so that `r` stays on
+        # DB 9 (the test default).  If any assertion fails mid-test,
+        # `r` is still on DB 9 and subsequent tests are unaffected.
+        set db0 [redis_client]
+        $db0 SELECT 0
+        $db0 FLUSHDB
+        set db1 [redis_client]
+        $db1 SELECT 1
+        $db1 FLUSHDB
+
+        # Create stream and set IDMP-DURATION before adding entries,
+        # since XCFGSET clears existing entries when the duration changes.
+        $db0 XADD mystream IDMP p1 "init" * field "init"
+        $db0 XCFGSET mystream IDMP-DURATION 2
+        set id1 [$db0 XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        set info [$db0 XINFO STREAM mystream]
+        assert_equal 1 [dict get $info pids-tracked]
+        assert_equal 1 [dict get $info iids-tracked]
+
+        $db0 SWAPDB 0 1
+
+        set id1_dup [$db1 XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup "Deduplication should work immediately after SWAPDB"
+
+        # If stream_idmp_keys wasn't swapped, cron looks in wrong DB
+        # and entries will never expire.
+        wait_for_condition 50 100 {
+            [dict get [$db1 XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [$db1 XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            $db0 close
+            $db1 close
+            fail "IDMP entries were not cleaned up after SWAPDB - tracking likely lost"
+        }
+
+        set id2 [$db1 XADD mystream IDMP p1 "req-1" * field "v2"]
+        $db0 close
+        $db1 close
+        assert {$id1 ne $id2}
+    } {} {singledb:skip}
+
+    test {XADD IDMP tracking cleared after FLUSHDB} {
+        r DEL mystream
+
+        # Create stream and set IDMP-DURATION before adding entries,
+        # since XCFGSET clears existing entries when the duration changes.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+
+        # FLUSHDB should clear all IDMP tracking.
+        r FLUSHDB
+
+        # Recreate stream with the same configuration.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+
+        assert_equal 2 [r XLEN mystream]
+
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up for recreated stream after FLUSHDB"
+        }
+
+        set id3 [r XADD mystream IDMP p1 "req-1" * field "v3"]
+        assert {$id2 ne $id3}
+    }
+
     test {XADD IDMP multiple producers concurrent access} {
         r DEL mystream
         
@@ -3465,4 +3569,70 @@ start_server {tags {"stream"}} {
         assert_equal {2 1-0 2-0 {{consumer1 2}}} [r XPENDING mystream group1]
         assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
     }
+}
+
+foreach rdbchannel {yes no} {
+start_server {tags {"repl external:skip"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 0
+        $master config set save ""
+        $master config set repl-rdb-channel $rdbchannel
+
+        $replica config set repl-diskless-load swapdb
+        $replica config set save ""
+
+        test "XADD IDMP tracking works with diskless replication (swapdb mode) rdbchannel=$rdbchannel" {
+            # Create stream and set IDMP-DURATION before adding entries,
+            # since XCFGSET clears existing entries when the duration changes.
+            $master XADD mystream IDMP p1 "init" * field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+
+            set info [$master XINFO STREAM mystream]
+            assert_equal 1 [dict get $info pids-tracked]
+
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 100 100 {
+                [s -1 master_link_status] eq "up"
+            } else {
+                fail "Replica didn't sync with master"
+            }
+
+            assert_equal 2 [$replica XLEN mystream]
+
+            set replica_info [$replica XINFO STREAM mystream]
+            assert_equal 1 [dict get $replica_info pids-tracked]
+            assert_equal 1 [dict get $replica_info iids-tracked]
+
+            # If swapMainDbWithTempDb didn't swap stream_idmp_keys,
+            # tracking was lost and expiry will never happen on replica.
+            wait_for_condition 50 100 {
+                [dict get [$replica XINFO STREAM mystream] pids-tracked] == 0 &&
+                [dict get [$replica XINFO STREAM mystream] iids-tracked] == 0
+            } else {
+                fail "IDMP entries were not cleaned up on replica after diskless replication"
+            }
+
+            wait_for_condition 50 100 {
+                [dict get [$master XINFO STREAM mystream] pids-tracked] == 0
+            } else {
+                fail "IDMP entries were not cleaned up on master"
+            }
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert {$id1 ne $id2}
+
+            $replica replicaof no one
+        }
+    }
+}
 }

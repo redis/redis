@@ -2979,6 +2979,7 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
+    dict *stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
 
     size_t total_keys = 0;
 
@@ -2988,10 +2989,11 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
+            streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slot);
         }
     }
 
-    emptyDbDataAsync(keys, expires, subexpires);
+    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);

@@ -1000,6 +1000,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             estoreEmpty(dbarray[j].subexpires);
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
+            dictEmpty(dbarray[j].stream_idmp_keys, callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -1083,6 +1084,7 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
+        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
     }
 
     return tempDb;
@@ -1100,9 +1102,28 @@ void discardTempDb(redisDb *tempDb) {
         estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
+        dictRelease(tempDb[i].stream_idmp_keys);
     }
 
     zfree(tempDb);
+}
+
+/* Move entries whose robj keys belong to the given slot from src dict to dst.
+ * Matching entries are removed from src and added to dst. */
+void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
+    if (dictSize(src) == 0) return;
+
+    dictIterator *di = dictGetSafeIterator(src);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        if (getKeySlot(key->ptr) == slot) {
+            incrRefCount(key);
+            dictAdd(dst, key, dictGetVal(de));
+            dictDelete(src, key);
+        }
+    }
+    dictReleaseIterator(di);
 }
 
 int selectDb(client *c, int id) {
@@ -2500,12 +2521,14 @@ int dbSwapDatabases(int id1, int id2) {
     db1->keys = db2->keys;
     db1->expires = db2->expires;
     db1->subexpires = db2->subexpires;
+    db1->stream_idmp_keys = db2->stream_idmp_keys;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
 
     db2->keys = aux.keys;
     db2->expires = aux.expires;
     db2->subexpires = aux.subexpires;
+    db2->stream_idmp_keys = aux.stream_idmp_keys;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
 
@@ -2544,12 +2567,14 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
         activedb->subexpires = newdb->subexpires;
+        activedb->stream_idmp_keys = newdb->stream_idmp_keys;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
         newdb->subexpires = aux.subexpires;
+        newdb->stream_idmp_keys = aux.stream_idmp_keys;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
 
