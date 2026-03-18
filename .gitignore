@@ -30,7 +30,6 @@ deps/lua/src/luac
 deps/lua/src/liblua.a
 deps/hdr_histogram/libhdrhistogram.a
 deps/fpconv/libfpconv.a
-deps/fast_float/libfast_float.a
 tests/tls/*
 .make-*
 .prerequisites
