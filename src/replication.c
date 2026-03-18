@@ -1549,9 +1549,11 @@ void replconfCommand(client *c) {
                 return;
             }
             c->main_ch_client_id = (uint64_t)client_id;
-            /* Inherit the rdb-no-compress request from the main channel. */
+            /* Inherit the rdb-no-compress and rdb-no-checksum request from the main channel. */
             if (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
                 c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+            if (main_ch->slave_req & SLAVE_REQ_RDB_NO_CHECKSUM)
+                c->slave_req |= SLAVE_REQ_RDB_NO_CHECKSUM;
         } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-compress")) {
             long rdb_no_compress = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 0, 1, &rdb_no_compress, NULL) != C_OK)
@@ -1560,6 +1562,15 @@ void replconfCommand(client *c) {
                 c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
             } else {
                 c->slave_req &= ~SLAVE_REQ_RDB_NO_COMPRESS;
+            }
+        } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-checksum")) {
+            long rdb_no_checksum = 0;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 0, 1, &rdb_no_checksum, NULL) != C_OK)
+                return;
+            if (rdb_no_checksum == 1) {
+                c->slave_req |= SLAVE_REQ_RDB_NO_CHECKSUM;
+            } else {
+                c->slave_req &= ~SLAVE_REQ_RDB_NO_CHECKSUM;
             }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
@@ -2429,6 +2440,11 @@ void readSyncBulkPayload(connection *conn) {
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
         disklessLoadingRio = &rdb;
 
+        /* Disable checksum verification when diskless on both master and replica.
+         * The RDB checksum is designed to detect disk corruption, but if the data
+         * never touched disk, we can skip verification. */
+        if (usemark) server.loading_skip_checksum = 1;
+
         /* Empty db */
         loadingSetFlags(NULL, server.repl_transfer_size, asyncLoading);
         if (server.repl_diskless_load != REPL_DISKLESS_LOAD_SWAPDB) {
@@ -3008,7 +3024,7 @@ void syncWithMaster(connection *conn) {
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
     int psync_result;
-    static int replconf_rdb_no_compress = 0;
+    static int no_compress_checksum = 0;
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
@@ -3108,11 +3124,13 @@ void syncWithMaster(connection *conn) {
         }
 
         /* If we are not going to save the RDB to disk, request that RDB
-         * compression be disabled, which speeds up RDB delivery. */
-        replconf_rdb_no_compress = 0;
+         * compression and checksum be disabled, which speeds up RDB delivery
+         * and loading. */
+        no_compress_checksum = 0;
         if (useDisklessLoad()) {
-            replconf_rdb_no_compress = 1;
-            err = sendCommand(conn, "REPLCONF", "rdb-no-compress", "1", NULL);
+            no_compress_checksum = 1;
+            err = sendCommand(conn, "REPLCONF", "rdb-no-compress", "1",
+                                    "rdb-no-checksum", "1", NULL);
             if (err) goto write_error;
         }
 
@@ -3166,7 +3184,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.slave_announce_ip)
-        server.repl_state = REPL_STATE_RECEIVE_COMP_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_REQ_REPLY;
 
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
@@ -3179,22 +3197,22 @@ void syncWithMaster(connection *conn) {
                                 "REPLCONF ip-address: %s", err);
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_COMP_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_REQ_REPLY;
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_COMP_REPLY && !replconf_rdb_no_compress)
+    if (server.repl_state == REPL_STATE_RECEIVE_REQ_REPLY && !no_compress_checksum)
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
 
-    /* Receive REPLCONF rdb-no-compress reply. */
-    if (server.repl_state == REPL_STATE_RECEIVE_COMP_REPLY) {
+    /* Receive REPLCONF REQUEST reply (rdb-no-compress and rdb-no-checksum). */
+    if (server.repl_state == REPL_STATE_RECEIVE_REQ_REPLY) {
         err = receiveSynchronousResponse(conn);
         if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
-         * REPLCONF rdb-no-compress. */
+         * REPLCONF rdb-no-compress and rdb-no-checksum. */
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
-                                "REPLCONF rdb-no-compress: %s", err);
+                                "REPLCONF rdb-no-compress/checksum: %s", err);
         }
         sdsfree(err);
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;

@@ -2159,8 +2159,7 @@ void sflushCommand(client *c) {
     slotRangeArray *slots = parseSlotRangesOrReply(c, argc, 1);
     if (!slots) return;
 
-    /* If client is AOF or master, we must obey the slot ranges.
-     * NOTE: we should exclude CLIENT_PSEUDO_MASTER when merging into fork. */
+    /* If client is AOF or master, we must obey the slot ranges. */
     int must_obey = mustObeyClient(c);
 
     /* Iterate and find the slot ranges that belong to this node. Save them in
@@ -2183,6 +2182,19 @@ void sflushCommand(client *c) {
         return;
     }
     slotRangeArrayFree(slots);
+
+    /* If the selected slots are exactly the same as the local slots, we can
+     * simply flush the entire DB by flushCommandCommon. */
+    slotRangeArray *local_slots = clusterGetLocalSlotRanges();
+    int all_slots_covered = slotRangeArrayIsEqual(myslots, local_slots);
+    slotRangeArrayFree(local_slots);
+    if (all_slots_covered) {
+        /* If not flush as blocking async, then reply immediately */
+        if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0) {
+            replySlotsFlushAndFree(c, myslots);
+        }
+        return;
+    }
 
     /* Cancel all ASM tasks that overlap with the given slot ranges. */
     clusterAsmCancelBySlotRangeArray(myslots, c->argv[0]->ptr);
