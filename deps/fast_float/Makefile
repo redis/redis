@@ -5,8 +5,9 @@ CC ?= gcc
 
 WARN=-Wall -Wextra
 OPT=-O3
+STD+=-std=c99
 
-FAST_FLOAT_CFLAGS=$(WARN) $(OPT) $(CFLAGS)
+FAST_FLOAT_CFLAGS=$(WARN) $(OPT) $(STD) $(CFLAGS)
 FAST_FLOAT_LDFLAGS=$(LDFLAGS)
 
 libfast_float: fast_float_strtod.o
