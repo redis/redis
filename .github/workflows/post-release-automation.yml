@@ -17,45 +17,27 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for git archive
 
-      - name: Test GitHub token
-        run: |
-          gh auth status
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Get latest release
-        id: latest-release
-        run: |
-          LATEST_TAG=$(gh release view --json tagName --jq '.tagName')
-          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
-          echo "Latest release tag: ${LATEST_TAG}"
-          
-          cli_cmd_red="$(gh release view)"
-          echo "cli_cmd_red=${cli_cmd_red}" >> $GITHUB_OUTPUT
-          echo "cli_cmd_red: ${cli_cmd_red}"
-        env:
-          GH_TOKEN: ${{ github.token }}
-
       - name: Extract and validate release information
         id: release-info
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
-          RELEASE_ASSETS: ${{ toJSON(github.event.release.assets) }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Extract tag name from the release event (via env var to prevent injection)
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Release tag: ${TAG_NAME}"
-          echo "Is prerelease: ${IS_PRERELEASE}"
-          echo "Assets: ${RELEASE_ASSETS}"
 
-          # Determine release type based on prerelease flag
-          if [[ "${IS_PRERELEASE}" == "false" ]]; then
+          # Get the latest release tag
+          LATEST_TAG=$(gh release view --json tagName --jq '.tagName')
+          echo "Latest release tag from gh cli: ${LATEST_TAG}"
+
+          # Determine release type by comparing with latest release
+          if [[ "${TAG_NAME}" == "${LATEST_TAG}" ]]; then
             echo "release_type=latest" >> $GITHUB_OUTPUT
             echo "Detected latest release: ${TAG_NAME}"
           else
             echo "release_type=non-latest" >> $GITHUB_OUTPUT
-            echo "Detected non-latest release: ${TAG_NAME}"
+            echo "Detected non-latest release: ${TAG_NAME} (latest is ${LATEST_TAG})"
           fi
 
       - name: Set up environment variables
