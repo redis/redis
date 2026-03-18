@@ -934,7 +934,7 @@ start_server {
         # since XCFGSET clears existing entries when the duration changes.
         r XADD mystream IDMP p1 "init" * field "init"
         r XCFGSET mystream IDMP-DURATION 2
-        r XADD mystream IDMP p1 "req-1" * field "v1"
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
         r XADD mystream IDMP p2 "req-1" * field "v2"
 
         set reply [r XINFO STREAM mystream]
@@ -945,6 +945,10 @@ start_server {
         # register the stream in stream_idmp_keys for cron cleanup.
         r SAVE
         restart_server 0 true false
+
+        # Dedup state should be restored immediately after restart.
+        set id1_dup [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
 
         # Wait for IDMP entries to expire and for the cron to clean them up.
         # If the stream was not registered in stream_idmp_keys after RDB load,
@@ -961,34 +965,6 @@ start_server {
         set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
         assert {$new_id ne ""}
         assert_equal 4 [r XLEN mystream]
-    } {} {external:skip}
-
-    test {XADD IDMP expiry still works after SAVE + process restart} {
-        r DEL mystream
-
-        # Create stream and set IDMP-DURATION before adding entries,
-        # since XCFGSET clears existing entries when the duration changes.
-        r XADD mystream IDMP p1 "init" * field "init"
-        r XCFGSET mystream IDMP-DURATION 1
-        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
-
-        r SAVE
-        restart_server 0 true false
-
-        # Dedup state should be restored immediately after restart.
-        set id1_dup [r XADD mystream IDMP p1 "req-1" * field "dup"]
-        assert_equal $id1 $id1_dup
-
-        # After duration expires, same IID should no longer deduplicate.
-        wait_for_condition 50 100 {
-            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
-            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
-        } else {
-            fail "IDMP entries were not cleaned up after restart"
-        }
-        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
-        assert {$id1 ne $id2}
-        assert_equal 3 [r XLEN mystream]
     } {} {external:skip}
 
     test {XADD IDMP tracking survives SWAPDB} {

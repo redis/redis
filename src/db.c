@@ -861,6 +861,10 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         if (type == OBJ_HASH)
             estoreRemove(db->subexpires, slot, kv);
 
+        /* If stream with IDMP tracking, remove it from stream_idmp_keys */
+        if (type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL)
+            dictDelete(db->stream_idmp_keys, key);
+
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
         incrRefCount(kv); /* refcnt=1->2 */
@@ -2189,11 +2193,6 @@ void renameGenericCommand(client *c, int nx) {
         /* Overwrite: delete the old key before creating the new one
          * with the same name. */
         desttype = destval->type;
-        if (desttype == OBJ_STREAM) {
-            stream *ds = destval->ptr;
-            if (ds->idmp_producers != NULL)
-                dictDelete(c->db->stream_idmp_keys, c->argv[2]);
-        }
         dbDelete(c->db,c->argv[2]);
         overwritten = 1;
     }
@@ -2205,16 +2204,9 @@ void renameGenericCommand(client *c, int nx) {
     if (srctype == OBJ_HASH)
         minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
 
-    /* If stream with IDMP tracking, remove old key before dbDelete()
-     * so we can re-register under the new name after the rename. */
-    int hadIdmpTracking = 0;
-    if (srctype == OBJ_STREAM) {
-        stream *s = o->ptr;
-        if (s->idmp_producers != NULL) {
-            dictDelete(c->db->stream_idmp_keys, c->argv[1]);
-            hadIdmpTracking = 1;
-        }
-    }
+    /* Check if stream has IDMP tracking so we can re-register under
+     * the new name after the rename. */
+    int hadIdmpTracking = (srctype == OBJ_STREAM && ((stream *)o->ptr)->idmp_producers != NULL);
 
     /* Prepare metadata for the renamed key */
     KeyMetaSpec keymeta;
@@ -2314,16 +2306,9 @@ void moveCommand(client *c) {
     if (kv->type == OBJ_HASH)
         hashExpireTime = estoreRemove(src->subexpires, slot, kv);
 
-    /* If stream with IDMP tracking, remove from source before dbDelete()
-     * so we can re-register in the destination DB. */
-    int hadIdmpTracking = 0;
-    if (kv->type == OBJ_STREAM) {
-        stream *s = kv->ptr;
-        if (s->idmp_producers != NULL) {
-            dictDelete(src->stream_idmp_keys, c->argv[1]);
-            hadIdmpTracking = 1;
-        }
-    }
+    /* Check if stream has IDMP tracking so we can re-register in the
+     * destination DB. */
+    int hadIdmpTracking = (kv->type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL);
 
     /* Move a side metadata before dbDelete() */
     KeyMetaSpec keymeta;
@@ -2451,11 +2436,6 @@ void copyCommand(client *c) {
     }
 
     if (delete) {
-        if (destoldtype == OBJ_STREAM) {
-            stream *ds = destval->ptr;
-            if (ds->idmp_producers != NULL)
-                dictDelete(dst->stream_idmp_keys, newkey);
-        }
         dbDelete(dst,newkey);
     }
 
