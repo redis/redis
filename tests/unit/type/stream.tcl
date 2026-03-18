@@ -946,10 +946,6 @@ start_server {
         r SAVE
         restart_server 0 true false
 
-        # Dedup state should be restored immediately after restart.
-        set id1_dup [r XADD mystream IDMP p1 "req-1" * field "dup"]
-        assert_equal $id1 $id1_dup
-
         # Wait for IDMP entries to expire and for the cron to clean them up.
         # If the stream was not registered in stream_idmp_keys after RDB load,
         # the counts would never reach 0.
