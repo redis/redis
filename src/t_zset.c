@@ -947,8 +947,13 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n, un
  *----------------------------------------------------------------------------*/
 
 double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
-    return fast_float_strtod((char*)vstr, vlen, NULL);
- }
+    char buf[128];
+    if (vlen > sizeof(buf) - 1)
+        vlen = sizeof(buf) - 1;
+    memcpy(buf,vstr,vlen);
+    buf[vlen] = '\0';
+    return fast_float_strtod(buf,vlen,NULL);
+}
 
 double zzlGetScore(unsigned char *sptr) {
     unsigned char *vstr;
