@@ -3,6 +3,19 @@ name: Post-Release Automation
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag (e.g., 7.2.0)'
+        required: true
+        type: string
+      is_stable_release:
+        description: 'Is this a stable release?'
+        required: true
+        type: boolean
+
+env:
+  VERSION_TAG: ${{ inputs.version_tag || github.event.release.tag_name }}
 
 jobs:
   automate-release-scripts:
@@ -10,7 +23,7 @@ jobs:
     # Note: Only users with write access can publish releases, providing implicit authorization
     if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -47,23 +60,34 @@ jobs:
           echo "Environment variables set:"
           echo "  RELEASE_TAG: ${{ steps.release-info.outputs.tag_name }}"
           echo "  RELEASE_TYPE: ${{ steps.release-info.outputs.release_type }}"
-      
+
       - name: Create tarball
         id: create-tarball
+        run: ./utils/releasetools/01_create_tarball.sh ${{ env.VERSION_TAG }}
+
+      - name: Verify tarball size
         run: |
-          echo "Creating tarball for version ${RELEASE_TAG}..."
-          # TODO: Implement tarball creation using utils/releasetools/01_create_tarball.sh
-          # ./utils/releasetools/01_create_tarball.sh ${RELEASE_TAG}
+          TARBALL="/tmp/redis-${{ env.VERSION_TAG }}.tar.gz"
+          SIZE_MB=$(du -m "$TARBALL" | cut -f1)
+          echo "Tarball size: ${SIZE_MB} MB"
+          if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
+            echo "Warning: Tarball size outside expected range (3-5 MB)"
+          fi
 
-          # Placeholder: Verify tarball was created
-          # TARBALL_PATH="/tmp/redis-${RELEASE_TAG}.tar.gz"
-          # if [ ! -f "${TARBALL_PATH}" ]; then
-          #   echo "Error: Tarball not found at ${TARBALL_PATH}"
-          #   exit 1
-          # fi
-          # echo "tarball_path=${TARBALL_PATH}" >> $GITHUB_OUTPUT
+      - name: Calculate SHA256 checksum
+        run: |
+          TARBALL="/tmp/redis-${{ env.VERSION_TAG }}.tar.gz"
+          SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+          echo "SHA256: $SHA256"
+          echo "$SHA256" > "/tmp/redis-${{ env.VERSION_TAG }}.tar.gz.sha256"
 
-          echo "✓ Tarball creation step (placeholder)"
+      - name: Upload tarball as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: redis-${{ env.VERSION_TAG }}-tarball
+          path: |
+            /tmp/redis-${{ env.VERSION_TAG }}.tar.gz
+            /tmp/redis-${{ env.VERSION_TAG }}.tar.gz.sha256
 
       - name: Upload tarball
         id: upload-tarball
@@ -119,7 +143,7 @@ jobs:
           # This is part of the upload script (02_upload_tarball.sh)
 
           echo "✓ Stable symlink update step (placeholder)"
-      
+
       - name: Summary
         if: always()
         run: |
