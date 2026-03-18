@@ -73,9 +73,9 @@ static int strncasecmp_local(const char *s1, const char *s2, size_t n) {
  * Returns 1 if parsed successfully, 0 otherwise.
  * On success, *endptr points past the parsed value. */
 static inline int parse_infnan(const char *p, const char *pend, double *result, char **endptr) {
-    size_t remaining = pend - p;
     int negative = (*p == '-');
     if (*p == '-' || *p == '+') p++;
+    size_t remaining = pend - p;
 
     if (remaining >= 3) {
         if (strncasecmp_local(p, "nan", 3) == 0) {
