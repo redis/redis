@@ -160,10 +160,7 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
         p++;
     }
 
-    const char *end_of_integer = p;
     int64_t digit_count = p - start_digits;
-    char *start_of_fraction = NULL;
-    size_t fraction_count = 0;
 
     /* Parse decimal point and fractional part */
     int64_t exponent = 0;
@@ -178,8 +175,6 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
         }
         exponent = before - p;  /* Negative: number of fractional digits */
         digit_count += (p - before);
-        start_of_fraction = (char*)before;
-        fraction_count = (size_t)(p - before);
     }
 
     /* Must have at least one digit */
@@ -227,38 +222,7 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
             s++;
         }
 
-        if (digit_count > MAX_DIGITS) {
-            result.too_many_digits = 1;
-            /* Reparse, keeping only first 19 significant digits */
-            mantissa = 0;
-            s = start_digits;
-            int count = 0;
-
-            /* Parse integer part */
-            while (s != end_of_integer && count < MAX_DIGITS) {
-                mantissa = mantissa * 10 + (*s - '0');
-                s++;
-                count++;
-            }
-
-            /* Calculate how many integer digits we skipped */
-            int64_t int_digits_skipped = end_of_integer - s;
-
-            if (has_decimal && count < MAX_DIGITS) {
-                /* Parse fractional part */
-                const char *p = start_of_fraction;  /* Skip '.' */
-                const char *frac_end = start_of_fraction + fraction_count;
-                while (p != frac_end && count < MAX_DIGITS) {
-                    if (*p >= '0' && *p <= '9') {
-                        mantissa = mantissa * 10 + (*p - '0');
-                        count++;
-                    }
-                    p++;
-                }
-            }
-
-            exponent = int_digits_skipped + exp_number;
-        }
+        if (digit_count > MAX_DIGITS) result.too_many_digits = 1;
     }
 
     result.mantissa = mantissa;
@@ -319,20 +283,16 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     /* Parse the number string */
     parsed_number_t pns = parse_number_string(p, pend);
 
-    if (!pns.valid) {
-        if (parse_infnan(nptr, pend, &result, endptr)) {
-            return result; 
-        } else {
-            errno = EINVAL;
-            if (endptr) *endptr = (char *)nptr;
-            return 0.0;
+    if (pns.valid) {
+        /* Try fast path first */
+        if (compute_float_fast(&pns, &result)) {
+            if (endptr) *endptr = (char *)pns.lastmatch;
+            return result;
         }
-    }
-
-    /* Try fast path first */
-    if (compute_float_fast(&pns, &result)) {
-        if (endptr) *endptr = (char *)pns.lastmatch;
-        return result;
+    } else {
+         if (parse_infnan(nptr, pend, &result, endptr)) {
+            return result; 
+        }
     }
 
     /* Fall back to strtod for complex cases:
