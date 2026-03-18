@@ -300,7 +300,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
 
-        if ((ln = zslNthInRange(zsl, &range, 0)) == NULL) {
+        if ((ln = zslNthInRange(zsl, &range, 0, NULL)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }
@@ -313,7 +313,8 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
                 break;
             if (geoWithinShape(shape, ln->score, xy, &distance) == C_OK) {
                 /* Append the new element. */
-                geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ln->ele));
+                sds ele = zslGetNodeElement(ln);
+                geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ele));
             }
             if (ga->used && limit && ga->used >= limit) break;
             ln = ln->level[0].forward;
@@ -699,7 +700,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         if (storekey) {
             /* store key is not NULL, try to delete it and return 0. */
             if (dbDelete(c->db, storekey)) {
-                signalModifiedKey(c, c->db, storekey);
+                keyModified(c, c->db, storekey, NULL, 1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
                 server.dirty++;
             }
@@ -822,7 +823,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             if (maxelelen < elelen) maxelelen = elelen;
             totelelen += elelen;
             znode = zslInsert(zs->zsl,score,gp->member);
-            serverAssert(dictAdd(zs->dict,gp->member,&znode->score) == DICT_OK);
+            serverAssert(dictAdd(zs->dict, znode, NULL) == DICT_OK);
+            sdsfree(gp->member); /* zslInsert copies the sds, so free the original */
             gp->member = NULL;
         }
 
@@ -833,7 +835,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c,c->db,storekey);
+            keyModified(c,c->db,storekey,NULL,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }

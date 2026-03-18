@@ -225,3 +225,28 @@ start_cluster 3 0 [list tags {external:skip cluster modules} config_lines $modul
         assert_equal {PONG} [$node3 PING]
     }
 }
+
+# -----------------------------------------------------------------------------
+# Test cases for RM_StringTruncate memory tracking.
+# This verifies memory tracking works correctly when module API truncates strings.
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 [list tags {external:skip cluster needs:debug modules} config_lines $modules overrides {cluster-slot-stats-enabled yes}] {
+    set node1 [srv 0 client]
+
+    # Enable debug assertion that validates memory tracking after each command.
+    # This will cause a panic if tracked memory doesn't match actual memory.
+    $node1 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+
+    test "RM_StringTruncate memory tracking" {
+        # The test.string.truncate command:
+        # 1. Creates a key "foo" with value "abcde" (5 bytes)
+        # 2. Truncates (expands) to 8 bytes
+        # 3. Truncates (shrinks) to 4 bytes
+        # 4. Truncates (shrinks) to 0 bytes
+        #
+        # Without the fix, memory tracking was missing in RM_StringTruncate,
+        # causing the DEBUG ALLOCSIZE-SLOTS-ASSERT to panic.
+        $node1 test.string.truncate
+    }
+}

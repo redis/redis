@@ -1,0 +1,10 @@
+{
+    "HOTKEYS": {
+        "summary": "A container for hotkeys tracking commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "server",
+        "since": "8.6.0",
+        "arity": -2
+    }
+}
+

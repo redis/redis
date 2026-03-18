@@ -15,6 +15,10 @@ struct asmTask;
 struct slotRangeArray;
 struct slotRange;
 
+#define ASM_TRIM_METHOD_NONE 0
+#define ASM_TRIM_METHOD_BG 1
+#define ASM_TRIM_METHOD_ACTIVE 2
+
 void asmInit(void);
 void asmBeforeSleep(void);
 void asmCron(void);
@@ -53,5 +57,6 @@ int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc
 void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc);
+int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
 #endif
 

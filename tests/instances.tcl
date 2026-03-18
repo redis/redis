@@ -10,9 +10,9 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-package require Tcl 8.5
+package require Tcl 8.5-10
 
-set tcl_precision 17
+if {$tcl_version < 9.0} { set tcl_precision 17 }
 source ../support/redis.tcl
 source ../support/util.tcl
 source ../support/aofmanifest.tcl
@@ -40,6 +40,7 @@ set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
 set ::stop_on_failure 0
 set ::loop 0
+set ::tsan 0
 
 if {[catch {cd tmp}]} {
     puts "tmp directory not found."
@@ -310,6 +311,8 @@ proc parse_options {} {
             set ::log_req_res 1
         } elseif {$opt eq {--force-resp3}} {
             set ::force_resp3 1
+        } elseif {$opt eq {--tsan}} {
+            set ::tsan 1
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--dont-clean            Keep log files on exit."

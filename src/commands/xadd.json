@@ -88,6 +88,37 @@
                 ]
             },
             {
+                "name": "idmp",
+                "type": "oneof",
+                "optional": true,
+                "since": "8.6.0",
+                "arguments": [
+                    {
+                        "token": "IDMPAUTO",
+                        "type": "string",
+                        "name": "pid",
+                        "display_text": "producer-id"
+                    },
+                    {
+                        "token": "IDMP",
+                        "type": "block",
+                        "name": "idmp",
+                        "arguments": [
+                            {
+                                "name": "pid",
+                                "type": "string",
+                                "display_text": "producer-id"
+                            },
+                            {
+                                "name": "iid",
+                                "type": "string",
+                                "display_text": "idempotent-id"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
                 "name": "trim",
                 "type": "block",
                 "optional": true,

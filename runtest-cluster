@@ -1,5 +1,5 @@
 #!/bin/sh
-TCL_VERSIONS="8.5 8.6 8.7"
+TCL_VERSIONS="8.5 8.6 8.7 9.0"
 TCLSH=""
 
 for VERSION in $TCL_VERSIONS; do

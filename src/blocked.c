@@ -237,7 +237,11 @@ int blockedClientMayTimeout(client *c) {
  * unblockClient() will be called with the same client as argument. */
 void replyToBlockedClientTimedOut(client *c) {
     if (c->bstate.btype == BLOCKED_LAZYFREE) {
-        addReply(c, shared.ok); /* No reason lazy-free to fail */
+        /* SFLUSH: reply with empty array, FLUSH*: reply with OK */
+        if (c->cmd && c->cmd->proc == sflushCommand)
+            addReplyArrayLen(c, 0);
+        else
+            addReply(c, shared.ok); /* No reason lazy-free to fail */
     } else if (c->bstate.btype == BLOCKED_LIST ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
@@ -297,7 +301,11 @@ void disconnectAllBlockedClients(void) {
                 continue;
 
             if (c->bstate.btype == BLOCKED_LAZYFREE) {
-                addReply(c, shared.ok); /* No reason lazy-free to fail */
+                /* SFLUSH: reply with empty array, FLUSH*: reply with OK */
+                if (c->cmd && c->cmd->proc == sflushCommand)
+                    addReplyArrayLen(c, 0);
+                else
+                    addReply(c, shared.ok);
                 updateStatsOnUnblock(c, 0, 0, 0);
                 c->flags &= ~CLIENT_PENDING_COMMAND;
                 unblockClient(c, 1);

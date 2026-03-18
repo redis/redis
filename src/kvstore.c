@@ -385,9 +385,10 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
  */
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb) {
     for (int i = 0; i < kvs->num_dicts; i++) {
-        dict *d = kvstoreGetDict(kvs, i);
-        if (!d || (skip_cb && skip_cb(i)))
-            continue;
+        if (skip_cb && skip_cb(i)) continue;
+        dict *d = createDictIfNeeded(kvs, i);
+        if (!d) continue;
+
         int result = try_expand ? dictTryExpand(d, newsize) : dictExpand(d, newsize);
         if (try_expand && result == DICT_ERR)
             return 0;
@@ -889,9 +890,7 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
     dict *d = createDictIfNeeded(kvs, didx);
-    dictUseStoredKeyApi(d, 1);
     dictEntry *ret = dictAddRaw(d, key, existing);
-    dictUseStoredKeyApi(d, 0);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
@@ -944,6 +943,8 @@ void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded) {
 }
 
 void *kvstoreGetMetadata(kvstore *kvs) {
+    if (!kvs->type->kvstoreMetadataBytes)
+        return NULL;
     return &kvs->metadata;
 }
 

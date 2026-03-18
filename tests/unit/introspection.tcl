@@ -21,9 +21,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         set client_list [r client list]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client_list
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client_list
         }
     }
 
@@ -36,9 +36,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client
         }
     } 
 
@@ -139,6 +139,74 @@ start_server {tags {"introspection"}} {
 
         # We executed 3 commands - EVAL, which in turn executed PING and finally CLIENT INFO
         assert_equal [expr $tot_cmd_before+3] $tot_cmd_after
+    }
+
+    test {CLIENT INFO read-events and pipeline-length stats} {
+        # Use a fresh client so counters start from a known state
+        set r2 [redis_client]
+
+        # Baseline: the redis_client constructor issues some commands internally,
+        # so capture the current state rather than assuming zeros.
+        set info1 [$r2 client info]
+        set re1 [get_field_in_client_info $info1 "read-events"]
+        set plsum1 [get_field_in_client_info $info1 "avg-pipeline-len-sum"]
+        set plcnt1 [get_field_in_client_info $info1 "avg-pipeline-len-cnt"]
+
+        # Send 3 sequential (non-pipelined) commands
+        $r2 ping
+        $r2 ping
+        $r2 ping
+
+        set info2 [$r2 client info]
+        set re2 [get_field_in_client_info $info2 "read-events"]
+        set plsum2 [get_field_in_client_info $info2 "avg-pipeline-len-sum"]
+        set plcnt2 [get_field_in_client_info $info2 "avg-pipeline-len-cnt"]
+
+        # read-events should have increased (3 PINGs + the CLIENT INFO itself)
+        assert_morethan_equal $re2 [expr {$re1 + 4}]
+
+        # For sequential commands each batch has exactly 1 command,
+        # so delta of sum should equal delta of cnt (average pipeline length = 1.0)
+        set delta_sum [expr {$plsum2 - $plsum1}]
+        set delta_cnt [expr {$plcnt2 - $plcnt1}]
+        assert_morethan $delta_sum 0
+        assert_equal $delta_sum $delta_cnt
+
+        $r2 close
+    }
+
+    test {CLIENT INFO pipeline-length stats for pipelined commands} {
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+
+        # Capture baseline from CLIENT LIST
+        set info_list [r client list]
+        set plsum1 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-sum"]
+        set plcnt1 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-cnt"]
+
+        # Send 5 pipelined commands without reading replies
+        for {set i 0} {$i < 5} {incr i} {
+            $rd ping
+        }
+
+        # Read all 5 replies to ensure they have been processed
+        for {set i 0} {$i < 5} {incr i} {
+            $rd read
+        }
+
+        set info_list [r client list]
+        set plsum2 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-sum"]
+        set plcnt2 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-cnt"]
+
+        # All 5 commands must have been counted in the sum
+        set delta_sum [expr {$plsum2 - $plsum1}]
+        set delta_cnt [expr {$plcnt2 - $plcnt1}]
+        assert_equal $delta_sum 5
+        assert_morethan $delta_cnt 0
+        assert_morethan_equal $delta_sum $delta_cnt
+
+        $rd close
     }
 
     test {CLIENT KILL with illegal arguments} {
@@ -1066,8 +1134,14 @@ test {IO threads client number} {
 
 test {Clients are evenly distributed among io threads} {
     start_server {overrides {io-threads 4} tags {external:skip}} {
-        set cur_clients [s connected_clients]
-        assert_equal $cur_clients 1
+        # There might be a client used for health checks (to detect if the server is up)
+        # that has not been freed timely. This can lead to an inaccurate count of
+        # connectedclients processed by IO threads.
+        wait_for_condition 1000 10 {
+            [s connected_clients] eq 1
+        } else {
+            fail "Fail to wait for connected_clients to be 1"
+        }
         global rdclients
         for {set i 1} {$i < 9} {incr i} {
             set rdclients($i) [redis_deferring_client]
@@ -1091,5 +1165,32 @@ test {Clients are evenly distributed among io threads} {
         for {set i 1} {$i <= 3} {incr i} {
             assert_equal [get_io_thread_clients $i] 3
         }
+    }
+}
+
+# Test insecure configuration warnings
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "*"} wait_ready false} {
+    test {Warning shown when no auth and binding all interfaces} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require authentication and is not protected by network restrictions*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "127.0.0.1"}} {
+    test {Warning shown for configured interface when binding specific address} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require authentication*configured network interface*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {protected-mode yes}} {
+    test {Warning shown for local clients when protected mode is on} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require authentication*local client*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {requirepass secret}} {
+    test {No warning shown when password is set} {
+        # Check that the warning does NOT appear
+        set loglines [exec cat [srv 0 stdout]]
+        assert_equal 0 [string match "*WARNING: Redis does not require authentication*" $loglines]
     }
 }

@@ -161,6 +161,14 @@ start_server {tags {"introspection"}} {
         assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE zz 1443677133621497600 asdf}
     }
 
+    test {COMMAND GETKEYSANDFLAGS MSETEX} {
+        assert_equal {{k1 {OW update}}} [r command getkeysandflags msetex 1 k1 v1 ex 10]
+        assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags msetex 2 k1 v1 k2 v2 ex 10]
+        assert_equal {{k1 {OW update}} {k2 {OW update}} {k3 {OW update}}} [r command getkeysandflags msetex 3 k1 v1 k2 v2 k3 v3 ex 10]
+        assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags msetex 2 k1 v1 k2 v2 keepttl]
+        assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags msetex 2 k1 v1 k2 v2 ex 10 nx]
+    }
+
     test {COMMAND GETKEYS MEMORY USAGE} {
         assert_equal {key} [r command getkeys memory usage key]
     }

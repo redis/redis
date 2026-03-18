@@ -199,9 +199,9 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
 
             dictInitIterator(&di, zs->dict);
             while((de = dictNext(&di)) != NULL) {
-                sds sdsele = dictGetKey(de);
-                double *score = dictGetVal(de);
-                const int len = fpconv_dtoa(*score, buf);
+                zskiplistNode *znode = dictGetKey(de);
+                sds sdsele = zslGetNodeElement(znode);
+                const int len = fpconv_dtoa(znode->score, buf);
                 buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
@@ -502,6 +502,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"REPLY-COPY-AVOIDANCE <0|1>",
+"    Enable/disable reply copy avoidance optimization.",
 "REPL-PAUSE <clear|after-fork|before-rdb-channel|on-streaming-repl-buf>",
 "    Pause the server's main process during various replication steps.",
 "DICT-RESIZING <0|1>",
@@ -785,7 +787,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db, key, &val);
-            signalModifiedKey(c,c->db,key);
+            keyModified(c,c->db,key,NULL,1);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -1075,6 +1077,9 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
+        server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "repl-pause") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr, "clear")) {
             server.repl_debug_pause = REPL_DEBUG_PAUSE_NONE;
@@ -1093,6 +1098,10 @@ NULL
         server.dict_resizing = atoi(c->argv[2]->ptr);
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
+        if (server.hide_user_data_from_log) {
+            addReplyError(c, "DEBUG SCRIPT is disabled when hide-user-data-from-log is enabled");
+            return;
+        }
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
             dictIterator di;
             dictEntry *de;
@@ -1263,7 +1272,7 @@ void serverLogObjectDebugInfo(const robj *o) {
      * random memory portion to be "leaked" into the logfile. */
     if (o->type == OBJ_STRING && sdsEncodedObject(o)) {
         serverLog(LL_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
-        if (sdslen(o->ptr) < 4096) {
+        if (!server.hide_user_data_from_log && sdslen(o->ptr) < 4096) {
             sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
             serverLog(LL_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
@@ -2245,7 +2254,7 @@ void logCurrentClient(client *cc, const char *title) {
         robj *key = getDecodedObject(cc->argv[1]);
         kvobj *kv = dbFind(cc->db, key->ptr);
         if (kv) {
-            serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
+            serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", redactLogCstr((char*)key->ptr));
             serverLogObjectDebugInfo(kv);
         }
         decrRefCount(key);

@@ -1247,7 +1247,7 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 # Slave2 disconnect with master
                 $slave2 slaveof no one
                 # Should kill child
-                wait_for_condition 100 10 {
+                wait_for_condition 1000 10 {
                     [s 0 rdb_bgsave_in_progress] eq 0
                 } else {
                     fail "can't kill rdb child"
@@ -1822,10 +1822,13 @@ start_server {tags {"repl external:skip"}} {
 
             # Connect to an invalid master
             $slave slaveof $master_host 0
-            after 1000
 
             # Expect current sync attempts to increase
-            assert {[status $slave master_current_sync_attempts] >= 2}
+            wait_for_condition 100 50 {
+                [status $slave master_current_sync_attempts] >= 2
+            } else {
+                fail "Timeout waiting for master_current_sync_attempts"
+            }
         }
     }
 }
