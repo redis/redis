@@ -17,19 +17,24 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for git archive
 
-      - name: Generate a token
-        id: generate-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.DOCS_APP_ID }}
-          private-key: ${{ secrets.DOCS_APP_PRIVATE_KEY }}
-
-      - name: Check for uploaded assets
+      - name: Test GitHub token
         run: |
-          ASSETS=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }} --jq '.assets')
-          echo "Assets: ${ASSETS}"
+          gh auth status
         env:
-          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Get latest release
+        id: latest-release
+        run: |
+          LATEST_TAG=$(gh release view --json tagName --jq '.tagName')
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+          echo "Latest release tag: ${LATEST_TAG}"
+          
+          cli_cmd_red="$(gh release view)"
+          echo "cli_cmd_red=${cli_cmd_red}" >> $GITHUB_OUTPUT
+          echo "cli_cmd_red: ${cli_cmd_red}"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Extract and validate release information
         id: release-info
