@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0  # Fetch all history for git archive
 
@@ -82,7 +82,7 @@ jobs:
           echo "$SHA256" > "/tmp/redis-${{ env.VERSION_TAG }}.tar.gz.sha256"
 
       - name: Upload tarball as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: redis-${{ env.VERSION_TAG }}-tarball
           path: |
