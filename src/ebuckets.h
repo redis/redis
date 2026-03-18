@@ -252,6 +252,9 @@ typedef struct ExpireInfo {
     void *ctx;                    /* [INPUT ] context to pass to onExpireItem */
     uint64_t now;                 /* [INPUT ] Current time in msec. */
     uint64_t itemsExpired;        /* [OUTPUT] Returns the number of expired or updated items. */
+    void **expiredItems;          /* [INPUT/OUTPUT] Dynamic array to collect expired items.
+                                     If not NULL, will grow automatically via zrealloc. */
+    uint64_t expiredCapacity;     /* [INPUT/OUTPUT] Current capacity of expiredItems array. */
     uint64_t nextExpireTime;      /* [OUTPUT] Next expiration time. Returns
                                      EB_EXPIRE_TIME_INVALID if none left. */
 } ExpireInfo;
