@@ -1154,6 +1154,39 @@ start_server {
         assert {$id1 ne $id2}
     } {} {singledb:skip}
 
+    test {XADD IDMP tracking survives RESTORE} {
+        r DEL idmpstream{t}
+        r DEL idmpcopy{t}
+
+        r XADD idmpstream{t} IDMP p1 "init" * field "init"
+        r XCFGSET idmpstream{t} IDMP-DURATION 2
+        set id1 [r XADD idmpstream{t} IDMP p1 "req-1" * field "v1"]
+
+        assert_equal 1 [dict get [r XINFO STREAM idmpstream{t}] pids-tracked]
+
+        set dump [r DUMP idmpstream{t}]
+        set ttl [r PTTL idmpstream{t}]
+        if {$ttl == -1} { set ttl 0 }
+        r RESTORE idmpcopy{t} $ttl $dump
+
+        set copy_info [r XINFO STREAM idmpcopy{t}]
+        assert_equal 1 [dict get $copy_info pids-tracked]
+        assert_equal 1 [dict get $copy_info iids-tracked]
+
+        set id1_dup [r XADD idmpcopy{t} IDMP p1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM idmpcopy{t}] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM idmpcopy{t}] iids-tracked] == 0
+        } else {
+            fail "IDMP entries were not cleaned up on RESTOREd stream"
+        }
+
+        set id2 [r XADD idmpcopy{t} IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+    }
+
     test {XADD IDMP multiple producers concurrent access} {
         r DEL mystream
         

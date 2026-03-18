@@ -600,6 +600,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     if (old->type == OBJ_HASH)
         estoreRemove(db->subexpires, slot, old);
 
+    if (old->type == OBJ_STREAM)
+        dictDelete(db->stream_idmp_keys, key);
+
     long long oldExpire = getExpire(db, key->ptr, old);
 
     /* All metadata will be kept if not `overwrite` for the new object  */
@@ -862,7 +865,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             estoreRemove(db->subexpires, slot, kv);
 
         /* If stream with IDMP tracking, remove it from stream_idmp_keys */
-        if (type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL)
+        if (type == OBJ_STREAM)
             dictDelete(db->stream_idmp_keys, key);
 
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
