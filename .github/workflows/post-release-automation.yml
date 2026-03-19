@@ -8,7 +8,7 @@ jobs:
   automate-release-scripts:
     # Only run for the main redis/redis repository (not forks)
     # Note: Only users with write access can publish releases, providing implicit authorization
-    if: github.repository == 'redis/redis' || github.repository == 'stav-nachmias/fork-redis'
+    if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     
     steps:
@@ -75,18 +75,6 @@ jobs:
           # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
 
           echo "✓ Tarball upload step (placeholder)"
-
-      - name: Test release tarball
-        id: test-release
-        run: |
-          echo "Testing release tarball for version ${RELEASE_TAG}..."
-          # TODO: Implement release testing using utils/releasetools/03_test_release.sh
-          # This will:
-          # - Download the uploaded tarball
-          # - Extract and build Redis
-          # - Run test suites (runtest, runtest-sentinel, runtest-cluster, runtest-moduleapi)
-
-          echo "✓ Release testing step (placeholder)"
 
       - name: Update release hashes
         id: update-hashes
