@@ -37,9 +37,11 @@
 
 /* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
 #ifdef HAVE_AVX512
-#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
+#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#define BITOPS_USE_AVX512_POPCOUNT  (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define BITOP_USE_AVX512 0
+#define BITOPS_USE_AVX512_POPCOUNT  0
 #endif
 
 
@@ -364,7 +366,7 @@ long long redisPopCountAvx2(void *s, long count) {
 /* Automatically select the best available popcount implementation */
 static inline long long redisPopcountAuto(const unsigned char *p, long count) {
 #ifdef HAVE_AVX512
-    if (BITOP_USE_AVX512) {
+    if (BITOPS_USE_AVX512_POPCOUNT) {
         return redisPopCountAvx512((void*)p, count);
     }
 #endif
@@ -923,7 +925,7 @@ void getbitCommand(client *c) {
  * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
  * will be skipped. They will be taken care for in the unoptimized loop in the
  * main bitopCommand function. */
-ATTRIBUTE_TARGET_AVX2_POPCOUNT
+ATTRIBUTE_TARGET_AVX2
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res, 
                               unsigned long op, unsigned long numkeys,
                               unsigned long minlen)
@@ -939,21 +941,13 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         return 0;
     }
 
-    /* Unlike other operations that do the same with all source keys
-     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
-     * but the first one. We first store that disjunction in `lres` and later 
-     * compute the final operation using the first source key. */
-    if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR) {
-        memcpy(res, keys[0], minlen);
-    }
-
     const __m256i max256 = _mm256_set1_epi64x(-1);
     const __m256i zero256 = _mm256_set1_epi64x(0);
 
     switch (op) {
     case BITOP_AND:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
 
             for (i = 1; i < numkeys; i++) {
                 __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
@@ -965,12 +959,18 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
             minlen -= step;
         }
         break;
+    /* Unlike other operations that do the same with all source keys
+     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
+     * but the first one. We first store that disjunction in `lres` and later
+     * compute the final operation using the first source key. */
     case BITOP_DIFF:
     case BITOP_DIFF1:
     case BITOP_ANDOR:
     case BITOP_OR:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = (op == BITOP_OR) ?
+                _mm256_lddqu_si256((__m256i*)(keys[0]+processed)) :
+                zero256;
 
             for (i = 1; i < numkeys; i++) {
                 __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
@@ -984,7 +984,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_XOR:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
 
             for (i = 1; i < numkeys; i++) {
                 __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
@@ -998,7 +998,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_NOT:
         while (minlen >= step) {
-             __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+             __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
             lres = _mm256_xor_si256(lres, max256);
             _mm256_storeu_si256((__m256i*)res, lres);
             res += step;
@@ -1008,7 +1008,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
         break;
     case BITOP_ONE:
         while (minlen >= step) {
-            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i lres = _mm256_lddqu_si256((__m256i*)(keys[0]+processed));
             __m256i common_bits = zero256;
 
             for (i = 1; i < numkeys; i++) {
@@ -1074,6 +1074,162 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
     return processed;
 }
 #endif /* HAVE_AVX2 */
+
+#ifdef HAVE_AVX512
+/* Compute the given bitop operation using AVX512 intrinsics.
+ * Return how many bytes were successfully processed, as AVX512 operates on
+ * 512-bit registers so if `minlen` is not a multiple of 64 some of the bytes
+ * will be skipped. They will be taken care for in the unoptimized loop in the
+ * main bitopCommand function. */
+ATTRIBUTE_TARGET_AVX512
+unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res, 
+                                 unsigned long op, unsigned long numkeys,
+                                 unsigned long minlen)
+{
+    const unsigned long step = sizeof(__m512i);  /* 64 bytes */
+
+    unsigned long i;
+    unsigned long processed = 0;
+    unsigned char *res_start = res;
+    unsigned char *fst_key = keys[0];
+
+    if (minlen < step) {
+        return 0;
+    }
+
+    const __m512i max512 = _mm512_set1_epi64(-1);
+    const __m512i zero512 = _mm512_set1_epi64(0);
+    switch (op) {
+    case BITOP_AND:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                lres = _mm512_and_si512(lres, lkey);
+            }
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    /* Unlike other operations that do the same with all source keys
+     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
+     * but the first one. We first store that disjunction in `lres` and later
+     * compute the final operation using the first source key. */
+    case BITOP_DIFF:
+    case BITOP_DIFF1:
+    case BITOP_ANDOR:
+    case BITOP_OR:
+        while (minlen >= step) {
+            __m512i lres = (op == BITOP_OR) ?
+                _mm512_loadu_si512((__m512i*)(keys[0]+processed)) :
+                zero512;
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                lres = _mm512_or_si512(lres, lkey);
+            }
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_XOR:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                lres = _mm512_xor_si512(lres, lkey);
+            }
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_NOT:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
+            lres = _mm512_xor_si512(lres, max512);
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_ONE:
+        while (minlen >= step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)(keys[0]+processed));
+            __m512i common_bits = zero512;
+
+            for (i = 1; i < numkeys; i++) {
+                __m512i lkey = _mm512_loadu_si512((__m512i*)(keys[i]+processed));
+                /* common_bits |= (lres & lkey): ternary-logic with imm8 0xEA == c|(a&b)
+                 * (a=lres, b=lkey, c=common_bits), replacing a separate AND+OR. */
+                common_bits = _mm512_ternarylogic_epi32(lres, lkey, common_bits, 0xEA);
+
+                lres = _mm512_xor_si512(lres, lkey);
+            }
+            lres = _mm512_andnot_si512(common_bits, lres);
+            _mm512_storeu_si512((__m512i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    default:
+        break;
+    }
+
+    res = res_start;
+    switch (op) {
+    case BITOP_DIFF:
+        for (i = 0; i < processed; i += step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i fkey = _mm512_loadu_si512((__m512i*)fst_key);
+
+            lres = _mm512_andnot_si512(lres, fkey);
+            _mm512_storeu_si512((__m512i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    case BITOP_DIFF1:
+        for (i = 0; i < processed; i += step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i fkey = _mm512_loadu_si512((__m512i*)fst_key);
+
+            lres = _mm512_andnot_si512(fkey, lres);
+            _mm512_storeu_si512((__m512i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    case BITOP_ANDOR:
+        for (i = 0; i < processed; i += step) {
+            __m512i lres = _mm512_loadu_si512((__m512i*)res);
+            __m512i fkey = _mm512_loadu_si512((__m512i*)fst_key);
+
+            lres = _mm512_and_si512(fkey, lres);
+            _mm512_storeu_si512((__m512i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    default:
+        break;
+    }
+
+    return processed;
+}
+#endif /* HAVE_AVX512 */
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
@@ -1163,36 +1319,40 @@ void bitopCommand(client *c) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
-        int useAVX2 = 0;
+        int useAVX = 0;
 
         /* Number of bytes processed from each source key */
         j = 0;
 
+#if defined(HAVE_AVX512)
+        if (BITOP_USE_AVX512 && (minlen >= 10000) && (numkeys >= 8)) {
+            j = bitopCommandAVX512(src, res, op, numkeys, minlen);
+
+            serverAssert(minlen >= j);
+            minlen -= j;
+
+            useAVX = 1;
+        }
+#endif
+
 #if defined(HAVE_AVX2)
-        if (BITOP_USE_AVX2) {
+        if (!useAVX && BITOP_USE_AVX2) {
             j = bitopCommandAVX(src, res, op, numkeys, minlen);
 
             serverAssert(minlen >= j);
             minlen -= j;
 
-            useAVX2 = 1;
+            useAVX = 1;
         }
 #endif
 
 #if !defined(USE_ALIGNED_ACCESS)
-        /* We don't have AVX2 but we still have fast path:
-         * as far as we have data for all the input bitmaps we
-         * can take a fast path that performs much better than the
-         * vanilla algorithm. On ARM we skip the fast path since it will
-         * result in GCC compiling the code using multiple-words load/store
-         * operations that are not supported even in ARM >= v6. */
-        if (minlen >= sizeof(unsigned long)*4) {
-            /* We can't have entered the AVX2 path since minlen >= sizeof(unsigned long)*4
-             * AVX2 path operates on steps of sizeof(__m256i) which for 64-bit
-             * machines (the only ones supporting AVX2) is equal to
-             * sizeof(unsigned long)*4. That means after the AVX2
-             * path minlen will necessarily be < sizeof(unsigned long)*4. */
-            serverAssert(!useAVX2);
+        /* If no SIMD path was used (no AVX2/AVX512), fall back 
+         * to a word-at-a-time fast path that is still much better 
+         * than the byte-by-byte loop below. On ARM we skip this since 
+         * it would cause GCC to emit multiple-word load/store ops
+         * not supported even on ARM >= v6. */
+        if (!useAVX && minlen >= sizeof(unsigned long)*4) {
 
             unsigned long **lp = (unsigned long**)src;
             unsigned long *lres = (unsigned long*) res;
