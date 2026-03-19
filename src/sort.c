@@ -520,7 +520,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 if (sdsEncodedObject(byval)) {
                     char *eptr;
 
-                    vector[j].u.score = fast_float_strtod(byval->ptr,sdslen(byval->ptr),&eptr);
+                    vector[j].u.score = fast_float_strtod_n(byval->ptr,sdslen(byval->ptr),&eptr);
                     if (eptr[0] != '\0' || errno == ERANGE ||
                         isnan(vector[j].u.score))
                     {

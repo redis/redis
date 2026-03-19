@@ -723,11 +723,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     } else {
         size_t len = sdslen(min->ptr);
         if (((char*)min->ptr)[0] == '(') {
-            spec->min = fast_float_strtod((char*)min->ptr+1,len-1,&eptr);
+            spec->min = fast_float_strtod_n((char*)min->ptr+1,len-1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
         } else {
-            spec->min = fast_float_strtod((char*)min->ptr,len,&eptr);
+            spec->min = fast_float_strtod_n((char*)min->ptr,len,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
     }
@@ -736,11 +736,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     } else {
         size_t len = sdslen(max->ptr);
         if (((char*)max->ptr)[0] == '(') {
-            spec->max = fast_float_strtod((char*)max->ptr+1,len-1,&eptr);
+            spec->max = fast_float_strtod_n((char*)max->ptr+1,len-1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
         } else {
-            spec->max = fast_float_strtod((char*)max->ptr,len,&eptr);
+            spec->max = fast_float_strtod_n((char*)max->ptr,len,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
         }
     }
@@ -947,12 +947,7 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n, un
  *----------------------------------------------------------------------------*/
 
 static double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
-    char buf[128];
-    if (vlen > sizeof(buf) - 1)
-        vlen = sizeof(buf) - 1;
-    memcpy(buf,vstr,vlen);
-    buf[vlen] = '\0';
-    return fast_float_strtod(buf,vlen,NULL);
+    return fast_float_strtod_n((char*)vstr, vlen, NULL);
 }
 
 double zzlGetScore(unsigned char *sptr) {
