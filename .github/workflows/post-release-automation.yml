@@ -75,19 +75,18 @@ jobs:
           fi
 
       - name: Calculate SHA256 checksum
+        id: checksum
         run: |
           TARBALL="/tmp/redis-${{ env.VERSION_TAG }}.tar.gz"
           SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
           echo "SHA256: $SHA256"
-          echo "$SHA256" > "/tmp/redis-${{ env.VERSION_TAG }}.tar.gz.sha256"
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
 
       - name: Upload tarball as artifact
         uses: actions/upload-artifact@v6
         with:
           name: redis-${{ env.VERSION_TAG }}-tarball
-          path: |
-            /tmp/redis-${{ env.VERSION_TAG }}.tar.gz
-            /tmp/redis-${{ env.VERSION_TAG }}.tar.gz.sha256
+          path: /tmp/redis-${{ env.VERSION_TAG }}.tar.gz
 
       - name: Upload tarball
         id: upload-tarball
