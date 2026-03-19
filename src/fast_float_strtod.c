@@ -38,7 +38,7 @@
 #include <float.h>
 
 #include "fast_float_strtod.h"
-#include "zmalloc.h"
+#include "config.h"
 
 #if __GNUC__ >= 3
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -141,6 +141,16 @@ static inline int parse_infnan(const char *p, const char *pend, double *result, 
 static inline uint64_t read8_to_u64(const char *p) {
     uint64_t val;
     memcpy(&val, p, sizeof(uint64_t));
+#if BYTE_ORDER == BIG_ENDIAN
+    /* SWAR digit parsing assumes first char in LSB (little-endian layout). */
+#if defined(__GNUC__) || defined(__clang__)
+    val = __builtin_bswap64(val);
+#else
+    val = ((val & 0x00000000FFFFFFFFULL) << 32) | ((val & 0xFFFFFFFF00000000ULL) >> 32);
+    val = ((val & 0x0000FFFF0000FFFFULL) << 16) | ((val & 0xFFFF0000FFFF0000ULL) >> 16);
+    val = ((val & 0x00FF00FF00FF00FFULL) << 8)  | ((val & 0xFF00FF00FF00FF00ULL) >> 8);
+#endif
+#endif
     return val;
 }
 
@@ -193,6 +203,12 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
 
     /* Parse integer part */
     uint64_t mantissa = 0;
+    while (pend - p >= 8) {
+        uint64_t val = read8_to_u64(p);
+        if (!is_made_of_eight_digits(val)) break;
+        mantissa = mantissa * 100000000 + parse_eight_digits_swar(val);
+        p += 8;
+    }
     while (p != pend && *p >= '0' && *p <= '9') {
         mantissa = mantissa * 10 + (*p - '0');
         p++;
@@ -207,8 +223,10 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
     if (has_decimal) {
         p++;
         const char *before = p;
-        while ((pend - p >= 8) && is_made_of_eight_digits(read8_to_u64(p))) {
-            mantissa = mantissa * 100000000 + parse_eight_digits_swar(read8_to_u64(p));
+        while (pend - p >= 8) {
+            uint64_t val = read8_to_u64(p);
+            if (!is_made_of_eight_digits(val)) break;
+            mantissa = mantissa * 100000000 + parse_eight_digits_swar(val);
             p += 8;
         }
         while (p != pend && *p >= '0' && *p <= '9') {
