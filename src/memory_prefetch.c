@@ -89,9 +89,7 @@ typedef struct PrefetchCommandsBatch {
     client **clients;               /* Array of clients in the current batch */
     pendingCommand **pending_cmds;  /* Array of pending commands in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
-    dict **current_dicts;           /* Points to dict to prefetch from */
     KeyPrefetchInfo *prefetch_info; /* Prefetch info for each key */
-    PrefetchGetValueDataFunc get_value_data_func; /* Function to get the value data */
 } PrefetchCommandsBatch;
 
 static PrefetchCommandsBatch *batch = NULL;
@@ -175,7 +173,7 @@ static void ctxInit(DictPrefetchCtx *ctx) {
 
         /* We skip prefetch during loading, so ht_table[0] should never be NULL
          * when dictSize() > 0 (which only happens mid-dictEmpty via _dictReset). */
-        serverAssert(batch->current_dicts[i]->ht_table[0]);
+        serverAssert(ctx->dicts[i]->ht_table[0]);
 
         info->ht_idx = HT_IDX_INVALID;
         info->current_entry = NULL;
