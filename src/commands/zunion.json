@@ -7,6 +7,12 @@
         "arity": -3,
         "function": "zunionCommand",
         "get_keys_function": "zunionInterDiffGetKeys",
+        "history": [
+            [
+                "8.8.0",
+                "Added `COUNT` aggregate option."
+            ]
+        ],
         "command_flags": [
             "READONLY"
         ],
