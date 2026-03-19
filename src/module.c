@@ -6375,7 +6375,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             reply = callReplyCreateError(err, ctx);
         goto cleanup;
     }
-    if (!commandCheckArity(c, error_as_call_replies? &err : NULL)) {
+    if (!commandCheckArity(c->cmd, c->argc, error_as_call_replies? &err : NULL)) {
         errno = EINVAL;
         if (error_as_call_replies)
             reply = callReplyCreateError(err, ctx);
@@ -9702,6 +9702,7 @@ RedisModuleUser *RM_GetModuleUserFromUserName(RedisModuleString *name) {
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * ENOENT: Specified command does not exist.
+ * * EINVAL: Invalid number of arguments for the specified command.
  * * EACCES: Command cannot be executed, according to ACL rules
  */
 int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **argv, int argc) {
@@ -9711,6 +9712,11 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     /* Find command */
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
         errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    if (!commandCheckArity(cmd, argc, NULL)) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
     }
 
