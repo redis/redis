@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'ubuntu') && !contains(github.event.inputs.skipjobs, 'arm')
+      !contains(github.event.inputs.skipjobs, 'arm')
     timeout-minutes: 360
     steps:
       - name: prep
@@ -111,7 +111,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'ubuntu') && !contains(github.event.inputs.skipjobs, 'arm') && !contains(github.event.inputs.skipjobs, 'malloc')
+      (!contains(github.event.inputs.skipjobs, 'arm') || !contains(github.event.inputs.skipjobs, 'malloc'))
     timeout-minutes: 360
     steps:
       - name: prep
@@ -147,7 +147,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'ubuntu') && !contains(github.event.inputs.skipjobs, 'arm') && !contains(github.event.inputs.skipjobs, 'tls')
+      (!contains(github.event.inputs.skipjobs, 'arm') || !contains(github.event.inputs.skipjobs, 'tls'))
     timeout-minutes: 360
     steps:
       - name: prep
