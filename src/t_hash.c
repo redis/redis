@@ -2639,6 +2639,99 @@ void hgetCommand(client *c) {
     addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE);
 }
 
+/* HMGET fast path for OBJ_ENCODING_LISTPACK.
+ *
+ * Instead of calling lpFind() per requested field (each a full O(L)
+ * traversal), walk the listpack once and match each entry against
+ * the requested fields.
+ *
+ * Not applicable to LISTPACK_EX: that encoding requires per-field
+ * lazy expiry handling which may mutate the listpack. */
+static void hmgetListpackSinglePass(client *c, robj *o) {
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
+
+    int num_fields = c->argc - 2;
+    unsigned char *lp = o->ptr;
+
+    /* Result array: stores a pointer to the value entry in the listpack
+     * for each requested field.  NULL means not found.
+     * Using zcalloc so all entries start as NULL. */
+    unsigned char **results = zcalloc(sizeof(unsigned char *) * num_fields);
+
+    /* Track how many unique fields remain to be found.  Once all are
+     * found, we can stop traversing the listpack early. */
+    int remaining = num_fields;
+
+    /* --- Single pass over the listpack --- */
+
+    unsigned char *fptr = lpFirst(lp);
+
+    while (fptr != NULL && remaining > 0) {
+        /* Decode the field entry */
+        int64_t flen;
+        unsigned char *fstr = lpGet(fptr, &flen, NULL);
+
+        /* Advance to the value entry (fptr points to field, vptr to value) */
+        unsigned char *vptr = lpNext(lp, fptr);
+        serverAssert(vptr != NULL);
+
+        /* Compare this LP field against each unfound requested field */
+        for (int i = 0; i < num_fields; i++) {
+            if (results[i] != NULL)
+                continue;   /* already found this argv slot */
+
+            sds reqField = c->argv[i + 2]->ptr;
+            size_t reqLen = sdslen(reqField);
+
+            int match;
+            if (fstr != NULL) {
+                /* LP field is a string: compare raw bytes */
+                match = (reqLen == (size_t)flen &&
+                         memcmp(reqField, fstr, flen) == 0);
+            } else {
+                /* LP field is integer-encoded (unusual for field names).
+                 * Parse the argv string as integer and compare. */
+                long long reqll;
+                match = (string2ll(reqField, reqLen, &reqll) &&
+                         reqll == (long long)flen);
+            }
+
+            if (match) {
+                results[i] = vptr;
+                remaining--;
+                /* Don't break: duplicate field names in argv should
+                 * all get a result.  But each LP field is unique, so
+                 * no further LP entries will match — only other argv
+                 * slots with the same field name. */
+            }
+        }
+
+        /* Advance to the next field entry (skip past this value) */
+        fptr = lpNext(lp, vptr);
+    }
+
+    /* --- Emit replies in request order --- */
+
+    addReplyArrayLen(c, num_fields);
+
+    for (int i = 0; i < num_fields; i++) {
+        if (results[i] != NULL) {
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vll;
+            vstr = lpGetValue(results[i], &vlen, &vll);
+            if (vstr)
+                addReplyBulkCBuffer(c, vstr, vlen);
+            else
+                addReplyBulkLongLong(c, vll);
+        } else {
+            addReplyNull(c);
+        }
+    }
+
+    zfree(results);
+}
+
 void hmgetCommand(client *c) {
     GetFieldRes res = GETF_OK;
     int i;
@@ -2648,6 +2741,14 @@ void hmgetCommand(client *c) {
      * hashes, where HMGET should respond with a series of null bulks. */
     kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c,o,OBJ_HASH)) return;
+
+    /* Fast path: single-pass listpack scan for plain LISTPACK encoding.
+     * Not applicable to LISTPACK_EX (requires per-field lazy expiry)
+     * or HT (already O(1) per lookup). */
+    if (o != NULL && o->encoding == OBJ_ENCODING_LISTPACK) {
+        hmgetListpackSinglePass(c, o);
+        return;
+    }
 
     addReplyArrayLen(c, c->argc-2);
     for (i = 2; i < c->argc ; i++) {
