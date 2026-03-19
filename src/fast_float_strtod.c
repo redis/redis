@@ -38,6 +38,7 @@
 #include <float.h>
 
 #include "fast_float_strtod.h"
+#include "zmalloc.h"
 
 /* Powers of 10 from 10^0 to 10^22 (exact in double precision).
  * These are the only powers of 10 that can be exactly represented as doubles. */
@@ -311,7 +312,7 @@ double fast_float_strtod_n(const char *nptr, size_t len, char **endptr) {
     
     /* Fall back to strtod for complex cases. Since the input may not be
      * null-terminated, we must copy it into a temporary buffer. */
-    char buf[128];
+    char buf[4096];
     if (len > sizeof(buf) - 1)
         len = sizeof(buf) - 1;
     memcpy(buf,nptr,len);
@@ -322,11 +323,11 @@ double fast_float_strtod_n(const char *nptr, size_t len, char **endptr) {
      * - Too many digits (need precise rounding)
      * This ensures we get correctly-rounded results for edge cases. */
     char *fallback_end;
-    result = strtod(nptr, &fallback_end);
-    if (endptr) *endptr = fallback_end;
+    result = strtod(buf, &fallback_end);
+    if (endptr) *endptr = (char *)nptr + (fallback_end - buf);
 
     /* If strtod failed to parse, set errno */
-    if (fallback_end == nptr) {
+    if (fallback_end == buf) {
         errno = EINVAL;
     }
 
