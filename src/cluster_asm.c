@@ -75,7 +75,6 @@ typedef struct asmTask {
     int dest_state;                         /* Destination node's main state (approximate) */
     char source[CLUSTER_NAMELEN];           /* Source node name */
     char dest[CLUSTER_NAMELEN];             /* Destination node name */
-    clusterNode *source_node;               /* Source node */
     connection *main_channel_conn;          /* Main channel connection */
     connection *rdb_channel_conn;           /* RDB channel connection */
     int rdb_channel_state;                  /* State of the RDB channel */
@@ -392,7 +391,6 @@ asmTask *asmTaskCreate(const char *task_id) {
     task->error = sdsempty();
     asmTaskReset(task);
     task->slots = NULL;
-    task->source_node = NULL;
     task->retry_count = 0;
     task->create_time = server.mstime;
     task->start_time = -1;
@@ -882,7 +880,6 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
     task->slots = slots;
     task->state = ASM_NONE;
     task->operation = ASM_IMPORT;
-    task->source_node = source;
     memcpy(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN);
     memcpy(task->dest, getMyClusterId(), CLUSTER_NAMELEN);
 
@@ -1236,7 +1233,6 @@ void asmTaskFinalize(asmTask *task) {
     listNode *ln = listFirst(asmManager->tasks);
     serverAssert(ln->value == task);
 
-    task->source_node = NULL; /* Should never access it */
     task->end_time = server.mstime;
 
     if (task->operation == ASM_IMPORT) {
@@ -1616,9 +1612,14 @@ void asmSyncWithSource(connection *conn) {
 
     if (task->state == ASM_INIT_RDBCHANNEL) {
         /* Create RDB channel connection */
-        char *ip = clusterNodeIp(task->source_node);
-        int port = server.tls_replication ? clusterNodeTlsPort(task->source_node) :
-                                            clusterNodeTcpPort(task->source_node);
+        clusterNode *source_node = clusterLookupNode(task->source, CLUSTER_NAMELEN);
+        if (!source_node) {
+            task_error_msg = sdscatfmt(sdsempty(), "Source node %.40s was not found", task->source);
+            goto error;
+        }
+        char *ip = clusterNodeIp(source_node);
+        int port = server.tls_replication ? clusterNodeTlsPort(source_node) :
+                                            clusterNodeTcpPort(source_node);
         task->rdb_channel_conn = connCreate(server.el, connTypeOfReplication());
         if (connConnect(task->rdb_channel_conn, ip, port,
                         server.bind_source_addr, asmRdbChannelSyncWithSource) == C_ERR)
@@ -1849,8 +1850,7 @@ static void asmStartImportTask(asmTask *task) {
         return;
     }
     /* Change the source node if needed. */
-    if (source != task->source_node) {
-        task->source_node = source;
+    if (memcmp(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN)) {
         memcpy(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN);
         serverLog(LL_NOTICE, "Import task %s source node changed: slots=%s, "
                              "new_source=%.40s", task->id, slots_str, clusterNodeGetName(source));
@@ -1862,9 +1862,9 @@ static void asmStartImportTask(asmTask *task) {
     asmNotifyStateChange(task, ASM_EVENT_IMPORT_STARTED);
 
     task->main_channel_conn = connCreate(server.el, connTypeOfReplication());
-    char *ip = clusterNodeIp(task->source_node);
-    int port = server.tls_replication ? clusterNodeTlsPort(task->source_node) :
-                                        clusterNodeTcpPort(task->source_node);
+    char *ip = clusterNodeIp(source);
+    int port = server.tls_replication ? clusterNodeTlsPort(source) :
+                                        clusterNodeTcpPort(source);
     if (connConnect(task->main_channel_conn, ip, port, server.bind_source_addr,
                     asmSyncWithSource) == C_ERR)
     {
@@ -2788,8 +2788,7 @@ int clusterAsmCancelByNode(void *node, const char *reason) {
         asmTask *task = listNodeValue(ln);
         /* Cancel the task if the source node is the one to be deleted, or
          * the dest node is the one to be deleted. */
-        if (task->source_node == n ||
-            !memcmp(task->dest, clusterNodeGetName(n), CLUSTER_NAMELEN) ||
+        if (!memcmp(task->dest, clusterNodeGetName(n), CLUSTER_NAMELEN) ||
             !memcmp(task->source, clusterNodeGetName(n), CLUSTER_NAMELEN))
         {
             asmTaskCancel(task, reason);
@@ -3034,6 +3033,7 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
+    dict *stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
 
     size_t total_keys = 0;
 
@@ -3044,10 +3044,11 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
+            streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slot);
         }
     }
 
-    emptyDbDataAsync(keys, expires, subexpires, trim_ctx);
+    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);

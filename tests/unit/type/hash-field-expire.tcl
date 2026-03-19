@@ -1324,6 +1324,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r httl myhash FIELDS 1 f3] 9000 10000
         }
 
+        test "HSETEX - Test multiple 'FIELDS' arguments raise error ($type)" {
+            r del myhash
+            assert_error {*FIELDS keyword specified multiple times*} {r hsetex myhash FIELDS 1 f1 v1 FIELDS 1 f2 v2}
+            assert_error {*FIELDS keyword specified multiple times*} {r hsetex myhash FIELDS 1 f1 v1 EX 100 FIELDS 1 f2 v2}
+        }
+
         test "HSETEX - Test no expiry flag discards TTL ($type)" {
             r del myhash
 
