@@ -2181,6 +2181,9 @@ void sflushCommand(client *c) {
         return;
     }
     slotRangeArrayFree(slots);
+    
+    /* takes ownership of myslots */
+    asmTrimCtx *trim_ctx = asmTrimCtxCreate(myslots, server.db[0].keys);
 
     /* If the selected slots are exactly the same as the local slots, we can
      * simply flush the entire DB by flushCommandCommon. */
@@ -2189,10 +2192,10 @@ void sflushCommand(client *c) {
     slotRangeArrayFree(local_slots);
     if (all_slots_covered) {
         /* If not flush as blocking async, then reply immediately */
-        if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0) {
-            replySlotsFlush(c, myslots);
-            slotRangeArrayFree(myslots);
+        if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, trim_ctx) == 0) {
+            replySlotsFlush(c, trim_ctx->slots);
         }
+        asmTrimCtxRelease(trim_ctx);
         return;
     }
 
@@ -2205,8 +2208,6 @@ void sflushCommand(client *c) {
         flags |= EMPTYDB_ASYNC; /* Run as ASYNC */
         blocking_async = 1;
     }
-    
-    asmTrimCtx *trim_ctx = asmTrimCtxCreate(myslots, server.db[0].keys);
 
     /* Trim the slots if running in async mode and not loading from AOF,
      * otherwise delete the keys synchronously. */

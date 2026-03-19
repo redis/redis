@@ -1298,11 +1298,10 @@ void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * slots - provided only by SFLUSH command, otherwise NULL. Will be used on
- *         completion to reply with the slots flush result. Ownership is passed
- *         to the completion job in case of `blocking_async`.
+ * trim_ctx - provided only by SFLUSH command, otherwise NULL. Contains slots to
+ *            be used on completion to reply with the slots flush result. 
  */
-int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *slots) {
+int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1313,7 +1312,7 @@ int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *sl
     }
 
     /* Cancel all ASM tasks that overlap with the given slot ranges. */
-    clusterAsmCancelBySlotRangeArray(slots, c->argv[0]->ptr);
+    clusterAsmCancelBySlotRangeArray(trim_ctx ? trim_ctx->slots : NULL, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -1329,7 +1328,9 @@ int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *sl
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
         blockClientForAsyncFlush(c);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, slots);
+        /* Retain trim_ctx if provided so kvsAsyncFreeDoneCB can release it later */
+        if (trim_ctx) asmTrimCtxRetain(trim_ctx);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, trim_ctx);
     }
 
 #if defined(USE_JEMALLOC)

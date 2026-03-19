@@ -3972,7 +3972,7 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
 void replySlotsFlush(client *c, struct slotRangeArray *slots);
-int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *ranges);
+int flushCommandCommon(client *c, int type, int flags, struct asmTrimCtx *trim_ctx);
 void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata);
 void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots);
 void blockClientForAsyncFlush(client *c);
