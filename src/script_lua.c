@@ -1132,6 +1132,9 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
         luaPushError(lua, "Invalid command passed to redis.acl_check_cmd()");
         raise_error = 1;
+    } else if (!commandCheckArity(cmd, argc, NULL)) {
+        luaPushError(lua, "Wrong number of args for redis.acl_check_cmd()");
+        raise_error = 1;
     } else {
         int keyidxptr;
         if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, NULL, &keyidxptr) != ACL_OK) {

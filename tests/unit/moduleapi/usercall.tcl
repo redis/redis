@@ -11,6 +11,19 @@ return 1"
 start_server {tags {"modules usercall external:skip"}} {
     r module load $testmodule
 
+    # Test RedisModule_GetContextUser API: set context user, get it back, return its ACL string
+    test {test GetContextUser API - set context user and get ACL via GetContextUser} {
+        assert_equal [r usercall.reset_user] OK
+        assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
+        assert_equal [r usercall.get_context_acl] "off sanitize-payload ~* &* +@all -set"
+    }
+
+    # Test RedisModule_GetUserUsername API: get username of the module user
+    test {test GetUserUsername API - returns module user name} {
+        assert_equal [r usercall.reset_user] OK
+        assert_equal [r usercall.get_user_username] module_user
+    }
+
     # baseline test that module isn't doing anything weird
     test {test module check regular redis command without user/acl} {
         assert_equal [r usercall.reset_user] OK

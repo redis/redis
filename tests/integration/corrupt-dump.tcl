@@ -377,6 +377,30 @@ test {corrupt payload: hash empty zipmap} {
     }
 }
 
+test {corrupt payload: hash zipmap with duplicate keys} {
+    # Craft a structurally valid zipmap with duplicate key "a" to trigger the
+    # dictAdd failure path in rdbLoadObject (RDB_TYPE_HASH_ZIPMAP).
+    # This exercises the error-handling branch that must free the listpack
+    # allocated for the zipmap-to-listpack conversion.
+    #
+    # Zipmap layout (12 bytes):
+    #   \x02           zmlen=2
+    #   \x01 a         key "a" (len 1)
+    #   \x01 \x00 b    value "b" (len 1, free 0)
+    #   \x01 a         key "a" again (duplicate!)
+    #   \x01 \x00 d    value "d" (len 1, free 0)
+    #   \xFF           end
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {
+            r RESTORE _hash 0 "\x09\x0C\x02\x01\x61\x01\x00\x62\x01\x61\x01\x00\x64\xFF\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Hash zipmap with dup elements*" 0
+    }
+}
+
 test {corrupt payload: fuzzer findings - NPD in streamIteratorGetID} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no

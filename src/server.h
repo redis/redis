@@ -1798,7 +1798,7 @@ struct redisMemOverhead {
     float allocator_rss;
     ssize_t allocator_rss_bytes;
     float rss_extra;
-    size_t rss_extra_bytes;
+    ssize_t rss_extra_bytes;
     size_t num_dbs;
     size_t overhead_db_hashtable_lut;
     size_t overhead_db_hashtable_rehashing;
@@ -3972,7 +3972,7 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
 void replySlotsFlush(client *c, struct slotRangeArray *slots);
-int flushCommandCommon(client *c, int type, int flags);
+int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *ranges);
 void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata);
 void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots);
 void blockClientForAsyncFlush(client *c);
@@ -4450,6 +4450,7 @@ void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
 void digestCommand(client *c);
+void gcraCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

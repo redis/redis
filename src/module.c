@@ -6577,6 +6577,13 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
 
+/* Returns the user associated with the context via RM_SetContextUser.
+ * Returns NULL if no user was set on the context.
+ * The returned pointer is borrowed from the context — do NOT free it. */
+const RedisModuleUser *RM_GetContextUser(RedisModuleCtx *ctx) {
+    return ctx->user;
+}
+
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
  * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
  * items (which equals to the length of the allocated argv).
@@ -10314,6 +10321,17 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
     return REDISMODULE_OK;
 }
 
+/* Return the username of the given RedisModuleUser as a RedisModuleString.
+ * Returns NULL if user is NULL or the user has no name.
+ * The returned string must be freed by the caller with RedisModule_FreeString()
+ * or by enabling automatic memory management on a context. */
+ RedisModuleString *RM_GetUserUsername(const RedisModuleUser *user) {
+    if(user == NULL || user->user == NULL || user->user->name == NULL) 
+        return NULL;
+    
+    return RM_CreateString(NULL, user->user->name, sdslen(user->user->name));
+}
+
 /* Sets the permissions of a user created through the redis module
  * interface. The syntax is the same as ACL SETUSER, so refer to the
  * documentation in acl.c for more information. See RM_CreateModuleUser
@@ -10411,6 +10429,7 @@ RedisModuleUser *RM_GetModuleUserFromUserName(RedisModuleString *name) {
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * ENOENT: Specified command does not exist.
+ * * EINVAL: Invalid number of arguments for the specified command.
  * * EACCES: Command cannot be executed, according to ACL rules
  */
 int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **argv, int argc) {
@@ -10420,6 +10439,11 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     /* Find command */
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
         errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    if (!commandCheckArity(cmd, argc, NULL)) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
     }
 
@@ -15491,6 +15515,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetContextUser);
+    REGISTER_API(GetContextUser);
+    REGISTER_API(GetUserUsername);
     REGISTER_API(SetModuleUserACL);
     REGISTER_API(SetModuleUserACLString);
     REGISTER_API(GetModuleUserACLString);

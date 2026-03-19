@@ -1293,12 +1293,16 @@ void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots
     server.current_client = old_client;
 }
 
-/* Common flush command implementation for FLUSHALL, FLUSHDB.
+/* Common flush command implementation for FLUSHALL, FLUSHDB and SFLUSH.
  *
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
+ *
+ * slots - provided only by SFLUSH command, otherwise NULL. Will be used on
+ *         completion to reply with the slots flush result. Ownership is passed
+ *         to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags) {
+int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *slots) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1308,8 +1312,8 @@ int flushCommandCommon(client *c, int type, int flags) {
         blocking_async = 1;
     }
 
-    /* Cancel all ASM tasks. */
-    clusterAsmCancelBySlotRangeArray(NULL, c->argv[0]->ptr);
+    /* Cancel all ASM tasks that overlap with the given slot ranges. */
+    clusterAsmCancelBySlotRangeArray(slots, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -1325,7 +1329,7 @@ int flushCommandCommon(client *c, int type, int flags) {
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
         blockClientForAsyncFlush(c);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, NULL);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, slots);
     }
 
 #if defined(USE_JEMALLOC)
@@ -1354,7 +1358,7 @@ void flushallCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
 
     /* If FLUSH SYNC isn't running as blocking async, then reply */
-    if (flushCommandCommon(c, FLUSH_TYPE_ALL, flags) == 0)
+    if (flushCommandCommon(c, FLUSH_TYPE_ALL, flags, NULL) == 0)
         addReply(c, shared.ok);
 }
 
@@ -1366,7 +1370,7 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
 
     /* If FLUSH SYNC isn't running as blocking async, then reply */
-    if (flushCommandCommon(c, FLUSH_TYPE_DB,flags) == 0)
+    if (flushCommandCommon(c, FLUSH_TYPE_DB, flags, NULL) == 0)
         addReply(c, shared.ok);
 
 }
@@ -3155,10 +3159,11 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         } else if (spec->find_keys_type == KSPEC_FK_KEYNUM) {
             step = spec->fk.keynum.keystep;
             long long numkeys;
-            if (spec->fk.keynum.keynumidx >= argc)
+            long keynumidx = first + spec->fk.keynum.keynumidx;
+            if (keynumidx >= argc || keynumidx < 0)
                 goto invalid_spec;
 
-            sds keynum_str = argv[first + spec->fk.keynum.keynumidx]->ptr;
+            sds keynum_str = argv[keynumidx]->ptr;
             if (!string2ll(keynum_str,sdslen(keynum_str),&numkeys) || numkeys < 0) {
                 /* Unable to parse the numkeys argument or it was invalid */
                 goto invalid_spec;
@@ -3468,6 +3473,10 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     int i, num;
     keyReference *keys;
 
+    if (keyCountOfs >= argc) {
+        result->numkeys = 0;
+        return 0;
+    }
     num = atoi(argv[keyCountOfs]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. (no input keys). */
