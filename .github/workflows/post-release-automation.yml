@@ -76,6 +76,17 @@ jobs:
 
           echo "✓ Tarball upload step (placeholder)"
 
+      - name: Test release tarball
+        id: test-release
+        run: |
+          echo "Testing release tarball for version ${RELEASE_TAG}..."
+          # TODO: Implement release testing using utils/releasetools/03_test_release.sh
+          # This will:
+          # - Download the uploaded tarball
+          # - Extract and build Redis
+
+          echo "✓ Release testing step (placeholder)"
+
       - name: Update release hashes
         id: update-hashes
         run: |
@@ -120,6 +131,7 @@ jobs:
           echo "### Steps Status" >> $GITHUB_STEP_SUMMARY
           echo "- Create tarball: ${{ steps.create-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Upload tarball: ${{ steps.upload-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Test release: ${{ steps.test-release.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Update hashes: ${{ steps.update-hashes.outcome }}" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ steps.release-info.outputs.release_type }}" == "latest" ]]; then
             echo "- Update stable symlink: ${{ steps.update-stable.outcome }}" >> $GITHUB_STEP_SUMMARY
