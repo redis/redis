@@ -5738,10 +5738,7 @@ void handleExpiredIdmpEntries(void) {
             robj *key = dictGetKey(de);
             kvobj *kv = dbFind(db, key->ptr);
 
-            if (!kv || kv->type != OBJ_STREAM) {
-                dictDelete(db->stream_idmp_keys, key);
-                continue;
-            }
+            serverAssert(kv && kv->type == OBJ_STREAM);
 
             stream *s = kv->ptr;
             uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
