@@ -3037,9 +3037,6 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
 
     size_t total_keys = 0;
 
-    /* Increment counter to track background trim in progress */
-    asmManager->bg_trim_running++;
-
     /* Move slot dictionaries from main DB to temp kvstores (O(1) per slot) */
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
@@ -3162,8 +3159,9 @@ int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
          * - Retain ctx for kvsAsyncFreeDoneCB() to release ctx later
          * - Trigger background trim. Also updates ctx delta histogram.
          * - Schedule completion cb to deduce delta histogram from DB */
-        asmTrimCtxRetain(ctx);
         asmTriggerBackgroundTrim(ctx, migration_cleanup);
+        asmBgTrimCounterIncr();
+        asmTrimCtxRetain(ctx);
         bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, client_id, ctx);
     }
 
@@ -3581,11 +3579,18 @@ int asmIsAnyTrimJobOverlaps(slotRangeArray *slots) {
     }
     return 0;
 }
+
 /* Decrement background trim counter. Called from completion callback. */
 void asmBgTrimCounterDecr(void) {
     if (!asmManager) return;
     debugServerAssert(asmManager->bg_trim_running > 0);
     asmManager->bg_trim_running--;
+}
+
+/* Increment background trim counter. */
+void asmBgTrimCounterIncr(void) {
+    if (!asmManager) return;
+    asmManager->bg_trim_running++;
 }
 
 /* Check if background trim is running (for skipping debug assertions). */

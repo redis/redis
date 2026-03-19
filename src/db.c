@@ -1329,7 +1329,10 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
     if (blocking_async) {
         blockClientForAsyncFlush(c);
         /* Retain trim_ctx if provided so kvsAsyncFreeDoneCB can release it later */
-        if (trim_ctx) asmTrimCtxRetain(trim_ctx);
+        if (trim_ctx) {
+            asmBgTrimCounterIncr();
+            asmTrimCtxRetain(trim_ctx);
+        }
         bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, trim_ctx);
     }
 

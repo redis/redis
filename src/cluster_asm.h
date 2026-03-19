@@ -60,6 +60,7 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
 int asmTrimSlots(struct asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup);
 int asmIsBgTrimRunning(void);
 void asmBgTrimCounterDecr(void);
+void asmBgTrimCounterIncr(void);
 
 /* Context for ASM background trim */
 struct asmTrimCtx *asmTrimCtxCreate(struct slotRangeArray *slots, kvstore *target_kvstore);
