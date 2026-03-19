@@ -40,6 +40,14 @@
 #include "fast_float_strtod.h"
 #include "zmalloc.h"
 
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
+#endif
+
 /* Powers of 10 from 10^0 to 10^22 (exact in double precision).
  * These are the only powers of 10 that can be exactly represented as doubles. */
 static const double powers_of_ten[] = {
@@ -128,6 +136,29 @@ static inline int parse_infnan(const char *p, const char *pend, double *result, 
     return 0;
 }
 
+/* SWAR (SIMD Within A Register) helpers for batch digit parsing. */
+
+static inline uint64_t read8_to_u64(const char *p) {
+    uint64_t val;
+    memcpy(&val, p, sizeof(uint64_t));
+    return val;
+}
+
+static inline int is_made_of_eight_digits(uint64_t val) {
+    return !((((val + 0x4646464646464646ULL) | (val - 0x3030303030303030ULL)) &
+              0x8080808080808080ULL));
+}
+
+static inline uint32_t parse_eight_digits_swar(uint64_t val) {
+    uint64_t const mask = 0x000000FF000000FFULL;
+    uint64_t const mul1 = 0x000F424000000064ULL; /* 100 + (1000000ULL << 32) */
+    uint64_t const mul2 = 0x0000271000000001ULL; /* 1 + (10000ULL << 32) */
+    val -= 0x3030303030303030ULL;
+    val = (val * 10) + (val >> 8);
+    val = (((val & mask) * mul1) + (((val >> 16) & mask) * mul2)) >> 32;
+    return (uint32_t)val;
+}
+
 /* Parsed number structure */
 typedef struct {
     uint64_t mantissa;      /* Mantissa digits as uint64 */
@@ -176,6 +207,10 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
     if (has_decimal) {
         p++;
         const char *before = p;
+        while ((pend - p >= 8) && is_made_of_eight_digits(read8_to_u64(p))) {
+            mantissa = mantissa * 100000000 + parse_eight_digits_swar(read8_to_u64(p));
+            p += 8;
+        }
         while (p != pend && *p >= '0' && *p <= '9') {
             mantissa = mantissa * 10 + (*p - '0');
             p++;
@@ -307,7 +342,7 @@ double fast_float_strtod_n(const char *nptr, size_t len, char **endptr) {
     double result = 0.0;
 
     /* Use fast path for non-null-terminated strings */
-    if (fast_float_try_fast(nptr, nptr + len, &result, endptr))
+    if (likely(fast_float_try_fast(nptr, nptr + len, &result, endptr)))
         return result;
     
     /* Fall back to strtod for complex cases. Since the input may not be
