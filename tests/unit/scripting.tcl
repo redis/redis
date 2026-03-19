@@ -2694,3 +2694,15 @@ start_server {tags {"scripting"}} {
         }
     }
 }
+
+start_server {tags {"scripting"}} {
+    test "Wrong arity EVAL in acl_check_cmd returns error not crash" {
+        r acl setuser bob on {>123} {+@scripting} {+set} {~x*}
+        assert_equal [r auth bob 123] {OK}
+        # Must be the first Lua call in this server instance
+        catch {run_script {
+            return redis.acl_check_cmd('eval','script')
+        } 0} e
+        assert_match {*Wrong number of args*} $e
+    }
+}
