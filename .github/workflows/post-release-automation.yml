@@ -120,7 +120,6 @@ jobs:
           echo "### Steps Status" >> $GITHUB_STEP_SUMMARY
           echo "- Create tarball: ${{ steps.create-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Upload tarball: ${{ steps.upload-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Test release: ${{ steps.test-release.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Update hashes: ${{ steps.update-hashes.outcome }}" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ steps.release-info.outputs.release_type }}" == "latest" ]]; then
             echo "- Update stable symlink: ${{ steps.update-stable.outcome }}" >> $GITHUB_STEP_SUMMARY
