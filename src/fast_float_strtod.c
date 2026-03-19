@@ -56,6 +56,12 @@ static const double powers_of_ten[] = {
 /* Maximum number of significant digits we track before overflow */
 #define MAX_DIGITS 19
 
+/* Case-insensitive match against known lowercase literals using `| 0x20`.
+ * Only valid when the target characters are ASCII letters (a-z). */
+static inline int strcasecmp_3(const char *s, char c0, char c1, char c2) {
+    return ((s[0] | 0x20) == c0) & ((s[1] | 0x20) == c1) & ((s[2] | 0x20) == c2);
+}
+
 /* Case-insensitive comparison for first n characters */
 static int strncasecmp_local(const char *s1, const char *s2, size_t n) {
     for (size_t i = 0; i < n; i++) {
@@ -78,7 +84,7 @@ static inline int parse_infnan(const char *p, const char *pend, double *result, 
     size_t remaining = pend - p;
 
     if (remaining >= 3) {
-        if (strncasecmp_local(p, "nan", 3) == 0) {
+        if (strcasecmp_3(p, 'n', 'a', 'n')) {
             *result = negative ? -NAN : NAN;
             p += 3;
             /* Check for optional nan(n-char-seq) */
@@ -107,7 +113,7 @@ static inline int parse_infnan(const char *p, const char *pend, double *result, 
             if (endptr) *endptr = (char *)p;
             return 1;
         }
-        if (strncasecmp_local(p, "inf", 3) == 0) {
+        if (strcasecmp_3(p, 'i', 'n', 'f')) {
             *result = negative ? -INFINITY : INFINITY;
             p += 3;
             /* Check for optional "inity" suffix */
