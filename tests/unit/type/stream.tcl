@@ -934,7 +934,7 @@ start_server {
         # since XCFGSET clears existing entries when the duration changes.
         r XADD mystream IDMP p1 "init" * field "init"
         r XCFGSET mystream IDMP-DURATION 2
-        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        r XADD mystream IDMP p1 "req-1" * field "v1"
         r XADD mystream IDMP p2 "req-1" * field "v2"
 
         set reply [r XINFO STREAM mystream]

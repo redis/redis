@@ -2207,10 +2207,6 @@ void renameGenericCommand(client *c, int nx) {
     if (srctype == OBJ_HASH)
         minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
 
-    /* Check if stream has IDMP tracking so we can re-register under
-     * the new name after the rename. */
-    int hadIdmpTracking = (srctype == OBJ_STREAM && ((stream *)o->ptr)->idmp_producers != NULL);
-
     /* Prepare metadata for the renamed key */
     KeyMetaSpec keymeta;
     keyMetaSpecInit(&keymeta);
@@ -2225,7 +2221,7 @@ void renameGenericCommand(client *c, int nx) {
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
     /* Re-register stream IDMP tracking under the new key name. */
-    if (hadIdmpTracking) {
+    if (srctype == OBJ_STREAM && ((stream *)o->ptr)->idmp_producers != NULL) {
         if (dictAdd(c->db->stream_idmp_keys, c->argv[2], NULL) == DICT_OK)
             incrRefCount(c->argv[2]);
     }
@@ -2309,10 +2305,6 @@ void moveCommand(client *c) {
     if (kv->type == OBJ_HASH)
         hashExpireTime = estoreRemove(src->subexpires, slot, kv);
 
-    /* Check if stream has IDMP tracking so we can re-register in the
-     * destination DB. */
-    int hadIdmpTracking = (kv->type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL);
-
     /* Move a side metadata before dbDelete() */
     KeyMetaSpec keymeta;
     keyMetaSpecInit(&keymeta);
@@ -2329,7 +2321,7 @@ void moveCommand(client *c) {
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
     /* Register stream IDMP tracking in the destination DB. */
-    if (hadIdmpTracking) {
+    if (kv->type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL) {
         if (dictAdd(dst->stream_idmp_keys, c->argv[1], NULL) == DICT_OK)
             incrRefCount(c->argv[1]);
     }
