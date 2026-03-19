@@ -3160,9 +3160,9 @@ int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
          * - Retain ctx for kvsAsyncFreeDoneCB() to release ctx later
          * - Trigger background trim. Also updates ctx delta histogram.
          * - Schedule completion cb to deduce delta histogram from DB */
-        asmTriggerBackgroundTrim(ctx, migration_cleanup);
         asmBgTrimCounterIncr();
         asmTrimCtxRetain(ctx);
+        asmTriggerBackgroundTrim(ctx, migration_cleanup);
         bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, client_id, ctx);
     }
 
