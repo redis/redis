@@ -2205,6 +2205,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
+            /* Ensure only one FIELDS argument is provided */
+            if (*first_field_pos != -1) {
+                addReplyError(c, "FIELDS keyword specified multiple times");
+                return C_ERR;
+            }
+
             int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
             long val;
             /* Ensure we have at least the numfields argument */
@@ -2306,6 +2312,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
         }
+    }
+
+    /* Ensure FIELDS is specified */
+    if (*first_field_pos == -1) {
+        addReplyError(c, "missing FIELDS argument");
+        return C_ERR;
     }
 
     /* Validate command-specific argument compatibility */
@@ -3607,6 +3619,12 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
         }
 
         addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+        return C_ERR;
+    }
+
+    /* Ensure FIELDS is specified */
+    if (args->fieldsPos == -1) {
+        addReplyError(c, "missing FIELDS argument");
         return C_ERR;
     }
 
