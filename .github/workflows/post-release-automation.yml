@@ -87,6 +87,7 @@ jobs:
         with:
           name: redis-${{ env.VERSION_TAG }}-tarball
           path: /tmp/redis-${{ env.VERSION_TAG }}.tar.gz
+          compression-level: 0
 
       - name: Upload tarball
         id: upload-tarball
