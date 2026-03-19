@@ -2641,9 +2641,14 @@ void hgetCommand(client *c) {
 
 /* HMGET fast path for OBJ_ENCODING_LISTPACK.
  *
- * Instead of calling lpFind() per requested field (each a full O(L)
- * traversal), walk the listpack once and match each entry against
- * the requested fields.
+ * Instead of calling lpFind() per requested field — each a full O(L)
+ * traversal involving varint decoding, bounds checking (lpAssertValidEntry),
+ * and skip logic per entry — walk the listpack once and match each entry
+ * against the requested fields using simple memcmp comparisons.
+ *
+ * This reduces the expensive listpack traversal overhead (varint decode,
+ * bounds validation, EOF checks) from O(N * L) to O(L), replacing it
+ * with O(N) cheap memcmp calls per listpack entry.
  *
  * Not applicable to LISTPACK_EX: that encoding requires per-field
  * lazy expiry handling which may mutate the listpack. */
