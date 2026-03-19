@@ -283,6 +283,9 @@ void restoreCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
+        /* If the expiration time is already elapsed, we skip adding
+         * it to the DB, but we still increment the stats. */
+        server.stat_expiredkeys++;
         keyMetaSpecCleanup(&keymeta);
         decrRefCount(obj);
         addReply(c, shared.ok);
