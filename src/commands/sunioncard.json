@@ -6,7 +6,7 @@
         "since": "8.8.0",
         "arity": -3,
         "function": "sunioncardCommand",
-        "get_keys_function": "sintercardGetKeys",
+        "get_keys_function": "sunioncardGetKeys",
         "command_flags": [
             "READONLY"
         ],
