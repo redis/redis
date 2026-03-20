@@ -8,8 +8,8 @@
 
 typedef struct flax {
     void *data;
-    int64_t numele;
-    int64_t capacity;
+    uint32_t numele;
+    uint32_t capacity;
 } flax;
 
 typedef struct flaxIterator {

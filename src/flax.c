@@ -10,7 +10,7 @@
 #include FLAX_MALLOC_INCLUDE
 #endif
 
-static size_t flax_values_offset(int64_t capacity) {
+static size_t flax_values_offset(uint32_t capacity) {
     size_t raw = (size_t)capacity * sizeof(int64_t);
     size_t align = alignof(void *);
     return (raw + align - 1) & ~(align - 1);
@@ -28,7 +28,7 @@ static void **flax_values(flax *f) {
  * Returns 1 if key found (out_idx = its index), 0 if not (out_idx = insertion point).
  * Sequential access through the contiguous keys array is cache-friendly and
  * avoids branch-misprediction overhead of binary search at typical flax sizes. */
-static int flax_search(const int64_t *keys, int64_t numele, int64_t key, int64_t *out_idx) {
+static int flax_search(const int64_t *keys, uint32_t numele, int64_t key, int64_t *out_idx) {
     if (numele == 0) {
         *out_idx = 0;
         return 0;
@@ -51,7 +51,7 @@ static int flax_search(const int64_t *keys, int64_t numele, int64_t key, int64_t
     }
 
     /* Linear scan through the middle. */
-    for (int64_t i = 1; i < numele - 1; i++) {
+    for (uint32_t i = 1; i < numele - 1; i++) {
         if (keys[i] < key) continue;
         *out_idx = i;
         return keys[i] == key;
@@ -61,7 +61,7 @@ static int flax_search(const int64_t *keys, int64_t numele, int64_t key, int64_t
     return 0;
 }
 
-static void flax_resize(flax *f, int64_t new_capacity) {
+static void flax_resize(flax *f, uint32_t new_capacity) {
     size_t new_voff = flax_values_offset(new_capacity);
     size_t new_alloc = new_voff + (size_t)new_capacity * sizeof(void *);
     void *new_data = flax_malloc(new_alloc);
@@ -194,7 +194,7 @@ void flaxFreeWithCallback(flax *f, void (*free_callback)(void *)) {
     if (!f) return;
     if (free_callback && f->data && f->numele > 0) {
         void **vals = flax_values(f);
-        for (int64_t i = 0; i < f->numele; i++)
+        for (uint32_t i = 0; i < f->numele; i++)
             free_callback(vals[i]);
     }
     flax_free(f->data);
@@ -207,7 +207,7 @@ void flaxFreeWithCbAndContext(flax *f,
     if (!f) return;
     if (free_callback && f->data && f->numele > 0) {
         void **vals = flax_values(f);
-        for (int64_t i = 0; i < f->numele; i++)
+        for (uint32_t i = 0; i < f->numele; i++)
             free_callback(vals[i], ctx);
     }
     flax_free(f->data);
