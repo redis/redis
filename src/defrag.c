@@ -19,6 +19,7 @@
  */
 
 #include "server.h"
+#include "stream.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -860,35 +861,53 @@ typedef struct {
     streamConsumer *c;
 } PendingEntryContext;
 
-void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
+/* Defrag a flax bucket in the consumer PEL. Each flax value is a NACK shared
+ * with the group PEL, so we update pointers in both places. */
+void* defragStreamConsumerPelFlax(raxIterator *ri, void *privdata) {
     PendingEntryContext *ctx = privdata;
-    streamNACK *nack = ri->data, *newnack;
-    nack->consumer = ctx->c; /* update nack pointer to consumer */
-    nack->cgroup_ref_node->value = ctx->cg; /* Update the value of cgroups_ref node to the consumer group. */
-    newnack = activeDefragAlloc(nack);
-    if (newnack) {
-        /* Update consumer group pointer to the nack. */
-        void *prev;
-        raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
-        serverAssert(prev==nack);
-        
-        /* Update the doubly-linked list pointers in adjacent nacks.
-         * When we move a nack to a new address, we need to update the
-         * pel_prev->pel_next and pel_next->pel_prev pointers. */
-        if (newnack->pel_prev) {
-            newnack->pel_prev->pel_next = newnack;
-        } else {
-            /* This is the head of the list */
-            ctx->cg->pel_time_head = newnack;
-        }
-        if (newnack->pel_next) {
-            newnack->pel_next->pel_prev = newnack;
-        } else {
-            /* This is the tail of the list */
-            ctx->cg->pel_time_tail = newnack;
-        }
+    flax *f = ri->data;
+    flax *newf = activeDefragAlloc(f);
+    if (newf) f = newf;
+
+    /* Iterate entries in the flax and defrag each NACK. */
+    flaxIterator fi;
+    flaxStart(&fi, f);
+    if (flaxSeek(&fi, "^", 0)) {
+        do {
+            streamNACK *nack = fi.data;
+            nack->consumer = ctx->c;
+            nack->cgroup_ref_node->value = ctx->cg;
+            streamNACK *newnack = activeDefragAlloc(nack);
+            if (newnack) {
+                /* Update in the consumer PEL flax. */
+                flaxInsert(f, fi.key, newnack, NULL);
+
+                /* Update in the group PEL flax. */
+                unsigned char msbuf[8];
+                uint64_t ms_be = htonu64(newnack->id.ms);
+                memcpy(msbuf, &ms_be, 8);
+                void *grp_flax_ptr = NULL;
+                raxFind(ctx->cg->pel, msbuf, 8, &grp_flax_ptr);
+                if (grp_flax_ptr) {
+                    flaxInsert((flax *)grp_flax_ptr, (int64_t)newnack->id.seq, newnack, NULL);
+                }
+
+                /* Update doubly-linked list pointers. */
+                if (newnack->pel_prev) {
+                    newnack->pel_prev->pel_next = newnack;
+                } else {
+                    ctx->cg->pel_time_head = newnack;
+                }
+                if (newnack->pel_next) {
+                    newnack->pel_next->pel_prev = newnack;
+                } else {
+                    ctx->cg->pel_time_tail = newnack;
+                }
+            }
+        } while (flaxNext(&fi));
     }
-    return newnack;
+
+    return newf;
 }
 
 typedef struct {
@@ -909,12 +928,21 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
     if (newsds)
         c->name = newsds;
     if (c->pel) {
-        /* Update pel back-pointer to new stream */
         c->pel->alloc_size = &s->alloc_size;
         PendingEntryContext pel_ctx = {cg, c};
-        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, &pel_ctx);
+        defragRadixTree(&c->pel, 0, defragStreamConsumerPelFlax, &pel_ctx);
+        pelCacheInvalidate(c->pel);
     }
-    return newc; /* returns NULL if c was not defragged */
+    return newc;
+}
+
+/* Defrag a flax bucket in the group PEL. Only defrags the flax struct itself,
+ * not the NACKs (those are defragged via consumer PEL traversal). */
+void* defragStreamGroupPelFlax(raxIterator *ri, void *privdata) {
+    (void)privdata;
+    flax *f = ri->data;
+    flax *newf = activeDefragAlloc(f);
+    return newf;
 }
 
 void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
@@ -923,13 +951,11 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     if ((newcg = activeDefragAlloc(cg)))
         cg = newcg;
     if (cg->pel) {
-        /* Update pel back-pointer to new stream */
         cg->pel->alloc_size = &s->alloc_size;
-        defragRadixTree(&cg->pel, 0, NULL, NULL);
+        defragRadixTree(&cg->pel, 0, defragStreamGroupPelFlax, NULL);
+        pelCacheInvalidate(cg->pel);
     }
-    /* pel_time_head/tail are just pointers to NACKs in pel, no separate defrag needed */
     if (cg->consumers) {
-        /* Update consumers back-pointer to new stream */
         cg->consumers->alloc_size = &s->alloc_size;
         StreamConsumerContext consumer_ctx = {s, cg};
         defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);

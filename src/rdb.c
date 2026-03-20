@@ -737,44 +737,42 @@ int rdbLoadObjectType(rio *rdb) {
  * we serialized the NACKs as well, but when serializing the local consumer
  * PELs we just add the ID, that will be resolved inside the global PEL to
  * put a reference to the same structure. */
-ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
+ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, uint64_t pel_count, int nacks) {
     ssize_t n, nwritten = 0;
 
     /* Number of entries in the PEL. */
-    if ((n = rdbSaveLen(rdb,raxSize(pel))) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,pel_count)) == -1) return -1;
     nwritten += n;
 
     /* Save each entry. */
-    raxIterator ri;
-    raxStart(&ri,pel);
-    raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
-        /* We store IDs in raw form as 128 big big endian numbers, like
-         * they are inside the radix tree key. */
-        if ((n = rdbWriteRaw(rdb,ri.key,sizeof(streamID))) == -1) {
-            raxStop(&ri);
-            return -1;
-        }
-        nwritten += n;
+    pelIterator pi;
+    pelIterStart(&pi,pel);
+    if (pelIterSeek(&pi,"^",NULL)) {
+        do {
+            /* We store IDs in raw form as 128 big big endian numbers,
+             * reconstructed from the two-level structure. */
+            if ((n = rdbWriteRaw(rdb,pi.rawkey,sizeof(streamID))) == -1) {
+                pelIterStop(&pi);
+                return -1;
+            }
+            nwritten += n;
 
-        if (nacks) {
-            streamNACK *nack = ri.data;
-            if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1) {
-                raxStop(&ri);
-                return -1;
+            if (nacks) {
+                streamNACK *nack = pi.nack;
+                if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1) {
+                    pelIterStop(&pi);
+                    return -1;
+                }
+                nwritten += n;
+                if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) {
+                    pelIterStop(&pi);
+                    return -1;
+                }
+                nwritten += n;
             }
-            nwritten += n;
-            if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) {
-                raxStop(&ri);
-                return -1;
-            }
-            nwritten += n;
-            /* We don't save the consumer name: we'll save the pending IDs
-             * for each consumer in the consumer PEL, and resolve the consumer
-             * at loading time. */
-        }
+        } while (pelIterNext(&pi));
     }
-    raxStop(&ri);
+    pelIterStop(&pi);
     return nwritten;
 }
 
@@ -1025,7 +1023,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
          * passed with value of 0), at loading time we'll lookup the ID
          * in the consumer group global PEL and will put a reference in the
          * consumer local PEL. */
-        if ((n = rdbSaveStreamPEL(rdb,consumer->pel,0)) == -1) {
+        if ((n = rdbSaveStreamPEL(rdb,consumer->pel,consumer->pel_count,0)) == -1) {
             raxStop(&ri);
             return -1;
         }
@@ -1339,7 +1337,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
 
                 /* Save the global PEL. */
-                if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) {
+                if ((n = rdbSaveStreamPEL(rdb,cg->pel,cg->pel_count,1)) == -1) {
                     raxStop(&ri);
                     return -1;
                 }
@@ -3290,7 +3288,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
+                if (!pelTryInsert(cgroup->pel,&nack_id,nack,&cgroup->pel_count)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
                     streamFreeNACK(s, nack);
@@ -3363,20 +3361,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         decrRefCount(o);
                         return NULL;
                     }
-                    void *result;
-                    if (!raxFind(cgroup->pel,rawid,sizeof(rawid),&result)) {
+                    streamID cpel_id;
+                    streamDecodeID(rawid, &cpel_id);
+                    streamNACK *nack = pelFind(cgroup->pel, &cpel_id);
+                    if (!nack) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
                         decrRefCount(o);
                         return NULL;
                     }
-                    streamNACK *nack = result;
 
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    if (!raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
+                    if (!pelTryInsert(consumer->pel,&cpel_id,nack,&consumer->pel_count)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
@@ -3389,19 +3388,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             /* Verify that each PEL eventually got a consumer assigned to it. */
             if (deep_integrity_validation) {
-                raxIterator ri_cg_pel;
-                raxStart(&ri_cg_pel,cgroup->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel)) {
-                    streamNACK *nack = ri_cg_pel.data;
-                    if (!nack->consumer) {
-                        raxStop(&ri_cg_pel);
-                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
-                        decrRefCount(o);
-                        return NULL;
-                    }
+                pelIterator pi_cg_pel;
+                pelIterStart(&pi_cg_pel,cgroup->pel);
+                if (pelIterSeek(&pi_cg_pel,"^",NULL)) {
+                    do {
+                        if (!pi_cg_pel.nack->consumer) {
+                            pelIterStop(&pi_cg_pel);
+                            rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+                            decrRefCount(o);
+                            return NULL;
+                        }
+                    } while (pelIterNext(&pi_cg_pel));
                 }
-                raxStop(&ri_cg_pel);
+                pelIterStop(&pi_cg_pel);
             }
         }
 

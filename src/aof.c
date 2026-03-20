@@ -2324,7 +2324,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             while(raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
                 /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
-                if (raxSize(consumer->pel) == 0) {
+                if (consumer->pel_count == 0) {
                     if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
                                                     ri.key_len,consumer) == 0)
                     {
@@ -2336,22 +2336,23 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 }
                 /* For the current consumer, iterate all the PEL entries
                  * to emit the XCLAIM protocol. */
-                raxIterator ri_pel;
-                raxStart(&ri_pel,consumer->pel);
-                raxSeek(&ri_pel,"^",NULL,0);
-                while(raxNext(&ri_pel)) {
-                    streamNACK *nack = ri_pel.data;
-                    if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
-                                                   ri.key_len,consumer,
-                                                   ri_pel.key,nack) == 0)
-                    {
-                        raxStop(&ri_pel);
-                        raxStop(&ri_cons);
-                        raxStop(&ri);
-                        return 0;
-                    }
+                pelIterator pi_pel;
+                pelIterStart(&pi_pel,consumer->pel);
+                if (pelIterSeek(&pi_pel,"^",NULL)) {
+                    do {
+                        streamNACK *nack = pi_pel.nack;
+                        if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
+                                                       ri.key_len,consumer,
+                                                       pi_pel.rawkey,nack) == 0)
+                        {
+                            pelIterStop(&pi_pel);
+                            raxStop(&ri_cons);
+                            raxStop(&ri);
+                            return 0;
+                        }
+                    } while (pelIterNext(&pi_pel));
                 }
-                raxStop(&ri_pel);
+                pelIterStop(&pi_pel);
             }
             raxStop(&ri_cons);
         }

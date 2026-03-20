@@ -7775,6 +7775,7 @@ struct redisTest {
     {"ebuckets", ebucketsTest},
     {"bitmap", bitopsTest},
     {"rax", raxTest},
+    {"flax", flaxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
 };
