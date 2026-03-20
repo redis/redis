@@ -142,6 +142,7 @@ static flax *pelResolveFlax(rax *pel, uint64_t ms, int create, int *created) {
     }
     if (!create) return NULL;
 
+    if (cache->f) flaxShrink(cache->f);
     flax *f = flaxNew();
     raxInsert(pel, msbuf, 8, f, NULL);
     cache->ms = ms;

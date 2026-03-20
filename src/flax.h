@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define FLAX_MIN_CAPACITY 12
+#define FLAX_INIT_CAPACITY 16
 
 typedef struct flax {
     void *data;
@@ -37,6 +37,7 @@ int flaxPrev(flaxIterator *it);
 void flaxStop(flaxIterator *it);
 int flaxEOF(flaxIterator *it);
 uint64_t flaxSize(flax *f);
+void flaxShrink(flax *f);
 
 #ifdef REDIS_TEST
 int flaxTest(int argc, char *argv[], int flags);

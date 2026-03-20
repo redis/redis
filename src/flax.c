@@ -86,17 +86,15 @@ static void flaxIterRefresh(flaxIterator *it) {
 flax *flaxNew(void) {
     flax *f = flax_malloc(sizeof(flax));
     f->numele = 0;
-    f->capacity = FLAX_MIN_CAPACITY;
-    size_t voff = flax_values_offset(FLAX_MIN_CAPACITY);
-    f->data = flax_malloc(voff + (size_t)FLAX_MIN_CAPACITY * sizeof(void *));
+    f->capacity = FLAX_INIT_CAPACITY;
+    size_t voff = flax_values_offset(FLAX_INIT_CAPACITY);
+    f->data = flax_malloc(voff + (size_t)FLAX_INIT_CAPACITY * sizeof(void *));
     return f;
 }
 
 int flaxInsert(flax *f, int64_t key, void *data, void **old) {
-    if (f->numele == f->capacity) {
-        int64_t new_cap = f->capacity == 0 ? FLAX_MIN_CAPACITY : f->capacity * 2;
-        flax_resize(f, new_cap);
-    }
+    if (f->numele == f->capacity)
+        flax_resize(f, f->capacity * 2);
 
     int64_t idx;
     if (flax_search(flax_keys(f), f->numele, key, &idx)) {
@@ -123,10 +121,8 @@ int flaxInsert(flax *f, int64_t key, void *data, void **old) {
 }
 
 int flaxTryInsert(flax *f, int64_t key, void *data, void **old) {
-    if (f->numele == f->capacity) {
-        int64_t new_cap = f->capacity == 0 ? FLAX_MIN_CAPACITY : f->capacity * 2;
-        flax_resize(f, new_cap);
-    }
+    if (f->numele == f->capacity)
+        flax_resize(f, f->capacity * 2);
 
     int64_t idx;
     if (flax_search(flax_keys(f), f->numele, key, &idx)) {
@@ -173,13 +169,6 @@ int flaxRemove(flax *f, int64_t key, void **old) {
     }
 
     f->numele--;
-
-    if (f->capacity > FLAX_MIN_CAPACITY &&
-        f->numele < f->capacity / 4 &&
-        f->capacity / 2 >= FLAX_MIN_CAPACITY) {
-        flax_resize(f, f->capacity / 2);
-    }
-
     return 1;
 }
 
@@ -227,6 +216,11 @@ void flaxFreeWithCbAndContext(flax *f,
 
 uint64_t flaxSize(flax *f) {
     return (uint64_t)f->numele;
+}
+
+void flaxShrink(flax *f) {
+    if (f->numele > 0 && f->numele < f->capacity)
+        flax_resize(f, f->numele);
 }
 
 /* --- Iterator implementation --- */
@@ -411,7 +405,7 @@ int flaxTest(int argc, char **argv, int flags) {
         flax *a = flaxNew();
         assert(a != NULL);
         assert(a->numele == 0);
-        assert(a->capacity == FLAX_MIN_CAPACITY);
+        assert(a->capacity == FLAX_INIT_CAPACITY);
         assert(a->data != NULL);
         flaxFree(a);
     }
