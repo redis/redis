@@ -3565,6 +3565,11 @@ int sunioncardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRe
     return genericGetKeys(0, 1, 2, 1, argv, argc, result);
 }
 
+int sdiffcardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(1, 2, 3, 1, argv, argc, result);
