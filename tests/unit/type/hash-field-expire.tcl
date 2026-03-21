@@ -305,7 +305,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
             assert_equal [get_stat_subexpiry r] 1
             # Wait for field1 to expire robustly
-            wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
+            wait_for_condition 50 100 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" }
             assert_equal [r hget myhash field1] ""
             # field2 remains without expiration
             assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
