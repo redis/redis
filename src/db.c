@@ -588,6 +588,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     if (old->type == OBJ_HASH)
         estoreRemove(db->subexpires, slot, old);
 
+    if (old->type == OBJ_STREAM)
+        dictDelete(db->stream_idmp_keys, key);
+
     long long oldExpire = getExpire(db, key->ptr, old);
 
     /* All metadata will be kept if not `overwrite` for the new object  */
@@ -849,6 +852,10 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         if (type == OBJ_HASH)
             estoreRemove(db->subexpires, slot, kv);
 
+        /* If stream with IDMP tracking, remove it from stream_idmp_keys */
+        if (type == OBJ_STREAM)
+            dictDelete(db->stream_idmp_keys, key);
+
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
         incrRefCount(kv); /* refcnt=1->2 */
@@ -988,6 +995,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             estoreEmpty(dbarray[j].subexpires);
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
+            dictEmpty(dbarray[j].stream_idmp_keys, callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -1071,6 +1079,7 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
+        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
     }
 
     return tempDb;
@@ -1088,9 +1097,29 @@ void discardTempDb(redisDb *tempDb) {
         estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
+        dictRelease(tempDb[i].stream_idmp_keys);
     }
 
     zfree(tempDb);
+}
+
+/* Move entries whose robj keys belong to the given slot from src dict to dst.
+ * Matching entries are removed from src and added to dst. */
+void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
+    if (dictSize(src) == 0) return;
+
+    dictIterator *di = dictGetSafeIterator(src);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        if (calculateKeySlot(key->ptr) == slot) {
+            if (dictAdd(dst, key, dictGetVal(de)) == DICT_OK) {
+                incrRefCount(key);
+            }
+            dictDelete(src, key);
+        }
+    }
+    dictReleaseIterator(di);
 }
 
 int selectDb(client *c, int id) {
@@ -2176,6 +2205,12 @@ void renameGenericCommand(client *c, int nx) {
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
+    /* Re-register stream IDMP tracking under the new key name. */
+    if (srctype == OBJ_STREAM && ((stream *)o->ptr)->idmp_producers != NULL) {
+        if (dictAdd(c->db->stream_idmp_keys, c->argv[2], NULL) == DICT_OK)
+            incrRefCount(c->argv[2]);
+    }
+
     keyModified(c,c->db,c->argv[1],NULL,1);
     keyModified(c,c->db,c->argv[2],NULL,1); /* LRM already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
@@ -2254,7 +2289,7 @@ void moveCommand(client *c) {
      * object since it embeds ExpireMeta that is used by subexpires */
     if (kv->type == OBJ_HASH)
         hashExpireTime = estoreRemove(src->subexpires, slot, kv);
-    
+
     /* Move a side metadata before dbDelete() */
     KeyMetaSpec keymeta;
     keyMetaSpecInit(&keymeta);
@@ -2269,6 +2304,12 @@ void moveCommand(client *c) {
      * hash to subexpires of `dst` only after dbDelete(). */
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
+
+    /* Register stream IDMP tracking in the destination DB. */
+    if (kv->type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL) {
+        if (dictAdd(dst->stream_idmp_keys, c->argv[1], NULL) == DICT_OK)
+            incrRefCount(c->argv[1]);
+    }
 
     keyModified(c,src,c->argv[1],NULL,1);
     keyModified(c,dst,c->argv[1],NULL,1); /* LRM already updated by dbAddInternal */
@@ -2390,6 +2431,15 @@ void copyCommand(client *c) {
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
+    /* Register copied stream with IDMP producers for cron-based expiration. */
+    if (kvCopy->type == OBJ_STREAM) {
+        stream *s = kvCopy->ptr;
+        if (s->idmp_producers != NULL) {
+            if (dictAdd(dst->stream_idmp_keys, newkey, NULL) == DICT_OK)
+                incrRefCount(newkey);
+        }
+    }
+
     /* OK! key copied. Signal modification (LRM already updated by dbAddInternal) */
     keyModified(c,dst,c->argv[2],NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
@@ -2489,12 +2539,14 @@ int dbSwapDatabases(int id1, int id2) {
     db1->keys = db2->keys;
     db1->expires = db2->expires;
     db1->subexpires = db2->subexpires;
+    db1->stream_idmp_keys = db2->stream_idmp_keys;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
 
     db2->keys = aux.keys;
     db2->expires = aux.expires;
     db2->subexpires = aux.subexpires;
+    db2->stream_idmp_keys = aux.stream_idmp_keys;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
 
@@ -2533,12 +2585,14 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
         activedb->subexpires = newdb->subexpires;
+        activedb->stream_idmp_keys = newdb->stream_idmp_keys;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
         newdb->subexpires = aux.subexpires;
+        newdb->stream_idmp_keys = aux.stream_idmp_keys;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
 

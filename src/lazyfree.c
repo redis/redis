@@ -24,7 +24,9 @@ void lazyfreeFreeDatabase(void *args[]) {
     kvstore *da1 = args[0];
     kvstore *da2 = args[1];
     estore *subexpires = args[2];
+    dict *stream_idmp_keys = args[3];
     estoreRelease(subexpires);
+    dictRelease(stream_idmp_keys);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
@@ -289,17 +291,19 @@ void emptyDbAsync(redisDb *db) {
     }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     estore *oldsubexpires = db->subexpires;
+    dict *old_stream_idmp_keys = db->stream_idmp_keys;
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
+    db->stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
-    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires);
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys);
 }
 
 /* Empty a Redis DB data asynchronously. */
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires) {
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys) {
     atomicIncr(lazyfree_objects, kvstoreSize(keys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, keys, expires, hexpires);
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 4, keys, expires, hexpires, stream_idmp_keys);
 }
 
 /* Free the key tracking table.
