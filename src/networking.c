@@ -140,7 +140,7 @@ client *createClient(connection *conn) {
     c->id = client_id;
     c->tid = IOTHREAD_MAIN_THREAD_ID;
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
-    if (conn) server.io_threads_clients_num[c->tid]++;
+    if (conn) io_thread_stats[c->tid].clients_num++;
 #ifdef LOG_REQ_RES
     reqresReset(c, 0);
     c->resp = server.client_default_resp;
@@ -2172,7 +2172,7 @@ void freeClient(client *c) {
     }
 
     /* Update the number of clients in the IO thread. */
-    if (c->conn) server.io_threads_clients_num[c->tid]--;
+    if (c->conn) io_thread_stats[c->tid].clients_num--;
 
     /* For connected clients, call the disconnection event of modules hooks. */
     if (c->conn) {
@@ -2777,7 +2777,7 @@ static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
 int writeToClient(client *c, int handler_installed) {
     if (!(c->io_flags & CLIENT_IO_WRITE_ENABLED)) return C_OK;
     /* Update the number of writes of io threads on server */
-    atomicIncr(server.stat_io_writes_processed[c->running_tid], 1);
+    atomicIncr(io_thread_stats[c->running_tid].io_writes_processed, 1);
 
     ssize_t nwritten = 0, totwritten = 0;
     const int is_slave = clientTypeIsSlave(c);
@@ -3833,7 +3833,7 @@ void readQueryFromClient(connection *conn) {
     c->stat_total_read_events++;
 
     /* Update the number of reads of io threads on server */
-    atomicIncr(server.stat_io_reads_processed[c->running_tid], 1);
+    atomicIncr(io_thread_stats[c->running_tid].io_reads_processed, 1);
 
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply

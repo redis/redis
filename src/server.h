@@ -224,6 +224,16 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Max number of IO threads */
 #define IO_THREADS_MAX_NUM 128
 
+/* Per-IO-thread stats, cache-line padded to prevent false sharing.
+ * Each thread updates its own entry; aggregation happens only for INFO output. */
+typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
+    redisAtomic long long io_reads_processed;  /* Number of read events processed */
+    redisAtomic long long io_writes_processed; /* Number of write events processed */
+    int clients_num;                           /* Number of clients assigned */
+} IOThreadStats;
+
+extern IOThreadStats io_thread_stats[IO_THREADS_MAX_NUM];
+
 /* To make IO threads and main thread run in parallel, we will transfer clients
  * between them if the number of clients in the pending list reaches this value. */
 #define IO_THREAD_MAX_PENDING_CLIENTS 16
@@ -2071,7 +2081,6 @@ struct redisServer {
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int io_threads_num;         /* Number of IO threads to use. */
-    int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     pendingCommandPool cmd_pool; /* Shared pool for reusing pendingCommand,
@@ -2157,8 +2166,6 @@ struct redisServer {
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
-    redisAtomic long long stat_io_reads_processed[IO_THREADS_MAX_NUM]; /* Number of read events processed by IO / Main threads */
-    redisAtomic long long stat_io_writes_processed[IO_THREADS_MAX_NUM]; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */

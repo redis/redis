@@ -83,6 +83,7 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /* Global vars */
 struct redisServer server; /* Server global state */
+IOThreadStats io_thread_stats[IO_THREADS_MAX_NUM]; /* Per-IO-thread stats, cache-line padded */
 
 /* Snapshot of server.stat_total_client_process_input_buff_events used in
  * beforeSleep() to detect event loop cycles where client input buffers
@@ -2895,8 +2896,8 @@ void resetServerStats(void) {
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
     for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
-        atomicSet(server.stat_io_reads_processed[j], 0);
-        atomicSet(server.stat_io_writes_processed[j], 0);
+        atomicSet(io_thread_stats[j].io_reads_processed, 0);
+        atomicSet(io_thread_stats[j].io_writes_processed, 0);
     }
     atomicSet(server.stat_client_qbuf_limit_disconnections, 0);
     server.stat_client_outbuf_limit_disconnections = 0;
@@ -3116,7 +3117,7 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
-    memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
+    memset(io_thread_stats, 0, sizeof(io_thread_stats));
     atomicSetWithSync(server.running, 0);
     server.accum_call_count_since_ustime = 0;
     server.monotonic_us_when_ustime = 0;
@@ -6623,10 +6624,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         info = sdscatprintf(info, "# Threads\r\n");
         long long reads, writes;
         for (j = 0; j < server.io_threads_num; j++) {
-            atomicGet(server.stat_io_reads_processed[j], reads);
-            atomicGet(server.stat_io_writes_processed[j], writes);
+            atomicGet(io_thread_stats[j].io_reads_processed, reads);
+            atomicGet(io_thread_stats[j].io_writes_processed, writes);
             info = sdscatprintf(info, "io_thread_%d:clients=%d,reads=%lld,writes=%lld\r\n",
-                                       j, server.io_threads_clients_num[j], reads, writes);
+                                       j, io_thread_stats[j].clients_num, reads, writes);
             stat_total_reads_processed += reads;
             if (j != 0) stat_io_reads_processed += reads; /* Skip the main thread */
             stat_total_writes_processed += writes;
@@ -6661,10 +6662,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (!stat_io_ops_processed_calculated) {
             long long reads, writes;
             for (j = 0; j < server.io_threads_num; j++) {
-                atomicGet(server.stat_io_reads_processed[j], reads);
+                atomicGet(io_thread_stats[j].io_reads_processed, reads);
                 stat_total_reads_processed += reads;
                 if (j != 0) stat_io_reads_processed += reads; /* Skip the main thread */
-                atomicGet(server.stat_io_writes_processed[j], writes);
+                atomicGet(io_thread_stats[j].io_writes_processed, writes);
                 stat_total_writes_processed += writes;
                 if (j != 0) stat_io_writes_processed += writes; /* Skip the main thread */
             }
