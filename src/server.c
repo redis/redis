@@ -3117,10 +3117,8 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
-    for (int i = 0; i < IO_THREADS_MAX_NUM; i++) {
-        atomicSet(io_thread_stats[i].io_reads_processed, 0);
-        atomicSet(io_thread_stats[i].io_writes_processed, 0);
-        io_thread_stats[i].clients_num = 0;
+    for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
+        io_thread_stats[j].clients_num = 0;
     }
     atomicSetWithSync(server.running, 0);
     server.accum_call_count_since_ustime = 0;

@@ -225,7 +225,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define IO_THREADS_MAX_NUM 128
 
 /* Per-IO-thread stats, cache-line padded to prevent false sharing.
- * Each thread updates its own entry; aggregation happens only for INFO output. */
+ * Stat counters are updated by their respective IO thread;
+ * clients_num is updated by the main thread but infrequently. */
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     redisAtomic long long io_reads_processed;  /* Number of read events processed */
     redisAtomic long long io_writes_processed; /* Number of write events processed */
