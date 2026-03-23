@@ -1846,21 +1846,27 @@ start_server {tags {"repl external:skip"}} {
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
 
-            # Force a full resync by resetting the slave
+            # Populate keys in the format key:$i with 128-byte values.
             $slave debug populate 700000 key 128
+
+            # Force a full resync by resetting the slave.
             set rd [redis_deferring_client 0]
             $rd slaveof $master_host $master_port
 
-            # Create and send a large pipeline command so the replica is more likely to
-            # prefetch these commands while emptying old data.
+            # Create a large pipeline command.
             set batch_size 1000
             set buf ""
             for {set i 0} {$i < $batch_size} {incr i} {
                 append buf [format_command get key:1]
             }
-            for {set i 0} {$i < 1000} {incr i} {
+            
+            # Continuously send pipelined commands so that the replica processes
+            # and prefetches them while it is emptying old data during full sync.
+            set start_time [clock milliseconds]
+            while {[clock milliseconds] - $start_time < 5000} {
                 $rd write $buf
                 $rd flush
+                if {[s 0 master_link_status] eq "up"} break
             }
             $rd close
         }
