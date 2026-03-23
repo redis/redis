@@ -3907,6 +3907,11 @@ void xnackCommand(client *c) {
             if (!streamEntryExists(s, &ids[j]))
                 continue;
             streamNACK *nack = streamCreateNACK(s, NULL, &ids[j]);
+            
+            /* streamCreateNACK() initialises delivery_count to 1 (a real
+             * delivery), but FORCE creates a synthetic entry with no actual
+             * delivery, so reset to 0 before letting nackSetDeliveryCount()
+             * apply the mode/retrycount logic on a clean baseline. */
             nack->delivery_count = 0;
             nackSetDeliveryCount(nack, mode, retrycount);
 
