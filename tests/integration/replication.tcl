@@ -1847,7 +1847,7 @@ start_server {tags {"repl external:skip"}} {
             $master config set repl-diskless-sync-delay 0
 
             # Force a full resync by resetting the slave
-            $slave debug populate 700000
+            $slave debug populate 700000 key 128
             set rd [redis_deferring_client 0]
             $rd slaveof $master_host $master_port
 
