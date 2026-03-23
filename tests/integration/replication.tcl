@@ -1846,30 +1846,23 @@ start_server {tags {"repl external:skip"}} {
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
 
-            # Verify IO threads are enabled on the slave
-            set io_threads [$slave config get io-threads]
-            if {[lindex $io_threads 1] > 1} {
+            # Force a full resync by resetting the slave
+            $slave debug populate 700000
+            set rd [redis_deferring_client 0]
+            $rd slaveof $master_host $master_port
 
-                # Force a full resync by resetting the slave
-                $slave debug populate 700000
-                set rd [redis_deferring_client 0]
-                $rd slaveof $master_host $master_port
-
-                set batch_size 1000
-                set total 10000000
-                set num_batches [expr {$total / $batch_size}]
-                for {set b 0} {$b < $num_batches} {incr b} {
-                    set buf ""
-                    for {set i 0} {$i < $batch_size} {incr i} {
-                        append buf [format_command get key:1]
-                    }
-                    $rd write $buf
-                    $rd flush
-                }
-                $rd close
-            } else {
-                skip "Test requires IO threads to be enabled"
+            # Create and send a large pipeline command so the replica is more likely to
+            # prefetch these commands while emptying old data.
+            set batch_size 1000
+            set buf ""
+            for {set i 0} {$i < $batch_size} {incr i} {
+                append buf [format_command get key:1]
             }
+            for {set i 0} {$i < 1000} {incr i} {
+                $rd write $buf
+                $rd flush
+            }
+            $rd close
         }
     }
 }
