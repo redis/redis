@@ -46,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha256: ${{ steps.checksum.outputs.sha256 }}
+      size_mb: ${{ steps.size.outputs.size_mb }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -57,10 +58,12 @@ jobs:
         run: ./utils/releasetools/01_create_tarball.sh "${{ needs.extract-release-info.outputs.tag_name }}"
 
       - name: Verify tarball size
+        id: size
         run: |
           TARBALL="/tmp/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
           echo "Tarball size: ${SIZE_MB} MB"
+          echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
           if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
             echo "Warning: Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
           fi
@@ -126,7 +129,8 @@ jobs:
             echo ""
             echo "- **Release Tag:** ${{ needs.extract-release-info.outputs.tag_name }}"
             echo "- **Release Type:** ${{ needs.extract-release-info.outputs.release_type }}"
-            echo "- **SHA256:** ${{ needs.create-tarball.outputs.sha256 }}"
+            echo "- **Tarball SHA256:** ${{ needs.create-tarball.outputs.sha256 }}"
+            echo "- **Tarball Size:** ${{ needs.create-tarball.outputs.size_mb }} MB"
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Send Slack notification
