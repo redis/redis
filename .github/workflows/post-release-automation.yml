@@ -3,16 +3,10 @@ name: Post-Release Automation
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      version_tag:
-        description: 'Version tag (e.g., 7.2.0)'
-        required: true
-        type: string
 
 jobs:
   extract-release-info:
-    if: github.repository == 'redis/redis' || github.repository == 'm-marinov/redis'
+    if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release-info.outputs.tag_name }}
@@ -24,7 +18,7 @@ jobs:
       - name: Extract and validate release information
         id: release-info
         env:
-          TAG_NAME: ${{ inputs.version_tag || github.event.release.tag_name }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
