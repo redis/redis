@@ -5,13 +5,7 @@
 #include <stddef.h>
 #include "object.h"
 
-struct hllhdr {
-    char magic[4];      /* "HYLL" */
-    uint8_t encoding;   /* HLL_DENSE or HLL_SPARSE. */
-    uint8_t notused[3]; /* Reserved for future use, must be zero. */
-    uint8_t card[8];    /* Cached cardinality, little endian. */
-    uint8_t registers[]; /* Data bytes. */
-};
+typedef struct hllhdr hllhdr;
 
 robj *createHLLObject(void);
 int hllAdd(robj *o, unsigned char *ele, size_t elesize);

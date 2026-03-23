@@ -1931,8 +1931,7 @@ void sunioncardCommand(client *c) {
                 }
 
                 elements_processed++;
-                if (limit > 0 &&
-                    (elements_processed % HLL_APPROX_CHECK_INTERVAL == 0)) {
+                if (limit > 0 && (elements_processed % HLL_APPROX_CHECK_INTERVAL == 0)) {
                     uint64_t est = hllCount(hllobj->ptr, NULL);
                     if (est >= (uint64_t)limit) {
                         early_exit = 1;
