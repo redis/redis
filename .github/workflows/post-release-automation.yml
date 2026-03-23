@@ -18,6 +18,9 @@ jobs:
       tag_name: ${{ steps.release-info.outputs.tag_name }}
       release_type: ${{ steps.release-info.outputs.release_type }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
       - name: Extract and validate release information
         id: release-info
         env:
@@ -87,7 +90,7 @@ jobs:
           echo "TODO: Implement approval gate"
 
   upload-tarball:
-    needs: [extract-release-info, approval-gate]
+    needs: [extract-release-info, create-tarball, approval-gate]
     if: ${{ !cancelled() && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
