@@ -207,7 +207,7 @@ start_server {tags {"repl external:skip"}} {
                 [$B lrange foo 0 -1] eq {a b c}
             } else {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            }
+            }          
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat blpop $B]
 
             assert_error {UNBLOCKED*} {$rd read}
@@ -1879,12 +1879,11 @@ start_server {tags {"repl external:skip"}} {
                 $master config set repl-diskless-sync yes
                 $master config set repl-diskless-sync-delay 0
                 $master set testkey "testvalue"
-
+                
                 # Force a full resync by resetting the slave
                 $slave slaveof no one
-                $slave debug populate 70000
                 $slave slaveof $master_host $master_port
-
+                
                 # Wait for replication to complete again
                 wait_for_condition 100 1000 {
                     [lindex [$slave role] 0] eq {slave} &&
