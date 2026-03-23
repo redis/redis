@@ -161,8 +161,7 @@ static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
     /* Initialize the prefetch info */
     for (size_t i = 0; i < batch->key_count; i++) {
         KeyPrefetchInfo *info = &batch->prefetch_info[i];
-        if (!batch->current_dicts[i] || dictSize(batch->current_dicts[i]) == 0 ||
-            !batch->keys[i]) {
+        if (!batch->current_dicts[i] || dictSize(batch->current_dicts[i]) == 0) {
             info->state = PREFETCH_DONE;
             continue;
         }
@@ -340,9 +339,8 @@ void prefetchCommands(void) {
     /* Prefetch argv's for all pending commands */
     for (size_t i = 0; i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
-        if (unlikely(pcmd->argc <= 0 || !pcmd->argv)) continue;
+        if (unlikely(pcmd->argc <= 0)) continue;
         for (int j = 0; j < pcmd->argc; j++) {
-            if (unlikely(!pcmd->argv[j])) continue;
             redis_prefetch_read(pcmd->argv[j]);
         }
     }
@@ -350,10 +348,9 @@ void prefetchCommands(void) {
     /* Prefetch the argv->ptr if required */
     for (size_t i = 0; i < batch->pcmd_count; i++) {
         pendingCommand *pcmd = batch->pending_cmds[i];
-        if (unlikely(pcmd->argc <= 1 || !pcmd->argv)) continue;
+        if (unlikely(pcmd->argc <= 1)) continue;
         /* Skip the first argument (command name), as it's typically short */
         for (int j = 1; j < pcmd->argc; j++) {
-            if (unlikely(!pcmd->argv[j])) continue;
             if (pcmd->argv[j]->encoding == OBJ_ENCODING_RAW) {
                 redis_prefetch_read(pcmd->argv[j]->ptr);
             }
@@ -370,7 +367,6 @@ void prefetchCommands(void) {
 
     /* Get the keys ptrs - we do it here after the key obj was prefetched. */
     for (size_t i = 0; i < batch->key_count; i++) {
-        if (unlikely(batch->keys[i] == NULL)) continue;
         batch->keys[i] = ((robj *)batch->keys[i])->ptr;
     }
 
@@ -424,10 +420,7 @@ int addCommandToBatch(client *c) {
 
         serverAssert(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID);
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
-            int key_pos = pcmd->keys_result.keys[i].pos;
-            /* Skip if argv element is NULL (can happen if argv was partially cleaned by IO threads) */
-            if (unlikely(!pcmd->argv || key_pos >= pcmd->argc || !pcmd->argv[key_pos])) continue;
-            batch->keys[batch->key_count] = pcmd->argv[key_pos];
+            batch->keys[batch->key_count] = pcmd->argv[pcmd->keys_result.keys[i].pos];
             batch->keys_dicts[batch->key_count] =
                 kvstoreGetDict(c->db->keys, pcmd->slot > 0 ? pcmd->slot : 0);
             batch->key_count++;
