@@ -1832,3 +1832,44 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    start_server {overrides {io-threads 2}} {
+        set slave [srv 0 client]
+
+        test {prefetchCommands handles NULL argv and keys during RDB replication with IO threads} {
+            # Enable diskless sync to trigger RDB streaming during replication
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 0
+
+            # Verify IO threads are enabled on the slave
+            set io_threads [$slave config get io-threads]
+            if {[lindex $io_threads 1] > 1} {
+
+                # Force a full resync by resetting the slave
+                $slave debug populate 700000
+                set rd [redis_deferring_client 0]
+                $rd slaveof $master_host $master_port
+
+                set batch_size 1000
+                set total 10000000
+                set num_batches [expr {$total / $batch_size}]
+                for {set b 0} {$b < $num_batches} {incr b} {
+                    set buf ""
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        append buf [format_command get key:1]
+                    }
+                    $rd write $buf
+                    $rd flush
+                }
+                $rd close
+            } else {
+                skip "Test requires IO threads to be enabled"
+            }
+        }
+    }
+}
