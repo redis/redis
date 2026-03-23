@@ -4560,20 +4560,20 @@ start_server {
     }
 
     test "XNACK COPY preserves NACKed entries" {
-        r DEL mystream mystream_copy
-        r XADD mystream 1-0 f v1
-        r XADD mystream 2-0 f v2
-        r XADD mystream 3-0 f v3
-        r XGROUP CREATE mystream grp 0
-        r XREADGROUP GROUP grp c1 STREAMS mystream >
+        r DEL mystream{t} mystream{t}_copy
+        r XADD mystream{t} 1-0 f v1
+        r XADD mystream{t} 2-0 f v2
+        r XADD mystream{t} 3-0 f v3
+        r XGROUP CREATE mystream{t} grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream{t} >
 
-        r XNACK mystream grp FAIL IDS 1 1-0
-        r XNACK mystream grp FATAL IDS 1 3-0
+        r XNACK mystream{t} grp FAIL IDS 1 1-0
+        r XNACK mystream{t} grp FATAL IDS 1 3-0
 
-        r COPY mystream mystream_copy
+        r COPY mystream{t} mystream{t}_copy
 
         # Verify NACKed state on the copy
-        set pending [r XPENDING mystream_copy grp - + 10]
+        set pending [r XPENDING mystream{t}_copy grp - + 10]
         assert_equal [llength $pending] 3
 
         assert_equal [lindex $pending 0 0] 1-0
@@ -4588,18 +4588,18 @@ start_server {
         assert_equal [lindex $pending 2 3] 9223372036854775807
 
         # Verify nacked-count on the copy
-        set info [r XINFO STREAM mystream_copy FULL]
+        set info [r XINFO STREAM mystream{t}_copy FULL]
         set group [lindex [dict get $info groups] 0]
         assert_equal [dict get $group nacked-count] 2
 
         # Verify NACK zone order on the copy: 1-0 then 3-0
-        set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream_copy >]
+        set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream{t}_copy >]
         assert_equal [lindex [lindex $r1 0] 1 0 0] 1-0
-        set r2 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream_copy >]
+        set r2 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream{t}_copy >]
         assert_equal [lindex [lindex $r2 0] 1 0 0] 3-0
 
         # Original should be unaffected — NACKed entries still unowned
-        set orig_pending [r XPENDING mystream grp - + 10]
+        set orig_pending [r XPENDING mystream{t} grp - + 10]
         assert_equal [lindex $orig_pending 0 1] {}
     }
 
