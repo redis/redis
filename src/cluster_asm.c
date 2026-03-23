@@ -1,11 +1,46 @@
-/* cluster_asm.c -- Atomic slot migration implementation for cluster
- *
+/* 
  * Copyright (c) 2025-Present, Redis Ltd.
  * All rights reserved.
  *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
+ * 
+ * cluster_asm.c -- Atomic slot migration implementation for cluster
+ * 
+ * TERMINOLOGY:
+ * - SOURCE: The node that currently owns the slots (sending data away)
+ * - DESTINATION: The node that will own the slots (receiving data)
+ *
+ * Example: Moving slots 0-100 from Node A to Node B
+ *   - Node A = SOURCE (has the data, will lose ownership)
+ *   - Node B = DESTINATION (will receive data, will gain ownership)
+ *
+ * Migration Flow:
+ * 1. DESTINATION initiates: CLUSTER MIGRATION IMPORT <slots>
+ *    (Operator runs command on Node B, the receiving node)
+ *
+ * 2. SOURCE forks and sends slot snapshot (RESTORE commands) via RDB channel
+ *    (Node A creates snapshot of slots 0-100)
+ *
+ * 3. SOURCE streams incremental changes via main channel
+ *    (Node A forwards new writes to Node B while snapshot is being sent)
+ *
+ * 4. DESTINATION applies snapshot and buffers incremental changes
+ *    (Node B receives snapshot, buffers ongoing writes)
+ *
+ * 5. SOURCE pauses writes when destination catches up
+ *    (Node A stops accepting writes for slots 0-100 when Node B is nearly caught up)
+ *
+ * 6. DESTINATION drains buffer and takes ownership
+ *    (Node B applies final buffered commands, updates config to own slots 0-100)
+ *
+ * 7. Config updated atomically via cluster bus
+ *    (All nodes learn: slots 0-100 now belong to Node B)
+ *
+ * 8. SOURCE trims migrated keys (background or active)
+ *    (Node A deletes keys from slots 0-100 since it no longer owns them)
+ *
  */
 
 #include "server.h"
@@ -13,17 +48,25 @@
 #include "functions.h"
 #include "cluster_asm.h"
 #include "cluster_slot_stats.h"
+#include "bio.h"
 
+/* Operation types: import (destination side) or migrate (source side) */
 #define ASM_IMPORT  (1 << 1)
 #define ASM_MIGRATE (1 << 2)
 
-#define ASM_DEBUG_TRIM_DEFAULT 0
-#define ASM_DEBUG_TRIM_NONE 1
-#define ASM_DEBUG_TRIM_BG 2
-#define ASM_DEBUG_TRIM_ACTIVE 3
+/* Trimming methods for cleaning up migrated keys */
+#define ASM_DEBUG_TRIM_DEFAULT 0  /* Auto-select based on module subscriptions and client tracking */
+#define ASM_DEBUG_TRIM_NONE 1     /* No trimming (for testing) */
+#define ASM_DEBUG_TRIM_BG 2       /* Background trim: hand off to BIO thread (fast, non-blocking) */
+#define ASM_DEBUG_TRIM_ACTIVE 3   /* Active trim: delete in main thread cron (slow, fires notifications) */
 
 #define ASM_AOF_MIN_ITEMS_PER_KEY 512 /* Minimum number of items per key to use AOF format encoding */
 
+/* ASM Task: Represents a single slot migration operation.
+ * Each task tracks the complete lifecycle of migrating one or more slot ranges
+ * from a source node to a destination node. The task exists on both sides but
+ * with different states (import states on destination, migrate states on source).
+ */
 typedef struct asmTask {
     sds id;                                 /* Task ID */
     int operation;                          /* Either ASM_IMPORT or ASM_MIGRATE */
@@ -59,6 +102,8 @@ typedef struct activeTrimJob {
     int migration_cleanup;      /* Whether this is a migration cleanup of slots no longer owned */
 } activeTrimJob;
 
+/* ASM Manager: Global singleton that manages all ASM operations.
+ * Coordinates migration tasks, trim jobs, and maintains statistics. */
 struct asmManager {
     list *tasks;                        /* List of asmTask to be processed */
     list *archived_tasks;               /* List of archived asmTask */
@@ -73,6 +118,9 @@ struct asmManager {
     int debug_fail_state;         /* State where the task will fail */
     int debug_trim_method;        /* Method to trim the buffer */
     int debug_active_trim_delay;  /* Sleep before trimming each key */
+
+    /* Background trim tracking */
+    size_t bg_trim_running;                             /* Number of bg trim jobs in progress */
 
     /* Active trim stats */
     unsigned long long active_trim_started;             /* Number of times active trim was started */
@@ -2953,9 +3001,16 @@ void asmUnblockMasterAfterTrim(void) {
     }
 }
 
-/* Trim the slots asynchronously in the BIO thread. migration_cleanup is true if this
- * is a migration cleanup of slots no longer owned. */
-void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
+/* Background Trim: Delete migrated keys asynchronously in BIO thread.
+ *
+ * It works by moving entire slot data structures (dictionaries) to temporary
+ * kvstores, then handing them off to BIO thread for deletion.
+ *
+ * @param trim_ctx Context for slot ranges and histogram tracking  
+ * @param migration_cleanup True if this is post-migration cleanup (fires module events)
+ */
+void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
+    slotRangeArray *slots = trim_ctx->slots;
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
@@ -2969,8 +3024,8 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
 
     signalFlushedDb(0, 1, slots);
 
-    /* Create temp kvstores and estore, move relevant slot dicts/ebuckets into them,
-     * and delete them in BIO thread asynchronously. */
+    /* Create temporary kvstores to hold the slot data we're about to move.
+     * These will be deleted in the BIO thread. */
     kvstore *keys = kvstoreCreate(&kvstoreBaseType, &dbDictType,
                                   CLUSTER_SLOT_MASK_BITS,
                                   KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
@@ -2982,6 +3037,7 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
 
     size_t total_keys = 0;
 
+    /* Move slot dictionaries from main DB to temp kvstores (O(1) per slot) */
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
             total_keys += kvstoreDictSize(server.db[0].keys, slot);
@@ -2992,7 +3048,7 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
         }
     }
 
-    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys);
+    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);
@@ -3049,7 +3105,39 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots, int migration_cleanup) {
  * Trim the slots, return the trim method used.
  * If client_id is non-zero, the client will be unblocked when trim completes.
  * If migration_cleanup is true, this is a migration cleanup of slots no longer owned. */
-int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
+
+/* Create ASM trim context with refcount=1 */
+asmTrimCtx *asmTrimCtxCreate(slotRangeArray *slots, kvstore *target_kvstore) {
+    asmTrimCtx *ctx = zcalloc(sizeof(asmTrimCtx));
+    ctx->refcount = 1;
+    ctx->slots = slots;
+    ctx->target_kvstore = target_kvstore;
+    /* delta histograms are zero-initialized by zcalloc */
+    return ctx;
+}
+
+/* Increment refcount */
+void asmTrimCtxRetain(asmTrimCtx *ctx) {
+    if (!ctx) return;
+    ctx->refcount++;
+}
+
+/* Decrement refcount, free if reaches 0 */
+void asmTrimCtxRelease(asmTrimCtx *ctx) {
+    if (!ctx) return;
+
+    serverAssert(ctx->refcount > 0);
+    ctx->refcount--;
+
+    if (ctx->refcount == 0) {
+        slotRangeArrayFree(ctx->slots);
+        zfree(ctx);
+    }
+}
+
+int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
+    serverAssert(ctx != NULL);
+
     if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
         return ASM_TRIM_METHOD_NONE;
 
@@ -3065,10 +3153,18 @@ int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_ACTIVE) ||
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT &&
                       moduleHasSubscribersForKeyspaceEvent(NOTIFY_KEY_TRIMMED));
-    if (activetrim)
-        asmTriggerActiveTrim(slots, client_id, migration_cleanup);
-    else
-        asmTriggerBackgroundTrim(slots, migration_cleanup);
+    if (activetrim) {
+        asmTriggerActiveTrim(ctx->slots, client_id, migration_cleanup);
+    } else {
+        /* Background trim:
+         * - Retain ctx for kvsAsyncFreeDoneCB() to release ctx later
+         * - Trigger background trim. Also updates ctx delta histogram.
+         * - Schedule completion cb to deduce delta histogram from DB */
+        asmBgTrimCounterIncr();
+        asmTrimCtxRetain(ctx);
+        asmTriggerBackgroundTrim(ctx, migration_cleanup);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, client_id, ctx);
+    }
 
     return activetrim ? ASM_TRIM_METHOD_ACTIVE : ASM_TRIM_METHOD_BG;
 }
@@ -3126,10 +3222,11 @@ void asmTrimJobProcessPending(void) {
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
         slotRangeArray *slots = listNodeValue(ln);
-        asmTrimSlots(slots, 0, 1);
+        asmTrimCtx *ctx = asmTrimCtxCreate(slots, server.db[0].keys);
+        asmTrimSlots(ctx, CLIENT_ID_NONE, 1);  
         propagateTrimSlots(slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
-        slotRangeArrayFree(slots);
+        asmTrimCtxRelease(ctx); /* Release ctx (if bg trim, released later by kvsAsyncFreeDoneCB) */
     }
 }
 
@@ -3299,7 +3396,6 @@ void activeTrimJobFreeMethod(void *ptr) {
         /* Reply with the slot ranges that requested to be trimmed. Generally we
          * cancel trim jobs as the dataset is reset, no need to trim anymore. */
         unblockClientForAsyncFlush(job->client_id, job->slots);
-        job->slots = NULL; /* slots were freed in unblockClientForAsyncFlush */
     }
     if (job->slots) slotRangeArrayFree(job->slots);
     zfree(job);
@@ -3366,6 +3462,7 @@ void trimslotsCommand(client *c) {
          * command may have an update for the same key that is supposed to be
          * trimmed. We have to trim the keys synchronously. */
         clusterDelKeysInSlotRangeArray(slots, 1);
+        slotRangeArrayFree(slots);
     } else {
         /* We cannot trim any slot served by this node. */
         if (clusterNodeIsMaster(getMyClusterNode())) {
@@ -3379,14 +3476,15 @@ void trimslotsCommand(client *c) {
                 }
             }
         }
-        asmTrimSlots(slots, 0, 1);
+        asmTrimCtx *ctx = asmTrimCtxCreate(slots, server.db[0].keys);
+        asmTrimSlots(ctx, CLIENT_ID_NONE, 1);
+        /* Release ctx - if bg trim, will be freed when BIO completes */
+        asmTrimCtxRelease(ctx);
     }
 
     /* Command will not be propagated automatically since it does not modify
      * the dataset. */
     forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
-
-    slotRangeArrayFree(slots);
     addReply(c, shared.ok);
 }
 
@@ -3481,6 +3579,25 @@ int asmIsAnyTrimJobOverlaps(slotRangeArray *slots) {
         }
     }
     return 0;
+}
+
+/* Decrement background trim counter. Called from completion callback. */
+void asmBgTrimCounterDecr(void) {
+    if (!asmManager) return;
+    debugServerAssert(asmManager->bg_trim_running > 0);
+    asmManager->bg_trim_running--;
+}
+
+/* Increment background trim counter. */
+void asmBgTrimCounterIncr(void) {
+    if (!asmManager) return;
+    asmManager->bg_trim_running++;
+}
+
+/* Check if background trim is running (for skipping debug assertions). */
+int asmIsBgTrimRunning(void) {
+    if (!asmManager) return 0;
+    return asmManager->bg_trim_running > 0;
 }
 
 /* Check if there is any trim job in progress. */

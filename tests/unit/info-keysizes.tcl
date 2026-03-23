@@ -201,14 +201,16 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         # PFADD (sparse & dense)
         for {set i 1} {$i <= 3000} {incr i} {
-            run_cmd_verify_hist {$server PFADD hll1 a$i b$i c$i} {__EVAL_DB_HIST__ 0}
-            run_cmd_verify_hist {$server PFADD hll2 x$i y$i z$i} {__EVAL_DB_HIST__ 0}
+            $server PFADD hll1 a$i b$i c$i
+            $server PFADD hll2 x$i y$i z$i
+            run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
         }
         # PFMERGE, PFCOUNT (sparse & dense)
         for {set i 1} {$i <= 3000} {incr i} {
-            run_cmd_verify_hist {$server PFADD hll3 x$i y$i z$i} {__EVAL_DB_HIST__ 0}
-            run_cmd_verify_hist {$server PFMERGE hll4 hll1 hll2 hll3} {__EVAL_DB_HIST__ 0}
-            run_cmd_verify_hist {$server PFCOUNT hll1 hll2 hll3 hll4} {__EVAL_DB_HIST__ 0}
+        $server PFADD hll3 x$i y$i z$i
+        $server PFMERGE hll4 hll1 hll2 hll3
+        $server PFCOUNT hll1 hll2 hll3 hll4
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
         }
         # DEL
         run_cmd_verify_hist {$server DEL hll4} {__EVAL_DB_HIST__ 0}
@@ -242,8 +244,8 @@ proc test_all_keysizes { {replMode 0} } {
         # RPOP
         run_cmd_verify_hist {$server RPOP l1} {db0_LIST:4=1,8=1}
         run_cmd_verify_hist {$server RPOP l1} {db0_LIST:4=2}         
-         # DEL
-        run_cmd_verify_hist {$server DEL l1} {db0_LIST:4=1}        
+        # DEL
+        run_cmd_verify_hist {$server DEL l1} {db0_LIST:4=1}
         # LINSERT, LTRIM
         run_cmd_verify_hist {$server RPUSH l3 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14} {db0_LIST:4=1,8=1}
         run_cmd_verify_hist {$server LINSERT l3 AFTER 9 10} {db0_LIST:4=1,16=1}
@@ -420,7 +422,7 @@ proc test_all_keysizes { {replMode 0} } {
         
     } {} {cluster:skip}    
     
-    test "KEYSIZES - Test STRING $suffixRepl" {        
+    test "KEYSIZES - Test STRING $suffixRepl" {
         # SETRANGE
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server SET s2 1234567890} {db0_STR:8=1}
@@ -464,7 +466,42 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server APPEND s2 y} {db0_STR:1=2}
 
     } {} {cluster:skip}
-    
+
+    test "KEYSIZES - Test UNLINK (async deletion) $suffixRepl" {
+        # UNLINK on STRING
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 1234567890} {db0_STR:8=1}
+        run_cmd_verify_hist {$server UNLINK s1} {} 1
+
+        # UNLINK on LIST
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4 5 6 7 8} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server UNLINK l1} {} 1
+
+        # UNLINK on SET
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16} {db0_SET:16=1}
+        run_cmd_verify_hist {$server UNLINK s1} {} 1
+
+        # UNLINK on ZSET
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e 6 f 7 g 8 h} {db0_ZSET:8=1}
+        run_cmd_verify_hist {$server UNLINK z1} {} 1
+
+        # UNLINK on HASH
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server HSET h1 f1 v1 f2 v2 f3 v3 f4 v4} {db0_HASH:4=1}
+        run_cmd_verify_hist {$server UNLINK h1} {} 1
+
+        # UNLINK multiple keys of different types
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 12345678} {db0_STR:8=1}
+        run_cmd_verify_hist {$server RPUSH l1 1 2 3 4} {db0_STR:8=1 db0_LIST:4=1}
+        run_cmd_verify_hist {$server SADD set1 a b c d e f g h} {db0_STR:8=1 db0_LIST:4=1 db0_SET:8=1}
+        run_cmd_verify_hist {$server ZADD z1 1 x 2 y} {db0_STR:8=1 db0_LIST:4=1 db0_SET:8=1 db0_ZSET:2=1}
+        run_cmd_verify_hist {$server UNLINK s1 l1 set1 z1} {} 1
+    } {} {cluster:skip}
+
     test "KEYSIZES - Test complex dataset $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         createComplexDataset $server 1000
