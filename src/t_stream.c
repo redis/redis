@@ -761,6 +761,27 @@ typedef struct {
 #define XNACK_FAIL   1  /* Keep delivery_count unchanged */
 #define XNACK_FATAL  2  /* Set delivery_count to LLONG_MAX (permanent failure) */
 
+/* Set the delivery attempts counter on a NACK entry.  When retrycount >= 0
+ * the counter is set to that explicit value; otherwise it is adjusted
+ * according to the XNACK mode (SILENT/FAIL/FATAL). */
+static void nackSetDeliveryCount(streamNACK *nack, int mode, long long retrycount) {
+    if (retrycount >= 0) {
+        nack->delivery_count = (uint64_t)retrycount;
+    } else {
+        switch (mode) {
+        case XNACK_SILENT:
+            if (nack->delivery_count > 0)
+                nack->delivery_count--;
+            break;
+        case XNACK_FAIL:
+            break;
+        case XNACK_FATAL:
+            nack->delivery_count = LLONG_MAX;
+            break;
+        }
+    }
+}
+
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
  * specifies that the trimming must be performed in a approximated way in
@@ -3256,8 +3277,8 @@ static void streamFreeCG(stream *s, streamCG *cg) {
     streamFreeNACKCtx ctx = {s, cg};
     raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, &ctx);
     
-    /* pel_time_head/tail should now be NULL after unlinking all NACKs */
-    serverAssert(cg->pel_time_head == NULL && cg->pel_time_tail == NULL);
+    /* pel_time_head/tail/pel_nack_tail should now be NULL after unlinking all NACKs */
+    serverAssert(cg->pel_time_head == NULL && cg->pel_time_tail == NULL && cg->pel_nack_tail == NULL);
     
     raxFreeWithCbAndContext(cg->consumers, streamFreeConsumerGeneric, s);
     size_t usable;
@@ -3870,30 +3891,10 @@ void xnackCommand(client *c) {
         int found = raxFind(group->pel,buf,sizeof(buf),&result);
         if (found) {
             streamNACK *nack = result;
-
-            /* Already unowned -- nothing to do. */
-            if (nack->consumer == NULL)
-                continue;
-
-            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            nack->consumer = NULL;
-
-            /* Set the delivery attempts counter if given, otherwise
-             * adjust based on the mode. */
-            if (retrycount >= 0) {
-                nack->delivery_count = (uint64_t)retrycount;
-            } else {
-                switch (mode) {
-                case XNACK_SILENT:
-                    if (nack->delivery_count > 0)
-                        nack->delivery_count--;
-                    break;
-                case XNACK_FAIL:
-                    break;
-                case XNACK_FATAL:
-                    nack->delivery_count = LLONG_MAX;
-                    break;
-                }
+            nackSetDeliveryCount(nack, mode, retrycount);
+            if (nack->consumer != NULL) {
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                nack->consumer = NULL;
             }
 
             /* Move to NACK zone: unlink from current position, insert at
@@ -3906,14 +3907,8 @@ void xnackCommand(client *c) {
             if (!streamEntryExists(s, &ids[j]))
                 continue;
             streamNACK *nack = streamCreateNACK(s, NULL, &ids[j]);
-
-            if (retrycount >= 0) {
-                nack->delivery_count = (uint64_t)retrycount;
-            } else {
-                nack->delivery_count = 0;
-                if (mode == XNACK_FATAL)
-                    nack->delivery_count = LLONG_MAX;
-            }
+            nack->delivery_count = 0;
+            nackSetDeliveryCount(nack, mode, retrycount);
 
             raxInsert(group->pel, buf, sizeof(buf), nack, NULL);
             pelListInsertNacked(group, nack);
