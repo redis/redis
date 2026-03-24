@@ -664,13 +664,11 @@ int string2d(const char *s, size_t slen, double *dp) {
     if (unlikely(slen == 0 ||
         isspace(((const char*)s)[0])))
         return 0;
-    *dp = fast_float_strtod_n(s, slen, &eptr);
+    *dp = fast_float_strtod(s, slen, &eptr);
     /* If `fast_float_strtod` didn't consume full input, try `strtod`
      * Given fast_float does not support hexadecimal strings representation */
     if (unlikely((size_t)(eptr - (char*)s) != slen)) {
-        char *fallback_eptr;
-        *dp = strtod(s, &fallback_eptr);
-        if ((size_t)(fallback_eptr - (char*)s) != slen) return 0;
+        return 0;
     }
     if (unlikely(errno == EINVAL ||
         (errno == ERANGE &&

@@ -40,14 +40,6 @@
 #include "fast_float_strtod.h"
 #include "config.h"
 
-#if __GNUC__ >= 3
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#else
-#define likely(x) (x)
-#define unlikely(x) (x)
-#endif
-
 /* Powers of 10 from 10^0 to 10^22 (exact in double precision).
  * These are the only powers of 10 that can be exactly represented as doubles. */
 static const double powers_of_ten[] = {
@@ -87,7 +79,7 @@ static int strncasecmp_local(const char *s1, const char *s2, size_t n) {
 /* Parse inf/nan special values.
  * Returns 1 if parsed successfully, 0 otherwise.
  * On success, *endptr points past the parsed value. */
-static inline int parse_infnan(const char *p, const char *pend, double *result, char **endptr) {
+static inline int parse_infnan(const char *p, const char *pend, double *result, const char **endptr) {
     int negative = (*p == '-');
     if (*p == '-' || *p == '+') p++;
     size_t remaining = pend - p;
@@ -169,40 +161,27 @@ static inline uint32_t parse_eight_digits_swar(uint64_t val) {
     return (uint32_t)val;
 }
 
-/* Parsed number structure */
-typedef struct {
-    uint64_t mantissa;      /* Mantissa digits as uint64 */
-    int64_t exponent;       /* Decimal exponent (adjusted for decimal point) */
-    int negative;           /* Sign flag */
-    int valid;              /* Parse success flag */
-    int too_many_digits;    /* More than 19 significant digits */
-    const char *lastmatch;  /* Position after last parsed character */
-} parsed_number_t;
-
 /* Parse a decimal number string into components.
  * This follows the fast_float algorithm closely. */
-static inline parsed_number_t parse_number_string(const char *p, const char *pend) {
-    parsed_number_t result;
-    result.mantissa = 0;
-    result.exponent = 0;
-    result.negative = 0;
-    result.valid = 0;
-    result.too_many_digits = 0;
-    result.lastmatch = p;
+static inline int parse_number_string(const char *p, const char *pend, double *result, const char **endptr) {
+    uint64_t mantissa = 0;  /* Mantissa digits as uint64 */
+    int64_t exponent = 0;   /* Decimal exponent (adjusted for decimal point) */
+    int negative = 0;       /* Sign flag */
+    *endptr = p;
 
-    if (p == pend) return result;
+    if (p == pend) return 0;
 
     /* Parse sign */
-    result.negative = (*p == '-');
+    negative = (*p == '-');
     if (*p == '-' || *p == '+') {
         p++;
-        if (p == pend) return result;
+        if (p == pend) return 0;
     }
 
     const char *start_digits = p;
 
     /* Parse integer part */
-    uint64_t mantissa = 0;
+    mantissa = 0;
     while (pend - p >= 8) {
         uint64_t val = read8_to_u64(p);
         if (!is_made_of_eight_digits(val)) break;
@@ -217,7 +196,7 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
     int64_t digit_count = p - start_digits;
 
     /* Parse decimal point and fractional part */
-    int64_t exponent = 0;
+    exponent = 0;
     int has_decimal = (p != pend && *p == '.');
 
     if (has_decimal) {
@@ -238,7 +217,7 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
     }
 
     /* Must have at least one digit */
-    if (digit_count == 0) return result;
+    if (digit_count == 0) return 0;
 
     /* Parse exponent */
     int64_t exp_number = 0;
@@ -269,8 +248,10 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
         }
     }
 
-    result.lastmatch = p;
-    result.valid = 1;
+    *endptr = p;
+    
+    /* If we have more characters left, it's not a valid number */
+    if (p != pend) return 0;
 
     /* Handle overflow in mantissa: if we have too many digits,
      * we need to reparse more carefully */
@@ -282,33 +263,24 @@ static inline parsed_number_t parse_number_string(const char *p, const char *pen
             s++;
         }
 
-        if (digit_count > MAX_DIGITS) result.too_many_digits = 1;
+        if (digit_count > MAX_DIGITS) return 0;
     }
 
-    result.mantissa = mantissa;
-    result.exponent = exponent;
-    return result;
-}
-
-/* Convert parsed number to double using fast path.
- * Returns 1 if fast path succeeded, 0 if fallback needed. */
-static inline int compute_float_fast(parsed_number_t *pns, double *result) {
     /* Check if we're within fast path bounds */
-    if (pns->too_many_digits) return 0;
-    if (pns->exponent < MIN_EXPONENT_FAST_PATH) return 0;
-    if (pns->exponent > MAX_EXPONENT_FAST_PATH) return 0;
-    if (pns->mantissa > MAX_MANTISSA_FAST_PATH) return 0;
-
+    if (exponent < MIN_EXPONENT_FAST_PATH) return 0;
+    if (exponent > MAX_EXPONENT_FAST_PATH) return 0;
+    if (mantissa > MAX_MANTISSA_FAST_PATH) return 0;
+    
     /* Fast path: direct conversion */
-    double value = (double)pns->mantissa;
+    double value = (double)mantissa;
 
-    if (pns->exponent < 0) {
-        value = value / powers_of_ten[-pns->exponent];
-    } else if (pns->exponent > 0) {
-        value = value * powers_of_ten[pns->exponent];
+    if (exponent < 0) {
+        value = value / powers_of_ten[-exponent];
+    } else if (exponent > 0) {
+        value = value * powers_of_ten[exponent];
     }
 
-    if (pns->negative) {
+    if (negative) {
         value = -value;
     }
 
@@ -329,7 +301,7 @@ static inline int compute_float_fast(parsed_number_t *pns, double *result) {
  * @return       The converted value as a double. If no valid conversion could
  *               be performed, returns 0.0.
  */
-static inline int fast_float_try_fast(const char *nptr, const char *pend, double *result, char **endptr) {
+static inline int fast_float_try_fast(const char *nptr, const char *pend, double *result, const char **endptr) {
     if (nptr == pend) {
         errno = EINVAL;
         if (endptr) *endptr = (char *)nptr;
@@ -337,16 +309,11 @@ static inline int fast_float_try_fast(const char *nptr, const char *pend, double
     }
 
     /* Parse the number string */
-    parsed_number_t pns = parse_number_string(nptr, pend);
-    if (pns.valid) {
-        /* Try fast path first */
-        if (compute_float_fast(&pns, result)) {
-            if (endptr) *endptr = (char *)pns.lastmatch;
-            return 1;
-        }
+    if (parse_number_string(nptr, pend, result, endptr)) {
+        return 1;
     }
 
-    /* Parse inf/nan special values */
+    /* Not a valid decimal number, try inf/nan special values */
     if (parse_infnan(nptr, pend, result, endptr)) {
         return 1;
     }
@@ -356,12 +323,15 @@ static inline int fast_float_try_fast(const char *nptr, const char *pend, double
 
 /* Convert string to double, with explicit length (string need NOT be null-terminated).
  * Falls back to strtod by copying to a temporary null-terminated buffer. */
-double fast_float_strtod_n(const char *nptr, size_t len, char **endptr) {
+double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     double result = 0.0;
+    const char *eptr;
 
     /* Use fast path for non-null-terminated strings */
-    if (likely(fast_float_try_fast(nptr, nptr + len, &result, endptr)))
+    if (fast_float_try_fast(nptr, nptr + len, &result, &eptr)) {
+        if (endptr) *endptr = (char *)eptr;
         return result;
+    }
     
     /* Fall back to strtod for complex cases. Since the input may not be
      * null-terminated, we must copy it into a temporary buffer. */
@@ -381,31 +351,6 @@ double fast_float_strtod_n(const char *nptr, size_t len, char **endptr) {
 
     /* If strtod failed to parse, set errno */
     if (fallback_end == buf) {
-        errno = EINVAL;
-    }
-
-    return result;
-}
-
-/* Convert null-terminated string to double (no length needed).
- * Falls back to strtod directly since the string is already null-terminated. */
-double fast_float_strtod(const char *nptr, char **endptr) {
-    double result = 0.0;
-
-    /* Use fast path for null-terminated strings */
-    if (fast_float_try_fast(nptr, nptr + strlen(nptr), &result, endptr))
-        return result;
-
-    /* Fall back to strtod for complex cases:
-     * - Very large or very small exponents
-     * - Too many digits (need precise rounding)
-     * This ensures we get correctly-rounded results for edge cases. */
-    char *fallback_end;
-    result = strtod(nptr, &fallback_end);
-    if (endptr) *endptr = fallback_end;
-
-    /* If strtod failed to parse, set errno */
-    if (fallback_end == nptr) {
         errno = EINVAL;
     }
 
