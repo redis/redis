@@ -119,7 +119,7 @@ jobs:
 
   summary-and-notify:
     needs: [extract-release-info, create-tarball, update-release-hashes]
-    if: always()
+    if: always() && github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     steps:
       - name: Summary
