@@ -102,7 +102,7 @@ jobs:
 
   upload-tarball:
     needs: [extract-release-info, test-release-tarball, approval-gate]
-    if: needs.test-release-tarball.result == 'success' && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
+    if: always() && !cancelled() && needs.test-release-tarball.result == 'success' && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Upload tarball
