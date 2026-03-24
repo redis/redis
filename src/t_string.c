@@ -627,7 +627,7 @@ void setrangeCommand(client *c) {
         kv = dbUnshareStringValueByLink(c->db, c->argv[1], kv, link);
 
         newLen = max(oldLen, (int64_t) (offset + value_len));
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, newLen);            
+        updateKeysizesHist(c->db, OBJ_STRING, oldLen, newLen);            
     }
 
     if (value_len > 0) {
@@ -844,8 +844,7 @@ void incrDecrCommand(client *c, long long incr) {
     {
         new = o;
         o->ptr = (void*)((long)value);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr),
-                           OBJ_STRING,
+        updateKeysizesHist(c->db, OBJ_STRING,
                            (int64_t) sdigits10(oldvalue),
                            (int64_t) sdigits10(value));
     } else {
@@ -958,7 +957,7 @@ void appendCommand(client *c) {
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, totlen);
+        updateKeysizesHist(c->db, OBJ_STRING, oldlen, totlen);
     }
     keyModified(c,c->db,c->argv[1],o,1);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
