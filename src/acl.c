@@ -2754,6 +2754,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     
     if (server.acllog_max_len == 0) {
         trimACLLogEntriesToMaxLen();
+        if (object) sdsfree(object); /* Honor ownership contract on early return. */
         return;
     }
     
