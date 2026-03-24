@@ -251,9 +251,6 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
 
     *endptr = p;
     
-    /* If we have more characters left, it's not a valid number */
-    if (p != pend) return 0;
-
     /* Handle overflow in mantissa: if we have too many digits,
      * we need to reparse more carefully */
     if (digit_count > MAX_DIGITS) {
@@ -310,32 +307,20 @@ static inline int fast_float_try_fast(const char *nptr, const char *pend, double
     }
 
     /* Parse the number string */
-    if (parse_number_string(nptr, pend, result, endptr)) {
+    if (parse_number_string(nptr, pend, result, endptr) && *endptr == pend) {
         return 1;
     }
 
     /* Not a valid decimal number, try inf/nan special values */
-    if (parse_infnan(nptr, pend, result, endptr)) {
+    if (parse_infnan(nptr, pend, result, endptr) && *endptr == pend) {
         return 1;
     }
 
     return 0;
 }
 
-/* Convert string to double, with explicit length (string need NOT be null-terminated).
- * Falls back to strtod by copying to a temporary null-terminated buffer. */
-double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
-    double result = 0.0;
-    const char *eptr;
-
-    /* Use fast path for non-null-terminated strings */
-    if (fast_float_try_fast(nptr, nptr + len, &result, &eptr)) {
-        if (endptr) *endptr = (char *)eptr;
-        return result;
-    }
-    
-    /* Fall back to strtod for complex cases. Since the input may not be
-     * null-terminated, we must copy it into a temporary buffer. */
+static double fast_float_strtod_fallback(const char *nptr, size_t len, char **endptr) {
+    /* Since the input may not be null-terminated, we must copy it into a temporary buffer. */
     char static_buf[128];
     char *buf = static_buf;
     if (len >= sizeof(static_buf))
@@ -343,12 +328,8 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     memcpy(buf, nptr, len);
     buf[len] = '\0';
 
-    /* Fall back to strtod for complex cases:
-     * - Very large or very small exponents
-     * - Too many digits (need precise rounding)
-     * This ensures we get correctly-rounded results for edge cases. */
     char *fallback_end;
-    result = strtod(buf, &fallback_end);
+    double result = strtod(buf, &fallback_end);
     if (endptr) *endptr = (char *)nptr + (fallback_end - buf);
 
     /* If strtod failed to parse, set errno */
@@ -358,4 +339,23 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
 
     if (buf != static_buf) zfree(buf);
     return result;
+}
+
+/* Convert string to double, with explicit length (string need NOT be null-terminated).
+ * Falls back to strtod by copying to a temporary null-terminated buffer. */
+double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
+    double result = 0.0;
+    const char *eptr;
+
+    /* Use fast path for non-null-terminated strings */
+    if (likely(fast_float_try_fast(nptr, nptr + len, &result, &eptr))) {
+        if (endptr) *endptr = (char *)eptr;
+        return result;
+    }
+    
+    /* Fall back to strtod for complex cases:
+     * - Very large or very small exponents
+     * - Too many digits (need precise rounding)
+     * This ensures we get correctly-rounded results for edge cases. */
+    return fast_float_strtod_fallback(nptr, len, endptr);
 }
