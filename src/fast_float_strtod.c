@@ -418,7 +418,7 @@ int fastFloatTest(int argc, char **argv, int flags) {
     ff_testcase inf_invalid[] = {
         {"in", 0, 1},
         {"infin", INFINITY, 1},
-        {"infinit", INFINITY, 1},
+        {"infini1", INFINITY, 1},
         {"infinitx", INFINITY, 1},
         {"infinityy", INFINITY, 1},
         {"info", INFINITY, 1},
