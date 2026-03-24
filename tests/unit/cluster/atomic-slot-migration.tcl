@@ -571,11 +571,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         R 0 flushall
         R 0 debug asm-trim-method none
-        populate_slot 10000 -idx 0 -slot 0
+        populate_slot 1000 -idx 0 -slot 0
 
         R 1 flushall
         R 1 debug asm-trim-method none
-        populate_slot 10000 -idx 1 -slot 6000
+        populate_slot 1000 -idx 1 -slot 6000
 
         # Start write traffic on node-0
         # Throws -MOVED error once asm is completed, catch block will ignore it.
@@ -1590,7 +1590,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
         R 0 flushall
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 1000]
         after 1000 ;# wait some time so that some keys are moved
 
         # Fail the migration
@@ -1598,8 +1598,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
 
         # Verify the data is not migrated
-        assert_equal 10000 [R 0 dbsize]
-        assert_equal 10000 [R 3 dbsize]
+        assert_equal 1000 [R 0 dbsize]
+        assert_equal 1000 [R 3 dbsize]
 
         # Verify the keys are trimmed lazily after a failed import on dest side.
         wait_for_condition 1000 20 {
@@ -1704,7 +1704,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
         R 0 flushall
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 1000]
         after 1000 ;# wait some time so that some keys are moved
 
         # Trigger a failover with force to simulate unreachable master and
@@ -1733,7 +1733,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
         R 0 flushall
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 1000]
 
         # Pause will cancel the task and there will be a pending trim job
         # until writes are allowed again.
@@ -1953,9 +1953,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set repl-diskless-sync-delay 0
         R 0 flushall
 
-        populate_slot 5000 -idx 0 -slot 0
-        populate_slot 5000 -idx 0 -slot 1
-        populate_slot 5000 -idx 0 -slot 2
+        populate_slot 500 -idx 0 -slot 0
+        populate_slot 500 -idx 0 -slot 1
+        populate_slot 500 -idx 0 -slot 2
 
         # Start migration and wait until trim is in progress
         R 1 CLUSTER MIGRATION IMPORT 0 1
@@ -1972,13 +1972,13 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Trigger save during active trim
         R 0 save
         # Wait until the log contains a "keys skipped" message with a non-zero value
-        wait_for_log_messages 0 {"*BGSAVE done, 5000 keys saved, [1-9]* keys skipped*"} 0 1000 10
+        wait_for_log_messages 0 {"*BGSAVE done, 500 keys saved, [1-9]* keys skipped*"} 0 1000 10
 
         restart_server 0 yes no yes nosave
-        assert_equal 5000 [R 0 dbsize]
+        assert_equal 500 [R 0 dbsize]
         assert_equal 0 [R 0 cluster countkeysinslot 0]
         assert_equal 0 [R 0 cluster countkeysinslot 1]
-        assert_equal 5000 [R 0 cluster countkeysinslot 2]
+        assert_equal 500 [R 0 cluster countkeysinslot 2]
 
         # Cleanup
         wait_for_cluster_propagation
@@ -1997,9 +1997,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set appendonly yes
         R 0 config rewrite
         R 0 flushall
-        populate_slot 5000 -idx 0 -slot 0
-        populate_slot 5000 -idx 0 -slot 1
-        populate_slot 5000 -idx 0 -slot 2
+        populate_slot 500 -idx 0 -slot 0
+        populate_slot 500 -idx 0 -slot 1
+        populate_slot 500 -idx 0 -slot 2
 
         R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
@@ -2022,10 +2022,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_log_messages 0 {"*AOF rewrite done, [1-9]* keys saved, [1-9]* keys skipped*"} 0 1000 10
 
         restart_server 0 yes no yes nosave
-        assert_equal 5000 [R 0 dbsize]
+        assert_equal 500 [R 0 dbsize]
         assert_equal 0 [R 0 cluster countkeysinslot 0]
         assert_equal 0 [R 0 cluster countkeysinslot 1]
-        assert_equal 5000 [R 0 cluster countkeysinslot 2]
+        assert_equal 500 [R 0 cluster countkeysinslot 2]
 
         # cleanup
         R 0 config set appendonly no
@@ -2044,7 +2044,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 debug asm-trim-method active 1000
         R 0 config set repl-diskless-sync-delay 0
         R 0 flushall
-        populate_slot 10000 -idx 0 -slot 0
+        populate_slot 1000 -idx 0 -slot 0
 
         R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_condition 1000 10 {
@@ -2071,7 +2071,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # revert
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
-        assert_equal 10000 [R 0 dbsize]
+        assert_equal 1000 [R 0 dbsize]
     }
 
     foreach diskless_load {"disabled" "swapdb" "on-empty-db"} {
@@ -2081,7 +2081,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 flushall
 
             R 0 config set repl-diskless-sync-delay 0
-            populate_slot 10000 -idx 0 -slot 0
+            populate_slot 1000 -idx 0 -slot 0
 
             R 1 CLUSTER MIGRATION IMPORT 0 0
             wait_for_condition 1000 10 {
@@ -2115,8 +2115,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 CLUSTER MIGRATION IMPORT 0 0
             wait_for_asm_done
             wait_for_ofs_sync [Rn 0] [Rn 3]
-            assert_equal 10001 [R 0 dbsize]
-            assert_equal 10001 [R 3 dbsize]
+            assert_equal 1001 [R 0 dbsize]
+            assert_equal 1001 [R 3 dbsize]
             assert_equal 0 [R 1 dbsize]
             assert_equal 0 [R 4 dbsize]
             R 0 flushall
@@ -2126,7 +2126,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     test "Test importing slots while active-trim is in progress for the same slots on replica" {
        R 3 debug asm-trim-method active 10000
        R 0 flushall
-       populate_slot 10000 -slot 0
+       populate_slot 1000 -slot 0
        wait_for_ofs_sync [Rn 0] [Rn 3]
 
        # Wait until active trim is in progress on replica
@@ -2161,8 +2161,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
        wait_for_asm_done
        wait_for_ofs_sync [Rn 0] [Rn 3]
-       assert_equal 10000 [R 0 dbsize]
-       assert_equal 10000 [R 3 dbsize]
+       assert_equal 1000 [R 0 dbsize]
+       assert_equal 1000 [R 3 dbsize]
        assert_equal 0 [R 1 dbsize]
        assert_equal 0 [R 4 dbsize]
     }
