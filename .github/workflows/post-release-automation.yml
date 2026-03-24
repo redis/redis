@@ -38,6 +38,8 @@ jobs:
   create-tarball:
     needs: extract-release-info
     runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
     outputs:
       sha256: ${{ steps.checksum.outputs.sha256 }}
       size_mb: ${{ steps.size.outputs.size_mb }}
@@ -46,18 +48,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.extract-release-info.outputs.tag_name }}
+          ref: ${{ env.TAG_NAME }}
           fetch-depth: 0
 
       - name: Create tarball
-        env:
-          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
         run: ./utils/releasetools/01_create_tarball.sh "$TAG_NAME"
 
       - name: Verify tarball size
         id: size
-        env:
-          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
         run: |
           TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
@@ -72,8 +70,6 @@ jobs:
 
       - name: Calculate SHA256 checksum
         id: checksum
-        env:
-          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
         run: |
           TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
           SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
@@ -83,8 +79,8 @@ jobs:
       - name: Upload tarball as artifact
         uses: actions/upload-artifact@v6
         with:
-          name: redis-${{ needs.extract-release-info.outputs.tag_name }}-tarball
-          path: /tmp/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz
+          name: redis-${{ env.TAG_NAME }}-tarball
+          path: /tmp/redis-${{ env.TAG_NAME }}.tar.gz
           compression-level: 0
 
   approval-gate:
@@ -138,14 +134,14 @@ jobs:
     needs: [extract-release-info, create-tarball, update-release-hashes]
     if: always() && github.repository == 'redis/redis'
     runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
+      RELEASE_TYPE: ${{ needs.extract-release-info.outputs.release_type }}
+      SHA256: ${{ needs.create-tarball.outputs.sha256 }}
+      SIZE_MB: ${{ needs.create-tarball.outputs.size_mb }}
+      SIZE_WARNING: ${{ needs.create-tarball.outputs.size_warning }}
     steps:
       - name: Summary
-        env:
-          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
-          RELEASE_TYPE: ${{ needs.extract-release-info.outputs.release_type }}
-          SHA256: ${{ needs.create-tarball.outputs.sha256 }}
-          SIZE_MB: ${{ needs.create-tarball.outputs.size_mb }}
-          SIZE_WARNING: ${{ needs.create-tarball.outputs.size_warning }}
         run: |
           {
             echo "## Post-Release Automation Summary"
