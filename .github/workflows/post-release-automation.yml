@@ -90,7 +90,10 @@ jobs:
     steps:
       - name: Approval gate
         run: |
-          echo "TODO: Implement approval gate"
+          echo "Latest release detected. Manual approval required for production deployment."
+          # TODO: Implement approval workflow
+          # This could use GitHub Environments with required reviewers
+          # or a manual approval step
 
   upload-tarball:
     needs: [extract-release-info, create-tarball, approval-gate]
@@ -100,6 +103,9 @@ jobs:
       - name: Upload tarball
         run: |
           echo "TODO: Implement tarball upload"
+          # This will require:
+          # - SSH credentials/keys for upload to download.redis.io
+          # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
 
   test-release-tarball:
     needs: upload-tarball
@@ -107,7 +113,11 @@ jobs:
     steps:
       - name: Test release tarball
         run: |
-          echo "TODO: Implement release testing"
+          echo "TODO: Implement release testing using utils/releasetools/03_test_release.sh"
+          # This will:
+          # - Download the uploaded tarball
+          # - Extract and build Redis
+          # - Run test suites
 
   update-release-hashes:
     needs: test-release-tarball
@@ -115,7 +125,10 @@ jobs:
     steps:
       - name: Update release hashes
         run: |
-          echo "TODO: Implement hash update"
+          echo "TODO: Implement hash update using utils/releasetools/04_release_hash.sh"
+          # This will require:
+          # - Access to redis-hashes repository
+          # - Git credentials for committing and pushing
 
   summary-and-notify:
     needs: [extract-release-info, create-tarball, update-release-hashes]
@@ -141,3 +154,7 @@ jobs:
       - name: Send Slack notification
         run: |
           echo "TODO: Implement Slack notification"
+          # This will require:
+          # - Slack webhook URL or bot token (stored in secrets)
+          # - Determine appropriate channel (e.g., #releases, #redis-releases)
+          # - Craft message with release information and workflow status
