@@ -358,7 +358,6 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     return fast_float_strtod_fallback(nptr, len, endptr);
 }
 
-#define REDIS_TEST
 #ifdef REDIS_TEST
 #include <stdio.h>
 #include "testhelp.h"
