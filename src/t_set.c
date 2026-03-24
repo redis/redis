@@ -1909,16 +1909,17 @@ void sunioncardCommand(client *c) {
 
         robj *hllobj = createHLLObject();
 
-        setTypeIterator si;
-        char *str;
-        size_t len = 0;
-        int64_t llval = 0;
-        int encoding;
         long elements_processed = 0;
         int early_exit = 0;
 
         for (j = 0; j < numkeys && !early_exit; j++) {
             if (!sets[j].set) continue;
+
+            setTypeIterator si;
+            char *str;
+            size_t len = 0;
+            int64_t llval = 0;
+            int encoding;
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
