@@ -83,16 +83,8 @@ jobs:
           path: /tmp/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz
           compression-level: 0
 
-  test-release-tarball:
-    needs: create-tarball
-    runs-on: ubuntu-latest
-    steps:
-      - name: Test release tarball
-        run: |
-          echo "TODO: Implement release testing"
-
   approval-gate:
-    needs: [extract-release-info, test-release-tarball]
+    needs: [extract-release-info, create-tarball]
     if: needs.extract-release-info.outputs.release_type == 'latest'
     runs-on: ubuntu-latest
     steps:
@@ -101,16 +93,24 @@ jobs:
           echo "TODO: Implement approval gate"
 
   upload-tarball:
-    needs: [extract-release-info, test-release-tarball, approval-gate]
-    if: always() && !cancelled() && needs.test-release-tarball.result == 'success' && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
+    needs: [extract-release-info, create-tarball, approval-gate]
+    if: always() && !cancelled() && needs.create-tarball.result == 'success' && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Upload tarball
         run: |
           echo "TODO: Implement tarball upload"
 
-  update-release-hashes:
+  test-release-tarball:
     needs: upload-tarball
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test release tarball
+        run: |
+          echo "TODO: Implement release testing"
+
+  update-release-hashes:
+    needs: test-release-tarball
     runs-on: ubuntu-latest
     steps:
       - name: Update release hashes
