@@ -24,7 +24,7 @@ FULL_VARIANT := $(OS)-$(ARCH)-release
 all: $(TARGET_MODULE)
 
 $(TARGET_MODULE): get_source
-	$(MAKE) -C $(SRC_DIR)
+	$(MAKE) -C $(SRC_DIR) $(MODULE_BUILD_ARGS)
 	cp ${TARGET_MODULE} ./
 
 get_source: $(SRC_DIR)/.prepared
