@@ -1329,3 +1329,84 @@ start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl e
     }
 }
 
+start_server {tags {acl external:skip}} {
+    test {ACL SETUSER expireat sets an expiry} {
+        r ACL SETUSER exptest on nopass +acl
+        set future [expr {[clock seconds] + 3600}]
+        r ACL SETUSER exptest expireat $future
+        set info [r ACL GETUSER exptest]
+        assert_equal [dict get $info expire] [expr {$future * 1000}]
+        r ACL DELUSER exptest
+    }
+
+    test {ACL GETUSER returns nil expire when no expiry set} {
+        r ACL SETUSER noexptest on nopass +acl
+        set info [r ACL GETUSER noexptest]
+        assert_equal [dict get $info expire] {}
+        r ACL DELUSER noexptest
+    }
+
+    test {ACL LIST includes expireat token for users with expiry} {
+        set future [expr {[clock seconds] + 3600}]
+        r ACL SETUSER listexptest on nopass expireat $future
+        set acllist [r ACL LIST]
+        set found 0
+        foreach entry $acllist {
+            if {[string match "*listexptest*" $entry]} {
+                assert_match "*expireat $future*" $entry
+                set found 1
+            }
+        }
+        assert_equal $found 1
+        r ACL DELUSER listexptest
+    }
+
+    test {Expired user cannot authenticate} {
+        set past [expr {[clock seconds] - 1}]
+        r ACL SETUSER expireduser on >password +acl expireat $past
+        catch {r AUTH expireduser password} err
+        assert_match {*WRONGPASS*} $err
+        r ACL DELUSER expireduser
+    }
+
+    test {persist removes expiry} {
+        set future [expr {[clock seconds] + 3600}]
+        r ACL SETUSER persisttest on nopass expireat $future
+        r ACL SETUSER persisttest persist
+        set info [r ACL GETUSER persisttest]
+        assert_equal [dict get $info expire] {}
+        r ACL DELUSER persisttest
+    }
+
+    test {reset clears expiry} {
+        set future [expr {[clock seconds] + 3600}]
+        r ACL SETUSER resettest on nopass expireat $future
+        r ACL SETUSER resettest reset
+        set info [r ACL GETUSER resettest]
+        assert_equal [dict get $info expire] {}
+        r ACL DELUSER resettest
+    }
+
+    test {expireat with invalid timestamp returns error} {
+        catch {r ACL SETUSER errtest expireat notanumber} err
+        assert_match {*ERR*} $err
+        catch {r ACL GETUSER errtest} _
+        r ACL DELUSER errtest
+    }
+
+    test {Active connections are killed when user expires} {
+        set future [expr {[clock seconds] + 1}]
+        r ACL SETUSER killtest on >pw allcommands allkeys expireat $future
+        set rd [redis_deferring_client]
+        assert_equal [$rd read] {} ;# consume the initial connect response if any
+        $rd AUTH killtest pw
+        assert_equal [$rd read] "OK"
+        # Wait for expiry and cron to fire
+        after 2100
+        catch {$rd PING} err
+        $rd close
+        assert_match {*err*} [string tolower $err]
+        r ACL DELUSER killtest
+    }
+}
+

@@ -1339,6 +1339,7 @@ typedef struct {
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
     robj *acl_string; /* cached string represent of ACLs */
+    mstime_t acl_expire; /* Expiry unix time in milliseconds. 0 = no expiry. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -3521,6 +3522,7 @@ void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser(void);
 void ACLFreeUserAndKillClients(user *u);
+void ACLExpiredUsersCycle(void);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
 sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);

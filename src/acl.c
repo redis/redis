@@ -431,6 +431,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
 
+    u->acl_expire = 0;
     u->selectors = listCreate();
     listSetFreeMethod(u->selectors,ACLListFreeSelector);
     listSetDupMethod(u->selectors,ACLListDuplicateSelector);
@@ -500,6 +501,25 @@ void ACLFreeUserAndKillClients(user *u) {
     ACLFreeUser(u);
 }
 
+/* Scan all users and kill active connections that belong to expired users.
+ * Called from serverCron once per second. The user struct is NOT removed —
+ * the admin can inspect or reactivate it. New AUTH attempts are already
+ * blocked by ACLCheckUserCredentials(). */
+void ACLExpiredUsersCycle(void) {
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        user *u = c->user;
+        if (u == NULL || u->acl_expire == 0 || server.mstime < u->acl_expire) continue;
+        addACLLogEntry(c,ACL_DENIED_AUTH,
+                       ACL_LOG_CTX_TOPLEVEL,0,
+                       u->name,sdsnew("User ACL expired"));
+        deauthenticateAndCloseClient(c);
+    }
+}
+
 /* Copy the user ACL rules from the source user 'src' to the destination
  * user 'dst' so that at the end of the process they'll have exactly the
  * same rules (but the names will continue to be the original ones). */
@@ -509,6 +529,7 @@ void ACLCopyUser(user *dst, user *src) {
     dst->passwords = listDup(src->passwords);
     dst->selectors = listDup(src->selectors);
     dst->flags = src->flags;
+    dst->acl_expire = src->acl_expire;
     if (dst->acl_string) {
         decrRefCount(dst->acl_string);
     }
@@ -869,6 +890,11 @@ robj *ACLDescribeUser(user *u) {
             res = sdscat(res,ACLUserFlags[j].name);
             res = sdscatlen(res," ",1);
         }
+    }
+
+    /* Expiry */
+    if (u->acl_expire != 0) {
+        res = sdscatfmt(res,"expireat %I ", (long long)(u->acl_expire / 1000));
     }
 
     /* Passwords. */
@@ -1370,6 +1396,23 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"clearselectors",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"persist",-1) == C_OK);
+    } else if (!strncasecmp(op,"expireat ",9)) {
+        /* Syntax: expireat <unix-seconds-timestamp>.
+         * Setting a past timestamp is valid and takes effect immediately. */
+        long long ts_sec;
+        if (string2ll(op+9,strlen(op+9),&ts_sec) == 0 || ts_sec <= 0) {
+            errno = EINVAL;
+            return C_ERR;
+        }
+        /* Guard against signed overflow: ts_sec * 1000 must fit in mstime_t. */
+        if (ts_sec > LLONG_MAX / 1000) {
+            errno = EINVAL;
+            return C_ERR;
+        }
+        u->acl_expire = ts_sec * 1000LL;
+    } else if (!strcasecmp(op,"persist")) {
+        u->acl_expire = 0;
     } else {
         aclSelector *selector = ACLUserGetRootSelector(u);
         if (ACLSetSelector(selector, op, oplen) == C_ERR) {
@@ -1447,6 +1490,12 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
 
     /* Disabled users can't login. */
     if (u->flags & USER_FLAG_DISABLED) {
+        errno = EINVAL;
+        return C_ERR;
+    }
+
+    /* Expired users can't login. */
+    if (u->acl_expire != 0 && server.mstime >= u->acl_expire) {
         errno = EINVAL;
         return C_ERR;
     }
@@ -2083,6 +2132,15 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
                 acl_args[*merged_argc] = selector;                        
                 (*merged_argc)++;
             }
+            continue;
+        }
+
+        /* Join "expireat <timestamp>" into a single token, symmetric to
+         * the "(selector ...)" merging above. */
+        if (!strcasecmp(op, "expireat") && j + 1 < argc) {
+            acl_args[*merged_argc] = sdscatfmt(sdsdup(argv[j]), " %s", argv[j+1]);
+            (*merged_argc)++;
+            j++;
             continue;
         }
 
@@ -2962,6 +3020,15 @@ void aclCommand(client *c) {
             sds thispass = listNodeValue(ln);
             addReplyBulkCBuffer(c,thispass,sdslen(thispass));
         }
+        /* Expiry: millisecond timestamp, or nil if no expiry. */
+        addReplyBulkCString(c,"expire");
+        if (u->acl_expire != 0) {
+            addReplyLongLong(c,u->acl_expire);
+        } else {
+            addReplyNull(c);
+        }
+        fields++;
+
         /* Include the root selector at the top level for backwards compatibility */
         fields += aclAddReplySelectorDescription(c, ACLUserGetRootSelector(u));
 
