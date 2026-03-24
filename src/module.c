@@ -303,6 +303,9 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
+/* Function pointer type for keyspace event notifications with subkeys from modules. */
+typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
+
 /* Function pointer type for post jobs */
 typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
 
@@ -313,6 +316,8 @@ typedef struct RedisModuleKeyspaceSubscriber {
     RedisModule *module;
     /* Notification callback in the module*/
     RedisModuleNotificationFunc notify_callback;
+    /* Extended notification callback with subkeys */
+    RedisModuleNotificationWithSubkeysFunc notify_callback_with_subkeys;
     /* A bit mask of the events the module is interested in */
     int event_mask;
     /* Active flag set on entry, to avoid reentrant subscribers
@@ -9238,6 +9243,7 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->module = ctx->module;
     sub->event_mask = types;
     sub->notify_callback = callback;
+    sub->notify_callback_with_subkeys = NULL;
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
@@ -9268,6 +9274,73 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
     while ((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         if (sub->event_mask == types && sub->notify_callback == callback && sub->module == ctx->module) {
+            zfree(sub);
+            listDelNode(moduleKeyspaceSubscribers, ln);
+            removed++;
+        }
+    }
+    return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Subscribe to keyspace notifications with subkey information.
+ *
+ * This is the extended version of RM_SubscribeToKeyspaceEvents. The callback
+ * receives all events (including those without subkeys), and when subkeys are
+ * available they are passed along. When no subkeys are present, subkeys will
+ * be NULL and count will be 0.
+ *
+ * A module only needs to register this callback to receive all events —
+ * there is no need to also call RM_SubscribeToKeyspaceEvents.
+ *
+ * 'types' is a bit mask of event types the module is interested in
+ * (using the same REDISMODULE_NOTIFY_* flags as RM_SubscribeToKeyspaceEvents).
+ *
+ * The callback signature is:
+ *   void callback(RedisModuleCtx *ctx, int type, const char *event,
+ *                 RedisModuleString *key, RedisModuleString **subkeys, int count);
+ *
+ * The subkeys array and its contents are only valid during the callback.
+ * The underlying objects may be stack-allocated or temporary, so
+ * RM_RetainString must NOT be used on them. To keep a subkey beyond
+ * the callback (e.g. in a RM_AddPostNotificationJob callback), use
+ * RM_CreateStringFromString to make a deep copy before returning. */
+int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, RedisModuleNotificationWithSubkeysFunc callback) {
+    RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
+    sub->module = ctx->module;
+    sub->event_mask = types;
+    sub->notify_callback = NULL;
+    sub->notify_callback_with_subkeys = callback;
+    sub->active = 0;
+
+    listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    return REDISMODULE_OK;
+}
+
+/* Unregister a module's callback from keyspace notifications with subkeys
+ * for specific event types.
+ *
+ * This function removes a previously registered subscription identified by
+ * both the event mask and the callback function.
+ *
+ * Parameters:
+ *  - ctx: The RedisModuleCtx associated with the calling module.
+ *  - types: The event mask representing the notification types to unsubscribe from.
+ *  - callback: The callback function pointer that was originally registered.
+ *
+ * Returns:
+ *  - REDISMODULE_OK on successful removal of the subscription.
+ *  - REDISMODULE_ERR if no matching subscription was found. */
+int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, RedisModuleNotificationWithSubkeysFunc callback) {
+    if (!ctx || !callback) return REDISMODULE_ERR;
+    int removed = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    while ((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
+        if (sub->event_mask == types && sub->notify_callback_with_subkeys == callback &&
+            sub->module == ctx->module)
+        {
             zfree(sub);
             listDelNode(moduleKeyspaceSubscribers, ln);
             removed++;
@@ -9359,10 +9432,29 @@ int RM_NotifyKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, Red
     return REDISMODULE_OK;
 }
 
+/* Like RM_NotifyKeyspaceEvent, but also triggers subkey-level notifications
+ * when subkeys are provided. Both key-level (keyspace/keyevent) and
+ * subkey-level (subkeyspace/subkeyevent/subkeyspaceitem/subkeyspaceevent)
+ * channels are published to, depending on the server configuration.
+ *
+ * This is the extended version of RM_NotifyKeyspaceEvent and can actually
+ * replace it. When called with subkeys=NULL and count=0, it behaves
+ * identically to RM_NotifyKeyspaceEvent. */
+int RM_NotifyKeyspaceEventWithSubkeys(RedisModuleCtx *ctx, int type, const char *event,
+                                      RedisModuleString *key, RedisModuleString **subkeys, int count) {
+    if (!ctx || !ctx->client)
+        return REDISMODULE_ERR;
+    notifyKeyspaceEventWithSubkeys(type, (char *)event, key, ctx->client->db->id, (robj **)subkeys, count);
+    return REDISMODULE_OK;
+}
+
 /* Dispatcher for keyspace notifications to module subscriber functions.
- * This gets called  only if at least one module requested to be notified on
- * keyspace notifications */
-void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
+ * This gets called only if at least one module requested to be notified on
+ * keyspace notifications. For each subscriber, if notify_callback is set it
+ * is called; otherwise if notify_callback_with_subkeys is set it is called
+ * for all events (subkeys may be NULL/0 when not applicable). */
+void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
+                               robj **subkeys, int count) {
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
 
@@ -9390,7 +9482,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     listRewind(moduleKeyspaceSubscribers,&li);
 
     /* Remove irrelevant flags from the type mask */
-    type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE);
+    type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE |
+              NOTIFY_SUBKEYSPACE | NOTIFY_SUBKEYEVENT |
+              NOTIFY_SUBKEYSPACEITEM | NOTIFY_SUBKEYSPACEEVENT);
 
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
@@ -9409,7 +9503,11 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             sub->active = 1;
             server.allow_access_expired++;
             server.allow_access_trimmed++;
-            sub->notify_callback(&ctx, type, event, key);
+            if (sub->notify_callback) {
+                sub->notify_callback(&ctx, type, event, key);
+            } else if (sub->notify_callback_with_subkeys) {
+                sub->notify_callback_with_subkeys(&ctx, type, event, key, subkeys, count);
+            }
             server.allow_access_expired--;
             server.allow_access_trimmed--;
             sub->active = prev_active;
@@ -15384,9 +15482,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
     REGISTER_API(NotifyKeyspaceEvent);
+    REGISTER_API(NotifyKeyspaceEventWithSubkeys);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
     REGISTER_API(UnsubscribeFromKeyspaceEvents);
+    REGISTER_API(SubscribeToKeyspaceEventsWithSubkeys);
+    REGISTER_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
     REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);

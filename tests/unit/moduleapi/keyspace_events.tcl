@@ -116,12 +116,96 @@ tags "modules external:skip" {
             assert_equal [r get testkeyspace:expired] 1
         }
 
+        test "Subkey notification: HSET triggers module subkey callback" {
+            r keyspace.reset_subkey_events
+            r hset myhash f1 v1 f2 v2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r keyspace.reset_subkey_events
+        }
+
+        test "Subkey notification: HDEL triggers module subkey callback" {
+            r hset myhash f1 v1 f2 v2
+            r keyspace.reset_subkey_events
+            r hdel myhash f1
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 1 f1" [lindex $events 0]
+            r del myhash
+            r keyspace.reset_subkey_events
+        }
+
+        test "Subkey notification: non-subkey event calls subkey callback with count=0" {
+            r hset myhash f1 v1
+            r keyspace.reset_subkey_events
+            r del myhash
+            set events [r keyspace.get_subkey_events]
+            # DEL is NOTIFY_GENERIC — our callback is registered for
+            # HASH|GENERIC, so it should be called with subkeys=NULL, count=0.
+            assert_equal 1 [llength $events]
+            assert_equal "del myhash 0" [lindex $events 0]
+            r keyspace.reset_subkey_events
+        }
+
+        test "Subkey notification: module-triggered NotifyKeyspaceEventWithSubkeys" {
+            r keyspace.reset_subkey_events
+            r keyspace.notify_with_subkeys mykey sk1 sk2 sk3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "module_subkey_event mykey 3 sk1 sk2 sk3" [lindex $events 0]
+            r keyspace.reset_subkey_events
+        }
+
+        test "Subkey notification: unsubscribe stops callback" {
+            r keyspace.reset_subkey_events
+            r hset myhash f1 v1
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+
+            r keyspace.unsubscribe_subkeys
+            r keyspace.reset_subkey_events
+            r hset myhash f2 v2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 0 [llength $events]
+            r del myhash
+        }
+
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }
 
         test "Verify RM_StringDMA with expiration are not causing invalid memory access" {
             assert_equal {OK} [r set x 1 EX 1]
+        }
+    }
+
+    # Replication test: replica module receives subkey notifications
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            set replica [srv 0 client]
+
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            test "Subkey notification: replica module receives subkey callback after replication" {
+                $replica keyspace.reset_subkey_events
+
+                $master hset myhash f1 v1 f2 v2
+
+                wait_for_ofs_sync $master $replica
+
+                set events [$replica keyspace.get_subkey_events]
+                assert_equal 1 [llength $events]
+                assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
+
+                $master del myhash
+            }
         }
     }
 
