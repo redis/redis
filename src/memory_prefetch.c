@@ -433,11 +433,17 @@ void prefetchCommands(void) {
 void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys,
                       PrefetchGetValueDataFunc get_val_data)
 {
-    if (nkeys <= 1) return;  /* No benefit from prefetching a single key. */
+    if (nkeys <= 1) return;  /* Single-key prefetch has no benefit — nothing
+                              * to interleave with.  Tail batches of 1 key in
+                              * callers like mgetCommand simply skip prefetch
+                              * and proceed with a direct lookup. */
 
     /* Stack-allocate per-key state — callers should keep nkeys bounded
-     * (typically ≤ 16–32) to avoid excessive stack usage. */
+     * (typically ≤ 16–32) to avoid excessive stack usage.
+     * Zero-initialize so that keys marked PREFETCH_DONE by ctxInit
+     * (null/empty dict) don't carry indeterminate field values. */
     KeyPrefetchInfo pf_info[nkeys];
+    memset(pf_info, 0, sizeof(pf_info));
 
     DictPrefetchCtx ctx = {
         .cur_idx      = 0,
