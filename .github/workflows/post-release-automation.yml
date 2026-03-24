@@ -41,6 +41,7 @@ jobs:
     outputs:
       sha256: ${{ steps.checksum.outputs.sha256 }}
       size_mb: ${{ steps.size.outputs.size_mb }}
+      size_warning: ${{ steps.size.outputs.size_warning }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -63,7 +64,10 @@ jobs:
           echo "Tarball size: ${SIZE_MB} MB"
           echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
           if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
-            echo "Warning: Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
+            echo "::warning::Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
+            echo "size_warning=true" >> $GITHUB_OUTPUT
+          else
+            echo "size_warning=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Calculate SHA256 checksum
@@ -141,6 +145,7 @@ jobs:
           RELEASE_TYPE: ${{ needs.extract-release-info.outputs.release_type }}
           SHA256: ${{ needs.create-tarball.outputs.sha256 }}
           SIZE_MB: ${{ needs.create-tarball.outputs.size_mb }}
+          SIZE_WARNING: ${{ needs.create-tarball.outputs.size_warning }}
         run: |
           {
             echo "## Post-Release Automation Summary"
@@ -149,6 +154,11 @@ jobs:
             echo "- **Release Type:** ${RELEASE_TYPE}"
             echo "- **Tarball SHA256:** ${SHA256}"
             echo "- **Tarball Size:** ${SIZE_MB} MB"
+            if [ "${SIZE_WARNING}" == "true" ]; then
+              echo ""
+              echo "> [!WARNING]"
+              echo "> Tarball size is outside expected range, check the logs for details."
+            fi
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Send Slack notification
