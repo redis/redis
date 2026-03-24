@@ -3291,7 +3291,6 @@ start_server {
         }
     }
 
-
     test "XNACK argument and error validation" {
         # Wrong number of arguments (no stream needed)
         assert_error "*wrong number of arguments*" {r XNACK}
@@ -3384,9 +3383,8 @@ start_server {
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 3] 0
 
-        # Decrement from higher value: bump to 3 via XCLAIM, then SILENT → 2
+        # Decrement from higher value: bump to 3 via XCLAIM, then SILENT to 2
         r XCLAIM mystream grp c1 0 1-0
-        after 10
         r XCLAIM mystream grp c1 0 1-0
         r XCLAIM mystream grp c1 0 1-0
         set pending [r XPENDING mystream grp - + 10]
@@ -3516,7 +3514,7 @@ start_server {
         assert_equal [lindex $pending 0 1] {}
         assert_equal [lindex $pending 0 3] 1
 
-        # SILENT on already-NACKed: decrements 1 → 0
+        # SILENT on already-NACKed: decrements 1 to 0
         assert_equal 1 [r XNACK mystream grp SILENT IDS 1 1-0]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [lindex $pending 0 3] 0
@@ -3553,7 +3551,7 @@ start_server {
             set id [lindex $entry 0]
             if {$id eq "3-0" || $id eq "1-0"} {
                 assert_equal [lindex $entry 1] {} ;# unowned
-                assert_equal [lindex $entry 2] -1 ;# delivery_time=0 → idle=-1
+                assert_equal [lindex $entry 2] -1 ;# idle is -1 because delivery_time is 0
             } else {
                 assert_equal [lindex $entry 1] c1 ;# still owned
             }
@@ -3828,7 +3826,7 @@ start_server {
         assert_equal [dict get $group nacked-count] 3
         assert_equal [dict get $group pel-count] 3
 
-        # XREADGROUP CLAIM walks pel_time_head → pel_time_tail:
+        # XREADGROUP CLAIM walks from pel_time_head to pel_time_tail:
         # zone order is now 2-0, 3-0, 1-0
         after 10
         set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 5 STREAMS mystream >]
