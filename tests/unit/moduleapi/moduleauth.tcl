@@ -27,7 +27,7 @@ start_server {tags {"modules external:skip"}} {
         # Validate that an error is thrown for disabled users.
         r acl setuser foo >pwd off ~* &* +@all
         assert_error {*WRONGPASS*} {r AUTH foo pwd}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2*} [cmdstat auth]
     }
 
     test {test non blocking module AUTH} {

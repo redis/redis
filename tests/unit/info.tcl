@@ -162,7 +162,7 @@ start_server {tags {"info" "external:skip"}} {
             # EVAL command errors should still be pinpointed to him
             catch {r eval a} e
             assert_match {ERR wrong*} $e
-            assert_match {*calls=1,*,rejected_calls=1,failed_calls=0} [cmdstat eval]
+            assert_match {*calls=1,*,rejected_calls=1,failed_calls=0*} [cmdstat eval]
             assert_match {*count=2*} [errorstat ERR]
             assert_equal [s total_error_replies] 2
         }
