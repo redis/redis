@@ -1,3 +1,13 @@
+/* Flax -- A flat sorted-array map for uint64 keys.
+ *
+ * Copyright (c) 2025-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+
 #ifndef FLAX_H
 #define FLAX_H
 
@@ -6,36 +16,79 @@
 
 #define FLAX_INIT_CAPACITY 16
 
+/* A flax is a sorted associative container that maps uint64_t keys to void*
+ * values. Both arrays live in a single heap allocation ("data block") laid
+ * out as follows:
+ *
+ *  flax struct            data block (single allocation)
+ *  +------------+         +------------------------------------+
+ *  | *data  ----------->  | keys[0..cap-1]   (uint64_t)        |
+ *  | numele     |         +-- aligned to sizeof(void*) --------+
+ *  | capacity   |         | values[0..cap-1]  (void*)          |
+ *  +------------+         +------------------------------------+
+ *
+ * Keys are maintained in ascending sorted order. Only the first 'numele'
+ * slots in each array contain live data; the remainder up to 'capacity'
+ * is reserved space for future inserts.
+ *
+ * Lookup, insert and delete use a linear scan over the keys array rather
+ * than binary search. This is intentional: the expected element count is
+ * small (e.g. per-consumer stream PEL), so the sequential, cache-friendly
+ * access pattern outperforms binary search whose branch-misprediction cost
+ * dominates at these sizes. The scan includes fast-path checks for the
+ * head and tail positions to accelerate the common case of monotonically
+ * increasing keys (e.g. stream entry IDs).
+ *
+ * Growth strategy: the data block doubles in capacity when full (on insert)
+ * and can be shrunk to fit with flaxShrink().
+ */
 typedef struct flax {
-    void *data;
-    uint32_t numele;
-    uint32_t capacity;
+    void *data;          /* Packed storage: keys array followed by values array. */
+    uint32_t numele;     /* Number of elements currently stored. */
+    uint32_t capacity;   /* Current allocated capacity. */
 } flax;
 
+/* Flax iterator state. The typical lifecycle is:
+ *
+ *   flaxIterator it;
+ *   flaxStart(&it, myflax);        -- initialize
+ *   flaxSeek(&it, ">=", somekey);  -- position
+ *   while (flaxNext(&it)) { ... }  -- iterate (or flaxPrev)
+ *   flaxStop(&it);                 -- cleanup
+ *
+ * After flaxStart() the iterator is in EOF state until a successful
+ * flaxSeek(). The iterator does not allocate heap memory, so flaxStop()
+ * is a no-op included for API symmetry with rax. */
 typedef struct flaxIterator {
-    flax *f;
-    int64_t key;
-    void *data;
-    int64_t idx;
+    flax *f;             /* Flax we are iterating. */
+    uint64_t key;        /* The current key. */
+    void *data;          /* Data associated to this key. */
+    int64_t idx;         /* Current index into the flax arrays, -1 if EOF. */
 } flaxIterator;
 
-/* Exported API. */
+/* --- Creation and destruction --- */
 flax *flaxNew(void);
-int flaxInsert(flax *f, int64_t key, void *data, void **old);
-int flaxTryInsert(flax *f, int64_t key, void *data, void **old);
-int flaxRemove(flax *f, int64_t key, void **old);
-int flaxFind(flax *f, int64_t key, void **value);
 void flaxFree(flax *f);
 void flaxFreeWithCallback(flax *f, void (*free_callback)(void *));
 void flaxFreeWithCbAndContext(flax *f,
                               void (*free_callback)(void *item, void *ctx),
                               void *ctx);
+
+/* --- Lookup and mutation --- */
+int flaxInsert(flax *f, uint64_t key, void *data, void **old);
+int flaxTryInsert(flax *f, uint64_t key, void *data, void **old);
+int flaxRemove(flax *f, uint64_t key, void **old);
+int flaxFind(flax *f, uint64_t key, void **value);
+
+/* --- Iterator --- */
 void flaxStart(flaxIterator *it, flax *f);
-int flaxSeek(flaxIterator *it, const char *op, int64_t key);
+int flaxSeek(flaxIterator *it, const char *op, uint64_t key);
 int flaxNext(flaxIterator *it);
 int flaxPrev(flaxIterator *it);
 void flaxStop(flaxIterator *it);
 int flaxEOF(flaxIterator *it);
+
+/* --- Introspection --- */
 uint64_t flaxSize(flax *f);
 void flaxShrink(flax *f);
 

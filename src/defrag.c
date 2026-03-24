@@ -889,7 +889,7 @@ void* defragStreamConsumerPelFlax(raxIterator *ri, void *privdata) {
                 void *grp_flax_ptr = NULL;
                 raxFind(ctx->cg->pel, msbuf, 8, &grp_flax_ptr);
                 if (grp_flax_ptr) {
-                    flaxInsert((flax *)grp_flax_ptr, (int64_t)newnack->id.seq, newnack, NULL);
+                    flaxInsert((flax *)grp_flax_ptr, newnack->id.seq, newnack, NULL);
                 }
 
                 /* Update doubly-linked list pointers. */

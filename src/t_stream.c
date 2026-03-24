@@ -156,12 +156,12 @@ int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
     int created;
     flax *f = pelResolveFlax(pel, id->ms, 1, &created);
     if (created) {
-        flaxInsert(f, (int64_t)id->seq, nack, NULL);
+        flaxInsert(f, id->seq, nack, NULL);
         if (count) (*count)++;
         return 1;
     }
     void *old;
-    flaxInsert(f, (int64_t)id->seq, nack, &old);
+    flaxInsert(f, id->seq, nack, &old);
     if (old == NULL) {
         if (count) (*count)++;
         return 1;
@@ -174,11 +174,11 @@ int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
     int created;
     flax *f = pelResolveFlax(pel, id->ms, 1, &created);
     if (created) {
-        flaxInsert(f, (int64_t)id->seq, nack, NULL);
+        flaxInsert(f, id->seq, nack, NULL);
         if (count) (*count)++;
         return 1;
     }
-    if (!flaxTryInsert(f, (int64_t)id->seq, nack, NULL))
+    if (!flaxTryInsert(f, id->seq, nack, NULL))
         return 0;
     if (count) (*count)++;
     return 1;
@@ -189,7 +189,7 @@ streamNACK *pelFind(rax *pel, streamID *id) {
     flax *f = pelResolveFlax(pel, id->ms, 0, NULL);
     if (!f) return NULL;
     void *val;
-    if (!flaxFind(f, (int64_t)id->seq, &val)) return NULL;
+    if (!flaxFind(f, id->seq, &val)) return NULL;
     return (streamNACK *)val;
 }
 
@@ -198,7 +198,7 @@ streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count) {
     flax *f = pelResolveFlax(pel, id->ms, 0, NULL);
     if (!f) return NULL;
     void *old;
-    if (!flaxRemove(f, (int64_t)id->seq, &old)) return NULL;
+    if (!flaxRemove(f, id->seq, &old)) return NULL;
     streamNACK *nack = (streamNACK *)old;
     if (count) (*count)--;
     if (f->numele == 0) {
@@ -216,7 +216,7 @@ streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count) {
 /* Refresh iterator fields from current rax+flax positions. */
 static void pelIterRefresh(pelIterator *pi) {
     pi->id.ms = pelDecodeMs(pi->ri.key);
-    pi->id.seq = (uint64_t)pi->fi.key;
+    pi->id.seq = pi->fi.key;
     pi->nack = (streamNACK *)pi->fi.data;
     streamEncodeID(pi->rawkey, &pi->id);
     pi->valid = 1;
@@ -256,7 +256,7 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
         uint64_t cur_ms = pelDecodeMs(pi->ri.key);
         flaxStart(&pi->fi, (flax *)pi->ri.data);
         if (cur_ms == id->ms) {
-            if (!flaxSeek(&pi->fi, ">=", (int64_t)id->seq)) {
+            if (!flaxSeek(&pi->fi, ">=", id->seq)) {
                 /* No seq >= target in this ms bucket, advance to next ms. */
                 if (!raxNext(&pi->ri)) return 0;
                 flaxStart(&pi->fi, (flax *)pi->ri.data);
