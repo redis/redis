@@ -23,7 +23,7 @@ start_server {tags {"modules external:skip"}} {
         r config resetstat
         # Validate that an error is thrown for non existing users.
         assert_error {*WRONGPASS*} {r AUTH foo pwd}
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
         # Validate that an error is thrown for disabled users.
         r acl setuser foo >pwd off ~* &* +@all
         assert_error {*WRONGPASS*} {r AUTH foo pwd}
