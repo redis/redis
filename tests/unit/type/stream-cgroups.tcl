@@ -3911,6 +3911,77 @@ start_server {
         assert_equal [lindex $pending 0 0] 1-0
     }
 
+    test "XNACK XCLAIM/XAUTOCLAIM of deleted NACKed entries cleans PEL" {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XADD mystream 3-0 f v3
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        r XNACK mystream grp FAIL IDS 2 1-0 3-0
+        r XDEL mystream 1-0
+        r XDEL mystream 3-0
+
+        # XCLAIM of deleted unowned NACK: returns empty but cleans PEL
+        # (exercises the streamPropagateXACK path for unowned NACKs)
+        set claimed [r XCLAIM mystream grp c2 0 1-0]
+        assert_equal [llength $claimed] 0
+
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending] 2
+        assert_equal [lindex $pending 0 0] 2-0
+        assert_equal [lindex $pending 0 1] c1
+        assert_equal [lindex $pending 1 0] 3-0
+        assert_equal [lindex $pending 1 1] {}
+
+        # XAUTOCLAIM: claims surviving 2-0, reports deleted 3-0
+        set result [r XAUTOCLAIM mystream grp c2 0 0-0]
+        set claimed_msgs [lindex $result 1]
+        set deleted_ids [lindex $result 2]
+
+        assert_equal [llength $claimed_msgs] 1
+        assert_equal [lindex $claimed_msgs 0 0] 2-0
+        assert_equal [llength $deleted_ids] 1
+        assert_equal [lindex $deleted_ids 0] 3-0
+
+        set pending [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending] 1
+        assert_equal [lindex $pending 0 0] 2-0
+        assert_equal [lindex $pending 0 1] c2
+    }
+
+    test "XNACK XREADGROUP BLOCK CLAIM wakes up on NACKed entries" {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
+
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP grp c2 BLOCK 5000 CLAIM 200 STREAMS mystream >
+        wait_for_blocked_client
+
+        r XNACK mystream grp FAIL IDS 2 1-0 2-0
+
+        after 500
+
+        set result [$rd read]
+        assert_equal [llength $result] 1
+        lassign [lindex $result 0] stream_name messages
+        assert_equal $stream_name "mystream"
+        assert_equal [llength $messages] 2
+        assert_equal [lindex $messages 0 0] 1-0
+        assert_equal [lindex $messages 1 0] 2-0
+
+        set pending [r XPENDING mystream grp - + 10 c2]
+        assert_equal [llength $pending] 2
+        assert_equal [lindex $pending 0 0] 1-0
+        assert_equal [lindex $pending 1 0] 2-0
+
+        $rd close
+    }
+
     test "XNACK interaction with XACK and XPENDING" {
         r DEL mystream
         r XADD mystream 1-0 f v1
