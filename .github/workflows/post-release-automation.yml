@@ -49,12 +49,16 @@ jobs:
           fetch-depth: 0
 
       - name: Create tarball
-        run: ./utils/releasetools/01_create_tarball.sh "${{ needs.extract-release-info.outputs.tag_name }}"
+        env:
+          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
+        run: ./utils/releasetools/01_create_tarball.sh "$TAG_NAME"
 
       - name: Verify tarball size
         id: size
+        env:
+          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
         run: |
-          TARBALL="/tmp/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz"
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
           echo "Tarball size: ${SIZE_MB} MB"
           echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
@@ -64,8 +68,10 @@ jobs:
 
       - name: Calculate SHA256 checksum
         id: checksum
+        env:
+          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
         run: |
-          TARBALL="/tmp/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz"
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
           SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
           echo "SHA256: $SHA256"
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
@@ -117,14 +123,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Summary
+        env:
+          TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
+          RELEASE_TYPE: ${{ needs.extract-release-info.outputs.release_type }}
+          SHA256: ${{ needs.create-tarball.outputs.sha256 }}
+          SIZE_MB: ${{ needs.create-tarball.outputs.size_mb }}
         run: |
           {
             echo "## Post-Release Automation Summary"
             echo ""
-            echo "- **Release Tag:** ${{ needs.extract-release-info.outputs.tag_name }}"
-            echo "- **Release Type:** ${{ needs.extract-release-info.outputs.release_type }}"
-            echo "- **Tarball SHA256:** ${{ needs.create-tarball.outputs.sha256 }}"
-            echo "- **Tarball Size:** ${{ needs.create-tarball.outputs.size_mb }} MB"
+            echo "- **Release Tag:** ${TAG_NAME}"
+            echo "- **Release Type:** ${RELEASE_TYPE}"
+            echo "- **Tarball SHA256:** ${SHA256}"
+            echo "- **Tarball Size:** ${SIZE_MB} MB"
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Send Slack notification
