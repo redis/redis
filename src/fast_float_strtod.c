@@ -426,6 +426,26 @@ int fastFloatTest(int argc, char **argv, int flags) {
         {"iNf0", INFINITY, 1},
     };
     run_ff_tests(inf_invalid, COUNTOF(inf_invalid));
+    
+    ff_testcase nan_valid[] = {
+        {"nan", NAN, 0},
+        {"NAN", NAN, 0},
+        {"Nan", NAN, 0},
+        {"nan(123)", NAN, 0},
+        {"nan(abc)", NAN, 0},
+        {"nan(123abc)", NAN, 0},
+    };
+    run_ff_tests(nan_valid, COUNTOF(nan_valid));
+
+    ff_testcase nan_invalid[] = {
+        {"na", 0, 1},
+        {"nan(", NAN, 1},         /* unclosed paren */
+        {"nan(abc", NAN, 1},      /* missing closing paren */
+        {"nan(ab!c)", NAN, 1},    /* invalid char in paren */
+        {"nan(ab c)", NAN, 1},    /* space in paren */
+        {"nanx", NAN, 1},         /* trailing garbage */
+    };
+    run_ff_tests(nan_invalid, COUNTOF(nan_invalid));
 
     test_report();
     return 0;
