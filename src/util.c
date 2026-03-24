@@ -665,8 +665,7 @@ int string2d(const char *s, size_t slen, double *dp) {
         isspace(((const char*)s)[0])))
         return 0;
     *dp = fast_float_strtod(s, slen, &eptr);
-    /* If `fast_float_strtod` didn't consume full input, try `strtod`
-     * Given fast_float does not support hexadecimal strings representation */
+    /* Reject if not all characters were consumed by the parser. */
     if (unlikely((size_t)(eptr - (char*)s) != slen)) {
         return 0;
     }
