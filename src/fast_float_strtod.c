@@ -39,6 +39,7 @@
 
 #include "fast_float_strtod.h"
 #include "config.h"
+#include "zmalloc.h"
 
 /* Powers of 10 from 10^0 to 10^22 (exact in double precision).
  * These are the only powers of 10 that can be exactly represented as doubles. */
@@ -335,10 +336,11 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     
     /* Fall back to strtod for complex cases. Since the input may not be
      * null-terminated, we must copy it into a temporary buffer. */
-    char buf[4096];
-    if (len > sizeof(buf) - 1)
-        len = sizeof(buf) - 1;
-    memcpy(buf,nptr,len);
+    char static_buf[128];
+    char *buf = static_buf;
+    if (len >= sizeof(static_buf))
+        buf = zmalloc(len + 1);
+    memcpy(buf, nptr, len);
     buf[len] = '\0';
 
     /* Fall back to strtod for complex cases:
@@ -354,5 +356,6 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
         errno = EINVAL;
     }
 
+    if (buf != static_buf) zfree(buf);
     return result;
 }
