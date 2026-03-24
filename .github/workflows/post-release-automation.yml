@@ -25,7 +25,7 @@ jobs:
           echo "Release tag: ${TAG_NAME}"
 
           LATEST_TAG=$(gh release view --json tagName --jq '.tagName')
-          echo "Latest release tag: ${LATEST_TAG}"
+          echo "Latest release tag(from `gh release`): ${LATEST_TAG}"
 
           if [[ "${TAG_NAME}" == "${LATEST_TAG}" ]]; then
             echo "release_type=latest" >> $GITHUB_OUTPUT
