@@ -1590,7 +1590,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
         R 0 flushall
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 1000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 10000]
         after 1000 ;# wait some time so that some keys are moved
 
         # Fail the migration
@@ -1704,7 +1704,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
         R 0 flushall
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 1000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 10000]
         after 1000 ;# wait some time so that some keys are moved
 
         # Trigger a failover with force to simulate unreachable master and
@@ -1733,7 +1733,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
         R 0 flushall
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 1000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 1000 10000]
 
         # Pause will cancel the task and there will be a pending trim job
         # until writes are allowed again.
