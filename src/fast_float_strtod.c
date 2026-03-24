@@ -64,15 +64,11 @@ static inline int strcasecmp_3(const char *s, char c0, char c1, char c2) {
     return ((s[0] | 0x20) == c0) & ((s[1] | 0x20) == c1) & ((s[2] | 0x20) == c2);
 }
 
-/* Case-insensitive comparison for first n characters */
+/* Case-insensitive comparison for first n characters.
+ * Only valid when the target characters are ASCII letters (a-z). */
 static int strncasecmp_local(const char *s1, const char *s2, size_t n) {
     for (size_t i = 0; i < n; i++) {
-        char c1 = s1[i];
-        char c2 = s2[i];
-        /* Convert to lowercase */
-        if (c1 >= 'A' && c1 <= 'Z') c1 += 32;
-        if (c2 >= 'A' && c2 <= 'Z') c2 += 32;
-        if (c1 != c2) return c1 - c2;
+        return (s1[i] | 0x20) - (s2[i] | 0x20);
     }
     return 0;
 }
