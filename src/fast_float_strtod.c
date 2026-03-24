@@ -307,12 +307,12 @@ static inline int fast_float_try_fast(const char *nptr, const char *pend, double
     }
 
     /* Parse the number string */
-    if (parse_number_string(nptr, pend, result, endptr) && *endptr == pend) {
+    if (parse_number_string(nptr, pend, result, endptr)) {
         return 1;
     }
 
     /* Not a valid decimal number, try inf/nan special values */
-    if (parse_infnan(nptr, pend, result, endptr) && *endptr == pend) {
+    if (parse_infnan(nptr, pend, result, endptr)) {
         return 1;
     }
 
@@ -345,10 +345,11 @@ static double fast_float_strtod_fallback(const char *nptr, size_t len, char **en
  * Falls back to strtod by copying to a temporary null-terminated buffer. */
 double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     double result = 0.0;
+    const char *pend = nptr + len;
     const char *eptr;
 
     /* Use fast path for non-null-terminated strings */
-    if (likely(fast_float_try_fast(nptr, nptr + len, &result, &eptr))) {
+    if (likely(fast_float_try_fast(nptr, pend, &result, &eptr) && eptr == pend)) {
         if (endptr) *endptr = (char *)eptr;
         return result;
     }
