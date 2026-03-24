@@ -373,7 +373,7 @@ typedef struct {
 
 static int ff_eq(double a, double b) {
     if (isnan(a)) return isnan(b);
-    if (isinf(a)) return isinf(b);
+    if (isinf(a)) return isinf(b) && (a > 0) == (b > 0);
     return a == b;
 }
 
