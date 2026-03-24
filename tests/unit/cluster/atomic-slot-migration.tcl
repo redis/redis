@@ -802,7 +802,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 config set rdb-key-save-delay 1000000
 
         # Start the slot 0 write load on the R 1
-        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key]
+        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key 0 5]
 
         # Clear all fail points
         assert_equal {OK} [R 0 debug asm-failpoint "" ""]
@@ -1443,7 +1443,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # start the slot 0 write load on the node 0
         set slot0_key [slot_key 0 mykey]
-        set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 $slot0_key]
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 $slot0_key 0 5]
 
         # node 0 will fail due to write pause timeout
         wait_for_condition 2000 10 {
