@@ -21,10 +21,33 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.6.2    Released Tue 24 Mar 2026 12:00:00 IST
+================================================================================
+
+Upgrade urgency SECURITY: There is a security fix in the release
+
+### Security fixes
+
+- #14824 Potential UAF: don't use reply copy avoidance for module strings
+
+### Bug fixes
+
+- #14848 Crash during command processing on replicas performing full synchronization
+- #14794 New `XIDMPRECORD` internal command and AOFRW emission to restore stream IDMP state
+- #14816 setModuleEnumConfig() passing prefixed name to module callbacks
+- #14858 Streams: Ensures `XADD` with `IDMP`/`IDMPAUTO` that hits an existing IID records the metadata change
+- #14855,#14831, #14817 Potential Memory leaks
+- #14869 Streams: IDMP cron expiration not working after RDB load
+- #14847 Potential crash during ACL checks on wrong-arity commands
+- #14883 `HSETEX`, `HGETEX` do not validate that `FIELDS` is specified only once
+- #14897 Streams: IDMP-related bugs
+
+
+================================================================================
 Redis 8.6.1    Released Mon 23 Feb 2026 10:00:00 IST
 ================================================================================
 
-SECURITY: There is a security fix in the release
+Upgrade urgency SECURITY: There is a security fix in the release
 
 ### Security fixes
 
