@@ -6,4 +6,8 @@
 
 double fast_float_strtod(const char *nptr, size_t len, char **endptr);
 
+#ifdef REDIS_TEST
+int fastFloatTest(int argc, char **argv, int flags);
+#endif
+
 #endif /* __FAST_FLOAT_STRTOD_H__ */

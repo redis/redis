@@ -68,7 +68,8 @@ static inline int strcasecmp_3(const char *s, char c0, char c1, char c2) {
  * Only valid when the target characters are ASCII letters (a-z). */
 static int strncasecmp_local(const char *s1, const char *s2, size_t n) {
     for (size_t i = 0; i < n; i++) {
-        return (s1[i] | 0x20) - (s2[i] | 0x20);
+        int diff = (s1[i] | 0x20) - (s2[i] | 0x20);
+        if (diff) return diff;
     }
     return 0;
 }
@@ -356,3 +357,78 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
      * This ensures we get correctly-rounded results for edge cases. */
     return fast_float_strtod_fallback(nptr, len, endptr);
 }
+
+#define REDIS_TEST
+#ifdef REDIS_TEST
+#include <stdio.h>
+#include "testhelp.h"
+
+#define UNUSED(x) (void)(x)
+#define COUNTOF(arr) (int)(sizeof(arr) / sizeof((arr)[0]))
+
+typedef struct {
+    const char *input;
+    double expected;
+    int failed;
+} ff_testcase;
+
+static int ff_eq(double a, double b) {
+    if (isnan(a)) return isnan(b);
+    if (isinf(a)) return isinf(b);
+    return a == b;
+}
+
+static void run_ff_tests(ff_testcase *cases, int n) {
+    for (int i = 0; i < n; i++) {
+        const char *s = cases[i].input;
+        size_t len = strlen(s);
+        char *eptr; double d = fast_float_strtod(s, len, &eptr);
+        int failed = ((size_t)(eptr - s) != len);
+        int ok = (cases[i].failed == failed) && ff_eq(d, cases[i].expected);
+        char descr[128];
+        if (ok)
+            snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.17g)",
+                     s, cases[i].failed ? "fail" : "ok", cases[i].expected);
+        else
+            snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.17g) but got %s(%.17g)",
+                     s, cases[i].failed ? "fail" : "ok", cases[i].expected, failed ? "fail" : "ok", d);
+        test_cond(descr, ok);
+    }
+}
+
+int fastFloatTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    ff_testcase inf_valid[] = {
+        {"inf", INFINITY, 0},
+        {"INF", INFINITY, 0},
+        {"Inf", INFINITY, 0},
+        {"infinity", INFINITY, 0},
+        {"INFINITY", INFINITY, 0},
+        {"Infinity", INFINITY, 0},
+        {"+inf", INFINITY, 0},
+        {"-inf", -INFINITY, 0},
+        {"+infinity", INFINITY, 0},
+        {"-INFINITY", -INFINITY, 0},
+    };
+    run_ff_tests(inf_valid, COUNTOF(inf_valid));
+
+    ff_testcase inf_invalid[] = {
+        {"in", 0, 1},
+        {"infin", INFINITY, 1},
+        {"infinit", INFINITY, 1},
+        {"infinitx", INFINITY, 1},
+        {"infinityy", INFINITY, 1},
+        {"info", INFINITY, 1},
+        {"ina", 0, 1},
+        {"INFI", INFINITY, 1},
+        {"iNf0", INFINITY, 1},
+    };
+    run_ff_tests(inf_invalid, COUNTOF(inf_invalid));
+
+    test_report();
+    return 0;
+}
+#endif

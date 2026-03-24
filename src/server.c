@@ -32,6 +32,7 @@
 #include "fwtree.h"
 #include "estore.h"
 #include "chk.h"
+#include "fast_float_strtod.h"
 
 #include <time.h>
 #include <signal.h>
@@ -7777,6 +7778,7 @@ struct redisTest {
     {"rax", raxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
+    {"fastfloat", fastFloatTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
