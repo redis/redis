@@ -18,14 +18,18 @@ start_server {tags {"modules" "external:skip"}} {
 
     # --- HASH notification tests ---
     # Each test uses a fresh key to ensure kvobj reallocation happens.
+    # We verify reallocation via server logs: the module logs whether each
+    # SetKeyMeta call triggered a kvobj reallocation or an in-place update.
 
     test {HSETNX with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r HSETNX hsetnx_key field1 value1
         assert_equal [r HGET hsetnx_key field1] "value1"
         assert_equal [r keymetanotify.get hsetnx_key] "notified"
         # Verify SetKeyMeta was called (reallocation happened on first call)
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=hset key=hsetnx_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
 
         # Second HSETNX on same field (no-op, field exists) - in-place update
         r HSETNX hsetnx_key field1 value2
@@ -38,11 +42,13 @@ start_server {tags {"modules" "external:skip"}} {
     }
 
     test {HSET with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r HSET hset_key f1 v1
         assert_equal [r HGET hset_key f1] "v1"
         assert_equal [r keymetanotify.get hset_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=hset key=hset_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
 
         # Multiple fields on same key (in-place metadata update)
         r HSET hset_key f2 v2 f3 v3
@@ -50,30 +56,36 @@ start_server {tags {"modules" "external:skip"}} {
     }
 
     test {HMSET with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r HMSET hmset_key f1 v1 f2 v2
         assert_equal [r HGET hmset_key f1] "v1"
         assert_equal [r HGET hmset_key f2] "v2"
         assert_equal [r keymetanotify.get hmset_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=hset key=hmset_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {HINCRBY with SetKeyMeta in notification does not crash} {
         # Use a fresh key - HINCRBY creates it with value 5
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r HINCRBY hincrby_key counter 5
         assert_equal [r HGET hincrby_key counter] "5"
         assert_equal [r keymetanotify.get hincrby_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=hincrby key=hincrby_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {HINCRBYFLOAT with SetKeyMeta in notification does not crash} {
         # Use a fresh key - HINCRBYFLOAT creates it with value 1.5
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r HINCRBYFLOAT hincrbyfloat_key value 1.5
         assert_equal [r HGET hincrbyfloat_key value] "1.5"
         assert_equal [r keymetanotify.get hincrbyfloat_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=hincrbyfloat key=hincrbyfloat_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {Multiple HSETNX on new keys with SetKeyMeta does not crash} {
@@ -93,83 +105,102 @@ start_server {tags {"modules" "external:skip"}} {
     # Each test uses a fresh key for actual kvobj reallocation.
 
     test {SET with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r SET set_key hello
         assert_equal [r GET set_key] "hello"
         assert_equal [r keymetanotify.get set_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=set key=set_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {APPEND with SetKeyMeta in notification does not crash} {
         # APPEND on nonexistent key creates it
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r APPEND append_key "hello"
         assert_equal [r GET append_key] "hello"
         assert_equal [r keymetanotify.get append_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=append key=append_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {INCR with SetKeyMeta in notification does not crash} {
         # INCR on nonexistent key creates it with value 1
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r INCR incr_key
         assert_equal [r GET incr_key] "1"
         assert_equal [r keymetanotify.get incr_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=incrby key=incr_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {INCRBY with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r INCRBY incrby_key 5
         assert_equal [r GET incrby_key] "5"
         assert_equal [r keymetanotify.get incrby_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=incrby key=incrby_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {INCRBYFLOAT with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r SET incrbyfloat_key 10.5
         r INCRBYFLOAT incrbyfloat_key 1.5
         assert_equal [r GET incrbyfloat_key] "12"
         assert_equal [r keymetanotify.get incrbyfloat_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=set key=incrbyfloat_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {GETSET with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r SET getset_key "old"
         r GETSET getset_key "new"
         assert_equal [r GET getset_key] "new"
         assert_equal [r keymetanotify.get getset_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=set key=getset_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {SETRANGE with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         set before [r keymetanotify.setcount]
         r SET setrange_key "Hello World"
         r SETRANGE setrange_key 6 "Redis"
         assert_equal [r GET setrange_key] "Hello Redis"
         assert_equal [r keymetanotify.get setrange_key] "notified"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=set key=setrange_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     # --- GENERIC notification tests ---
 
     test {DEL with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         r SET del_key "value"
         assert_equal [r keymetanotify.get del_key] "notified"
         r DEL del_key
         assert_equal [r EXISTS del_key] 0
+        verify_log_message 0 "*KSN callback: event=set key=del_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {RENAME with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         r SET rename_src "value"
         r RENAME rename_src rename_dst
         assert_equal [r GET rename_dst] "value"
         assert_equal [r EXISTS rename_src] 0
+        verify_log_message 0 "*KSN callback: event=set key=rename_src kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {RESTORE with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         r SET restore_src "hello"
         set dump [r DUMP restore_src]
         r DEL restore_src
@@ -177,9 +208,11 @@ start_server {tags {"modules" "external:skip"}} {
         r RESTORE restore_dst 0 $dump
         assert_equal [r GET restore_dst] "hello"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=set key=restore_src kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {RESTORE REPLACE with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         # Create a key with metadata already attached
         r SET restore_replace_src "hello"
         assert_equal [r keymetanotify.get restore_replace_src] "notified"
@@ -192,14 +225,17 @@ start_server {tags {"modules" "external:skip"}} {
         r RESTORE restore_replace_dst 0 $dump REPLACE
         assert_equal [r GET restore_replace_dst] "hello"
         assert {[r keymetanotify.setcount] > $before}
+        verify_log_message 0 "*KSN callback: event=set key=restore_replace_src kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {EXPIRE and key expiry with SetKeyMeta in notification does not crash} {
+        set log_lines [count_log_lines 0]
         r SET expire_key "value"
         assert_equal [r keymetanotify.get expire_key] "notified"
         r PEXPIRE expire_key 50
         after 100
         assert_equal [r EXISTS expire_key] 0
+        verify_log_message 0 "*KSN callback: event=set key=expire_key kvobj_realloc=YES (addr_before=* addr_after=*)" $log_lines
     }
 
     test {DEBUG RELOAD with SetKeyMeta in notification does not crash} {
@@ -209,6 +245,8 @@ start_server {tags {"modules" "external:skip"}} {
         # After reload, keys are restored from RDB triggering LOADED notifications.
         # The module setcount counter resets on reload, so just verify it is > 0
         # (meaning SetKeyMeta was called during RDB loading).
+        # Note: we skip verify_log_message here because the server log is
+        # reset on reload, making log line tracking unreliable.
         assert_equal [r GET reload_key] "value"
         assert {[r keymetanotify.setcount] > 0}
     }
