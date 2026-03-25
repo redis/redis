@@ -1066,7 +1066,7 @@ start_server {tags {"pubsub network"}} {
         r hget myhash f1
         assert_equal "message __subkeyspace@${db}__:myhash hexpired|2:f1" [$rd1 read]
         r debug set-active-expire 1
-    }
+    } {OK} {needs:debug}
 
     test "Subkey notifications: active field expiry triggers hexpired ($type)" {
         r del myhash
@@ -1140,7 +1140,8 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage" [lindex $msg 0]
         assert_equal "__subkeyspaceitem@${db}__:normalkey\nf1" [lindex $msg 2]
         assert_equal "hset" [lindex $msg 3]
-        r del "key\nwith\nnewline" normalkey
+        r del "key\nwith\nnewline"
+        r del normalkey
         $rd1 close
     }
 

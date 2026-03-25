@@ -65,7 +65,7 @@ static ExpireMeta* hentryGetExpireMeta(const eItem field);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
 static void hfieldPersist(robj *hashObj, Entry *entry);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
-static void collectExpiredItem(ExpireInfo *info, void *item);
+static void collectExpiredItem(ExpireInfo *info, robj *item);
 
 /* hash dictType funcs */
 static void dictEntryDestructor(dict *d, void *entry);
@@ -403,9 +403,11 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
-        /* Collect expired field for subkey notification */
-        char *fstr = (char *)((fref) ? fref : intbuf);
-        collectExpiredItem(info, createStringObject(fstr, flen));
+        /* Collect expired field for subkey notification. */
+        if (info->expiredItems) {
+            char *fstr = (char *)(fref ? fref : intbuf);
+            collectExpiredItem(info, createStringObject(fstr, flen));
+        }
 
         propagateHashFieldDeletion(db, key, (char *)((fref) ? fref : intbuf), flen);
         server.stat_expired_subkeys++;
@@ -3610,9 +3612,8 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
 }
 
 /* Collect an expired item into info->expiredItems with dynamic growth */
-static void collectExpiredItem(ExpireInfo *info, void *item) {
-    if (!info || !info->expiredItems) return;
-    serverAssert(info->expiredCapacity > 0);
+static void collectExpiredItem(ExpireInfo *info, robj *item) {
+    serverAssert(info->expiredItems && info->expiredCapacity > 0);
 
     if (info->itemsExpired >= info->expiredCapacity) {
         uint64_t new_cap = info->expiredCapacity * 2;
@@ -3635,7 +3636,8 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     sds field = entryGetField(e);
 
     /* Collect expired field for subkey notification (before deletion) */
-    collectExpiredItem(expCtx->info, createStringObject(field, sdslen(field)));
+    if (expCtx->info && expCtx->info->expiredItems)
+        collectExpiredItem(expCtx->info, createStringObject(field, sdslen(field)));
 
     propagateHashFieldDeletion(expCtx->db, key, field, sdslen(field));
 
