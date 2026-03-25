@@ -68,7 +68,7 @@ static inline int strcasecmp_3(const char *s, char c0, char c1, char c2) {
  * Only valid when the target characters are ASCII letters (a-z). */
 static int strncasecmp_local(const char *s1, const char *s2, size_t n) {
     for (size_t i = 0; i < n; i++) {
-        int diff = (s1[i] | 0x20) - (s2[i] | 0x20);
+        int diff = (s1[i] | 0x20) - s2[i];
         if (diff) return diff;
     }
     return 0;
