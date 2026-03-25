@@ -1490,11 +1490,20 @@ void replconfCommand(client *c) {
                 return;
 
             if (server.io_threads_num > 1) {
-                serverLog(LL_NOTICE, "Client #%llu request for replication "
-                          "compression with level %ld accepted",
-                          (unsigned long long)c->id, level);
+                if (level == (long)server.repl_compression) {
+                    serverLog(LL_NOTICE, "Client #%llu request for replication "
+                            "compression with level %ld accepted",
+                            (unsigned long long)c->id, level);
 
-                c->compression_level = level;
+                    c->compression_level = level;
+                } else {
+                    serverLog(LL_NOTICE, "Client #%llu request for replication "
+                            "compression rejected. Compression levels differ.",
+                            (unsigned long long)c->id);
+                    c->compression_level = 0;
+                    addReplyErrorFormat(c, "Requested level %ld differs from master's level: %d",
+                                        level, server.repl_compression);
+                }
             } else {
                 serverLog(LL_NOTICE, "Client #%llu request for replication "
                           "compression rejected. Replication compression is only "

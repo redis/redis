@@ -196,7 +196,7 @@ start_server {} {
 
         # revert the config
         if {$::compression} {
-            $replica2 config set repl-rdb-channel no
+            $replica2 config set repl-rdb-channel yes
         }
     }
 

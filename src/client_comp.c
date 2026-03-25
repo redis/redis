@@ -190,6 +190,7 @@ static void zstdEnd(compressionState *st) {
                  * anyways */
                 output.pos = 0;
             }
+            zfree(tmp);
         }
         ZSTD_freeCStream(st->ctx.zstdCCtx);
         st->ctx.zstdCCtx = NULL;
@@ -342,7 +343,7 @@ static int connCompressionRead(struct connection *conn, void *buf, size_t buf_le
         }
 
         if (curr <= 0 && nread <= 0) break;
-    } while (decompressed <= buf_len);
+    } while (decompressed < buf_len);
 
     if (decompressed == 0 && connGetState(cc->underlying) == CONN_STATE_CONNECTED)
         return -1;
@@ -613,7 +614,7 @@ int RedisRegisterConnectionTypeCompression(void) {
 
 /* Create compression state for the client */
 int compressionStateCreate(client *c) {
-    compressionState *st = zmalloc(sizeof(compressionState));
+    compressionState *st = zcalloc(sizeof(compressionState));
     st->type = &zstdType;
     st->last_write = 0;
     st->write_flush_pending = 0;
@@ -694,6 +695,7 @@ void clientDestroyCompressionState(client *c) {
      * underlying connection. */
     if (c->conn) {
         compressionConnection *cc = (compressionConnection*)c->conn;
+        compressionPendingRemove(cc);
         c->conn = cc->underlying;
 
         zfree(cc);
