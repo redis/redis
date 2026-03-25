@@ -1908,6 +1908,7 @@ void sunioncardCommand(client *c) {
         }
 
         robj *hllobj = createHLLObject();
+        int hll_err = 0;
 
         long elements_processed = 0;
         int early_exit = 0;
@@ -1923,12 +1924,18 @@ void sunioncardCommand(client *c) {
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+                int retval = 0;
                 if (str != NULL) {
-                    hllAdd(hllobj, (unsigned char *)str, len);
+                    retval = hllAdd(hllobj, (unsigned char *)str, len);
                 } else {
                     char buf[LONG_STR_SIZE];
                     size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
-                    hllAdd(hllobj, (unsigned char *)buf, slen);
+                    retval = hllAdd(hllobj, (unsigned char *)buf, slen);
+                }
+                if (retval == -1) {
+                    hll_err = 1;
+                    early_exit = 1;
+                    break;
                 }
 
                 elements_processed++;
@@ -1943,10 +1950,6 @@ void sunioncardCommand(client *c) {
             setTypeResetIterator(&si);
         }
 
-        uint64_t cardinality = hllCount(hllobj->ptr, NULL);
-        if (limit > 0 && cardinality > (uint64_t)limit)
-            cardinality = (uint64_t)limit;
-
         if (server.memory_tracking_enabled) {
             for (j = 0; j < numkeys; j++) {
                 robj *obj = sets[j].set;
@@ -1956,7 +1959,15 @@ void sunioncardCommand(client *c) {
             }
         }
 
-        addReplyLongLong(c, (long long)cardinality);
+        if (!hll_err) {
+            uint64_t cardinality = hllCount(hllobj->ptr, NULL);
+            if (limit > 0 && cardinality > (uint64_t)limit)
+                cardinality = (uint64_t)limit;
+            addReplyLongLong(c, (long long)cardinality);
+        } else {
+            addReplyError(c, "-INVALIDOBJ Corrupted HLL object detected");
+        }
+
         decrRefCount(hllobj);
         zfree(sets);
         return;
