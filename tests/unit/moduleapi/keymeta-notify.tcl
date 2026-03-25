@@ -179,6 +179,21 @@ start_server {tags {"modules" "external:skip"}} {
         assert {[r keymetanotify.setcount] > $before}
     }
 
+    test {RESTORE REPLACE with SetKeyMeta in notification does not crash} {
+        # Create a key with metadata already attached
+        r SET restore_replace_src "hello"
+        assert_equal [r keymetanotify.get restore_replace_src] "notified"
+        set dump [r DUMP restore_replace_src]
+        # Create a destination key that already exists (with metadata)
+        r SET restore_replace_dst "old_value"
+        assert_equal [r keymetanotify.get restore_replace_dst] "notified"
+        set before [r keymetanotify.setcount]
+        # RESTORE REPLACE overwrites the existing key, triggering delete + load
+        r RESTORE restore_replace_dst 0 $dump REPLACE
+        assert_equal [r GET restore_replace_dst] "hello"
+        assert {[r keymetanotify.setcount] > $before}
+    }
+
     test {EXPIRE and key expiry with SetKeyMeta in notification does not crash} {
         r SET expire_key "value"
         assert_equal [r keymetanotify.get expire_key] "notified"
