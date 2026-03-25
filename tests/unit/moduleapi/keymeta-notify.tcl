@@ -187,6 +187,17 @@ start_server {tags {"modules" "external:skip"}} {
         assert_equal [r EXISTS expire_key] 0
     }
 
+    test {DEBUG RELOAD with SetKeyMeta in notification does not crash} {
+        r SET reload_key "value"
+        assert_equal [r keymetanotify.get reload_key] "notified"
+        r DEBUG RELOAD
+        # After reload, keys are restored from RDB triggering LOADED notifications.
+        # The module setcount counter resets on reload, so just verify it is > 0
+        # (meaning SetKeyMeta was called during RDB loading).
+        assert_equal [r GET reload_key] "value"
+        assert {[r keymetanotify.setcount] > 0}
+    }
+
     test {SetKeyMeta notification count is tracked} {
         set count [r keymetanotify.setcount]
         assert {$count > 0}
