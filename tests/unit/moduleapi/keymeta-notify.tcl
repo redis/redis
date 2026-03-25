@@ -169,6 +169,16 @@ start_server {tags {"modules" "external:skip"}} {
         assert_equal [r EXISTS rename_src] 0
     }
 
+    test {RESTORE with SetKeyMeta in notification does not crash} {
+        r SET restore_src "hello"
+        set dump [r DUMP restore_src]
+        r DEL restore_src
+        set before [r keymetanotify.setcount]
+        r RESTORE restore_dst 0 $dump
+        assert_equal [r GET restore_dst] "hello"
+        assert {[r keymetanotify.setcount] > $before}
+    }
+
     test {EXPIRE and key expiry with SetKeyMeta in notification does not crash} {
         r SET expire_key "value"
         assert_equal [r keymetanotify.get expire_key] "notified"
