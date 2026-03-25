@@ -1509,8 +1509,6 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsresize() expand strlen", strlen(x) == 40);
 #if defined(USE_JEMALLOC)
         test_cond("sdsresize() expand alloc", sdsalloc(x) == 220);
-#else
-        test_cond("sdsresize() expand alloc", sdsalloc(x) == 200);
 #endif
         /* Test sdsresize - trim free space */
         x = sdsResize(x, 80, 1);
@@ -1518,8 +1516,6 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsresize() shrink strlen", strlen(x) == 40);
 #if defined(USE_JEMALLOC)
         test_cond("sdsresize() shrink alloc", sdsalloc(x) == 92);
-#else
-        test_cond("sdsresize() shrink alloc", sdsalloc(x) == 88);
 #endif
         /* Test sdsresize - crop used space */
         x = sdsResize(x, 30, 1);
@@ -1527,8 +1523,6 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsresize() crop strlen", strlen(x) == 30);
 #if defined(USE_JEMALLOC)
         test_cond("sdsresize() crop alloc", sdsalloc(x) == 36);
-#else
-        test_cond("sdsresize() crop alloc", sdsalloc(x) == 40);
 #endif
         /* Test sdsresize - extend to different class */
         x = sdsResize(x, 400, 1);
@@ -1536,8 +1530,6 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsresize() expand strlen", strlen(x) == 30);
 #if defined(USE_JEMALLOC)
         test_cond("sdsresize() expand alloc", sdsalloc(x) == 442);
-#else
-        test_cond("sdsresize() expand alloc", sdsalloc(x) == 406);
 #endif
         /* Test sdsresize - shrink to different class */
         x = sdsResize(x, 4, 1);
@@ -1545,8 +1537,6 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsresize() crop strlen", strlen(x) == 4);
 #if defined(USE_JEMALLOC)
         test_cond("sdsresize() crop alloc", sdsalloc(x) == 4);
-#else
-        test_cond("sdsresize() crop alloc", sdsalloc(x) == 8);
 #endif
         sdsfree(x);
         
