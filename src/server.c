@@ -7377,6 +7377,8 @@ int redisFork(int purpose) {
         updateDictResizePolicy();
         dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
+        /* Memory tracking for slots is unnecessary in child processes. */
+        server.memory_tracking_enabled = 0;
         /* Close the reading part, so that if the parent crashes, the child will
          * get a write error and exit. */
         if (server.child_info_pipe[0] != -1)
