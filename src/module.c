@@ -9221,13 +9221,6 @@ void moduleReleaseGIL(void) {
  * time. The event string is the actual command being executed, and key is the
  * relevant Redis key.
  *
- * `flags` controls delivery filtering:
- *  - REDISMODULE_NOTIFY_FLAG_NONE: The callback is invoked for all matching
- *    events regardless of whether subkeys are present.
- *  - REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED: The callback is only invoked
- *    when subkeys are not empty (subkeys != NULL && count > 0). Events without
- *    subkey information (e.g. SET, DEL) are skipped. 
- *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
  * occurred as its selected db number.
@@ -9302,8 +9295,15 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
  * A module only needs to register this callback to receive all events —
  * there is no need to also call RM_SubscribeToKeyspaceEvents.
  *
- * 'types' is a bit mask of event types the module is interested in
+ * `types` is a bit mask of event types the module is interested in
  * (using the same REDISMODULE_NOTIFY_* flags as RM_SubscribeToKeyspaceEvents).
+ *
+ * `flags` controls delivery filtering:
+ *  - REDISMODULE_NOTIFY_FLAG_NONE: The callback is invoked for all matching
+ *    events regardless of whether subkeys are present.
+ *  - REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED: The callback is only invoked
+ *    when subkeys are not empty (subkeys != NULL && count > 0). Events without
+ *    subkey information (e.g. SET, DEL) are skipped.
  *
  * The callback signature is:
  *   void callback(RedisModuleCtx *ctx, int type, const char *event,
