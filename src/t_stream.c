@@ -3927,6 +3927,8 @@ void xnackCommand(client *c) {
     if (nacked > 0) {
         server.dirty += nacked;
         keyModified(c,c->db,c->argv[1],kv,0);
+        /* XNACK can make entries immediately claimable. */
+        signalKeyAsReady(c->db, c->argv[1], OBJ_STREAM);
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));

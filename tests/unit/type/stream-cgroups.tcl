@@ -3959,13 +3959,12 @@ start_server {
         r XREADGROUP GROUP grp c1 STREAMS mystream >
 
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP grp c2 BLOCK 5000 CLAIM 200 STREAMS mystream >
+        $rd XREADGROUP GROUP grp c2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
         wait_for_blocked_client
 
         r XNACK mystream grp FAIL IDS 2 1-0 2-0
 
-        after 500
-
+        wait_for_blocked_clients_count 0
         set result [$rd read]
         assert_equal [llength $result] 1
         lassign [lindex $result 0] stream_name messages
