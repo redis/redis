@@ -702,11 +702,11 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
  *                If *vll is populated *vstr is set to NULL, so the caller can
  *                always check the function return by checking the return value
  *                for GETF_OK and checking if vll (or vstr) is NULL.
- * expiredAt    - if the field has an expiration time, it will be set to the expiration
+ * expiredAt    - if the field has an expiration time, it will be set to the expiration 
  *                time of the field. Otherwise, will be set to EB_EXPIRE_TIME_INVALID.
  */
 GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **vstr,
-                                   unsigned int *vlen, long long *vll,
+                                   unsigned int *vlen, long long *vll, 
                                    int hfeFlags, uint64_t *expiredAt)
 {
     sds key = kvobjGetKey(o);
@@ -806,7 +806,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
  * val           - If the field is found, then val will be set to the value object.
  * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to 
  *                 the expiration time of the field. Otherwise, it will be set to 0.
- *i                
+ *                 
  * Returns 1 if the field exists, and 0 when it doesn't.
  */
 int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
@@ -824,7 +824,7 @@ int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
         /* expireTime set to 0 if the field has no expiration time */ 
         if (expireTime && (*expireTime == EB_EXPIRE_TIME_INVALID))
             *expireTime = 0;
-           
+        
         /* If expected to return the value, then create a new object */
         if (val) {
             if (vstr) *val = createStringObject((char *) vstr, vlen);
