@@ -7852,23 +7852,16 @@ int main(int argc, char **argv) {
             printf("\n========== Test Suite Summary ==========\n\n");
             for (j = 0; j < numtests; j++) {
                 int failed = redisTests[j].passed_count < redisTests[j].test_count;
-                char count_buf[32] = "";
-                if (redisTests[j].test_count > 0)
-                    snprintf(count_buf, sizeof(count_buf), " (%d/%d passed)",
-                             redisTests[j].passed_count, redisTests[j].test_count);
-                printf("  %s %-15s%s%s\n",
+                printf("  %s %-15s (%d/%d passed)%s\n",
                        failed ? "\033[31m[failed]" : "\033[32m[ok]    \033[0m",
-                       redisTests[j].name, count_buf,
+                       redisTests[j].name,
+                       redisTests[j].passed_count, redisTests[j].test_count,
                        failed ? "\033[0m" : "");
             }
 
-            if (failed_num) {
-                printf("\n  Test Groups: %d passed, \033[31m%d failed\033[0m, %d total\n",
-                       numtests-failed_num, failed_num, numtests);
-            } else {
-                printf("\n  Test Groups: \033[32m%d passed\033[0m, %d failed, %d total\n",
-                       numtests-failed_num, failed_num, numtests);
-            }
+            printf("\n  Test Groups: %s%d passed\033[0m, %s%d failed\033[0m, %d total\n",
+                   failed_num ? "" : "\033[32m", numtests-failed_num,
+                   failed_num ? "\033[31m" : "", failed_num, numtests);
 
             test_report();
 
