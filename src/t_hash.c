@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
- *
+ * 
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
@@ -804,9 +804,9 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.
  * val           - If the field is found, then val will be set to the value object.
- * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to
+ * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to 
  *                 the expiration time of the field. Otherwise, it will be set to 0.
- *
+ *i                
  * Returns 1 if the field exists, and 0 when it doesn't.
  */
 int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
@@ -817,14 +817,14 @@ int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
 
     if (isHashDeleted) *isHashDeleted = 0;
     if (val) *val = NULL;
-    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll,
+    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll, 
                                                    hfeFlags, expireTime);
 
     if (res == GETF_OK) {
-        /* expireTime set to 0 if the field has no expiration time */
+        /* expireTime set to 0 if the field has no expiration time */ 
         if (expireTime && (*expireTime == EB_EXPIRE_TIME_INVALID))
             *expireTime = 0;
-
+           
         /* If expected to return the value, then create a new object */
         if (val) {
             if (vstr) *val = createStringObject((char *) vstr, vlen);
@@ -841,7 +841,7 @@ int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
 }
 
 /* Test if the specified field exists in the given hash. If the field is
- * expired (HFE), then it will be lazy deleted unless HFE_LAZY_AVOID_FIELD_DEL
+ * expired (HFE), then it will be lazy deleted unless HFE_LAZY_AVOID_FIELD_DEL 
  * hfeFlags is set.
  *
  * hfeFlags      - Lookup HFE_LAZY_* flags
@@ -856,7 +856,7 @@ int hashTypeExists(redisDb *db, kvobj *o, sds field, int hfeFlags, int *isHashDe
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll,
+    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll, 
                                              hfeFlags, NULL);
     if (isHashDeleted)
         *isHashDeleted = (res == GETF_EXPIRED_HASH) ? 1 : 0;
@@ -1007,7 +1007,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
                     newEntryFlags |= ENTRY_HAS_EXPIRY;
                 }
             }
-
+            
             ssize_t usableDiff;
             Entry *newEntry = entryUpdate(oldEntry, value, newEntryFlags, &usableDiff);
 
@@ -1585,7 +1585,7 @@ Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable) {
     int hasExpiry = (hi->expire_time != EB_EXPIRE_TIME_INVALID);
 
     /* Create entry with field and value, using iterator's expire_time */
-    uint32_t entryFlags = ENTRY_TAKE_VALUE | ((hasExpiry) ? ENTRY_HAS_EXPIRY : 0);
+    uint32_t entryFlags = ENTRY_TAKE_VALUE | ((hasExpiry) ? ENTRY_HAS_EXPIRY : 0); 
     entry = entryCreate(field, value, entryFlags, usable);
     sdsfree(field);  /* entryCreate() doesn't take ownership of field */
 
@@ -1804,10 +1804,10 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             sds newValueSds = sdsnewlen(value, valueLen);
             /* Create new entry with field and value, optional expiry. */
             if (expireTime == EB_EXPIRE_TIME_INVALID) {
-                newEntry = entryCreate(newFieldSds, newValueSds,
+                newEntry = entryCreate(newFieldSds, newValueSds, 
                                        ENTRY_TAKE_VALUE, &usable);
             } else {
-                newEntry = entryCreate(newFieldSds, newValueSds,
+                newEntry = entryCreate(newFieldSds, newValueSds, 
                                        ENTRY_TAKE_VALUE | ENTRY_HAS_EXPIRY, &usable);
                 ebAdd(&dictExpireMetaDst->hfe, &hashFieldExpireBucketsType, newEntry, expireTime);
             }
@@ -2772,7 +2772,7 @@ void hgetdelCommand(client *c) {
         updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
-/* Get the value of one or more fields of a given hash key and optionally set
+/* Get the value of one or more fields of a given hash key and optionally set 
  * their expiration.
  *
  * HGETEX <key>
