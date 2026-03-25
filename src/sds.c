@@ -1507,27 +1507,47 @@ int sdsTest(int argc, char **argv, int flags) {
         x = sdsResize(x, 200, 1);
         test_cond("sdsresize() expand len", sdslen(x) == 40);
         test_cond("sdsresize() expand strlen", strlen(x) == 40);
+#if defined(USE_JEMALLOC)
+        test_cond("sdsresize() expand alloc", sdsalloc(x) == 220);
+#else
         test_cond("sdsresize() expand alloc", sdsalloc(x) == 200);
+#endif
         /* Test sdsresize - trim free space */
         x = sdsResize(x, 80, 1);
         test_cond("sdsresize() shrink len", sdslen(x) == 40);
         test_cond("sdsresize() shrink strlen", strlen(x) == 40);
-        test_cond("sdsresize() shrink alloc", sdsalloc(x) == 80);
+#if defined(USE_JEMALLOC)
+        test_cond("sdsresize() shrink alloc", sdsalloc(x) == 92);
+#else
+        test_cond("sdsresize() shrink alloc", sdsalloc(x) == 88);
+#endif
         /* Test sdsresize - crop used space */
         x = sdsResize(x, 30, 1);
         test_cond("sdsresize() crop len", sdslen(x) == 30);
         test_cond("sdsresize() crop strlen", strlen(x) == 30);
-        test_cond("sdsresize() crop alloc", sdsalloc(x) == 30);
+#if defined(USE_JEMALLOC)
+        test_cond("sdsresize() crop alloc", sdsalloc(x) == 36);
+#else
+        test_cond("sdsresize() crop alloc", sdsalloc(x) == 40);
+#endif
         /* Test sdsresize - extend to different class */
         x = sdsResize(x, 400, 1);
         test_cond("sdsresize() expand len", sdslen(x) == 30);
         test_cond("sdsresize() expand strlen", strlen(x) == 30);
-        test_cond("sdsresize() expand alloc", sdsalloc(x) == 400);
+#if defined(USE_JEMALLOC)
+        test_cond("sdsresize() expand alloc", sdsalloc(x) == 442);
+#else
+        test_cond("sdsresize() expand alloc", sdsalloc(x) == 406);
+#endif
         /* Test sdsresize - shrink to different class */
         x = sdsResize(x, 4, 1);
         test_cond("sdsresize() crop len", sdslen(x) == 4);
         test_cond("sdsresize() crop strlen", strlen(x) == 4);
+#if defined(USE_JEMALLOC)
         test_cond("sdsresize() crop alloc", sdsalloc(x) == 4);
+#else
+        test_cond("sdsresize() crop alloc", sdsalloc(x) == 8);
+#endif
         sdsfree(x);
         
         { /* Test adjustTypeIfNeeded() */
