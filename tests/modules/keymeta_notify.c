@@ -1,9 +1,10 @@
 /* Test module: SetKeyMeta during keyspace notification callback.
  *
- * This module registers a hash keyspace notification callback that writes
- * to key metadata (via RedisModule_SetKeyMeta). It is used to verify that
- * hash commands remain safe when a notification callback modifies key
- * metadata, which may trigger kvobj reallocation.
+ * This module registers keyspace notification callbacks for HASH, STRING,
+ * GENERIC, EXPIRED, and EVICTED events that write to key metadata (via
+ * RedisModule_SetKeyMeta). It is used to verify that commands remain safe
+ * when a notification callback modifies key metadata, which may trigger
+ * kvobj reallocation.
  *
  * Commands:
  *   KEYMETANOTIFY.GET <key>      - Get the metadata value attached to a key
@@ -26,7 +27,7 @@ static RedisModuleKeyMetaClassId meta_class_id = -1;
 /* Counter incremented each time we successfully set metadata in a notification */
 static long long meta_set_count = 0;
 
-/* Notification callback: sets metadata on the key during hash notifications. */
+/* Notification callback: sets metadata on the key during notifications. */
 static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                                RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
@@ -126,8 +127,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     meta_class_id = RedisModule_CreateKeyMetaClass(ctx, "kmno", 1, &config);
     if (meta_class_id < 0) return REDISMODULE_ERR;
 
-    /* Subscribe to hash keyspace events */
-    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_HASH,
+    /* Subscribe to keyspace events matching RediSearch's notification types:
+     * GENERIC, HASH, STRING, EXPIRED, and EVICTED. */
+    int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+                      REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_EXPIRED |
+                      REDISMODULE_NOTIFY_EVICTED;
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, notifyFlags,
                                               HashNotifyCallback) != REDISMODULE_OK)
         return REDISMODULE_ERR;
 

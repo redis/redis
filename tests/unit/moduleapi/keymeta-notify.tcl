@@ -1,10 +1,11 @@
 # Test for SetKeyMeta during keyspace notification (KSN) callbacks.
 #
-# This test loads a module that registers a hash KSN callback which
-# writes to key metadata (via RedisModule_SetKeyMeta), and exercises
-# various hash commands (HSETNX, HSET, HMSET, HINCRBY, HINCRBYFLOAT)
-# to catch regressions where the kvobj pointer becomes stale after a
-# notification callback reallocates it.
+# This test loads a module that registers KSN callbacks for HASH, STRING,
+# GENERIC, EXPIRED, and EVICTED events. The callback writes to key metadata
+# (via RedisModule_SetKeyMeta), which may trigger kvobj reallocation.
+# It exercises various commands across these notification types to catch
+# regressions where the kvobj pointer becomes stale after a notification
+# callback reallocates it.
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
@@ -80,6 +81,88 @@ start_server {tags {"modules" "external:skip"}} {
             assert_equal [r HGET "stresskey:$i" field] "value$i"
             assert_equal [r keymetanotify.get "stresskey:$i"] "notified"
         }
+    }
+
+    # --- STRING notification tests ---
+
+    test {SET with SetKeyMeta in notification does not crash} {
+        r SET strkey1 hello
+        assert_equal [r GET strkey1] "hello"
+        assert_equal [r keymetanotify.get strkey1] "notified"
+    }
+
+    test {APPEND with SetKeyMeta in notification does not crash} {
+        r DEL strkey2
+        r SET strkey2 "hello"
+        r APPEND strkey2 " world"
+        assert_equal [r GET strkey2] "hello world"
+        assert_equal [r keymetanotify.get strkey2] "notified"
+    }
+
+    test {INCR with SetKeyMeta in notification does not crash} {
+        r DEL strkey3
+        r SET strkey3 10
+        r INCR strkey3
+        assert_equal [r GET strkey3] "11"
+        assert_equal [r keymetanotify.get strkey3] "notified"
+    }
+
+    test {INCRBY with SetKeyMeta in notification does not crash} {
+        r DEL strkey4
+        r SET strkey4 10
+        r INCRBY strkey4 5
+        assert_equal [r GET strkey4] "15"
+        assert_equal [r keymetanotify.get strkey4] "notified"
+    }
+
+    test {INCRBYFLOAT with SetKeyMeta in notification does not crash} {
+        r DEL strkey5
+        r SET strkey5 10.5
+        r INCRBYFLOAT strkey5 1.5
+        assert_equal [r GET strkey5] "12"
+        assert_equal [r keymetanotify.get strkey5] "notified"
+    }
+
+    test {GETSET with SetKeyMeta in notification does not crash} {
+        r DEL strkey6
+        r SET strkey6 "old"
+        r GETSET strkey6 "new"
+        assert_equal [r GET strkey6] "new"
+        assert_equal [r keymetanotify.get strkey6] "notified"
+    }
+
+    test {SETRANGE with SetKeyMeta in notification does not crash} {
+        r DEL strkey7
+        r SET strkey7 "Hello World"
+        r SETRANGE strkey7 6 "Redis"
+        assert_equal [r GET strkey7] "Hello Redis"
+        assert_equal [r keymetanotify.get strkey7] "notified"
+    }
+
+    # --- GENERIC notification tests ---
+
+    test {DEL with SetKeyMeta in notification does not crash} {
+        r SET delkey "value"
+        assert_equal [r keymetanotify.get delkey] "notified"
+        r DEL delkey
+        # After DEL the key is gone, metadata should be gone too
+        assert_equal [r EXISTS delkey] 0
+    }
+
+    test {RENAME with SetKeyMeta in notification does not crash} {
+        r SET renamekey1 "value"
+        r RENAME renamekey1 renamekey2
+        assert_equal [r GET renamekey2] "value"
+        assert_equal [r EXISTS renamekey1] 0
+    }
+
+    test {EXPIRE and key expiry with SetKeyMeta in notification does not crash} {
+        r SET expkey "value"
+        assert_equal [r keymetanotify.get expkey] "notified"
+        r PEXPIRE expkey 50
+        # Wait for expiration
+        after 100
+        assert_equal [r EXISTS expkey] 0
     }
 
     test {SetKeyMeta notification count is tracked} {
