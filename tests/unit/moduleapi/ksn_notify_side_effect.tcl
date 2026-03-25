@@ -10,6 +10,8 @@
 # Important: each test uses a fresh key so that SetKeyMeta triggers an actual
 # kvobj reallocation (the first metadata attachment grows the kvobj). We verify
 # this by checking that the setcount increases after each command.
+# Each test also validates that the metadata is properly accessible after the
+# operation by reading it back via RedisModule_GetKeyMeta.
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
