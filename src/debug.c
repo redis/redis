@@ -553,13 +553,19 @@ NULL
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbg_assert_keysizes = (flag != 0);
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_KEYSIZES;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_KEYSIZES;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbg_assert_alloc_per_slot = (flag != 0);
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_ALLOC_SLOT;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_ALLOC_SLOT;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);

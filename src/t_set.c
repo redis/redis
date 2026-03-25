@@ -637,7 +637,7 @@ void saddCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
     if (added) {
         unsigned long size = setTypeSize(set);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size - added, size);
+        updateKeysizesHist(c->db, OBJ_SET, size - added, size);
         keyModified(c,c->db,c->argv[1],set,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
     }
@@ -687,7 +687,7 @@ void sremCommand(client *c) {
                                 c->db->id);
             newSize = -1; /* removed */
         }
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldSize, newSize);
+        updateKeysizesHist(c->db, OBJ_SET, oldSize, newSize);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -739,7 +739,7 @@ void smoveCommand(client *c) {
         srcNewLen = -1; /* removed */
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, srcOldLen, srcNewLen);
+    updateKeysizesHist(c->db, OBJ_SET, srcOldLen, srcNewLen);
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
@@ -755,7 +755,7 @@ void smoveCommand(client *c) {
     /* An extra key has changed when ele was successfully added to dstset */
     if (setTypeAdd(dstset,ele->ptr)) {
         unsigned long dstLen = setTypeSize(dstset);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_SET, dstLen - 1, dstLen);
+        updateKeysizesHist(c->db, OBJ_SET, dstLen - 1, dstLen);
         server.dirty++;
         keyModified(c,c->db,c->argv[2],dstset,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
@@ -930,7 +930,7 @@ void spopWithCountCommand(client *c) {
         lp = lpBatchDelete(lp, ps, count);
         zfree(ps);
         set->ptr = lp;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
+        updateKeysizesHist(c->db, OBJ_SET, size, size - count);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
@@ -949,7 +949,7 @@ void spopWithCountCommand(client *c) {
                 propindex = 2;
             }
         }
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
+        updateKeysizesHist(c->db, OBJ_SET, size, size - count);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
     } else {
@@ -1022,7 +1022,7 @@ void spopWithCountCommand(client *c) {
          * since function dbReplaceValue() assumes the entire set is being replaced, 
          * but here we're building the new set from the existing one. As a result, 
          * the size of the old set has already changed by the time we reach this point. */
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-count);
+        updateKeysizesHist(c->db, OBJ_SET, size, size-count);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
@@ -1066,7 +1066,7 @@ void spopCommand(client *c) {
     if (kv == NULL || checkType(c, kv, OBJ_SET)) return;
 
     size = setTypeSize(kv);
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-1);
+    updateKeysizesHist(c->db, OBJ_SET, size, size-1);
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);

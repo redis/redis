@@ -272,13 +272,17 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
     raxNode *child = raxNewNode(rax,0,0);
     if (child == NULL) return NULL;
 
-    /* Make space in the original node. */
-    raxNode *newn = raxNodeRealloc(rax,n,newlen);
-    if (newn == NULL) {
-        raxFreeNode(rax,child);
-        return NULL;
+    /* Make space in the original node. If the current allocation already
+     * has enough usable bytes (common with jemalloc size-class rounding),
+     * skip the realloc entirely. */
+    if (rax_malloc_usable_size(n) < newlen) {
+        raxNode *newn = raxNodeRealloc(rax,n,newlen);
+        if (newn == NULL) {
+            raxFreeNode(rax,child);
+            return NULL;
+        }
+        n = newn;
     }
-    n = newn;
 
     /* After the reallocation, we have up to 8/16 (depending on the system
      * pointer size, and the required node padding) bytes at the end, that is,
@@ -309,8 +313,12 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
      * a child "c" in our case pos will be = 2 after the end of the following
      * loop. */
     int pos;
-    for (pos = 0; pos < n->size; pos++) {
-        if (n->data[pos] > c) break;
+    if (n->size > 0 && c > n->data[n->size - 1]) {
+        pos = n->size;
+    } else {
+        for (pos = 0; pos < n->size; pos++) {
+            if (n->data[pos] > c) break;
+        }
     }
 
     /* Now, if present, move auxiliary data pointer at the end
@@ -478,13 +486,24 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
             }
             if (j != h->size) break;
         } else {
-            /* Even when h->size is large, linear scan provides good
-             * performances compared to other approaches that are in theory
-             * more sounding, like performing a binary search. */
-            for (j = 0; j < h->size; j++) {
-                if (v[j] == s[i]) break;
+            /* Children are sorted. Check the last child first: for
+             * sequential inserts the match is almost always at the end,
+             * and for random keys the extra compare is negligible vs
+             * the O(n) scan that follows on miss. */
+            if (v[h->size - 1] == s[i]) {
+                j = h->size - 1;
+            } else if (s[i] > v[h->size - 1]) {
+                j = h->size;
+                break;
+            } else {
+                /* Even when h->size is large, linear scan provides good
+                 * performances compared to other approaches that are in theory
+                 * more sounding, like performing a binary search. */
+                for (j = 0; j < h->size; j++) {
+                    if (v[j] == s[i]) break;
+                }
+                if (j == h->size) break;
             }
-            if (j == h->size) break;
             i++;
         }
 
