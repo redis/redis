@@ -31,10 +31,9 @@ static long long meta_set_count = 0;
 static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                                RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
 
     if (meta_class_id < 0) return REDISMODULE_OK;
-
-    const char *keyname = RedisModule_StringPtrLen(key, NULL);
 
     RedisModuleKey *k = RedisModule_OpenKey(ctx, key, REDISMODULE_WRITE);
     if (!k) return REDISMODULE_OK;
@@ -44,32 +43,11 @@ static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
         return REDISMODULE_OK;
     }
 
-    /* Check if metadata already exists - if not, SetKeyMeta will reallocate kvobj */
+    /* Free existing metadata if any */
     uint64_t existing = 0;
-    int has_meta = (RedisModule_GetKeyMeta(meta_class_id, k, &existing) == REDISMODULE_OK);
-
-    if (has_meta && existing != 0) {
-        free((char *)existing);
-    }
-
-    /* Capture kvobj address before SetKeyMeta via DEBUG OBJECT */
-    const char *addr_before = "unknown";
-    char addr_before_buf[64] = {0};
-    RedisModuleCallReply *reply_before = RedisModule_Call(ctx, "DEBUG", "cc", "OBJECT", keyname);
-    if (reply_before && RedisModule_CallReplyType(reply_before) == REDISMODULE_REPLY_STRING) {
-        size_t len;
-        const char *str = RedisModule_CallReplyStringPtr(reply_before, &len);
-        /* Parse "Value at:0x..." from the reply */
-        const char *p = strstr(str, "Value at:");
-        if (p) {
-            p += 9; /* skip "Value at:" */
-            size_t i = 0;
-            while (p[i] && p[i] != ' ' && i < sizeof(addr_before_buf) - 1) {
-                addr_before_buf[i] = p[i];
-                i++;
-            }
-            addr_before_buf[i] = '\0';
-            addr_before = addr_before_buf;
+    if (RedisModule_GetKeyMeta(meta_class_id, k, &existing) == REDISMODULE_OK) {
+        if (existing != 0) {
+            free((char *)existing);
         }
     }
 
@@ -77,39 +55,9 @@ static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
     char *new_str = strdup("notified");
     if (RedisModule_SetKeyMeta(meta_class_id, k, (uint64_t)new_str) == REDISMODULE_OK) {
         meta_set_count++;
-
-        /* Capture kvobj address after SetKeyMeta */
-        const char *addr_after = "unknown";
-        char addr_after_buf[64] = {0};
-        RedisModuleCallReply *reply_after = RedisModule_Call(ctx, "DEBUG", "cc", "OBJECT", keyname);
-        if (reply_after && RedisModule_CallReplyType(reply_after) == REDISMODULE_REPLY_STRING) {
-            size_t len;
-            const char *str = RedisModule_CallReplyStringPtr(reply_after, &len);
-            const char *p = strstr(str, "Value at:");
-            if (p) {
-                p += 9;
-                size_t i = 0;
-                while (p[i] && p[i] != ' ' && i < sizeof(addr_after_buf) - 1) {
-                    addr_after_buf[i] = p[i];
-                    i++;
-                }
-                addr_after_buf[i] = '\0';
-                addr_after = addr_after_buf;
-            }
-        }
-
-        int addrs_differ = strcmp(addr_before, addr_after) != 0;
-        RedisModule_Log(ctx, "notice",
-                        "KSN callback: event=%s key=%s kvobj_realloc=%s (addr_before=%s addr_after=%s)",
-                        event, keyname,
-                        addrs_differ ? "YES" : "no",
-                        addr_before, addr_after);
-
-        if (reply_after) RedisModule_FreeCallReply(reply_after);
     } else {
         free(new_str);
     }
-    if (reply_before) RedisModule_FreeCallReply(reply_before);
 
     RedisModule_CloseKey(k);
     return REDISMODULE_OK;
