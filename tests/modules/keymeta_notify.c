@@ -1,15 +1,13 @@
 /* Test module: SetKeyMeta during keyspace notification callback.
  *
- * This module reproduces a bug where hsetnxCommand (and potentially other
- * hash commands) would access a stale kvobj pointer after firing a keyspace
- * notification, if a module's notification callback called SetKeyMeta which
- * internally reallocates the kvobj via keyMetaSetMetadata.
- *
- * The fix ensures notifyKeyspaceEvent is called AFTER all kvobj accesses.
+ * This module registers a hash keyspace notification callback that writes
+ * to key metadata (via RedisModule_SetKeyMeta). It is used to verify that
+ * hash commands remain safe when a notification callback modifies key
+ * metadata, which may trigger kvobj reallocation.
  *
  * Commands:
- *   KEYMETANOTIFY.GET <key>  - Get the metadata value attached to a key
- *   KEYMETANOTIFY.CHECK      - Returns "OK" (health check)
+ *   KEYMETANOTIFY.GET <key>      - Get the metadata value attached to a key
+ *   KEYMETANOTIFY.SETCOUNT       - Get how many times metadata was set in notifications
  *
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -28,9 +26,7 @@ static RedisModuleKeyMetaClassId meta_class_id = -1;
 /* Counter incremented each time we successfully set metadata in a notification */
 static long long meta_set_count = 0;
 
-/* Notification callback: sets metadata on the key during hash notifications.
- * This triggers the bug if the notification fires before all kvobj accesses
- * in the command implementation (e.g., hsetnxCommand). */
+/* Notification callback: sets metadata on the key during hash notifications. */
 static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                                RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);

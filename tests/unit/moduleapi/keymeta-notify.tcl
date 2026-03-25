@@ -1,24 +1,17 @@
-# Regression test for SetKeyMeta during keyspace notification.
+# Test for SetKeyMeta during keyspace notification (KSN) callbacks.
 #
-# Bug: hsetnxCommand fired notifyKeyspaceEvent BEFORE accessing the kvobj
-# pointer for hashTypeLength/updateKeysizesHist/updateSlotAllocSize.
-# If a module's notification callback called SetKeyMeta (which requires
-# REDISMODULE_WRITE and triggers keyMetaSetMetadata), the kvobj could be
-# reallocated, leaving hsetnxCommand with a stale pointer. This caused
-# "Guru Meditation: Unknown hash encoding" crash.
-#
-# Fix: Move notifyKeyspaceEvent to AFTER all kvobj accesses in hsetnxCommand,
-# matching the safe pattern already used by hsetCommand.
+# This test loads a module that registers a hash KSN callback which
+# writes to key metadata (via RedisModule_SetKeyMeta), and exercises
+# various hash commands (HSETNX, HSET, HMSET, HINCRBY, HINCRBYFLOAT)
+# to catch regressions where the kvobj pointer becomes stale after a
+# notification callback reallocates it.
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
 start_server {tags {"modules" "external:skip"}} {
     r module load $testmodule
 
-    test {HSETNX with SetKeyMeta in notification does not crash} {
-        # This is the primary regression test.
-        # Before the fix, this would crash with:
-        #   "Guru Meditation: Unknown hash encoding #t_hash.c:1335"
+    test {HSETNX with SetKeyMeta in notification works correctly} {
         r HSETNX mykey field1 value1
 
         # Verify the hash is valid and accessible

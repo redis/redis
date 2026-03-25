@@ -50,11 +50,11 @@ static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
 
-/* Encode 64b For module entity encode. Encode 32b class spec for RDB. 
+/* Encode 64b For module entity encode. Encode 32b class spec for RDB.
  *
- * Takes a 4-character name (e.g., "KMT1"), version (0-31), and flags, validates 
+ * Takes a 4-character name (e.g., "KMT1"), version (0-31), and flags, validates
  * 4-char name uses valid character set. Version is 5 bits (0-31).
- * 
+ *
  * >> ENCODING 32-BIT CLASS SPEC
  * Encodes compact 32-bit class Spec for RDB/DUMP serialization:
  *            31                           8 7     3 2   0
@@ -71,7 +71,7 @@ static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t m
  *            │   9-char name (56 bits) "META-xxxx"   │  ver (0-31) │
  *            │   (6 bits per char)                   │   (10 bit)  │
  *            └───────────────────────────────────────┴─────────────┘
- * 
+ *
  */
 static uint64_t keyMetaClassEncode(const char *name, int metaver, uint64_t flags,
                                 char *fullname, uint32_t *rdbEncodedValue) {
@@ -227,8 +227,8 @@ void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey,
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
             uint64_t tmpMeta = *pMeta; /* read current module slot */
             if (tmpMeta != keyMetaClass[keyMetaId].conf.reset_value &&
-                (!keyMetaClass[keyMetaId].conf.rename || 
-                 keyMetaClass[keyMetaId].conf.rename(&ctx, &tmpMeta))) 
+                (!keyMetaClass[keyMetaId].conf.rename ||
+                 keyMetaClass[keyMetaId].conf.rename(&ctx, &tmpMeta)))
             {
                 keyMetaSpecAdd(kms, keyMetaId, tmpMeta);
                 /* Set old metadata slot to reset_value to prevent free callback */
@@ -264,8 +264,8 @@ void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
             uint64_t tmpMeta = *pMeta; /* read current module slot */
             if (tmpMeta != keyMetaClass[keyMetaId].conf.reset_value &&
-                (!keyMetaClass[keyMetaId].conf.move || 
-                 keyMetaClass[keyMetaId].conf.move(&ctx, &tmpMeta))) 
+                (!keyMetaClass[keyMetaId].conf.move ||
+                 keyMetaClass[keyMetaId].conf.move(&ctx, &tmpMeta)))
             {
                 keyMetaSpecAdd(kms, keyMetaId, tmpMeta);
                 /* If keep, set old metadata to reset_value to prevent free callback */
@@ -308,7 +308,7 @@ void keyMetaOnUnlink(redisDb *db, robj *key, kvobj *kv) {
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
 
             if (*pMeta != keyMetaClass[keyMetaId].conf.reset_value &&
-                keyMetaClass[keyMetaId].conf.unlink) 
+                keyMetaClass[keyMetaId].conf.unlink)
             {
                 keyMetaClass[keyMetaId].conf.unlink(&ctx, pMeta);
             }
@@ -320,7 +320,7 @@ void keyMetaOnUnlink(redisDb *db, robj *key, kvobj *kv) {
 }
 
 /*
- * keyMetaOnFree() - when kvobj's metadata is actually being freed 
+ * keyMetaOnFree() - when kvobj's metadata is actually being freed
  *
  * - Called after the key has been logically unlinked (see keyMetaOnUnlink())
  * - This is the place to reclaim resources associated with per-key metadata (e.g.,
@@ -328,7 +328,7 @@ void keyMetaOnUnlink(redisDb *db, robj *key, kvobj *kv) {
  * - May run in a background thread; therefore module code invoked here must NOT
  *   access Redis keyspace or perform operations that require the main thread.
  *   Only perform thread-safe memory cleanup pertinent to the metadata.
- * - For each attached metadata invokes class-specific 'free' callback if given, 
+ * - For each attached metadata invokes class-specific 'free' callback if given,
  */
 void keyMetaOnFree(kvobj *kv) {
     /* Skip builtin expire slot if present; no action needed for expire itself. */
@@ -355,11 +355,11 @@ void keyMetaOnFree(kvobj *kv) {
     } while (mbits != 0);
 }
 
-/* Free any metadata stored in a KeyMetaSpec. This is called when RDB load fails 
- * after some metadata has been loaded. It invokes the free cb for each metadata 
+/* Free any metadata stored in a KeyMetaSpec. This is called when RDB load fails
+ * after some metadata has been loaded. It invokes the free cb for each metadata
  * class that was already loaded, preventing memory leaks from partially-loaded metadata.
  *
- * Note: 
+ * Note:
  * - We pass NULL for keyname since the key doesn't exist yet.
  * - The kms->meta[] array is stored in reverse order: smallest metaid at the end.
  */
@@ -554,7 +554,7 @@ error:
  *     4B: CLASS_SPEC (32-bit classSpecEncoded)
  *     ?B: VALUE (from rdb_save callback)
  *     1B: RDB_MODULE_OPCODE_EOF
- *     
+ *
   * Returns -1 on error, 0 on success.
  */
 int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
@@ -637,7 +637,7 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
     {
         goto error;
     }
-    
+
     sdsfree(payload_rio.io.buffer.ptr);
     return 0;
 
@@ -664,7 +664,7 @@ int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
 
             uint64_t meta = *pMeta;
             if (meta != keyMetaClass[keyMetaId].conf.reset_value &&
-                keyMetaClass[keyMetaId].conf.aof_rewrite) 
+                keyMetaClass[keyMetaId].conf.aof_rewrite)
             {
                 RedisModuleIO io;
                 moduleInitIOContext(&io, &keyMetaClass[keyMetaId].entity, r, key, dbid);
@@ -688,13 +688,13 @@ int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
 void keyMetaTransition(kvobj *kvOld, kvobj *kvNew) {
     /* Precondition: */
     debugServerAssert(kvOld->metabits>>KEY_META_ID_MODULE_FIRST);
-    
+
     /* Skip builtin expire slot if present; no action needed for expire itself. */
     uint64_t *pMetaOld = ((uint64_t *)kvOld) - 1;
     if (kvOld->metabits & KEY_META_MASK_EXPIRE) pMetaOld--;
     uint64_t *pMetaNew = ((uint64_t *)kvNew) - 1;
     if (kvNew->metabits & KEY_META_MASK_EXPIRE) pMetaNew--;
-    
+
     uint32_t mbitsOld = kvOld->metabits >> KEY_META_ID_MODULE_FIRST;
     uint32_t mbitsNew = kvNew->metabits >> KEY_META_ID_MODULE_FIRST;
     if (likely(mbitsOld == 0)) return;
@@ -711,11 +711,11 @@ void keyMetaTransition(kvobj *kvOld, kvobj *kvNew) {
                 pMetaOld--;
             }
         } else {
-            /* Update pMetaNew if needed (No need to reset value in new key, 
+            /* Update pMetaNew if needed (No need to reset value in new key,
              * assuming it was initialized earlier). */
-            pMetaNew -= mbitsNew & 1;  
+            pMetaNew -= mbitsNew & 1;
         }
-        
+
         mbitsOld >>= 1;
         mbitsNew >>= 1;
         keyMetaId++;
@@ -723,7 +723,7 @@ void keyMetaTransition(kvobj *kvOld, kvobj *kvNew) {
 }
 
 /* Create a new metadata class. Returns class ID (1-7) on success, 0 on failure.
- * 
+ *
  * context - In case of a module, pass the module pointer. Otherwise NULL.
  */
 KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
@@ -821,7 +821,7 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
 
     /* Preserve existing expire value (and whether an expires entry exists). */
     long long old_expire_val = kvobjGetExpire(kv);
-    
+
     /* We'll need the key's link in the main dictionary to update pointer if reallocated. */
     dictEntryLink keyLink = kvstoreDictFindLink(db->keys, slot, key, NULL);
     serverAssert(keyLink != NULL);
@@ -833,7 +833,7 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
         serverAssert(exLink != NULL);
     }
 
-    /* Reallocate kv with the new metadata bit enabled. kvobjSet may return a new 
+    /* Reallocate kv with the new metadata bit enabled. kvobjSet may return a new
      * ptr. Takes care to transition existing metadata as needed. */
     size_t oldsize = 0;
     if (server.memory_tracking_enabled)
@@ -845,7 +845,7 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
 
     /* Set new metadata */
     *kvobjMetaRef(kv, id) = metadata;
-    
+
     /* If there was an expires entry (expire != -1), update its kv pointer. */
     if (exLink) {
         ((uint64_t *)kv)[-1] = old_expire_val; /* expiry must be first meta */
@@ -862,11 +862,11 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
 /* Retrieve a module metadata value from an opened key. Returns 1 on success, 0 otherwise. */
 int keyMetaGetMetadata(KeyMetaClassId kmcId, kvobj *kv, uint64_t *metadata) {
     serverAssert(kmcId >= KEY_META_ID_MODULE_FIRST && kmcId <= KEY_META_ID_MODULE_LAST);
-    
-    if (keyMetaClass[kmcId].state != CLASS_STATE_INUSE) 
+
+    if (keyMetaClass[kmcId].state != CLASS_STATE_INUSE)
         return 0;
-    
-    if (!(kv->metabits & (1u << kmcId))) 
+
+    if (!(kv->metabits & (1u << kmcId)))
         return 0; /* metadata not attached */
 
     *metadata = *kvobjMetaRef(kv, kmcId);
@@ -891,8 +891,8 @@ static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t m
     debugServerAssert(metaid >= 0 && metaid < KEY_META_ID_MAX);
     debugServerAssert((keymeta->metabits & (1 << metaid)) == 0); /* Not already added */
 
-    /* The meta array is populated in reverse order from the end backward. smallest 
-     * metaid is at the end. Iterate through array slots upward, but find metaids 
+    /* The meta array is populated in reverse order from the end backward. smallest
+     * metaid is at the end. Iterate through array slots upward, but find metaids
      * by scanning downward (highest to lowest) to match the reverse-order layout. */
     int startIdx = KEY_META_ID_MAX - keymeta->numMeta;
     uint16_t tmpBits = keymeta->metabits;
