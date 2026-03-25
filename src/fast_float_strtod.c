@@ -381,7 +381,9 @@ static void run_ff_tests(ff_testcase *cases, int n) {
     for (int i = 0; i < n; i++) {
         const char *s = cases[i].input;
         size_t len = strlen(s);
-        char *eptr; double d = fast_float_strtod(s, len, &eptr);
+        char *eptr;
+
+        double d = fast_float_strtod(s, len, &eptr);
         int failed = ((size_t)(eptr - s) != len);
         int ok = (cases[i].failed == failed) && ff_eq(d, cases[i].expected);
         char descr[128];
@@ -434,7 +436,7 @@ int fastFloatTest(int argc, char **argv, int flags) {
     };
     run_ff_tests(decimal_ok, COUNTOF(decimal_ok));
 
-    /* No valid prefix for full buffer, or trailing junk (endptr != len). */
+    /* No valid prefix for full buffer, or trailing junk. */
     ff_testcase decimal_bad[] = {
         {"1abc", 1.0, 1},
         {"1e", 1.0, 1},
