@@ -7864,7 +7864,6 @@ int main(int argc, char **argv) {
                    failed_num ? "\033[31m" : "", failed_num, numtests);
 
             test_report();
-
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
             if (!proc) return -1; /* test not found */
@@ -7872,7 +7871,7 @@ int main(int argc, char **argv) {
             test_report();
         }
 
-        return 0;
+        return __failed_tests ? 1 : 0;
     }
 #endif
 
