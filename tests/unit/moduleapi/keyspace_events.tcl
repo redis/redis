@@ -116,6 +116,11 @@ tags "modules external:skip" {
             assert_equal [r get testkeyspace:expired] 1
         }
 
+        test "Subkey notification: subscribe starts callback" {
+            r keyspace.subscribe_subkeys
+            r keyspace.reset_subkey_events
+        }
+    
         test "Subkey notification: HSET triggers module subkey callback" {
             r keyspace.reset_subkey_events
             r hset myhash f1 v1 f2 v2
@@ -172,6 +177,26 @@ tags "modules external:skip" {
             r del myhash
         }
 
+        test "Subkey notification: SUBKEYS_REQUIRED flag skips events without subkeys" {
+            r keyspace.subscribe_require_subkeys
+            r keyspace.reset_subkey_events
+
+            # HSET has subkeys — should trigger callback
+            r hset myhash f1 v1 f2 v2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
+
+            # DEL has no subkeys — the callback should be skipped.
+            r keyspace.reset_subkey_events
+            r del myhash
+            set events [r keyspace.get_subkey_events]
+            assert_equal 0 [llength $events]
+
+            r keyspace.unsubscribe_require_subkeys
+            r keyspace.reset_subkey_events
+        }
+
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }
@@ -194,6 +219,8 @@ tags "modules external:skip" {
             wait_for_sync $replica
 
             test "Subkey notification: replica module receives subkey callback after replication" {
+                $master keyspace.subscribe_subkeys
+                $replica keyspace.subscribe_subkeys
                 $replica keyspace.reset_subkey_events
 
                 $master hset myhash f1 v1 f2 v2
@@ -205,6 +232,8 @@ tags "modules external:skip" {
                 assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
 
                 $master del myhash
+                $master keyspace.unsubscribe_subkeys
+                $replica keyspace.unsubscribe_subkeys
             }
         }
     }

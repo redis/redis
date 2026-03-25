@@ -320,6 +320,8 @@ typedef struct RedisModuleKeyspaceSubscriber {
     RedisModuleNotificationWithSubkeysFunc notify_callback_with_subkeys;
     /* A bit mask of the events the module is interested in */
     int event_mask;
+    /* Delivery flags for subkey notifications, controlling when the callback is invoked. */
+    int flags;
     /* Active flag set on entry, to avoid reentrant subscribers
      * calling themselves */
     int active;
@@ -9219,6 +9221,13 @@ void moduleReleaseGIL(void) {
  * time. The event string is the actual command being executed, and key is the
  * relevant Redis key.
  *
+ * `flags` controls delivery filtering:
+ *  - REDISMODULE_NOTIFY_FLAG_NONE: The callback is invoked for all matching
+ *    events regardless of whether subkeys are present.
+ *  - REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED: The callback is only invoked
+ *    when subkeys are not empty (subkeys != NULL && count > 0). Events without
+ *    subkey information (e.g. SET, DEL) are skipped. 
+ *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
  * occurred as its selected db number.
@@ -9242,6 +9251,7 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
     sub->module = ctx->module;
     sub->event_mask = types;
+    sub->flags = REDISMODULE_NOTIFY_FLAG_NONE;
     sub->notify_callback = callback;
     sub->notify_callback_with_subkeys = NULL;
     sub->active = 0;
@@ -9303,11 +9313,14 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
  * The underlying objects may be stack-allocated or temporary, so
  * RM_RetainString must NOT be used on them. To keep a subkey beyond
  * the callback (e.g. in a RM_AddPostNotificationJob callback), use
- * RM_CreateStringFromString to make a deep copy before returning. */
-int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, RedisModuleNotificationWithSubkeysFunc callback) {
+ * RM_HoldString (which handles static objects by copying) or
+ * RM_CreateStringFromString to make a deep copy before returning.
+ */
+int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc callback) {
     RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
     sub->module = ctx->module;
     sub->event_mask = types;
+    sub->flags = flags;
     sub->notify_callback = NULL;
     sub->notify_callback_with_subkeys = callback;
     sub->active = 0;
@@ -9325,12 +9338,13 @@ int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, Redi
  * Parameters:
  *  - ctx: The RedisModuleCtx associated with the calling module.
  *  - types: The event mask representing the notification types to unsubscribe from.
+ *  - flags: The delivery flags that were used during registration.
  *  - callback: The callback function pointer that was originally registered.
  *
  * Returns:
  *  - REDISMODULE_OK on successful removal of the subscription.
  *  - REDISMODULE_ERR if no matching subscription was found. */
-int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, RedisModuleNotificationWithSubkeysFunc callback) {
+int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc callback) {
     if (!ctx || !callback) return REDISMODULE_ERR;
     int removed = 0;
     listIter li;
@@ -9338,7 +9352,8 @@ int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, 
     listRewind(moduleKeyspaceSubscribers,&li);
     while ((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
-        if (sub->event_mask == types && sub->notify_callback_with_subkeys == callback &&
+        if (sub->event_mask == types && sub->flags == flags &&
+            sub->notify_callback_with_subkeys == callback &&
             sub->module == ctx->module)
         {
             zfree(sub);
@@ -9492,6 +9507,15 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
          * and avoid subscribers triggering themselves */
         if ((sub->event_mask & type) &&
             (sub->active == 0 || (sub->module->options & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS))) {
+
+            /* If SUBKEYS_REQUIRED is set, skip events without subkeys. */
+            if (sub->notify_callback_with_subkeys &&
+                (sub->flags & REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED) &&
+                (subkeys == NULL || count == 0))
+            {
+                continue;
+            }
+
             RedisModuleCtx ctx;
             moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);

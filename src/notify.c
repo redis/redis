@@ -149,8 +149,8 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
 
     /* __keyspace@<db>__:<key> <event> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
-        chan = sdsnewlen("__keyspace@", 11);
-        len = ll2string(buf, sizeof(buf), dbid);
+        chan = sdsnewlen("__keyspace@",11);
+        len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, key->ptr);
@@ -161,8 +161,8 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
 
     /* __keyevent@<db>__:<event> <key> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {
-        chan = sdsnewlen("__keyevent@", 11);
-        if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
+        chan = sdsnewlen("__keyevent@",11);
+        if (len == -1) len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, eventobj->ptr);
