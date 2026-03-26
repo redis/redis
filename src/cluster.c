@@ -321,6 +321,7 @@ void restoreCommand(client *c) {
         }
     }
     objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
+    int kvtype = kv->type; /* Save type before notifications: kv may be reallocated by module callbacks. */
     keyModified(c,c->db,key,NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
 
@@ -328,7 +329,7 @@ void restoreCommand(client *c) {
      * destination key existed. */
     if (deleted) {
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
-        if (oldtype != kv->type) {
+        if (oldtype != kvtype) {
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
         }
     }
