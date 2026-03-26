@@ -295,21 +295,19 @@ void restoreCommand(client *c) {
     /* Create the key and set the TTL if any */
     kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
 
+    /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
+    int kvtype = kv->type;
+
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
-    if (kv->type == OBJ_HASH) {
+    if (kvtype == OBJ_HASH) {
         uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
             estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
-    if (kv->type == OBJ_STREAM) {
-        stream *s = kv->ptr;
-        if (s->idmp_producers != NULL) {
-            if (dictAdd(c->db->stream_idmp_keys, key, NULL) == DICT_OK)
-                incrRefCount(key);
-        }
-    }
+    if (kvtype == OBJ_STREAM)
+        streamKeyLoaded(c->db, key, kv);
 
     if (ttl) {
         if (!absttl) {
@@ -328,7 +326,7 @@ void restoreCommand(client *c) {
      * destination key existed. */
     if (deleted) {
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
-        if (oldtype != kv->type) {
+        if (oldtype != kvtype) {
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
         }
     }

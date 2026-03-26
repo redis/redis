@@ -84,7 +84,10 @@ sds keyspaceEventsFlagsToString(int flags) {
  * 'type' is the notification class we define in `server.h`.
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
- * 'dbid' is the database ID where the key lives.  */
+ * 'dbid' is the database ID where the key lives.
+ *
+ * NOTE: This function may invoke module notification callbacks, which may
+ * cause the key's kvobj to be reallocated. */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
     sds chan;
     robj *chanobj, *eventobj;
