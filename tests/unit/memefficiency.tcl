@@ -52,19 +52,15 @@ start_server {tags {"memefficiency external:skip"}} {
 
 run_solo {defrag} {
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
-        set last_frag 0
-        set last_running 0
-
         wait_for_condition $maxtries $delay {
-            [set last_running [s active_defrag_running]] == 0 && \
-            ($expect_frag == 0 || [set last_frag [s allocator_frag_ratio]] <= $expect_frag)
+            [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
         } else {
             after 120 ;# serverCron only updates the info once in 100ms
             puts [r info memory]
             puts [r info stats]
             puts [r memory malloc-stats]
             if {$expect_frag != 0} {
-                fail "defrag didn't stop or failed to achieve expected frag ratio ($last_frag > $expect_frag) and final_frag=[s allocator_frag_ratio]"
+                fail "defrag didn't stop or failed to achieve expected frag ratio ([s allocator_frag_ratio] > $expect_frag)"
             } else {
                 fail "defrag didn't stop."
             }
@@ -675,7 +671,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 1000 100 1.1
+                wait_for_defrag_stop 500 100 1.1
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
