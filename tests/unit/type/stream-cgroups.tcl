@@ -3290,4 +3290,189 @@ start_server {
             assert_error "*ERR The CLAIM option is only supported*" {r XREAD COUNT 2 CLAIM 10 STREAMS mystream 0-0}
         }
     }
+
+    test "Two-level PEL bucket overflow with fixed-ms entries" {
+        r DEL mystream
+
+        # Add 600 entries sharing the same ms, forcing multiple flax buckets.
+        for {set i 0} {$i < 600} {incr i} {
+            r XADD mystream 1000-$i field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 600 STREAMS mystream >
+
+        # Verify all 600 entries are pending.
+        set pending [r XPENDING mystream grp - + 10]
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 600
+
+        # XACK entries from different bucket ranges: early, middle, late.
+        r XACK mystream grp 1000-0 1000-1 1000-2
+        r XACK mystream grp 1000-300 1000-301
+        r XACK mystream grp 1000-598 1000-599
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 593
+
+        # XCLAIM an entry from a different bucket range into a new consumer.
+        after 10
+        r XCLAIM mystream grp consumer2 0 1000-400
+
+        set pending_c2 [r XPENDING mystream grp - + 10 consumer2]
+        assert_equal [llength $pending_c2] 1
+        assert_equal [lindex $pending_c2 0 0] "1000-400"
+
+        # Verify consumer1's count decreased.
+        set pending_c1_summary [r XPENDING mystream grp - + 700 consumer1]
+        assert_equal [llength $pending_c1_summary] 592
+    }
+
+    test "Two-level PEL non-sequential insertion via XCLAIM into full buckets" {
+        r DEL mystream
+
+        # Add 600 entries: consumer1 reads 0-299, consumer2 reads 300-599.
+        # consumer2's PEL will have a full bucket (256 entries) at seq_base=0.
+        for {set i 0} {$i < 600} {incr i} {
+            r XADD mystream 2000-$i field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 300 STREAMS mystream >
+        r XREADGROUP GROUP grp consumer2 COUNT 300 STREAMS mystream >
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 600
+
+        # XCLAIM entries 0-99 from consumer1 to consumer2. This inserts
+        # seqs 0-99 into consumer2's PEL which already holds seqs 300-599
+        # in a full bucket, exercising non-sequential insertion into a
+        # bucket that has grown beyond FLAX_BUCKET_MAX.
+        for {set i 0} {$i < 100} {incr i} {
+            r XCLAIM mystream grp consumer2 0 2000-$i
+        }
+
+        # consumer2 should now have 300 + 100 = 400 entries.
+        set pending_c2 [r XPENDING mystream grp - + 600 consumer2]
+        assert_equal [llength $pending_c2] 400
+
+        # Verify entries are returned in correct sorted order (numeric comparison).
+        set prev_ms -1
+        set prev_seq -1
+        foreach entry $pending_c2 {
+            set id [lindex $entry 0]
+            set parts [split $id -]
+            set ms [lindex $parts 0]
+            set seq [lindex $parts 1]
+            if {$ms == $prev_ms} {
+                assert {$seq > $prev_seq}
+            } elseif {$prev_ms >= 0} {
+                assert {$ms > $prev_ms}
+            }
+            set prev_ms $ms
+            set prev_seq $seq
+        }
+
+        # Verify first and last entries.
+        assert_equal [lindex $pending_c2 0 0] "2000-0"
+        assert_equal [lindex $pending_c2 end 0] "2000-599"
+    }
+
+    test "Two-level PEL empty-bucket removal after ACK" {
+        r DEL mystream
+
+        # Create 3 buckets worth of entries (768 entries, 256 each) under
+        # one ms, then ACK all entries in the middle bucket.
+        for {set i 0} {$i < 768} {incr i} {
+            r XADD mystream 3000-$i field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 768 STREAMS mystream >
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 768
+
+        # ACK the middle 256 entries (seq 256-511).
+        for {set i 256} {$i < 512} {incr i} {
+            r XACK mystream grp 3000-$i
+        }
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 512
+
+        # Verify XPENDING returns only entries from first and last buckets
+        # in correct order, with no entries from the removed middle bucket.
+        set all_pending [r XPENDING mystream grp - + 600]
+        assert_equal [llength $all_pending] 512
+
+        foreach entry $all_pending {
+            set id [lindex $entry 0]
+            set seq [lindex [split $id -] 1]
+            assert {$seq < 256 || $seq >= 512}
+        }
+
+        # Verify boundary entries still exist.
+        set first [lindex $all_pending 0 0]
+        set last [lindex $all_pending end 0]
+        assert_equal $first "3000-0"
+        assert_equal $last "3000-767"
+    }
+
+    test "Two-level PEL cross-bucket iteration with XPENDING range" {
+        r DEL mystream
+
+        # Use two different ms values, each with enough entries to span
+        # multiple buckets, to test iteration across ms+bucket boundaries.
+        for {set i 0} {$i < 400} {incr i} {
+            r XADD mystream 4000-$i field value$i
+        }
+        for {set i 0} {$i < 400} {incr i} {
+            r XADD mystream 5000-$i field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 800 STREAMS mystream >
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 800
+
+        # Fetch all 800 entries and verify strict ordering.
+        set all_pending [r XPENDING mystream grp - + 900]
+        assert_equal [llength $all_pending] 800
+
+        set prev_ms 0
+        set prev_seq -1
+        foreach entry $all_pending {
+            set id [lindex $entry 0]
+            set parts [split $id -]
+            set ms [lindex $parts 0]
+            set seq [lindex $parts 1]
+            if {$ms == $prev_ms} {
+                assert {$seq > $prev_seq}
+            } else {
+                assert {$ms > $prev_ms}
+            }
+            set prev_ms $ms
+            set prev_seq $seq
+        }
+
+        # Paginated fetch: use COUNT to walk 100 entries at a time and
+        # verify continuity across pages.
+        set start "-"
+        set collected {}
+        while {1} {
+            set page [r XPENDING mystream grp $start + 100]
+            if {[llength $page] == 0} break
+            foreach entry $page {
+                lappend collected [lindex $entry 0]
+            }
+            # Advance start past the last entry returned.
+            set last_id [lindex $page end 0]
+            set parts [split $last_id -]
+            set next_seq [expr {[lindex $parts 1] + 1}]
+            set start "[lindex $parts 0]-$next_seq"
+        }
+        assert_equal [llength $collected] 800
+    }
 }

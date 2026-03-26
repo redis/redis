@@ -101,9 +101,11 @@ typedef struct streamCG {
                                this value is detailed at the top comment of
                                streamEstimateDistanceFromFirstEverEntry(). */
     rax *pel;               /* Two-level pending entries list. The outer rax is
-                               keyed by the ms part (8-byte big-endian), and each
-                               value is a flax* keyed by the seq part (int64_t)
-                               whose values are streamNACK pointers. */
+                               keyed by a 16-byte compound key (ms, seq_base) in
+                               big-endian. Each value is a flax* covering the
+                               half-open seq range [seq_base, next_seq_base).
+                               Buckets split when they exceed FLAX_BUCKET_MAX
+                               entries. Flax values are streamNACK pointers. */
     uint64_t pel_count;     /* Total number of NACK entries across all flax buckets. */
     streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
                                   entries (oldest delivery_time). Used for efficient
@@ -124,8 +126,9 @@ typedef struct streamConsumer {
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
     rax *pel;                   /* Two-level consumer PEL: same structure as
-                                   streamCG.pel (ms -> flax(seq -> NACK*)).
-                                   NACK pointers are shared with the group PEL. */
+                                   streamCG.pel — 16-byte (ms, seq_base) rax
+                                   key, flax(seq -> NACK*) values with bucket
+                                   splitting. NACKs are shared with group PEL. */
     uint64_t pel_count;         /* Total NACK count for this consumer. */
 } streamConsumer;
 
@@ -203,19 +206,23 @@ typedef struct pelIterator {
     unsigned char rawkey[sizeof(streamID)];
 } pelIterator;
 
-/* Inline cache embedded in rax metadata to avoid raxFind on every PEL op
- * when consecutive messages share the same millisecond. */
+/* Inline cache embedded in rax metadata to speed up sequential PEL ops
+ * when consecutive operations target the same bucket.
+ * seq_upper is the seq_base of the next bucket for the same ms, or
+ * UINT64_MAX when the cached bucket is the last (or only) one. */
 typedef struct pelCache {
     uint64_t ms;
+    uint64_t seq_base;
+    uint64_t seq_upper;
     flax *f;
 } pelCache;
 
-static inline pelCache *pelGetCache(rax *pel) {
-    return (pelCache *)pel->metadata;
-}
-
 static inline void pelCacheInvalidate(rax *pel) {
-    pelGetCache(pel)->f = NULL;
+    pelCache *cache = (pelCache *)pel->metadata;
+    cache->f = NULL;
+    cache->ms = 0;
+    cache->seq_base = 0;
+    cache->seq_upper = 0;
 }
 
 /* Two-level PEL operations. */

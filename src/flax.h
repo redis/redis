@@ -90,7 +90,9 @@ int flaxEOF(flaxIterator *it);
 
 /* --- Introspection --- */
 uint64_t flaxSize(flax *f);
+uint64_t flaxLastKey(flax *f);  /* Precondition: f->numele > 0. */
 void flaxShrink(flax *f);
+flax *flaxSplit(flax *f, uint64_t *split_key);
 
 #ifdef REDIS_TEST
 int flaxTest(int argc, char *argv[], int flags);

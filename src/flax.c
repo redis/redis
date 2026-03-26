@@ -9,6 +9,7 @@
  */
 
 #include "flax.h"
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdalign.h>
@@ -309,11 +310,50 @@ uint64_t flaxSize(flax *f) {
     return (uint64_t)f->numele;
 }
 
+/* Return the last (largest) key in the flax.
+ * Precondition: f->numele > 0. Calling on an empty flax is a bug. */
+uint64_t flaxLastKey(flax *f) {
+    assert(f->numele > 0);
+    return flax_keys(f)[f->numele - 1];
+}
+
 /* Shrink the internal storage to fit the current number of elements,
  * releasing unused memory. */
 void flaxShrink(flax *f) {
     if (f->numele > 0 && f->numele < f->capacity)
         flax_resize(f, f->numele);
+}
+
+/* Split 'f' at the midpoint: entries [0, mid) stay in 'f', entries [mid, numele)
+ * move to a newly allocated flax which is returned. *split_key is set to the
+ * first key of the upper half. The caller should flaxShrink(f) afterwards if
+ * reclaiming the excess capacity of the lower half is desired. */
+flax *flaxSplit(flax *f, uint64_t *split_key) {
+    uint32_t mid = f->numele / 2;
+    uint32_t upper_count = f->numele - mid;
+
+    uint64_t *src_keys = flax_keys(f);
+    void **src_vals = flax_values(f);
+
+    *split_key = src_keys[mid];
+
+    /* Right-size the new flax to hold the upper half. */
+    uint32_t cap = FLAX_INIT_CAPACITY;
+    while (cap < upper_count) cap *= 2;
+
+    flax *upper = flax_malloc(sizeof(flax));
+    upper->numele = upper_count;
+    upper->capacity = cap;
+    size_t voff = flax_values_offset(cap);
+    upper->data = flax_malloc(voff + (size_t)cap * sizeof(void *));
+
+    memcpy(flax_keys(upper), &src_keys[mid],
+           (size_t)upper_count * sizeof(uint64_t));
+    memcpy(flax_values(upper), &src_vals[mid],
+           (size_t)upper_count * sizeof(void *));
+
+    f->numele = mid;
+    return upper;
 }
 
 /* ------------------------------- Iterator --------------------------------- */
