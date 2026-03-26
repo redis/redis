@@ -2747,6 +2747,8 @@ static inline int _writeToClientSlaveIOThread(client *c, ssize_t *nwritten) {
         int consumed = connWrite(c->conn, o->buf+c->io_curr_block_pos,
                                  pos-c->io_curr_block_pos);
 
+        if (consumed <= 0) return C_ERR;
+
         /* Note, that consumed is how much bytes we've read from the repl buffer,
          * where as the bytes we've written into the socket may be different if
          * connCheckLastWritten returns so (f.e compression case) */
@@ -2761,7 +2763,6 @@ static inline int _writeToClientSlaveIOThread(client *c, ssize_t *nwritten) {
         } else {
             *nwritten += consumed;
         }
-        if (consumed <= 0) return C_ERR;
 
         /* Advance the block position with consumed, because that's how much
          * bytes were read from the repl buffer node. *nwritten stores how

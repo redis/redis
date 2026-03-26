@@ -388,13 +388,13 @@ static int connCompressionWrite(connection *conn, const void *data, size_t len) 
         /* Write whatever we have available in the compressed buffer */
         int written = 0;
         int err = compressAndWrite(c, &written);
-        cc->last_written += written;
         if (err) {
             if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
                 return -1;
             }
             return consumed;
         }
+        cc->last_written += written;
 
         if (written == 0 && state->output.written == state->output.consumed)
             break;

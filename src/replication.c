@@ -1503,6 +1503,7 @@ void replconfCommand(client *c) {
                     c->compression_level = 0;
                     addReplyErrorFormat(c, "Requested level %ld differs from master's level: %d",
                                         level, server.repl_compression);
+                    return;
                 }
             } else {
                 serverLog(LL_NOTICE, "Client #%llu request for replication "

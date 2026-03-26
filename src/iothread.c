@@ -948,6 +948,8 @@ int IOThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData) 
     /* Run cron tasks for the clients in the IO thread. */
     IOThreadClientsCron(t);
 
+    t->cronloops++;
+
     return 1000/IO_DEFAULT_HZ;
 }
 
