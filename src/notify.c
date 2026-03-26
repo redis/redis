@@ -86,9 +86,8 @@ sds keyspaceEventsFlagsToString(int flags) {
  * 'key' is a Redis object representing the key name.
  * 'dbid' is the database ID where the key lives.
  *
- * NOTE: This function may invoke module notification callbacks, which can
- * call RedisModule_SetKeyMeta() and cause the key's kvobj in the database
- * to be reallocated. */
+ * NOTE: This function may invoke module notification callbacks, which may
+ * cause the key's kvobj to be reallocated. */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
     sds chan;
     robj *chanobj, *eventobj;
