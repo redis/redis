@@ -325,6 +325,7 @@ void restoreCommand(client *c) {
     }
     objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
     keyModified(c,c->db,key,NULL,1);
+    /* kv may be reallocated by module callbacks during notification */
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
 
     /* If we deleted a key that means REPLACE parameter was passed and the
