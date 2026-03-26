@@ -1,6 +1,4 @@
 start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
-    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
     test {CONFIG SET client-output-buffer-limit} {
         set oldval [lindex [r config get client-output-buffer-limit] 1]
 
@@ -236,5 +234,34 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         catch {r keys *} e
         assert_match "*I/O error*" $e
         reconnect
+    }
+
+    test "verify ormem field tracks referenced reply bytes" {
+        r flushdb
+        r config set client-output-buffer-limit {normal 0 0 0}
+        # Use a value large enough to trigger copy avoidance
+        set val_size 100000
+        r set bigkey [string repeat v $val_size]
+
+        set rr [redis_deferring_client]
+        $rr client setname ormem_test
+        assert_equal [$rr read] OK
+
+        set ormem 0
+        for {set i 0} {$i < 200} {incr i} {
+            $rr get bigkey
+            $rr flush
+            set clients [split [string trim [r client list]] "\r\n"]
+            set c [lsearch -inline $clients *name=ormem_test*]
+            regexp {omem=([0-9]+)} $c - omem
+            regexp {ormem=([0-9]+)} $c - ormem
+            regexp {tot-mem=([0-9]+)} $c - total_mem
+            if {$ormem >= $val_size} break
+        }
+        assert {$ormem >= $val_size}
+        assert {$omem >= $ormem}
+        assert {$total_mem > $ormem}
+
+        $rr close
     }
 }
