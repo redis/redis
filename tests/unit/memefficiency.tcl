@@ -605,15 +605,27 @@ run_solo {defrag} {
             # Populate memory with interleaving IDMP stream-key pattern of same size
             set dummy_iid "[string repeat x 400]"
             set rd [redis_deferring_client]
+
+            # Use batching to avoid TCP deadlock
+            set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 set producer_id "producer[expr {$j % 10}]"
                 set iid "$dummy_iid[format "%06d" $j]"
                 $rd xadd idmpstream IDMP $producer_id $iid * field value
                 $rd set k$j $iid
+
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < [expr {$batch_size * 2}]} {incr i} {
+                        $rd read
+                    }
+                }
             }
-            for {set j 0} {$j < [expr {$n * 2}]} {incr j} {
-                $rd read ; # Discard replies
+            # Read remaining responses
+            set remaining [expr {($n % $batch_size) * 2}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
             }
+
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
                 puts "used [s allocator_allocated]"
@@ -623,7 +635,7 @@ run_solo {defrag} {
             }
             assert_lessthan [s allocator_frag_ratio] 1.05
 
-                # Verify IDMP structures were created
+            # Verify IDMP structures were created
             set idmp_info [r xinfo stream idmpstream full]
             set num_producers [dict get $idmp_info pids-tracked]
             set num_entries [dict get $idmp_info iids-tracked]
