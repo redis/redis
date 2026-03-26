@@ -5080,7 +5080,7 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
 
 size_t getNormalClientPendingReplyBytes(client *c) {
     serverAssert(!clientTypeIsSlave(c));
-    if (listLength(c->reply) == 0) return c->bufpos;
+    if (listLength(c->reply) == 0) return c->bufpos + c->reply_bytes_ref;
 
     clientReplyBlock *block = listNodeValue(listLast(c->reply));
     return (c->reply_bytes + c->reply_bytes_ref - block->size + block->used) + c->bufpos;
