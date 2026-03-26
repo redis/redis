@@ -306,7 +306,7 @@ void restoreCommand(client *c) {
             estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
-    if (kvtype == OBJ_STREAM) {
+    if (kvtype == OBJ_STREAM)
         streamKeyLoaded(c->db, key, kv);
 
     if (ttl) {
