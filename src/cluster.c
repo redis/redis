@@ -303,13 +303,8 @@ void restoreCommand(client *c) {
             estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
-    if (kv->type == OBJ_STREAM) {
-        stream *s = kv->ptr;
-        if (s->idmp_producers != NULL) {
-            if (dictAdd(c->db->stream_idmp_keys, key, NULL) == DICT_OK)
-                incrRefCount(key);
-        }
-    }
+    if (kv->type == OBJ_STREAM)
+        streamKeyLoaded(c->db, key, kv);
 
     if (ttl) {
         if (!absttl) {
