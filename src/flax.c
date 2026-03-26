@@ -154,15 +154,22 @@ static void flaxIterRefresh(flaxIterator *it) {
  * Core API
  * -------------------------------------------------------------------------- */
 
+/* Allocate a new flax with the given initial capacity and return its pointer.
+ * On out of memory the function returns NULL. */
+flax *flaxNewWithCapacity(uint32_t capacity) {
+    if (capacity < FLAX_INIT_CAPACITY) capacity = FLAX_INIT_CAPACITY;
+    flax *f = flax_malloc(sizeof(flax));
+    f->numele = 0;
+    f->capacity = capacity;
+    size_t voff = flax_values_offset(capacity);
+    f->data = flax_malloc(voff + (size_t)capacity * sizeof(void *));
+    return f;
+}
+
 /* Allocate a new flax and return its pointer. On out of memory the function
  * returns NULL. */
 flax *flaxNew(void) {
-    flax *f = flax_malloc(sizeof(flax));
-    f->numele = 0;
-    f->capacity = FLAX_INIT_CAPACITY;
-    size_t voff = flax_values_offset(FLAX_INIT_CAPACITY);
-    f->data = flax_malloc(voff + (size_t)FLAX_INIT_CAPACITY * sizeof(void *));
-    return f;
+    return flaxNewWithCapacity(FLAX_INIT_CAPACITY);
 }
 
 /* Overwriting insert. Insert the element with the specified 'key', setting

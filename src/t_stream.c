@@ -247,7 +247,7 @@ void pelFreeShallow(rax *pel) {
  * resolve seq_upper by peeking at the next rax key for the same ms. */
 static flax *pelCreateBucket(rax *pel, pelCache *cache, uint64_t ms) {
     if (cache->f) flaxShrink(cache->f);
-    flax *f = flaxNew();
+    flax *f = flaxNewWithCapacity(FLAX_BUCKET_MAX);
     unsigned char keybuf[16];
     pelEncodeKey(keybuf, ms, 0);
     raxInsert(pel, keybuf, 16, f, NULL);
@@ -312,7 +312,7 @@ static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq, int create, int
      * Overflow: bucket is full and new seq extends past the tail. */
     if (create && cache->f->numele >= FLAX_BUCKET_MAX && seq > flaxLastKey(cache->f)) {
         flaxShrink(cache->f);
-        flax *f = flaxNew();
+        flax *f = flaxNewWithCapacity(FLAX_BUCKET_MAX);
         unsigned char keybuf[16];
         pelEncodeKey(keybuf, ms, seq);
         raxInsert(pel, keybuf, 16, f, NULL);
@@ -3519,18 +3519,20 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
 /* Link a consumer group to a stream entry in the cgroups_ref index.
  * Returns a pointer to the list node, so that it can be used for future deletion. */
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
-    list *cglist;
-
     if (!s->cgroups_ref)
         s->cgroups_ref = raxNewWithMetadata(0, &s->alloc_size);
-    
-    /* Try to find the list for this stream ID, create it if it doesn't exist */
-    if (!raxFind(s->cgroups_ref, key, sizeof(streamID), (void**)&cglist)) {
-        cglist = listCreate();
-        serverAssert(raxInsert(s->cgroups_ref, key, sizeof(streamID), cglist, NULL));
+
+    /* Speculatively create a list and try to insert it. If the key already
+     * exists, raxTryInsert returns 0 and sets 'existing' to the current value,
+     * so we discard the unused list. This avoids a double rax traversal
+     * (find + insert) on the common miss path. */
+    list *cglist = listCreate();
+    list *existing;
+    if (!raxTryInsert(s->cgroups_ref, key, sizeof(streamID), cglist, (void**)&existing)) {
+        listRelease(cglist);
+        cglist = existing;
     }
-    
-    /* Add the consumer group to the list and return the list node */
+
     listAddNodeTail(cglist, cg);
     return listLast(cglist);
 }

@@ -67,6 +67,7 @@ typedef struct flaxIterator {
 } flaxIterator;
 
 /* --- Creation and destruction --- */
+flax *flaxNewWithCapacity(uint32_t capacity);
 flax *flaxNew(void);
 void flaxFree(flax *f);
 void flaxFreeWithCallback(flax *f, void (*free_callback)(void *));
