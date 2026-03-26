@@ -5721,10 +5721,8 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
 
 /* To be used when a steam key was removed from ram, un-redigster from stream_idmp_keys if needed */
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
-    stream *s = val->ptr;
-    if (s->idmp_producers != NULL) {
-        dictDelete(db->stream_idmp_keys, key);
-    }
+    UNUSED(val);
+    dictDelete(db->stream_idmp_keys, key);
 }
 
 /* Clean up expired idempotency entries from tracked streams. This function
