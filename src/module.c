@@ -3734,6 +3734,10 @@ int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_BLOCKED;
     if (client->conn->type == connectionTypeTls())
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_SSL;
+    if (client->flags & CLIENT_READONLY) 
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_READONLY;
+    if (client->flags & CLIENT_MASTER)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_REPLICATED;
 
     int port;
     connAddrPeerName(client->conn,ci1->addr,sizeof(ci1->addr),&port);
