@@ -1,4 +1,4 @@
-/* Flax -- A flat sorted-array map for uint64 keys.
+/* Flax -- A flat sorted-array map for uint8_t keys.
  *
  * Copyright (c) 2025-Present, Redis Ltd.
  * All rights reserved.
@@ -16,13 +16,13 @@
 
 #define FLAX_INIT_CAPACITY 16
 
-/* A flax is a sorted associative container that maps uint64_t keys to void*
+/* A flax is a sorted associative container that maps uint8_t keys to void*
  * values. Both arrays live in a single heap allocation ("data block") laid
  * out as follows:
  *
  *  flax struct            data block (single allocation)
  *  +------------+         +------------------------------------+
- *  | *data  ----------->  | keys[0..cap-1]   (uint64_t)        |
+ *  | *data  ----------->  | keys[0..cap-1]   (uint8_t)         |
  *  | numele     |         +-- aligned to sizeof(void*) --------+
  *  | capacity   |         | values[0..cap-1]  (void*)          |
  *  +------------+         +------------------------------------+
@@ -61,7 +61,7 @@ typedef struct flax {
  * is a no-op included for API symmetry with rax. */
 typedef struct flaxIterator {
     flax *f;             /* Flax we are iterating. */
-    uint64_t key;        /* The current key. */
+    uint8_t key;         /* The current key. */
     void *data;          /* Data associated to this key. */
     int64_t idx;         /* Current index into the flax arrays, -1 if EOF. */
 } flaxIterator;
@@ -76,14 +76,14 @@ void flaxFreeWithCbAndContext(flax *f,
                               void *ctx);
 
 /* --- Lookup and mutation --- */
-int flaxInsert(flax *f, uint64_t key, void *data, void **old);
-int flaxTryInsert(flax *f, uint64_t key, void *data, void **old);
-int flaxRemove(flax *f, uint64_t key, void **old);
-int flaxFind(flax *f, uint64_t key, void **value);
+int flaxInsert(flax *f, uint8_t key, void *data, void **old);
+int flaxTryInsert(flax *f, uint8_t key, void *data, void **old);
+int flaxRemove(flax *f, uint8_t key, void **old);
+int flaxFind(flax *f, uint8_t key, void **value);
 
 /* --- Iterator --- */
 void flaxStart(flaxIterator *it, flax *f);
-int flaxSeek(flaxIterator *it, const char *op, uint64_t key);
+int flaxSeek(flaxIterator *it, const char *op, uint8_t key);
 int flaxNext(flaxIterator *it);
 int flaxPrev(flaxIterator *it);
 void flaxStop(flaxIterator *it);
@@ -91,9 +91,7 @@ int flaxEOF(flaxIterator *it);
 
 /* --- Introspection --- */
 uint64_t flaxSize(flax *f);
-uint64_t flaxLastKey(flax *f);  /* Precondition: f->numele > 0. */
 void flaxShrink(flax *f);
-flax *flaxSplit(flax *f, uint64_t *split_key);
 
 #ifdef REDIS_TEST
 int flaxTest(int argc, char *argv[], int flags);

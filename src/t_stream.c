@@ -68,29 +68,21 @@ static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_
  * Two-level PEL: rax(ms -> flax(seq -> streamNACK*))
  * ----------------------------------------------------------------------- */
 
-#define FLAX_BUCKET_MAX 256
+#define PEL_RAX_KEY_LEN 15
 
-/* Encode a 16-byte compound rax key: 8 bytes big-endian ms + 8 bytes big-endian seq_base. */
-static inline void pelEncodeKey(unsigned char *buf, uint64_t ms, uint64_t seq_base) {
+/* Encode a 15-byte rax key: full 8B big-endian ms + upper 7 bytes of
+ * big-endian seq (i.e. first 15 bytes of the 16-byte encoded streamID). */
+static inline void pelEncodeRaxKey(unsigned char *buf, uint64_t ms, uint64_t seq) {
     uint64_t be;
     be = htonu64(ms);
     memcpy(buf, &be, 8);
-    be = htonu64(seq_base);
-    memcpy(buf + 8, &be, 8);
+    be = htonu64(seq);
+    memcpy(buf + 8, &be, 7);
 }
 
-/* Decode just the ms portion (first 8 bytes) of a compound key. */
-static inline uint64_t pelDecodeMs(unsigned char *buf) {
-    uint64_t be;
-    memcpy(&be, buf, 8);
-    return ntohu64(be);
-}
-
-/* Decode the seq_base portion (last 8 bytes) of a compound key. */
-static inline uint64_t pelDecodeSeqBase(unsigned char *buf) {
-    uint64_t be;
-    memcpy(&be, buf + 8, 8);
-    return ntohu64(be);
+/* Extract the low byte of seq as the flax key. */
+static inline uint8_t pelFlaxKey(uint64_t seq) {
+    return (uint8_t)(seq & 0xFF);
 }
 
 rax *pelNew(size_t *alloc_size) {
@@ -137,246 +129,58 @@ void pelFreeShallow(rax *pel) {
 
 /* pelResolveFlax -- Resolve the flax bucket for a given (ms, seq) pair.
  *
- * The two-level PEL maps stream IDs (ms, seq) to streamNACK pointers using a
- * rax of flax buckets. Each rax key is a 16-byte compound of (ms, seq_base),
- * and each rax value is a flax that stores NACKs whose sequence numbers fall
- * within that bucket's range.
- *
- *  Two-level PEL layout
- *  ====================
- *
- *  rax (keyed by 16 bytes: [ms | seq_base])
- *  +--------------------+       +--------------------+       +--------------------+
- *  | key: (42, 0)       |       | key: (42, 300)     |       | key: (99, 0)       |
- *  | val: flax_A -------+--+    | val: flax_B -------+--+    | val: flax_C -------+--+
- *  +--------------------+  |    +--------------------+  |    +--------------------+  |
- *                          v                             v                            v
- *                    +----------+                  +----------+                 +----------+
- *                    | seq:  5  |                  | seq: 300 |                 | seq:  0  |
- *                    | seq: 11  |                  | seq: 301 |                 | seq: 42  |
- *                    | seq: 12  |                  | seq: 500 |                 +----------+
- *                    |  ...     |                  +----------+                  flax_C
- *                    +----------+                   flax_B
- *                     flax_A
- *
- *  Each flax bucket owns entries for a half-open seq range within one ms:
- *     [seq_base, seq_base_of_next_bucket)    or   [seq_base, UINT64_MAX)  if last
- *
- *  An inline cache (pelCache) stored in rax->metadata remembers the last
- *  resolved bucket so consecutive lookups to the same ms can skip raxSeek:
- *
- *     pelCache { ms, seq_base, seq_upper, *f }
- *              ^                ^
- *              |                +-- seq_base of the NEXT bucket (exclusive upper bound)
- *              +-- the millisecond timestamp of the cached bucket
- *
- *
- *  Lookup flow (create == 0)
- *  =========================
- *
- *                          pelResolveFlax(pel, ms, seq, create=0)
- *                                        |
- *                              +---------+---------+
- *                              | cache valid for   |
- *                              | this (ms, seq)?   |
- *                              +----+---------+----+
- *                              YES  |         |  NO
- *                     +-------------+         +----------------+
- *                     |                                        |
- *                     v                            raxSeek("<=",(ms,seq))
- *                 return cache->f                              |
- *                                                    +---------+---------+
- *                                                    | found key with    |
- *                                                    | same ms?          |
- *                                                    +----+---------+----+
- *                                                    YES  |         |  NO
- *                                           +-------------+         +-----+
- *                                           |                             |
- *                                     update cache,                  return NULL
- *                                     return cache->f
- *
- *
- *  Insert flow (create == 1), after cache is resolved
- *  ===================================================
- *
- *  Once the cache points to the right bucket for this ms, the bucket
- *  may need to grow. Three cases:
- *
- *  CASE 1 -- No bucket exists for this ms (rax miss)
- *  --------------------------------------------------
- *     Create a brand-new flax, insert into rax with key (ms, 0).
- *
- *       rax                        rax
- *       (empty for ms=42)   ==>    +------------------+
- *                                  | key: (42, 0)     |
- *                                  | val: new flax ---+---> (empty flax)
- *                                  +------------------+
- *
- *  CASE 2 -- Overflow: bucket is full, seq extends past the tail
- *  --------------------------------------------------------------
- *     The new seq is larger than every key in the full bucket.
- *     Create a new bucket starting at seq, appended after the current one.
- *
- *       Before:                      After:
- *       flax_A  [0..255] FULL        flax_A  [0..255] (shrunk)
- *       seq = 300                    flax_NEW [300..) = new flax
- *
- *       rax key (42,0) -> flax_A    rax key (42,0)   -> flax_A  (shrunk)
- *                                   rax key (42,300) -> flax_NEW
- *
- *  CASE 3 -- Mid-bucket split: bucket is full, seq falls inside its range
- *  -----------------------------------------------------------------------
- *     Split the full flax at its midpoint. The lower half stays in the
- *     original bucket; the upper half goes into a new rax entry.
- *     The cache is updated to whichever half now owns seq.
- *
- *       Before:                       After:
- *       flax_A  [0..255] FULL         flax_A     [0..split_key)   (shrunk)
- *       seq = 130                      flax_UPPER [split_key..)
- *
- *       rax key (42,0) -> flax_A      rax key (42,0)         -> flax_A
- *                                     rax key (42,split_key)  -> flax_UPPER
- *
- *       if seq >= split_key, cache points to flax_UPPER;
- *       otherwise cache retains flax_A with seq_upper = split_key.
+ * With the 15+1 byte key scheme, each rax key is the first 15 bytes of the
+ * big-endian encoded stream ID (full ms + upper 56 bits of seq). The flax
+ * stores the low byte of seq as its uint8_t key, so each bucket holds at
+ * most 256 entries and never needs splitting.
  *
  * Returns the flax bucket, or NULL if no matching bucket exists (create==0).
- * When create==1, a new bucket is created on miss (or on overflow) and
- * *created is set to 1. */
-/* Create a fresh flax bucket at rax key (ms, 0), update the cache, and
- * resolve seq_upper by peeking at the next rax key for the same ms. */
-static flax *pelCreateBucket(rax *pel, pelCache *cache, uint64_t ms) {
-    if (cache->f) flaxShrink(cache->f);
-    flax *f = flaxNewWithCapacity(FLAX_BUCKET_MAX);
-    unsigned char keybuf[16];
-    pelEncodeKey(keybuf, ms, 0);
-    raxInsert(pel, keybuf, 16, f, NULL);
-    cache->ms = ms;
-    cache->seq_base = 0;
-    cache->f = f;
-
-    raxIterator ri;
-    raxStart(&ri, pel);
-    raxSeek(&ri, ">", keybuf, 16);
-    if (raxNext(&ri) && pelDecodeMs(ri.key) == ms)
-        cache->seq_upper = pelDecodeSeqBase(ri.key);
-    else
-        cache->seq_upper = UINT64_MAX;
-    raxStop(&ri);
-    return f;
-}
-
-static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq, int create, int *created) {
+ * When create==1, a new bucket is created on miss and *created is set to 1. */
+static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
+                            int create, int *created) {
     pelCache *cache = (pelCache *)pel->metadata;
     if (created) *created = 0;
+    unsigned char keybuf[PEL_RAX_KEY_LEN];
+    pelEncodeRaxKey(keybuf, ms, seq);
 
-    /* Cache hit: same ms and seq falls within [seq_base, seq_upper). */
-    if (!(cache->f && cache->ms == ms &&
-          seq >= cache->seq_base && seq < cache->seq_upper)) {
-        /* Cache miss — fall back to rax lookup. */
-        unsigned char keybuf[16];
-        pelEncodeKey(keybuf, ms, seq);
+    /* Cache hit */
+    if (cache->f && memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0)
+        return cache->f;
 
-        raxIterator ri;
-        raxStart(&ri, pel);
-        /* Seek to the largest key <= (ms, seq). */
-        raxSeek(&ri, "<=", keybuf, 16);
-        if (!raxNext(&ri)) {
-            raxStop(&ri);
-            if (!create) return NULL;
-            if (created) *created = 1;
-            return pelCreateBucket(pel, cache, ms);
-        }
-
-        uint64_t found_ms = pelDecodeMs(ri.key);
-        if (found_ms == ms) {
-            /* Bucket belongs to the same ms. Peek at the next rax entry
-             * to determine the upper bound for this bucket. */
-            cache->ms = ms;
-            cache->seq_base = pelDecodeSeqBase(ri.key);
-            cache->f = (flax *)ri.data;
-            if (raxNext(&ri) && pelDecodeMs(ri.key) == ms)
-                cache->seq_upper = pelDecodeSeqBase(ri.key);
-            else
-                cache->seq_upper = UINT64_MAX;
-            raxStop(&ri);
-        } else {
-            raxStop(&ri);
-            if (!create) return NULL;
-            if (created) *created = 1;
-            return pelCreateBucket(pel, cache, ms);
-        }
-    }
-
-    /* cache->f holds an existing bucket for this ms.
-     * Overflow: bucket is full and new seq extends past the tail. */
-    if (create && cache->f->numele >= FLAX_BUCKET_MAX && seq > flaxLastKey(cache->f)) {
-        flaxShrink(cache->f);
-        flax *f = flaxNewWithCapacity(FLAX_BUCKET_MAX);
-        unsigned char keybuf[16];
-        pelEncodeKey(keybuf, ms, seq);
-        raxInsert(pel, keybuf, 16, f, NULL);
-        /* seq_upper is intentionally NOT updated: the new bucket sits
-         * between the old bucket and whatever followed it, inheriting
-         * the old upper bound. */
-        cache->seq_base = seq;
-        cache->f = f;
-        if (created) *created = 1;
-        return f;
-    }
-
-    /* Mid-bucket split: bucket is full and seq falls inside its range. */
-    if (create && cache->f->numele >= FLAX_BUCKET_MAX) {
-        uint64_t split_key;
-        flax *upper = flaxSplit(cache->f, &split_key);
-        flaxShrink(cache->f);
-
-        unsigned char keybuf[16];
-        pelEncodeKey(keybuf, ms, split_key);
-        raxInsert(pel, keybuf, 16, upper, NULL);
-
-        if (seq >= split_key) {
-            cache->seq_base = split_key;
-            cache->f = upper;
-        } else {
-            cache->seq_upper = split_key;
-        }
+    /* Rax lookup (exact match) */
+    void *data;
+    if (raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &data)) {
+        cache->f = (flax *)data;
+        memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
         return cache->f;
     }
-    return cache->f;
+    if (!create) return NULL;
+
+    /* Create new bucket */
+    flax *f = flaxNew();
+    raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, f, NULL);
+    cache->f = f;
+    memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
+    if (created) *created = 1;
+    return f;
 }
 
 /* Insert nack into two-level PEL. Returns 1 if new entry, 0 if key existed (old value replaced). */
 int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 0, NULL);
-    if (f) {
-        void *old;
-        flaxInsert(f, id->seq, nack, &old);
-        if (old == NULL) {
-            if (count) (*count)++;
-            return 1;
-        }
-        return 0;
+    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, NULL);
+    void *old;
+    flaxInsert(f, pelFlaxKey(id->seq), nack, &old);
+    if (old == NULL) {
+        if (count) (*count)++;
+        return 1;
     }
-    /* No bucket yet — create and insert. The second pelResolveFlax call is
-     * a cache hit since the first call just primed the rax iterator path. */
-    f = pelResolveFlax(pel, id->ms, id->seq, 1, NULL);
-    flaxInsert(f, id->seq, nack, NULL);
-    if (count) (*count)++;
-    return 1;
+    return 0;
 }
 
 /* Insert only if not present. Returns 1 if inserted, 0 if key already exists. */
 int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
-    int created;
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, &created);
-    if (created) {
-        flaxInsert(f, id->seq, nack, NULL);
-        if (count) (*count)++;
-        return 1;
-    }
-
-    if (!flaxTryInsert(f, id->seq, nack, NULL))
+    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, NULL);
+    if (!flaxTryInsert(f, pelFlaxKey(id->seq), nack, NULL))
         return 0;
     if (count) (*count)++;
     return 1;
@@ -387,7 +191,7 @@ streamNACK *pelFind(rax *pel, streamID *id) {
     flax *f = pelResolveFlax(pel, id->ms, id->seq, 0, NULL);
     if (!f) return NULL;
     void *val;
-    if (!flaxFind(f, id->seq, &val)) return NULL;
+    if (!flaxFind(f, pelFlaxKey(id->seq), &val)) return NULL;
     return (streamNACK *)val;
 }
 
@@ -396,15 +200,14 @@ streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count) {
     flax *f = pelResolveFlax(pel, id->ms, id->seq, 0, NULL);
     if (!f) return NULL;
     void *old;
-    if (!flaxRemove(f, id->seq, &old)) return NULL;
+    if (!flaxRemove(f, pelFlaxKey(id->seq), &old)) return NULL;
     streamNACK *nack = (streamNACK *)old;
     if (count) (*count)--;
     if (f->numele == 0) {
-        pelCache *cache = (pelCache *)pel->metadata;
-        unsigned char keybuf[16];
-        pelEncodeKey(keybuf, id->ms, cache->seq_base);
+        unsigned char keybuf[PEL_RAX_KEY_LEN];
+        pelEncodeRaxKey(keybuf, id->ms, id->seq);
         flaxFree(f);
-        raxRemove(pel, keybuf, 16, NULL);
+        raxRemove(pel, keybuf, PEL_RAX_KEY_LEN, NULL);
         pelCacheInvalidate(pel);
     }
     return nack;
@@ -414,10 +217,10 @@ streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count) {
 
 /* Refresh iterator fields from current rax+flax positions. */
 static void pelIterRefresh(pelIterator *pi) {
-    pi->id.ms = pelDecodeMs(pi->ri.key);
-    pi->id.seq = pi->fi.key;
+    memcpy(pi->rawkey, pi->ri.key, PEL_RAX_KEY_LEN);
+    pi->rawkey[PEL_RAX_KEY_LEN] = (unsigned char)pi->fi.key;
+    streamDecodeID(pi->rawkey, &pi->id);
     pi->nack = (streamNACK *)pi->fi.data;
-    streamEncodeID(pi->rawkey, &pi->id);
     pi->valid = 1;
 }
 
@@ -432,7 +235,6 @@ void pelIterStart(pelIterator *pi, rax *pel) {
 int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
     pi->valid = 0;
     if (op[0] == '^') {
-        /* Seek to first entry. */
         raxSeek(&pi->ri, "^", NULL, 0);
         if (!raxNext(&pi->ri)) return 0;
         flaxStart(&pi->fi, (flax *)pi->ri.data);
@@ -440,7 +242,6 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
         pelIterRefresh(pi);
         return 1;
     } else if (op[0] == '$') {
-        /* Seek to last entry. */
         raxSeek(&pi->ri, "$", NULL, 0);
         if (!raxNext(&pi->ri)) return 0;
         flaxStart(&pi->fi, (flax *)pi->ri.data);
@@ -448,13 +249,14 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
         pelIterRefresh(pi);
         return 1;
     } else if (op[0] == '>' && op[1] == '=') {
-        unsigned char keybuf[16];
-        pelEncodeKey(keybuf, id->ms, id->seq);
-        /* Seek to the largest rax key <= (ms, seq), which is the bucket
-         * that could contain the target seq. */
-        raxSeek(&pi->ri, "<=", keybuf, 16);
+        unsigned char keybuf[PEL_RAX_KEY_LEN];
+        pelEncodeRaxKey(keybuf, id->ms, id->seq);
+        uint8_t fkey = pelFlaxKey(id->seq);
+
+        /* Seek to the largest rax key <= target 15-byte key. */
+        raxSeek(&pi->ri, "<=", keybuf, PEL_RAX_KEY_LEN);
         if (!raxNext(&pi->ri)) {
-            /* All buckets are > target, start from the very first bucket. */
+            /* All rax keys are > target, start from the very first bucket. */
             raxSeek(&pi->ri, "^", NULL, 0);
             if (!raxNext(&pi->ri)) return 0;
             flaxStart(&pi->fi, (flax *)pi->ri.data);
@@ -462,22 +264,23 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
             pelIterRefresh(pi);
             return 1;
         }
-        uint64_t cur_ms = pelDecodeMs(pi->ri.key);
+
+        int cmp = memcmp(pi->ri.key, keybuf, PEL_RAX_KEY_LEN);
         flaxStart(&pi->fi, (flax *)pi->ri.data);
-        if (cur_ms == id->ms) {
-            if (!flaxSeek(&pi->fi, ">=", id->seq)) {
-                /* No seq >= target in this bucket, advance to next rax entry. */
+        if (cmp == 0) {
+            /* Exact rax key match — seek flax for >= fkey. */
+            if (!flaxSeek(&pi->fi, ">=", fkey)) {
                 if (!raxNext(&pi->ri)) return 0;
                 flaxStart(&pi->fi, (flax *)pi->ri.data);
                 if (!flaxSeek(&pi->fi, "^", 0)) return 0;
             }
-        } else if (cur_ms < id->ms) {
-            /* Landed in an earlier-ms bucket, advance to next. */
+        } else if (cmp < 0) {
+            /* Landed in an earlier bucket, advance to next. */
             if (!raxNext(&pi->ri)) return 0;
             flaxStart(&pi->fi, (flax *)pi->ri.data);
             if (!flaxSeek(&pi->fi, "^", 0)) return 0;
         } else {
-            /* cur_ms > id->ms: start from the head of this bucket. */
+            /* rax key > target: start from head of this bucket. */
             if (!flaxSeek(&pi->fi, "^", 0)) return 0;
         }
         pelIterRefresh(pi);

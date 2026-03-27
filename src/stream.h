@@ -101,11 +101,11 @@ typedef struct streamCG {
                                this value is detailed at the top comment of
                                streamEstimateDistanceFromFirstEverEntry(). */
     rax *pel;               /* Two-level pending entries list. The outer rax is
-                               keyed by a 16-byte compound key (ms, seq_base) in
-                               big-endian. Each value is a flax* covering the
-                               half-open seq range [seq_base, next_seq_base).
-                               Buckets split when they exceed FLAX_BUCKET_MAX
-                               entries. Flax values are streamNACK pointers. */
+                               keyed by a 15-byte prefix of the big-endian
+                               encoded stream ID (full ms + upper 56 bits of
+                               seq). Each value is a flax* mapping the low
+                               byte of seq (uint8_t) to streamNACK pointers.
+                               Max 256 entries per bucket, no splitting. */
     uint64_t pel_count;     /* Total number of NACK entries across all flax buckets. */
     streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
                                   entries (oldest delivery_time). Used for efficient
@@ -126,9 +126,9 @@ typedef struct streamConsumer {
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
     rax *pel;                   /* Two-level consumer PEL: same structure as
-                                   streamCG.pel — 16-byte (ms, seq_base) rax
-                                   key, flax(seq -> NACK*) values with bucket
-                                   splitting. NACKs are shared with group PEL. */
+                                   streamCG.pel — 15-byte rax key (first 15
+                                   bytes of encoded ID), flax(low byte of seq
+                                   -> NACK*). NACKs are shared with group PEL. */
     uint64_t pel_count;         /* Total NACK count for this consumer. */
 } streamConsumer;
 
@@ -209,22 +209,15 @@ typedef struct pelIterator {
 } pelIterator;
 
 /* Inline cache embedded in rax metadata to speed up sequential PEL ops
- * when consecutive operations target the same bucket.
- * seq_upper is the seq_base of the next bucket for the same ms, or
- * UINT64_MAX when the cached bucket is the last (or only) one. */
+ * when consecutive operations target the same 15-byte rax bucket. */
 typedef struct pelCache {
-    uint64_t ms;
-    uint64_t seq_base;
-    uint64_t seq_upper;
+    unsigned char key[15];
     flax *f;
 } pelCache;
 
 static inline void pelCacheInvalidate(rax *pel) {
     pelCache *cache = (pelCache *)pel->metadata;
     cache->f = NULL;
-    cache->ms = 0;
-    cache->seq_base = 0;
-    cache->seq_upper = 0;
 }
 
 /* Two-level PEL operations. */
