@@ -127,9 +127,12 @@ static sds catSubkeysPayload(sds dst, robj **subkeys, int count) {
  *
  * Where <subkeys> is in length-prefixed format: <len>:<subkey>[,<len>:<subkey>...]
  * Example: 3:foo,5:hello
- */
+ *
+ * NOTE: This function may invoke module notification callbacks, which may
+ * cause the key's kvobj to be reallocated. */
 static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int dbid,
-                                    robj **subkeys, int count) {
+                                    robj **subkeys, int count)
+{
     sds chan;
     robj *chanobj, *eventobj;
     int len = -1;

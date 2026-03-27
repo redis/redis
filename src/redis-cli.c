@@ -10492,6 +10492,11 @@ static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
     struct hdr_iter iter;
     int64_t last_displayed_cumulative_count = 0;
 
+    if (keysize_histogram->total_count == 0) {
+        line_count += cleanPrintfln("No key size samples collected");
+        return line_count;
+    }
+
     hdr_iter_percentile_init(&iter, keysize_histogram, 1);
 
     line_count += cleanPrintfln("Key size Percentile Total keys");

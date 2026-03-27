@@ -4037,14 +4037,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
 
             /* Register streams with IDMP producers for cron-based expiration. */
-            if (kv->type == OBJ_STREAM) {
-                stream *s = kv->ptr;
-                if (s->idmp_producers != NULL) {
-                    robj *kobj = createStringObject(key, sdslen(key));
-                    if (dictAddRaw(db->stream_idmp_keys, kobj, NULL) == NULL)
-                        decrRefCount(kobj);
-                }
-            }
+            if (kv->type == OBJ_STREAM)
+                streamKeyLoaded(db, &keyobj, kv);
 
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);

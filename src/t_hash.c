@@ -429,7 +429,7 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
 
         /* update keysizes */
         unsigned long l = lpLength(lpt->lp) / 3;
-        updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l + expired, l);
+        updateKeysizesHist(db, OBJ_HASH, l + expired, l);
     }
 
     min = hashTypeGetMinExpire(kv, 1 /*accurate*/);
@@ -796,7 +796,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
 
     if (!(hfeFlags & HFE_LAZY_NO_UPDATE_KEYSIZES)) {
         uint64_t l = hashTypeLength(o, 0);
-        updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l+1, l);
+        updateKeysizesHist(db, OBJ_HASH, l+1, l);
     }
 
     /* If the field is the last one in the hash, then the hash will be deleted */
@@ -2136,11 +2136,11 @@ void hsetnxCommand(client *c) {
     hashTypeSet(c->db, kv, c->argv[2]->ptr, c->argv[3]->ptr, HASH_SET_COPY);
     addReply(c, shared.cone);
     keyModified(c,c->db,c->argv[1], kv, 1);
-    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,&c->argv[2],1);
     hlen = hashTypeLength(kv, 0);
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, hlen - 1, hlen);
+    updateKeysizesHist(c->db, OBJ_HASH, hlen - 1, hlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,&c->argv[2],1);
     server.dirty++;
 }
 
@@ -2174,7 +2174,7 @@ void hsetCommand(client *c) {
     }
     keyModified(c,c->db,c->argv[1],kv,1);
     unsigned long l = hashTypeLength(kv, 0);
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l - created, l);
+    updateKeysizesHist(c->db, OBJ_HASH, l - created, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
 
@@ -2253,6 +2253,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
+            /* Ensure only one FIELDS argument is provided */
+            if (*first_field_pos != -1) {
+                addReplyError(c, "FIELDS keyword specified multiple times");
+                return C_ERR;
+            }
+
             int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
             long val;
             /* Ensure we have at least the numfields argument */
@@ -2334,19 +2340,19 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
                 return C_ERR;
 
             *expire_time_pos = i;
-        } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST")) {
+        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "PERSIST")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_PERSIST))
                 goto err_expiration;
             *flags |= HFE_PERSIST;
-        } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
-        } else if (!strcasecmp(c->argv[i]->ptr, "FXX")) {
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "FXX")) {
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FXX;
-        } else if (!strcasecmp(c->argv[i]->ptr, "FNX")) {
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "FNX")) {
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FNX;
@@ -2356,10 +2362,9 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
         }
     }
 
-    /* Validate command-specific argument compatibility */
-    if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
-        (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST))) {
-        addReplyError(c, "unknown argument");
+    /* Ensure FIELDS is specified */
+    if (*first_field_pos == -1) {
+        addReplyError(c, "missing FIELDS argument");
         return C_ERR;
     }
 
@@ -2553,8 +2558,7 @@ out:
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     }
     if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
 void hincrbyCommand(client *c) {
@@ -2580,13 +2584,13 @@ void hincrbyCommand(client *c) {
     } else if ((res == GETF_NOT_FOUND) || (res == GETF_EXPIRED)) {
         value = 0;
         unsigned long l = hashTypeLength(o, 0);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l, l + 1);
+        updateKeysizesHist(c->db, OBJ_HASH, l, l + 1);
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
         o = createHashObject();
         dbAdd(c->db,c->argv[1],&o);
         value = 0;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, 0, 1);
+        updateKeysizesHist(c->db, OBJ_HASH, 0, 1);
     }
 
     oldvalue = value;
@@ -2637,13 +2641,13 @@ void hincrbyfloatCommand(client *c) {
     } else if ((res == GETF_NOT_FOUND) || (res == GETF_EXPIRED)) {
         value = 0;
         unsigned long l = hashTypeLength(o, 0);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l, l + 1);
+        updateKeysizesHist(c->db, OBJ_HASH, l, l + 1);
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
         o = createHashObject();
         dbAdd(c->db, c->argv[1], &o);
         value = 0;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, 0, 1);
+        updateKeysizesHist(c->db, OBJ_HASH, 0, 1);
     }
 
     value += incr;
@@ -2855,8 +2859,7 @@ void hgetdelCommand(client *c) {
     }
 
     if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
 /* Get the value of one or more fields of a given hash key and optionally set 
@@ -3014,7 +3017,7 @@ void hgetexCommand(client *c) {
      * or the new expiration time is in the past.*/
     newlen = hashTypeLength(o, 0);
 
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldlen, newlen);
+    updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     if (newlen == 0) {
         dbDelete(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
@@ -3077,7 +3080,7 @@ void hdelCommand(client *c) {
                 estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
             newLen = oldLen - deleted;
         }
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldLen, newLen);
+        updateKeysizesHist(c->db, OBJ_HASH, oldLen, newLen);
         server.dirty += deleted;
     }
     ROBJ_LOCAL_ARRAY_FREE(deleted_fields);
@@ -3643,7 +3646,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
 
     /* update keysizes */
     unsigned long l = hashTypeLength(expCtx->hashObj, 0);
-    updateKeysizesHist(expCtx->db, getKeySlot(key), OBJ_HASH, l, l - 1);
+    updateKeysizesHist(expCtx->db, OBJ_HASH, l, l - 1);
 
     serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
     if (server.memory_tracking_enabled)
@@ -3750,6 +3753,12 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
         }
 
         addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+        return C_ERR;
+    }
+
+    /* Ensure FIELDS is specified */
+    if (args->fieldsPos == -1) {
+        addReplyError(c, "missing FIELDS argument");
         return C_ERR;
     }
 
@@ -4012,8 +4021,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     }
 
     if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 
     /* Avoid propagating command if not even one field was updated (Either because
      * the time is in the past, and corresponding HDELs were sent, or conditions

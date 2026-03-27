@@ -248,4 +248,116 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         
         $rd close
     }
+
+    test {SLOWLOG - INFO STATS slowlog metrics with no slowlog entries} {
+        r config set slowlog-log-slower-than 1000000
+        r config resetstat
+        r slowlog reset
+
+        r ping
+        r get foo
+
+        set info [r info stats]
+        assert_equal 0 [getInfoProperty $info slowlog_commands_count]
+        assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_max]
+        assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_sum]
+    }
+
+    test {SLOWLOG - INFO STATS slowlog metrics accumulate with slow commands} {
+        r config set slowlog-log-slower-than 100000
+        r config resetstat
+        r slowlog reset
+
+        r debug sleep 0.2
+        set info [r info stats]
+        assert_equal 1 [getInfoProperty $info slowlog_commands_count]
+        set sum1 [getInfoProperty $info slowlog_commands_time_ms_sum]
+        set max1 [getInfoProperty $info slowlog_commands_time_ms_max]
+        assert_morethan $sum1 190
+        assert_morethan $max1 190
+
+        r debug sleep 0.3
+        set info [r info stats]
+        assert_equal 2 [getInfoProperty $info slowlog_commands_count]
+        set sum2 [getInfoProperty $info slowlog_commands_time_ms_sum]
+        set max2 [getInfoProperty $info slowlog_commands_time_ms_max]
+        assert_morethan $sum2 490
+        assert_morethan $max2 290
+    } {} {needs:debug}
+
+    test {SLOWLOG - INFO STATS slowlog metrics survive SLOWLOG RESET} {
+        r config set slowlog-log-slower-than 100000
+        r config resetstat
+        r slowlog reset
+
+        r debug sleep 0.2
+        set info [r info stats]
+        set count_before [getInfoProperty $info slowlog_commands_count]
+        assert_equal 1 $count_before
+
+        r slowlog reset
+        assert_equal 0 [r slowlog len]
+
+        set info [r info stats]
+        assert_equal 1 [getInfoProperty $info slowlog_commands_count]
+        assert_morethan [getInfoProperty $info slowlog_commands_time_ms_sum] 0
+    } {} {needs:debug}
+
+    test {SLOWLOG - INFO STATS slowlog metrics reset with CONFIG RESETSTAT} {
+        r config set slowlog-log-slower-than 100000
+        r config resetstat
+        r slowlog reset
+
+        r debug sleep 0.2
+        set info [r info stats]
+        assert_equal 1 [getInfoProperty $info slowlog_commands_count]
+
+        r config resetstat
+        set info [r info stats]
+        assert_equal 0 [getInfoProperty $info slowlog_commands_count]
+        assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_max]
+        assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_sum]
+    } {} {needs:debug}
+
+    test {SLOWLOG - INFO COMMANDSTATS shows slowlog metrics for slow commands} {
+        r config set slowlog-log-slower-than 100000
+        r config resetstat
+        r slowlog reset
+
+        r debug sleep 0.2
+        r debug sleep 0.3
+
+        set cmdstat [cmdrstat debug r]
+        assert_match {*slowlog_count=2*} $cmdstat
+        assert_match {*slowlog_time_ms_sum=*} $cmdstat
+        assert_match {*slowlog_time_ms_max=*} $cmdstat
+
+        regexp {slowlog_count=(\d+)} $cmdstat -> sl_count
+        regexp {slowlog_time_ms_sum=([0-9.]+)} $cmdstat -> sl_sum
+        regexp {slowlog_time_ms_max=([0-9.]+)} $cmdstat -> sl_max
+        assert_equal 2 $sl_count
+        assert_morethan $sl_sum 490
+        assert_morethan $sl_max 290
+    } {} {needs:debug}
+
+    test {SLOWLOG - INFO COMMANDSTATS slowlog metrics only on commands that are slow} {
+        r config set slowlog-log-slower-than 100000
+        r config resetstat
+        r slowlog reset
+
+        r set mykey myvalue
+        r get mykey
+        r debug sleep 0.2
+
+        set cmdstat_set [cmdrstat set r]
+        assert_no_match {*slowlog_count*} $cmdstat_set
+
+        set cmdstat_get [cmdrstat get r]
+        assert_no_match {*slowlog_count*} $cmdstat_get
+
+        set cmdstat_debug [cmdrstat debug r]
+        assert_match {*slowlog_count=1*} $cmdstat_debug
+        assert_match {*slowlog_time_ms_sum=*} $cmdstat_debug
+        assert_match {*slowlog_time_ms_max=*} $cmdstat_debug
+    } {} {needs:debug}
 }
