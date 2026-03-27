@@ -130,11 +130,15 @@ proc waitForBgrewriteaof r {
 }
 
 proc wait_for_sync r {
-    set maxtries 200
+    set maxtries 50
     # tsan adds significant overhead to the execution time, so we increase the
     # wait time here JIC
     if {$::tsan} {
         set maxtries 100
+    }
+    # same for compression
+    if {$::compression} {
+        set maxtries 200
     }
 
     wait_for_condition $maxtries 100 {
