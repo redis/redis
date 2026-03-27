@@ -91,6 +91,136 @@ start_server {tags {"modules" "external:skip"}} {
         assert {[r keymetanotify.setcount] >= $before + 100}
     }
 
+    test {HSETEX with SetKeyMeta in notification does not crash} {
+        set before [r keymetanotify.setcount]
+        r HSETEX hsetex_key FIELDS 1 f1 v1
+        assert_equal [r HGET hsetex_key f1] "v1"
+        assert_equal [r keymetanotify.get hsetex_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HSETEX with expiration
+        r HSETEX hsetex_key EX 1000 FIELDS 1 f2 v2
+        assert_equal [r HGET hsetex_key f2] "v2"
+        assert_equal [r HLEN hsetex_key] 2
+
+        # HSETEX with FXX flag (only set if all fields exist)
+        r HSETEX hsetex_key FXX FIELDS 1 f1 v1_updated
+        assert_equal [r HGET hsetex_key f1] "v1_updated"
+
+        # HSETEX with FNX flag (only set if no fields exist)
+        set before [r keymetanotify.setcount]
+        r HSETEX hsetex_fnx_key FNX FIELDS 2 f1 v1 f2 v2
+        assert_equal [r HGET hsetex_fnx_key f1] "v1"
+        assert_equal [r HGET hsetex_fnx_key f2] "v2"
+        assert_equal [r keymetanotify.get hsetex_fnx_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+    }
+
+    test {HGETDEL with SetKeyMeta in notification does not crash} {
+        # Create hash with fields
+        set before [r keymetanotify.setcount]
+        r HSET hgetdel_key f1 v1 f2 v2 f3 v3
+        assert_equal [r keymetanotify.get hgetdel_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HGETDEL returns the value and deletes the field
+        set before [r keymetanotify.setcount]
+        set result [r HGETDEL hgetdel_key FIELDS 1 f1]
+        assert_equal $result "v1"
+        assert_equal [r HEXISTS hgetdel_key f1] 0
+        assert_equal [r HLEN hgetdel_key] 2
+        # SetKeyMeta should be called during the hdel notification
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HGETDEL multiple fields
+        set result [r HGETDEL hgetdel_key FIELDS 2 f2 f3]
+        assert_equal [lindex $result 0] "v2"
+        assert_equal [lindex $result 1] "v3"
+        assert_equal [r HLEN hgetdel_key] 0
+    }
+
+    test {HGETEX with SetKeyMeta in notification does not crash} {
+        # Create hash with fields
+        set before [r keymetanotify.setcount]
+        r HSET hgetex_key f1 v1 f2 v2
+        assert_equal [r keymetanotify.get hgetex_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HGETEX without expiration just returns values
+        set result [r HGETEX hgetex_key FIELDS 1 f1]
+        assert_equal [lindex $result 0] "v1"
+
+        # HGETEX with expiration
+        set before [r keymetanotify.setcount]
+        set result [r HGETEX hgetex_key EX 1000 FIELDS 1 f1]
+        assert_equal [lindex $result 0] "v1"
+        # hexpire notification triggers SetKeyMeta
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HGETEX with PERSIST
+        r HGETEX hgetex_key PERSIST FIELDS 1 f1
+        assert_equal [r HTTL hgetex_key FIELDS 1 f1] -1
+    }
+
+    test {HDEL with SetKeyMeta in notification does not crash} {
+        # Create hash with fields
+        set before [r keymetanotify.setcount]
+        r HSET hdel_key f1 v1 f2 v2 f3 v3
+        assert_equal [r keymetanotify.get hdel_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HDEL single field
+        set before [r keymetanotify.setcount]
+        r HDEL hdel_key f1
+        assert_equal [r HEXISTS hdel_key f1] 0
+        assert_equal [r HLEN hdel_key] 2
+        # SetKeyMeta should be called during the hdel notification
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HDEL multiple fields
+        r HDEL hdel_key f2 f3
+        assert_equal [r HLEN hdel_key] 0
+    }
+
+    test {HEXPIRE with SetKeyMeta in notification does not crash} {
+        # Create hash with fields
+        set before [r keymetanotify.setcount]
+        r HSET hexpire_key f1 v1 f2 v2
+        assert_equal [r keymetanotify.get hexpire_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HEXPIRE sets field expiration
+        set before [r keymetanotify.setcount]
+        r HEXPIRE hexpire_key 1000 FIELDS 1 f1
+        # hexpire notification triggers SetKeyMeta
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify TTL is set
+        assert {[r HTTL hexpire_key FIELDS 1 f1] > 0}
+
+        # HPEXPIRE (milliseconds)
+        r HPEXPIRE hexpire_key 500000 FIELDS 1 f2
+        assert {[r HPTTL hexpire_key FIELDS 1 f2] > 0}
+    }
+
+    test {HPERSIST with SetKeyMeta in notification does not crash} {
+        # Create hash with field expiration
+        set before [r keymetanotify.setcount]
+        r HSET hpersist_key f1 v1
+        r HEXPIRE hpersist_key 1000 FIELDS 1 f1
+        assert_equal [r keymetanotify.get hpersist_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # HPERSIST removes field expiration
+        set before [r keymetanotify.setcount]
+        r HPERSIST hpersist_key FIELDS 1 f1
+        # hpersist notification triggers SetKeyMeta
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify TTL is removed
+        assert_equal [r HTTL hpersist_key FIELDS 1 f1] -1
+    }
+
     # --- STRING notification tests ---
     # Each test uses a fresh key for actual kvobj reallocation.
 
