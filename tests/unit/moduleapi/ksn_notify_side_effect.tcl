@@ -163,9 +163,12 @@ start_server {tags {"modules" "external:skip"}} {
         set result [r HGETEX hgetex_key FIELDS 1 f1]
         assert_equal [lindex $result 0] "v1"
 
-        # HGETEX with PERSIST
+        # HGETEX with PERSIST - triggers hpersist notification
+        set before [r keymetanotify.setcount]
         r HGETEX hgetex_key PERSIST FIELDS 1 f1
         assert_equal [r HTTL hgetex_key FIELDS 1 f1] -1
+        # hpersist notification triggers SetKeyMeta
+        assert {[r keymetanotify.setcount] > $before}
     }
 
     test {HDEL with SetKeyMeta in notification does not crash} {
