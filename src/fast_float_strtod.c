@@ -116,7 +116,7 @@ static inline int parse_infnan(const char *p, const char *pend, double *result, 
             *result = negative ? -INFINITY : INFINITY;
             p += 3;
             /* Check for optional "inity" suffix */
-            if (remaining >= 8 && strncasecmp_local(p, "inity", 5) == 0) {
+            if (remaining == 8 && strncasecmp_local(p, "inity", 5) == 0) {
                 p += 5;
             }
             if (endptr) *endptr = (char *)p;
