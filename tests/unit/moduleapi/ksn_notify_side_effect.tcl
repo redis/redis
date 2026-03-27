@@ -221,6 +221,85 @@ start_server {tags {"modules" "external:skip"}} {
         assert_equal [r HTTL hpersist_key FIELDS 1 f1] -1
     }
 
+    test {Hash field expiration (hexpired) with SetKeyMeta in notification does not crash} {
+        # Create hash with field that will expire quickly
+        set before [r keymetanotify.setcount]
+        r HSET hexpired_key f1 v1 f2 v2
+        assert_equal [r keymetanotify.get hexpired_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Set very short expiration (100ms)
+        r HPEXPIRE hexpired_key 100 FIELDS 1 f1
+
+        # Wait for field to expire
+        after 200
+
+        # Access the hash to trigger lazy expiration (hexpired notification)
+        # The main test here is that this doesn't crash when SetKeyMeta is called
+        # during the hexpired notification callback
+        set result [r HGET hexpired_key f1]
+        # Field should be expired
+        assert_equal $result {}
+
+        # f2 should still exist and accessible without crash
+        assert_equal [r HGET hexpired_key f2] "v2"
+
+        # Key should still have metadata set
+        assert_equal [r keymetanotify.get hexpired_key] "notified"
+    }
+
+    # --- GENERIC notification tests ---
+
+    test {PERSIST with SetKeyMeta in notification does not crash} {
+        # Create key with expiration
+        set before [r keymetanotify.setcount]
+        r SET persist_key "value"
+        r EXPIRE persist_key 1000
+        assert_equal [r keymetanotify.get persist_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify TTL is set
+        assert {[r TTL persist_key] > 0}
+
+        # PERSIST removes expiration
+        set before [r keymetanotify.setcount]
+        r PERSIST persist_key
+        # persist notification triggers SetKeyMeta
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify TTL is removed
+        assert_equal [r TTL persist_key] -1
+        assert_equal [r GET persist_key] "value"
+    }
+
+    test {COPY with SetKeyMeta in notification does not crash} {
+        # Create source key
+        set before [r keymetanotify.setcount]
+        r HSET copy_src_key f1 v1 f2 v2
+        assert_equal [r keymetanotify.get copy_src_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # COPY to new key
+        set before [r keymetanotify.setcount]
+        r COPY copy_src_key copy_dst_key
+        # copy_to notification triggers SetKeyMeta on destination
+        assert_equal [r keymetanotify.get copy_dst_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify both keys have same content
+        assert_equal [r HGET copy_src_key f1] "v1"
+        assert_equal [r HGET copy_dst_key f1] "v1"
+        assert_equal [r HGET copy_src_key f2] "v2"
+        assert_equal [r HGET copy_dst_key f2] "v2"
+
+        # COPY with REPLACE
+        r HSET copy_src_key f3 v3
+        set before [r keymetanotify.setcount]
+        r COPY copy_src_key copy_dst_key REPLACE
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r HGET copy_dst_key f3] "v3"
+    }
+
     # --- STRING notification tests ---
     # Each test uses a fresh key for actual kvobj reallocation.
 
