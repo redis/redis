@@ -76,6 +76,10 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 set rr [redis_deferring_client]
                 lappend clients $rr
             }
+
+            # Disable reply copy avoidance so that MGET can increase memory usage
+            # and trigger keys/clients eviction.
+            r debug reply-copy-avoidance 0
             
             # Generate client output buffers via MGET until we can observe some effect on 
             # keys / client eviction, or we time out.
@@ -90,6 +94,8 @@ start_server {tags {"maxmemory" "external:skip"}} {
                     }
                 }
             }
+ 
+            r debug reply-copy-avoidance 1
 
             verify_eviction_test $client_eviction
         }
