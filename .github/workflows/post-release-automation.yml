@@ -117,7 +117,6 @@ jobs:
           # This will:
           # - Download the uploaded tarball
           # - Extract and build Redis
-          # - Run test suites
 
   update-release-hashes:
     needs: test-release-tarball
