@@ -3678,6 +3678,7 @@ int pfmergeGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     int i, numkeys;
     keyReference *keys;
     UNUSED(cmd);
+    UNUSED(argv);
 
     numkeys = argc - 1; /* destkey + all sourcekeys */
     keys = getKeysPrepareResult(result, numkeys);
