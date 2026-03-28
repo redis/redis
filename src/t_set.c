@@ -155,7 +155,8 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             /* Not found.  */
             size_t addlen = input_is_integer ? lpEntrySizeInteger(llval) : len;
             if (lpLength(lp) < server.set_max_listpack_entries &&
-                (!input_is_integer || sdigits10(llval) <= server.set_max_listpack_value) &&
+                (input_is_integer ? sdigits10(llval) <= server.set_max_listpack_value
+                                  : len <= server.set_max_listpack_value) &&
                 lpSafeToAdd(lp, addlen))
             {
                 if (input_is_integer) {
