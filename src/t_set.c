@@ -119,13 +119,13 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         return success;
     }
 
-    serverAssert(str || input_is_integer);
     if (set->encoding == OBJ_ENCODING_HT) {
         if (input_is_integer) {
             len = ll2string(tmpbuf, sizeof tmpbuf, llval);
             str = tmpbuf;
             str_is_sds = 0;
         }
+        serverAssert(str);
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
@@ -179,6 +179,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             return 1;
         }
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
+        serverAssert(str);
         long long value;
         if (string2ll(str, len, &value)) {
             uint8_t success = 0;
