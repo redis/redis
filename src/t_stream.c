@@ -318,6 +318,56 @@ void pelIterStop(pelIterator *pi) {
 }
 
 /* -----------------------------------------------------------------------
+ * Two-level cgroups_ref: rax(15-byte prefix -> flax(low-byte-of-seq -> list*))
+ *
+ * Mirrors the PEL two-level layout.  The outer rax key is the first
+ * 15 bytes of the big-endian encoded streamID; the flax key is byte 15
+ * (low byte of seq).  Each flax slot holds a list* of consumer-group
+ * pointers that reference the entry.
+ * ----------------------------------------------------------------------- */
+
+typedef struct cgrefCache {
+    unsigned char key[PEL_RAX_KEY_LEN];
+    flax *f;
+} cgrefCache;
+
+static inline void cgrefCacheInvalidate(rax *ref) {
+    cgrefCache *cache = (cgrefCache *)ref->metadata;
+    cache->f = NULL;
+}
+
+static rax *cgrefNew(size_t *alloc_size) {
+    rax *ref = raxNewWithMetadata(sizeof(cgrefCache), alloc_size);
+    if (ref) cgrefCacheInvalidate(ref);
+    return ref;
+}
+
+static flax *cgrefResolveFlax(rax *ref, unsigned char *key, int create) {
+    cgrefCache *cache = (cgrefCache *)ref->metadata;
+
+    if (cache->f && memcmp(cache->key, key, PEL_RAX_KEY_LEN) == 0)
+        return cache->f;
+
+    void *data;
+    if (raxFind(ref, key, PEL_RAX_KEY_LEN, &data)) {
+        cache->f = (flax *)data;
+        memcpy(cache->key, key, PEL_RAX_KEY_LEN);
+        return cache->f;
+    }
+    if (!create) return NULL;
+
+    flax *f = flaxNew();
+    raxInsert(ref, key, PEL_RAX_KEY_LEN, f, NULL);
+    cache->f = f;
+    memcpy(cache->key, key, PEL_RAX_KEY_LEN);
+    return f;
+}
+
+static void cgrefFreeFlaxCb(void *val) {
+    flaxFreeWithCallback((flax *)val, listReleaseGeneric);
+}
+
+/* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
  * ----------------------------------------------------------------------- */
 
@@ -365,7 +415,7 @@ void freeStream(stream *s) {
     if (s->cgroups)
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
-        raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
+        raxFreeWithCallback(s->cgroups_ref, cgrefFreeFlaxCb);
     /* Free IDMP producers rax tree */
     if (s->idmp_producers)
         raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
@@ -3323,17 +3373,18 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
  * Returns a pointer to the list node, so that it can be used for future deletion. */
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
     if (!s->cgroups_ref)
-        s->cgroups_ref = raxNewWithMetadata(0, &s->alloc_size);
+        s->cgroups_ref = cgrefNew(&s->alloc_size);
 
-    /* Speculatively create a list and try to insert it. If the key already
-     * exists, raxTryInsert returns 0 and sets 'existing' to the current value,
-     * so we discard the unused list. This avoids a double rax traversal
-     * (find + insert) on the common miss path. */
-    list *cglist = listCreate();
-    list *existing;
-    if (!raxTryInsert(s->cgroups_ref, key, sizeof(streamID), cglist, (void**)&existing)) {
-        listRelease(cglist);
-        cglist = existing;
+    flax *f = cgrefResolveFlax(s->cgroups_ref, key, 1);
+    uint8_t fkey = key[PEL_RAX_KEY_LEN];
+
+    list *cglist;
+    void *existing;
+    if (flaxFind(f, fkey, &existing)) {
+        cglist = (list *)existing;
+    } else {
+        cglist = listCreate();
+        flaxInsert(f, fkey, cglist, NULL);
     }
 
     listAddNodeTail(cglist, cg);
@@ -3343,15 +3394,26 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
 /* Unlink a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted. */
 void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *key) {
-    list *cglist;
     if (!s->cgroups_ref) return;
-    if (raxFind(s->cgroups_ref, key, sizeof(streamID), (void**)&cglist)) {
-        listDelNode(cglist, na->cgroup_ref_node);
-        
-        /* If the list is now empty, remove it from the index. */
-        if (listLength(cglist) == 0) {
-            raxRemove(s->cgroups_ref, key, sizeof(streamID), NULL);
-            listRelease(cglist);
+
+    flax *f = cgrefResolveFlax(s->cgroups_ref, key, 0);
+    if (!f) return;
+
+    uint8_t fkey = key[PEL_RAX_KEY_LEN];
+    void *val;
+    if (!flaxFind(f, fkey, &val)) return;
+
+    list *cglist = (list *)val;
+    listDelNode(cglist, na->cgroup_ref_node);
+
+    if (listLength(cglist) == 0) {
+        flaxRemove(f, fkey, NULL);
+        listRelease(cglist);
+
+        if (f->numele == 0) {
+            flaxFree(f);
+            raxRemove(s->cgroups_ref, key, PEL_RAX_KEY_LEN, NULL);
+            cgrefCacheInvalidate(s->cgroups_ref);
         }
     }
 }
@@ -3359,26 +3421,28 @@ void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *ke
 /* Remove all consumer group references to a specific stream message. */
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     if (!s->cgroups_ref) return;
-    list *cglist;
-    listIter li;
-    listNode *ln;
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
 
-    /* If message is not in any consumer group, nothing to do */
-    if (!raxFind(s->cgroups_ref, buf, sizeof(streamID), (void **)&cglist))
-        return;
+    flax *f = cgrefResolveFlax(s->cgroups_ref, buf, 0);
+    if (!f) return;
+
+    uint8_t fkey = buf[PEL_RAX_KEY_LEN];
+    void *val;
+    if (!flaxFind(f, fkey, &val)) return;
+
+    list *cglist = (list *)val;
+    listIter li;
+    listNode *ln;
 
     listRewind(cglist, &li);
     while ((ln = listNext(&li))) {
         streamNACK *nack;
         streamCG *group = listNodeValue(ln);
-        
-        /* Find the message in this consumer group's PEL */
+
         nack = pelFind(group->pel, id);
         serverAssert(nack);
-        
-        /* Remove from group and consumer PELs */
+
         pelListUnlink(group, nack);
         pelRemove(group->pel, id, &group->pel_count);
         pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
@@ -3387,8 +3451,14 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         streamFreeNACK(s, nack);
     }
 
-    raxRemove(s->cgroups_ref, buf, sizeof(streamID), NULL);
+    flaxRemove(f, fkey, NULL);
     listRelease(cglist);
+
+    if (f->numele == 0) {
+        flaxFree(f);
+        raxRemove(s->cgroups_ref, buf, PEL_RAX_KEY_LEN, NULL);
+        cgrefCacheInvalidate(s->cgroups_ref);
+    }
 }
 
 /* Check if a stream entry is still referenced by any consumer group.
@@ -3426,7 +3496,9 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
     if (!s->cgroups_ref) return 0;
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
-    return raxFind(s->cgroups_ref, buf, sizeof(streamID), NULL);
+    flax *f = cgrefResolveFlax(s->cgroups_ref, buf, 0);
+    if (!f) return 0;
+    return flaxFind(f, buf[PEL_RAX_KEY_LEN], NULL);
 }
 
 /* Create a NACK entry setting the delivery count to 1 and the delivery
