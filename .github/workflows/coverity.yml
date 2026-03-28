@@ -28,8 +28,8 @@ jobs:
           tar czvf cov-int.tgz cov-int
           curl \
             --form project=redis-unstable \
-            --form email=${COVERITY_SCAN_EMAIL} \
-            --form token=${COVERITY_SCAN_TOKEN} \
+            --form email="${COVERITY_SCAN_EMAIL}" \
+            --form token="${COVERITY_SCAN_TOKEN}" \
             --form file=@cov-int.tgz \
             https://scan.coverity.com/builds
 
