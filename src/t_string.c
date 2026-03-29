@@ -720,12 +720,16 @@ void mgetCommand(client *c) {
         return;
     }
 
-    /* Skip intra-command prefetching if the cross-command batch (I/O thread
-     * path or main-thread pipeline path) already prefetched our keys.
-     * Running both causes redundant work and measurable regressions with
-     * many I/O threads. */
+    /* Skip intra-command prefetching when the cross-command batch path
+     * already prefetched our keys (fully or partially).  Two conditions:
+     * 1. PENDING_CMD_KEYS_PREFETCHED: all keys fit in the batch — skip.
+     * 2. Pipeline active (ready_len > 1): batch ran with multiple commands,
+     *    partially warming the hash table.  Running both prefetch paths
+     *    causes cache-bandwidth contention and -9.6% regression on x86
+     *    with pipeline-10.  The partial warmup is sufficient. */
     int already_prefetched = c->current_pending_cmd &&
-        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+        ((c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED) ||
+         c->pending_cmds.ready_len > 1);
 
     if (already_prefetched) {
         /* Keys are already warm in cache — plain sequential lookups. */
