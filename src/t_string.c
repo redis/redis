@@ -723,13 +723,17 @@ void mgetCommand(client *c) {
     /* Skip intra-command prefetching when the cross-command batch path
      * already prefetched our keys (fully or partially).  Two conditions:
      * 1. PENDING_CMD_KEYS_PREFETCHED: all keys fit in the batch — skip.
-     * 2. Pipeline active (ready_len > 1): batch ran with multiple commands,
-     *    partially warming the hash table.  Running both prefetch paths
-     *    causes cache-bandwidth contention and -9.6% regression on x86
-     *    with pipeline-10.  The partial warmup is sufficient. */
+     * 2. Pipeline active (ready_len > 1) AND batch prefetching is enabled:
+     *    batch ran with multiple commands, partially warming the hash table.
+     *    Running both prefetch paths causes cache-bandwidth contention and
+     *    -9.6% regression on x86 with pipeline-10.  The partial warmup is
+     *    sufficient.
+     * We must also verify that batch prefetching is enabled
+     * (prefetch_batch_max_size > 0), otherwise no cross-command prefetching
+     * occurred and the intra-command path is the only prefetch opportunity. */
     int already_prefetched = c->current_pending_cmd &&
         ((c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED) ||
-         c->pending_cmds.ready_len > 1);
+         (c->pending_cmds.ready_len > 1 && server.prefetch_batch_max_size > 0));
 
     if (already_prefetched) {
         /* Keys are already warm in cache — plain sequential lookups. */
