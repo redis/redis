@@ -41,5 +41,5 @@ test "errorstats: rejected call due to MOVED Redirection" {
     }
     assert_match {} [errorstat $pok MOVED]
     assert_match {*count=1*} [errorstat $perr MOVED]
-    assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat $perr set]
+    assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat $perr set]
 }

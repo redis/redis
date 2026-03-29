@@ -690,7 +690,7 @@ start_server {
 
         # verify command stats, error stats and error counter work on failed blocked command
         assert_match {*count=1*} [errorrstat NOGROUP r]
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdrstat xreadgroup r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat xreadgroup r]
         assert_equal [s total_error_replies] 1
     }
 
