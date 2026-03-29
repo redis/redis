@@ -1872,3 +1872,22 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+start_cluster 1 0 {tags {repl external:skip cluster}} {
+    test "REPLICAOF is rejected when cluster mode is enabled" {
+        set role_before [lindex [R 0 role] 0]
+
+        set err1 [catch {R 0 REPLICAOF 127.0.0.1 6799} res1]
+        set err2 [catch {R 0 REPLICAOF no one} res2]
+
+        set role_after [lindex [R 0 role] 0]
+
+        assert_equal 1 $err1
+        assert_equal 1 $err2
+
+        assert_match {*REPLICAOF*not allowed*cluster*} $res1
+        assert_match {*REPLICAOF*not allowed*cluster*} $res2
+
+        assert_equal $role_before $role_after
+    }
+}
