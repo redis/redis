@@ -868,6 +868,8 @@ void* defragStreamConsumerPelFlax(raxIterator *ri, void *privdata) {
     flax *f = ri->data;
     flax *newf = activeDefragAlloc(f);
     if (newf) f = newf;
+    void *newdata = activeDefragAlloc(f->data);
+    if (newdata) f->data = newdata;
 
     /* Iterate entries in the flax and defrag each NACK. */
     flaxIterator fi;
@@ -937,6 +939,9 @@ void* defragStreamGroupPelFlax(raxIterator *ri, void *privdata) {
     (void)privdata;
     flax *f = ri->data;
     flax *newf = activeDefragAlloc(f);
+    if (newf) f = newf;
+    void *newdata = activeDefragAlloc(f->data);
+    if (newdata) f->data = newdata;
     return newf;
 }
 
