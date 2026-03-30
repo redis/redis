@@ -42,3 +42,11 @@ Makefile.dep
 .ccls-cache/*
 compile_commands.json
 redis.code-workspace
+
+# Module sources (cloned by utils/modules/update-modules.sh)
+modules/*/src/
+modules/*/.prepared
+modules/*/.cargo_fetched
+
+# Generated config (produced by utils/modules/update-modules.sh)
+redis-full.conf

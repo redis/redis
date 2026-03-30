@@ -1,8 +1,11 @@
 
 SUBDIRS = redisjson redistimeseries redisbloom redisearch
 
+# Only build modules whose source has been cloned
+AVAILABLE_SUBDIRS = $(foreach d,$(SUBDIRS),$(if $(wildcard $(d)/src/Makefile),$(d)))
+
 define submake
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $(1); done
+	set -e; for dir in $(AVAILABLE_SUBDIRS); do $(MAKE) -C $$dir $(1); done
 endef
 
 all: prepare_source
@@ -77,7 +80,7 @@ endif
 handle-werrors: get_source
 ifeq ($(DISABLE_WERRORS),yes)
 	@echo "Disabling -Werror for all modules"
-	@for dir in $(SUBDIRS); do \
+	@for dir in $(AVAILABLE_SUBDIRS); do \
 		echo "Processing $$dir"; \
 		find $$dir/src -type f \
 			\( -name "Makefile" \

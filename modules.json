@@ -1,0 +1,25 @@
+{
+    "modules": {
+        "redisjson": {
+            "repo": "https://github.com/redisjson/redisjson",
+            "ref": "v8.7.80",
+            "so_name": "rejson.so",
+            "uses_rust": true
+        },
+        "redisbloom": {
+            "repo": "https://github.com/redisbloom/redisbloom",
+            "ref": "v8.7.80",
+            "so_name": "redisbloom.so"
+        },
+        "redistimeseries": {
+            "repo": "https://github.com/redistimeseries/redistimeseries",
+            "ref": "v8.7.80",
+            "so_name": "redistimeseries.so"
+        },
+        "redisearch": {
+            "repo": "https://github.com/redisearch/redisearch",
+            "ref": "v8.5.90",
+            "so_name": "redisearch.so"
+        }
+    }
+}
