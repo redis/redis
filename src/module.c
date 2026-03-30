@@ -3797,6 +3797,8 @@ int modulePopulateReplicationInfoStructure(void *ri, int structver) {
  *     REDISMODULE_CLIENTINFO_FLAG_TRACKING     Client with keys tracking on.
  *     REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET   Client using unix domain socket.
  *     REDISMODULE_CLIENTINFO_FLAG_MULTI        Client in MULTI state.
+ *     REDISMODULE_CLIENTINFO_FLAG_READONLY     Client is in readonly mode.
+ *     REDISMODULE_CLIENTINFO_FLAG_REPLICATED   Client is a master connection (replica-to-master link).
  *
  * However passing NULL is a way to just check if the client exists in case
  * we are not interested in any additional information.
