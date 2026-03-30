@@ -148,7 +148,7 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
 
-    eventobj = createStringObject(event, strlen(event));
+    eventobj = createStringObject(event,strlen(event));
 
     /* __keyspace@<db>__:<key> <event> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
@@ -174,12 +174,12 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
         decrRefCount(chanobj);
     }
 
-    /* Subkey-level notifications (only when subkeys are provided).
-     * Skip if the event contains '|' to avoid parsing ambiguity since '|'
-     * is used as a separator in subkey channel formats. */
-    if (subkeys != NULL && count > 0 && strchr(event, '|') == NULL) {
-        /* __subkeyspace@<db>__:<key> <event>|<len>:<subkey>[,...] notifications. */
-        if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACE) {
+    /* Subkey-level notifications (only when subkeys are provided). */
+    if (subkeys != NULL && count > 0) {
+        /* __subkeyspace@<db>__:<key> <event>|<len>:<subkey>[,...] notifications.
+         * Skip if the event contains '|' to avoid parsing ambiguity since '|'
+         * is used as a separator between event and subkeys in the payload. */
+        if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACE && !strchr(event, '|')) {
             chan = sdsnewlen("__subkeyspace@", 14);
             if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             chan = sdscatlen(chan, buf, len);
@@ -240,8 +240,10 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
             }
         }
 
-        /* __subkeyspaceevent@<db>__:<event>|<key> <subkeys> notifications. */
-        if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACEEVENT) {
+        /* __subkeyspaceevent@<db>__:<event>|<key> <subkeys> notifications.
+         * Skip if the event contains '|' to avoid parsing ambiguity since '|'
+         * is used as a separator between event and key in the channel name. */
+        if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACEEVENT && !strchr(event, '|')) {
             chan = sdsnewlen("__subkeyspaceevent@", 19);
             if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             chan = sdscatlen(chan, buf, len);

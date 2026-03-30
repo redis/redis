@@ -128,7 +128,6 @@ tags "modules external:skip" {
             assert_equal 1 [llength $events]
             assert_equal "hset myhash 2 f1 f2" [lindex $events 0]
             r del myhash
-            r keyspace.reset_subkey_events
         }
 
         test "Subkey notification: HDEL triggers module subkey callback" {
@@ -139,7 +138,6 @@ tags "modules external:skip" {
             assert_equal 1 [llength $events]
             assert_equal "hdel myhash 1 f1" [lindex $events 0]
             r del myhash
-            r keyspace.reset_subkey_events
         }
 
         test "Subkey notification: non-subkey event calls subkey callback with count=0" {
@@ -151,7 +149,6 @@ tags "modules external:skip" {
             # HASH|GENERIC, so it should be called with subkeys=NULL, count=0.
             assert_equal 1 [llength $events]
             assert_equal "del myhash 0" [lindex $events 0]
-            r keyspace.reset_subkey_events
         }
 
         test "Subkey notification: module-triggered NotifyKeyspaceEventWithSubkeys" {
@@ -160,7 +157,6 @@ tags "modules external:skip" {
             set events [r keyspace.get_subkey_events]
             assert_equal 1 [llength $events]
             assert_equal "module_subkey_event mykey 3 sk1 sk2 sk3" [lindex $events 0]
-            r keyspace.reset_subkey_events
         }
 
         test "Subkey notification: unsubscribe stops callback" {
@@ -194,7 +190,6 @@ tags "modules external:skip" {
             assert_equal 0 [llength $events]
 
             r keyspace.unsubscribe_require_subkeys
-            r keyspace.reset_subkey_events
         }
 
         test "Unload the module - testkeyspace" {
