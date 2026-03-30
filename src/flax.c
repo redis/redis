@@ -129,7 +129,8 @@ static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int64_
 static void flax_resize(flax *f, uint32_t new_capacity) {
     size_t new_voff = flax_values_offset(new_capacity);
     size_t new_alloc = new_voff + (size_t)new_capacity * sizeof(void *);
-    void *new_data = flax_malloc(new_alloc);
+    size_t new_usable;
+    void *new_data = flax_malloc_usable(new_alloc, &new_usable);
 
     if (f->data && f->numele > 0) {
         memcpy(new_data, f->data, (size_t)f->numele * sizeof(uint8_t));
@@ -138,9 +139,11 @@ static void flax_resize(flax *f, uint32_t new_capacity) {
                (size_t)f->numele * sizeof(void *));
     }
 
-    flax_free(f->data);
+    size_t old_usable;
+    flax_free_usable(f->data, &old_usable);
     f->data = new_data;
     f->capacity = new_capacity;
+    f->alloc_size += new_usable - old_usable;
 }
 
 /* Update the iterator key and data fields from the underlying flax
@@ -158,11 +161,14 @@ static void flaxIterRefresh(flaxIterator *it) {
  * On out of memory the function returns NULL. */
 flax *flaxNewWithCapacity(uint32_t capacity) {
     if (capacity < FLAX_INIT_CAPACITY) capacity = FLAX_INIT_CAPACITY;
-    flax *f = flax_malloc(sizeof(flax));
+    size_t usable;
+    flax *f = flax_malloc_usable(sizeof(flax), &usable);
+    f->alloc_size = usable;
     f->numele = 0;
     f->capacity = capacity;
     size_t voff = flax_values_offset(capacity);
-    f->data = flax_malloc(voff + (size_t)capacity * sizeof(void *));
+    f->data = flax_malloc_usable(voff + (size_t)capacity * sizeof(void *), &usable);
+    f->alloc_size += usable;
     return f;
 }
 
@@ -315,6 +321,13 @@ void flaxFreeWithCbAndContext(flax *f,
 /* Return the number of elements inside the flax. */
 uint64_t flaxSize(flax *f) {
     return (uint64_t)f->numele;
+}
+
+/* Return the total heap memory used by the flax struct and its data block.
+ * O(1): the value is maintained incrementally by alloc/resize operations. */
+size_t flaxAllocSize(flax *f) {
+    if (!f) return 0;
+    return f->alloc_size;
 }
 
 /* Shrink the internal storage to fit the current number of elements,
@@ -488,6 +501,7 @@ int flaxEOF(flaxIterator *it) {
 #ifdef REDIS_TEST
 #include "testhelp.h"
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 
 #define UNUSED(x) (void)(x)

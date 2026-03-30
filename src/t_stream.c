@@ -91,27 +91,22 @@ rax *pelNew(size_t *alloc_size) {
     return pel;
 }
 
-static void pelFreeFlaxCb(void *val, void *privdata) {
-    (void)privdata;
-    flaxFree((flax *)val);
-}
-
 /* Free all flax structures and call nack_free for each NACK. */
 void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx) {
     if (!pel) return;
-    if (nack_free) {
-        raxIterator ri;
-        raxStart(&ri, pel);
-        raxSeek(&ri, "^", NULL, 0);
-        while (raxNext(&ri)) {
-            flax *f = ri.data;
+    raxIterator ri;
+    raxStart(&ri, pel);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        flax *f = ri.data;
+        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+        if (nack_free)
             flaxFreeWithCbAndContext(f, nack_free, ctx);
-        }
-        raxStop(&ri);
-        raxFreeWithCbAndContext(pel, NULL, NULL);
-    } else {
-        raxFreeWithCbAndContext(pel, pelFreeFlaxCb, NULL);
+        else
+            flaxFree(f);
     }
+    raxStop(&ri);
+    raxFreeWithCbAndContext(pel, NULL, NULL);
 }
 
 /* Free flax structures without freeing NACKs (for consumer PEL where NACKs are shared). */
@@ -121,13 +116,14 @@ void pelFreeShallow(rax *pel) {
     raxStart(&ri, pel);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
+        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize((flax *)ri.data);
         flaxFree((flax *)ri.data);
     }
     raxStop(&ri);
     raxFree(pel);
 }
 
-/* pelResolveFlax -- Resolve the flax bucket for a given (ms, seq) pair.
+/* pelResolveFlax -- Resolve the flax bucket for a given 15-byte rax key.
  *
  * With the 15+1 byte key scheme, each rax key is the first 15 bytes of the
  * big-endian encoded stream ID (full ms + upper 56 bits of seq). The flax
@@ -137,12 +133,10 @@ void pelFreeShallow(rax *pel) {
  * Returns the flax bucket, or NULL if no matching bucket exists (create==0).
  * When prev is non-NULL, *prev is set to the previously cached flax bucket
  * before the cache is updated. */
-static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
+static flax *pelResolveFlax(rax *r, unsigned char *keybuf,
                             int create, flax **prev) {
-    pelCache *cache = (pelCache *)pel->metadata;
+    pelCache *cache = (pelCache *)r->metadata;
     if (prev) *prev = cache->f;
-    unsigned char keybuf[PEL_RAX_KEY_LEN];
-    pelEncodeRaxKey(keybuf, ms, seq);
 
     /* Cache hit */
     if (cache->f && memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0)
@@ -150,7 +144,7 @@ static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
 
     /* Rax lookup (exact match) */
     void *data;
-    if (raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &data)) {
+    if (raxFind(r, keybuf, PEL_RAX_KEY_LEN, &data)) {
         cache->f = (flax *)data;
         memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
         return cache->f;
@@ -159,7 +153,8 @@ static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
 
     /* Create new bucket */
     flax *f = flaxNew();
-    raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, f, NULL);
+    if (r->alloc_size) *r->alloc_size += flaxAllocSize(f);
+    raxInsert(r, keybuf, PEL_RAX_KEY_LEN, f, NULL);
     cache->f = f;
     memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
     return f;
@@ -167,11 +162,19 @@ static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
 
 /* Insert nack into two-level PEL. Returns 1 if new entry, 0 if key existed (old value replaced). */
 int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
+    unsigned char keybuf[PEL_RAX_KEY_LEN];
+    pelEncodeRaxKey(keybuf, id->ms, id->seq);
     flax *prev;
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, &prev);
-    if (prev && prev != f) flaxShrink(prev);
+    flax *f = pelResolveFlax(pel, keybuf, 1, &prev);
+    if (prev && prev != f) {
+        size_t before = flaxAllocSize(prev);
+        flaxShrink(prev);
+        if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
+    }
+    size_t before = flaxAllocSize(f);
     void *old;
     flaxInsert(f, pelFlaxKey(id->seq), nack, &old);
+    if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
     if (old == NULL) {
         if (count) (*count)++;
         return 1;
@@ -181,18 +184,28 @@ int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
 
 /* Insert only if not present. Returns 1 if inserted, 0 if key already exists. */
 int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
+    unsigned char keybuf[PEL_RAX_KEY_LEN];
+    pelEncodeRaxKey(keybuf, id->ms, id->seq);
     flax *prev;
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, &prev);
-    if (prev && prev != f) flaxShrink(prev);
-    if (!flaxTryInsert(f, pelFlaxKey(id->seq), nack, NULL))
-        return 0;
+    flax *f = pelResolveFlax(pel, keybuf, 1, &prev);
+    if (prev && prev != f) {
+        size_t before = flaxAllocSize(prev);
+        flaxShrink(prev);
+        if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
+    }
+    size_t before = flaxAllocSize(f);
+    int inserted = flaxTryInsert(f, pelFlaxKey(id->seq), nack, NULL);
+    if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
+    if (!inserted) return 0;
     if (count) (*count)++;
     return 1;
 }
 
 /* Find a NACK by streamID. Returns NULL if not found. */
 streamNACK *pelFind(rax *pel, streamID *id) {
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 0, NULL);
+    unsigned char keybuf[PEL_RAX_KEY_LEN];
+    pelEncodeRaxKey(keybuf, id->ms, id->seq);
+    flax *f = pelResolveFlax(pel, keybuf, 0, NULL);
     if (!f) return NULL;
     void *val;
     if (!flaxFind(f, pelFlaxKey(id->seq), &val)) return NULL;
@@ -201,15 +214,16 @@ streamNACK *pelFind(rax *pel, streamID *id) {
 
 /* Remove a NACK by streamID. Returns the removed NACK or NULL. */
 streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count) {
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 0, NULL);
+    unsigned char keybuf[PEL_RAX_KEY_LEN];
+    pelEncodeRaxKey(keybuf, id->ms, id->seq);
+    flax *f = pelResolveFlax(pel, keybuf, 0, NULL);
     if (!f) return NULL;
     void *old;
     if (!flaxRemove(f, pelFlaxKey(id->seq), &old)) return NULL;
     streamNACK *nack = (streamNACK *)old;
     if (count) (*count)--;
     if (f->numele == 0) {
-        unsigned char keybuf[PEL_RAX_KEY_LEN];
-        pelEncodeRaxKey(keybuf, id->ms, id->seq);
+        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
         flaxFree(f);
         raxRemove(pel, keybuf, PEL_RAX_KEY_LEN, NULL);
         pelCacheInvalidate(pel);
@@ -322,56 +336,6 @@ void pelIterStop(pelIterator *pi) {
 }
 
 /* -----------------------------------------------------------------------
- * Two-level cgroups_ref: rax(15-byte prefix -> flax(low-byte-of-seq -> list*))
- *
- * Mirrors the PEL two-level layout.  The outer rax key is the first
- * 15 bytes of the big-endian encoded streamID; the flax key is byte 15
- * (low byte of seq).  Each flax slot holds a list* of consumer-group
- * pointers that reference the entry.
- * ----------------------------------------------------------------------- */
-
-typedef struct cgrefCache {
-    unsigned char key[PEL_RAX_KEY_LEN];
-    flax *f;
-} cgrefCache;
-
-static inline void cgrefCacheInvalidate(rax *ref) {
-    cgrefCache *cache = (cgrefCache *)ref->metadata;
-    cache->f = NULL;
-}
-
-static rax *cgrefNew(size_t *alloc_size) {
-    rax *ref = raxNewWithMetadata(sizeof(cgrefCache), alloc_size);
-    if (ref) cgrefCacheInvalidate(ref);
-    return ref;
-}
-
-static flax *cgrefResolveFlax(rax *ref, unsigned char *key, int create) {
-    cgrefCache *cache = (cgrefCache *)ref->metadata;
-
-    if (cache->f && memcmp(cache->key, key, PEL_RAX_KEY_LEN) == 0)
-        return cache->f;
-
-    void *data;
-    if (raxFind(ref, key, PEL_RAX_KEY_LEN, &data)) {
-        cache->f = (flax *)data;
-        memcpy(cache->key, key, PEL_RAX_KEY_LEN);
-        return cache->f;
-    }
-    if (!create) return NULL;
-
-    flax *f = flaxNew();
-    raxInsert(ref, key, PEL_RAX_KEY_LEN, f, NULL);
-    cache->f = f;
-    memcpy(cache->key, key, PEL_RAX_KEY_LEN);
-    return f;
-}
-
-static void cgrefFreeFlaxCb(void *val) {
-    flaxFreeWithCallback((flax *)val, listReleaseGeneric);
-}
-
-/* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
  * ----------------------------------------------------------------------- */
 
@@ -408,6 +372,11 @@ static void streamLpFreeGeneric(void *lp, void *strm) {
     lpFree(lp);
 }
 
+static void listReleaseGenericCb(void *val, void *ctx) {
+    (void)ctx;
+    listReleaseGeneric(val);
+}
+
 void streamFreeIdmpProducerGeneric(void *producer, void *strm) {
     stream *s = strm;
     idmpProducerFree((idmpProducer *)producer, &s->alloc_size);
@@ -419,7 +388,7 @@ void freeStream(stream *s) {
     if (s->cgroups)
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
-        raxFreeWithCallback(s->cgroups_ref, cgrefFreeFlaxCb);
+        pelFree(s->cgroups_ref, listReleaseGenericCb, NULL);
     /* Free IDMP producers rax tree */
     if (s->idmp_producers)
         raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
@@ -3377,9 +3346,9 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
  * Returns a pointer to the list node, so that it can be used for future deletion. */
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
     if (!s->cgroups_ref)
-        s->cgroups_ref = cgrefNew(&s->alloc_size);
+        s->cgroups_ref = pelNew(&s->alloc_size);
 
-    flax *f = cgrefResolveFlax(s->cgroups_ref, key, 1);
+    flax *f = pelResolveFlax(s->cgroups_ref, key, 1, NULL);
     uint8_t fkey = key[PEL_RAX_KEY_LEN];
 
     list *cglist;
@@ -3388,7 +3357,9 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
         cglist = (list *)existing;
     } else {
         cglist = listCreate();
+        size_t before = flaxAllocSize(f);
         flaxInsert(f, fkey, cglist, NULL);
+        s->alloc_size += flaxAllocSize(f) - before;
     }
 
     listAddNodeTail(cglist, cg);
@@ -3400,7 +3371,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
 void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *key) {
     if (!s->cgroups_ref) return;
 
-    flax *f = cgrefResolveFlax(s->cgroups_ref, key, 0);
+    flax *f = pelResolveFlax(s->cgroups_ref, key, 0, NULL);
     if (!f) return;
 
     uint8_t fkey = key[PEL_RAX_KEY_LEN];
@@ -3415,9 +3386,10 @@ void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *ke
         listRelease(cglist);
 
         if (f->numele == 0) {
+            s->alloc_size -= flaxAllocSize(f);
             flaxFree(f);
             raxRemove(s->cgroups_ref, key, PEL_RAX_KEY_LEN, NULL);
-            cgrefCacheInvalidate(s->cgroups_ref);
+            pelCacheInvalidate(s->cgroups_ref);
         }
     }
 }
@@ -3428,7 +3400,7 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
 
-    flax *f = cgrefResolveFlax(s->cgroups_ref, buf, 0);
+    flax *f = pelResolveFlax(s->cgroups_ref, buf, 0, NULL);
     if (!f) return;
 
     uint8_t fkey = buf[PEL_RAX_KEY_LEN];
@@ -3459,9 +3431,10 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     listRelease(cglist);
 
     if (f->numele == 0) {
+        s->alloc_size -= flaxAllocSize(f);
         flaxFree(f);
         raxRemove(s->cgroups_ref, buf, PEL_RAX_KEY_LEN, NULL);
-        cgrefCacheInvalidate(s->cgroups_ref);
+        pelCacheInvalidate(s->cgroups_ref);
     }
 }
 
@@ -3500,7 +3473,7 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
     if (!s->cgroups_ref) return 0;
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
-    flax *f = cgrefResolveFlax(s->cgroups_ref, buf, 0);
+    flax *f = pelResolveFlax(s->cgroups_ref, buf, 0, NULL);
     if (!f) return 0;
     return flaxFind(f, buf[PEL_RAX_KEY_LEN], NULL);
 }

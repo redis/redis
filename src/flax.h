@@ -44,8 +44,9 @@
  */
 typedef struct flax {
     void *data;          /* Packed storage: keys array followed by values array. */
-    uint32_t numele;     /* Number of elements currently stored. */
-    uint32_t capacity;   /* Current allocated capacity. */
+    uint16_t numele;     /* Number of elements currently stored (max 256). */
+    uint16_t capacity;   /* Current allocated capacity. */
+    uint32_t alloc_size; /* Total usable bytes: struct allocation + data block. */
 } flax;
 
 /* Flax iterator state. The typical lifecycle is:
@@ -91,6 +92,7 @@ int flaxEOF(flaxIterator *it);
 
 /* --- Introspection --- */
 uint64_t flaxSize(flax *f);
+size_t flaxAllocSize(flax *f);
 void flaxShrink(flax *f);
 
 #ifdef REDIS_TEST
