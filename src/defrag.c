@@ -855,19 +855,14 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
     raxStop(&ri);
 }
 
-typedef struct {
-    streamCG *cg;
-    streamConsumer *c;
-} PendingEntryContext;
-
 void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
-    PendingEntryContext *ctx = privdata;
+    streamConsumer *c = privdata;
     streamNACK *nack = ri->data;
     /* NACKs are already defragged by the CG PEL walk (defragStreamCGPendingEntry).
      * cgroup_ref_node->value is also updated there for all NACKs (including
      * unowned NACK-zone entries that have no consumer PEL walk).
      * Here we only fix up the back-pointer to the possibly-relocated consumer. */
-    nack->consumer = ctx->c;
+    nack->consumer = c;
     return NULL;
 }
 
@@ -904,15 +899,8 @@ void* defragStreamCGPendingEntry(raxIterator *ri, void *privdata) {
     return newnack;
 }
 
-typedef struct {
-    stream *s;
-    streamCG *cg;
-} StreamConsumerContext;
-
 void* defragStreamConsumer(raxIterator *ri, void *privdata) {
-    StreamConsumerContext *ctx = privdata;
-    stream *s = ctx->s;
-    streamCG *cg = ctx->cg;
+    stream *s = privdata;
     streamConsumer *c = ri->data;
     void *newc = activeDefragAlloc(c);
     if (newc) {
@@ -924,8 +912,7 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
     if (c->pel) {
         /* Update pel back-pointer to new stream */
         c->pel->alloc_size = &s->alloc_size;
-        PendingEntryContext pel_ctx = {cg, c};
-        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, &pel_ctx);
+        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, c);
     }
     return newc; /* returns NULL if c was not defragged */
 }
@@ -943,8 +930,7 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     if (cg->consumers) {
         /* Update consumers back-pointer to new stream */
         cg->consumers->alloc_size = &s->alloc_size;
-        StreamConsumerContext consumer_ctx = {s, cg};
-        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);
+        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, s);
     }
     return cg;
 }

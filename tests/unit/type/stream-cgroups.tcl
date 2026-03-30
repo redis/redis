@@ -2595,21 +2595,9 @@ start_server {
             set pending_info [r XPENDING mystream group1 - + 10]
 
             assert_equal [llength $pending_info] 3
-            
-            # Check first message entry
-            assert_equal [lindex $pending_info 0 0] "1-0"
-            assert_equal [lindex $pending_info 0 1] "consumer2"
-            assert_equal [lindex $pending_info 0 3] 2
-            
-            # Check second message entry
-            assert_equal [lindex $pending_info 1 0] "2-0"
-            assert_equal [lindex $pending_info 1 1] "consumer2"
-            assert_equal [lindex $pending_info 1 3] 2
-            
-            # Check third message entry
-            assert_equal [lindex $pending_info 2 0] "3-0"
-            assert_equal [lindex $pending_info 2 1] "consumer2"
-            assert_equal [lindex $pending_info 2 3] 2
+            assert_match {1-0 consumer2 * 2} [lindex $pending_info 0]
+            assert_match {2-0 consumer2 * 2} [lindex $pending_info 1]
+            assert_match {3-0 consumer2 * 2} [lindex $pending_info 2]
         }
 
         test "XREADGROUP CLAIM verify XACK removes messages from CLAIM pool" {
@@ -3106,21 +3094,9 @@ start_server {
             # Verify pending state restored
             set pending_info [r XPENDING mystream group1 - + 10]
             assert_equal [llength $pending_info] 3
-            
-            # Check first message entry
-            assert_equal [lindex $pending_info 0 0] "1-0"
-            assert_equal [lindex $pending_info 0 1] "consumer2"
-            assert_equal [lindex $pending_info 0 3] 2
-
-            # Check second message entry
-            assert_equal [lindex $pending_info 1 0] "2-0"
-            assert_equal [lindex $pending_info 1 1] "consumer2"
-            assert_equal [lindex $pending_info 1 3] 2
-
-            # Check third message entry
-            assert_equal [lindex $pending_info 2 0] "3-0"
-            assert_equal [lindex $pending_info 2 1] "consumer2"
-            assert_equal [lindex $pending_info 2 3] 2
+            assert_match {1-0 consumer2 * 2} [lindex $pending_info 0]
+            assert_match {2-0 consumer2 * 2} [lindex $pending_info 1]
+            assert_match {3-0 consumer2 * 2} [lindex $pending_info 2]
             
             # Verify can still claim after reload
             after 100
@@ -3467,10 +3443,7 @@ start_server {
         # Multiple IDs at once
         assert_equal 3 [r XNACK mystream grp SILENT IDS 3 1-0 2-0 3-0]
         set pending [r XPENDING mystream grp - + 10]
-        assert_equal [llength $pending] 3
-        for {set i 0} {$i < 3} {incr i} {
-            assert_equal [lindex $pending $i 1] {}
-        }
+        assert_equal $pending {{1-0 {} -1 0} {2-0 {} -1 0} {3-0 {} -1 0}}
 
         # Reclaim for further tests
         r XCLAIM mystream grp c1 0 1-0 2-0 3-0
@@ -3905,8 +3878,7 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 2
-        assert_equal [lindex $pending 0 0] 2-0
-        assert_equal [lindex $pending 0 1] c1
+        assert_match {2-0 c1 * 1} [lindex $pending 0]
         assert_equal [lindex $pending 1] {3-0 {} -1 1}
 
         # XAUTOCLAIM: claims surviving 2-0, reports deleted 3-0
@@ -3921,8 +3893,7 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 0] 2-0
-        assert_equal [lindex $pending 0 1] c2
+        assert_match {2-0 c2 * 2} [lindex $pending 0]
     }
 
     test "XNACK XREADGROUP BLOCK CLAIM wakes up on NACKed entries" {
@@ -4168,8 +4139,7 @@ start_server {
         assert_equal [lindex $pending 0] {1-0 {} -1 1}
         assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
         assert_equal [lindex $pending 2] {3-0 {} -1 0}
-        assert_equal [lindex $pending 3 0] 4-0
-        assert_equal [lindex $pending 3 1] c1
+        assert_match {4-0 c1 * 1} [lindex $pending 3]
 
         # Verify NACK zone order: 1-0, 2-0, 3-0 (in NACK order)
         set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream >]
@@ -4208,16 +4178,9 @@ start_server {
         set pending_after [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending_after] 3
 
-        assert_equal [lindex $pending_after 0 0] 1-0
-        assert_equal [lindex $pending_after 0 1] {}
-        assert_equal [lindex $pending_after 0 3] 0
-
-        assert_equal [lindex $pending_after 1 0] 2-0
-        assert_equal [lindex $pending_after 1 1] c1
-
-        assert_equal [lindex $pending_after 2 0] 3-0
-        assert_equal [lindex $pending_after 2 1] {}
-        assert_equal [lindex $pending_after 2 3] 9223372036854775807
+        assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
+        assert_match {2-0 c1 * 1} [lindex $pending_after 1]
+        assert_equal [lindex $pending_after 2] {3-0 {} -1 9223372036854775807}
 
         set info [r XINFO STREAM mystream FULL]
         set group [lindex [dict get $info groups] 0]
@@ -4247,9 +4210,7 @@ start_server {
 
         assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
-        assert_equal [lindex $pending 1 0] 2-0
-        assert_equal [lindex $pending 1 1] c1
-
+        assert_match {2-0 c1 * 1} [lindex $pending 1]
         assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
 
         set info [r XINFO STREAM mystream{t}_copy FULL]
@@ -4279,14 +4240,9 @@ start_server {
 
             set pending_before [r XPENDING mystream grp - + 10]
             assert_equal [llength $pending_before] 3
-            assert_equal [lindex $pending_before 0 0] 1-0
-            assert_equal [lindex $pending_before 0 1] {}
-            assert_equal [lindex $pending_before 0 3] 0
-            assert_equal [lindex $pending_before 1 0] 2-0
-            assert_equal [lindex $pending_before 1 1] c1
-            assert_equal [lindex $pending_before 2 0] 3-0
-            assert_equal [lindex $pending_before 2 1] {}
-            assert_equal [lindex $pending_before 2 3] 1
+            assert_equal [lindex $pending_before 0] {1-0 {} -1 0}
+            assert_match {2-0 c1 * 1} [lindex $pending_before 1]
+            assert_equal [lindex $pending_before 2] {3-0 {} -1 1}
 
             r bgrewriteaof
             waitForBgrewriteaof r
@@ -4295,16 +4251,9 @@ start_server {
             set pending_after [r XPENDING mystream grp - + 10]
             assert_equal [llength $pending_after] 3
 
-            assert_equal [lindex $pending_after 0 0] 1-0
-            assert_equal [lindex $pending_after 0 1] {}
-            assert_equal [lindex $pending_after 0 3] 0
-
-            assert_equal [lindex $pending_after 1 0] 2-0
-            assert_equal [lindex $pending_after 1 1] c1
-
-            assert_equal [lindex $pending_after 2 0] 3-0
-            assert_equal [lindex $pending_after 2 1] {}
-            assert_equal [lindex $pending_after 2 3] 1
+            assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
+            assert_match {2-0 c1 * 1} [lindex $pending_after 1]
+            assert_equal [lindex $pending_after 2] {3-0 {} -1 1}
 
             set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream >]
             assert_equal [lindex [lindex $r1 0] 1 0 0] 1-0
@@ -4383,10 +4332,7 @@ start_server {
             assert_equal [llength $pending_after] $total
 
             for {set i 0} {$i < $total} {incr i} {
-                set entry [lindex $pending_after $i]
-                assert_equal [lindex $entry 0] "[expr {$i + 1}]-0"
-                assert_equal [lindex $entry 1] {}
-                assert_equal [lindex $entry 3] 1
+                assert_equal [lindex $pending_after $i] "[expr {$i + 1}]-0 {} -1 1"
             }
         }
 
@@ -4459,17 +4405,9 @@ start_server {
             set pending_after [r XPENDING mystream grp - + 10]
             assert_equal [llength $pending_after] 3
 
-            assert_equal [lindex $pending_after 0 0] 1-0
-            assert_equal [lindex $pending_after 0 1] {}
-            assert_equal [lindex $pending_after 0 3] 0
-
-            assert_equal [lindex $pending_after 1 0] 2-0
-            assert_equal [lindex $pending_after 1 1] {}
-            assert_equal [lindex $pending_after 1 3] 9223372036854775807
-
-            assert_equal [lindex $pending_after 2 0] 3-0
-            assert_equal [lindex $pending_after 2 1] {}
-            assert_equal [lindex $pending_after 2 3] 33
+            assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
+            assert_equal [lindex $pending_after 1] {2-0 {} -1 9223372036854775807}
+            assert_equal [lindex $pending_after 2] {3-0 {} -1 33}
 
             set claimed [r XCLAIM mystream grp c1 0 1-0 2-0 3-0]
             assert_equal [llength $claimed] 3
@@ -4509,9 +4447,7 @@ start_server {
 
                     assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
-                    assert_equal [lindex $pending 1 0] 2-0
-                    assert_equal [lindex $pending 1 1] c1
-
+                    assert_match {2-0 c1 * 1} [lindex $pending 1]
                     assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
                     assert_equal [lindex $pending 3] {4-0 {} -1 0}
 
