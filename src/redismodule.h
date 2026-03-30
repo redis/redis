@@ -1386,6 +1386,7 @@ REDISMODULE_API const char *(*RedisModule_ClusterCanonicalKeyNameInSlot)(unsigne
 REDISMODULE_API int (*RedisModule_ClusterCanAccessKeysInSlot)(int slot) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ClusterPropagateForSlotMigration)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleSlotRangeArray *(*RedisModule_ClusterGetLocalSlotRanges)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleSlotRangeArray *(*RedisModule_ClusterGetSlotRangesByNodeId)(RedisModuleCtx *ctx, const char *nodeid) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ClusterFreeSlotRanges)(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExportSharedAPI)(RedisModuleCtx *ctx, const char *apiname, void *func) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_GetSharedAPI)(RedisModuleCtx *ctx, const char *apiname) REDISMODULE_ATTR;
@@ -1787,6 +1788,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ClusterCanAccessKeysInSlot);
     REDISMODULE_GET_API(ClusterPropagateForSlotMigration);
     REDISMODULE_GET_API(ClusterGetLocalSlotRanges);
+    REDISMODULE_GET_API(ClusterGetSlotRangesByNodeId);
     REDISMODULE_GET_API(ClusterFreeSlotRanges);
     REDISMODULE_GET_API(ExportSharedAPI);
     REDISMODULE_GET_API(GetSharedAPI);

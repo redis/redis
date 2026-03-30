@@ -9816,6 +9816,22 @@ RedisModuleSlotRangeArray *RM_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
     return (RedisModuleSlotRangeArray *)slots;
 }
 
+/* Returns the slot ranges for a cluster node identified by nodeid.
+ *
+ * An optional `ctx` can be provided to enable auto-memory management.
+ * If cluster mode is disabled, the array will include all slots (0-16383).
+ * If the node is not found, an empty array is returned (num_ranges == 0).
+ * If the node is a replica, the slot ranges of its master are returned.
+ *
+ * The returned array must be freed with RM_ClusterFreeSlotRanges(). */
+RedisModuleSlotRangeArray *RM_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx, const char *nodeid) {
+    clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
+    slotRangeArray *slots =
+        node ? clusterGetSlotRangesByNode(node) : slotRangeArrayCreate(0);
+    if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    return (RedisModuleSlotRangeArray *)slots;
+}
+
 /* Frees a slot range array returned by RM_ClusterGetLocalSlotRanges().
  * Pass the `ctx` pointer only if the array was created with a context. */
 void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
@@ -15436,6 +15452,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ClusterCanAccessKeysInSlot);
     REGISTER_API(ClusterPropagateForSlotMigration);
     REGISTER_API(ClusterGetLocalSlotRanges);
+    REGISTER_API(ClusterGetSlotRangesByNodeId);
     REGISTER_API(ClusterFreeSlotRanges);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
