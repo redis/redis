@@ -1926,7 +1926,7 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
 
         /* Send subkey notification with all expired fields */
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", key, db->id,
-            (robj**)info.expiredItems, info.itemsExpired);
+            (robj**)info.expiredItems, info.expiredItems ? info.itemsExpired : 0);
 
         int slot;
         int deleted = 0;

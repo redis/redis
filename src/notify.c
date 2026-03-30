@@ -94,6 +94,7 @@ static sds catSubkeysPayload(sds dst, robj **subkeys, int count) {
     char lenbuf[32];
 
     for (int i = 0; i < count; i++) {
+        serverAssert(sdsEncodedObject(subkeys[i]));
         if (i > 0) dst = sdscatlen(dst, ",", 1);
         size_t subkeylen = sdslen(subkeys[i]->ptr);
         int lenlen = ll2string(lenbuf, sizeof(lenbuf), subkeylen);
@@ -137,6 +138,7 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
     robj *chanobj, *eventobj;
     int len = -1;
     char buf[24];
+    serverAssert(sdsEncodedObject(key));
 
     /* If any modules are interested in events, notify the module system now.
      * This bypasses the notifications configuration, but the module engine
@@ -228,6 +230,7 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
         {
             if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             for (int i = 0; i < count; i++) {
+                serverAssert(sdsEncodedObject(subkeys[i]));
                 chan = sdsnewlen("__subkeyspaceitem@", 18);
                 chan = sdscatlen(chan, buf, len);
                 chan = sdscatlen(chan, "__:", 3);
