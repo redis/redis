@@ -1021,6 +1021,32 @@ start_server {tags {"pubsub network"}} {
         assert_equal "message __subkeyspace@${db}__:myhash hdel|2:f1,2:f3" [$rd1 read]
     }
 
+    test "Subkey notifications: subkeyspace - HGETEX with expire ($type)" {
+        r del myhash
+        r hset myhash f1 v1 f2 v2
+        r hgetex myhash EX 1000 FIELDS 2 f1 f2
+        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
+    }
+
+    test "Subkey notifications: subkeyspace - HGETEX with persist ($type)" {
+        r del myhash
+        r hset myhash f1 v1 f2 v2
+        r hexpire myhash 1000 FIELDS 2 f1 f2
+        r hgetex myhash PERSIST FIELDS 2 f1 f2
+        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash hpersist|2:f1,2:f2" [$rd1 read]
+    }
+
+    test "Subkey notifications: subkeyspace - HGETEX with past timestamp triggers hdel ($type)" {
+        r del myhash
+        r hset myhash f1 v1 f2 v2
+        r hgetex myhash PX 0 FIELDS 2 f1 f2
+        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash hdel|2:f1,2:f2" [$rd1 read]
+    }
+
     test "Subkey notifications: subkeyspace - HEXPIRE ($type)" {
         r del myhash
         r hset myhash f1 v1 f2 v2
@@ -1063,7 +1089,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1" [$rd1 read]
         # Trigger lazy expiry by reading the field
         after 100
-        r hget myhash f1
+        r hmget myhash f1
         assert_equal "message __subkeyspace@${db}__:myhash hexpired|2:f1" [$rd1 read]
         r debug set-active-expire 1
     } {OK} {needs:debug}
