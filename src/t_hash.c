@@ -1022,7 +1022,6 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             if (newExpireAt != EB_EXPIRE_TIME_INVALID) {
                 dict *d = o->ptr;
                 htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-                serverAssert(dictExpireMeta->expireMeta.trash == 0);
                 ebAdd(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, newEntry, newExpireAt);
             }
 
@@ -3458,9 +3457,6 @@ static void hfieldPersist(robj *hashObj, Entry *entry) {
     /* if field is set with expire, then dict must has HFE metadata attached */
     dict *d = hashObj->ptr;
     htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-
-    /* If field has valid expiry then dict must have valid metadata as well */
-    serverAssert(dictExpireMeta->expireMeta.trash == 0);
 
     /* Remove field from private HFE DS */
     ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, entry);
