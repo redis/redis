@@ -47,13 +47,13 @@ static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
     uint64_t existing = 0;
     if (RedisModule_GetKeyMeta(meta_class_id, k, &existing) == REDISMODULE_OK) {
         if (existing != 0) {
-            free((char *)existing);
+            free((char *)(uintptr_t)existing);
         }
     }
 
     /* Set new metadata - a simple string "notified" */
     char *new_str = strdup("notified");
-    if (RedisModule_SetKeyMeta(meta_class_id, k, (uint64_t)new_str) == REDISMODULE_OK) {
+    if (RedisModule_SetKeyMeta(meta_class_id, k, (uint64_t)(uintptr_t)new_str) == REDISMODULE_OK) {
         meta_set_count++;
     } else {
         free(new_str);
@@ -67,7 +67,7 @@ static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
 static void MetaFreeCallback(const char *keyname, uint64_t meta) {
     REDISMODULE_NOT_USED(keyname);
     if (meta != 0) {
-        free((char *)meta);
+        free((char *)(uintptr_t)meta);
     }
 }
 
@@ -84,7 +84,7 @@ static int GetMetaCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     uint64_t meta = 0;
     if (RedisModule_GetKeyMeta(meta_class_id, k, &meta) == REDISMODULE_OK && meta != 0) {
-        RedisModule_ReplyWithCString(ctx, (const char *)meta);
+        RedisModule_ReplyWithCString(ctx, (const char *)(uintptr_t)meta);
     } else {
         RedisModule_ReplyWithNull(ctx);
     }
@@ -111,7 +111,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleKeyMetaClassConfig config = {0};
     config.version = REDISMODULE_KEY_META_VERSION;
     config.flags = (1 << REDISMODULE_META_ALLOW_IGNORE);
-    config.reset_value = (uint64_t)NULL;
+    config.reset_value = (uint64_t)(uintptr_t)
+    NULL;
     config.free = MetaFreeCallback;
     config.rdb_load = NULL;
     config.rdb_save = NULL;

@@ -121,11 +121,11 @@ static int removeClassMapping(const char *name) {
 /* Copy callback - called when a key is copied */
 static int KeyMetaCopyCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     REDISMODULE_NOT_USED(ctx);
-    char *str = (char *)*meta;
+    char *str = (char *)(uintptr_t)*meta;
     /* Note, condition is redundant since cb only invoked when meta != reset_value */
     if (str) {
         char *new_str = strdup(str);
-        *meta = (uint64_t)new_str;
+        *meta = (uint64_t)(uintptr_t)new_str;
         active_metadata_count++; /* New metadata instance created */
     }
     return 1; /* Keep metadata */
@@ -143,7 +143,7 @@ static void KeyMetaUnlinkCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     /* Let's challenge and free early on before free callback */
     /* Note, condition is redundant since cb only invoked when meta != reset_value */
     if (*meta != 0) {
-        char *str = (char *)*meta;
+        char *str = (char *)(uintptr_t)*meta;
         free(str);
         *meta = 0;  /* Set to reset_value !!! */
         active_metadata_count--; /* Metadata instance freed */
@@ -156,7 +156,7 @@ static void KeyMetaFreeCallback(const char *keyname, uint64_t meta) {
     REDISMODULE_NOT_USED(keyname);
     /* Note, condition is redundant since cb only invoked when meta != reset_value */
     if (meta != 0) {
-        char *str = (char *)meta;
+        char *str = (char *)(uintptr_t)meta;
         free(str);
         active_metadata_count--; /* Metadata instance freed */
     }
@@ -183,7 +183,7 @@ static void KeyMetaRDBSaveCallback(RedisModuleIO *rdb, void *value, uint64_t *me
     if (*meta == 0) return;
 
     /* Extract the string from the metadata pointer */
-    char *metadata_string = (char *)*meta;
+    char *metadata_string = (char *)(uintptr_t)*meta;
 
     /* Save the string to RDB using SaveStringBuffer */
     RedisModule_SaveStringBuffer(rdb, metadata_string, strlen(metadata_string));
@@ -239,7 +239,7 @@ static int KeyMetaRDBLoadCallback(RedisModuleIO *rdb, uint64_t *meta, int encver
     (void)ldouble_val;
 
     /* Store the pointer in metadata */
-    *meta = (uint64_t)metadata_string;
+    *meta = (uint64_t)(uintptr_t)metadata_string;
     active_metadata_count++; /* New metadata instance created */
 
     /* Return 1 to attach metadata to the key */
@@ -263,7 +263,7 @@ static void KeyMetaAOFRewriteCallback_Class(RedisModuleIO *aof, void *value, uin
     if (meta == 0) return;
 
     /* Extract the string from the metadata pointer */
-    char *metadata_string = (char *)meta;
+    char *metadata_string = (char *)(uintptr_t)meta;
 
     /* Lookup the 9-byte-id name for this class */
     const char *class_name = lookupClassName(class_id);
@@ -355,7 +355,7 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     RedisModuleKeyMetaClassConfig config = {0};
     config.version = REDISMODULE_KEY_META_VERSION;
     config.flags = allow_ignore ? (1 << REDISMODULE_META_ALLOW_IGNORE) : 0;
-    config.reset_value = (uint64_t)NULL;  /* NULL pointer means no resource to free */
+    config.reset_value = (uint64_t)(uintptr_t)NULL;  /* NULL pointer means no resource to free */
     config.rdb_load = rdb_load ? KeyMetaRDBLoadCallback : NULL;
     config.rdb_save = rdb_save ? KeyMetaRDBSaveCallback : NULL;
     switch (num_class_mappings + 1) { /* distinct cb per class */
@@ -430,13 +430,13 @@ static int KeyMetaSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
     uint64_t meta = 0;
     if (RedisModule_GetKeyMeta(class_id, key, &meta) == REDISMODULE_OK) {
         if (meta != 0) {
-            free((char *)meta);
+            free((char *)(uintptr_t)meta);
             active_metadata_count--; /* Old metadata freed */
         }
     }
 
     char *new_str = strdup(value);
-    int res = RedisModule_SetKeyMeta(class_id, key, (uint64_t)new_str);
+    int res = RedisModule_SetKeyMeta(class_id, key, (uint64_t)(uintptr_t)new_str);
 
     if (res == REDISMODULE_OK) {
         active_metadata_count++; /* New metadata instance created */
@@ -485,7 +485,7 @@ static int KeyMetaGet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
     RedisModule_CloseKey(key);
 
     if (result == REDISMODULE_OK && meta != 0) {
-        char *str = (char *)meta;
+        char *str = (char *)(uintptr_t)meta;
         RedisModule_ReplyWithCString(ctx, str);
     } else {
         RedisModule_ReplyWithNull(ctx);
