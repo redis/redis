@@ -21,20 +21,6 @@
  * update the expiration time of the hash object in global HFE DS. */
 #define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
 
-/* Stack buffer size for collecting fields in notification calls.
- * When the number of fields exceeds this, heap allocation is used. */
-#define FIELDS_STACK_SIZE 16
-
-/* Declare a local robj* array that uses stack for small sizes, heap for larger.
- * Must be paired with ROBJ_LOCAL_ARRAY_FREE. */
-#define ROBJ_LOCAL_ARRAY(name, count) \
-    robj *name##_stack[FIELDS_STACK_SIZE]; \
-    robj **name = ((count) <= FIELDS_STACK_SIZE) ? \
-                   name##_stack : zmalloc(sizeof(robj*) * (count))
-
-#define ROBJ_LOCAL_ARRAY_FREE(name) \
-    do { if ((name) != name##_stack) zfree(name); } while (0)
-
 /* Reserve 2 bits out of hash-field expiration time for possible future lightweight
  * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
  *
