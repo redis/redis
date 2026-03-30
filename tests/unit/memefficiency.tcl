@@ -10,9 +10,12 @@ proc test_memory_efficiency {range} {
         incr written [string length $key]
         incr written [string length $val]
         incr written 2 ;# A separator is the minimum to store key-value data.
-    }
-    for {set j 0} {$j < 10000} {incr j} {
-        $rd read ; # Discard replies
+        
+        if {($j + 1) % 500 == 0} {
+            for {set i 0} {$i < 500} {incr i} {
+                $rd read ; # Discard replies
+            }
+        }
     }
 
     set current_mem [s used_memory]
@@ -296,7 +299,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             # create big keys with 10k items
             # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
-            set batch_size 1000
+            set batch_size 100
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]

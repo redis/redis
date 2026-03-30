@@ -1026,7 +1026,22 @@ foreach type {single multiple single_multiple} {
                 break
             }
         }
-        r srem $myset {*}$members
+        r deferred 1
+        set count 0
+        foreach m $members {
+            r srem $myset $m
+            incr count
+            if {$count == 500} {
+                for {set i 0} {$i < 500} {incr i} {
+                    r read
+                }
+                set count 0
+            }
+        }
+        for {set i 0} {$i < $count} {incr i} {
+            r read
+        }
+        r deferred 0
     }
 
     test "SRANDMEMBER with a dict containing long chain" {
