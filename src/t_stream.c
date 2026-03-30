@@ -135,11 +135,12 @@ void pelFreeShallow(rax *pel) {
  * most 256 entries and never needs splitting.
  *
  * Returns the flax bucket, or NULL if no matching bucket exists (create==0).
- * When create==1, a new bucket is created on miss and *created is set to 1. */
+ * When prev is non-NULL, *prev is set to the previously cached flax bucket
+ * before the cache is updated. */
 static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
-                            int create, int *created) {
+                            int create, flax **prev) {
     pelCache *cache = (pelCache *)pel->metadata;
-    if (created) *created = 0;
+    if (prev) *prev = cache->f;
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, ms, seq);
 
@@ -161,13 +162,14 @@ static flax *pelResolveFlax(rax *pel, uint64_t ms, uint64_t seq,
     raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, f, NULL);
     cache->f = f;
     memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
-    if (created) *created = 1;
     return f;
 }
 
 /* Insert nack into two-level PEL. Returns 1 if new entry, 0 if key existed (old value replaced). */
 int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, NULL);
+    flax *prev;
+    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, &prev);
+    if (prev && prev != f) flaxShrink(prev);
     void *old;
     flaxInsert(f, pelFlaxKey(id->seq), nack, &old);
     if (old == NULL) {
@@ -179,7 +181,9 @@ int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
 
 /* Insert only if not present. Returns 1 if inserted, 0 if key already exists. */
 int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
-    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, NULL);
+    flax *prev;
+    flax *f = pelResolveFlax(pel, id->ms, id->seq, 1, &prev);
+    if (prev && prev != f) flaxShrink(prev);
     if (!flaxTryInsert(f, pelFlaxKey(id->seq), nack, NULL))
         return 0;
     if (count) (*count)++;
