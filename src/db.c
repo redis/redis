@@ -3674,6 +3674,29 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     return result->numkeys;
 }
 
+int pfmergeGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int i, numkeys;
+    keyReference *keys;
+    UNUSED(cmd);
+    UNUSED(argv);
+
+    numkeys = argc - 1; /* destkey + all sourcekeys */
+    keys = getKeysPrepareResult(result, numkeys);
+
+    /* destkey at argv[1] */
+    keys[0].pos = 1;
+    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_INSERT;
+
+    /* sourcekeys at argv[2..argc-1], may be zero */
+    for (i = 2; i < argc; i++) {
+        keys[i - 1].pos = i;
+        keys[i - 1].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+    }
+
+    result->numkeys = numkeys;
+    return result->numkeys;
+}
+
 /* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, first;
