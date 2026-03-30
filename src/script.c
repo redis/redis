@@ -637,7 +637,10 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */
-    moduleCallCommandFilters(c);
+    if (moduleCallCommandFilters(c) != REDISMODULE_OK) {
+        *err = sdsnew("command is aborted on module command filter");
+        goto error;
+    }
 
     struct redisCommand *cmd = lookupCommand(c->argv, c->argc);
     c->cmd = c->lastcmd = c->realcmd = cmd;
