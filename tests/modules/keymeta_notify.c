@@ -111,8 +111,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleKeyMetaClassConfig config = {0};
     config.version = REDISMODULE_KEY_META_VERSION;
     config.flags = (1 << REDISMODULE_META_ALLOW_IGNORE);
-    config.reset_value = (uint64_t)(uintptr_t)
-    NULL;
+    config.reset_value = (uint64_t)(uintptr_t)NULL;
     config.free = MetaFreeCallback;
     config.rdb_load = NULL;
     config.rdb_save = NULL;
