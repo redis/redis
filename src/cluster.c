@@ -2110,7 +2110,6 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
  * If the node is a replica, the master's slot ranges are returned.
  * Returns an empty array if the node has no slots. */
 slotRangeArray *clusterGetSlotRangesByNode(clusterNode *node) {
-    serverAssert(node != NULL);
     slotRangeArray *slots = NULL;
 
     if (!server.cluster_enabled) {
