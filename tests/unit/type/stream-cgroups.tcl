@@ -3529,15 +3529,10 @@ start_server {
         set group [lindex [dict get $info groups] 0]
         set pel [dict get $group pending]
 
-        assert_equal [lindex [lindex $pel 0] 0] 1-0
-        assert_equal [lindex [lindex $pel 1] 0] 2-0
-        assert_equal [lindex [lindex $pel 2] 0] 3-0
-        assert_equal [lindex [lindex $pel 3] 0] 4-0
-
-        assert_equal [lindex [lindex $pel 0] 1] {}
-        assert_equal [lindex [lindex $pel 1] 1] c1
-        assert_equal [lindex [lindex $pel 2] 1] {}
-        assert_equal [lindex [lindex $pel 3] 1] c1
+        assert_equal [lindex $pel 0] {1-0 {} 0 1}
+        assert_match {2-0 c1 * 1} [lindex $pel 1]
+        assert_equal [lindex $pel 2] {3-0 {} 0 1}
+        assert_match {4-0 c1 * 1} [lindex $pel 3]
     }
 
     test "XNACK NACKed entries persist after XDEL and XTRIM" {
@@ -4207,9 +4202,7 @@ start_server {
 
         set pending [r XPENDING mystream{t}_copy grp - + 10]
         assert_equal [llength $pending] 3
-
         assert_equal [lindex $pending 0] {1-0 {} -1 1}
-
         assert_match {2-0 c1 * 1} [lindex $pending 1]
         assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
 
@@ -4250,7 +4243,6 @@ start_server {
 
             set pending_after [r XPENDING mystream grp - + 10]
             assert_equal [llength $pending_after] 3
-
             assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
             assert_match {2-0 c1 * 1} [lindex $pending_after 1]
             assert_equal [lindex $pending_after 2] {3-0 {} -1 1}
@@ -4404,7 +4396,6 @@ start_server {
 
             set pending_after [r XPENDING mystream grp - + 10]
             assert_equal [llength $pending_after] 3
-
             assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
             assert_equal [lindex $pending_after 1] {2-0 {} -1 9223372036854775807}
             assert_equal [lindex $pending_after 2] {3-0 {} -1 33}
@@ -4444,9 +4435,7 @@ start_server {
 
                     set pending [$replica XPENDING mystream grp - + 10]
                     assert_equal [llength $pending] 4
-
                     assert_equal [lindex $pending 0] {1-0 {} -1 1}
-
                     assert_match {2-0 c1 * 1} [lindex $pending 1]
                     assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
                     assert_equal [lindex $pending 3] {4-0 {} -1 0}
