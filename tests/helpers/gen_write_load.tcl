@@ -59,6 +59,13 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
             after $sleep
         }
     }
+    
+    # Discard remaining replies
+    if {$count != 0} {
+        for {set i 0} {$i < $count} {incr i} {
+            $r read
+        }
+    }
 }
 
 gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6]
