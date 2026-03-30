@@ -3374,8 +3374,7 @@ start_server {
         assert_equal 1 [r XNACK mystream grp SILENT IDS 1 1-0]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 0
+        assert_equal [lindex $pending 0] {1-0 {} -1 0}
 
         # Clamp at 0: reclaim with RETRYCOUNT 0, then SILENT again
         r XCLAIM mystream grp c2 0 1-0 RETRYCOUNT 0
@@ -3391,8 +3390,7 @@ start_server {
         assert_equal [lindex $pending 0 3] 3
         assert_equal 1 [r XNACK mystream grp SILENT IDS 1 1-0]
         set pending [r XPENDING mystream grp - + 10]
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 2
+        assert_equal [lindex $pending 0] {1-0 {} -1 2}
     }
 
     test "XNACK FAIL mode keeps delivery_count unchanged" {
@@ -3408,8 +3406,7 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 1
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
     }
 
     test "XNACK FATAL mode sets delivery_count to max" {
@@ -3422,8 +3419,7 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 9223372036854775807
+        assert_equal [lindex $pending 0] {1-0 {} -1 9223372036854775807}
     }
 
     test "XNACK releases entries and removes from consumer PEL" {
@@ -3442,8 +3438,8 @@ start_server {
         # Both NACKed entries should be unowned
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 3
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 2 1] {}
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
+        assert_equal [lindex $pending 2] {3-0 {} -1 1}
 
         # c1 should have only 2-0, c2 should have 0
         set c1_pending [r XPENDING mystream grp - + 10 c1]
@@ -3491,7 +3487,7 @@ start_server {
         assert_equal 2 [r XNACK mystream grp FAIL IDS 2 1-0 1-0]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 3
-        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0] {1-0 {} -1 2}
 
         # Empty PEL returns 0
         r XACK mystream grp 1-0 2-0 3-0
@@ -3511,8 +3507,7 @@ start_server {
         assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 1
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
         # SILENT on already-NACKed: decrements 1 to 0
         assert_equal 1 [r XNACK mystream grp SILENT IDS 1 1-0]
@@ -3523,8 +3518,7 @@ start_server {
         assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 9223372036854775807
+        assert_equal [lindex $pending 0] {1-0 {} -1 9223372036854775807}
 
         # FAIL on already-NACKed: returns success
         assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0]
@@ -3584,8 +3578,7 @@ start_server {
         r XDEL mystream 1-0
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 2
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
         # XTRIM case
         r DEL mystream
@@ -3598,8 +3591,7 @@ start_server {
         r XTRIM mystream MAXLEN 1
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 3
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
     }
 
     test "XNACK with IDs exceeding STREAMID_STATIC_VECTOR_LEN for heap allocation" {
@@ -3658,8 +3650,7 @@ start_server {
 
         assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0 RETRYCOUNT 42]
         set pending [r XPENDING mystream grp - + 10]
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 42
+        assert_equal [lindex $pending 0] {1-0 {} -1 42}
 
         # Overrides SILENT mode
         r XCLAIM mystream grp c1 0 1-0
@@ -3671,14 +3662,12 @@ start_server {
         r XCLAIM mystream grp c1 0 1-0
         assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 0]
         set pending [r XPENDING mystream grp - + 10]
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 0
+        assert_equal [lindex $pending 0] {1-0 {} -1 0}
 
         # RETRYCOUNT on already-NACKed entry
         assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99]
         set pending [r XPENDING mystream grp - + 10]
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 99
+        assert_equal [lindex $pending 0] {1-0 {} -1 99}
     }
 
     test "XNACK FORCE behavior" {
@@ -3692,9 +3681,7 @@ start_server {
         assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 FORCE]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 0
+        assert_equal [lindex $pending 0] {1-0 {} -1 0}
         set claimed [r XCLAIM mystream grp c1 0 1-0]
         assert_equal [llength $claimed] 1
         assert_equal [lindex $claimed 0 0] 1-0
@@ -3706,18 +3693,15 @@ start_server {
         r XACK mystream grp 1-0
         assert_equal 1 [r XNACK mystream grp FATAL IDS 1 1-0 FORCE]
         set pending [r XPENDING mystream grp - + 10]
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 9223372036854775807
+        assert_equal [lindex $pending 0] {1-0 {} -1 9223372036854775807}
 
         # SILENT mode sets delivery_count to 0 (clamp, not decrement)
         r XACK mystream grp 1-0
         assert_equal 2 [r XNACK mystream grp SILENT IDS 2 1-0 2-0 FORCE]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 2
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 0
-        assert_equal [lindex $pending 1 1] {}
-        assert_equal [lindex $pending 1 3] 0
+        assert_equal [lindex $pending 0] {1-0 {} -1 0}
+        assert_equal [lindex $pending 1] {2-0 {} -1 0}
 
         # On already-owned PEL entry: normal NACK path
         r XACK mystream grp 1-0 2-0
@@ -3725,9 +3709,9 @@ start_server {
         assert_equal 3 [r XNACK mystream grp FAIL IDS 3 1-0 2-0 3-0 FORCE]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 3
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 1 1] {}
-        assert_equal [lindex $pending 2 1] {}
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
+        assert_equal [lindex $pending 1] {2-0 {} -1 1}
+        assert_equal [lindex $pending 2] {3-0 {} -1 1}
         set c1_pending [r XPENDING mystream grp - + 10 c1]
         assert_equal [llength $c1_pending] 0
 
@@ -3735,8 +3719,7 @@ start_server {
         assert_equal 1 [r XNACK mystream grp FAIL IDS 1 1-0 FORCE]
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 3
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 1
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
         # FORCE on empty stream with MKSTREAM group
         r DEL mystream
@@ -3760,17 +3743,9 @@ start_server {
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 3
 
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 7
-
-        assert_equal [lindex $pending 1 0] 2-0
-        assert_equal [lindex $pending 1 1] {}
-        assert_equal [lindex $pending 1 3] 5
-
-        assert_equal [lindex $pending 2 0] 3-0
-        assert_equal [lindex $pending 2 1] {}
-        assert_equal [lindex $pending 2 3] 99
+        assert_equal [lindex $pending 0] {1-0 {} -1 7}
+        assert_equal [lindex $pending 1] {2-0 {} -1 5}
+        assert_equal [lindex $pending 2] {3-0 {} -1 99}
     }
 
     test "XNACK flexible IDS position - options accepted before and after IDS block" {
@@ -3932,8 +3907,7 @@ start_server {
         assert_equal [llength $pending] 2
         assert_equal [lindex $pending 0 0] 2-0
         assert_equal [lindex $pending 0 1] c1
-        assert_equal [lindex $pending 1 0] 3-0
-        assert_equal [lindex $pending 1 1] {}
+        assert_equal [lindex $pending 1] {3-0 {} -1 1}
 
         # XAUTOCLAIM: claims surviving 2-0, reports deleted 3-0
         set result [r XAUTOCLAIM mystream grp c2 0 0-0]
@@ -4095,8 +4069,7 @@ start_server {
 
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 1
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
         set stream_info [r XINFO STREAM mystream FULL]
         set group [lindex [dict get $stream_info groups] 0]
@@ -4192,15 +4165,9 @@ start_server {
         # Verify grp state
         set pending [r XPENDING mystream grp - + 10]
         assert_equal [llength $pending] 4
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 1
-        assert_equal [lindex $pending 1 0] 2-0
-        assert_equal [lindex $pending 1 1] {}
-        assert_equal [lindex $pending 1 3] 9223372036854775807
-        assert_equal [lindex $pending 2 0] 3-0
-        assert_equal [lindex $pending 2 1] {}
-        assert_equal [lindex $pending 2 3] 0
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
+        assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
+        assert_equal [lindex $pending 2] {3-0 {} -1 0}
         assert_equal [lindex $pending 3 0] 4-0
         assert_equal [lindex $pending 3 1] c1
 
@@ -4213,12 +4180,8 @@ start_server {
         # Verify grp2 FORCE-created entries survived
         set pending2 [r XPENDING mystream grp2 - + 10]
         assert_equal [llength $pending2] 2
-        assert_equal [lindex $pending2 0 0] 1-0
-        assert_equal [lindex $pending2 0 1] {}
-        assert_equal [lindex $pending2 0 3] 0
-        assert_equal [lindex $pending2 1 0] 2-0
-        assert_equal [lindex $pending2 1 1] {}
-        assert_equal [lindex $pending2 1 3] 77
+        assert_equal [lindex $pending2 0] {1-0 {} -1 0}
+        assert_equal [lindex $pending2 1] {2-0 {} -1 77}
 
         set claimed [r XCLAIM mystream grp2 c1 0 1-0 2-0]
         assert_equal [llength $claimed] 2
@@ -4282,16 +4245,12 @@ start_server {
         set pending [r XPENDING mystream{t}_copy grp - + 10]
         assert_equal [llength $pending] 3
 
-        assert_equal [lindex $pending 0 0] 1-0
-        assert_equal [lindex $pending 0 1] {}
-        assert_equal [lindex $pending 0 3] 1
+        assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
         assert_equal [lindex $pending 1 0] 2-0
         assert_equal [lindex $pending 1 1] c1
 
-        assert_equal [lindex $pending 2 0] 3-0
-        assert_equal [lindex $pending 2 1] {}
-        assert_equal [lindex $pending 2 3] 9223372036854775807
+        assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
 
         set info [r XINFO STREAM mystream{t}_copy FULL]
         set group [lindex [dict get $info groups] 0]
@@ -4548,20 +4507,13 @@ start_server {
                     set pending [$replica XPENDING mystream grp - + 10]
                     assert_equal [llength $pending] 4
 
-                    assert_equal [lindex $pending 0 0] 1-0
-                    assert_equal [lindex $pending 0 1] {}
-                    assert_equal [lindex $pending 0 3] 1
+                    assert_equal [lindex $pending 0] {1-0 {} -1 1}
 
                     assert_equal [lindex $pending 1 0] 2-0
                     assert_equal [lindex $pending 1 1] c1
 
-                    assert_equal [lindex $pending 2 0] 3-0
-                    assert_equal [lindex $pending 2 1] {}
-                    assert_equal [lindex $pending 2 3] 9223372036854775807
-
-                    assert_equal [lindex $pending 3 0] 4-0
-                    assert_equal [lindex $pending 3 1] {}
-                    assert_equal [lindex $pending 3 3] 0
+                    assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
+                    assert_equal [lindex $pending 3] {4-0 {} -1 0}
 
                     # Test FORCE replication
                     $master DEL mystream2
@@ -4577,13 +4529,8 @@ start_server {
                     set pending [$replica XPENDING mystream2 grp - + 10]
                     assert_equal [llength $pending] 2
 
-                    assert_equal [lindex $pending 0 0] 1-0
-                    assert_equal [lindex $pending 0 1] {}
-                    assert_equal [lindex $pending 0 3] 0
-
-                    assert_equal [lindex $pending 1 0] 2-0
-                    assert_equal [lindex $pending 1 1] {}
-                    assert_equal [lindex $pending 1 3] 9223372036854775807
+                    assert_equal [lindex $pending 0] {1-0 {} -1 0}
+                    assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
                 }
             }
         }

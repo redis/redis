@@ -864,9 +864,10 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
     PendingEntryContext *ctx = privdata;
     streamNACK *nack = ri->data;
     /* NACKs are already defragged by the CG PEL walk (defragStreamCGPendingEntry).
-     * Here we only fix up back-pointers to the possibly-relocated consumer and CG. */
+     * cgroup_ref_node->value is also updated there for all NACKs (including
+     * unowned NACK-zone entries that have no consumer PEL walk).
+     * Here we only fix up the back-pointer to the possibly-relocated consumer. */
     nack->consumer = ctx->c;
-    nack->cgroup_ref_node->value = ctx->cg;
     return NULL;
 }
 
