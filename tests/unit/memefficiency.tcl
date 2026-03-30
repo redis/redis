@@ -345,7 +345,7 @@ run_solo {defrag} {
             # create big keys with 10k items
             # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
-            set batch_size 1000
+            set batch_size 100
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
