@@ -9294,23 +9294,21 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
 
 /* Subscribe to keyspace notifications with subkey information.
  *
- * This is the extended version of RM_SubscribeToKeyspaceEvents. The callback
- * receives all events (including those without subkeys), and when subkeys are
- * available they are passed along. When no subkeys are present, subkeys will
- * be NULL and count will be 0.
- *
- * A module only needs to register this callback to receive all events —
- * there is no need to also call RM_SubscribeToKeyspaceEvents.
+ * This is the extended version of RM_SubscribeToKeyspaceEvents. When subkeys
+ * are available they are passed to the callback. When no subkeys are present,
+ * subkeys will be NULL and count will be 0. Whether events without subkeys
+ * are delivered depends on the `flags` parameter (see below).
  *
  * `types` is a bit mask of event types the module is interested in
  * (using the same REDISMODULE_NOTIFY_* flags as RM_SubscribeToKeyspaceEvents).
  *
  * `flags` controls delivery filtering:
  *  - REDISMODULE_NOTIFY_FLAG_NONE: The callback is invoked for all matching
- *    events regardless of whether subkeys are present.
+ *    events regardless of whether subkeys are present, so a separate
+ *    RM_SubscribeToKeyspaceEvents registration can be omitted.
  *  - REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED: The callback is only invoked
- *    when subkeys are not empty (subkeys != NULL && count > 0). Events without
- *    subkey information (e.g. SET, DEL) are skipped.
+ *    when subkeys are not empty. Events without subkey information (e.g. SET,
+ *    EXPIRE, DEL) are skipped.
  *
  * The callback signature is:
  *   void callback(RedisModuleCtx *ctx, int type, const char *event,
@@ -9340,7 +9338,7 @@ int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, int 
  * for specific event types.
  *
  * This function removes a previously registered subscription identified by
- * both the event mask and the callback function.
+ * the event mask, delivery flags, and the callback function.
  *
  * Parameters:
  *  - ctx: The RedisModuleCtx associated with the calling module.
@@ -9466,7 +9464,7 @@ int RM_NotifyKeyspaceEventWithSubkeys(RedisModuleCtx *ctx, int type, const char 
                                       RedisModuleString *key, RedisModuleString **subkeys, int count) {
     if (!ctx || !ctx->client)
         return REDISMODULE_ERR;
-    notifyKeyspaceEventWithSubkeys(type, (char *)event, key, ctx->client->db->id, (robj **)subkeys, count);
+    notifyKeyspaceEventWithSubkeys(type, (char *)event, key, ctx->client->db->id, subkeys, count);
     return REDISMODULE_OK;
 }
 
