@@ -10,9 +10,12 @@ proc test_memory_efficiency {range} {
         incr written [string length $key]
         incr written [string length $val]
         incr written 2 ;# A separator is the minimum to store key-value data.
-    }
-    for {set j 0} {$j < 10000} {incr j} {
-        $rd read ; # Discard replies
+        
+        if {($j + 1) % 500 == 0} {
+            for {set i 0} {$i < 500} {incr i} {
+                $rd read ; # Discard replies
+            }
+        }
     }
 
     set current_mem [s used_memory]
@@ -46,6 +49,14 @@ run_solo {defrag} {
             puts [r info stats]
             puts [r memory malloc-stats]
             fail "defrag didn't stop."
+        }
+    }
+
+    proc discard_replies_every {rd count frequency discard_num} {
+        if {$count % $frequency == 0} {
+            for {set k 0} {$k < $discard_num} {incr k} {
+                $rd read ; # Discard replies
+            }
         }
     }
 
@@ -309,7 +320,7 @@ run_solo {defrag} {
             # create big keys with 10k items
             # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
-            set batch_size 1000
+            set batch_size 100
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
@@ -667,12 +678,7 @@ run_solo {defrag} {
                 $rd lpush biglist2 $val
 
                 incr count
-                if {$count % 10000 == 0} {
-                    for {set k 0} {$k < 10000} {incr k} {
-                        $rd read ; # Discard replies
-                        $rd read ; # Discard replies
-                    }
-                }
+                discard_replies_every $rd $count 1000 2000
             }
 
             # create some fragmentation
