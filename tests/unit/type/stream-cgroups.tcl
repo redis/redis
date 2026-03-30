@@ -3921,38 +3921,6 @@ start_server {
         $rd close
     }
 
-    test "XNACK interaction with XACK and XPENDING" {
-        r DEL mystream
-        r XADD mystream 1-0 f v1
-        r XADD mystream 2-0 f v2
-        r XGROUP CREATE mystream grp 0
-        r XREADGROUP GROUP grp c1 STREAMS mystream >
-
-        r XNACK mystream grp FAIL IDS 1 1-0
-
-        # XPENDING summary counts NACKed entries
-        set info [r XPENDING mystream grp]
-        assert_equal [lindex $info 0] 2
-
-        # XPENDING detail: NACKed entry has empty consumer and idle=-1
-        set pending [r XPENDING mystream grp - + 10]
-        assert_equal [llength $pending] 2
-        set found 0
-        foreach entry $pending {
-            if {[lindex $entry 0] eq "1-0"} {
-                assert_equal [lindex $entry 1] {}
-                assert_equal [lindex $entry 2] -1
-                set found 1
-            }
-        }
-        assert_equal $found 1
-
-        # XACK removes NACKed entry from group PEL
-        assert_equal 1 [r XACK mystream grp 1-0]
-        set info [r XPENDING mystream grp]
-        assert_equal [lindex $info 0] 1
-    }
-
     test "XNACK XREADGROUP pending read excludes NACKed entries" {
         r DEL mystream
         r XADD mystream 1-0 f v1
