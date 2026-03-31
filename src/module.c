@@ -9825,9 +9825,16 @@ RedisModuleSlotRangeArray *RM_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
  *
  * The returned array must be freed with RM_ClusterFreeSlotRanges(). */
 RedisModuleSlotRangeArray *RM_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx, const char *nodeid) {
+    slotRangeArray *slots;
+
+    if (!server.cluster_enabled) {
+        slots = slotRangeArrayCreate(1);
+        slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
+        return (RedisModuleSlotRangeArray *)slots;
+    }
+
     clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
-    slotRangeArray *slots =
-        node ? clusterGetSlotRangesByNode(node) : slotRangeArrayCreate(0);
+    slots = node ? clusterGetSlotRangesByNode(node) : slotRangeArrayCreate(0);
     if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
     return (RedisModuleSlotRangeArray *)slots;
 }
