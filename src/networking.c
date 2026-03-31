@@ -403,7 +403,10 @@ static void _addReplyPayloadToList(client *c, list *reply_list, const char *payl
         if (unlikely(tail->buf_encoded)) {
             /* Try to add to encoded buffer */
             if (tryAddPayload(c, tail->buf, &tail->used, tail->size, payload_type, (void *)payload, len)) {
-                len = 0;
+                /* For BULK_STR_REF payloads, tryAddPayload updates reply_bytes_ref
+                 * which accounts for referenced strings. */
+                if (encoded) closeClientOnOutputBufferLimitReached(c, 1);
+                return;
             }
         } else if (!encoded) {
             /* Both tail and new payload are non-encoded, can append directly */
