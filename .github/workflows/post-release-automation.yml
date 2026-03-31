@@ -149,9 +149,7 @@ jobs:
           # Example using webhook:
           # curl -X POST -H 'Content-type: application/json' \
           #   --data '{"channel":"#releases","text":"Release ${RELEASE_TAG} automation completed"}' \
-          #   ${SLACK_WEBHOOK_URL}
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}
 
           echo "✓ Slack notification step (placeholder)"
 
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

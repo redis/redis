@@ -41,19 +41,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -64,19 +57,13 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
@@ -91,19 +78,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -116,19 +96,13 @@ jobs:
           sudo apt-get install -y tcl8.6 tclx
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
@@ -143,19 +117,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -168,19 +135,13 @@ jobs:
           sudo apt-get install -y tcl8.6 tclx
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-arm-tls:
     runs-on: ubuntu-24.04-arm
@@ -192,19 +153,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -218,19 +172,13 @@ jobs:
           ./utils/gen-test-certs.sh
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --accurate --verbose --tls --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel --tls ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster --tls ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
 
   # Test with DEBUG_ASSERT_KEYSPACE enabled to verify keyspace consistency.
   # This enables additional runtime checks after each command for:
@@ -247,19 +195,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -272,14 +213,10 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --verbose --tags "-slow -defrag" \
-          --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+          --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-jemalloc-fortify:
     runs-on: ubuntu-latest
@@ -291,19 +228,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -316,19 +246,13 @@ jobs:
       run: sudo apt-get install -y tcl8.6 tclx procps
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
@@ -343,19 +267,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -366,19 +283,13 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
@@ -390,19 +301,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -413,19 +317,13 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
@@ -437,19 +335,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -463,19 +354,13 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
@@ -490,19 +375,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -517,22 +395,16 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
-        ./runtest --accurate --verbose --dump-logs --tls --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs --tls --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
-        ./runtest-sentinel --tls ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
-        ./runtest-cluster --tls ${INPUT_CLUSTER_TEST_ARGS}
+        ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
 
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
   test-ubuntu-tls-no-tls:
     runs-on: ubuntu-latest
     if: |
@@ -543,19 +415,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -570,22 +435,16 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
-        ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
-        ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
-        ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
+        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
     if: |
@@ -596,19 +455,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -620,14 +472,10 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --config io-threads 4 --accurate --verbose --tags "network iothreads psync2 repl failover" --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --config io-threads 4 --accurate --verbose --tags "network iothreads psync2 repl failover" --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster --config io-threads 4 ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster --config io-threads 4 ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-reclaim-cache:
     runs-on: ubuntu-latest
@@ -639,19 +487,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -724,19 +565,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -752,9 +586,7 @@ jobs:
       # Note that valgrind's overhead doesn't pair well with io-threads so we
       # explicitly disable tests tagged with 'iothreads' - these are tests that
       # always run with io-threads enabled.
-      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --tags -iothreads --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --tags -iothreads --dump-logs ${{github.event.inputs.test_args}}
 
   test-valgrind-misc:
     runs-on: ubuntu-latest
@@ -766,19 +598,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -805,19 +630,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -830,9 +648,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind g++ -y
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --valgrind --tags -iothreads --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --valgrind --tags -iothreads --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
 
   test-valgrind-no-malloc-usable-size-misc:
     runs-on: ubuntu-latest
@@ -844,19 +660,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -888,19 +697,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -913,19 +715,13 @@ jobs:
           sudo apt-get install tcl8.6 tclx -y
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all
@@ -942,19 +738,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -967,19 +756,13 @@ jobs:
           sudo apt-get install tcl8.6 tclx -y
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all
@@ -999,19 +782,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1024,19 +800,13 @@ jobs:
           sudo apt-get install tcl8.6 tclx -y
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
@@ -1057,19 +827,12 @@ jobs:
       - name: prep
         if: github.event_name == 'workflow_dispatch'
         run: |
-          echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-          echo "skipjobs: ${INPUT_SKIPJOBS}"
-          echo "skiptests: ${INPUT_SKIPTESTS}"
-          echo "test_args: ${INPUT_TEST_ARGS}"
-          echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-        env:
-          INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-          INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-          INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-          INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1084,19 +847,13 @@ jobs:
           sudo apt-get install tcl8.6 tclx -y
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: ./runtest --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-        env:
-          INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        run: ./runtest --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: ./runtest-sentinel --tsan ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel --tsan ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster --config io-threads 2 ${INPUT_CLUSTER_TEST_ARGS}
-        env:
-          INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster --config io-threads 2 ${{github.event.inputs.cluster_test_args}}
 
   test-centos-jemalloc:
     runs-on: ubuntu-latest
@@ -1109,19 +866,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1136,19 +886,13 @@ jobs:
         dnf -y install tcl tcltls procps-ng /usr/bin/kill
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-centos-tls-module:
     runs-on: ubuntu-latest
@@ -1161,19 +905,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1190,22 +927,16 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
-        ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
-        ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
-        ./runtest-cluster --tls-module ${INPUT_CLUSTER_TEST_ARGS}
+        ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
   test-centos-tls-module-no-tls:
     runs-on: ubuntu-latest
     if: |
@@ -1217,19 +948,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1246,22 +970,16 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
-        ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
-        ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
-        ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
+        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
   test-macos-latest:
     runs-on: macos-latest
     if: |
@@ -1272,19 +990,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1293,9 +1004,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror'
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --clients 1 --no-latency --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
 
   test-macos-latest-sentinel:
     runs-on: macos-latest
@@ -1307,19 +1016,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1328,9 +1030,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror'
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
 
   test-macos-latest-cluster:
     runs-on: macos-latest
@@ -1342,19 +1042,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1363,9 +1056,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror'
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   build-macos:
     strategy:
@@ -1377,25 +1068,18 @@ jobs:
       !contains(github.event.inputs.skipjobs, 'macos')
     timeout-minutes: 360
     steps:
-    - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+    - uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: latest
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1416,17 +1100,14 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@46e8d7fb25520a8d6c64fd2b7a1192611da98eda # v0.30.0
+      uses: cross-platform-actions/action@v0.30.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
@@ -1447,19 +1128,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1472,19 +1146,13 @@ jobs:
       run: apk add tcl procps tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
@@ -1496,19 +1164,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1521,19 +1182,13 @@ jobs:
       run: apk add tcl procps tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   reply-schemas-validator:
     runs-on: ubuntu-latest
@@ -1545,19 +1200,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1568,27 +1216,19 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --log-req-res --no-latency --dont-clean --force-resp3 --tags -slow --verbose --dump-logs  ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --log-req-res --no-latency --dont-clean --force-resp3 --tags -slow --verbose --dump-logs  ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel --log-req-res --dont-clean --force-resp3 ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster --log-req-res --dont-clean --force-resp3 ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
     - name: Install Python dependencies
-      uses: py-actions/py-dependency-install@30aa0023464ed4b5b116bd9fbdab87acf01a484e # v4
+      uses: py-actions/py-dependency-install@v4
       with:
         path: "./utils/req-res-validator/requirements.txt"
     - name: validator
-      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${INPUT_SKIPTESTS}
-      env:
-        INPUT_SKIPTESTS: ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
+      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
 
   test-old-chain-jemalloc:
     runs-on: ubuntu-latest
@@ -1601,19 +1241,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1635,19 +1268,13 @@ jobs:
       run: apt-get install -y tcl tcltls tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-      run: ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-old-chain-tls-module:
     runs-on: ubuntu-latest
@@ -1660,19 +1287,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1697,22 +1317,16 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
-        ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
-        ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
-        ./runtest-cluster --tls-module ${INPUT_CLUSTER_TEST_ARGS}
+        ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
   test-old-chain-tls-module-no-tls:
     runs-on: ubuntu-latest
     if: |
@@ -1724,19 +1338,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1761,22 +1368,16 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: |
-        ./runtest --accurate --verbose --dump-logs ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
-        ./runtest-sentinel ${INPUT_CLUSTER_TEST_ARGS}
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
-        ./runtest-cluster ${INPUT_CLUSTER_TEST_ARGS}
+        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-      env:
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
   test-sanitizer-force-defrag:
     runs-on: ubuntu-latest
     if: |
@@ -1787,19 +1388,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1810,9 +1404,7 @@ jobs:
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --debug-defrag --verbose --clients 1 ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --debug-defrag --verbose --clients 1 ${{github.event.inputs.test_args}}
 
   test-vectorset:
     runs-on: ubuntu-latest
@@ -1824,19 +1416,12 @@ jobs:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "GITHUB_REPOSITORY=${INPUT_USE_REPO}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${INPUT_USE_GIT_REF}" >> $GITHUB_ENV
-        echo "skipjobs: ${INPUT_SKIPJOBS}"
-        echo "skiptests: ${INPUT_SKIPTESTS}"
-        echo "test_args: ${INPUT_TEST_ARGS}"
-        echo "cluster_test_args: ${INPUT_CLUSTER_TEST_ARGS}"
-      env:
-        INPUT_USE_REPO: ${{github.event.inputs.use_repo}}
-        INPUT_USE_GIT_REF: ${{github.event.inputs.use_git_ref}}
-        INPUT_SKIPJOBS: ${{github.event.inputs.skipjobs}}
-        INPUT_SKIPTESTS: ${{github.event.inputs.skiptests}}
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
-        INPUT_CLUSTER_TEST_ARGS: ${{github.event.inputs.cluster_test_args}}
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v4
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -1849,6 +1434,4 @@ jobs:
         sudo pip install redis
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs --single vectorset/vectorset ${INPUT_TEST_ARGS}
-      env:
-        INPUT_TEST_ARGS: ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs --single vectorset/vectorset ${{github.event.inputs.test_args}}
