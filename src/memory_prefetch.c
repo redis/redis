@@ -72,6 +72,7 @@ typedef struct KeyPrefetchInfo {
 typedef struct DictPrefetchCtx {
     size_t cur_idx;                        /* Round-robin index into key arrays */
     size_t key_count;                      /* Number of keys being prefetched */
+    size_t remaining;                      /* Number of keys not yet PREFETCH_DONE */
     void **keys;                           /* Array of key pointers (sds) */
     dict **dicts;                          /* Per-key dictionary pointers */
     KeyPrefetchInfo *info;                 /* Per-key prefetch state */
@@ -144,26 +145,26 @@ void onMaxBatchSizeChange(void) {
 /* Prefetch the given pointer and advance to the next key (round-robin). */
 static inline void ctxPrefetchAndAdvance(DictPrefetchCtx *ctx, void *addr) {
     redis_prefetch_read(addr);
-    ctx->cur_idx = (ctx->cur_idx + 1) % ctx->key_count;
+    if (++ctx->cur_idx >= ctx->key_count) ctx->cur_idx = 0;
 }
 
-static inline void ctxMarkDone(KeyPrefetchInfo *info) {
+static inline void ctxMarkDone(DictPrefetchCtx *ctx, KeyPrefetchInfo *info) {
     info->state = PREFETCH_DONE;
+    ctx->remaining--;
     server.stat_total_prefetch_entries++;
 }
 
 /* Return the next KeyPrefetchInfo that still needs work, or NULL if all done. */
-static KeyPrefetchInfo *ctxNextInfo(DictPrefetchCtx *ctx) {
-    size_t start = ctx->cur_idx;
-    do {
-        KeyPrefetchInfo *info = &ctx->info[ctx->cur_idx];
-        if (info->state != PREFETCH_DONE) return info;
-        ctx->cur_idx = (ctx->cur_idx + 1) % ctx->key_count;
-    } while (ctx->cur_idx != start);
-    return NULL;
+static inline KeyPrefetchInfo *ctxNextInfo(DictPrefetchCtx *ctx) {
+    if (ctx->remaining == 0) return NULL;
+    while (ctx->info[ctx->cur_idx].state == PREFETCH_DONE) {
+        if (++ctx->cur_idx >= ctx->key_count) ctx->cur_idx = 0;
+    }
+    return &ctx->info[ctx->cur_idx];
 }
 
 static void ctxInit(DictPrefetchCtx *ctx) {
+    size_t remaining = 0;
     for (size_t i = 0; i < ctx->key_count; i++) {
         KeyPrefetchInfo *info = &ctx->info[i];
         if (!ctx->dicts[i] || dictSize(ctx->dicts[i]) == 0) {
@@ -180,7 +181,9 @@ static void ctxInit(DictPrefetchCtx *ctx) {
         info->current_kv = NULL;
         info->state = PREFETCH_BUCKET;
         info->key_hash = dictGetHash(ctx->dicts[i], ctx->keys[i]);
+        remaining++;
     }
+    ctx->remaining = remaining;
 }
 
 /* Prefetch the bucket of the next hash table index.
@@ -195,7 +198,7 @@ static void ctxPrefetchBucket(DictPrefetchCtx *ctx, KeyPrefetchInfo *info) {
         info->ht_idx = HT_IDX_SECOND;
     } else {
         /* No more tables left - mark as done. */
-        ctxMarkDone(info);
+        ctxMarkDone(ctx, info);
         return;
     }
 
@@ -240,8 +243,10 @@ static inline void ctxPrefetchKvobj(DictPrefetchCtx *ctx, KeyPrefetchInfo *info)
     if (!is_kv) ctxPrefetchAndAdvance(ctx, kv);
 }
 
-/* Prefetch the value data of the kv object found in dict entry. */
-static void ctxPrefetchValdata(DictPrefetchCtx *ctx, KeyPrefetchInfo *info) {
+/* Check if the current kv object matches the key we're looking for.
+ * If a value-data callback is set, prefetch the value data.
+ * Otherwise just mark done. */
+static inline void ctxPrefetchValdata(DictPrefetchCtx *ctx, KeyPrefetchInfo *info) {
     size_t i = ctx->cur_idx;
     kvobj *kv = info->current_kv;
     sds key = kvobjGetKey(kv);
@@ -255,7 +260,7 @@ static void ctxPrefetchValdata(DictPrefetchCtx *ctx, KeyPrefetchInfo *info) {
             void *value_data = ctx->get_val_data(kv);
             if (value_data) ctxPrefetchAndAdvance(ctx, value_data);
         }
-        ctxMarkDone(info);
+        ctxMarkDone(ctx, info);
     } else {
         /* Not found in the current entry, move to the next entry */
         info->state = PREFETCH_ENTRY;
