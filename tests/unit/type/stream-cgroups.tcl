@@ -1904,7 +1904,59 @@ start_server {
             }
         }
     }
-    
+
+    start_server {tags {"repl external:skip"}} {
+        test "XREADGROUP without NOACK creates consumer on replica even when no messages exist" {
+            start_server {tags {"stream"}} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+
+                start_server {tags {"stream"}} {
+                    set replica [srv 0 client]
+
+                    $replica replicaof $master_host $master_port
+                    wait_for_sync $replica
+
+                    $master DEL mystream
+                    $master XADD mystream 1-0 f v
+                    $master XGROUP CREATE mystream grp 0
+
+                    wait_for_ofs_sync $master $replica
+
+                    # Consume the only message so the stream has no
+                    # new messages pending for delivery.
+                    $master XREADGROUP GROUP grp setupconsumer STREAMS mystream >
+                    $master XACK mystream grp 1-0
+
+                    wait_for_ofs_sync $master $replica
+
+                    # Now issue XREADGROUP (without NOACK) for a brand-new
+                    # consumer when there are NO messages to deliver.
+                    # This must still propagate the consumer to the replica.
+                    set reply [$master XREADGROUP GROUP grp newconsumer STREAMS mystream >]
+
+                    # The reply should be empty (no new messages).
+                    assert_equal $reply {}
+
+                    # Verify the consumer exists on master.
+                    set master_consumers [$master XINFO CONSUMERS mystream grp]
+                    set master_names [lmap c $master_consumers {dict get $c name}]
+                    assert {[lsearch $master_names "newconsumer"] >= 0}
+
+                    wait_for_ofs_sync $master $replica
+
+                    # The consumer must also exist on the replica.
+                    set replica_consumers [$replica XINFO CONSUMERS mystream grp]
+                    set replica_names [lmap c $replica_consumers {dict get $c name}]
+                    if {[lsearch $replica_names "newconsumer"] < 0} {
+                        fail "Consumer 'newconsumer' not found on replica (have: $replica_names)"
+                    }
+                }
+            }
+        }
+    }
+
     start_server {} {
         if {!$::force_resp3} {
         test "XREADGROUP CLAIM field types are correct" {

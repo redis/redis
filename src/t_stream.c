@@ -2934,10 +2934,9 @@ void xreadCommand(client *c) {
                                                 c->db->id,SCC_DEFAULT);
                 if (server.memory_tracking_enabled)
                     updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
-                if (noack)
-                    streamPropagateConsumerCreation(c,spi.keyname,
-                                                    spi.groupname,
-                                                    consumer->name);
+                streamPropagateConsumerCreation(c,spi.keyname,
+                                                spi.groupname,
+                                                consumer->name);
             }
             consumer->seen_time = commandTimeSnapshot();
             keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
