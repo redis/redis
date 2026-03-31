@@ -2342,6 +2342,7 @@ void initServerConfig(void) {
     server.allow_access_expired = 0;
     server.allow_access_trimmed = 0;
     server.skip_checksum_validation = 0;
+    server.allow_keymeta_registration = 0;
     server.loading = 0;
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;

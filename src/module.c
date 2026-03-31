@@ -4503,8 +4503,10 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
 {
     RedisModuleKeyMetaClassId id;
     
-    /* Allow registration only OnLoad (and when debug commands disabled) */
-    if ((!ctx->module->onload) && (server.enable_debug_cmd == PROTECTED_ACTION_ALLOWED_NO))
+    /* Allow registration only during server startup (or when debug flag is set) */
+    int ctx_flags = RM_GetContextFlags(ctx);
+    if (!(ctx_flags & REDISMODULE_CTX_FLAGS_SERVER_STARTUP) &&
+        !server.allow_keymeta_registration)
         return -1;
 
     if (!confPtr)

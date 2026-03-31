@@ -2158,6 +2158,7 @@ struct redisServer {
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
+    int allow_keymeta_registration; /* Allow keymeta class registration outside server startup (for testing). */
     int jemalloc_bg_thread;         /* Enable jemalloc background thread */
     int active_defrag_configuration_changed; /* defrag configuration has been changed and need to reconsider
                                               * active_defrag_running in computeDefragCycles. */
