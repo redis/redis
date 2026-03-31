@@ -765,8 +765,14 @@ void mgetCommand(client *c) {
         }
 
         /* Run the prefetch state machine — after this call, dict buckets,
-         * entries, kv objects, and value data for all n keys are in cache. */
-        dictPrefetchKeys(dicts, keys, n, prefetchGetObjectValuePtr);
+         * entries, and kv objects for all n keys are in cache.
+         * We skip value-data prefetch (pass NULL) because it only warms the
+         * first cache line of the value allocation.  For small values this
+         * adds overhead without meaningful benefit (the value fits in the kv
+         * object or one cache line already fetched by addReplyBulk), and for
+         * large values (>= 1 KiB) it warms <10% of the data while adding a
+         * full state-machine iteration per key. */
+        dictPrefetchKeys(dicts, keys, n, NULL);
 
         /* Sequential lookups + replies — hot in cache. */
         for (int k = 0; k < n; k++) {
