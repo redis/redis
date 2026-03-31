@@ -747,32 +747,37 @@ void mgetCommand(client *c) {
         return;
     }
 
-    /* Process keys in batches, using the dict prefetch state machine to
-     * warm the cache for every batch before the sequential lookups. */
+    /* Process keys in batches, prefetching dict buckets before lookups. */
     #define MGET_BATCH 16
+    #define MGET_LIGHT_PREFETCH_MAX 10
     int j = 1;
     while (j < c->argc) {
         int batch_end = j + MGET_BATCH;
         if (batch_end > c->argc) batch_end = c->argc;
         int n = batch_end - j;
 
-        /* Collect key SDS pointers and per-key dict pointers. */
-        void *keys[MGET_BATCH];
-        dict  *dicts[MGET_BATCH];
-        for (int k = 0; k < n; k++) {
-            keys[k]  = c->argv[j + k]->ptr;
-            dicts[k] = d;
+        /* For small batches, use a lightweight bucket-only prefetch instead
+         * of the full state machine.  The state machine's per-key overhead
+         * (ctxNextInfo scan, function dispatch, 4 states per key) exceeds
+         * the prefetch benefit when keys are few and the working set fits
+         * in L3.  A single-pass bucket prefetch gives the CPU enough lead
+         * time to warm the hash chain heads without the iteration cost. */
+        if (n <= MGET_LIGHT_PREFETCH_MAX) {
+            int ht_idx = 0;
+            for (int k = 0; k < n; k++) {
+                uint64_t hash = dictGetHash(d, c->argv[j + k]->ptr);
+                uint64_t idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[ht_idx]);
+                redis_prefetch_read(&d->ht_table[ht_idx][idx]);
+            }
+        } else {
+            void *keys[MGET_BATCH];
+            dict  *dicts[MGET_BATCH];
+            for (int k = 0; k < n; k++) {
+                keys[k]  = c->argv[j + k]->ptr;
+                dicts[k] = d;
+            }
+            dictPrefetchKeys(dicts, keys, n, NULL);
         }
-
-        /* Run the prefetch state machine — after this call, dict buckets,
-         * entries, and kv objects for all n keys are in cache.
-         * We skip value-data prefetch (pass NULL) because it only warms the
-         * first cache line of the value allocation.  For small values this
-         * adds overhead without meaningful benefit (the value fits in the kv
-         * object or one cache line already fetched by addReplyBulk), and for
-         * large values (>= 1 KiB) it warms <10% of the data while adding a
-         * full state-machine iteration per key. */
-        dictPrefetchKeys(dicts, keys, n, NULL);
 
         /* Sequential lookups + replies — hot in cache. */
         for (int k = 0; k < n; k++) {
