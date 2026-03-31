@@ -514,6 +514,13 @@ int fastFloatTest(int argc, char **argv, int flags) {
         double d = fast_float_strtod(big, strlen(big), &eptr);
         test_cond("large input (>128 bytes) zmalloc fallback path",
                   (size_t)(eptr - big) == strlen(big) && ff_eq(d, 2.0));
+
+        /* Large input that is completely invalid. */
+        memset(big, 'x', sizeof(big) - 1);
+        big[sizeof(big) - 1] = '\0';
+        d = fast_float_strtod(big, strlen(big), &eptr);
+        test_cond("invalid large input (>128 bytes) zmalloc fallback path",
+                  eptr == big && ff_eq(d, 0.0));
     }
 
     test_report();
