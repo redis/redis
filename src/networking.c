@@ -479,18 +479,28 @@ static size_t _addReplyPayloadToBuffer(client *c, const void *payload, size_t le
 /* Adds bulk string reference (i.e. pointer to object and pointer to string itself) to static buffer
  * Returns non-zero value if succeeded to add */
 static size_t _addBulkStrRefToBuffer(client *c, const void *payload, size_t len) {
+    size_t result;
     if (!c->buf_encoded) {
         /* If buffer is plain and not empty then can't add bulk string reference to it */
         if (c->bufpos) return 0;
         c->buf_encoded = 1; /* Set c->buf to encoded mode to allow bulk string reference to be stored in it */
-        size_t result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+        result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
         if (!result) {
             /* Failed to add bulk string reference to buffer, need to revert to plain mode. */
             c->buf_encoded = 0;
+            return 0;
         }
-        return result;
+    } else {
+        result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+        if (!result) return 0;
     }
-    return _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+
+    /* Even though the bulk string is stored by reference and the underlying
+     * memory is shared, we still account this shared memory towards this
+     * client's output buffer usage (via reply_bytes_ref), so we need to
+     * check the output buffer limits. */
+    closeClientOnOutputBufferLimitReached(c, 1);
+    return result;
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
@@ -572,8 +582,6 @@ static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     if (!clientIsInPendingRefReplyList(c)) {
         listLinkNodeTail(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
-    
-    closeClientOnOutputBufferLimitReached(c, 1);
 }
 
 /* -----------------------------------------------------------------------------
