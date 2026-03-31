@@ -1908,9 +1908,10 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     decrRefCount(argv[6]);
 }
 
-/* We need this when we want to propagate creation of consumer that was created
- * by XREADGROUP with the NOACK option. In that case, the only way to create
- * the consumer at the replica is by using XGROUP CREATECONSUMER (see issue #7140)
+/* Propagate creation of a consumer that was implicitly created by XREADGROUP.
+ * This is needed whenever XREADGROUP creates a new consumer but no messages
+ * are delivered (e.g. empty stream or NOACK), since without XCLAIM commands
+ * the replica would have no other way to learn about the consumer (see #7140).
  *
  *  XGROUP CREATECONSUMER <key> <groupname> <consumername>
  */
