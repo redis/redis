@@ -193,6 +193,8 @@ long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
+void streamKeyLoaded(redisDb *db, robj *key, robj *val);
+void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
