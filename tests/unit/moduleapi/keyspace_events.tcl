@@ -119,6 +119,7 @@ tags "modules external:skip" {
         test "Subkey notification: subscribe starts callback" {
             r keyspace.subscribe_subkeys
             r keyspace.reset_subkey_events
+            r config set notify-keyspace-events ""
         }
     
         test "Subkey notification: HSET triggers module subkey callback" {
@@ -157,6 +158,34 @@ tags "modules external:skip" {
             set events [r keyspace.get_subkey_events]
             assert_equal 1 [llength $events]
             assert_equal "module_subkey_event mykey 3 sk1 sk2 sk3" [lindex $events 0]
+        }
+
+        test "Subkey notification: lazy hash field expiry triggers hexpired with subkeys" {
+            r debug set-active-expire 0
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            r keyspace.reset_subkey_events
+            after 100
+            r hmget myhash f1 f2
+            assert_equal "hexpired myhash 2 f1 f2" [lindex [r keyspace.get_subkey_events] 0]
+            r debug set-active-expire 1
+        } {OK} {needs:debug}
+
+        test "Subkey notification: active hash field expiry triggers hexpired with subkeys" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            r keyspace.reset_subkey_events
+            # wait for active expiry to kick in
+            wait_for_condition 50 100 {
+                [r exists myhash] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            # fields order is undefined
+            assert_match "hexpired myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 0]
+            r del myhash
         }
 
         test "Subkey notification: unsubscribe stops callback" {

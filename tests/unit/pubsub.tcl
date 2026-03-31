@@ -1082,15 +1082,15 @@ start_server {tags {"pubsub network"}} {
 
     test "Subkey notifications: lazy field expiry triggers hexpired ($type)" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
+        r hset myhash f1 v1 f2 v2 f3 v3
         r debug set-active-expire 0
-        r hpexpire myhash 10 FIELDS 1 f1
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1" [$rd1 read]
+        r hpexpire myhash 10 FIELDS 2 f1 f2
+        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2,2:f3" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
         # Trigger lazy expiry by reading the field
         after 100
-        r hmget myhash f1
-        assert_equal "message __subkeyspace@${db}__:myhash hexpired|2:f1" [$rd1 read]
+        r hmget myhash f1 f2
+        assert_equal "message __subkeyspace@${db}__:myhash hexpired|2:f1,2:f2" [$rd1 read]
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
