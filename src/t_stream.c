@@ -5704,6 +5704,27 @@ static void trackStreamIdmpEntries(client *c, robj *key) {
     }
 }
 
+/* To be used when a stream key was loaded into ram, re-register it in stream_idmp_keys if needed */
+void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
+    stream *s = val->ptr;
+    if (s->idmp_producers != NULL) {
+        robj *tracked_key = key;
+        if (key->refcount == OBJ_STATIC_REFCOUNT)
+            tracked_key = createStringObject(key->ptr, sdslen(key->ptr));
+        if (dictAddRaw(db->stream_idmp_keys, tracked_key, NULL)) {
+            incrRefCount(tracked_key);
+        }
+        if (tracked_key != key)
+            decrRefCount(tracked_key);
+    }
+}
+
+/* To be used when a steam key was removed from ram, un-redigster from stream_idmp_keys if needed */
+void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
+    UNUSED(val);
+    dictDelete(db->stream_idmp_keys, key);
+}
+
 /* Clean up expired idempotency entries from tracked streams. This function
  * is invoked regularly from serverCron() to remove expired entries
  * from the idmp_dict of streams that have idempotency tracking enabled,
@@ -5750,6 +5771,7 @@ void handleExpiredIdmpEntries(void) {
             }
 
             /* Iterate through all producers and remove expired entries */
+            int modified = 0;
             raxIterator ri;
             raxStart(&ri, s->idmp_producers);
             raxSeek(&ri, "^", NULL, 0);
@@ -5769,6 +5791,7 @@ void handleExpiredIdmpEntries(void) {
                         }
                         /* Free the entry */
                         idmpEntryFree(entry, &s->alloc_size);
+                        modified = 1;
                     } else {
                         break;
                     }
@@ -5779,9 +5802,13 @@ void handleExpiredIdmpEntries(void) {
                     raxRemove(s->idmp_producers, ri.key, ri.key_len, NULL);
                     idmpProducerFree(producer, &s->alloc_size);
                     raxSeek(&ri, ">=", ri.key, ri.key_len);
+                    modified = 1;
                 }
             }
             raxStop(&ri);
+
+            if (modified)
+                keyModified(NULL, db, key, kv, 0);
 
             /* If no producers remain, free the entire rax tree */
             if (raxSize(s->idmp_producers) == 0) {

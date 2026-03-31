@@ -232,8 +232,10 @@ void dbgRunAssertions(redisDb *db) {
     /* Don't assert during RDB loading. Database may be in inconsistent state. */
     if (server.loading || server.async_loading) return;
 
-    /* Don't assert during ASM background trim. Histogram delta hasn't been applied yet. */
-    if (asmIsBgTrimRunning()) return;
+    /* Don't assert during ASM background trim or import.
+     * - During background trim, histogram delta hasn't been applied yet.
+     * - During import, assertions can introduce slowdown and cause ASM tests to fail. */
+    if (asmIsBgTrimRunning() || asmImportInProgress()) return;
 
     if (server.dbg_assert_flags & DBG_ASSERT_KEYSIZES)
         dbgAssertKeysizesHist(db);
@@ -591,7 +593,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         estoreRemove(db->subexpires, slot, old);
 
     if (old->type == OBJ_STREAM)
-        dictDelete(db->stream_idmp_keys, key);
+        streamKeyRemoved(db, key, old);
 
     long long oldExpire = getExpire(db, key->ptr, old);
 
@@ -856,7 +858,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* If stream with IDMP tracking, remove it from stream_idmp_keys */
         if (type == OBJ_STREAM)
-            dictDelete(db->stream_idmp_keys, key);
+            streamKeyRemoved(db, key, kv);
 
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
@@ -2241,13 +2243,11 @@ void renameGenericCommand(client *c, int nx) {
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
     /* Re-register stream IDMP tracking under the new key name. */
-    if (srctype == OBJ_STREAM && ((stream *)o->ptr)->idmp_producers != NULL) {
-        if (dictAdd(c->db->stream_idmp_keys, c->argv[2], NULL) == DICT_OK)
-            incrRefCount(c->argv[2]);
-    }
+    if (srctype == OBJ_STREAM)
+        streamKeyLoaded(c->db, c->argv[2], o);
 
     keyModified(c,c->db,c->argv[1],NULL,1);
-    keyModified(c,c->db,c->argv[2],NULL,1); /* LRM already updated by dbAddInternal */
+    keyModified(c,c->db,c->argv[2],o,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -2341,13 +2341,11 @@ void moveCommand(client *c) {
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
     /* Register stream IDMP tracking in the destination DB. */
-    if (kv->type == OBJ_STREAM && ((stream *)kv->ptr)->idmp_producers != NULL) {
-        if (dictAdd(dst->stream_idmp_keys, c->argv[1], NULL) == DICT_OK)
-            incrRefCount(c->argv[1]);
-    }
+    if (kv->type == OBJ_STREAM)
+        streamKeyLoaded(dst, c->argv[1], kv);
 
     keyModified(c,src,c->argv[1],NULL,1);
-    keyModified(c,dst,c->argv[1],NULL,1); /* LRM already updated by dbAddInternal */
+    keyModified(c,dst,c->argv[1],kv,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "move_from",c->argv[1],src->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -2467,16 +2465,11 @@ void copyCommand(client *c) {
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
     /* Register copied stream with IDMP producers for cron-based expiration. */
-    if (kvCopy->type == OBJ_STREAM) {
-        stream *s = kvCopy->ptr;
-        if (s->idmp_producers != NULL) {
-            if (dictAdd(dst->stream_idmp_keys, newkey, NULL) == DICT_OK)
-                incrRefCount(newkey);
-        }
-    }
+    if (kvCopy->type == OBJ_STREAM)
+        streamKeyLoaded(dst, newkey, kvCopy);
 
-    /* OK! key copied. Signal modification (LRM already updated by dbAddInternal) */
-    keyModified(c,dst,c->argv[2],NULL,1);
+    /* OK! key copied. Signal modification */
+    keyModified(c,dst,c->argv[2],kvCopy,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
 
     /* `delete` implies the destination key was overwritten */
@@ -3678,6 +3671,29 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
         }
     }
     result->numkeys = num + found_store;
+    return result->numkeys;
+}
+
+int pfmergeGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int i, numkeys;
+    keyReference *keys;
+    UNUSED(cmd);
+    UNUSED(argv);
+
+    numkeys = argc - 1; /* destkey + all sourcekeys */
+    keys = getKeysPrepareResult(result, numkeys);
+
+    /* destkey at argv[1] */
+    keys[0].pos = 1;
+    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_INSERT;
+
+    /* sourcekeys at argv[2..argc-1], may be zero */
+    for (i = 2; i < argc; i++) {
+        keys[i - 1].pos = i;
+        keys[i - 1].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+    }
+
+    result->numkeys = numkeys;
     return result->numkeys;
 }
 

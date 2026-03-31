@@ -793,7 +793,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db, key, &val);
-            keyModified(c,c->db,key,NULL,1);
+            keyModified(c,c->db,key,val,1);
             decrRefCount(key);
         }
         addReply(c,shared.ok);

@@ -2100,11 +2100,11 @@ void hsetnxCommand(client *c) {
     hashTypeSet(c->db, kv, c->argv[2]->ptr, c->argv[3]->ptr, HASH_SET_COPY);
     addReply(c, shared.cone);
     keyModified(c,c->db,c->argv[1], kv, 1);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     hlen = hashTypeLength(kv, 0);
     updateKeysizesHist(c->db, OBJ_HASH, hlen - 1, hlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
     server.dirty++;
 }
 
