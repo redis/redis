@@ -501,6 +501,21 @@ int fastFloatTest(int argc, char **argv, int flags) {
     };
     run_ff_tests(nan_invalid, COUNTOF(nan_invalid), 1);
 
+    /* Large input that exceeds static_buf (128 bytes), exercising the zmalloc fallback path. */
+    {
+        /* Build a string "000...00042.0" with total length > 128. */
+        char big[256];
+        memset(big, '0', sizeof(big));
+        big[sizeof(big) - 4] = '2';
+        big[sizeof(big) - 3] = '.';
+        big[sizeof(big) - 2] = '0';
+        big[sizeof(big) - 1] = '\0';
+        char *eptr;
+        double d = fast_float_strtod(big, strlen(big), &eptr);
+        test_cond("large input (>128 bytes) zmalloc fallback path",
+                  (size_t)(eptr - big) == strlen(big) && ff_eq(d, 2.0));
+    }
+
     test_report();
     return 0;
 }
