@@ -9830,11 +9830,11 @@ RedisModuleSlotRangeArray *RM_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx, 
     if (!server.cluster_enabled) {
         slots = slotRangeArrayCreate(1);
         slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
-        return (RedisModuleSlotRangeArray *)slots;
+    } else {
+        clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
+        slots = node ? clusterGetSlotRangesByNode(node) : slotRangeArrayCreate(0);
     }
-
-    clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
-    slots = node ? clusterGetSlotRangesByNode(node) : slotRangeArrayCreate(0);
+    
     if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
     return (RedisModuleSlotRangeArray *)slots;
 }
