@@ -513,7 +513,7 @@ void pushGenericCommand(client *c, int where, int xx) {
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
     keyModified(c,c->db,c->argv[1],lobj,1);
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen - (c->argc - 2), llen);
+    updateKeysizesHist(c->db, OBJ_LIST, llen - (c->argc - 2), llen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), lobj, oldsize, kvobjAllocSize(lobj));
 }
@@ -590,7 +590,7 @@ void linsertCommand(client *c) {
                             c->argv[1],c->db->id);
         server.dirty++;
         unsigned long ll = listTypeLength(subject);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll-1, ll);
+        updateKeysizesHist(c->db, OBJ_LIST, ll-1, ll);
     } else {
         /* Notify client of a failed insert */
         addReplyLongLong(c,-1);
@@ -786,7 +786,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, s
     unsigned long llen = listTypeLength(o);
     
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
-    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_LIST, llen + count, llen);
+    updateKeysizesHist(c->db, OBJ_LIST, llen + count, llen);
     if (llen == 0) {
         if (deleted) *deleted = 1;
 
@@ -979,7 +979,7 @@ void ltrimCommand(client *c) {
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     }
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
+    updateKeysizesHist(c->db, OBJ_LIST, llen, llenNew);
     keyModified(c, c->db, c->argv[1], (llenNew > 0) ? o : NULL, 1);
     server.dirty += (ltrim + rtrim);
     addReply(c,shared.ok);
@@ -1141,7 +1141,7 @@ void lremCommand(client *c) {
 
     if (removed) {
         long ll = listTypeLength(subject);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
+        updateKeysizesHist(c->db, OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
 
         if (ll == 0) {
@@ -1233,7 +1233,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kvsrc, oldsize, kvobjAllocSize(kvsrc));
         lmoveHandlePush(c, c->argv[2], kvdst, value, whereto);
         /* Update dst obj cardinality in KEYSIZES */
-        updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_LIST, oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_LIST, oldlen, newlen);
         /* Update src obj cardinality in KEYSIZES by listElementsRemoved() */
         size_t srcsize = server.memory_tracking_enabled ? kvobjAllocSize(kvsrc) : 0;
         listElementsRemoved(c, skey, wherefrom, kvsrc, 1, srcsize, 1, NULL);

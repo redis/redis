@@ -1,0 +1,155 @@
+name: Post-Release Automation
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  automate-release-scripts:
+    # Only run for the main redis/redis repository (not forks)
+    # Note: Only users with write access can publish releases, providing implicit authorization
+    if: github.repository == 'redis/redis'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git archive
+
+      - name: Extract and validate release information
+        id: release-info
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Extract tag name from the release event (via env var to prevent injection)
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "Release tag: ${TAG_NAME}"
+
+          # Get the latest release tag
+          LATEST_TAG=$(gh release view --json tagName --jq '.tagName')
+          echo "Latest release tag from gh cli: ${LATEST_TAG}"
+
+          # Determine release type by comparing with latest release
+          if [[ "${TAG_NAME}" == "${LATEST_TAG}" ]]; then
+            echo "release_type=latest" >> $GITHUB_OUTPUT
+            echo "Detected latest release: ${TAG_NAME}"
+          else
+            echo "release_type=non-latest" >> $GITHUB_OUTPUT
+            echo "Detected non-latest release: ${TAG_NAME} (latest is ${LATEST_TAG})"
+          fi
+
+      - name: Set up environment variables
+        run: |
+          echo "RELEASE_TAG=${{ steps.release-info.outputs.tag_name }}" >> $GITHUB_ENV
+          echo "RELEASE_TYPE=${{ steps.release-info.outputs.release_type }}" >> $GITHUB_ENV
+          echo "Environment variables set:"
+          echo "  RELEASE_TAG: ${{ steps.release-info.outputs.tag_name }}"
+          echo "  RELEASE_TYPE: ${{ steps.release-info.outputs.release_type }}"
+      
+      - name: Create tarball
+        id: create-tarball
+        run: |
+          echo "Creating tarball for version ${RELEASE_TAG}..."
+          # TODO: Implement tarball creation using utils/releasetools/01_create_tarball.sh
+          # ./utils/releasetools/01_create_tarball.sh ${RELEASE_TAG}
+
+          # Placeholder: Verify tarball was created
+          # TARBALL_PATH="/tmp/redis-${RELEASE_TAG}.tar.gz"
+          # if [ ! -f "${TARBALL_PATH}" ]; then
+          #   echo "Error: Tarball not found at ${TARBALL_PATH}"
+          #   exit 1
+          # fi
+          # echo "tarball_path=${TARBALL_PATH}" >> $GITHUB_OUTPUT
+
+          echo "✓ Tarball creation step (placeholder)"
+
+      - name: Upload tarball
+        id: upload-tarball
+        run: |
+          echo "Uploading tarball for version ${RELEASE_TAG}..."
+          # TODO: Implement tarball upload
+          # This will require:
+          # - SSH credentials/keys for upload to download.redis.io
+          # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
+
+          echo "✓ Tarball upload step (placeholder)"
+
+      - name: Test release tarball
+        id: test-release
+        run: |
+          echo "Testing release tarball for version ${RELEASE_TAG}..."
+          # TODO: Implement release testing using utils/releasetools/03_test_release.sh
+          # This will:
+          # - Download the uploaded tarball
+          # - Extract and build Redis
+
+          echo "✓ Release testing step (placeholder)"
+
+      - name: Update release hashes
+        id: update-hashes
+        run: |
+          echo "Updating release hashes for version ${RELEASE_TAG}..."
+          # TODO: Implement hash update using utils/releasetools/04_release_hash.sh
+          # This will require:
+          # - Access to redis-hashes repository
+          # - Git credentials for committing and pushing
+
+          echo "✓ Release hashes update step (placeholder)"
+
+      - name: Approval gate for latest releases
+        if: steps.release-info.outputs.release_type == 'latest'
+        run: |
+          echo "Latest release detected. Manual approval required for production deployment."
+          # TODO: Implement approval workflow
+          # This could use GitHub Environments with required reviewers
+          # or a manual approval step
+
+          echo "✓ Approval gate (placeholder)"
+
+      - name: Update stable symlink (latest releases only)
+        if: steps.release-info.outputs.release_type == 'latest'
+        id: update-stable
+        run: |
+          echo "This is a latest release. Updating stable symlink after approval."
+          # TODO: Implement stable symlink update
+          # This step should only run for latest releases (not non-latest)
+          # It will update the redis-stable symlink on download.redis.io
+          # This is part of the upload script (02_upload_tarball.sh)
+
+          echo "✓ Stable symlink update step (placeholder)"
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Post-Release Automation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Tag:** ${{ steps.release-info.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ steps.release-info.outputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Steps Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Create tarball: ${{ steps.create-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Upload tarball: ${{ steps.upload-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Test release: ${{ steps.test-release.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Update hashes: ${{ steps.update-hashes.outcome }}" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.release-info.outputs.release_type }}" == "latest" ]]; then
+            echo "- Update stable symlink: ${{ steps.update-stable.outcome }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send Slack notification
+        if: always()
+        run: |
+          echo "Sending Slack notification for release ${RELEASE_TAG}..."
+          # TODO: Implement Slack notification
+          # This will require:
+          # - Slack webhook URL or bot token (stored in secrets)
+          # - Determine appropriate channel (e.g., #releases, #redis-releases)
+          # - Craft message with release information and workflow status
+          # Example using webhook:
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"channel":"#releases","text":"Release ${RELEASE_TAG} automation completed"}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+          echo "✓ Slack notification step (placeholder)"
+

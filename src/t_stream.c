@@ -225,6 +225,48 @@ robj *streamDup(robj *o) {
     new_s->entries_added = s->entries_added;
     raxStop(&ri);
 
+    /* IDMP state */
+    new_s->idmp_duration = s->idmp_duration;
+    new_s->idmp_max_entries = s->idmp_max_entries;
+    new_s->iids_added = s->iids_added;
+    new_s->iids_duplicates = s->iids_duplicates;
+
+    if (s->idmp_producers != NULL) {
+        new_s->idmp_producers = raxNewWithMetadata(0, &new_s->alloc_size);
+
+        raxIterator ri_prod;
+        raxStart(&ri_prod, s->idmp_producers);
+        raxSeek(&ri_prod, "^", NULL, 0);
+        while (raxNext(&ri_prod)) {
+            idmpProducer *src_prod = ri_prod.data;
+            idmpProducer *new_prod = idmpProducerCreate(&new_s->alloc_size);
+
+            /* Walk the linked list and duplicate each entry. */
+            idmpEntry *src_entry = src_prod->idmp_head;
+            while (src_entry != NULL) {
+                idmpEntry *new_entry = idmpEntryCreate(src_entry->iid,
+                                                       src_entry->iid_len,
+                                                       &new_s->alloc_size);
+                new_entry->id = src_entry->id;
+
+                /* Append to tail of the new producer's linked list. */
+                if (new_prod->idmp_tail != NULL) {
+                    new_prod->idmp_tail->next = new_entry;
+                } else {
+                    new_prod->idmp_head = new_entry;
+                }
+                new_prod->idmp_tail = new_entry;
+
+                dictAdd(new_prod->idmp_dict, new_entry, NULL);
+                src_entry = src_entry->next;
+            }
+
+            raxInsert(new_s->idmp_producers, ri_prod.key, ri_prod.key_len,
+                      new_prod, NULL);
+        }
+        raxStop(&ri_prod);
+    }
+
     if (s->cgroups == NULL) return sobj;
 
     /* Consumer Groups */
@@ -5914,6 +5956,27 @@ static void trackStreamIdmpEntries(client *c, robj *key) {
     }
 }
 
+/* To be used when a stream key was loaded into ram, re-register it in stream_idmp_keys if needed */
+void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
+    stream *s = val->ptr;
+    if (s->idmp_producers != NULL) {
+        robj *tracked_key = key;
+        if (key->refcount == OBJ_STATIC_REFCOUNT)
+            tracked_key = createStringObject(key->ptr, sdslen(key->ptr));
+        if (dictAddRaw(db->stream_idmp_keys, tracked_key, NULL)) {
+            incrRefCount(tracked_key);
+        }
+        if (tracked_key != key)
+            decrRefCount(tracked_key);
+    }
+}
+
+/* To be used when a steam key was removed from ram, un-redigster from stream_idmp_keys if needed */
+void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
+    UNUSED(val);
+    dictDelete(db->stream_idmp_keys, key);
+}
+
 /* Clean up expired idempotency entries from tracked streams. This function
  * is invoked regularly from serverCron() to remove expired entries
  * from the idmp_dict of streams that have idempotency tracking enabled,
@@ -5948,10 +6011,7 @@ void handleExpiredIdmpEntries(void) {
             robj *key = dictGetKey(de);
             kvobj *kv = dbFind(db, key->ptr);
 
-            if (!kv || kv->type != OBJ_STREAM) {
-                dictDelete(db->stream_idmp_keys, key);
-                continue;
-            }
+            serverAssert(kv && kv->type == OBJ_STREAM);
 
             stream *s = kv->ptr;
             uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
@@ -5963,6 +6023,7 @@ void handleExpiredIdmpEntries(void) {
             }
 
             /* Iterate through all producers and remove expired entries */
+            int modified = 0;
             raxIterator ri;
             raxStart(&ri, s->idmp_producers);
             raxSeek(&ri, "^", NULL, 0);
@@ -5982,6 +6043,7 @@ void handleExpiredIdmpEntries(void) {
                         }
                         /* Free the entry */
                         idmpEntryFree(entry, &s->alloc_size);
+                        modified = 1;
                     } else {
                         break;
                     }
@@ -5992,9 +6054,13 @@ void handleExpiredIdmpEntries(void) {
                     raxRemove(s->idmp_producers, ri.key, ri.key_len, NULL);
                     idmpProducerFree(producer, &s->alloc_size);
                     raxSeek(&ri, ">=", ri.key, ri.key_len);
+                    modified = 1;
                 }
             }
             raxStop(&ri);
+
+            if (modified)
+                keyModified(NULL, db, key, kv, 0);
 
             /* If no producers remain, free the entire rax tree */
             if (raxSize(s->idmp_producers) == 0) {

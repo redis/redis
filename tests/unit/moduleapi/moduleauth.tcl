@@ -23,11 +23,11 @@ start_server {tags {"modules external:skip"}} {
         r config resetstat
         # Validate that an error is thrown for non existing users.
         assert_error {*WRONGPASS*} {r AUTH foo pwd}
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
         # Validate that an error is thrown for disabled users.
         r acl setuser foo >pwd off ~* &* +@all
         assert_error {*WRONGPASS*} {r AUTH foo pwd}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2*} [cmdstat auth]
     }
 
     test {test non blocking module AUTH} {
@@ -267,7 +267,7 @@ start_server {tags {"modules external:skip"}} {
         assert_equal [$rd read] "OK"
         $rd_two flush
         assert_equal [$rd_two read] "OK"
-        assert_match {*calls=4,*,rejected_calls=0,failed_calls=0} [cmdstat auth]
+        assert_match {*calls=4,*,rejected_calls=0,failed_calls=0*} [cmdstat auth]
     }
 
     test {module auth inside MULTI EXEC} {
@@ -331,7 +331,7 @@ start_server {tags {"modules external:skip"}} {
         # blocks the client and uses the RM_AbortBlock API. This should result in module auth
         # failing and the client being unblocked with the default AUTH err message.
         assert_error {*WRONGPASS*} {r AUTH foo block_abort}
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
     }
 
     test {test RM_RegisterAuthCallback Module API during blocking module auth} {

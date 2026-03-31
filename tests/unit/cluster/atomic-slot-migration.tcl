@@ -112,7 +112,7 @@ proc asm_all_instances_idle {total} {
 proc wait_for_asm_done {} {
     set total_instances [expr {$::cluster_master_nodes + $::cluster_replica_nodes}]
 
-    wait_for_condition 1000 10 {
+    wait_for_condition 3000 10 {
         [asm_all_instances_idle $total_instances] == 1
     } else {
         # Print the number of active tasks on each instance

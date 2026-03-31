@@ -89,6 +89,46 @@ int get_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* Sets the context user via SetContextUser, retrieves it via GetContextUser,
+ * then returns the ACL string of that user. Tests SetContextUser + GetContextUser. */
+int get_context_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+
+    if (argc != 1) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModule_Assert(user != NULL);
+    RedisModule_SetContextUser(ctx, user);
+    const RedisModuleUser *ctx_user = RedisModule_GetContextUser(ctx);
+    RedisModuleString *acl = RedisModule_GetModuleUserACLString((RedisModuleUser *)ctx_user);
+    RedisModule_ReplyWithString(ctx, acl);
+    RedisModule_FreeString(NULL, acl);
+    return REDISMODULE_OK;
+}
+
+/* Returns the username of the module user via RedisModule_GetUserUsername. Tests GetUserUsername API. */
+int get_user_username(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+
+    if (argc != 1) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    if (user == NULL) {
+        RedisModule_ReplyWithSimpleString(ctx, "none");
+        return REDISMODULE_OK;
+    }
+    RedisModuleString *name = RedisModule_GetUserUsername(user);
+    if (name == NULL) {
+        RedisModule_ReplyWithSimpleString(ctx, "none");
+        return REDISMODULE_OK;
+    }
+    RedisModule_ReplyWithString(ctx, name);
+    RedisModule_FreeString(NULL, name);
+    return REDISMODULE_OK;
+}
+
 int reset_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
 
@@ -224,6 +264,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"usercall.get_acl", get_acl,"write",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"usercall.get_context_acl", get_context_acl,"write",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"usercall.get_user_username", get_user_username,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
