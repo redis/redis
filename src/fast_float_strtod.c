@@ -368,7 +368,6 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
 typedef struct {
     const char *input;
     double expected;
-    int failed;
 } ff_testcase;
 
 static int ff_eq(double a, double b) {
@@ -377,7 +376,7 @@ static int ff_eq(double a, double b) {
     return a == b;
 }
 
-static void run_ff_tests(ff_testcase *cases, int n) {
+static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
     for (int i = 0; i < n; i++) {
         const char *s = cases[i].input;
         size_t len = strlen(s);
@@ -385,14 +384,14 @@ static void run_ff_tests(ff_testcase *cases, int n) {
 
         double d = fast_float_strtod(s, len, &eptr);
         int failed = ((size_t)(eptr - s) != len);
-        int ok = (cases[i].failed == failed) && ff_eq(d, cases[i].expected);
+        int ok = (expect_failed == failed) && ff_eq(d, cases[i].expected);
         char descr[128];
         if (ok)
             snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.17g)",
-                     s, cases[i].failed ? "fail" : "ok", cases[i].expected);
+                     s, expect_failed ? "fail" : "ok", cases[i].expected);
         else
             snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.17g) but got %s(%.17g)",
-                     s, cases[i].failed ? "fail" : "ok", cases[i].expected, failed ? "fail" : "ok", d);
+                     s, expect_failed ? "fail" : "ok", cases[i].expected, failed ? "fail" : "ok", d);
         test_cond(descr, ok);
     }
 }
@@ -404,103 +403,103 @@ int fastFloatTest(int argc, char **argv, int flags) {
 
     /* Finite decimals: fast path, exponent ±22 edges, mantissa 2^53, strtod fallback. */
     ff_testcase decimal_ok[] = {
-        {"0", 0.0, 0},
-        {"+0", 0.0, 0},
-        {"-0", -0.0, 0},
-        {"42", 42.0, 0},
-        {"+42", 42.0, 0},
-        {"-42", -42.0, 0},
-        {"00007", 7.0, 0},
-        {"00.25", 0.25, 0},
-        {"3.14", 3.14, 0},
-        {".5", 0.5, 0},
-        {"+.5", 0.5, 0},
-        {"1.", 1.0, 0},
-        {"0.", 0.0, 0},
-        {".0", 0.0, 0},
-        {"-1.5e2", -150.0, 0},
-        {"1e5", 1e5, 0},
-        {"1E5", 1e5, 0},
-        {"2E3", 2000.0, 0},
-        {"3e+5", 3e5, 0},
-        {"1e-10", 1e-10, 0},
-        {"1e-22", 1e-22, 0},
-        {"1e+22", 1e22, 0},
-        {"1e-23", 1e-23, 0},
-        {"1e+100", 1e100, 0},
-        {"1e-100", 1e-100, 0},
-        {"9007199254740992", 9007199254740992.0, 0},
-        {"9007199254740993", 9007199254740992.0, 0},
-        {"12345678901234567890", 1.2345678901234567e19, 0},
-        {"0x10", 16.0, 0},
+        {"0", 0.0},
+        {"+0", 0.0},
+        {"-0", -0.0},
+        {"42", 42.0},
+        {"+42", 42.0},
+        {"-42", -42.0},
+        {"00007", 7.0},
+        {"00.25", 0.25},
+        {"3.14", 3.14},
+        {".5", 0.5},
+        {"+.5", 0.5},
+        {"1.", 1.0},
+        {"0.", 0.0},
+        {".0", 0.0},
+        {"-1.5e2", -150.0},
+        {"1e5", 1e5},
+        {"1E5", 1e5},
+        {"2E3", 2000.0},
+        {"3e+5", 3e5},
+        {"1e-10", 1e-10},
+        {"1e-22", 1e-22},
+        {"1e+22", 1e22},
+        {"1e-23", 1e-23},
+        {"1e+100", 1e100},
+        {"1e-100", 1e-100},
+        {"9007199254740992", 9007199254740992.0},
+        {"9007199254740993", 9007199254740992.0},
+        {"12345678901234567890", 1.2345678901234567e19},
+        {"0x10", 16.0},
     };
-    run_ff_tests(decimal_ok, COUNTOF(decimal_ok));
+    run_ff_tests(decimal_ok, COUNTOF(decimal_ok), 0);
 
     /* No valid prefix for full buffer, or trailing junk. */
     ff_testcase decimal_bad[] = {
-        {"1abc", 1.0, 1},
-        {"1e", 1.0, 1},
-        {"1e+", 1.0, 1},
-        {"1e-", 1.0, 1},
-        {"1e+z", 1.0, 1},
-        {"12.34.56", 12.34, 1},
-        {"..1", 0.0, 1},
-        {"e10", 0.0, 1},
-        {"E10", 0.0, 1},
-        {"+", 0.0, 1},
-        {"-", 0.0, 1},
-        {"foo", 0.0, 1},
-        {"1 ", 1.0, 1},
-        {"3.14!", 3.14, 1},
+        {"1abc", 1.0},
+        {"1e", 1.0},
+        {"1e+", 1.0},
+        {"1e-", 1.0},
+        {"1e+z", 1.0},
+        {"12.34.56", 12.34},
+        {"..1", 0.0},
+        {"e10", 0.0},
+        {"E10", 0.0},
+        {"+", 0.0},
+        {"-", 0.0},
+        {"foo", 0.0},
+        {"1 ", 1.0},
+        {"3.14!", 3.14},
     };
-    run_ff_tests(decimal_bad, COUNTOF(decimal_bad));
+    run_ff_tests(decimal_bad, COUNTOF(decimal_bad), 1);
 
     ff_testcase inf_valid[] = {
-        {"inf", INFINITY, 0},
-        {"INF", INFINITY, 0},
-        {"Inf", INFINITY, 0},
-        {"infinity", INFINITY, 0},
-        {"INFINITY", INFINITY, 0},
-        {"Infinity", INFINITY, 0},
-        {"+inf", INFINITY, 0},
-        {"-inf", -INFINITY, 0},
-        {"+infinity", INFINITY, 0},
-        {"-INFINITY", -INFINITY, 0},
+        {"inf", INFINITY},
+        {"INF", INFINITY},
+        {"Inf", INFINITY},
+        {"infinity", INFINITY},
+        {"INFINITY", INFINITY},
+        {"Infinity", INFINITY},
+        {"+inf", INFINITY},
+        {"-inf", -INFINITY},
+        {"+infinity", INFINITY},
+        {"-INFINITY", -INFINITY},
     };
-    run_ff_tests(inf_valid, COUNTOF(inf_valid));
+    run_ff_tests(inf_valid, COUNTOF(inf_valid), 0);
 
     ff_testcase inf_invalid[] = {
-        {"in", 0, 1},
-        {"infin", INFINITY, 1},
-        {"infini1", INFINITY, 1},
-        {"infinitx", INFINITY, 1},
-        {"infinityy", INFINITY, 1},
-        {"info", INFINITY, 1},
-        {"ina", 0, 1},
-        {"INFI", INFINITY, 1},
-        {"iNf0", INFINITY, 1},
+        {"in", 0},
+        {"infin", INFINITY},
+        {"infini1", INFINITY},
+        {"infinitx", INFINITY},
+        {"infinityy", INFINITY},
+        {"info", INFINITY},
+        {"ina", 0},
+        {"INFI", INFINITY},
+        {"iNf0", INFINITY},
     };
-    run_ff_tests(inf_invalid, COUNTOF(inf_invalid));
-    
+    run_ff_tests(inf_invalid, COUNTOF(inf_invalid), 1);
+
     ff_testcase nan_valid[] = {
-        {"nan", NAN, 0},
-        {"NAN", NAN, 0},
-        {"Nan", NAN, 0},
-        {"nan(123)", NAN, 0},
-        {"nan(abc)", NAN, 0},
-        {"nan(123abc)", NAN, 0},
+        {"nan", NAN},
+        {"NAN", NAN},
+        {"Nan", NAN},
+        {"nan(123)", NAN},
+        {"nan(abc)", NAN},
+        {"nan(123abc)", NAN},
     };
-    run_ff_tests(nan_valid, COUNTOF(nan_valid));
+    run_ff_tests(nan_valid, COUNTOF(nan_valid), 0);
 
     ff_testcase nan_invalid[] = {
-        {"na", 0, 1},
-        {"nan(", NAN, 1},         /* unclosed paren */
-        {"nan(abc", NAN, 1},      /* missing closing paren */
-        {"nan(ab!c)", NAN, 1},    /* invalid char in paren */
-        {"nan(ab c)", NAN, 1},    /* space in paren */
-        {"nanx", NAN, 1},         /* trailing garbage */
+        {"na", 0},
+        {"nan(", NAN},         /* unclosed paren */
+        {"nan(abc", NAN},      /* missing closing paren */
+        {"nan(ab!c)", NAN},    /* invalid char in paren */
+        {"nan(ab c)", NAN},    /* space in paren */
+        {"nanx", NAN},         /* trailing garbage */
     };
-    run_ff_tests(nan_invalid, COUNTOF(nan_invalid));
+    run_ff_tests(nan_invalid, COUNTOF(nan_invalid), 1);
 
     test_report();
     return 0;
