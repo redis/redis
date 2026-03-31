@@ -436,6 +436,8 @@ void debugCommand(client *c) {
 "    Show low level info about `key` and associated value.",
 "DROP-CLUSTER-PACKET-FILTER <packet-type>",
 "    Drop all packets that match the filtered type. Set to -1 allow all packets.",
+"ENABLE-KEYMETA-RUNTIME-REGISTRATION <0|1>",
+"    Allow keymeta class registration outside server startup (for testing).",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",

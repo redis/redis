@@ -15,7 +15,8 @@
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
-start_server {tags {"modules" "external:skip"}} {
+start_server {tags {"modules" "external:skip"} overrides {enable-debug-command yes}} {
+    r debug enable-keymeta-runtime-registration 1
     r module load $testmodule
 
     # --- HASH notification tests ---
