@@ -47,15 +47,15 @@
                 },
                 {
                     "type": "integer",
-                    "description": "Max request number: always equal to max_burst+1"
+                    "description": "Max request tokens: always equal to max_burst+1"
                 },
                 {
                     "type": "integer",
-                    "description": "Number of requests available immediately"
+                    "description": "Number of tokens available immediately"
                 },
                 {
                     "type": "integer",
-                    "description": "Retry after: seconds after which caller should retry. Always -1 if not limited"
+                    "description": "Retry after: seconds after which the caller should retry. Always -1 if not limited"
                 },
                 {
                     "type": "integer",
