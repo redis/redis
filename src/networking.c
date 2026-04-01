@@ -5131,7 +5131,7 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
         return repl_buf_size + (repl_node_size*repl_node_num);
     } else { 
         size_t list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
-        return c->reply_bytes + c->reply_bytes_ref + (list_item_size*listLength(c->reply));
+        return c->reply_bytes + (list_item_size*listLength(c->reply));
     }
 }
 
@@ -5229,6 +5229,10 @@ char *getClientTypeName(int class) {
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+    
+    /* Count toward the logical output buffer size for limit enforcement,
+     * even though the underlying memory is shared. */
+    used_mem += c->reply_bytes_ref; 
 
     /* For unauthenticated clients the output buffer is limited to prevent
      * them from abusing it by not reading the replies */
