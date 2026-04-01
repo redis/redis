@@ -56,9 +56,6 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 
-/* Forward declarations for stream ID encoding */
-void streamEncodeID(void *buf, streamID *id);
-
 /* Forward declarations for PEL time list functions */
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
 static void pelListUnlink(streamCG *cg, streamNACK *nack);
@@ -160,8 +157,10 @@ static flax *pelResolveFlax(rax *r, unsigned char *keybuf,
     return f;
 }
 
-/* Insert nack into two-level PEL. Returns 1 if new entry, 0 if key existed (old value replaced). */
-int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
+/* Generic insert into two-level PEL. If 'overwrite' is true, an existing
+ * entry's value is replaced; otherwise the insert is skipped when the key
+ * already exists. Returns 1 if a new entry was created, 0 otherwise. */
+static int pelGenericInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count, int overwrite) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, id->ms, id->seq);
     flax *prev;
@@ -172,33 +171,24 @@ int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
         if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
     }
     size_t before = flaxAllocSize(f);
-    void *old;
-    flaxInsert(f, pelFlaxKey(id->seq), nack, &old);
+    int inserted = overwrite ? flaxInsert(f, pelFlaxKey(id->seq), nack, NULL)
+                             : flaxTryInsert(f, pelFlaxKey(id->seq), nack, NULL);
     if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
-    if (old == NULL) {
-        if (count) (*count)++;
-        return 1;
-    }
-    return 0;
+    if (inserted && count) (*count)++;
+    return inserted;
 }
 
-/* Insert only if not present. Returns 1 if inserted, 0 if key already exists. */
+/* Overwriting insert. Just a wrapper for pelGenericInsert() that will
+ * update the element if there is already one for the same key. */
+int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
+    return pelGenericInsert(pel, id, nack, count, 1);
+}
+
+/* Non overwriting insert function: if an element with the same key
+ * exists, the value is not updated and the function returns 0.
+ * This is just a wrapper for pelGenericInsert(). */
 int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
-    unsigned char keybuf[PEL_RAX_KEY_LEN];
-    pelEncodeRaxKey(keybuf, id->ms, id->seq);
-    flax *prev;
-    flax *f = pelResolveFlax(pel, keybuf, 1, &prev);
-    if (prev && prev != f) {
-        size_t before = flaxAllocSize(prev);
-        flaxShrink(prev);
-        if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
-    }
-    size_t before = flaxAllocSize(f);
-    int inserted = flaxTryInsert(f, pelFlaxKey(id->seq), nack, NULL);
-    if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
-    if (!inserted) return 0;
-    if (count) (*count)++;
-    return 1;
+    return pelGenericInsert(pel, id, nack, count, 0);
 }
 
 /* Replace the NACK pointer for an existing entry without cache interaction or
