@@ -201,6 +201,19 @@ int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count) {
     return 1;
 }
 
+/* Replace the NACK pointer for an existing entry without cache interaction or
+ * flax shrink side-effects. Intended for defrag, where the key is guaranteed
+ * to exist and we must avoid allocations that would increase fragmentation. */
+void pelReplace(rax *pel, streamID *id, streamNACK *nack) {
+    unsigned char keybuf[PEL_RAX_KEY_LEN];
+    pelEncodeRaxKey(keybuf, id->ms, id->seq);
+    void *data;
+    int found = raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &data);
+    serverAssert(found);
+    flax *f = (flax *)data;
+    flaxInsert(f, pelFlaxKey(id->seq), nack, NULL);
+}
+
 /* Find a NACK by streamID. Returns NULL if not found. */
 streamNACK *pelFind(rax *pel, streamID *id) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];

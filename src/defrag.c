@@ -884,10 +884,9 @@ void* defragStreamConsumerPelFlax(raxIterator *ri, void *privdata) {
                 /* Update in the consumer PEL flax. */
                 flaxInsert(f, fi.key, newnack, NULL);
 
-                /* Update in the group PEL flax. pelInsert is an
-                 * overwriting insert; the key already exists so count
-                 * is unaffected and no overflow can trigger. */
-                pelInsert(ctx->cg->pel, &newnack->id, newnack, NULL);
+                /* Update in the group PEL flax. pelReplace bypasses the
+                 * cache and flaxShrink to avoid new allocations during defrag. */
+                pelReplace(ctx->cg->pel, &newnack->id, newnack);
 
                 /* Update doubly-linked list pointers. */
                 if (newnack->pel_prev) {
