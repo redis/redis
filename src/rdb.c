@@ -747,30 +747,29 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, uint64_t pel_count, int nacks) {
     /* Save each entry. */
     pelIterator pi;
     pelIterStart(&pi,pel);
-    if (pelIterSeek(&pi,"^",NULL)) {
-        do {
-            /* We store IDs in raw form as 128 big big endian numbers,
-             * reconstructed from the two-level structure. */
-            if ((n = rdbWriteRaw(rdb,pi.rawkey,sizeof(streamID))) == -1) {
+    pelIterSeek(&pi,"^",NULL);
+    while (pelIterNext(&pi)) {
+        /* We store IDs in raw form as 128 big big endian numbers,
+         * reconstructed from the two-level structure. */
+        if ((n = rdbWriteRaw(rdb,pi.rawkey,sizeof(streamID))) == -1) {
+            pelIterStop(&pi);
+            return -1;
+        }
+        nwritten += n;
+
+        if (nacks) {
+            streamNACK *nack = pi.nack;
+            if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1) {
                 pelIterStop(&pi);
                 return -1;
             }
             nwritten += n;
-
-            if (nacks) {
-                streamNACK *nack = pi.nack;
-                if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1) {
-                    pelIterStop(&pi);
-                    return -1;
-                }
-                nwritten += n;
-                if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) {
-                    pelIterStop(&pi);
-                    return -1;
-                }
-                nwritten += n;
+            if ((n = rdbSaveLen(rdb,nack->delivery_count)) == -1) {
+                pelIterStop(&pi);
+                return -1;
             }
-        } while (pelIterNext(&pi));
+            nwritten += n;
+        }
     }
     pelIterStop(&pi);
     return nwritten;
@@ -3389,15 +3388,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             if (deep_integrity_validation) {
                 pelIterator pi_cg;
                 pelIterStart(&pi_cg,cgroup->pel);
-                if (pelIterSeek(&pi_cg,"^",NULL)) {
-                    do {
-                        if (!pi_cg.nack->consumer) {
-                            pelIterStop(&pi_cg);
-                            rdbReportCorruptRDB("Stream CG PEL entry without consumer");
-                            decrRefCount(o);
-                            return NULL;
-                        }
-                    } while (pelIterNext(&pi_cg));
+                pelIterSeek(&pi_cg,"^",NULL);
+                while (pelIterNext(&pi_cg)) {
+                    if (!pi_cg.nack->consumer) {
+                        pelIterStop(&pi_cg);
+                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+                        decrRefCount(o);
+                        return NULL;
+                    }
                 }
                 pelIterStop(&pi_cg);
             }

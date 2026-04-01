@@ -248,6 +248,7 @@ static void pelIterRefresh(pelIterator *pi) {
 void pelIterStart(pelIterator *pi, rax *pel) {
     raxStart(&pi->ri, pel);
     pi->valid = 0;
+    pi->just_seeked = 0;
     memset(&pi->fi, 0, sizeof(pi->fi));
     memset(&pi->id, 0, sizeof(pi->id));
     pi->nack = NULL;
@@ -255,12 +256,14 @@ void pelIterStart(pelIterator *pi, rax *pel) {
 
 int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
     pi->valid = 0;
+    pi->just_seeked = 0;
     if (op[0] == '^') {
         raxSeek(&pi->ri, "^", NULL, 0);
         if (!raxNext(&pi->ri)) return 0;
         flaxStart(&pi->fi, (flax *)pi->ri.data);
         if (!flaxSeek(&pi->fi, "^", 0)) return 0;
         pelIterRefresh(pi);
+        pi->just_seeked = 1;
         return 1;
     } else if (op[0] == '$') {
         raxSeek(&pi->ri, "$", NULL, 0);
@@ -268,6 +271,7 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
         flaxStart(&pi->fi, (flax *)pi->ri.data);
         if (!flaxSeek(&pi->fi, "$", 0)) return 0;
         pelIterRefresh(pi);
+        pi->just_seeked = 1;
         return 1;
     } else if (op[0] == '>' && op[1] == '=') {
         unsigned char keybuf[PEL_RAX_KEY_LEN];
@@ -283,6 +287,7 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
             flaxStart(&pi->fi, (flax *)pi->ri.data);
             if (!flaxSeek(&pi->fi, "^", 0)) return 0;
             pelIterRefresh(pi);
+            pi->just_seeked = 1;
             return 1;
         }
 
@@ -305,12 +310,17 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
             if (!flaxSeek(&pi->fi, "^", 0)) return 0;
         }
         pelIterRefresh(pi);
+        pi->just_seeked = 1;
         return 1;
     }
     return 0;
 }
 
 int pelIterNext(pelIterator *pi) {
+    if (pi->just_seeked) {
+        pi->just_seeked = 0;
+        return pi->valid;
+    }
     if (!pi->valid) return 0;
     if (flaxNext(&pi->fi)) {
         pelIterRefresh(pi);
@@ -326,11 +336,6 @@ int pelIterNext(pelIterator *pi) {
     } while (!flaxSeek(&pi->fi, "^", 0));
     pelIterRefresh(pi);
     return 1;
-}
-
-/* Re-seek to >= id after a mid-iteration remove (XAUTOCLAIM pattern). */
-int pelIterReseek(pelIterator *pi, streamID *id) {
-    return pelIterSeek(pi, ">=", id);
 }
 
 void pelIterStop(pelIterator *pi) {
@@ -566,18 +571,17 @@ robj *streamDup(robj *o) {
         /* Consumer Group PEL */
         pelIterator pi_cg;
         pelIterStart(&pi_cg, cg->pel);
-        if (pelIterSeek(&pi_cg, "^", NULL)) {
-            do {
-                streamNACK *nack = pi_cg.nack;
-                streamID nack_id = pi_cg.id;
-                streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack_id);
-                new_nack->delivery_time = nack->delivery_time;
-                new_nack->delivery_count = nack->delivery_count;
-                new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, pi_cg.rawkey);
-                pelInsert(new_cg->pel, &nack_id, new_nack, &new_cg->pel_count);
+        pelIterSeek(&pi_cg, "^", NULL);
+        while (pelIterNext(&pi_cg)) {
+            streamNACK *nack = pi_cg.nack;
+            streamID nack_id = pi_cg.id;
+            streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack_id);
+            new_nack->delivery_time = nack->delivery_time;
+            new_nack->delivery_count = nack->delivery_count;
+            new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, pi_cg.rawkey);
+            pelInsert(new_cg->pel, &nack_id, new_nack, &new_cg->pel_count);
 
-                pelListInsertSorted(new_cg, new_nack);
-            } while (pelIterNext(&pi_cg));
+            pelListInsertSorted(new_cg, new_nack);
         }
         pelIterStop(&pi_cg);
 
@@ -603,14 +607,13 @@ robj *streamDup(robj *o) {
             /* Consumer PEL */
             pelIterator pi_cpel;
             pelIterStart(&pi_cpel, consumer->pel);
-            if (pelIterSeek(&pi_cpel, "^", NULL)) {
-                do {
-                    streamID cpel_id = pi_cpel.id;
-                    streamNACK *new_nack = pelFind(new_cg->pel, &cpel_id);
-                    serverAssert(new_nack);
-                    new_nack->consumer = new_consumer;
-                    pelInsert(new_consumer->pel, &cpel_id, new_nack, &new_consumer->pel_count);
-                } while (pelIterNext(&pi_cpel));
+            pelIterSeek(&pi_cpel, "^", NULL);
+            while (pelIterNext(&pi_cpel)) {
+                streamID cpel_id = pi_cpel.id;
+                streamNACK *new_nack = pelFind(new_cg->pel, &cpel_id);
+                serverAssert(new_nack);
+                new_nack->consumer = new_consumer;
+                pelInsert(new_consumer->pel, &cpel_id, new_nack, &new_consumer->pel_count);
             }
             pelIterStop(&pi_cpel);
         }
@@ -2543,27 +2546,26 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     void *arraylen_ptr = addReplyDeferredLen(c);
     pelIterator pi;
     pelIterStart(&pi, consumer->pel);
-    if (pelIterSeek(&pi, ">=", start)) {
-        do {
-            if (end && streamCompareID(&pi.id, end) > 0) break;
-            if (!count || arraylen < count) {
-                streamID thisid = pi.id;
-                if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
-                                         STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
-                {
-                    addReplyArrayLen(c,2);
-                    addReplyStreamID(c,&thisid);
-                    addReplyNullArray(c);
-                } else {
-                    streamNACK *nack = pi.nack;
-                    nack->delivery_count++;
-                    pelListUpdate(group, nack, commandTimeSnapshot());
-                }
-                arraylen++;
+    pelIterSeek(&pi, ">=", start);
+    while (pelIterNext(&pi)) {
+        if (end && streamCompareID(&pi.id, end) > 0) break;
+        if (!count || arraylen < count) {
+            streamID thisid = pi.id;
+            if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
+                                     STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
+            {
+                addReplyArrayLen(c,2);
+                addReplyStreamID(c,&thisid);
+                addReplyNullArray(c);
             } else {
-                break;
+                streamNACK *nack = pi.nack;
+                nack->delivery_count++;
+                pelListUpdate(group, nack, commandTimeSnapshot());
             }
-        } while (pelIterNext(&pi));
+            arraylen++;
+        } else {
+            break;
+        }
     }
     pelIterStop(&pi);
     setDeferredArrayLen(c,arraylen_ptr,arraylen);
@@ -3595,10 +3597,9 @@ void streamDestroyCG(stream *s, streamCG *cg) {
     /* Remove all references from the cgroups_ref. */
     pelIterator pi;
     pelIterStart(&pi, cg->pel);
-    if (pelIterSeek(&pi, "^", NULL)) {
-        do {
-            streamUnlinkEntryFromCGroupRef(s, pi.nack, pi.rawkey);
-        } while (pelIterNext(&pi));
+    pelIterSeek(&pi, "^", NULL);
+    while (pelIterNext(&pi)) {
+        streamUnlinkEntryFromCGroupRef(s, pi.nack, pi.rawkey);
     }
     pelIterStop(&pi);
 
@@ -3667,16 +3668,15 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
      * entry from the global entry. */
     pelIterator pi;
     pelIterStart(&pi, consumer->pel);
-    if (pelIterSeek(&pi, "^", NULL)) {
-        do {
-            streamNACK *nack = pi.nack;
-            streamUnlinkEntryFromCGroupRef(s, nack, pi.rawkey);
+    pelIterSeek(&pi, "^", NULL);
+    while (pelIterNext(&pi)) {
+        streamNACK *nack = pi.nack;
+        streamUnlinkEntryFromCGroupRef(s, nack, pi.rawkey);
 
-            pelListUnlink(cg, nack);
-            pelRemove(cg->pel, &pi.id, &cg->pel_count);
+        pelListUnlink(cg, nack);
+        pelRemove(cg->pel, &pi.id, &cg->pel_count);
 
-            streamFreeNACK(s, nack);
-        } while (pelIterNext(&pi));
+        streamFreeNACK(s, nack);
     }
     pelIterStop(&pi);
 
@@ -4300,12 +4300,14 @@ void xpendingCommand(client *c) {
             pelIterator pi;
             pelIterStart(&pi,group->pel);
             pelIterSeek(&pi,"^",NULL);
+            pelIterNext(&pi);
             addReplyStreamID(c,&pi.id);
 
             /* End. */
             pelIterStop(&pi);
             pelIterStart(&pi,group->pel);
             pelIterSeek(&pi,"$",NULL);
+            pelIterNext(&pi);
             addReplyStreamID(c,&pi.id);
             pelIterStop(&pi);
 
@@ -4347,35 +4349,34 @@ void xpendingCommand(client *c) {
         void *arraylen_ptr = addReplyDeferredLen(c);
         size_t arraylen = 0;
 
-        if (pelIterSeek(&pi, ">=", &startid)) {
-            do {
-                if (streamCompareID(&pi.id, &endid) > 0) break;
-                streamNACK *nack = pi.nack;
+        pelIterSeek(&pi, ">=", &startid);
+        while (count && pelIterNext(&pi)) {
+            if (streamCompareID(&pi.id, &endid) > 0) break;
+            streamNACK *nack = pi.nack;
 
-                if (minidle) {
-                    mstime_t this_idle = now - nack->delivery_time;
-                    if (this_idle < minidle) continue;
-                }
+            if (minidle) {
+                mstime_t this_idle = now - nack->delivery_time;
+                if (this_idle < minidle) continue;
+            }
 
-                arraylen++;
-                count--;
-                addReplyArrayLen(c,4);
+            arraylen++;
+            count--;
+            addReplyArrayLen(c,4);
 
-                /* Entry ID. */
-                addReplyStreamID(c,&pi.id);
+            /* Entry ID. */
+            addReplyStreamID(c,&pi.id);
 
-                /* Consumer name. */
-                addReplyBulkCBuffer(c,nack->consumer->name,
-                                    sdslen(nack->consumer->name));
+            /* Consumer name. */
+            addReplyBulkCBuffer(c,nack->consumer->name,
+                                sdslen(nack->consumer->name));
 
-                /* Milliseconds elapsed since last delivery. */
-                mstime_t elapsed = now - nack->delivery_time;
-                if (elapsed < 0) elapsed = 0;
-                addReplyLongLong(c,elapsed);
+            /* Milliseconds elapsed since last delivery. */
+            mstime_t elapsed = now - nack->delivery_time;
+            if (elapsed < 0) elapsed = 0;
+            addReplyLongLong(c,elapsed);
 
-                /* Number of deliveries. */
-                addReplyLongLong(c,nack->delivery_count);
-            } while (count && pelIterNext(&pi));
+            /* Number of deliveries. */
+            addReplyLongLong(c,nack->delivery_count);
         }
         pelIterStop(&pi);
         setDeferredArrayLen(c,arraylen_ptr,arraylen);
@@ -4760,7 +4761,8 @@ void xautoclaimCommand(client *c) {
     size_t arraylen = 0;
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
-    int has_entry = pelIterSeek(&pi, ">=", &startid);
+    pelIterSeek(&pi, ">=", &startid);
+    int has_entry = pelIterNext(&pi);
     while (attempts-- && count && has_entry) {
         streamNACK *nack = pi.nack;
         streamID id = pi.id;
@@ -4781,7 +4783,8 @@ void xautoclaimCommand(client *c) {
             streamDestroyNACK(s, nack, rawkey);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
-            has_entry = pelIterReseek(&pi, &id);
+            pelIterSeek(&pi, ">=", &id);
+            has_entry = pelIterNext(&pi);
             count--; /* Count is a limit of the command response size. */
             continue;
         }
@@ -4832,8 +4835,7 @@ void xautoclaimCommand(client *c) {
         has_entry = pelIterNext(&pi);
     }
 
-    /* The cursor for the next XAUTOCLAIM call is whatever pi currently points to.
-     * After the loop, pi is already on the next unprocessed entry (or invalid). */
+    /* After the loop, pi is already on the next unprocessed entry (or invalid). */
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -5242,28 +5244,27 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                 void *arrayptr_cg_pel = addReplyDeferredLen(c);
                 pelIterator pi_cg_pel;
                 pelIterStart(&pi_cg_pel,cg->pel);
-                if (pelIterSeek(&pi_cg_pel,"^",NULL)) {
-                    do {
-                        if (count && arraylen_cg_pel >= count) break;
-                        streamNACK *nack = pi_cg_pel.nack;
-                        addReplyArrayLen(c,4);
+                pelIterSeek(&pi_cg_pel,"^",NULL);
+                while (pelIterNext(&pi_cg_pel)) {
+                    if (count && arraylen_cg_pel >= count) break;
+                    streamNACK *nack = pi_cg_pel.nack;
+                    addReplyArrayLen(c,4);
 
-                        /* Entry ID. */
-                        addReplyStreamID(c,&pi_cg_pel.id);
+                    /* Entry ID. */
+                    addReplyStreamID(c,&pi_cg_pel.id);
 
-                        /* Consumer name. */
-                        serverAssert(nack->consumer);
-                        addReplyBulkCBuffer(c,nack->consumer->name,
-                                            sdslen(nack->consumer->name));
+                    /* Consumer name. */
+                    serverAssert(nack->consumer);
+                    addReplyBulkCBuffer(c,nack->consumer->name,
+                                        sdslen(nack->consumer->name));
 
-                        /* Last delivery. */
-                        addReplyLongLong(c,nack->delivery_time);
+                    /* Last delivery. */
+                    addReplyLongLong(c,nack->delivery_time);
 
-                        /* Number of deliveries. */
-                        addReplyLongLong(c,nack->delivery_count);
+                    /* Number of deliveries. */
+                    addReplyLongLong(c,nack->delivery_count);
 
-                        arraylen_cg_pel++;
-                    } while (pelIterNext(&pi_cg_pel));
+                    arraylen_cg_pel++;
                 }
                 setDeferredArrayLen(c,arrayptr_cg_pel,arraylen_cg_pel);
                 pelIterStop(&pi_cg_pel);
@@ -5300,23 +5301,22 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                     void *arrayptr_cpel = addReplyDeferredLen(c);
                     pelIterator pi_cpel;
                     pelIterStart(&pi_cpel,consumer->pel);
-                    if (pelIterSeek(&pi_cpel,"^",NULL)) {
-                        do {
-                            if (count && arraylen_cpel >= count) break;
-                            streamNACK *nack = pi_cpel.nack;
-                            addReplyArrayLen(c,3);
+                    pelIterSeek(&pi_cpel,"^",NULL);
+                    while (pelIterNext(&pi_cpel)) {
+                        if (count && arraylen_cpel >= count) break;
+                        streamNACK *nack = pi_cpel.nack;
+                        addReplyArrayLen(c,3);
 
-                            /* Entry ID. */
-                            addReplyStreamID(c,&pi_cpel.id);
+                        /* Entry ID. */
+                        addReplyStreamID(c,&pi_cpel.id);
 
-                            /* Last delivery. */
-                            addReplyLongLong(c,nack->delivery_time);
+                        /* Last delivery. */
+                        addReplyLongLong(c,nack->delivery_time);
 
-                            /* Number of deliveries. */
-                            addReplyLongLong(c,nack->delivery_count);
+                        /* Number of deliveries. */
+                        addReplyLongLong(c,nack->delivery_count);
 
-                            arraylen_cpel++;
-                        } while (pelIterNext(&pi_cpel));
+                        arraylen_cpel++;
                     }
                     setDeferredArrayLen(c,arrayptr_cpel,arraylen_cpel);
                     pelIterStop(&pi_cpel);

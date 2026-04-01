@@ -206,6 +206,7 @@ typedef struct pelIterator {
     raxIterator ri;
     flaxIterator fi;
     int valid;
+    int just_seeked;
     streamID id;
     streamNACK *nack;
     unsigned char rawkey[sizeof(streamID)];
@@ -236,7 +237,6 @@ streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count);
 void pelIterStart(pelIterator *pi, rax *pel);
 int pelIterSeek(pelIterator *pi, const char *op, streamID *id);
 int pelIterNext(pelIterator *pi);
-int pelIterReseek(pelIterator *pi, streamID *id);
 void pelIterStop(pelIterator *pi);
 
 /* PEL time list management (used by RDB loading) */

@@ -2338,19 +2338,18 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                  * to emit the XCLAIM protocol. */
                 pelIterator pi;
                 pelIterStart(&pi,consumer->pel);
-                if (pelIterSeek(&pi,"^",NULL)) {
-                    do {
-                        streamNACK *nack = pi.nack;
-                        if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
-                                                       ri.key_len,consumer,
-                                                       pi.rawkey,nack) == 0)
-                        {
-                            pelIterStop(&pi);
-                            raxStop(&ri_cons);
-                            raxStop(&ri);
-                            return 0;
-                        }
-                    } while (pelIterNext(&pi));
+                pelIterSeek(&pi,"^",NULL);
+                while (pelIterNext(&pi)) {
+                    streamNACK *nack = pi.nack;
+                    if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
+                                                   ri.key_len,consumer,
+                                                   pi.rawkey,nack) == 0)
+                    {
+                        pelIterStop(&pi);
+                        raxStop(&ri_cons);
+                        raxStop(&ri);
+                        return 0;
+                    }
                 }
                 pelIterStop(&pi);
             }
