@@ -575,12 +575,11 @@ robj *streamDup(robj *o) {
         pelIterSeek(&pi_cg, "^", NULL);
         while (pelIterNext(&pi_cg)) {
             streamNACK *nack = pi_cg.nack;
-            streamID nack_id = pi_cg.id;
-            streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack_id);
+            streamNACK *new_nack = streamCreateNACK(new_s, NULL, &pi_cg.id);
             new_nack->delivery_time = nack->delivery_time;
             new_nack->delivery_count = nack->delivery_count;
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, pi_cg.rawkey);
-            pelInsert(new_cg->pel, &nack_id, new_nack, &new_cg->pel_count);
+            pelInsert(new_cg->pel, &pi_cg.id, new_nack, &new_cg->pel_count);
 
             pelListInsertSorted(new_cg, new_nack);
         }
@@ -610,12 +609,11 @@ robj *streamDup(robj *o) {
             pelIterStart(&pi_cpel, consumer->pel);
             pelIterSeek(&pi_cpel, "^", NULL);
             while (pelIterNext(&pi_cpel)) {
-                streamID cpel_id = pi_cpel.id;
                 streamNACK *new_nack;
-                int found = pelFind(new_cg->pel, &cpel_id, &new_nack);
+                int found = pelFind(new_cg->pel, &pi_cpel.id, &new_nack);
                 serverAssert(found);
                 new_nack->consumer = new_consumer;
-                pelInsert(new_consumer->pel, &cpel_id, new_nack, &new_consumer->pel_count);
+                pelInsert(new_consumer->pel, &pi_cpel.id, new_nack, &new_consumer->pel_count);
             }
             pelIterStop(&pi_cpel);
         }
@@ -2552,12 +2550,11 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     while (pelIterNext(&pi)) {
         if (end && streamCompareID(&pi.id, end) > 0) break;
         if (!count || arraylen < count) {
-            streamID thisid = pi.id;
-            if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
+            if (streamReplyWithRange(c,s,&pi.id,&pi.id,1,0,-1,NULL,NULL,
                                      STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
             {
                 addReplyArrayLen(c,2);
-                addReplyStreamID(c,&thisid);
+                addReplyStreamID(c,&pi.id);
                 addReplyNullArray(c);
             } else {
                 streamNACK *nack = pi.nack;
@@ -4306,8 +4303,6 @@ void xpendingCommand(client *c) {
             addReplyStreamID(c,&pi.id);
 
             /* End. */
-            pelIterStop(&pi);
-            pelIterStart(&pi,group->pel);
             pelIterSeek(&pi,"$",NULL);
             pelIterNext(&pi);
             addReplyStreamID(c,&pi.id);
@@ -4348,12 +4343,11 @@ void xpendingCommand(client *c) {
 
         pelIterator pi;
         pelIterStart(&pi, pel);
+        pelIterSeek(&pi, ">=", &startid);
         void *arraylen_ptr = addReplyDeferredLen(c);
         size_t arraylen = 0;
 
-        pelIterSeek(&pi, ">=", &startid);
-        while (count && pelIterNext(&pi)) {
-            if (streamCompareID(&pi.id, &endid) > 0) break;
+        while (count && pelIterNext(&pi) && streamCompareID(&pi.id, &endid) <= 0) {
             streamNACK *nack = pi.nack;
 
             if (minidle) {
@@ -4570,12 +4564,12 @@ void xclaimCommand(client *c) {
 
         /* Lookup the ID in the group PEL. */
         streamNACK *nack = NULL;
-        int nack_found = pelFind(group->pel, &id, &nack);
+        pelFind(group->pel, &id, &nack);
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
-            if (nack_found) {
+            if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
                 streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                 propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
@@ -4594,7 +4588,7 @@ void xclaimCommand(client *c) {
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
-        if (force && !nack_found) {
+        if (force && nack == NULL) {
             /* Create the NACK. */
             nack = streamCreateNACK(s, NULL, &id);
             pelInsert(group->pel, &id, nack, &group->pel_count);
