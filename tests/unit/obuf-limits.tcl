@@ -236,32 +236,70 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         reconnect
     }
 
-    test "verify ormem field tracks referenced reply bytes" {
+    test "verify ormem and mem_clients_ref track zero-copy referenced reply bytes" {
         r flushdb
         r config set client-output-buffer-limit {normal 0 0 0}
         # Use a value large enough to trigger copy avoidance
         set val_size 100000
         r set bigkey [string repeat v $val_size]
 
-        set rr [redis_deferring_client]
-        $rr client setname ormem_test
-        assert_equal [$rr read] OK
+        # Execute GET, CLIENT LIST and INFO memory in one transaction.
+        # When CLIENT LIST and INFO run, the GET reply is already in the output
+        # buffer (as a zero-copy ref, not yet sent), so both per-client ormem
+        # and the global mem_clients_ref already reflect the referenced bytes.
+        r client setname ormem_test
+        r multi
+        r get bigkey
+        r client list
+        r info memory
+        set res [r exec]
 
-        set ormem 0
-        for {set i 0} {$i < 200} {incr i} {
-            $rr get bigkey
-            $rr flush
-            set clients [split [string trim [r client list]] "\r\n"]
-            set c [lsearch -inline $clients *name=ormem_test*]
-            regexp {omem=([0-9]+)} $c - omem
-            regexp {ormem=([0-9]+)} $c - ormem
-            regexp {tot-mem=([0-9]+)} $c - total_mem
-            if {$ormem >= $val_size} break
-        }
+        set clients [split [string trim [lindex $res 1]] "\r\n"]
+        set c [lsearch -inline $clients *name=ormem_test*]
+        regexp {omem=([0-9]+)} $c - omem
+        regexp {ormem=([0-9]+)} $c - ormem
+        regexp {tot-mem=([0-9]+)} $c - total_mem
+
         assert {$ormem >= $val_size}
         assert {$omem >= $ormem}
         assert {$total_mem > $ormem}
 
-        $rr close
+        set info_mem [lindex $res 2]
+        assert {[getInfoProperty $info_mem mem_clients_ref] >= $val_size}
+
+        # After the reply is fully sent, the global counter must return to 0
+        wait_for_condition 50 10 {
+            [s mem_clients_ref] == 0
+        } else {
+            fail "mem_clients_ref did not return to 0 after reply was sent"
+        }
+    }
+
+    test "mem_clients_orphan_ref tracks zero-copy refs whose key was deleted from keyspace" {
+        r flushdb
+        r config set client-output-buffer-limit {normal 0 0 0}
+        set val_size 65536
+        r set bigkey [string repeat v $val_size]
+
+        # Execute GET, DEL and INFO memory in one transaction:
+        # 1. GET writes a zero-copy ref into the output buffer (refcount: keyspace+client = 2)
+        # 2. DEL removes the key from keyspace (refcount drops to 1, ref becomes an orphan)
+        # 3. INFO scans the buffer while the ref is still unsent; refcount == 1 is counted
+        # EXEC batches all replies, so no reply is sent until the transaction completes.
+        r multi
+        r get bigkey
+        r del bigkey
+        r info memory
+        set res [r exec]
+
+        set info_mem [lindex $res 2]
+        assert {[getInfoProperty $info_mem mem_clients_orphan_ref] >= $val_size}
+
+        # After the reply is fully sent, orphan refs are released and the counter returns to 0
+        wait_for_condition 50 10 {
+            [s mem_clients_orphan_ref] == 0
+        } else {
+            fail "mem_clients_orphan_ref did not return to 0 after reply was sent"
+        }
     }
 }

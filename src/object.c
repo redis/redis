@@ -1335,6 +1335,15 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
     mem_total += mh->clients_normal;
 
+    /* Compute the total bytes of referenced reply data. */
+    atomicGet(server.stat_clients_memory_ref, mh->clients_ref);
+    mem_total += mh->clients_ref;
+
+    /* Scan clients_with_pending_ref_reply for objects whose only remaining
+     * reference is held by a client output buffer (refcount == 1), i.e. the
+     * key has been deleted from the keyspace. */
+    mh->clients_orphan_ref = getClientsOrphanRefMemoryUsage();
+
     mh->cluster_links = server.stat_cluster_links_memory;
     mem_total += mh->cluster_links;
 
@@ -1682,7 +1691,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,33+mh->num_dbs);
+        addReplyMapLen(c,34+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1704,6 +1713,12 @@ NULL
 
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
+
+        addReplyBulkCString(c,"clients.ref");
+        addReplyLongLong(c,mh->clients_ref);
+
+        addReplyBulkCString(c,"clients.orphan.ref");
+        addReplyLongLong(c,mh->clients_orphan_ref);
 
         addReplyBulkCString(c,"cluster.links");
         addReplyLongLong(c,mh->cluster_links);

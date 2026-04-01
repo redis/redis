@@ -1781,6 +1781,8 @@ struct redisMemOverhead {
     size_t replica_fullsync_buffer;
     size_t clients_slaves;
     size_t clients_normal;
+    size_t clients_ref;
+    size_t clients_orphan_ref;
     size_t cluster_links;
     size_t aof_buffer;
     size_t eval_caches;
@@ -2109,6 +2111,7 @@ struct redisServer {
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    redisAtomic size_t stat_clients_memory_ref; /* Total zero-copy referenced reply bytes across all clients. */
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -3207,6 +3210,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
+size_t getClientsOrphanRefMemoryUsage(void);
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
