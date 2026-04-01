@@ -9,7 +9,7 @@
  */
 
 #include "flax.h"
-#include <assert.h>
+#include "redisassert.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdalign.h>
@@ -127,6 +127,7 @@ static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int64_
  * the keys at the start of the block and one for the values at the new
  * aligned offset. The old data block is freed afterwards. */
 static void flax_resize(flax *f, uint32_t new_capacity) {
+    if (new_capacity > UINT8_MAX) new_capacity = UINT8_MAX;
     size_t new_voff = flax_values_offset(new_capacity);
     size_t new_alloc = new_voff + (size_t)new_capacity * sizeof(void *);
     size_t new_usable;
@@ -157,71 +158,36 @@ static void flaxIterRefresh(flaxIterator *it) {
  * Core API
  * -------------------------------------------------------------------------- */
 
-/* Allocate a new flax with the given initial capacity and return its pointer.
- * On out of memory the function returns NULL. */
-flax *flaxNewWithCapacity(uint32_t capacity) {
-    if (capacity < FLAX_INIT_CAPACITY) capacity = FLAX_INIT_CAPACITY;
+/* Allocate a new flax and return its pointer. On out of memory the function
+ * returns NULL. */
+flax *flaxNew(void) {
     size_t usable;
     flax *f = flax_malloc_usable(sizeof(flax), &usable);
     f->alloc_size = usable;
     f->numele = 0;
-    f->capacity = capacity;
-    size_t voff = flax_values_offset(capacity);
-    f->data = flax_malloc_usable(voff + (size_t)capacity * sizeof(void *), &usable);
+    f->capacity = FLAX_INIT_CAPACITY;
+    size_t voff = flax_values_offset(FLAX_INIT_CAPACITY);
+    f->data = flax_malloc_usable(voff + (size_t)FLAX_INIT_CAPACITY * sizeof(void *), &usable);
     f->alloc_size += usable;
     return f;
 }
 
-/* Allocate a new flax and return its pointer. On out of memory the function
- * returns NULL. */
-flax *flaxNew(void) {
-    return flaxNewWithCapacity(FLAX_INIT_CAPACITY);
-}
-
-/* Overwriting insert. Insert the element with the specified 'key', setting
- * as associated data the pointer 'data'. If the element already exists, the
- * associated data is updated and 1 is returned. If 'old' is not NULL the
- * previous value is stored at that address. Returns 1 on success. */
-int flaxInsert(flax *f, uint8_t key, void *data, void **old) {
-    if (f->numele == f->capacity)
-        flax_resize(f, f->capacity * 2);
-
-    int64_t idx;
-    if (flax_search(flax_keys(f), f->numele, key, &idx)) {
-        void **vals = flax_values(f);
-        if (old) *old = vals[idx];
-        vals[idx] = data;
-        return 1;
-    }
-
-    uint8_t *keys = flax_keys(f);
-    void **vals = flax_values(f);
-    int64_t tail = f->numele - idx;
-
-    if (tail > 0) {
-        memmove(&keys[idx + 1], &keys[idx], (size_t)tail * sizeof(uint8_t));
-        memmove(&vals[idx + 1], &vals[idx], (size_t)tail * sizeof(void *));
-    }
-
-    keys[idx] = key;
-    vals[idx] = data;
-    f->numele++;
-    if (old) *old = NULL;
-    return 1;
-}
-
-/* Non overwriting insert function: if an element with the same key exists,
- * the value is not updated and the function returns 0. If 'old' is not NULL
- * the existing value is stored at that address. Returns 1 on success. */
-int flaxTryInsert(flax *f, uint8_t key, void *data, void **old) {
-    if (f->numele == f->capacity)
-        flax_resize(f, f->capacity * 2);
-
+/* Generic insert. If 'overwrite' is true and the key already exists, the
+ * associated data is updated and 0 is returned. If 'overwrite' is false
+ * and the key exists, the data is left unchanged and 0 is returned. In
+ * both cases, if 'old' is not NULL the previous value is stored there.
+ * When the key is new, a new element is created and 1 is returned (and
+ * *old is set to NULL if provided). */
+static int flaxGenericInsert(flax *f, uint8_t key, void *data, void **old, int overwrite) {
     int64_t idx;
     if (flax_search(flax_keys(f), f->numele, key, &idx)) {
         if (old) *old = flax_values(f)[idx];
+        if (overwrite) flax_values(f)[idx] = data;
         return 0;
     }
+
+    if (f->numele == f->capacity)
+        flax_resize(f, f->capacity * 2);
 
     uint8_t *keys = flax_keys(f);
     void **vals = flax_values(f);
@@ -237,6 +203,17 @@ int flaxTryInsert(flax *f, uint8_t key, void *data, void **old) {
     f->numele++;
     if (old) *old = NULL;
     return 1;
+}
+
+/* Overwriting insert. This is just a wrapper for flaxGenericInsert(). */
+int flaxInsert(flax *f, uint8_t key, void *data, void **old) {
+    return flaxGenericInsert(f, key, data, old, 1);
+}
+
+/* Non overwriting insert function: this is just a wrapper for
+ * flaxGenericInsert(). */
+int flaxTryInsert(flax *f, uint8_t key, void *data, void **old) {
+    return flaxGenericInsert(f, key, data, old, 0);
 }
 
 /* Remove the specified item. Returns 1 if the item was found and
@@ -287,27 +264,16 @@ int flaxFind(flax *f, uint8_t key, void **value) {
 
 /* Free a whole flax. */
 void flaxFree(flax *f) {
-    flaxFreeWithCallback(f, NULL);
-}
-
-/* Free a whole flax, calling the specified callback in order to
- * free the auxiliary data. */
-void flaxFreeWithCallback(flax *f, void (*free_callback)(void *)) {
     if (!f) return;
-    if (free_callback && f->data && f->numele > 0) {
-        void **vals = flax_values(f);
-        for (uint32_t i = 0; i < f->numele; i++)
-            free_callback(vals[i]);
-    }
     flax_free(f->data);
     flax_free(f);
 }
 
 /* Free a whole flax, calling the specified callback with a context
  * argument in order to free the auxiliary data. */
-void flaxFreeWithCbAndContext(flax *f,
-                              void (*free_callback)(void *item, void *ctx),
-                              void *ctx) {
+void flaxFreeWithCallback(flax *f,
+                          void (*free_callback)(void *item, void *ctx),
+                          void *ctx) {
     if (!f) return;
     if (free_callback && f->data && f->numele > 0) {
         void **vals = flax_values(f);
@@ -331,7 +297,8 @@ size_t flaxAllocSize(flax *f) {
 }
 
 /* Shrink the internal storage to fit the current number of elements,
- * releasing unused memory. */
+ * releasing unused memory. No-op when the flax is empty (the caller should
+ * flaxFree() the whole structure instead) or already at exact capacity. */
 void flaxShrink(flax *f) {
     if (f->numele > 0 && f->numele < f->capacity)
         flax_resize(f, f->numele);
@@ -448,6 +415,7 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
         return 1;
     }
 
+    assert(0 && "flaxSeek: unrecognized op");
     it->idx = -1;
     it->key = 0;
     it->data = NULL;
@@ -483,7 +451,7 @@ int flaxPrev(flaxIterator *it) {
     return 1;
 }
 
-/* Free the iterator. */
+/* Stop the iterator (no-op, included for API symmetry with rax). */
 void flaxStop(flaxIterator *it) {
     (void)it;
 }
@@ -500,7 +468,6 @@ int flaxEOF(flaxIterator *it) {
 
 #ifdef REDIS_TEST
 #include "testhelp.h"
-#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -517,7 +484,8 @@ int flaxEOF(flaxIterator *it) {
 
 static int flax_test_free_count;
 
-static void flax_test_counting_free(void *p) {
+static void flax_test_counting_free(void *p, void *ctx) {
+    (void)ctx;
     flax_test_free_count++;
     flax_free(p);
 }
@@ -692,7 +660,7 @@ int flaxTest(int argc, char **argv, int flags) {
             }
         }
 
-        flaxFreeWithCallback(a, flax_free);
+        flaxFreeWithCallback(a, flax_test_counting_free, NULL);
     }
 
     TEST("shrink after many removals") {
@@ -730,7 +698,7 @@ int flaxTest(int argc, char **argv, int flags) {
             snprintf(s, 8, "str%d", i);
             flaxInsert(a, i, s, NULL);
         }
-        flaxFreeWithCallback(a, flax_test_counting_free);
+        flaxFreeWithCallback(a, flax_test_counting_free, NULL);
         if (flax_test_free_count != 5) {
             ERR("freeWithCallback: expected 5 frees, got %d",
                 flax_test_free_count);
@@ -740,7 +708,7 @@ int flaxTest(int argc, char **argv, int flags) {
     TEST("flaxFreeWithCallback on empty flax") {
         flax_test_free_count = 0;
         flax *a = flaxNew();
-        flaxFreeWithCallback(a, flax_test_counting_free);
+        flaxFreeWithCallback(a, flax_test_counting_free, NULL);
         if (flax_test_free_count != 0) {
             ERR("freeWithCallback empty: expected 0 frees, got %d",
                 flax_test_free_count);
@@ -888,17 +856,249 @@ int flaxTest(int argc, char **argv, int flags) {
         flaxFree(a);
     }
 
-    TEST("flaxFreeWithCbAndContext") {
+    TEST("flaxFreeWithCallback") {
         int ctx_free_count = 0;
         flax *a = flaxNew();
         flaxInsert(a, 1, "one", NULL);
         flaxInsert(a, 2, "two", NULL);
         flaxInsert(a, 3, "three", NULL);
-        flaxFreeWithCbAndContext(a, flax_test_ctx_free, &ctx_free_count);
+        flaxFreeWithCallback(a, flax_test_ctx_free, &ctx_free_count);
         if (ctx_free_count != 3) {
-            ERR("freeWithCbAndContext: expected 3 frees, got %d",
+            ERR("freeWithCallback: expected 3 frees, got %d",
                 ctx_free_count);
         }
+    }
+
+    TEST("iterator seek >") {
+        flax *a = flaxNew();
+        flaxInsert(a, 10, "ten", NULL);
+        flaxInsert(a, 20, "twenty", NULL);
+        flaxInsert(a, 30, "thirty", NULL);
+        flaxInsert(a, 40, "forty", NULL);
+
+        flaxIterator it;
+        flaxStart(&it, a);
+
+        /* ">" on existing key skips to the next one. */
+        assert(flaxSeek(&it, ">", 20));
+        assert(it.key == 30);
+
+        /* ">" on non-existing key lands on the first key greater. */
+        assert(flaxSeek(&it, ">", 25));
+        assert(it.key == 30);
+
+        /* ">" on a key smaller than all elements returns the first. */
+        assert(flaxSeek(&it, ">", 5));
+        assert(it.key == 10);
+
+        /* ">" on the largest key returns EOF. */
+        assert(flaxSeek(&it, ">", 40) == 0);
+        assert(flaxEOF(&it) == 1);
+
+        /* ">" on a key beyond all elements returns EOF. */
+        assert(flaxSeek(&it, ">", 50) == 0);
+        assert(flaxEOF(&it) == 1);
+
+        flaxStop(&it);
+        flaxFree(a);
+    }
+
+    TEST("iterator seek <=") {
+        flax *a = flaxNew();
+        flaxInsert(a, 10, "ten", NULL);
+        flaxInsert(a, 20, "twenty", NULL);
+        flaxInsert(a, 30, "thirty", NULL);
+        flaxInsert(a, 40, "forty", NULL);
+
+        flaxIterator it;
+        flaxStart(&it, a);
+
+        /* "<=" on existing key lands on that key. */
+        assert(flaxSeek(&it, "<=", 20));
+        assert(it.key == 20);
+
+        /* "<=" on non-existing key lands on the greatest smaller key. */
+        assert(flaxSeek(&it, "<=", 25));
+        assert(it.key == 20);
+
+        /* "<=" on the largest key lands on it. */
+        assert(flaxSeek(&it, "<=", 40));
+        assert(it.key == 40);
+
+        /* "<=" on a key beyond all elements lands on the last. */
+        assert(flaxSeek(&it, "<=", 100));
+        assert(it.key == 40);
+
+        /* "<=" on a key smaller than all returns EOF. */
+        assert(flaxSeek(&it, "<=", 5) == 0);
+        assert(flaxEOF(&it) == 1);
+
+        flaxStop(&it);
+        flaxFree(a);
+    }
+
+    TEST("iterator seek <") {
+        flax *a = flaxNew();
+        flaxInsert(a, 10, "ten", NULL);
+        flaxInsert(a, 20, "twenty", NULL);
+        flaxInsert(a, 30, "thirty", NULL);
+        flaxInsert(a, 40, "forty", NULL);
+
+        flaxIterator it;
+        flaxStart(&it, a);
+
+        /* "<" on existing key lands on the previous one. */
+        assert(flaxSeek(&it, "<", 20));
+        assert(it.key == 10);
+
+        /* "<" on non-existing key lands on the greatest smaller key. */
+        assert(flaxSeek(&it, "<", 25));
+        assert(it.key == 20);
+
+        /* "<" on a key beyond all elements lands on the last. */
+        assert(flaxSeek(&it, "<", 100));
+        assert(it.key == 40);
+
+        /* "<" on the smallest key returns EOF. */
+        assert(flaxSeek(&it, "<", 10) == 0);
+        assert(flaxEOF(&it) == 1);
+
+        /* "<" on a key smaller than all returns EOF. */
+        assert(flaxSeek(&it, "<", 5) == 0);
+        assert(flaxEOF(&it) == 1);
+
+        flaxStop(&it);
+        flaxFree(a);
+    }
+
+    TEST("iterator seek =") {
+        flax *a = flaxNew();
+        flaxInsert(a, 10, "ten", NULL);
+        flaxInsert(a, 20, "twenty", NULL);
+        flaxInsert(a, 30, "thirty", NULL);
+
+        flaxIterator it;
+        flaxStart(&it, a);
+
+        /* "=" on existing key succeeds. */
+        assert(flaxSeek(&it, "=", 20));
+        assert(it.key == 20);
+        assert(strcmp(it.data, "twenty") == 0);
+
+        /* "=" on first key. */
+        assert(flaxSeek(&it, "=", 10));
+        assert(it.key == 10);
+
+        /* "=" on last key. */
+        assert(flaxSeek(&it, "=", 30));
+        assert(it.key == 30);
+
+        /* "=" on non-existing key returns EOF. */
+        assert(flaxSeek(&it, "=", 15) == 0);
+        assert(flaxEOF(&it) == 1);
+
+        assert(flaxSeek(&it, "=", 0) == 0);
+        assert(flaxSeek(&it, "=", 255) == 0);
+
+        flaxStop(&it);
+        flaxFree(a);
+    }
+
+    TEST("flaxAllocSize tracks allocations") {
+        flax *a = flaxNew();
+        size_t sz0 = flaxAllocSize(a);
+        assert(sz0 > 0);
+
+        for (int i = 0; i < 64; i++)
+            flaxInsert(a, (uint8_t)i, "x", NULL);
+
+        size_t sz1 = flaxAllocSize(a);
+        assert(sz1 >= sz0);
+
+        flaxShrink(a);
+        size_t sz2 = flaxAllocSize(a);
+        assert(sz2 <= sz1);
+        assert(sz2 > 0);
+
+        assert(flaxAllocSize(NULL) == 0);
+
+        flaxFree(a);
+    }
+
+    TEST("flaxFree and flaxFreeWithCallback on NULL") {
+        flaxFree(NULL);
+        flaxFreeWithCallback(NULL, flax_test_counting_free, NULL);
+    }
+
+    TEST("flaxFind and flaxRemove on NULL flax") {
+        void *val;
+        assert(flaxFind(NULL, 42, &val) == 0);
+        assert(val == NULL);
+        assert(flaxRemove(NULL, 42, &val) == 0);
+        assert(val == NULL);
+    }
+
+    TEST("flaxTryInsert with old=NULL on duplicate") {
+        flax *a = flaxNew();
+        assert(flaxTryInsert(a, 10, "ten", NULL) == 1);
+        assert(flaxTryInsert(a, 10, "new_ten", NULL) == 0);
+        assert(flaxSize(a) == 1);
+
+        void *val;
+        assert(flaxFind(a, 10, &val) == 1);
+        assert(strcmp(val, "ten") == 0);
+
+        flaxFree(a);
+    }
+
+    TEST("iterator seek with boundary keys 0 and 255") {
+        flax *a = flaxNew();
+        flaxInsert(a, 0, "zero", NULL);
+        flaxInsert(a, 128, "mid", NULL);
+        flaxInsert(a, 255, "max", NULL);
+
+        flaxIterator it;
+        flaxStart(&it, a);
+
+        assert(flaxSeek(&it, ">=", 0));
+        assert(it.key == 0);
+        assert(flaxSeek(&it, ">=", 255));
+        assert(it.key == 255);
+
+        assert(flaxSeek(&it, ">", 0));
+        assert(it.key == 128);
+        assert(flaxSeek(&it, ">", 255) == 0);
+
+        assert(flaxSeek(&it, "<=", 255));
+        assert(it.key == 255);
+        assert(flaxSeek(&it, "<=", 0));
+        assert(it.key == 0);
+
+        assert(flaxSeek(&it, "<", 255));
+        assert(it.key == 128);
+        assert(flaxSeek(&it, "<", 0) == 0);
+
+        assert(flaxSeek(&it, "=", 0));
+        assert(it.key == 0);
+        assert(flaxSeek(&it, "=", 255));
+        assert(it.key == 255);
+
+        flaxStop(&it);
+        flaxFree(a);
+    }
+
+    TEST("iterator seek on empty flax all operators") {
+        flax *a = flaxNew();
+        flaxIterator it;
+        flaxStart(&it, a);
+
+        assert(flaxSeek(&it, ">", 42) == 0);
+        assert(flaxSeek(&it, "<=", 42) == 0);
+        assert(flaxSeek(&it, "<", 42) == 0);
+        assert(flaxSeek(&it, "=", 42) == 0);
+
+        flaxStop(&it);
+        flaxFree(a);
     }
 
     if (!err)

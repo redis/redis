@@ -101,7 +101,7 @@ void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx) {
         flax *f = ri.data;
         if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
         if (nack_free)
-            flaxFreeWithCbAndContext(f, nack_free, ctx);
+            flaxFreeWithCallback(f, nack_free, ctx);
         else
             flaxFree(f);
     }

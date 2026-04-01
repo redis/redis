@@ -25,7 +25,8 @@
  *  | *data  ----------->  | keys[0..cap-1]   (uint8_t)         |
  *  | numele     |         +-- aligned to sizeof(void*) --------+
  *  | capacity   |         | values[0..cap-1]  (void*)          |
- *  +------------+         +------------------------------------+
+ *  | alloc_size |         +------------------------------------+
+ *  +------------+
  *
  * Keys are maintained in ascending sorted order. Only the first 'numele'
  * slots in each array contain live data; the remainder up to 'capacity'
@@ -59,7 +60,10 @@ typedef struct flax {
  *
  * After flaxStart() the iterator is in EOF state until a successful
  * flaxSeek(). The iterator does not allocate heap memory, so flaxStop()
- * is a no-op included for API symmetry with rax. */
+ * is a no-op included for API symmetry with rax.
+ *
+ * WARNING: the iterator is invalidated by any mutation (insert / remove /
+ * resize) on the underlying flax.  Do not modify the flax while iterating. */
 typedef struct flaxIterator {
     flax *f;             /* Flax we are iterating. */
     uint8_t key;         /* The current key. */
@@ -68,13 +72,11 @@ typedef struct flaxIterator {
 } flaxIterator;
 
 /* --- Creation and destruction --- */
-flax *flaxNewWithCapacity(uint32_t capacity);
 flax *flaxNew(void);
 void flaxFree(flax *f);
-void flaxFreeWithCallback(flax *f, void (*free_callback)(void *));
-void flaxFreeWithCbAndContext(flax *f,
-                              void (*free_callback)(void *item, void *ctx),
-                              void *ctx);
+void flaxFreeWithCallback(flax *f,
+                          void (*free_callback)(void *item, void *ctx),
+                          void *ctx);
 
 /* --- Lookup and mutation --- */
 int flaxInsert(flax *f, uint8_t key, void *data, void **old);
