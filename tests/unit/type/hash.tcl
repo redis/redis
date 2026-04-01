@@ -406,6 +406,42 @@ start_server {tags {"hash"}} {
         set _ $err
     } {}
 
+    test {HMGET with duplicate fields in argv - listpack} {
+        r del myhash
+        r hset myhash f1 v1 f2 v2 f3 v3
+        assert_encoding listpack myhash
+        assert_equal {v1 v1} [r hmget myhash f1 f1]
+        assert_equal {{} {}} [r hmget myhash missing missing]
+        assert_equal {v2 {} v2} [r hmget myhash f2 missing f2]
+    }
+
+    test {HMGET with duplicate fields in argv - hashtable} {
+        r del myhash
+        for {set i 0} {$i < 520} {incr i} {r hset myhash "field$i" "val$i"}
+        assert_encoding hashtable myhash
+        assert_equal {val0 val0} [r hmget myhash field0 field0]
+        assert_equal {{} {}} [r hmget myhash missing missing]
+        assert_equal {val5 {} val5} [r hmget myhash field5 missing field5]
+    }
+
+    test {HMGET with integer-encoded field names - listpack} {
+        r del myhash
+        r hset myhash 100 val100 200 val200 300 val300 hello world
+        assert_encoding listpack myhash
+        assert_equal {val100 val300 {}} [r hmget myhash 100 300 999]
+        assert_equal {{} val200} [r hmget myhash 999 200]
+        assert_equal {world val100} [r hmget myhash hello 100]
+    }
+
+    test {HMGET with mix of found and not-found fields - listpack} {
+        r del myhash
+        r hset myhash a 1 b 2 c 3 d 4 e 5
+        assert_encoding listpack myhash
+        assert_equal {1 {} 3 {} 5} [r hmget myhash a missing1 c missing2 e]
+        assert_equal {{} 2 {} 4 {}} [r hmget myhash x b y d z]
+        assert_equal {{} {} {} {}} [r hmget myhash w x y z]
+    }
+
     test {HKEYS - small hash} {
         lsort [r hkeys smallhash]
     } [lsort [array names smallhash *]]
