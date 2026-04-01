@@ -1,4 +1,4 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.0.0)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 
 OPTION(BUILD_SHARED_LIBS "Build shared libraries" ON)
 OPTION(ENABLE_SSL "Build hiredis_ssl for SSL support" OFF)
@@ -118,9 +118,7 @@ INSTALL(DIRECTORY adapters
 INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/hiredis.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
-export(EXPORT hiredis-targets
-    FILE "${CMAKE_CURRENT_BINARY_DIR}/hiredis-targets.cmake"
-    NAMESPACE hiredis::)
+
 
 if(WIN32)
     SET(CMAKE_CONF_INSTALL_DIR share/hiredis)
@@ -135,10 +133,7 @@ configure_package_config_file(hiredis-config.cmake.in ${CMAKE_CURRENT_BINARY_DIR
                               INSTALL_DESTINATION ${CMAKE_CONF_INSTALL_DIR}
                               PATH_VARS INCLUDE_INSTALL_DIR)
 
-INSTALL(EXPORT hiredis-targets
-        FILE hiredis-targets.cmake
-        NAMESPACE hiredis::
-        DESTINATION ${CMAKE_CONF_INSTALL_DIR})
+
 
 INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/hiredis-config.cmake
               ${CMAKE_CURRENT_BINARY_DIR}/hiredis-config-version.cmake
@@ -193,9 +188,7 @@ IF(ENABLE_SSL)
     INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/hiredis_ssl.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
-    export(EXPORT hiredis_ssl-targets
-           FILE "${CMAKE_CURRENT_BINARY_DIR}/hiredis_ssl-targets.cmake"
-           NAMESPACE hiredis::)
+    
 
     if(WIN32)
         SET(CMAKE_CONF_INSTALL_DIR share/hiredis_ssl)
@@ -206,10 +199,7 @@ IF(ENABLE_SSL)
                                   INSTALL_DESTINATION ${CMAKE_CONF_INSTALL_DIR}
                                   PATH_VARS INCLUDE_INSTALL_DIR)
 
-    INSTALL(EXPORT hiredis_ssl-targets
-        FILE hiredis_ssl-targets.cmake
-        NAMESPACE hiredis::
-        DESTINATION ${CMAKE_CONF_INSTALL_DIR})
+    
 
     INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/hiredis_ssl-config.cmake
         DESTINATION ${CMAKE_CONF_INSTALL_DIR})
