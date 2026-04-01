@@ -231,7 +231,7 @@ void pelFreeShallow(rax *pel);
 int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count);
 int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count);
 void pelReplace(rax *pel, streamID *id, streamNACK *nack);
-streamNACK *pelFind(rax *pel, streamID *id);
+int pelFind(rax *pel, streamID *id, streamNACK **nack);
 streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count);
 
 void pelIterStart(pelIterator *pi, rax *pel);

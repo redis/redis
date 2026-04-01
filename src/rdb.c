@@ -3362,8 +3362,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                     streamID nack_id;
                     streamDecodeID(rawid, &nack_id);
-                    streamNACK *nack = pelFind(cgroup->pel, &nack_id);
-                    if (!nack) {
+                    streamNACK *nack;
+                    if (!pelFind(cgroup->pel, &nack_id, &nack)) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
                         decrRefCount(o);

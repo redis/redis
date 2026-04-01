@@ -204,15 +204,16 @@ void pelReplace(rax *pel, streamID *id, streamNACK *nack) {
     flaxInsert(f, pelFlaxKey(id->seq), nack, NULL);
 }
 
-/* Find a NACK by streamID. Returns NULL if not found. */
-streamNACK *pelFind(rax *pel, streamID *id) {
+/* Find a NACK by streamID. Returns 1 if found (setting *nack), 0 if not. */
+int pelFind(rax *pel, streamID *id, streamNACK **nack) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, id->ms, id->seq);
     flax *f = pelResolveFlax(pel, keybuf, 0, NULL);
-    if (!f) return NULL;
+    if (!f) return 0;
     void *val;
-    if (!flaxFind(f, pelFlaxKey(id->seq), &val)) return NULL;
-    return (streamNACK *)val;
+    if (!flaxFind(f, pelFlaxKey(id->seq), &val)) return 0;
+    if (nack) *nack = (streamNACK *)val;
+    return 1;
 }
 
 /* Remove a NACK by streamID. Returns the removed NACK or NULL. */
@@ -610,8 +611,9 @@ robj *streamDup(robj *o) {
             pelIterSeek(&pi_cpel, "^", NULL);
             while (pelIterNext(&pi_cpel)) {
                 streamID cpel_id = pi_cpel.id;
-                streamNACK *new_nack = pelFind(new_cg->pel, &cpel_id);
-                serverAssert(new_nack);
+                streamNACK *new_nack;
+                int found = pelFind(new_cg->pel, &cpel_id, &new_nack);
+                serverAssert(found);
                 new_nack->consumer = new_consumer;
                 pelInsert(new_consumer->pel, &cpel_id, new_nack, &new_consumer->pel_count);
             }
@@ -2479,8 +2481,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * or update it if the consumer is the same as before. */
             if (group_inserted == 0) {
                 streamFreeNACK(s,nack);
-                nack = pelFind(group->pel, &id);
-                serverAssert(nack);
+                int found = pelFind(group->pel, &id, &nack);
+                serverAssert(found);
                 /* Only transfer between consumers if they're different */
                 if (nack->consumer != consumer) {
                     pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
@@ -3421,8 +3423,8 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         streamNACK *nack;
         streamCG *group = listNodeValue(ln);
 
-        nack = pelFind(group->pel, id);
-        serverAssert(nack);
+        int found = pelFind(group->pel, id, &nack);
+        serverAssert(found);
 
         pelListUnlink(group, nack);
         pelRemove(group->pel, id, &group->pel_count);
@@ -4067,8 +4069,8 @@ void xackCommand(client *c) {
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
-        streamNACK *nack = pelFind(group->pel, &ids[j-3]);
-        if (nack) {
+        streamNACK *nack;
+        if (pelFind(group->pel, &ids[j-3], &nack)) {
             pelListUnlink(group, nack);
             pelRemove(group->pel, &ids[j-3], &group->pel_count);
             pelRemove(nack->consumer->pel, &ids[j-3], &nack->consumer->pel_count);
@@ -4142,8 +4144,8 @@ void xackdelCommand(client *c) {
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
-        streamNACK *nack = pelFind(group->pel, id);
-        if (nack) {
+        streamNACK *nack;
+        if (pelFind(group->pel, id, &nack)) {
             pelListUnlink(group, nack);
             pelRemove(group->pel, id, &group->pel_count);
             pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
@@ -4567,12 +4569,13 @@ void xclaimCommand(client *c) {
         streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL. */
-        streamNACK *nack = pelFind(group->pel, &id);
+        streamNACK *nack = NULL;
+        int nack_found = pelFind(group->pel, &id, &nack);
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
-            if (nack != NULL) {
+            if (nack_found) {
                 /* Propagate this change (we are going to delete the NACK). */
                 streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                 propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
@@ -4591,7 +4594,7 @@ void xclaimCommand(client *c) {
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
-        if (force && nack == NULL) {
+        if (force && !nack_found) {
             /* Create the NACK. */
             nack = streamCreateNACK(s, NULL, &id);
             pelInsert(group->pel, &id, nack, &group->pel_count);
