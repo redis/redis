@@ -3361,9 +3361,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         decrRefCount(o);
                         return NULL;
                     }
-                    streamID cpel_id;
-                    streamDecodeID(rawid, &cpel_id);
-                    streamNACK *nack = pelFind(cgroup->pel, &cpel_id);
+                    streamID nack_id;
+                    streamDecodeID(rawid, &nack_id);
+                    streamNACK *nack = pelFind(cgroup->pel, &nack_id);
                     if (!nack) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
@@ -3375,7 +3375,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    if (!pelTryInsert(consumer->pel,&cpel_id,nack,&consumer->pel_count)) {
+                    if (!pelTryInsert(consumer->pel,&nack_id,nack,&consumer->pel_count)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
@@ -3387,19 +3387,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             /* Verify that each PEL eventually got a consumer assigned to it. */
             if (deep_integrity_validation) {
-                pelIterator pi_cg_pel;
-                pelIterStart(&pi_cg_pel,cgroup->pel);
-                if (pelIterSeek(&pi_cg_pel,"^",NULL)) {
+                pelIterator pi_cg;
+                pelIterStart(&pi_cg,cgroup->pel);
+                if (pelIterSeek(&pi_cg,"^",NULL)) {
                     do {
-                        if (!pi_cg_pel.nack->consumer) {
-                            pelIterStop(&pi_cg_pel);
+                        if (!pi_cg.nack->consumer) {
+                            pelIterStop(&pi_cg);
                             rdbReportCorruptRDB("Stream CG PEL entry without consumer");
                             decrRefCount(o);
                             return NULL;
                         }
-                    } while (pelIterNext(&pi_cg_pel));
+                    } while (pelIterNext(&pi_cg));
                 }
-                pelIterStop(&pi_cg_pel);
+                pelIterStop(&pi_cg);
             }
         }
 
