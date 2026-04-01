@@ -1335,14 +1335,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
     mem_total += mh->clients_normal;
 
-    /* Compute the total bytes of referenced reply data. */
-    atomicGet(server.stat_clients_memory_ref, mh->clients_ref);
-    mem_total += mh->clients_ref;
-
     /* Scan clients_with_pending_ref_reply for objects whose only remaining
      * reference is held by a client output buffer (refcount == 1), i.e. the
      * key has been deleted from the keyspace. */
-    mh->clients_orphan_ref = getClientsOrphanRefMemoryUsage();
+    getClientsRefMemoryUsage(&mh->clients_ref, &mh->clients_orphan_ref);
 
     mh->cluster_links = server.stat_cluster_links_memory;
     mem_total += mh->cluster_links;

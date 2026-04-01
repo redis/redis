@@ -382,7 +382,6 @@ static int tryAddPayload(client *c, char *buf, size_t *used, size_t size, uint8_
         const bulkStrRef *str_ref = (const bulkStrRef *)payload;
         size_t refbytes = sdslen(str_ref->obj->ptr);
         c->reply_bytes_ref += refbytes;
-        atomicIncr(server.stat_clients_memory_ref, refbytes);
     }
 
     return 1;
@@ -1971,17 +1970,17 @@ static size_t computeOrphanRefBytes(char *buf, size_t bufpos) {
 
 /* Compute the total bytes of zero-copy referenced reply data where the client
  * buffer holds the last remaining reference (refcount == 1). */
-size_t getClientsOrphanRefMemoryUsage(void) {
-    size_t total = 0;
+void getClientsRefMemoryUsage(size_t *clients_ref, size_t *clients_orphan_ref) {
     listNode *ln;
     listIter li;
     listRewind(server.clients_with_pending_ref_reply, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+        *clients_ref += c->reply_bytes_ref;
 
         /* Scan the static output buffer. */
         if (c->buf_encoded)
-            total += computeOrphanRefBytes(c->buf, c->bufpos);
+            *clients_orphan_ref += computeOrphanRefBytes(c->buf, c->bufpos);
 
         /* Scan each block in the reply list. */
         listIter reply_li;
@@ -1990,10 +1989,9 @@ size_t getClientsOrphanRefMemoryUsage(void) {
         while ((reply_ln = listNext(&reply_li))) {
             clientReplyBlock *block = listNodeValue(reply_ln);
             if (block->buf_encoded)
-                total += computeOrphanRefBytes(block->buf, block->used);
+                *clients_orphan_ref += computeOrphanRefBytes(block->buf, block->used);
         }
     }
-    return total;
 }
 
 /* Clear the client state to resemble a newly connected client. */
@@ -2092,7 +2090,6 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             if (str_ref->obj != NULL) {
                 size_t refbytes = sdslen(str_ref->obj->ptr);
                 c->reply_bytes_ref -= refbytes;
-                atomicDecr(server.stat_clients_memory_ref, refbytes);
                 if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
                 else
@@ -2239,7 +2236,6 @@ void freeClient(client *c) {
     if (c->conn) {
         server.stat_clients_type_memory[c->last_memory_type] -=
             c->last_memory_usage;
-        atomicDecr(server.stat_clients_memory_ref, c->reply_bytes_ref);
     }
 
     /* Unlink the client: this will close the socket, remove the I/O
@@ -2513,7 +2509,6 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
             *remaining -= (writen_len - *sentlen);
             size_t refbytes = sdslen(str_ref->obj->ptr);
             c->reply_bytes_ref -= refbytes;
-            atomicDecr(server.stat_clients_memory_ref, refbytes);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
             } else {
