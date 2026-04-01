@@ -1691,7 +1691,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,34+mh->num_dbs);
+        addReplyMapLen(c,35+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
