@@ -1335,9 +1335,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
     mem_total += mh->clients_normal;
 
-    /* Scan clients_with_pending_ref_reply for objects whose only remaining
-     * reference is held by a client output buffer (refcount == 1), i.e. the
-     * key has been deleted from the keyspace. */
+    /* Compute zero-copy ref memory usage. */
     getClientsRefMemoryUsage(&mh->clients_ref, &mh->clients_orphan_ref);
 
     mh->cluster_links = server.stat_cluster_links_memory;

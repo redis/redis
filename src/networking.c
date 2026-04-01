@@ -380,8 +380,7 @@ static int tryAddPayload(client *c, char *buf, size_t *used, size_t size, uint8_
     /* Track referenced reply bytes for copy avoidance. */
     if (type == BULK_STR_REF) {
         const bulkStrRef *str_ref = (const bulkStrRef *)payload;
-        size_t refbytes = sdslen(str_ref->obj->ptr);
-        c->reply_bytes_ref += refbytes;
+        c->reply_bytes_ref += sdslen(str_ref->obj->ptr);
     }
 
     return 1;
@@ -1968,8 +1967,8 @@ static size_t computeOrphanRefBytes(char *buf, size_t bufpos) {
     return total;
 }
 
-/* Compute the total bytes of zero-copy referenced reply data where the client
- * buffer holds the last remaining reference (refcount == 1). */
+/* Compute zero-copy ref memory: total referenced reply bytes and the subset where the key
+ * has been deleted and the client buffer is the sole holder. */
 void getClientsRefMemoryUsage(size_t *clients_ref, size_t *clients_orphan_ref) {
     listNode *ln;
     listIter li;
@@ -2088,8 +2087,7 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             bulkStrRef *str_ref = (bulkStrRef *)ptr;
             /* Only release if not already released. */
             if (str_ref->obj != NULL) {
-                size_t refbytes = sdslen(str_ref->obj->ptr);
-                c->reply_bytes_ref -= refbytes;
+                c->reply_bytes_ref -= sdslen(str_ref->obj->ptr);
                 if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
                 else
@@ -2233,10 +2231,9 @@ void freeClient(client *c) {
 
     /* Remove the contribution that this client gave to our
      * incrementally computed memory usage. */
-    if (c->conn) {
+    if (c->conn)
         server.stat_clients_type_memory[c->last_memory_type] -=
             c->last_memory_usage;
-    }
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -2507,8 +2504,7 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
                 return head;
             }
             *remaining -= (writen_len - *sentlen);
-            size_t refbytes = sdslen(str_ref->obj->ptr);
-            c->reply_bytes_ref -= refbytes;
+            c->reply_bytes_ref -= sdslen(str_ref->obj->ptr);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
             } else {
@@ -5167,7 +5163,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
      * to the strings themselves because they aren't stored per client. */
     mem += pubsubMemOverhead(c);
-    
+
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
     if (c->client_tracking_prefixes)
         mem += c->client_tracking_prefixes->numnodes * (sizeof(raxNode) * sizeof(raxNode*));
