@@ -124,7 +124,7 @@ else()
 #define SIGKILL 9
 #endif
 #ifndef SIGBUS
-#define SIGBUS 10
+#define SIGBUS 7
 #endif
 #ifndef SI_USER
 #define SI_USER 0
@@ -308,6 +308,7 @@ file(WRITE "${CMAKE_BINARY_DIR}/patched/src/redis-benchmark.c" "${CONTENT}")
 
 file(READ src/evict.c CONTENT)
 string(REPLACE "dictEntry *samples[server.maxmemory_samples];" "dictEntry **samples = _alloca(sizeof(dictEntry*) * server.maxmemory_samples);" CONTENT "${CONTENT}")
+string(REPLACE "void *samples[server.maxmemory_samples];" "void **samples = _alloca(sizeof(void*) * server.maxmemory_samples);" CONTENT "${CONTENT}")
 file(WRITE "${CMAKE_BINARY_DIR}/patched/src/evict.c" "${CONTENT}")
 
 file(READ src/networking.c CONTENT)
@@ -351,9 +352,7 @@ string(REPLACE "(unsigned long)&VM_" "(size_t)&VM_" CONTENT "${CONTENT}")
 string(REPLACE "(unsigned long)dlsym" "(size_t)dlsym" CONTENT "${CONTENT}")
 file(WRITE "${CMAKE_BINARY_DIR}/patched/src/module.c" "${CONTENT}")
 
-file(READ src/evict.c CONTENT)
-string(REPLACE "void *samples[server.maxmemory_samples];" "void **samples = _alloca(sizeof(void*) * server.maxmemory_samples);" CONTENT "${CONTENT}")
-file(WRITE "${CMAKE_BINARY_DIR}/patched/src/evict.c" "${CONTENT}")
+
 
 file(READ src/logreqres.c CONTENT)
 string(REPLACE "\ninline " "\n" CONTENT "${CONTENT}")
@@ -521,22 +520,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/atomicvar.h")
 endif()
 
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/src/zmalloc.c")
-    file(READ "${CMAKE_SOURCE_DIR}/src/zmalloc.c" ZMALLOC_CONTENT)
-    set(INJECT_Z "
-#include <intrin.h>
-static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) {
-    __int64 old_val = _InterlockedCompareExchange64(var, desired, *expected_var);
-    if (old_val == *expected_var) return 1;
-    *expected_var = old_val;
-    return 0;
-}
-")
-    string(REGEX REPLACE "atomicCompareExchange\(size_t, zmalloc_peak, old_peak, used_mem\)" "msvc_atomicCompareExchange64((__int64 volatile *)(&zmalloc_peak), (__int64 *)&old_peak, (__int64)used_mem)" ZMALLOC_CONTENT "${ZMALLOC_CONTENT}")
-    set(ZMALLOC_CONTENT "${INJECT_Z}
-${ZMALLOC_CONTENT}")
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/zmalloc.c" "${ZMALLOC_CONTENT}")
-endif()
+
 
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/sdsalloc.h")
@@ -558,22 +542,7 @@ endif()
 
 # POST-PATCH FIXES
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/src/zmalloc.c")
-    file(READ "${CMAKE_SOURCE_DIR}/src/zmalloc.c" ZMALLOC_CONTENT)
-    set(INJECT_Z "
-#include <intrin.h>
-static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) {
-    __int64 old_val = _InterlockedCompareExchange64(var, desired, *expected_var);
-    if (old_val == *expected_var) return 1;
-    *expected_var = old_val;
-    return 0;
-}
-")
-    string(REGEX REPLACE "atomicCompareExchange\(size_t, zmalloc_peak, old_peak, used_mem\)" "msvc_atomicCompareExchange64((__int64 volatile *)(&zmalloc_peak), (__int64 *)&old_peak, (__int64)used_mem)" ZMALLOC_CONTENT "${ZMALLOC_CONTENT}")
-    set(ZMALLOC_CONTENT "${INJECT_Z}
-${ZMALLOC_CONTENT}")
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/zmalloc.c" "${ZMALLOC_CONTENT}")
-endif()
+
 
 if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/mstr.h")
     file(READ "${CMAKE_BINARY_DIR}/patched/src/mstr.h" CONTENT)
@@ -592,11 +561,7 @@ if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/mstr.h")
 endif()
 
 
-if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/evict.c")
-    file(READ "${CMAKE_BINARY_DIR}/patched/src/evict.c" CONTENT)
-    string(REPLACE "dictEntry *samples[server.maxmemory_samples];" "dictEntry **samples = _alloca(sizeof(dictEntry*) * server.maxmemory_samples);" CONTENT "${CONTENT}")
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/evict.c" "${CONTENT}")
-endif()
+
 
 include(RedisSetup)
 
@@ -707,34 +672,20 @@ file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "#define _read posix_read
 int posix_read(int fd, void *buf, unsigned int count);
 int posix_write(int fd, const void *buf, unsigned int count);
 ")
-file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define _close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (_InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (_InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (_InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp))\n#define __sync_fetch_and_add(ptr, val) _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val))\n#define __sync_synchronize() _ReadWriteBarrier()\n\n")
+file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define _close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp))\n#define __sync_fetch_and_add(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() _ReadWriteBarrier()\n\n")
+
+
+
+
 
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/zmalloc.c")
     file(READ "${CMAKE_SOURCE_DIR}/src/zmalloc.c" ZMALLOC_CONTENT)
     string(REGEX REPLACE "atomicCompareExchange\\(size_t, zmalloc_peak, old_peak, used_mem\\)" "msvc_atomicCompareExchange64((__int64 volatile *)(&zmalloc_peak), (__int64 *)&old_peak, (__int64)used_mem)" ZMALLOC_CONTENT "${ZMALLOC_CONTENT}")
-    
+
     set(INJECT_Z "
 #include <intrin.h>
-static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) {
-    __int64 old_val = _InterlockedCompareExchange64(var, desired, *expected_var);
-    if (old_val == *expected_var) return 1;
-    *expected_var = old_val;
-    return 0;
-}
-")
-    set(ZMALLOC_CONTENT "${INJECT_Z}\n${ZMALLOC_CONTENT}")
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/zmalloc.c" "${ZMALLOC_CONTENT}")
-endif()
-
-
-if(EXISTS "${CMAKE_SOURCE_DIR}/src/zmalloc.c")
-    file(READ "${CMAKE_SOURCE_DIR}/src/zmalloc.c" ZMALLOC_CONTENT)
-    string(REGEX REPLACE "atomicCompareExchange\\(size_t, zmalloc_peak, old_peak, used_mem\\)" "msvc_atomicCompareExchange64((__int64 volatile *)(&zmalloc_peak), (__int64 *)&old_peak, (__int64)used_mem)" ZMALLOC_CONTENT "${ZMALLOC_CONTENT}")
-    
-    set(INJECT_Z "
-#include <intrin.h>
-static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) {
+static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) { 
     __int64 old_val = _InterlockedCompareExchange64(var, desired, *expected_var);
     if (old_val == *expected_var) return 1;
     *expected_var = old_val;

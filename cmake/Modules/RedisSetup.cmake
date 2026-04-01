@@ -109,7 +109,9 @@ macro (redis_build_and_install_bin target sources ld_flags libs link_name)
     endif ()
 
     # Enable all warnings + fail on warning
-    target_compile_options(${target} PRIVATE /W3)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W3)
+    endif()
 
     # Install cli tool and create a redis symbolic link
     redis_install_bin(${target})
