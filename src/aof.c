@@ -2336,23 +2336,23 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 }
                 /* For the current consumer, iterate all the PEL entries
                  * to emit the XCLAIM protocol. */
-                pelIterator pi_pel;
-                pelIterStart(&pi_pel,consumer->pel);
-                if (pelIterSeek(&pi_pel,"^",NULL)) {
+                pelIterator pi;
+                pelIterStart(&pi,consumer->pel);
+                if (pelIterSeek(&pi,"^",NULL)) {
                     do {
-                        streamNACK *nack = pi_pel.nack;
+                        streamNACK *nack = pi.nack;
                         if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
                                                        ri.key_len,consumer,
-                                                       pi_pel.rawkey,nack) == 0)
+                                                       pi.rawkey,nack) == 0)
                         {
-                            pelIterStop(&pi_pel);
+                            pelIterStop(&pi);
                             raxStop(&ri_cons);
                             raxStop(&ri);
                             return 0;
                         }
-                    } while (pelIterNext(&pi_pel));
+                    } while (pelIterNext(&pi));
                 }
-                pelIterStop(&pi_pel);
+                pelIterStop(&pi);
             }
             raxStop(&ri_cons);
         }
