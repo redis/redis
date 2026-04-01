@@ -2595,9 +2595,21 @@ start_server {
             set pending_info [r XPENDING mystream group1 - + 10]
 
             assert_equal [llength $pending_info] 3
-            assert_match {1-0 consumer2 * 2} [lindex $pending_info 0]
-            assert_match {2-0 consumer2 * 2} [lindex $pending_info 1]
-            assert_match {3-0 consumer2 * 2} [lindex $pending_info 2]
+            
+            # Check first message entry
+            assert_equal [lindex $pending_info 0 0] "1-0"
+            assert_equal [lindex $pending_info 0 1] "consumer2"
+            assert_equal [lindex $pending_info 0 3] 2
+            
+            # Check second message entry
+            assert_equal [lindex $pending_info 1 0] "2-0"
+            assert_equal [lindex $pending_info 1 1] "consumer2"
+            assert_equal [lindex $pending_info 1 3] 2
+            
+            # Check third message entry
+            assert_equal [lindex $pending_info 2 0] "3-0"
+            assert_equal [lindex $pending_info 2 1] "consumer2"
+            assert_equal [lindex $pending_info 2 3] 2
         }
 
         test "XREADGROUP CLAIM verify XACK removes messages from CLAIM pool" {
@@ -3094,9 +3106,21 @@ start_server {
             # Verify pending state restored
             set pending_info [r XPENDING mystream group1 - + 10]
             assert_equal [llength $pending_info] 3
-            assert_match {1-0 consumer2 * 2} [lindex $pending_info 0]
-            assert_match {2-0 consumer2 * 2} [lindex $pending_info 1]
-            assert_match {3-0 consumer2 * 2} [lindex $pending_info 2]
+            
+            # Check first message entry
+            assert_equal [lindex $pending_info 0 0] "1-0"
+            assert_equal [lindex $pending_info 0 1] "consumer2"
+            assert_equal [lindex $pending_info 0 3] 2
+
+            # Check second message entry
+            assert_equal [lindex $pending_info 1 0] "2-0"
+            assert_equal [lindex $pending_info 1 1] "consumer2"
+            assert_equal [lindex $pending_info 1 3] 2
+
+            # Check third message entry
+            assert_equal [lindex $pending_info 2 0] "3-0"
+            assert_equal [lindex $pending_info 2 1] "consumer2"
+            assert_equal [lindex $pending_info 2 3] 2
             
             # Verify can still claim after reload
             after 100
@@ -4341,7 +4365,7 @@ start_server {
         assert_equal [lindex $orig_pending 0 1] {}
     }
 
-    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
         # Verify that NACKed entries are correctly emitted during AOF rewrite
         # and fully restored via `debug loadaof`. After rewrite + reload,
         # delivery_counts, unowned status, and NACK zone claim order must
@@ -4559,68 +4583,66 @@ start_server {
         }
     }
 
-    start_server {tags {"repl external:skip"}} {
+    start_server {tags {"repl external:skip" "stream"}} {
         # Verify that XNACK commands replicate correctly to replicas.
         # Tests all three modes (FAIL, FATAL, SILENT) and FORCE option.
         # After wait_for_ofs_sync, the replica's PEL state must match the
         # master's: same delivery_counts, same unowned status.
         test "XNACK replication of modes and FORCE" {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
             start_server {tags {"stream"}} {
-                set master [srv 0 client]
-                set master_host [srv 0 host]
-                set master_port [srv 0 port]
+                set replica [srv 0 client]
 
-                start_server {tags {"stream"}} {
-                    set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
 
-                    $replica replicaof $master_host $master_port
-                    wait_for_sync $replica
+                # Mode replication: FAIL, FATAL, SILENT on consumer-owned entries
+                $master DEL mystream
+                $master XADD mystream 1-0 f v1
+                $master XADD mystream 2-0 f v2
+                $master XADD mystream 3-0 f v3
+                $master XADD mystream 4-0 f v4
+                $master XGROUP CREATE mystream grp 0
+                $master XREADGROUP GROUP grp c1 STREAMS mystream >
+                wait_for_ofs_sync $master $replica
 
-                    # Mode replication: FAIL, FATAL, SILENT on consumer-owned entries
-                    $master DEL mystream
-                    $master XADD mystream 1-0 f v1
-                    $master XADD mystream 2-0 f v2
-                    $master XADD mystream 3-0 f v3
-                    $master XADD mystream 4-0 f v4
-                    $master XGROUP CREATE mystream grp 0
-                    $master XREADGROUP GROUP grp c1 STREAMS mystream >
-                    wait_for_ofs_sync $master $replica
+                $master XNACK mystream grp FAIL IDS 1 1-0
+                $master XNACK mystream grp FATAL IDS 1 3-0
+                $master XNACK mystream grp SILENT IDS 1 4-0
+                wait_for_ofs_sync $master $replica
 
-                    $master XNACK mystream grp FAIL IDS 1 1-0
-                    $master XNACK mystream grp FATAL IDS 1 3-0
-                    $master XNACK mystream grp SILENT IDS 1 4-0
-                    wait_for_ofs_sync $master $replica
+                # Verify replica state matches master
+                set pending [$replica XPENDING mystream grp - + 10]
+                assert_equal [llength $pending] 4
+                assert_equal [lindex $pending 0] {1-0 {} -1 1}
+                assert_match {2-0 c1 * 1} [lindex $pending 1]
+                assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
+                assert_equal [lindex $pending 3] {4-0 {} -1 0}
 
-                    # Verify replica state matches master
-                    set pending [$replica XPENDING mystream grp - + 10]
-                    assert_equal [llength $pending] 4
-                    assert_equal [lindex $pending 0] {1-0 {} -1 1}
-                    assert_match {2-0 c1 * 1} [lindex $pending 1]
-                    assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
-                    assert_equal [lindex $pending 3] {4-0 {} -1 0}
+                # FORCE replication: create PEL entries without prior XREADGROUP
+                $master DEL mystream2
+                $master XADD mystream2 1-0 f v1
+                $master XADD mystream2 2-0 f v2
+                $master XGROUP CREATE mystream2 grp 0
+                wait_for_ofs_sync $master $replica
 
-                    # FORCE replication: create PEL entries without prior XREADGROUP
-                    $master DEL mystream2
-                    $master XADD mystream2 1-0 f v1
-                    $master XADD mystream2 2-0 f v2
-                    $master XGROUP CREATE mystream2 grp 0
-                    wait_for_ofs_sync $master $replica
+                $master XNACK mystream2 grp FAIL IDS 1 1-0 FORCE
+                $master XNACK mystream2 grp FATAL IDS 1 2-0 FORCE
+                wait_for_ofs_sync $master $replica
 
-                    $master XNACK mystream2 grp FAIL IDS 1 1-0 FORCE
-                    $master XNACK mystream2 grp FATAL IDS 1 2-0 FORCE
-                    wait_for_ofs_sync $master $replica
+                set pending [$replica XPENDING mystream2 grp - + 10]
+                assert_equal [llength $pending] 2
 
-                    set pending [$replica XPENDING mystream2 grp - + 10]
-                    assert_equal [llength $pending] 2
-
-                    assert_equal [lindex $pending 0] {1-0 {} -1 0}
-                    assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
-                }
+                assert_equal [lindex $pending 0] {1-0 {} -1 0}
+                assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
             }
         }
     }
 
-    start_server {tags {"repl external:skip"}} {
+    start_server {tags {"repl external:skip" "stream"}} {
         # Verify that reclaim/acknowledge operations on NACKed entries
         # propagate correctly to replicas. Tests four operations:
         #  1. XCLAIM a NACKed entry — replica sees new consumer ownership.
@@ -4630,68 +4652,66 @@ start_server {
         # Each step uses wait_for_ofs_sync to ensure replication completes
         # before reading from the replica.
         test "XNACK reclaim operations propagate correctly to replica" {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
             start_server {tags {"stream"}} {
-                set master [srv 0 client]
-                set master_host [srv 0 host]
-                set master_port [srv 0 port]
+                set replica [srv 0 client]
 
-                start_server {tags {"stream"}} {
-                    set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
 
-                    $replica replicaof $master_host $master_port
-                    wait_for_sync $replica
+                $master DEL mystream
+                $master XADD mystream 1-0 f v1
+                $master XADD mystream 2-0 f v2
+                $master XADD mystream 3-0 f v3
+                $master XGROUP CREATE mystream grp 0
+                $master XREADGROUP GROUP grp c1 STREAMS mystream >
+                wait_for_ofs_sync $master $replica
 
-                    $master DEL mystream
-                    $master XADD mystream 1-0 f v1
-                    $master XADD mystream 2-0 f v2
-                    $master XADD mystream 3-0 f v3
-                    $master XGROUP CREATE mystream grp 0
-                    $master XREADGROUP GROUP grp c1 STREAMS mystream >
-                    wait_for_ofs_sync $master $replica
+                $master XNACK mystream grp FAIL IDS 2 1-0 2-0
+                wait_for_ofs_sync $master $replica
 
-                    $master XNACK mystream grp FAIL IDS 2 1-0 2-0
-                    wait_for_ofs_sync $master $replica
+                # 1. XCLAIM a NACKed entry: replica sees c2 owning 1-0
+                $master XCLAIM mystream grp c2 0 1-0
+                wait_for_ofs_sync $master $replica
 
-                    # 1. XCLAIM a NACKed entry: replica sees c2 owning 1-0
-                    $master XCLAIM mystream grp c2 0 1-0
-                    wait_for_ofs_sync $master $replica
+                set pending [$replica XPENDING mystream grp - + 10 c2]
+                assert_equal [llength $pending] 1
+                assert_equal [lindex $pending 0 0] 1-0
 
-                    set pending [$replica XPENDING mystream grp - + 10 c2]
-                    assert_equal [llength $pending] 1
-                    assert_equal [lindex $pending 0 0] 1-0
+                # 2. XACK a NACKed entry: 2-0 removed from replica PEL
+                $master XACK mystream grp 2-0
+                wait_for_ofs_sync $master $replica
 
-                    # 2. XACK a NACKed entry: 2-0 removed from replica PEL
-                    $master XACK mystream grp 2-0
-                    wait_for_ofs_sync $master $replica
-
-                    set all_pending [$replica XPENDING mystream grp - + 10]
-                    assert_equal [llength $all_pending] 2
-                    foreach entry $all_pending {
-                        assert {[lindex $entry 0] ne "2-0"}
-                    }
-
-                    # 3. XAUTOCLAIM NACKed entries: replica sees c3 owning 3-0
-                    $master XNACK mystream grp FAIL IDS 1 3-0
-                    wait_for_ofs_sync $master $replica
-
-                    $master XAUTOCLAIM mystream grp c3 99999 0-0
-                    wait_for_ofs_sync $master $replica
-
-                    set c3_pending [$replica XPENDING mystream grp - + 10 c3]
-                    assert_equal [llength $c3_pending] 1
-                    assert_equal [lindex $c3_pending 0 0] 3-0
-
-                    # 4. XREADGROUP CLAIM NACKed entries: replica sees c4 owning 1-0
-                    $master XNACK mystream grp FAIL IDS 1 1-0
-                    wait_for_ofs_sync $master $replica
-
-                    $master XREADGROUP GROUP grp c4 CLAIM 99999 STREAMS mystream >
-                    wait_for_ofs_sync $master $replica
-
-                    set c4_pending [$replica XPENDING mystream grp - + 10 c4]
-                    assert_equal [llength $c4_pending] 1
-                    assert_equal [lindex $c4_pending 0 0] 1-0
+                set all_pending [$replica XPENDING mystream grp - + 10]
+                assert_equal [llength $all_pending] 2
+                foreach entry $all_pending {
+                    assert {[lindex $entry 0] ne "2-0"}
                 }
+
+                # 3. XAUTOCLAIM NACKed entries: replica sees c3 owning 3-0
+                $master XNACK mystream grp FAIL IDS 1 3-0
+                wait_for_ofs_sync $master $replica
+
+                $master XAUTOCLAIM mystream grp c3 99999 0-0
+                wait_for_ofs_sync $master $replica
+
+                set c3_pending [$replica XPENDING mystream grp - + 10 c3]
+                assert_equal [llength $c3_pending] 1
+                assert_equal [lindex $c3_pending 0 0] 3-0
+
+                # 4. XREADGROUP CLAIM NACKed entries: replica sees c4 owning 1-0
+                $master XNACK mystream grp FAIL IDS 1 1-0
+                wait_for_ofs_sync $master $replica
+
+                $master XREADGROUP GROUP grp c4 CLAIM 99999 STREAMS mystream >
+                wait_for_ofs_sync $master $replica
+
+                set c4_pending [$replica XPENDING mystream grp - + 10 c4]
+                assert_equal [llength $c4_pending] 1
+                assert_equal [lindex $c4_pending 0 0] 1-0
             }
         }
     }
