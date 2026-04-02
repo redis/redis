@@ -5602,11 +5602,13 @@ void pelListUnlink(streamCG *cg, streamNACK *nack) {
     if (nack->pel_prev) {
         nack->pel_prev->pel_next = nack->pel_next;
     } else {
+        /* Removing head. */
         cg->pel_time_head = nack->pel_next;
     }
     if (nack->pel_next) {
         nack->pel_next->pel_prev = nack->pel_prev;
     } else {
+        /* Removing tail. */
         cg->pel_time_tail = nack->pel_prev;
     }
     nack->pel_prev = nack->pel_next = NULL;
