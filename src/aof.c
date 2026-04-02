@@ -2343,7 +2343,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                     streamNACK *nack = pi.data;
                     if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
                                                    ri.key_len,consumer,
-                                                   pi.rawkey,nack) == 0)
+                                                   pi.key,nack) == 0)
                     {
                         pelIterStop(&pi);
                         raxStop(&ri_cons);

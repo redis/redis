@@ -751,7 +751,7 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, uint64_t pel_count, int nacks) {
     while (pelIterNext(&pi)) {
         /* We store IDs in raw form as 128 big big endian numbers,
          * reconstructed from the two-level structure. */
-        if ((n = rdbWriteRaw(rdb,pi.rawkey,sizeof(streamID))) == -1) {
+        if ((n = rdbWriteRaw(rdb,pi.key,sizeof(streamID))) == -1) {
             pelIterStop(&pi);
             return -1;
         }
@@ -3391,7 +3391,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 pelIterStart(&pi_cg,cgroup->pel);
                 pelIterSeek(&pi_cg,"^",NULL);
                 while (pelIterNext(&pi_cg)) {
-                    if (!((streamNACK *)pi_cg.data)->consumer) {
+                    streamNACK *nack = pi_cg.data;
+                    if (!nack->consumer) {
                         pelIterStop(&pi_cg);
                         rdbReportCorruptRDB("Stream CG PEL entry without consumer");
                         decrRefCount(o);

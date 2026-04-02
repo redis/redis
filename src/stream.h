@@ -209,22 +209,11 @@ typedef struct pelIterator {
     int just_seeked;
     streamID id;
     void *data;
-    unsigned char rawkey[sizeof(streamID)];
+    unsigned char key[sizeof(streamID)];
 } pelIterator;
 
-/* Inline cache embedded in rax metadata to speed up sequential PEL ops
- * when consecutive operations target the same 15-byte rax bucket. */
-typedef struct pelCache {
-    unsigned char key[15];
-    flax *f;
-} pelCache;
-
-static inline void pelCacheInvalidate(rax *pel) {
-    pelCache *cache = (pelCache *)pel->metadata;
-    cache->f = NULL;
-}
-
 /* Two-level PEL operations. */
+void pelCacheInvalidate(rax *pel);
 rax *pelNew(size_t *alloc_size);
 void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx);
 void pelFreeShallow(rax *pel);

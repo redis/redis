@@ -67,6 +67,18 @@ static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_
 
 #define PEL_RAX_KEY_LEN 15
 
+/* Cache embedded in rax metadata to speed up sequential PEL ops
+ * when consecutive operations target the same 15-byte rax bucket. */
+typedef struct pelCache {
+    unsigned char key[PEL_RAX_KEY_LEN];
+    flax *f;
+} pelCache;
+
+void pelCacheInvalidate(rax *pel) {
+    pelCache *cache = (pelCache *)pel->metadata;
+    cache->f = NULL;
+}
+
 /* Encode a 15-byte rax key: full 8B big-endian ms + upper 7 bytes of
  * big-endian seq (i.e. first 15 bytes of the 16-byte encoded streamID). */
 static inline void pelEncodeRaxKey(unsigned char *buf, uint64_t ms, uint64_t seq) {
@@ -238,9 +250,9 @@ void *pelRemove(rax *pel, streamID *id, uint64_t *count) {
 
 /* Refresh iterator fields from current rax+flax positions. */
 static void pelIterRefresh(pelIterator *pi) {
-    memcpy(pi->rawkey, pi->ri.key, PEL_RAX_KEY_LEN);
-    pi->rawkey[PEL_RAX_KEY_LEN] = (unsigned char)pi->fi.key;
-    streamDecodeID(pi->rawkey, &pi->id);
+    memcpy(pi->key, pi->ri.key, PEL_RAX_KEY_LEN);
+    pi->key[PEL_RAX_KEY_LEN] = (unsigned char)pi->fi.key;
+    streamDecodeID(pi->key, &pi->id);
     pi->data = pi->fi.data;
     pi->valid = 1;
 }
@@ -608,10 +620,10 @@ robj *streamDup(robj *o) {
             pelIterStart(&pi_cpel, consumer->pel);
             pelIterSeek(&pi_cpel, "^", NULL);
             while(pelIterNext(&pi_cpel)) {
-                void *val;
-                int found = pelFind(new_cg->pel, &pi_cpel.id, &val);
+                void *result;
+                int found = pelFind(new_cg->pel, &pi_cpel.id, &result);
                 serverAssert(found);
-                streamNACK *new_nack = val;
+                streamNACK *new_nack = result;
                 new_nack->consumer = new_consumer;
                 pelInsert(new_consumer->pel, &pi_cpel.id, new_nack, &new_consumer->pel_count);
             }
@@ -2476,10 +2488,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * or update it if the consumer is the same as before. */
             if (group_inserted == 0) {
                 streamFreeNACK(s,nack);
-                void *val;
-                int found = pelFind(group->pel, &id, &val);
+                void *result;
+                int found = pelFind(group->pel, &id, &result);
                 serverAssert(found);
-                nack = val;
+                nack = result;
                 /* Only transfer between consumers if they're different */
                 if (nack->consumer != consumer) {
                     pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
@@ -3349,6 +3361,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id) {
 
     list *cglist;
     void *existing;
+    /* Try to find the list for this stream ID, create it if it doesn't exist */
     if (pelFind(s->cgroups_ref, id, &existing)) {
         cglist = (list *)existing;
     } else {
@@ -3364,37 +3377,35 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id) {
  * This is called when a message is acknowledged or when a consumer group is deleted. */
 void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na) {
     if (!s->cgroups_ref) return;
-    void *data;
-    if (!pelFind(s->cgroups_ref, &na->id, &data)) return;
+    list *cglist;
+    if (pelFind(s->cgroups_ref, &na->id, (void**)&cglist)) {
+        listDelNode(cglist, na->cgroup_ref_node);
 
-    list *cglist = (list *)data;
-    listDelNode(cglist, na->cgroup_ref_node);
-
-    if (listLength(cglist) == 0) {
-        pelRemove(s->cgroups_ref, &na->id, NULL);
-        listRelease(cglist);
+        if (listLength(cglist) == 0) {
+            pelRemove(s->cgroups_ref, &na->id, NULL);
+            listRelease(cglist);
+        }
     }
 }
 
 /* Remove all consumer group references to a specific stream message. */
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     if (!s->cgroups_ref) return;
-    void *data;
-    if (!pelFind(s->cgroups_ref, id, &data)) return;
+    list *cglist;
+    /* If message is not in any consumer group, nothing to do */
+    if (!pelFind(s->cgroups_ref, id, (void**)&cglist)) return;
 
-    list *cglist = (list *)data;
     listIter li;
     listNode *ln;
-
     listRewind(cglist, &li);
     while ((ln = listNext(&li))) {
-        void *val;
+        streamNACK *nack;
         streamCG *group = listNodeValue(ln);
 
-        int found = pelFind(group->pel, id, &val);
-        serverAssert(found);
-        streamNACK *nack = val;
+        /* Find the message in this consumer group's PEL */
+        serverAssert(pelFind(group->pel, id, (void**)&nack));
 
+        /* Remove from group and consumer PELs */
         pelListUnlink(group, nack);
         pelRemove(group->pel, id, &group->pel_count);
         pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
