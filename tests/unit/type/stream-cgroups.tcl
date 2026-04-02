@@ -4364,355 +4364,355 @@ start_server {
         set orig_pending [r XPENDING mystream{t} grp - + 10]
         assert_equal [lindex $orig_pending 0 1] {}
     }
+}
 
-    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
-        # Verify that NACKed entries are correctly emitted during AOF rewrite
-        # and fully restored via `debug loadaof`. After rewrite + reload,
-        # delivery_counts, unowned status, and NACK zone claim order must
-        # match the pre-rewrite state.
-        test "XNACK entries survive AOF rewrite" {
-            r DEL mystream
-            r XADD mystream 1-0 f v1
-            r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v3
-            r XGROUP CREATE mystream grp 0
-            r XREADGROUP GROUP grp c1 STREAMS mystream >
+start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    # Verify that NACKed entries are correctly emitted during AOF rewrite
+    # and fully restored via `debug loadaof`. After rewrite + reload,
+    # delivery_counts, unowned status, and NACK zone claim order must
+    # match the pre-rewrite state.
+    test "XNACK entries survive AOF rewrite" {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XADD mystream 3-0 f v3
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 STREAMS mystream >
 
-            r XNACK mystream grp SILENT IDS 1 1-0
-            r XNACK mystream grp FAIL IDS 1 3-0
+        r XNACK mystream grp SILENT IDS 1 1-0
+        r XNACK mystream grp FAIL IDS 1 3-0
 
-            set pending_before [r XPENDING mystream grp - + 10]
-            assert_equal [llength $pending_before] 3
-            assert_equal [lindex $pending_before 0] {1-0 {} -1 0}
-            assert_match {2-0 c1 * 1} [lindex $pending_before 1]
-            assert_equal [lindex $pending_before 2] {3-0 {} -1 1}
+        set pending_before [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_before] 3
+        assert_equal [lindex $pending_before 0] {1-0 {} -1 0}
+        assert_match {2-0 c1 * 1} [lindex $pending_before 1]
+        assert_equal [lindex $pending_before 2] {3-0 {} -1 1}
 
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
 
-            # Verify state matches pre-rewrite
-            set pending_after [r XPENDING mystream grp - + 10]
-            assert_equal [llength $pending_after] 3
-            assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
-            assert_match {2-0 c1 * 1} [lindex $pending_after 1]
-            assert_equal [lindex $pending_after 2] {3-0 {} -1 1}
+        # Verify state matches pre-rewrite
+        set pending_after [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_after] 3
+        assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
+        assert_match {2-0 c1 * 1} [lindex $pending_after 1]
+        assert_equal [lindex $pending_after 2] {3-0 {} -1 1}
 
-            # NACK zone claim order preserved
-            set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream >]
-            assert_equal [lindex [lindex $r1 0] 1 0 0] 1-0
-            set r2 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream >]
-            assert_equal [lindex [lindex $r2 0] 1 0 0] 3-0
+        # NACK zone claim order preserved
+        set r1 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream >]
+        assert_equal [lindex [lindex $r1 0] 1 0 0] 1-0
+        set r2 [r XREADGROUP GROUP grp c2 COUNT 1 CLAIM 0 STREAMS mystream >]
+        assert_equal [lindex [lindex $r2 0] 1 0 0] 3-0
+    }
+
+    # Test AOF rewrite when the NACK zone has more entries than the AOF
+    # batch size (64 entries per XNACK FORCE batch in the AOF emitter).
+    # With 65 NACKed entries + 1 owned entry, the rewriter must emit
+    # multiple XNACK FORCE batches for the NACK zone and a separate
+    # XCLAIM batch for the owned tail. After rewrite + reload, all 66
+    # PEL entries must be intact with correct ownership and delivery_counts.
+    test "XNACK AOF rewrite batch split -- 65 NACKed entries with owned tail" {
+        r DEL mystream
+
+        set total_nack 65
+        set total [expr {$total_nack + 1}]
+
+        for {set i 1} {$i <= $total} {incr i} {
+            r XADD mystream $i-0 f v$i
+        }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 COUNT $total STREAMS mystream >
+
+        set nack_ids {}
+        for {set i 1} {$i <= $total_nack} {incr i} {
+            lappend nack_ids $i-0
+        }
+        r XNACK mystream grp FAIL IDS $total_nack {*}$nack_ids
+
+        set pending_before [r XPENDING mystream grp - + 200]
+        assert_equal [llength $pending_before] $total
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        set pending_after [r XPENDING mystream grp - + 200]
+        assert_equal [llength $pending_after] $total
+
+        # All 65 NACKed entries: unowned with delivery_count=1
+        for {set i 0} {$i < $total_nack} {incr i} {
+            set entry [lindex $pending_after $i]
+            assert_equal [lindex $entry 0] "[expr {$i + 1}]-0"
+            assert_equal [lindex $entry 1] {}
+            assert_equal [lindex $entry 3] 1
         }
 
-        # Test AOF rewrite when the NACK zone has more entries than the AOF
-        # batch size (64 entries per XNACK FORCE batch in the AOF emitter).
-        # With 65 NACKed entries + 1 owned entry, the rewriter must emit
-        # multiple XNACK FORCE batches for the NACK zone and a separate
-        # XCLAIM batch for the owned tail. After rewrite + reload, all 66
-        # PEL entries must be intact with correct ownership and delivery_counts.
-        test "XNACK AOF rewrite batch split -- 65 NACKed entries with owned tail" {
-            r DEL mystream
+        # The last entry (66-0) is still owned by c1
+        set last [lindex $pending_after $total_nack]
+        assert_equal [lindex $last 0] "$total-0"
+        assert_equal [lindex $last 1] c1
 
-            set total_nack 65
-            set total [expr {$total_nack + 1}]
+        set claimed [r XCLAIM mystream grp c2 0 1-0 65-0]
+        assert_equal [llength $claimed] 2
+    }
 
-            for {set i 1} {$i <= $total} {incr i} {
-                r XADD mystream $i-0 f v$i
-            }
-            r XGROUP CREATE mystream grp 0
-            r XREADGROUP GROUP grp c1 COUNT $total STREAMS mystream >
+    # Edge case: the entire PEL consists of NACKed entries (no owned
+    # entries at all). With 65 entries exceeding the 64-entry AOF batch
+    # limit, the rewriter must split into multiple batches even though
+    # there is no owned tail. After reload all entries are unowned.
+    test "XNACK AOF rewrite batch split -- entire PEL is NACK zone" {
+        r DEL mystream
 
-            set nack_ids {}
-            for {set i 1} {$i <= $total_nack} {incr i} {
-                lappend nack_ids $i-0
-            }
-            r XNACK mystream grp FAIL IDS $total_nack {*}$nack_ids
+        set total 65
 
-            set pending_before [r XPENDING mystream grp - + 200]
-            assert_equal [llength $pending_before] $total
-
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-
-            set pending_after [r XPENDING mystream grp - + 200]
-            assert_equal [llength $pending_after] $total
-
-            # All 65 NACKed entries: unowned with delivery_count=1
-            for {set i 0} {$i < $total_nack} {incr i} {
-                set entry [lindex $pending_after $i]
-                assert_equal [lindex $entry 0] "[expr {$i + 1}]-0"
-                assert_equal [lindex $entry 1] {}
-                assert_equal [lindex $entry 3] 1
-            }
-
-            # The last entry (66-0) is still owned by c1
-            set last [lindex $pending_after $total_nack]
-            assert_equal [lindex $last 0] "$total-0"
-            assert_equal [lindex $last 1] c1
-
-            set claimed [r XCLAIM mystream grp c2 0 1-0 65-0]
-            assert_equal [llength $claimed] 2
+        for {set i 1} {$i <= $total} {incr i} {
+            r XADD mystream $i-0 f v$i
         }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 COUNT $total STREAMS mystream >
 
-        # Edge case: the entire PEL consists of NACKed entries (no owned
-        # entries at all). With 65 entries exceeding the 64-entry AOF batch
-        # limit, the rewriter must split into multiple batches even though
-        # there is no owned tail. After reload all entries are unowned.
-        test "XNACK AOF rewrite batch split -- entire PEL is NACK zone" {
-            r DEL mystream
-
-            set total 65
-
-            for {set i 1} {$i <= $total} {incr i} {
-                r XADD mystream $i-0 f v$i
-            }
-            r XGROUP CREATE mystream grp 0
-            r XREADGROUP GROUP grp c1 COUNT $total STREAMS mystream >
-
-            set nack_ids {}
-            for {set i 1} {$i <= $total} {incr i} {
-                lappend nack_ids $i-0
-            }
-            r XNACK mystream grp FAIL IDS $total {*}$nack_ids
-
-            set pending_before [r XPENDING mystream grp - + 200]
-            assert_equal [llength $pending_before] $total
-
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-
-            set pending_after [r XPENDING mystream grp - + 200]
-            assert_equal [llength $pending_after] $total
-
-            # Every entry is unowned with delivery_count=1
-            for {set i 0} {$i < $total} {incr i} {
-                assert_equal [lindex $pending_after $i] "[expr {$i + 1}]-0 {} -1 1"
-            }
+        set nack_ids {}
+        for {set i 1} {$i <= $total} {incr i} {
+            lappend nack_ids $i-0
         }
+        r XNACK mystream grp FAIL IDS $total {*}$nack_ids
 
-        # Verify that AOF rewrite correctly batches NACKed entries that have
-        # different delivery_counts. The AOF emitter groups consecutive entries
-        # with the same delivery_count into a single XNACK FORCE command;
-        # entries with different counts require separate batches.
-        # Setup: 6 entries NACKed with mixed modes/RETRYCOUNT:
-        #   1-0,2-0 = FATAL (LLONG_MAX), 3-0,4-0 = SILENT (0),
-        #   5-0 = RETRYCOUNT 42, 6-0 = FAIL (1).
-        test "XNACK AOF rewrite with mixed delivery_counts batches correctly" {
-            r DEL mystream
+        set pending_before [r XPENDING mystream grp - + 200]
+        assert_equal [llength $pending_before] $total
 
-            for {set i 1} {$i <= 6} {incr i} {
-                r XADD mystream $i-0 f v$i
-            }
-            r XGROUP CREATE mystream grp 0
-            r XREADGROUP GROUP grp c1 COUNT 6 STREAMS mystream >
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
 
-            r XNACK mystream grp FATAL IDS 2 1-0 2-0
-            r XNACK mystream grp SILENT IDS 2 3-0 4-0
-            r XNACK mystream grp FAIL IDS 1 5-0 RETRYCOUNT 42
-            r XNACK mystream grp FAIL IDS 1 6-0
+        set pending_after [r XPENDING mystream grp - + 200]
+        assert_equal [llength $pending_after] $total
 
-            set pending_before [r XPENDING mystream grp - + 10]
-            assert_equal [llength $pending_before] 6
-
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-
-            set pending_after [r XPENDING mystream grp - + 10]
-            assert_equal [llength $pending_after] 6
-
-            # Verify each entry retained its specific delivery_count
-            foreach entry $pending_after {
-                set id [lindex $entry 0]
-                set consumer [lindex $entry 1]
-                set dc [lindex $entry 3]
-
-                assert_equal $consumer {}
-
-                switch $id {
-                    1-0 - 2-0 {
-                        assert_equal $dc 9223372036854775807
-                    }
-                    3-0 - 4-0 {
-                        assert_equal $dc 0
-                    }
-                    5-0 {
-                        assert_equal $dc 42
-                    }
-                    6-0 {
-                        assert_equal $dc 1
-                    }
-                }
-            }
-        }
-
-        # Verify that FORCE-created PEL entries (which were never delivered
-        # to a consumer via XREADGROUP) survive AOF rewrite. These entries
-        # only exist in the group PEL, not in any consumer PEL, so the AOF
-        # emitter must handle them specially.
-        test "XNACK FORCE-created entries survive AOF rewrite" {
-            r DEL mystream
-            r XADD mystream 1-0 f v1
-            r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v3
-            r XGROUP CREATE mystream grp 0
-
-            r XNACK mystream grp FAIL IDS 1 1-0 FORCE
-            r XNACK mystream grp FATAL IDS 1 2-0 FORCE
-            r XNACK mystream grp SILENT IDS 1 3-0 RETRYCOUNT 33 FORCE
-
-            set pending_before [r XPENDING mystream grp - + 10]
-            assert_equal [llength $pending_before] 3
-
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-
-            set pending_after [r XPENDING mystream grp - + 10]
-            assert_equal [llength $pending_after] 3
-            assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
-            assert_equal [lindex $pending_after 1] {2-0 {} -1 9223372036854775807}
-            assert_equal [lindex $pending_after 2] {3-0 {} -1 33}
-
-            # FORCE-created entries are still claimable after reload
-            set claimed [r XCLAIM mystream grp c1 0 1-0 2-0 3-0]
-            assert_equal [llength $claimed] 3
+        # Every entry is unowned with delivery_count=1
+        for {set i 0} {$i < $total} {incr i} {
+            assert_equal [lindex $pending_after $i] "[expr {$i + 1}]-0 {} -1 1"
         }
     }
 
-    start_server {tags {"repl external:skip" "stream"}} {
-        # Verify that XNACK commands replicate correctly to replicas.
-        # Tests all three modes (FAIL, FATAL, SILENT) and FORCE option.
-        # After wait_for_ofs_sync, the replica's PEL state must match the
-        # master's: same delivery_counts, same unowned status.
-        test "XNACK replication of modes and FORCE" {
-            set master [srv 0 client]
-            set master_host [srv 0 host]
-            set master_port [srv 0 port]
+    # Verify that AOF rewrite correctly batches NACKed entries that have
+    # different delivery_counts. The AOF emitter groups consecutive entries
+    # with the same delivery_count into a single XNACK FORCE command;
+    # entries with different counts require separate batches.
+    # Setup: 6 entries NACKed with mixed modes/RETRYCOUNT:
+    #   1-0,2-0 = FATAL (LLONG_MAX), 3-0,4-0 = SILENT (0),
+    #   5-0 = RETRYCOUNT 42, 6-0 = FAIL (1).
+    test "XNACK AOF rewrite with mixed delivery_counts batches correctly" {
+        r DEL mystream
 
-            start_server {tags {"stream"}} {
-                set replica [srv 0 client]
+        for {set i 1} {$i <= 6} {incr i} {
+            r XADD mystream $i-0 f v$i
+        }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c1 COUNT 6 STREAMS mystream >
 
-                $replica replicaof $master_host $master_port
-                wait_for_sync $replica
+        r XNACK mystream grp FATAL IDS 2 1-0 2-0
+        r XNACK mystream grp SILENT IDS 2 3-0 4-0
+        r XNACK mystream grp FAIL IDS 1 5-0 RETRYCOUNT 42
+        r XNACK mystream grp FAIL IDS 1 6-0
 
-                # Mode replication: FAIL, FATAL, SILENT on consumer-owned entries
-                $master DEL mystream
-                $master XADD mystream 1-0 f v1
-                $master XADD mystream 2-0 f v2
-                $master XADD mystream 3-0 f v3
-                $master XADD mystream 4-0 f v4
-                $master XGROUP CREATE mystream grp 0
-                $master XREADGROUP GROUP grp c1 STREAMS mystream >
-                wait_for_ofs_sync $master $replica
+        set pending_before [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_before] 6
 
-                $master XNACK mystream grp FAIL IDS 1 1-0
-                $master XNACK mystream grp FATAL IDS 1 3-0
-                $master XNACK mystream grp SILENT IDS 1 4-0
-                wait_for_ofs_sync $master $replica
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
 
-                # Verify replica state matches master
-                set pending [$replica XPENDING mystream grp - + 10]
-                assert_equal [llength $pending] 4
-                assert_equal [lindex $pending 0] {1-0 {} -1 1}
-                assert_match {2-0 c1 * 1} [lindex $pending 1]
-                assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
-                assert_equal [lindex $pending 3] {4-0 {} -1 0}
+        set pending_after [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_after] 6
 
-                # FORCE replication: create PEL entries without prior XREADGROUP
-                $master DEL mystream2
-                $master XADD mystream2 1-0 f v1
-                $master XADD mystream2 2-0 f v2
-                $master XGROUP CREATE mystream2 grp 0
-                wait_for_ofs_sync $master $replica
+        # Verify each entry retained its specific delivery_count
+        foreach entry $pending_after {
+            set id [lindex $entry 0]
+            set consumer [lindex $entry 1]
+            set dc [lindex $entry 3]
 
-                $master XNACK mystream2 grp FAIL IDS 1 1-0 FORCE
-                $master XNACK mystream2 grp FATAL IDS 1 2-0 FORCE
-                wait_for_ofs_sync $master $replica
+            assert_equal $consumer {}
 
-                set pending [$replica XPENDING mystream2 grp - + 10]
-                assert_equal [llength $pending] 2
-
-                assert_equal [lindex $pending 0] {1-0 {} -1 0}
-                assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
+            switch $id {
+                1-0 - 2-0 {
+                    assert_equal $dc 9223372036854775807
+                }
+                3-0 - 4-0 {
+                    assert_equal $dc 0
+                }
+                5-0 {
+                    assert_equal $dc 42
+                }
+                6-0 {
+                    assert_equal $dc 1
+                }
             }
         }
     }
 
-    start_server {tags {"repl external:skip" "stream"}} {
-        # Verify that reclaim/acknowledge operations on NACKed entries
-        # propagate correctly to replicas. Tests four operations:
-        #  1. XCLAIM a NACKed entry — replica sees new consumer ownership.
-        #  2. XACK a NACKed entry — replica sees it removed from PEL.
-        #  3. XAUTOCLAIM NACKed entries — replica sees new consumer ownership.
-        #  4. XREADGROUP CLAIM NACKed entries — replica sees new consumer ownership.
-        # Each step uses wait_for_ofs_sync to ensure replication completes
-        # before reading from the replica.
-        test "XNACK reclaim operations propagate correctly to replica" {
-            set master [srv 0 client]
-            set master_host [srv 0 host]
-            set master_port [srv 0 port]
+    # Verify that FORCE-created PEL entries (which were never delivered
+    # to a consumer via XREADGROUP) survive AOF rewrite. These entries
+    # only exist in the group PEL, not in any consumer PEL, so the AOF
+    # emitter must handle them specially.
+    test "XNACK FORCE-created entries survive AOF rewrite" {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XADD mystream 3-0 f v3
+        r XGROUP CREATE mystream grp 0
 
-            start_server {tags {"stream"}} {
-                set replica [srv 0 client]
+        r XNACK mystream grp FAIL IDS 1 1-0 FORCE
+        r XNACK mystream grp FATAL IDS 1 2-0 FORCE
+        r XNACK mystream grp SILENT IDS 1 3-0 RETRYCOUNT 33 FORCE
 
-                $replica replicaof $master_host $master_port
-                wait_for_sync $replica
+        set pending_before [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_before] 3
 
-                $master DEL mystream
-                $master XADD mystream 1-0 f v1
-                $master XADD mystream 2-0 f v2
-                $master XADD mystream 3-0 f v3
-                $master XGROUP CREATE mystream grp 0
-                $master XREADGROUP GROUP grp c1 STREAMS mystream >
-                wait_for_ofs_sync $master $replica
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
 
-                $master XNACK mystream grp FAIL IDS 2 1-0 2-0
-                wait_for_ofs_sync $master $replica
+        set pending_after [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_after] 3
+        assert_equal [lindex $pending_after 0] {1-0 {} -1 0}
+        assert_equal [lindex $pending_after 1] {2-0 {} -1 9223372036854775807}
+        assert_equal [lindex $pending_after 2] {3-0 {} -1 33}
 
-                # 1. XCLAIM a NACKed entry: replica sees c2 owning 1-0
-                $master XCLAIM mystream grp c2 0 1-0
-                wait_for_ofs_sync $master $replica
+        # FORCE-created entries are still claimable after reload
+        set claimed [r XCLAIM mystream grp c1 0 1-0 2-0 3-0]
+        assert_equal [llength $claimed] 3
+    }
+}
 
-                set pending [$replica XPENDING mystream grp - + 10 c2]
-                assert_equal [llength $pending] 1
-                assert_equal [lindex $pending 0 0] 1-0
+start_server {tags {"repl external:skip" "stream"}} {
+    # Verify that XNACK commands replicate correctly to replicas.
+    # Tests all three modes (FAIL, FATAL, SILENT) and FORCE option.
+    # After wait_for_ofs_sync, the replica's PEL state must match the
+    # master's: same delivery_counts, same unowned status.
+    test "XNACK replication of modes and FORCE" {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
 
-                # 2. XACK a NACKed entry: 2-0 removed from replica PEL
-                $master XACK mystream grp 2-0
-                wait_for_ofs_sync $master $replica
+        start_server {tags {"stream"}} {
+            set replica [srv 0 client]
 
-                set all_pending [$replica XPENDING mystream grp - + 10]
-                assert_equal [llength $all_pending] 2
-                foreach entry $all_pending {
-                    assert {[lindex $entry 0] ne "2-0"}
-                }
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
 
-                # 3. XAUTOCLAIM NACKed entries: replica sees c3 owning 3-0
-                $master XNACK mystream grp FAIL IDS 1 3-0
-                wait_for_ofs_sync $master $replica
+            # Mode replication: FAIL, FATAL, SILENT on consumer-owned entries
+            $master DEL mystream
+            $master XADD mystream 1-0 f v1
+            $master XADD mystream 2-0 f v2
+            $master XADD mystream 3-0 f v3
+            $master XADD mystream 4-0 f v4
+            $master XGROUP CREATE mystream grp 0
+            $master XREADGROUP GROUP grp c1 STREAMS mystream >
+            wait_for_ofs_sync $master $replica
 
-                $master XAUTOCLAIM mystream grp c3 99999 0-0
-                wait_for_ofs_sync $master $replica
+            $master XNACK mystream grp FAIL IDS 1 1-0
+            $master XNACK mystream grp FATAL IDS 1 3-0
+            $master XNACK mystream grp SILENT IDS 1 4-0
+            wait_for_ofs_sync $master $replica
 
-                set c3_pending [$replica XPENDING mystream grp - + 10 c3]
-                assert_equal [llength $c3_pending] 1
-                assert_equal [lindex $c3_pending 0 0] 3-0
+            # Verify replica state matches master
+            set pending [$replica XPENDING mystream grp - + 10]
+            assert_equal [llength $pending] 4
+            assert_equal [lindex $pending 0] {1-0 {} -1 1}
+            assert_match {2-0 c1 * 1} [lindex $pending 1]
+            assert_equal [lindex $pending 2] {3-0 {} -1 9223372036854775807}
+            assert_equal [lindex $pending 3] {4-0 {} -1 0}
 
-                # 4. XREADGROUP CLAIM NACKed entries: replica sees c4 owning 1-0
-                $master XNACK mystream grp FAIL IDS 1 1-0
-                wait_for_ofs_sync $master $replica
+            # FORCE replication: create PEL entries without prior XREADGROUP
+            $master DEL mystream2
+            $master XADD mystream2 1-0 f v1
+            $master XADD mystream2 2-0 f v2
+            $master XGROUP CREATE mystream2 grp 0
+            wait_for_ofs_sync $master $replica
 
-                $master XREADGROUP GROUP grp c4 CLAIM 99999 STREAMS mystream >
-                wait_for_ofs_sync $master $replica
+            $master XNACK mystream2 grp FAIL IDS 1 1-0 FORCE
+            $master XNACK mystream2 grp FATAL IDS 1 2-0 FORCE
+            wait_for_ofs_sync $master $replica
 
-                set c4_pending [$replica XPENDING mystream grp - + 10 c4]
-                assert_equal [llength $c4_pending] 1
-                assert_equal [lindex $c4_pending 0 0] 1-0
+            set pending [$replica XPENDING mystream2 grp - + 10]
+            assert_equal [llength $pending] 2
+
+            assert_equal [lindex $pending 0] {1-0 {} -1 0}
+            assert_equal [lindex $pending 1] {2-0 {} -1 9223372036854775807}
+        }
+    }
+}
+
+start_server {tags {"repl external:skip" "stream"}} {
+    # Verify that reclaim/acknowledge operations on NACKed entries
+    # propagate correctly to replicas. Tests four operations:
+    #  1. XCLAIM a NACKed entry — replica sees new consumer ownership.
+    #  2. XACK a NACKed entry — replica sees it removed from PEL.
+    #  3. XAUTOCLAIM NACKed entries — replica sees new consumer ownership.
+    #  4. XREADGROUP CLAIM NACKed entries — replica sees new consumer ownership.
+    # Each step uses wait_for_ofs_sync to ensure replication completes
+    # before reading from the replica.
+    test "XNACK reclaim operations propagate correctly to replica" {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        start_server {tags {"stream"}} {
+            set replica [srv 0 client]
+
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            $master DEL mystream
+            $master XADD mystream 1-0 f v1
+            $master XADD mystream 2-0 f v2
+            $master XADD mystream 3-0 f v3
+            $master XGROUP CREATE mystream grp 0
+            $master XREADGROUP GROUP grp c1 STREAMS mystream >
+            wait_for_ofs_sync $master $replica
+
+            $master XNACK mystream grp FAIL IDS 2 1-0 2-0
+            wait_for_ofs_sync $master $replica
+
+            # 1. XCLAIM a NACKed entry: replica sees c2 owning 1-0
+            $master XCLAIM mystream grp c2 0 1-0
+            wait_for_ofs_sync $master $replica
+
+            set pending [$replica XPENDING mystream grp - + 10 c2]
+            assert_equal [llength $pending] 1
+            assert_equal [lindex $pending 0 0] 1-0
+
+            # 2. XACK a NACKed entry: 2-0 removed from replica PEL
+            $master XACK mystream grp 2-0
+            wait_for_ofs_sync $master $replica
+
+            set all_pending [$replica XPENDING mystream grp - + 10]
+            assert_equal [llength $all_pending] 2
+            foreach entry $all_pending {
+                assert {[lindex $entry 0] ne "2-0"}
             }
+
+            # 3. XAUTOCLAIM NACKed entries: replica sees c3 owning 3-0
+            $master XNACK mystream grp FAIL IDS 1 3-0
+            wait_for_ofs_sync $master $replica
+
+            $master XAUTOCLAIM mystream grp c3 99999 0-0
+            wait_for_ofs_sync $master $replica
+
+            set c3_pending [$replica XPENDING mystream grp - + 10 c3]
+            assert_equal [llength $c3_pending] 1
+            assert_equal [lindex $c3_pending 0 0] 3-0
+
+            # 4. XREADGROUP CLAIM NACKed entries: replica sees c4 owning 1-0
+            $master XNACK mystream grp FAIL IDS 1 1-0
+            wait_for_ofs_sync $master $replica
+
+            $master XREADGROUP GROUP grp c4 CLAIM 99999 STREAMS mystream >
+            wait_for_ofs_sync $master $replica
+
+            set c4_pending [$replica XPENDING mystream grp - + 10 c4]
+            assert_equal [llength $c4_pending] 1
+            assert_equal [lindex $c4_pending 0 0] 1-0
         }
     }
 }
