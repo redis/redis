@@ -573,7 +573,7 @@ robj *streamDup(robj *o) {
         pelIterator pi_cg;
         pelIterStart(&pi_cg, cg->pel);
         pelIterSeek(&pi_cg, "^", NULL);
-        while (pelIterNext(&pi_cg)) {
+        while(pelIterNext(&pi_cg)) {
             streamNACK *nack = pi_cg.nack;
             streamNACK *new_nack = streamCreateNACK(new_s, NULL, &pi_cg.id);
             new_nack->delivery_time = nack->delivery_time;
@@ -608,7 +608,7 @@ robj *streamDup(robj *o) {
             pelIterator pi_cpel;
             pelIterStart(&pi_cpel, consumer->pel);
             pelIterSeek(&pi_cpel, "^", NULL);
-            while (pelIterNext(&pi_cpel)) {
+            while(pelIterNext(&pi_cpel)) {
                 streamNACK *new_nack;
                 int found = pelFind(new_cg->pel, &pi_cpel.id, &new_nack);
                 serverAssert(found);
@@ -2547,24 +2547,20 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     pelIterator pi;
     pelIterStart(&pi, consumer->pel);
     pelIterSeek(&pi, ">=", start);
-    while (pelIterNext(&pi)) {
+    while (pelIterNext(&pi) && (!count || arraylen < count)) {
         if (end && streamCompareID(&pi.id, end) > 0) break;
-        if (!count || arraylen < count) {
-            if (streamReplyWithRange(c,s,&pi.id,&pi.id,1,0,-1,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
-            {
-                addReplyArrayLen(c,2);
-                addReplyStreamID(c,&pi.id);
-                addReplyNullArray(c);
-            } else {
-                streamNACK *nack = pi.nack;
-                nack->delivery_count++;
-                pelListUpdate(group, nack, commandTimeSnapshot());
-            }
-            arraylen++;
+        if (streamReplyWithRange(c,s,&pi.id,&pi.id,1,0,-1,NULL,NULL,
+                                 STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
+        {
+            addReplyArrayLen(c,2);
+            addReplyStreamID(c,&pi.id);
+            addReplyNullArray(c);
         } else {
-            break;
+            streamNACK *nack = pi.nack;
+            nack->delivery_count++;
+            pelListUpdate(group, nack, commandTimeSnapshot());
         }
+        arraylen++;
     }
     pelIterStop(&pi);
     setDeferredArrayLen(c,arraylen_ptr,arraylen);
