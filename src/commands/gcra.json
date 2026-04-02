@@ -74,7 +74,7 @@
                 "type": "integer"
             },
             {
-                "name": "requests-per-period",
+                "name": "tokens-per-period",
                 "type": "integer"
             },
             {
@@ -84,7 +84,7 @@
             {
                 "name": "count",
                 "type": "integer",
-                "token": "NUM_REQUESTS",
+                "token": "TOKENS",
                 "optional": true
             }
         ]
