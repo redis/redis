@@ -56,13 +56,18 @@
  */
 
 #include <pthread.h>
+#include <limits.h>
 #include "config.h"
 
 #ifndef __ATOMIC_VAR_H
 #define __ATOMIC_VAR_H
 
-/* Define redisAtomic for atomic variable. */
+/* Define redisAtomic for atomic variable annotation.
+ * redisAtomicAlign(n) is for 64-bit atomic types (long long, uint64_t, etc.)
+ * that need forced alignment on 32-bit architectures for correctness. On
+ * 64-bit systems, the compiler already provides correct natural alignment. */
 #define redisAtomic
+#define redisAtomicAlign(n)
 
 /* To test Redis with Helgrind (a Valgrind tool) it is useful to define
  * the following macro, so that __sync macros are used: those can be detected
@@ -91,7 +96,16 @@
     (__STDC_VERSION__ >= 201112L) && !defined(__STDC_NO_ATOMICS__)
 /* Use '_Atomic' keyword if the compiler supports. */
 #undef  redisAtomic
-#define redisAtomic _Atomic __attribute__((aligned(8)))
+#define redisAtomic _Atomic
+#undef  redisAtomicAlign
+#if (ULONG_MAX == 0xFFFFFFFFUL)
+/* 32-bit system: force alignment for 64-bit atomic types to ensure
+ * lock-free atomic operations (e.g., avoiding torn reads/writes). */
+#define redisAtomicAlign(n) _Atomic __attribute__((aligned(n)))
+#else
+/* 64-bit system: compiler already provides correct natural alignment. */
+#define redisAtomicAlign(n) _Atomic
+#endif
 /* Implementation using _Atomic in C11. */
 
 #include <stdatomic.h>
