@@ -174,21 +174,13 @@ else()
     file(WRITE "${POSIX_STUBS_DIR}/sys/resource.h" "#include <posix-sys-resource.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/pthread.h" "#include <posix-pthread.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/dlfcn.h" "#include <posix-dlfcn.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/sys/socket.h" "#include <posix-sockets.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/poll.h" "#include <posix-poll.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/sys/un.h" "#include <posix-sys-un.h>\n")
-    file(MAKE_DIRECTORY "${POSIX_STUBS_DIR}/arpa")
-    file(WRITE "${POSIX_STUBS_DIR}/arpa/inet.h" "#include <posix-arpa-inet.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/sys/resource.h" "#include <posix-sys-resource.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/pthread.h" "#include <posix-pthread.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/dlfcn.h" "#include <posix-dlfcn.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/pwd.h" "#include <posix-pwdgrp.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/grp.h" "#include <posix-pwdgrp.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/dirent.h" "#include <posix-dirent.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/libgen.h" "#include <posix-libgen.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/sys/file.h" "#include <bsd-sys-file.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/regex.h" "#include <posix-regex.h>\n")
-    file(WRITE "${POSIX_STUBS_DIR}/sys/mman.h" "#include <posix-mman.h>\n")
+        file(WRITE "${POSIX_STUBS_DIR}/sys/mman.h" "#include <posix-mman.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/glob.h" "#include <posix-glob.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/sys/ioctl.h" "
 #include <posix-sys-ioctl.h>
@@ -292,6 +284,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
+if(MSVC)
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/server.c")
     file(READ "${CMAKE_SOURCE_DIR}/src/server.c" SERVER_C_CONTENT)
     string(REPLACE "void *samples[num_samples];" "void **samples = _alloca(sizeof(void*) * num_samples);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
@@ -391,6 +384,8 @@ file(WRITE "${CMAKE_BINARY_DIR}/patched/src/mstr.c" "${MSTRC_CONTENT}")
 
 
 
+endif()
+
 set(PATCHED_FILES
     "src/bitops.c"
     "src/sdsalloc.h"
@@ -479,24 +474,6 @@ endif()
 
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/atomicvar.h")
-    file(READ "${CMAKE_SOURCE_DIR}/src/atomicvar.h" AT_CONTENT)
-    
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/atomicvar.h" "${AT_CONTENT}")
-endif()
-
-if(EXISTS "${CMAKE_SOURCE_DIR}/src/dict.h")
-    file(READ "${CMAKE_SOURCE_DIR}/src/dict.h" CONTENT_src_dict_h)
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/dict.h" "${CONTENT_src_dict_h}")
-endif()
-
-if(EXISTS "${CMAKE_SOURCE_DIR}/src/sds.h")
-    file(READ "${CMAKE_SOURCE_DIR}/src/sds.h" CONTENT_src_sds_h)
-    string(REPLACE "#ifndef __SDS_H\n#define __SDS_H" "#ifndef __SDS_H\n#define __SDS_H\n#ifndef HIREDIS_SDS_H" CONTENT_src_sds_h "${CONTENT_src_sds_h}")
-    set(CONTENT_src_sds_h "${CONTENT_src_sds_h}\n#endif /* HIREDIS_SDS_H */\n")
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/sds.h" "${CONTENT_src_sds_h}")
-endif()
-
-if(EXISTS "${CMAKE_SOURCE_DIR}/src/atomicvar.h")
     file(READ "${CMAKE_SOURCE_DIR}/src/atomicvar.h" CONTENT_src_atomicvar_h)
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/atomicvar.h" "${CONTENT_src_atomicvar_h}")
 endif()
@@ -559,11 +536,33 @@ if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/mstr.h")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/mstr.h" "${CONTENT}")
 endif()
 
+if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/sds.h")
+    file(READ "${CMAKE_BINARY_DIR}/patched/src/sds.h" CONTENT)
+    string(REPLACE "struct __attribute__ ((__packed__)) sdshdr5 {" "#pragma pack(push, 1)\nstruct sdshdr5 {" CONTENT "${CONTENT}")
+    string(REPLACE "struct __attribute__ ((__packed__)) sdshdr8 {" "struct sdshdr8 {" CONTENT "${CONTENT}")
+    string(REPLACE "struct __attribute__ ((__packed__)) sdshdr16 {" "struct sdshdr16 {" CONTENT "${CONTENT}")
+    string(REPLACE "struct __attribute__ ((__packed__)) sdshdr32 {" "struct sdshdr32 {" CONTENT "${CONTENT}")
+    string(REPLACE "struct __attribute__ ((__packed__)) sdshdr64 {" "struct sdshdr64 {" CONTENT "${CONTENT}")
+    string(REPLACE "};\n\n#define SDS_TYPE_5  0" "};\n#pragma pack(pop)\n\n#define SDS_TYPE_5  0" CONTENT "${CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/sds.h" "${CONTENT}")
+endif()
+
+if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/server.h")
+    file(READ "${CMAKE_BINARY_DIR}/patched/src/server.h" CONTENT)
+    string(REPLACE "typedef struct __attribute__((__packed__)) payloadHeader {" "#pragma pack(push, 1)\ntypedef struct payloadHeader {" CONTENT "${CONTENT}")
+    string(REPLACE "} payloadHeader;\nstatic_assert(offsetof(payloadHeader, payload_len)" "} payloadHeader;\n#pragma pack(pop)\nstatic_assert(offsetof(payloadHeader, payload_len)" CONTENT "${CONTENT}")
+    string(REPLACE "typedef struct __attribute__((__packed__)) bulkStrRef {" "#pragma pack(push, 1)\ntypedef struct bulkStrRef {" CONTENT "${CONTENT}")
+    string(REPLACE "} bulkStrRef;\n" "} bulkStrRef;\n#pragma pack(pop)\n" CONTENT "${CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/server.h" "${CONTENT}")
+endif()
+
+
 
 
 
 include(RedisSetup)
 
+if(MSVC)
 foreach(F IN LISTS PATCHED_FILES)
     if(DEFINED REDIS_SERVER_SRCS)
         string(REPLACE "${CMAKE_SOURCE_DIR}/${F}" "${CMAKE_BINARY_DIR}/patched/${F}" REDIS_SERVER_SRCS "${REDIS_SERVER_SRCS}")
@@ -583,6 +582,7 @@ foreach(F IN LISTS PATCHED_FILES)
         string(REPLACE "${CMAKE_SOURCE_DIR}/${F}" "${CMAKE_BINARY_DIR}/patched/${F}" REDIS_CHECK_AOF_SRCS "${REDIS_CHECK_AOF_SRCS}")
     endif()
 endforeach()
+endif()
 
 include_directories("${CMAKE_SOURCE_DIR}/src")
 add_subdirectory(src)

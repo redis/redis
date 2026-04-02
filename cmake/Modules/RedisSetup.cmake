@@ -362,7 +362,7 @@ else ()
 endif ()
 
 if (WIN32)
-    file(WRITE ${CMAKE_SOURCE_DIR}/src/release.h "#define REDIS_GIT_SHA1 \"00000000\"\n#define REDIS_GIT_DIRTY \"0\"\n#define REDIS_BUILD_ID \"0\"\n#include \"version.h\"\n#define REDIS_BUILD_ID_RAW \"redis \" REDIS_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1\n")
+    file(WRITE ${CMAKE_BINARY_DIR}/patched/src/release.h "#define REDIS_GIT_SHA1 \"00000000\"\n#define REDIS_GIT_DIRTY \"0\"\n#define REDIS_BUILD_ID \"0\"\n#include \"version.h\"\n#define REDIS_BUILD_ID_RAW \"redis \" REDIS_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1\n")
     add_custom_target(release_header)
 else()
     # Generate release.h file (always)
