@@ -564,6 +564,8 @@ start_server {} {
 }
 
 start_server {} {
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
+
     foreach type {"client no-evict" "maxmemory-clients disabled"} {
         r flushall
         r client no-evict on
