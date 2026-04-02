@@ -60,4 +60,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/internalsecret \
 --single unit/moduleapi/configaccess \
 --single unit/moduleapi/keymeta \
+--single unit/moduleapi/ksn_notify_side_effect \
 "${@}"
