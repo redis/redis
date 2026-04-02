@@ -758,7 +758,7 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, uint64_t pel_count, int nacks) {
         nwritten += n;
 
         if (nacks) {
-            streamNACK *nack = pi.nack;
+            streamNACK *nack = pi.data;
             if ((n = rdbSaveMillisecondTime(rdb,nack->delivery_time)) == -1) {
                 pelIterStop(&pi);
                 return -1;
@@ -3280,7 +3280,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 streamNACK *nack = streamCreateNACK(s, NULL, &nack_id);
                 nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
-                nack->cgroup_ref_node = streamLinkCGroupToEntry(s, cgroup, rawid);
+                nack->cgroup_ref_node = streamLinkCGroupToEntry(s, cgroup, &nack_id);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream PEL NACK loading failed.");
                     streamFreeNACK(s, nack);
@@ -3362,8 +3362,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                     streamID nack_id;
                     streamDecodeID(rawid, &nack_id);
-                    streamNACK *nack;
-                    if (!pelFind(cgroup->pel, &nack_id, &nack)) {
+                    void *val;
+                    if (!pelFind(cgroup->pel, &nack_id, &val)) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
                         decrRefCount(o);
@@ -3373,6 +3373,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
+                    streamNACK *nack = val;
                     nack->consumer = consumer;
                     if (!pelTryInsert(consumer->pel,&nack_id,nack,&consumer->pel_count)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
@@ -3390,7 +3391,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 pelIterStart(&pi_cg,cgroup->pel);
                 pelIterSeek(&pi_cg,"^",NULL);
                 while (pelIterNext(&pi_cg)) {
-                    if (!pi_cg.nack->consumer) {
+                    if (!((streamNACK *)pi_cg.data)->consumer) {
                         pelIterStop(&pi_cg);
                         rdbReportCorruptRDB("Stream CG PEL entry without consumer");
                         decrRefCount(o);

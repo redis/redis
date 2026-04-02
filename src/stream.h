@@ -181,7 +181,7 @@ streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamID *id);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(stream *s, streamNACK *na);
-void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key);
+void streamDestroyNACK(stream *s, streamNACK *na);
 int streamIncrID(streamID *id);
 int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
@@ -199,7 +199,7 @@ int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 
-listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
+listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id);
 
 /* Two-level PEL iterator: walks outer rax (ms buckets) and inner flax (seq). */
 typedef struct pelIterator {
@@ -208,7 +208,7 @@ typedef struct pelIterator {
     int valid;
     int just_seeked;
     streamID id;
-    streamNACK *nack;
+    void *data;
     unsigned char rawkey[sizeof(streamID)];
 } pelIterator;
 
@@ -228,11 +228,11 @@ static inline void pelCacheInvalidate(rax *pel) {
 rax *pelNew(size_t *alloc_size);
 void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx);
 void pelFreeShallow(rax *pel);
-int pelInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count);
-int pelTryInsert(rax *pel, streamID *id, streamNACK *nack, uint64_t *count);
-void pelReplace(rax *pel, streamID *id, streamNACK *nack);
-int pelFind(rax *pel, streamID *id, streamNACK **nack);
-streamNACK *pelRemove(rax *pel, streamID *id, uint64_t *count);
+int pelInsert(rax *pel, streamID *id, void *data, uint64_t *count);
+int pelTryInsert(rax *pel, streamID *id, void *data, uint64_t *count);
+void pelReplace(rax *pel, streamID *id, void *data);
+int pelFind(rax *pel, streamID *id, void **data);
+void *pelRemove(rax *pel, streamID *id, uint64_t *count);
 
 void pelIterStart(pelIterator *pi, rax *pel);
 int pelIterSeek(pelIterator *pi, const char *op, streamID *id);
