@@ -52,8 +52,7 @@ else()
 #define NOMINMAX
 #define NOUSER
 #define NOGDI
-#define __attribute__(...)
-#define __attribute(...)
+#define __attribute__(x)
 #undef LoadString
 #undef ERROR
 #undef WORD
@@ -685,7 +684,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/zmalloc.c")
 
     set(INJECT_Z "
 #include <intrin.h>
-static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) { 
+static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *expected_var, __int64 desired) {
     __int64 old_val = _InterlockedCompareExchange64(var, desired, *expected_var);
     if (old_val == *expected_var) return 1;
     *expected_var = old_val;
