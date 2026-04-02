@@ -2874,8 +2874,8 @@ void resetServerStats(void) {
     server.stat_cluster_incompatible_ops = 0;
     server.stat_total_prefetch_batches = 0;
     server.stat_total_prefetch_entries = 0;
-    atomicSet(server.stat_avg_pipeline_length_sum, 0);
-    atomicSet(server.stat_avg_pipeline_length_cnt, 0);
+    atomicSet(server.stat_commands_per_parse_batch_sum, 0);
+    atomicSet(server.stat_commands_per_parse_batch_cnt, 0);
     atomicSet(server.stat_total_client_process_input_buff_events, 0);
     server.stat_eventloop_cycles_with_clients_input_buff_processing = 0;
     stat_prev_total_client_process_input_buff_events = 0;
@@ -6588,8 +6588,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
         long long stat_total_client_process_input_buff_events;
-        long long stat_avg_pipeline_length_sum;
-        long long stat_avg_pipeline_length_cnt;
+        long long stat_commands_per_parse_batch_sum;
+        long long stat_commands_per_parse_batch_cnt;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -6601,8 +6601,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
         atomicGet(server.stat_client_qbuf_limit_disconnections, stat_client_qbuf_limit_disconnections);
         atomicGet(server.stat_total_client_process_input_buff_events, stat_total_client_process_input_buff_events);
-        atomicGet(server.stat_avg_pipeline_length_sum, stat_avg_pipeline_length_sum);
-        atomicGet(server.stat_avg_pipeline_length_cnt, stat_avg_pipeline_length_cnt);
+        atomicGet(server.stat_commands_per_parse_batch_sum, stat_commands_per_parse_batch_sum);
+        atomicGet(server.stat_commands_per_parse_batch_cnt, stat_commands_per_parse_batch_cnt);
 
         /* If we calculated the total reads and writes in the threads section,
          * we don't need to do it again, and also keep the values consistent. */
@@ -6685,9 +6685,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION),
             "eventloop_cycles_with_clients_processing:%zu\r\n", server.stat_eventloop_cycles_with_clients_input_buff_processing,
             "total_client_processing_events:%lld\r\n", stat_total_client_process_input_buff_events,
-            "avg_pipeline_length_sum:%lld\r\n", stat_avg_pipeline_length_sum,
-            "avg_pipeline_length_cnt:%lld\r\n", stat_avg_pipeline_length_cnt,
-            "avg_pipeline_length:%.2f\r\n", stat_avg_pipeline_length_cnt ? (double)stat_avg_pipeline_length_sum / stat_avg_pipeline_length_cnt : 0,
+            "commands_per_parse_batch_sum:%lld\r\n", stat_commands_per_parse_batch_sum,
+            "commands_per_parse_batch_cnt:%lld\r\n", stat_commands_per_parse_batch_cnt,
+            "commands_per_parse_batch_avg:%.2f\r\n", stat_commands_per_parse_batch_cnt ? (double)stat_commands_per_parse_batch_sum / stat_commands_per_parse_batch_cnt : 0,
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000));

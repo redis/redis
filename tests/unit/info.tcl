@@ -542,8 +542,8 @@ start_server {tags {"info" "external:skip"}} {
             set info1 [r info stats]
             set proc_events1 [getInfoProperty $info1 total_client_processing_events]
             set cycles1 [getInfoProperty $info1 eventloop_cycles_with_clients_processing]
-            set plsum1 [getInfoProperty $info1 avg_pipeline_length_sum]
-            set plcnt1 [getInfoProperty $info1 avg_pipeline_length_cnt]
+            set plsum1 [getInfoProperty $info1 commands_per_parse_batch_sum]
+            set plcnt1 [getInfoProperty $info1 commands_per_parse_batch_cnt]
 
             # Issue several commands
             r ping
@@ -553,9 +553,9 @@ start_server {tags {"info" "external:skip"}} {
             set info2 [r info stats]
             set proc_events2 [getInfoProperty $info2 total_client_processing_events]
             set cycles2 [getInfoProperty $info2 eventloop_cycles_with_clients_processing]
-            set plsum2 [getInfoProperty $info2 avg_pipeline_length_sum]
-            set plcnt2 [getInfoProperty $info2 avg_pipeline_length_cnt]
-            set plavg2 [getInfoProperty $info2 avg_pipeline_length]
+            set plsum2 [getInfoProperty $info2 commands_per_parse_batch_sum]
+            set plcnt2 [getInfoProperty $info2 commands_per_parse_batch_cnt]
+            set plavg2 [getInfoProperty $info2 commands_per_parse_batch_avg]
 
             # processInputBuffer was called for 3 PINGs + the INFO call = at least 4
             assert_morethan_equal [expr {$proc_events2 - $proc_events1}] 4
@@ -581,8 +581,8 @@ start_server {tags {"info" "external:skip"}} {
             set info_before [r info stats]
             set proc_before [getInfoProperty $info_before total_client_processing_events]
             set cycles_before [getInfoProperty $info_before eventloop_cycles_with_clients_processing]
-            set plsum_before [getInfoProperty $info_before avg_pipeline_length_sum]
-            set plcnt_before [getInfoProperty $info_before avg_pipeline_length_cnt]
+            set plsum_before [getInfoProperty $info_before commands_per_parse_batch_sum]
+            set plcnt_before [getInfoProperty $info_before commands_per_parse_batch_cnt]
 
             # Verify counters are meaningfully large before resetting
             assert_morethan $proc_before 10
@@ -595,8 +595,8 @@ start_server {tags {"info" "external:skip"}} {
             set info_after [r info stats]
             set proc_after [getInfoProperty $info_after total_client_processing_events]
             set cycles_after [getInfoProperty $info_after eventloop_cycles_with_clients_processing]
-            set plsum_after [getInfoProperty $info_after avg_pipeline_length_sum]
-            set plcnt_after [getInfoProperty $info_after avg_pipeline_length_cnt]
+            set plsum_after [getInfoProperty $info_after commands_per_parse_batch_sum]
+            set plcnt_after [getInfoProperty $info_after commands_per_parse_batch_cnt]
 
             # Counters should be near zero (only RESETSTAT + INFO ran after reset)
             assert_lessthan_equal $proc_after 3

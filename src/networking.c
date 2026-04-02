@@ -251,8 +251,8 @@ client *createClient(connection *conn) {
     c->commands_processed = 0;
     c->last_ts_when_counted_as_active = 0;
     c->stat_total_read_events = 0;
-    c->stat_avg_pipeline_length_sum = 0;
-    c->stat_avg_pipeline_length_cnt = 0;
+    c->stat_commands_per_parse_batch_sum = 0;
+    c->stat_commands_per_parse_batch_cnt = 0;
     c->task = NULL;
     c->node_id = NULL;
     atomicSet(c->pending_read, 0);
@@ -3612,11 +3612,11 @@ int processInputBuffer(client *c) {
 
         if (c->pending_cmds.ready_len != pending_cmd_before_reading) {
             int newly_parsed_cmds = c->pending_cmds.ready_len - pending_cmd_before_reading;
-            atomicIncr(server.stat_avg_pipeline_length_sum, newly_parsed_cmds);
-            atomicIncr(server.stat_avg_pipeline_length_cnt, 1);
+            atomicIncr(server.stat_commands_per_parse_batch_sum, newly_parsed_cmds);
+            atomicIncr(server.stat_commands_per_parse_batch_cnt, 1);
 
-            c->stat_avg_pipeline_length_sum += newly_parsed_cmds;
-            c->stat_avg_pipeline_length_cnt++;
+            c->stat_commands_per_parse_batch_sum += newly_parsed_cmds;
+            c->stat_commands_per_parse_batch_cnt++;
         }
 
         /* Try to consume the next ready command from the pending command list. */
@@ -4032,8 +4032,8 @@ sds catClientInfoString(sds s, client *client) {
         " tot-net-out=%U", client->net_output_bytes,
         " tot-cmds=%U", client->commands_processed,
         " read-events=%U", (unsigned long long)client->stat_total_read_events,
-        " avg-pipeline-len-sum=%U", (unsigned long long)client->stat_avg_pipeline_length_sum,
-        " avg-pipeline-len-cnt=%U", (unsigned long long)client->stat_avg_pipeline_length_cnt));
+        " parse-batch-cmd-sum=%U", (unsigned long long)client->stat_commands_per_parse_batch_sum,
+        " parse-batch-cnt=%U", (unsigned long long)client->stat_commands_per_parse_batch_cnt));
 
     if (paused) resumeIOThread(client->running_tid);
     return ret;

@@ -1619,8 +1619,8 @@ typedef struct client {
 
     mstime_t last_ts_when_counted_as_active; /* Timestamp of last time this client was counted as active */
     size_t stat_total_read_events; /* Number of times readQueryFromClient() was called */
-    size_t stat_avg_pipeline_length_sum; /* Sum of pipeline lengths for computing average */
-    size_t stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
+    size_t stat_commands_per_parse_batch_sum; /* Cumulative commands parsed across all parsing batches. */
+    size_t stat_commands_per_parse_batch_cnt; /* Number of parsing batches (each finding >= 1 command). */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
@@ -2119,8 +2119,8 @@ struct redisServer {
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
     long long stat_total_prefetch_entries;  /* Total number of prefetched dict entries */
     long long stat_total_prefetch_batches;  /* Total number of prefetched batches */
-    redisAtomic long long stat_avg_pipeline_length_sum; /* Sum of pipeline lengths for computing average */
-    redisAtomic long long stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
+    redisAtomic long long stat_commands_per_parse_batch_sum; /* Cumulative commands parsed across all parsing batches for all clients. */
+    redisAtomic long long stat_commands_per_parse_batch_cnt; /* Total number of parsing batches across all clients. */
     redisAtomic long long stat_total_client_process_input_buff_events; /* Number of times processInputBuffer() was called */
     size_t stat_eventloop_cycles_with_clients_input_buff_processing; /* Event loop cycles with client input buffer processing */
     /* The following two are used to track instantaneous metrics, like

@@ -21,9 +21,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         set client_list [r client list]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* parse-batch-cmd-sum=* parse-batch-cnt=*} $client_list
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* parse-batch-cmd-sum=* parse-batch-cnt=*} $client_list
         }
     }
 
@@ -36,9 +36,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* parse-batch-cmd-sum=* parse-batch-cnt=*} $client
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* parse-batch-cmd-sum=* parse-batch-cnt=*} $client
         }
     } 
 
@@ -149,8 +149,8 @@ start_server {tags {"introspection"}} {
         # so capture the current state rather than assuming zeros.
         set info1 [$r2 client info]
         set re1 [get_field_in_client_info $info1 "read-events"]
-        set plsum1 [get_field_in_client_info $info1 "avg-pipeline-len-sum"]
-        set plcnt1 [get_field_in_client_info $info1 "avg-pipeline-len-cnt"]
+        set plsum1 [get_field_in_client_info $info1 "parse-batch-cmd-sum"]
+        set plcnt1 [get_field_in_client_info $info1 "parse-batch-cnt"]
 
         # Send 3 sequential (non-pipelined) commands
         $r2 ping
@@ -159,8 +159,8 @@ start_server {tags {"introspection"}} {
 
         set info2 [$r2 client info]
         set re2 [get_field_in_client_info $info2 "read-events"]
-        set plsum2 [get_field_in_client_info $info2 "avg-pipeline-len-sum"]
-        set plcnt2 [get_field_in_client_info $info2 "avg-pipeline-len-cnt"]
+        set plsum2 [get_field_in_client_info $info2 "parse-batch-cmd-sum"]
+        set plcnt2 [get_field_in_client_info $info2 "parse-batch-cnt"]
 
         # read-events should have increased (3 PINGs + the CLIENT INFO itself)
         assert_morethan_equal $re2 [expr {$re1 + 4}]
@@ -182,8 +182,8 @@ start_server {tags {"introspection"}} {
 
         # Capture baseline from CLIENT LIST
         set info_list [r client list]
-        set plsum1 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-sum"]
-        set plcnt1 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-cnt"]
+        set plsum1 [get_field_in_client_list $rd_id $info_list "parse-batch-cmd-sum"]
+        set plcnt1 [get_field_in_client_list $rd_id $info_list "parse-batch-cnt"]
 
         # Send 5 pipelined commands without reading replies
         for {set i 0} {$i < 5} {incr i} {
@@ -196,8 +196,8 @@ start_server {tags {"introspection"}} {
         }
 
         set info_list [r client list]
-        set plsum2 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-sum"]
-        set plcnt2 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-cnt"]
+        set plsum2 [get_field_in_client_list $rd_id $info_list "parse-batch-cmd-sum"]
+        set plcnt2 [get_field_in_client_list $rd_id $info_list "parse-batch-cnt"]
 
         # All 5 commands must have been counted in the sum
         set delta_sum [expr {$plsum2 - $plsum1}]
