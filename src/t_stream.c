@@ -4528,9 +4528,9 @@ void xclaimCommand(client *c) {
         streamID id = ids[j-5];
 
         /* Lookup the ID in the group PEL. */
-        void *val = NULL;
-        pelFind(group->pel, &id, &val);
-        streamNACK *nack = val;
+        void *result = NULL;
+        pelFind(group->pel, &id, &result);
+        streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(s,&id)) {
