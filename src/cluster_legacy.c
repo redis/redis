@@ -2193,6 +2193,40 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 }
             }
 
+            /* If we already know this node in NOADDR state but
+             * gossip from a trusted sender reports a healthy endpoint at a
+             * different address, adopt it so we can reconnect. Without this,
+             * failure detection skips NOADDR nodes, so the PFAIL-based gossip
+             * repair below never runs. */
+            if (sender &&
+                (node->flags & CLUSTER_NODE_NOADDR) &&
+                !(node->flags & CLUSTER_NODE_HANDSHAKE) &&
+                !(flags & CLUSTER_NODE_NOADDR) &&
+                !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
+                g->ip[0] != '\0' &&
+                strcmp(g->ip, myself->ip) != 0 &&
+                !clusterBlacklistExists(g->nodename, CLUSTER_NAMELEN) &&
+                (strcasecmp(node->ip,g->ip) ||
+                 node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
+                 node->tcp_port != (server.tls_cluster ? ntohs(g->pport) : ntohs(g->port)) ||
+                 node->cport != ntohs(g->cport)))
+            {
+                if (node->link) freeClusterLink(node->link);
+                memcpy(node->ip,g->ip,NET_IP_STR_LEN);
+                node->tcp_port = msg_tcp_port;
+                node->tls_port = msg_tls_port;
+                node->cport = ntohs(g->cport);
+                node->flags &= ~CLUSTER_NODE_NOADDR;
+                serverLog(LL_NOTICE,
+                    "Gossip updated address for NOADDR node %.40s (%s), now %s:%d",
+                    node->name, node->human_nodename, node->ip,
+                    getNodeDefaultClientPort(node));
+                if (nodeIsSlave(myself) && myself->slaveof == node)
+                    replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                     CLUSTER_TODO_UPDATE_STATE);
+            }
+
             /* If we already know this node, but it is not reachable, and
              * we see a different address in the gossip section of a node that
              * can talk with this other node, update the address, disconnect
@@ -5878,6 +5912,33 @@ int clusterNodeIsMaster(clusterNode *n) {
 }
 
 int handleDebugClusterCommand(client *c) {
+    /* DEBUG FORCE-NOADDR <node-id> -- testing: simulate stuck NOADDR peer. */
+    if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr, "FORCE-NOADDR")) {
+        if (!server.cluster_enabled) {
+            addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+            return 1;
+        }
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+        if (!n) {
+            addReplyErrorFormat(c, "Unknown node %s", (char *) c->argv[2]->ptr);
+            return 1;
+        }
+        if (n == myself) {
+            addReplyError(c, "Cannot set NOADDR on myself");
+            return 1;
+        }
+        if (n->link) freeClusterLink(n->link);
+        if (n->inbound_link) freeClusterLink(n->inbound_link);
+        n->flags |= CLUSTER_NODE_NOADDR;
+        n->ip[0] = '\0';
+        n->tcp_port = 0;
+        n->tls_port = 0;
+        n->cport = 0;
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
+        addReply(c, shared.ok);
+        return 1;
+    }
+
     if (c->argc != 5 ||
         strcasecmp(c->argv[1]->ptr, "CLUSTERLINK") ||
         strcasecmp(c->argv[2]->ptr, "KILL")) {
@@ -5953,6 +6014,8 @@ const char **clusterDebugCommandExtendedHelp(void) {
     static const char *help[] = {
         "CLUSTERLINK KILL <to|from|all> <node-id>",
         "    Kills the link based on the direction to/from (both) with the provided node.",
+        "FORCE-NOADDR <node-id>",
+        "    Testing only: mark a known peer as NOADDR and clear its address.",
         NULL
     };
 
