@@ -720,9 +720,7 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dict *d = zs->dict;
-        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
-        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
+        dismissDictBucketsMemory(zs->dict);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
@@ -748,8 +746,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
-        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
+        dismissDictBucketsMemory(d);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
