@@ -3362,8 +3362,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                     streamID nack_id;
                     streamDecodeID(rawid, &nack_id);
-                    void *val;
-                    if (!pelFind(cgroup->pel, &nack_id, &val)) {
+                    void *result;
+                    if (!pelFind(cgroup->pel, &nack_id, &result)) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
                         decrRefCount(o);
@@ -3373,7 +3373,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
-                    streamNACK *nack = val;
+                    streamNACK *nack = result;
                     nack->consumer = consumer;
                     if (!pelTryInsert(consumer->pel,&nack_id,nack,&consumer->pel_count)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "

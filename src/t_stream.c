@@ -2563,6 +2563,10 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
         if (streamReplyWithRange(c,s,&pi.id,&pi.id,1,0,-1,NULL,NULL,
                                  STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
         {
+            /* Note that we may have a not acknowledged entry in the PEL
+             * about a message that's no longer here because was removed
+             * by the user by other means. In that case we signal it emitting
+             * the ID but then a NULL entry for the fields. */
             addReplyArrayLen(c,2);
             addReplyStreamID(c,&pi.id);
             addReplyNullArray(c);
@@ -3356,19 +3360,16 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
 /* Link a consumer group to a stream entry in the cgroups_ref index.
  * Returns a pointer to the list node, so that it can be used for future deletion. */
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id) {
+    list *cglist;
     if (!s->cgroups_ref)
         s->cgroups_ref = pelNew(&s->alloc_size);
 
-    list *cglist;
-    void *existing;
     /* Try to find the list for this stream ID, create it if it doesn't exist */
-    if (pelFind(s->cgroups_ref, id, &existing)) {
-        cglist = (list *)existing;
-    } else {
+    if (!pelFind(s->cgroups_ref, id, (void**)&cglist)) {
         cglist = listCreate();
-        pelInsert(s->cgroups_ref, id, cglist, NULL);
+        serverAssert(pelInsert(s->cgroups_ref, id, cglist, NULL));
     }
-
+    /* Add the consumer group to the list and return the list node */
     listAddNodeTail(cglist, cg);
     return listLast(cglist);
 }
@@ -3376,11 +3377,12 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id) {
 /* Unlink a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted. */
 void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na) {
-    if (!s->cgroups_ref) return;
     list *cglist;
+    if (!s->cgroups_ref) return;
     if (pelFind(s->cgroups_ref, &na->id, (void**)&cglist)) {
         listDelNode(cglist, na->cgroup_ref_node);
 
+        /* If the list is now empty, remove it from the index. */
         if (listLength(cglist) == 0) {
             pelRemove(s->cgroups_ref, &na->id, NULL);
             listRelease(cglist);
@@ -3393,7 +3395,8 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     if (!s->cgroups_ref) return;
     list *cglist;
     /* If message is not in any consumer group, nothing to do */
-    if (!pelFind(s->cgroups_ref, id, (void**)&cglist)) return;
+    if (!pelFind(s->cgroups_ref, id, (void**)&cglist))
+        return;
 
     listIter li;
     listNode *ln;
@@ -3407,6 +3410,8 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
 
         /* Remove from group and consumer PELs */
         pelListUnlink(group, nack);
+        /* Since we're removing all references from the cgroups_ref, we can directly
+         * free the NACK without unlinking it from the cgroups_ref. */
         pelRemove(group->pel, id, &group->pel_count);
         pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
         streamFreeNACK(s, nack);
@@ -4033,9 +4038,9 @@ void xackCommand(client *c) {
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
-        void *val;
-        if (pelFind(group->pel, &ids[j-3], &val)) {
-            streamNACK *nack = val;
+        void *result;
+        if (pelFind(group->pel, &ids[j-3], &result)) {
+            streamNACK *nack = result;
             pelListUnlink(group, nack);
             pelRemove(group->pel, &ids[j-3], &group->pel_count);
             pelRemove(nack->consumer->pel, &ids[j-3], &nack->consumer->pel_count);
@@ -4107,9 +4112,9 @@ void xackdelCommand(client *c) {
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
-        void *val;
-        if (pelFind(group->pel, id, &val)) {
-            streamNACK *nack = val;
+        void *result;
+        if (pelFind(group->pel, id, &result)) {
+            streamNACK *nack = result;
             pelListUnlink(group, nack);
             pelRemove(group->pel, id, &group->pel_count);
             pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
