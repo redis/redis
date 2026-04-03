@@ -507,8 +507,6 @@ proc test_scan {type} {
         set keys [lsort -unique $keys]
         assert_equal 100 [llength $keys]
     }
-    
-    
 }
 
 start_server {tags {"scan network standalone"}} {
