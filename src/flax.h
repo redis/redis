@@ -68,7 +68,7 @@ typedef struct flaxIterator {
     flax *f;             /* Flax we are iterating. */
     uint8_t key;         /* The current key. */
     void *data;          /* Data associated to this key. */
-    int64_t idx;         /* Current index into the flax arrays, -1 if EOF. */
+    int16_t idx;         /* Current index into the flax arrays, -1 if EOF. */
 } flaxIterator;
 
 /* --- Creation and destruction --- */
@@ -93,7 +93,7 @@ void flaxStop(flaxIterator *it);
 int flaxEOF(flaxIterator *it);
 
 /* --- Introspection --- */
-uint64_t flaxSize(flax *f);
+uint16_t flaxSize(flax *f);
 size_t flaxAllocSize(flax *f);
 void flaxShrink(flax *f);
 

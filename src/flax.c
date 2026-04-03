@@ -49,7 +49,7 @@
 
 /* Return the byte offset where the values array starts within the data
  * block for a given capacity. The offset is aligned to pointer size. */
-static size_t flax_values_offset(uint32_t capacity) {
+static size_t flax_values_offset(uint16_t capacity) {
     size_t raw = (size_t)capacity * sizeof(uint8_t);
     size_t align = alignof(void *);
     return (raw + align - 1) & ~(align - 1);
@@ -85,7 +85,7 @@ static void **flax_values(flax *f) {
  *   - Tail: key > keys[numele-1] is the append case, overwhelmingly common
  *     when keys are monotonically increasing sequence numbers.
  *   - Head: key <= keys[0] catches prepend and exact-match-at-zero. */
-static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int64_t *out_idx) {
+static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int16_t *out_idx) {
     if (numele == 0) {
         *out_idx = 0;
         return 0;
@@ -126,8 +126,8 @@ static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int64_
  * capacity), we must perform two independent memcpy operations -- one for
  * the keys at the start of the block and one for the values at the new
  * aligned offset. The old data block is freed afterwards. */
-static void flax_resize(flax *f, uint32_t new_capacity) {
-    if (new_capacity > UINT8_MAX) new_capacity = UINT8_MAX;
+static void flax_resize(flax *f, uint16_t new_capacity) {
+    if (new_capacity > UINT8_MAX + 1) new_capacity = UINT8_MAX + 1;
     size_t new_voff = flax_values_offset(new_capacity);
     size_t new_alloc = new_voff + (size_t)new_capacity * sizeof(void *);
     size_t new_usable;
@@ -179,7 +179,7 @@ flax *flaxNew(void) {
  * When the key is new, a new element is created and 1 is returned (and
  * *old is set to NULL if provided). */
 static int flaxGenericInsert(flax *f, uint8_t key, void *data, void **old, int overwrite) {
-    int64_t idx;
+    int16_t idx;
     if (flax_search(flax_keys(f), f->numele, key, &idx)) {
         if (old) *old = flax_values(f)[idx];
         if (overwrite) flax_values(f)[idx] = data;
@@ -191,7 +191,7 @@ static int flaxGenericInsert(flax *f, uint8_t key, void *data, void **old, int o
 
     uint8_t *keys = flax_keys(f);
     void **vals = flax_values(f);
-    int64_t tail = f->numele - idx;
+    int16_t tail = f->numele - idx;
 
     if (tail > 0) {
         memmove(&keys[idx + 1], &keys[idx], (size_t)tail * sizeof(uint8_t));
@@ -225,7 +225,7 @@ int flaxRemove(flax *f, uint8_t key, void **old) {
         return 0;
     }
 
-    int64_t idx;
+    int16_t idx;
     if (!flax_search(flax_keys(f), f->numele, key, &idx)) {
         if (old) *old = NULL;
         return 0;
@@ -234,7 +234,7 @@ int flaxRemove(flax *f, uint8_t key, void **old) {
     uint8_t *keys = flax_keys(f);
     void **vals = flax_values(f);
     if (old) *old = vals[idx];
-    int64_t tail = f->numele - idx - 1;
+    int16_t tail = f->numele - idx - 1;
 
     if (tail > 0) {
         memmove(&keys[idx], &keys[idx + 1], (size_t)tail * sizeof(uint8_t));
@@ -253,7 +253,7 @@ int flaxFind(flax *f, uint8_t key, void **value) {
         if (value) *value = NULL;
         return 0;
     }
-    int64_t idx;
+    int16_t idx;
     if (flax_search(flax_keys(f), f->numele, key, &idx)) {
         if (value) *value = flax_values(f)[idx];
         return 1;
@@ -285,8 +285,8 @@ void flaxFreeWithCallback(flax *f,
 }
 
 /* Return the number of elements inside the flax. */
-uint64_t flaxSize(flax *f) {
-    return (uint64_t)f->numele;
+uint16_t flaxSize(flax *f) {
+    return f->numele;
 }
 
 /* Return the total heap memory used by the flax struct and its data block.
@@ -342,7 +342,7 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
     }
 
     if (op[0] == '>' && op[1] == '=') {
-        int64_t idx;
+        int16_t idx;
         flax_search(flax_keys(it->f), it->f->numele, key, &idx);
         if (idx >= it->f->numele) {
             it->idx = -1;
@@ -356,7 +356,7 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
     }
 
     if (op[0] == '>' && op[1] == '\0') {
-        int64_t idx;
+        int16_t idx;
         int found = flax_search(flax_keys(it->f), it->f->numele, key, &idx);
         if (found) idx++;
         if (idx >= it->f->numele) {
@@ -371,7 +371,7 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
     }
 
     if (op[0] == '<' && op[1] == '=') {
-        int64_t idx;
+        int16_t idx;
         int found = flax_search(flax_keys(it->f), it->f->numele, key, &idx);
         if (found) {
             it->idx = idx;
@@ -389,7 +389,7 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
     }
 
     if (op[0] == '<' && op[1] == '\0') {
-        int64_t idx;
+        int16_t idx;
         flax_search(flax_keys(it->f), it->f->numele, key, &idx);
         if (idx == 0) {
             it->idx = -1;
@@ -403,7 +403,7 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
     }
 
     if (op[0] == '=' && op[1] == '\0') {
-        int64_t idx;
+        int16_t idx;
         if (!flax_search(flax_keys(it->f), it->f->numele, key, &idx)) {
             it->idx = -1;
             it->key = 0;
@@ -669,7 +669,7 @@ int flaxTest(int argc, char **argv, int flags) {
             flaxInsert(a, (uint8_t)i, "x", NULL);
 
         assert(flaxSize(a) == 64);
-        uint32_t cap_before = a->capacity;
+        uint16_t cap_before = a->capacity;
 
         for (int i = 0; i < 56; i++)
             flaxRemove(a, (uint8_t)i, NULL);
