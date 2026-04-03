@@ -769,6 +769,9 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, uint64_t pel_count, int nacks) {
                 return -1;
             }
             nwritten += n;
+            /* We don't save the consumer name: we'll save the pending IDs
+             * for each consumer in the consumer PEL, and resolve the consumer
+             * at loading time. */
         }
     }
     pelIterStop(&pi);
