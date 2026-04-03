@@ -5227,9 +5227,9 @@ void xcfgsetCommand(client *c) {
         changed = 1;
     }
 
-    /* Clean up and propagate if we changed something. */
+    /* Clean up and propagate if we changed something */
     if (changed) {
-        dictDelete(c->db->stream_idmp_keys, key); /* Untrack cleared IDMP key. */
+        dictDelete(c->db->stream_idmp_keys, key); /* Untrack cleared IDMP key */
         keyModified(c,c->db,key,kv,0);
         server.dirty++;
         if (server.memory_tracking_enabled)
@@ -5896,7 +5896,7 @@ cleanup:
     return C_ERR;
 }
 
-/* Clear all IDMP entries from a stream - free all producers and their entries. */
+/* Clear all IDMP entries from a stream - free all producers and their entries */
 static void streamClearIdmpEntries(stream *s) {
     if (s->idmp_producers == NULL) return;
 
