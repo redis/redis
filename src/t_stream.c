@@ -3576,7 +3576,7 @@ void streamDestroyCG(stream *s, streamCG *cg) {
     pelIterStart(&pi, cg->pel);
     pelIterSeek(&pi, "^", NULL);
     while (pelIterNext(&pi)) {
-        streamUnlinkEntryFromCGroupRef(s, pi.data);
+        streamUnlinkEntryFromCGroupRef(s,pi.data);
     }
     pelIterStop(&pi);
 
@@ -3648,12 +3648,12 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
     pelIterSeek(&pi, "^", NULL);
     while (pelIterNext(&pi)) {
         streamNACK *nack = pi.data;
-        streamUnlinkEntryFromCGroupRef(s, nack);
+        streamUnlinkEntryFromCGroupRef(s,nack);
 
-        pelListUnlink(cg, nack);
-        pelRemove(cg->pel, &pi.id, &cg->pel_count);
+        pelListUnlink(cg,nack);
+        pelRemove(cg->pel,&pi.id,&cg->pel_count);
 
-        streamFreeNACK(s, nack);
+        streamFreeNACK(s,nack);
     }
     pelIterStop(&pi);
 
@@ -4317,12 +4317,12 @@ void xpendingCommand(client *c) {
         mstime_t now = commandTimeSnapshot();
 
         pelIterator pi;
-        pelIterStart(&pi, pel);
-        pelIterSeek(&pi, ">=", &startid);
+        pelIterStart(&pi,pel);
+        pelIterSeek(&pi,">=",&startid);
         void *arraylen_ptr = addReplyDeferredLen(c);
         size_t arraylen = 0;
 
-        while (count && pelIterNext(&pi) && streamCompareID(&pi.id, &endid) <= 0) {
+        while (count && pelIterNext(&pi) && streamCompareID(&pi.id,&endid) <= 0) {
             streamNACK *nack = pi.data;
 
             if (minidle) {
@@ -4537,7 +4537,7 @@ void xclaimCommand(client *c) {
 
         /* Lookup the ID in the group PEL. */
         void *result = NULL;
-        pelFind(group->pel, &id, &result);
+        pelFind(group->pel,&id,&result);
         streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
@@ -4549,10 +4549,10 @@ void xclaimCommand(client *c) {
                 propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
                 server.dirty++;
                 /* Release the NACK */
-                pelListUnlink(group, nack);
-                pelRemove(group->pel, &id, &group->pel_count);
-                pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
-                streamDestroyNACK(s, nack);
+                pelListUnlink(group,nack);
+                pelRemove(group->pel,&id,&group->pel_count);
+                pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
+                streamDestroyNACK(s,nack);
             }
             continue;
         }
@@ -4564,10 +4564,10 @@ void xclaimCommand(client *c) {
          * and replication of consumer groups. */
         if (force && nack == NULL) {
             /* Create the NACK. */
-            nack = streamCreateNACK(s, NULL, &id);
-            pelInsert(group->pel, &id, nack, &group->pel_count);
+            nack = streamCreateNACK(s,NULL,&id);
+            pelInsert(group->pel,&id,nack,&group->pel_count);
             pelListInsertAtTail(group, nack);
-            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, &id);
+            nack->cgroup_ref_node = streamLinkCGroupToEntry(s,group,&id);
         }
 
         if (nack != NULL) {
@@ -4587,7 +4587,7 @@ void xclaimCommand(client *c) {
                  * Note that nack->consumer is NULL if we created the
                  * NACK above because of the FORCE option. */
                 if (nack->consumer) {
-                    pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
+                    pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
                 }
             }
 
@@ -4602,7 +4602,7 @@ void xclaimCommand(client *c) {
             }
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
-                pelInsert(consumer->pel, &id, nack, &consumer->pel_count);
+                pelInsert(consumer->pel,&id,nack,&consumer->pel_count);
                 nack->consumer = consumer;
             }
             /* Send the reply for this entry. */
@@ -4729,7 +4729,7 @@ void xautoclaimCommand(client *c) {
 
     pelIterator pi;
     pelIterStart(&pi,group->pel);
-    pelIterSeek(&pi, ">=", &startid);
+    pelIterSeek(&pi,">=",&startid);
     size_t arraylen = 0;
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
@@ -4745,13 +4745,13 @@ void xautoclaimCommand(client *c) {
             decrRefCount(idstr);
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
-            pelListUnlink(group, nack);
-            pelRemove(group->pel, &id, &group->pel_count);
-            pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
-            streamDestroyNACK(s, nack);
+            pelListUnlink(group,nack);
+            pelRemove(group->pel,&id,&group->pel_count);
+            pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
+            streamDestroyNACK(s,nack);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
-            pelIterSeek(&pi, ">=", &id);
+            pelIterSeek(&pi,">=",&id);
             count--; /* Count is a limit of the command response size. */
             continue;
         }
@@ -4767,7 +4767,7 @@ void xautoclaimCommand(client *c) {
              * Note that nack->consumer is NULL if we created the
              * NACK above because of the FORCE option. */
             if (nack->consumer) {
-                pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
+                pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
             }
         }
 
@@ -4780,7 +4780,7 @@ void xautoclaimCommand(client *c) {
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
-            pelInsert(consumer->pel, &id, nack, &consumer->pel_count);
+            pelInsert(consumer->pel,&id,nack,&consumer->pel_count);
             nack->consumer = consumer;
         }
 
