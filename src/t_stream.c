@@ -592,6 +592,7 @@ robj *streamDup(robj *o) {
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, &pi_cg.id);
             pelInsert(new_cg->pel, &pi_cg.id, new_nack, &new_cg->pel_count);
 
+            /* Insert in sorted order to preserve ordering */
             pelListInsertSorted(new_cg, new_nack);
         }
         pelIterStop(&pi_cg);
@@ -2360,7 +2361,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     pelInsert(consumer->pel, &nack->id, nack, &consumer->pel_count);
                 }
                 nack->delivery_count++;
-                pelListUpdate(group, nack, cmd_time_snapshot);
+                pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
 
                 consumer->active_time = cmd_time_snapshot;
 
@@ -3394,12 +3395,13 @@ void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na) {
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     if (!s->cgroups_ref) return;
     list *cglist;
+    listIter li;
+    listNode *ln;
+    
     /* If message is not in any consumer group, nothing to do */
     if (!pelFind(s->cgroups_ref, id, (void**)&cglist))
         return;
 
-    listIter li;
-    listNode *ln;
     listRewind(cglist, &li);
     while ((ln = listNext(&li))) {
         streamNACK *nack;
@@ -4730,8 +4732,7 @@ void xautoclaimCommand(client *c) {
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
     pelIterSeek(&pi, ">=", &startid);
-    int has_entry = pelIterNext(&pi);
-    while (attempts-- && count && has_entry) {
+    while (attempts-- && count && pelIterNext(&pi)) {
         streamNACK *nack = pi.data;
         streamID id = pi.id;
 
@@ -4750,7 +4751,6 @@ void xautoclaimCommand(client *c) {
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             pelIterSeek(&pi, ">=", &id);
-            has_entry = pelIterNext(&pi);
             count--; /* Count is a limit of the command response size. */
             continue;
         }
@@ -4758,12 +4758,14 @@ void xautoclaimCommand(client *c) {
         if (minidle) {
             mstime_t this_idle = now - nack->delivery_time;
             if (this_idle < minidle) {
-                has_entry = pelIterNext(&pi);
                 continue;
             }
         }
 
         if (nack->consumer != consumer) {
+            /* Remove the entry from the old consumer.
+             * Note that nack->consumer is NULL if we created the
+             * NACK above because of the FORCE option. */
             if (nack->consumer) {
                 pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
             }
@@ -4798,10 +4800,10 @@ void xautoclaimCommand(client *c) {
         streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
         decrRefCount(idstr);
         server.dirty++;
-        has_entry = pelIterNext(&pi);
     }
 
-    /* After the loop, pi is already on the next unprocessed entry (or invalid). */
+    /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
+    pelIterNext(&pi);
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -5220,7 +5222,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
                     addReplyStreamID(c,&pi_cg_pel.id);
 
                     /* Consumer name. */
-                    serverAssert(nack->consumer);
+                    serverAssert(nack->consumer); /* assertion for valgrind (avoid NPD) */
                     addReplyBulkCBuffer(c,nack->consumer->name,
                                         sdslen(nack->consumer->name));
 
