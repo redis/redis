@@ -48,7 +48,7 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 
 /* Forward declarations for IDMP functions (defined at end of file) */
 static void trackStreamIdmpEntries(client *c, robj *key);
-static void streamClearIdmpEntries(stream *s, redisDb *db, robj *key);
+static void streamClearIdmpEntries(stream *s, client *c, robj *key);
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
 static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id);
@@ -5218,12 +5218,12 @@ void xcfgsetCommand(client *c) {
      * to call this before starting to publish without clearing each time. */
     if (duration != -1 && s->idmp_duration != (uint64_t)duration) {
         s->idmp_duration = duration;
-        streamClearIdmpEntries(s, c->db, key);
+        streamClearIdmpEntries(s, c, key);
         changed = 1;
     }
     if (maxsize != -1 && s->idmp_max_entries != (uint64_t)maxsize) {
         s->idmp_max_entries = maxsize;
-        streamClearIdmpEntries(s, c->db, key);
+        streamClearIdmpEntries(s, c, key);
         changed = 1;
     }
 
@@ -5897,7 +5897,7 @@ cleanup:
 
 /* Clear all IDMP entries from a stream - free all producers and their entries,
  * and unregister the key from db->stream_idmp_keys. */
-static void streamClearIdmpEntries(stream *s, redisDb *db, robj *key) {
+static void streamClearIdmpEntries(stream *s, client *c, robj *key) {
     if (s->idmp_producers == NULL) return;
 
     /* Iterate through all producers and free them */
@@ -5912,7 +5912,7 @@ static void streamClearIdmpEntries(stream *s, redisDb *db, robj *key) {
     /* Free the producers rax tree and reset */
     raxFree(s->idmp_producers);
     s->idmp_producers = NULL;
-    dictDelete(db->stream_idmp_keys, key);
+    dictDelete(c->db->stream_idmp_keys, key);
 }
 
 /* Evict the oldest entry from the IDMP producer when max entries is exceeded.
