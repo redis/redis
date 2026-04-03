@@ -498,6 +498,19 @@ proc test_scan {type} {
 
 start_server {tags {"scan network standalone"}} {
     test_scan "standalone"
+
+    test "scan count overflow" {
+        r flushdb
+        populate 10
+
+        # count = LONG_MAX/10 + 1 = 922337203685477581, within LONG_MAX so
+        # it parses fine, but count*10 overflows signed long which is
+        # undefined behavior.
+        set big_count 922337203685477581
+        set res [r scan 0 count $big_count]
+        assert {[llength $res] == 2}
+        assert {[string is integer [lindex $res 0]]}
+    }
 }
 
 start_cluster 1 0 {tags {"external:skip cluster scan"}} {
