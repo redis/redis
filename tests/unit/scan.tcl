@@ -471,6 +471,19 @@ proc test_scan {type} {
         }
     }
 
+    test "{$type} SCAN COUNT overflow" {
+        r flushdb
+        populate 10
+
+        # count = LONG_MAX/10 + 1 = 922337203685477581, within LONG_MAX so
+        # it parses fine, but count*10 overflows signed long which is
+        # undefined behavior.
+        set big_count 922337203685477581
+        set res [r scan 0 count $big_count]
+        assert {[llength $res] == 2}
+        assert {[string is integer [lindex $res 0]]}
+    }
+
     test "{$type} SCAN MATCH pattern implies cluster slot" {
         # Tests the code path for an optimization for patterns like "{foo}-*"
         # which implies that all matching keys belong to one slot.
@@ -494,23 +507,12 @@ proc test_scan {type} {
         set keys [lsort -unique $keys]
         assert_equal 100 [llength $keys]
     }
+    
+    
 }
 
 start_server {tags {"scan network standalone"}} {
     test_scan "standalone"
-
-    test "scan count overflow" {
-        r flushdb
-        populate 10
-
-        # count = LONG_MAX/10 + 1 = 922337203685477581, within LONG_MAX so
-        # it parses fine, but count*10 overflows signed long which is
-        # undefined behavior.
-        set big_count 922337203685477581
-        set res [r scan 0 count $big_count]
-        assert {[llength $res] == 2}
-        assert {[string is integer [lindex $res 0]]}
-    }
 }
 
 start_cluster 1 0 {tags {"external:skip cluster scan"}} {
