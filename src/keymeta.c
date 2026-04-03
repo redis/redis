@@ -593,7 +593,7 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
                 /* Call module's rdb_save callback */
                 RedisModuleIO io;
                 moduleInitIOContext(&io, &pClass->entity, &payload_rio, key, dbid);
-                pClass->conf.rdb_save(&io, kv, pMeta);
+                pClass->conf.rdb_save(&io, NULL, pMeta);
 
                 if (io.ctx) {
                     moduleFreeContext(io.ctx);
@@ -668,7 +668,7 @@ int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
             {
                 RedisModuleIO io;
                 moduleInitIOContext(&io, &keyMetaClass[keyMetaId].entity, r, key, dbid);
-                keyMetaClass[keyMetaId].conf.aof_rewrite(&io, kv, meta);
+                keyMetaClass[keyMetaId].conf.aof_rewrite(&io, NULL, meta);
                 if (io.ctx) {
                     moduleFreeContext(io.ctx);
                     zfree(io.ctx);
