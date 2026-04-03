@@ -330,6 +330,7 @@ int clusterLoadConfig(char *filename) {
         serverLog(LL_WARNING,
             "Unable to obtain the cluster node config file stat %s: %s",
             filename, strerror(errno));
+        fclose(fp);
         exit(1);
     }
     /* Check if the file is zero-length: if so return C_ERR to signal
