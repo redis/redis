@@ -7562,10 +7562,21 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
         if (!success) return 0;
     }
 
-    /* Finally send CLUSTER RESET to the node. */
-    clusterManagerLogInfo(">>> Sending CLUSTER RESET SOFT to the "
-                          "deleted node.\n");
-    redisReply *r = redisCommand(node->context, "CLUSTER RESET %s", "SOFT");
+    /* Send SHUTDOWN to the node to ensure clients get a clear connection
+     * failure instead of connecting to a stale standalone node. If SHUTDOWN
+     * fails (disabled or no permission), fall back to CLUSTER RESET SOFT. */
+    clusterManagerLogInfo(">>> Sending SHUTDOWN NOSAVE to the deleted node.\n");
+    redisReply *r = redisCommand(node->context, "SHUTDOWN NOSAVE");
+    if (r == NULL && (node->context->err == REDIS_ERR_IO ||
+                       node->context->err == REDIS_ERR_EOF)) {
+        /* Connection closed - expected after successful SHUTDOWN */
+        clusterManagerLogOk("[OK] Node %s:%d shut down.\n", node->ip, node->port);
+        return 1;
+    }
+    /* SHUTDOWN failed - fall back to CLUSTER RESET SOFT */
+    if (r) freeReplyObject(r);
+    clusterManagerLogWarn(">>> SHUTDOWN failed, falling back to CLUSTER RESET SOFT.\n");
+    r = redisCommand(node->context, "CLUSTER RESET %s", "SOFT");
     success = clusterManagerCheckRedisReply(node, r, NULL);
     if (r) freeReplyObject(r);
     return success;
