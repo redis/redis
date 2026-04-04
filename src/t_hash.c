@@ -3078,32 +3078,35 @@ void genericHgetallCommand(client *c, int flags) {
         (flags & OBJ_HASH_KEY) && (flags & OBJ_HASH_VALUE) &&
         server.prefetch_batch_max_size > 0)
     {
-        #define HGETALL_BATCH 16
+        #define HGETALL_BATCH_MAX 16
+        int batch_size = server.prefetch_batch_max_size < HGETALL_BATCH_MAX
+                       ? server.prefetch_batch_max_size : HGETALL_BATCH_MAX;
+        int skip_expired = !server.allow_access_expired;
         dict *d = o->ptr;
         dictIterator di;
         dictInitSafeIterator(&di, d);
-        dictEntry *batch_de[HGETALL_BATCH];
-        Entry *batch_entry[HGETALL_BATCH];
+        Entry *batch_entry[HGETALL_BATCH_MAX];
 
         int batch_count;
         while (1) {
             /* Phase 1: collect batch of entries from dict iterator,
-             * skipping expired fields and prefetching Entry structs. */
+             * skipping expired fields (unless allow_access_expired),
+             * and prefetching Entry structs. */
             batch_count = 0;
-            for (int i = 0; i < HGETALL_BATCH; i++) {
+            for (int i = 0; i < batch_size; i++) {
                 dictEntry *de;
                 Entry *e;
-                /* Skip expired fields like hashTypeNext does. */
                 while ((de = dictNext(&di)) != NULL) {
                     e = dictGetKey(de);
-                    uint64_t expire_time = entryGetExpiry(e);
-                    if (expire_time != EB_EXPIRE_TIME_INVALID &&
-                        (mstime_t)expire_time < commandTimeSnapshot())
-                        continue;
+                    if (skip_expired) {
+                        uint64_t expire_time = entryGetExpiry(e);
+                        if (expire_time != EB_EXPIRE_TIME_INVALID &&
+                            (mstime_t)expire_time < commandTimeSnapshot())
+                            continue;
+                    }
                     break;
                 }
                 if (!de) break;
-                batch_de[batch_count] = de;
                 batch_entry[batch_count] = e;
                 redis_prefetch_read(e);
                 batch_count++;
@@ -3130,7 +3133,7 @@ void genericHgetallCommand(client *c, int flags) {
                 count += 2;
             }
         }
-        #undef HGETALL_BATCH
+        #undef HGETALL_BATCH_MAX
         dictResetIterator(&di);
     } else {
         hashTypeInitIterator(&hi, o);
