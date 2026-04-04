@@ -4480,9 +4480,10 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  * Note: the metadata class name "AAAAAAAAA" is reserved and produces an error.
  *
- * If RM_CreateKeyMetaClass() is called outside of RedisModule_OnLoad() function,
- * there is already a metadata class registered with the same name,
- * or if the metadata class name or metaver is invalid, a negative value is returned.
+ * If RM_CreateKeyMetaClass() is called outside of RedisModule_OnLoad() function
+ * and outside of server startup, there is already a metadata class registered
+ * with the same name, or if the metadata class name or metaver is invalid,
+ * a negative value is returned.
  * Otherwise the new metadata class is registered into Redis, and a reference of
  * type RedisModuleKeyMetaClassId is returned: the caller of the function should store
  * this reference into a global variable to make future use of it in the
@@ -4503,9 +4504,10 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
 {
     RedisModuleKeyMetaClassId id;
     
-    /* Allow registration only during server startup (or when debug flag is set) */
+    /* Allow registration during OnLoad, server startup, or when debug flag is set */
     int ctx_flags = RM_GetContextFlags(ctx);
-    if (!(ctx_flags & REDISMODULE_CTX_FLAGS_SERVER_STARTUP) &&
+    if (!ctx->module->onload &&
+        !(ctx_flags & REDISMODULE_CTX_FLAGS_SERVER_STARTUP) &&
         !server.allow_keymeta_registration)
         return -1;
 
