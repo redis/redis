@@ -2204,7 +2204,6 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 g->ip[0] != '\0' &&
-                strcmp(g->ip, myself->ip) != 0 &&
                 !clusterBlacklistExists(g->nodename, CLUSTER_NAMELEN) &&
                 (strcasecmp(node->ip,g->ip) ||
                  node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
