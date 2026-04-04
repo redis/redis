@@ -5712,7 +5712,7 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
         robj *tracked_key = key;
         if (key->refcount == OBJ_STATIC_REFCOUNT)
             tracked_key = createStringObject(key->ptr, sdslen(key->ptr));
-        if (dictAddRaw(db->stream_idmp_keys, tracked_key, NULL)) {
+        if (dictAdd(db->stream_idmp_keys, tracked_key, NULL) == DICT_OK) {
             incrRefCount(tracked_key);
         }
         if (tracked_key != key)
