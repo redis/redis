@@ -5700,7 +5700,7 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
  * by a previous XADD operation), this function does nothing, as the stream
  * is already registered for periodic cleanup. */
 static void trackStreamIdmpEntries(client *c, robj *key) {
-    if (dictAddRaw(c->db->stream_idmp_keys, key, NULL)) {
+    if (dictAdd(c->db->stream_idmp_keys, key, NULL) == DICT_OK) {
         incrRefCount(key);
     }
 }
@@ -5720,7 +5720,7 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
     }
 }
 
-/* To be used when a steam key was removed from ram, un-redigster from stream_idmp_keys if needed */
+/* To be used when a stream key was removed from ram, un-register from stream_idmp_keys if needed */
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
     UNUSED(val);
     dictDelete(db->stream_idmp_keys, key);
