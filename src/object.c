@@ -1342,9 +1342,6 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->clients_normal += mh->clients_orphan_ref;
     mem_total += mh->clients_normal;
 
-    /* Compute zero-copy ref memory usage. */
-    getClientsRefMemoryUsage(&mh->clients_ref, &mh->clients_orphan_ref);
-
     mh->cluster_links = server.stat_cluster_links_memory;
     mem_total += mh->cluster_links;
 
