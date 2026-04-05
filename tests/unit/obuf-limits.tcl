@@ -236,7 +236,7 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         reconnect
     }
 
-    test "verify ormem and mem_clients_ref track zero-copy referenced reply bytes" {
+    test "zero-copy referenced reply bytes are reflected in memory stats" {
         r flushdb
         r config set client-output-buffer-limit {normal 0 0 0}
         # Use a value large enough to trigger copy avoidance
@@ -244,23 +244,26 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         r set bigkey [string repeat v $val_size]
 
         # Use MULTI/EXEC so all observers see the zero-copy ref before it is sent.
-        r client setname ormem_test
+        r client setname refmem_test
         r multi
         r get bigkey      ;# adds zero-copy ref to output buffer
-        r client list     ;# per-client ormem / omem / tot-mem
-        r info memory     ;# global mem_clients_ref
+        r client list     ;# per-client omem / omem-ref / omem-ref-orphan / tot-mem
+        r info memory     ;# global mem_clients_ref / mem_clients_orphan_ref
         r memory stats    ;# clients.ref and clients.orphan.ref
         set res [r exec]
-
-        # ormem tracks only zero-copy ref bytes; omem and tot-mem must be at least as large
+        
+        # omem-ref tracks total zero-copy ref bytes, key is still alive so omem-ref-orphan must be 0.
         set clients [split [string trim [lindex $res 1]] "\r\n"]
-        set c [lsearch -inline $clients *name=ormem_test*]
-        regexp {ormem=([0-9]+)} $c - ormem
-        assert {$ormem >= $val_size}
-
+        set c [lsearch -inline $clients *name=refmem_test*]
+        regexp {omem-ref=([0-9]+)} $c - omem_ref
+        regexp {omem-ref-orphan=([0-9]+)} $c - omem_ref_orphan
+        assert {$omem_ref >= $val_size}
+        assert_equal 0 $omem_ref_orphan
+        
         # mem_clients_ref is incremented at write time, before the reply is sent
         set info_mem [lindex $res 2]
         assert {[getInfoProperty $info_mem mem_clients_ref] >= $val_size}
+        assert_equal 0 [getInfoProperty $info_mem mem_clients_orphan_ref]
 
         # MEMORY STATS exposes the same ref bytes; orphan.ref is 0 since the key is still in keyspace
         set mem_stats [lindex $res 3]
@@ -275,22 +278,40 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         }
     }
 
-    test "mem_clients_orphan_ref tracks zero-copy refs whose key was deleted from keyspace" {
+    test "zero-copy referenced reply bytes are tracked as orphaned after the key is deleted" {
         r flushdb
         r config set client-output-buffer-limit {normal 0 0 0}
         set val_size 100000
         r set bigkey [string repeat v $val_size]
 
         # Use MULTI/EXEC so all observers see the zero-copy ref before it is sent.
+        r client setname ormem_orphan_test
         r multi
         r get bigkey      ;# adds zero-copy ref to output buffer
-        r del bigkey      ;# key removed from keyspace
+        r del bigkey      ;# key removed from keyspace - refcount drops to 1
+        r client list     ;# per-client ormem (orphan ref bytes)
         r info memory     ;# global mem_clients_orphan_ref
+        r memory stats    ;# clients.ref and clients.orphan.ref
         set res [r exec]
 
         # after DEL the buffered ref has refcount == 1, so it is counted as an orphan
-        set info_mem [lindex $res 2]
+        # per-client ormem must reflect the orphaned bytes
+        set clients [split [string trim [lindex $res 2]] "\r\n"]
+        set c [lsearch -inline $clients *name=ormem_orphan_test*]
+        regexp {omem-ref=([0-9]+)} $c - omem_ref
+        regexp {omem-ref-orphan=([0-9]+)} $c - omem_ref_orphan
+        assert {$omem_ref >= $val_size}
+        assert {$omem_ref_orphan >= $val_size}
+
+        # mem_clients_orphan_ref (global) must also be >= val_size
+        set info_mem [lindex $res 3]
         assert {[getInfoProperty $info_mem mem_clients_orphan_ref] >= $val_size}
+        assert {[getInfoProperty $info_mem mem_clients_normal] >= $val_size}
+        
+        # MEMORY STATS exposes the same ref bytes;
+        set mem_stats [lindex $res 4]
+        assert {[dict get $mem_stats clients.ref] >= $val_size}
+        assert {[dict get $mem_stats clients.orphan.ref] >= $val_size}
 
         # After the reply is fully sent, orphan refs are released and the counter returns to 0
         wait_for_condition 50 10 {

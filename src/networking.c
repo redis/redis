@@ -1967,29 +1967,44 @@ static size_t computeOrphanRefBytes(char *buf, size_t bufpos) {
     return total;
 }
 
+/* Compute the number of bytes in the client's output buffer that are
+ * zero-copy references where the client is the sole owner (refcount == 1).
+ * This memory would actually be freed when the client disconnects. */
+size_t getClientOrphanRefMemoryUsage(client *c) {
+    size_t orphan_ref_mem = 0;
+
+    /* Scan the static output buffer. */
+    if (c->buf_encoded)
+        orphan_ref_mem += computeOrphanRefBytes(c->buf, c->bufpos);
+
+    /* Scan each block in the reply list. */
+    listIter reply_li;
+    listNode *reply_ln;
+    listRewind(c->reply, &reply_li);
+    while ((reply_ln = listNext(&reply_li))) {
+        clientReplyBlock *block = listNodeValue(reply_ln);
+        if (block == NULL) continue; /* deferred-length placeholder */
+        if (block->buf_encoded)
+            orphan_ref_mem += computeOrphanRefBytes(block->buf, block->used);
+    }
+    return orphan_ref_mem;
+}
+
 /* Compute zero-copy ref memory: total referenced reply bytes and the subset where the key
  * has been deleted and the client buffer is the sole holder. */
-void getClientsRefMemoryUsage(size_t *clients_ref, size_t *clients_orphan_ref) {
+void getClientsRefMemoryUsage(size_t *ref_mem, size_t *orphan_ref_mem) {
     listNode *ln;
     listIter li;
     listRewind(server.clients_with_pending_ref_reply, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        *clients_ref += c->reply_bytes_ref;
 
-        /* Scan the static output buffer. */
-        if (c->buf_encoded)
-            *clients_orphan_ref += computeOrphanRefBytes(c->buf, c->bufpos);
+        /* Total zero-copy ref bytes (logical size, shared with keyspace). */
+        *ref_mem += c->reply_bytes_ref;
 
-        /* Scan each block in the reply list. */
-        listIter reply_li;
-        listNode *reply_ln;
-        listRewind(c->reply, &reply_li);
-        while ((reply_ln = listNext(&reply_li))) {
-            clientReplyBlock *block = listNodeValue(reply_ln);
-            if (block->buf_encoded)
-                *clients_orphan_ref += computeOrphanRefBytes(block->buf, block->used);
-        }
+        /* Orphaned ref bytes: zero-copy refs where the client is the sole owner
+         * (refcount == 1) because the key was deleted. */
+        *orphan_ref_mem += getClientOrphanRefMemoryUsage(c);
     }
 }
 
@@ -4056,6 +4071,13 @@ sds catClientInfoString(sds s, client *client) {
 
     /* Compute the total memory consumed by this client. */
     size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
+    obufmem += client->reply_bytes_ref; /* Logical size of output buffer including refs. */
+
+    /* Compute per-client orphaned reference bytes: zero-copy refs where the
+     * client is the sole owner (refcount == 1) because the key was deleted.
+     * This memory would actually be freed when the client disconnects. */
+    size_t orphan_ref_mem = getClientOrphanRefMemoryUsage(client);
+    total_mem += orphan_ref_mem;
 
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
@@ -4088,7 +4110,8 @@ sds catClientInfoString(sds s, client *client) {
         " obl=%U", (unsigned long long) client->bufpos,
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        " ormem=%U", (unsigned long long) client->reply_bytes_ref,
+        " omem-ref=%U", (unsigned long long) client->reply_bytes_ref, /* total zero-copy referenced bytes */
+        " omem-ref-orphan=%U", (unsigned long long) orphan_ref_mem, /* zero-copy refs where this client is the sole owner */
         " tot-mem=%U", (unsigned long long) total_mem,
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
