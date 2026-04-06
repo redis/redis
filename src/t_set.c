@@ -1853,7 +1853,7 @@ void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION,0,0);
 }
 
-#define HLL_APPROX_CHECK_INTERVAL 1024
+#define HLL_CHECK_INTERVAL_FLOOR 1024
 
 /* SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
 void sunioncardCommand(client *c) {
@@ -1911,6 +1911,7 @@ void sunioncardCommand(client *c) {
         int hll_err = 0;
 
         long elements_processed = 0;
+        long check_after = limit; /* First check after `limit` elements. */
         int early_exit = 0;
 
         for (j = 0; j < numkeys && !early_exit; j++) {
@@ -1939,12 +1940,14 @@ void sunioncardCommand(client *c) {
                 }
 
                 elements_processed++;
-                if (limit > 0 && (elements_processed % HLL_APPROX_CHECK_INTERVAL == 0)) {
+                if (limit > 0 && elements_processed >= check_after) {
                     uint64_t est = hllCount(hllobj->ptr, NULL);
                     if (est >= (uint64_t)limit) {
                         early_exit = 1;
                         break;
                     }
+                    long remaining = (long)limit - (long)est;
+                    check_after = elements_processed + (remaining > HLL_CHECK_INTERVAL_FLOOR ? remaining : HLL_CHECK_INTERVAL_FLOOR);
                 }
             }
             setTypeResetIterator(&si);
