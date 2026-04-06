@@ -14,13 +14,19 @@ static char monotonic_info_string[32];
 
 /* Using the processor clock (aka TSC on x86) can provide improved performance
  * throughout Redis wherever the monotonic clock is used.  The processor clock
- * is significantly faster than calling 'clock_getting' (POSIX).  While this is
+ * is significantly faster than calling 'clock_gettime' (POSIX).  While this is
  * generally safe on modern systems, this link provides additional information
  * about use of the x86 TSC: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage
  *
+ * On x86_64 Linux systems, the hardware clock is enabled by default when the
+ * CPU advertises the 'constant_tsc' flag in /proc/cpuinfo.  The TSC frequency
+ * is determined by runtime calibration (measuring RDTSC ticks over a known
+ * wall-clock interval) which is more robust than parsing the "model name" GHz
+ * string, since not all CPUs include a frequency in that field.
+ *
  * On ARM aarch64 systems, the hardware clock is enabled by default because the
  * ARM Generic Timer is architecturally guaranteed to be available and monotonic
- * on all ARMv8-A processors (see the “The Generic Timer in AArch64 state”
+ * on all ARMv8-A processors (see the "The Generic Timer in AArch64 state"
  * section of the Arm Architecture Reference Manual for Armv8-A).
  *
  * To use the processor clock on other architectures, either uncomment this line,
@@ -30,7 +36,7 @@ static char monotonic_info_string[32];
  */
 
 
-#if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
+#if defined(__x86_64__) && defined(__linux__)
 #include <regex.h>
 #include <x86intrin.h>
 
@@ -43,52 +49,62 @@ static monotime getMonotonicUs_x86(void) {
 static void monotonicInit_x86linux(void) {
     const int bufflen = 256;
     char buf[bufflen];
-    regex_t cpuGhzRegex, constTscRegex;
-    const size_t nmatch = 2;
-    regmatch_t pmatch[nmatch];
+    regex_t constTscRegex;
     int constantTsc = 0;
     int rc;
 
-    /* Determine the number of TSC ticks in a micro-second.  This is
-     * a constant value matching the standard speed of the processor.
-     * On modern processors, this speed remains constant even though
-     * the actual clock speed varies dynamically for each core.  */
-    rc = regcomp(&cpuGhzRegex, "^model name\\s+:.*@ ([0-9.]+)GHz", REG_EXTENDED);
-    assert(rc == 0);
-
-    /* Also check that the constant_tsc flag is present.  (It should be
-     * unless this is a really old CPU.  */
+    /* Check that the constant_tsc flag is present.  This ensures the TSC
+     * runs at a fixed rate regardless of CPU frequency scaling.  Without it,
+     * the TSC is unreliable for timekeeping.  */
     rc = regcomp(&constTscRegex, "^flags\\s+:.* constant_tsc", REG_EXTENDED);
     assert(rc == 0);
 
     FILE *cpuinfo = fopen("/proc/cpuinfo", "r");
     if (cpuinfo != NULL) {
         while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (regexec(&cpuGhzRegex, buf, nmatch, pmatch, 0) == 0) {
-                buf[pmatch[1].rm_eo] = '\0';
-                double ghz = atof(&buf[pmatch[1].rm_so]);
-                mono_ticksPerMicrosecond = (long)(ghz * 1000);
-                break;
-            }
-        }
-        while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (regexec(&constTscRegex, buf, nmatch, pmatch, 0) == 0) {
+            if (regexec(&constTscRegex, buf, 0, NULL, 0) == 0) {
                 constantTsc = 1;
                 break;
             }
         }
-
         fclose(cpuinfo);
     }
-    regfree(&cpuGhzRegex);
     regfree(&constTscRegex);
+
+    if (!constantTsc) {
+        fprintf(stderr, "monotonic: x86 linux, 'constant_tsc' flag not present\n");
+        return;
+    }
+
+    /* Calibrate TSC frequency by measuring RDTSC ticks over a wall-clock
+     * interval.  This is more robust than parsing the CPU model name for a
+     * GHz string, which may be absent on some processors.  */
+    struct timespec ts_start, ts_end;
+    uint64_t tsc_start, tsc_end;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts_start);
+    tsc_start = __rdtsc();
+
+    /* Sleep ~10 ms to accumulate enough ticks for an accurate measurement. */
+    struct timespec req = {0, 10000000};
+    nanosleep(&req, NULL);
+
+    clock_gettime(CLOCK_MONOTONIC, &ts_end);
+    tsc_end = __rdtsc();
+
+    long long elapsed_ns = (long long)(ts_end.tv_sec - ts_start.tv_sec) * 1000000000LL
+                         + (ts_end.tv_nsec - ts_start.tv_nsec);
+    if (elapsed_ns <= 0) {
+        fprintf(stderr, "monotonic: x86 linux, calibration elapsed time <= 0\n");
+        return;
+    }
+
+    /* ticks_per_us = total_ticks / total_microseconds
+     * Multiply first to preserve precision, then divide. */
+    mono_ticksPerMicrosecond = (long)((tsc_end - tsc_start) * 1000 / elapsed_ns);
 
     if (mono_ticksPerMicrosecond == 0) {
         fprintf(stderr, "monotonic: x86 linux, unable to determine clock rate\n");
-        return;
-    }
-    if (!constantTsc) {
-        fprintf(stderr, "monotonic: x86 linux, 'constant_tsc' flag not present\n");
         return;
     }
 
@@ -219,7 +235,7 @@ static void monotonicInit_posix(void) {
 
 
 const char * monotonicInit(void) {
-    #if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
+    #if defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
 
