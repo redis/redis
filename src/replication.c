@@ -575,8 +575,7 @@ static void replStreamEnd(replStream *s) {
     server.repl_backlog->histlen += s->total_len;
 
     /* For output buffer of replicas. */
-    listIter li;
-    listNode *ln;
+    listIter li; listNode *ln;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
