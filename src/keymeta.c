@@ -743,25 +743,25 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
 
     /* Check for name conflicts using 4-char name. Allow reuse of RELEASED; forbid if INUSE. */
     int alreayReleased;
-    int slot = keyMetaClassLookupByName(name, &alreayReleased);
+    int keyMetaId = keyMetaClassLookupByName(name, &alreayReleased);
 
     if (alreayReleased) {
-        /* If already released, then reuse the slot. */
+        /* If already released, then reuse the keyMetaId. */
     } else {
         /* Assert class is registered for first time */
-        serverAssert(slot == -1);
+        serverAssert(keyMetaId == -1);
 
-        /* Find free slot */
+        /* Find free keyMetaId */
         for (int i = KEY_META_ID_MODULE_FIRST; i <= KEY_META_ID_MODULE_LAST; i++) {
             if (keyMetaClass[i].state == CLASS_STATE_FREE) {
-                slot = i;
+                keyMetaId = i;
                 break;
             }
         }
-        if (slot == -1) return 0; /* no free slots */
+        if (keyMetaId == -1) return 0; /* no free keyMetaId */
     }
 
-    KeyMetaClass *pKeyMetaClass = &keyMetaClass[slot];
+    KeyMetaClass *pKeyMetaClass = &keyMetaClass[keyMetaId];
 
     /* Store 4-char short name */
     memcpy(pKeyMetaClass->name, name, KM_NAME_LEN);
@@ -774,7 +774,7 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     pKeyMetaClass->state = CLASS_STATE_INUSE;
     pKeyMetaClass->classSpecEncoded = classSpecEncoded;
     KM_SET_CONST_CONF(pKeyMetaClass->conf) = *conf; /* Copy config as is. */
-    return slot; /* Return handle (1..7). */
+    return keyMetaId; /* Return handle (1..7). */
 }
 
 /* Destroy (release) a class by its ID. Returns 1 on success, 0 on failure. */

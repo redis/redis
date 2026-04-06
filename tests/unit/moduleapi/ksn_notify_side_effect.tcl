@@ -1,17 +1,12 @@
 # Test for SetKeyMeta during keyspace notification (KSN) callbacks.
 #
-# This test loads a module that registers KSN callbacks for HASH, STRING,
-# GENERIC, EXPIRED, and EVICTED events. The callback writes to key metadata
-# (via RedisModule_SetKeyMeta), which may trigger kvobj reallocation.
-# It exercises various commands across these notification types to catch
-# regressions where the kvobj pointer becomes stale after a notification
-# callback reallocates it.
-#
-# Important: each test uses a fresh key so that SetKeyMeta triggers an actual
-# kvobj reallocation (the first metadata attachment grows the kvobj). We verify
-# this by checking that the setcount increases after each command.
-# Each test also validates that the metadata is properly accessible after the
-# operation by reading it back via RedisModule_GetKeyMeta.
+# On key space notification, the module shouldn't modify the key. This focused 
+# regression tests makes an exception for RediSearch which uses SetKeyMeta
+# as part of its KSN callback (Currently only for hash keys without hash field 
+# expiration). The test module mutates key metadata during selected notifications,
+# which may reallocate the underlying kvobj and invalidates any local pointer to 
+# it. Each test uses fresh keys when possible so the first metadata write forces
+# the reallocation-sensitive path, then verifies the command still completes.
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
@@ -91,31 +86,6 @@ start_server {tags {"modules" "external:skip"}} {
         assert {[r keymetanotify.setcount] >= $before + 100}
     }
 
-    test {HSETEX with SetKeyMeta in notification does not crash} {
-        set before [r keymetanotify.setcount]
-        r HSETEX hsetex_key FIELDS 1 f1 v1
-        assert_equal [r HGET hsetex_key f1] "v1"
-        assert_equal [r keymetanotify.get hsetex_key] "notified"
-        assert {[r keymetanotify.setcount] > $before}
-
-        # HSETEX with expiration
-        r HSETEX hsetex_key EX 1000 FIELDS 1 f2 v2
-        assert_equal [r HGET hsetex_key f2] "v2"
-        assert_equal [r HLEN hsetex_key] 2
-
-        # HSETEX with FXX flag (only set if all fields exist)
-        r HSETEX hsetex_key FXX FIELDS 1 f1 v1_updated
-        assert_equal [r HGET hsetex_key f1] "v1_updated"
-
-        # HSETEX with FNX flag (only set if no fields exist)
-        set before [r keymetanotify.setcount]
-        r HSETEX hsetex_fnx_key FNX FIELDS 2 f1 v1 f2 v2
-        assert_equal [r HGET hsetex_fnx_key f1] "v1"
-        assert_equal [r HGET hsetex_fnx_key f2] "v2"
-        assert_equal [r keymetanotify.get hsetex_fnx_key] "notified"
-        assert {[r keymetanotify.setcount] > $before}
-    }
-
     test {HGETDEL with SetKeyMeta in notification does not crash} {
         # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
         # create the key BEFORE loading the module so the first metadata
@@ -142,35 +112,6 @@ start_server {tags {"modules" "external:skip"}} {
         assert_equal [r HLEN hgetdel_key] 0
     }
 
-    test {HGETEX with SetKeyMeta in notification does not crash} {
-        # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
-        # create the key BEFORE loading the module so the first metadata
-        # attachment happens during HGETEX, not during HSET.
-        r module unload keymetanotify
-        r HSET hgetex_key f1 v1 f2 v2
-        r module load $testmodule
-
-        # HGETEX with expiration - this is the first SetKeyMeta call for this key,
-        # triggering kvobj reallocation during the hexpire notification
-        set before [r keymetanotify.setcount]
-        set result [r HGETEX hgetex_key EX 1000 FIELDS 1 f1]
-        assert_equal [lindex $result 0] "v1"
-        # hexpire notification triggers SetKeyMeta
-        assert {[r keymetanotify.setcount] > $before}
-        assert_equal [r keymetanotify.get hgetex_key] "notified"
-
-        # HGETEX without expiration just returns values (in-place metadata update)
-        set result [r HGETEX hgetex_key FIELDS 1 f1]
-        assert_equal [lindex $result 0] "v1"
-
-        # HGETEX with PERSIST - triggers hpersist notification
-        set before [r keymetanotify.setcount]
-        r HGETEX hgetex_key PERSIST FIELDS 1 f1
-        assert_equal [r HTTL hgetex_key FIELDS 1 f1] -1
-        # hpersist notification triggers SetKeyMeta
-        assert {[r keymetanotify.setcount] > $before}
-    }
-
     test {HDEL with SetKeyMeta in notification does not crash} {
         # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
         # create the key BEFORE loading the module so the first metadata
@@ -192,78 +133,6 @@ start_server {tags {"modules" "external:skip"}} {
         # HDEL multiple fields (in-place metadata update)
         r HDEL hdel_key f2 f3
         assert_equal [r HLEN hdel_key] 0
-    }
-
-    test {HEXPIRE with SetKeyMeta in notification does not crash} {
-        # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
-        # create the key BEFORE loading the module so the first metadata
-        # attachment happens during HEXPIRE, not during HSET.
-        r module unload keymetanotify
-        r HSET hexpire_key f1 v1 f2 v2
-        r module load $testmodule
-
-        # HEXPIRE sets field expiration - this is the first SetKeyMeta call
-        # for this key, triggering kvobj reallocation
-        set before [r keymetanotify.setcount]
-        r HEXPIRE hexpire_key 1000 FIELDS 1 f1
-        # hexpire notification triggers SetKeyMeta
-        assert {[r keymetanotify.setcount] > $before}
-        assert_equal [r keymetanotify.get hexpire_key] "notified"
-
-        # Verify TTL is set
-        assert {[r HTTL hexpire_key FIELDS 1 f1] > 0}
-
-        # HPEXPIRE (milliseconds) - in-place metadata update
-        r HPEXPIRE hexpire_key 500000 FIELDS 1 f2
-        assert {[r HPTTL hexpire_key FIELDS 1 f2] > 0}
-    }
-
-    test {HPERSIST with SetKeyMeta in notification does not crash} {
-        # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
-        # create the key with field expiration BEFORE loading the module so
-        # the first metadata attachment happens during HPERSIST.
-        r module unload keymetanotify
-        r HSET hpersist_key f1 v1
-        r HEXPIRE hpersist_key 1000 FIELDS 1 f1
-        r module load $testmodule
-
-        # HPERSIST removes field expiration - this is the first SetKeyMeta call
-        # for this key, triggering kvobj reallocation
-        set before [r keymetanotify.setcount]
-        r HPERSIST hpersist_key FIELDS 1 f1
-        # hpersist notification triggers SetKeyMeta
-        assert {[r keymetanotify.setcount] > $before}
-        assert_equal [r keymetanotify.get hpersist_key] "notified"
-
-        # Verify TTL is removed
-        assert_equal [r HTTL hpersist_key FIELDS 1 f1] -1
-    }
-
-    test {Hash field expiration (hexpired) with SetKeyMeta in notification does not crash} {
-        # Create hash with field that will expire quickly
-        set before [r keymetanotify.setcount]
-        r HSET hexpired_key f1 v1 f2 v2
-        assert_equal [r keymetanotify.get hexpired_key] "notified"
-        assert {[r keymetanotify.setcount] > $before}
-
-        # Set very short expiration (100ms)
-        r HPEXPIRE hexpired_key 100 FIELDS 1 f1
-
-        # Wait for field to expire
-        after 200
-
-        # Access the hash to trigger lazy expiration (hexpired notification)
-        # The main test here is that this doesn't crash when SetKeyMeta is called
-        # during the hexpired notification callback
-        set result [r HGET hexpired_key f1]
-        # Field should be expired
-        assert_equal $result {}
-
-        # f2 should still exist and accessible without crash
-        assert_equal [r HGET hexpired_key f2] "v2"
-
-        # Key should still have metadata set
-        assert_equal [r keymetanotify.get hexpired_key] "notified"
     }
 
     # --- GENERIC notification tests ---
@@ -390,6 +259,37 @@ start_server {tags {"modules" "external:skip"}} {
         r DEL del_key
         assert_equal [r EXISTS del_key] 0
     }
+
+    test {DELEX with SetKeyMeta in notification does not crash} {
+        r SET delex_key "value"
+        assert_equal [r keymetanotify.get delex_key] "notified"
+        r DELEX delex_key IFEQ value
+        assert_equal [r EXISTS delex_key] 0
+    }
+
+    test {MOVE with SetKeyMeta in notification does not crash} {
+        r select 10
+        r DEL move_key
+        r select 9
+
+        # Create the key before loading the module so the first metadata
+        # attachment happens during MOVE, not during SET.
+        r module unload keymetanotify
+        r SET move_key "value"
+        r module load $testmodule
+
+        set before [r keymetanotify.setcount]
+        r MOVE move_key 10
+        assert_equal [r EXISTS move_key] 0
+
+        r select 10
+        assert_equal [r GET move_key] "value"
+        assert_equal [r keymetanotify.get move_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+        r DEL move_key
+        r select 9
+        set _ {}
+    } {} {singledb:skip}
 
     test {RENAME with SetKeyMeta in notification does not crash} {
         r SET rename_src "value"
