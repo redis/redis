@@ -2965,22 +2965,23 @@ void hdelCommand(client *c) {
         int64_t newLen = (int64_t) hashTypeLength(o, 0);
         updateKeysizesHist(c->db, OBJ_HASH, oldLen, delete_key ? -1 : newLen);
         
-        /* is it last HFE */
-        if (!delete_key && isHFE && (hashTypeIsFieldsWithExpire(o) == 0))
-            estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+        if (delete_key) {
+            /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+        } else {
+            /* is it last HFE */
+            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0))
+                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+        }
 
         /* Signal key modification */
-        keyModified(c, c->db, c->argv[1], o, 1);
+        keyModified(c, c->db, c->argv[1], delete_key ? NULL : o, 1);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
         
         KSN_INVALIDATE_KVOBJ(o); /* Invalidate local kvobj pointer */
         
-        /* Delete key if empty */
-        if (delete_key) {
-            /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
-            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        }
+        /* Notify del event if key was deleted */
+        if (delete_key) notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
