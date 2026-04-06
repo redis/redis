@@ -498,6 +498,7 @@ static void replStreamAllocBlock(replStream *s, size_t hint) {
     tail->id = repl_block_id++;
     listAddNodeTail(server.repl_buffer_blocks, tail);
     server.repl_buffer_mem += (usable_size + sizeof(listNode));
+    createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
 
     /* Update stream state. */
     s->tail = tail;
@@ -605,8 +606,6 @@ static void replStreamEnd(replStream *s) {
         serverAssert(s->new_blocks > 0 && s->start_pos == 0);
     }
     if (s->new_blocks) {
-        createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
-
         /* It is important to trim after adding replication data to keep the backlog size close to
          * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
          * unnecessary trimming attempts when small amounts of data are added. See comments in
