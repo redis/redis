@@ -823,7 +823,6 @@ start_server {tags {"multi"}} {
                 {xadd *}
                 {xgroup CREATE *}
                 {multi}
-                {xgroup CREATECONSUMER *}
                 {xclaim *}
                 {xclaim *}
                 {xgroup SETID * ENTRIESREAD *}
