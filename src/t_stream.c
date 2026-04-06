@@ -5227,8 +5227,9 @@ void xcfgsetCommand(client *c) {
         changed = 1;
     }
 
-    /* Mark the key as dirty for replication only if we changed something */
+    /* Clean up and propagate if we changed something */
     if (changed) {
+        dictDelete(c->db->stream_idmp_keys, key); /* Untrack cleared IDMP key */
         keyModified(c,c->db,key,kv,0);
         server.dirty++;
         if (server.memory_tracking_enabled)
