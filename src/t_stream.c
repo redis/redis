@@ -2999,9 +2999,7 @@ void xreadCommand(client *c) {
          * With NOACK the PEL/XCLAIM path is skipped entirely, so we
          * always need explicit propagation regardless of propCount. */
         if (consumer_created && (noack || propCount == 0)) {
-            streamPropagateConsumerCreation(c,spi.keyname,
-                                            spi.groupname,
-                                            consumer->name);
+            streamPropagateConsumerCreation(c,spi.keyname, spi.groupname, consumer->name);
         }
     }
 
