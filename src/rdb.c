@@ -712,7 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -1351,6 +1351,29 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
+
+                /* Save NACK zone: count followed by the IDs of NACKed entries. */
+                uint64_t nacked_count = pelListNackedCount(cg);
+                if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
+
+                if (cg->pel_nack_tail) {
+                    streamNACK *nack = cg->pel_time_head;
+                    while (nack) {
+                        unsigned char buf[sizeof(streamID)];
+                        streamEncodeID(buf, &nack->id);
+                        if ((n = rdbWriteRaw(rdb, buf, sizeof(buf))) == -1) {
+                            raxStop(&ri);
+                            return -1;
+                        }
+                        nwritten += n;
+                        if (nack == cg->pel_nack_tail) break;
+                        nack = nack->pel_next;
+                    }
+                }
             }
             raxStop(&ri);
         }
@@ -3092,7 +3115,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -3387,21 +3411,67 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             }
 
-            /* Verify that each PEL eventually got a consumer assigned to it. */
-            if (deep_integrity_validation) {
-                raxIterator ri_cg_pel;
-                raxStart(&ri_cg_pel,cgroup->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel)) {
-                    streamNACK *nack = ri_cg_pel.data;
-                    if (!nack->consumer) {
-                        raxStop(&ri_cg_pel);
-                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+            /* For RDB_TYPE_STREAM_LISTPACKS_5 and above, load the NACK
+             * zone stream IDs and reconstruct the NACK zone. Entries with
+             * delivery_time == 0 may exist for both nacked and owned PEL
+             * entries, so we cannot rely on a simple walk — we use the
+             * stored IDs to unlink each nacked entry from its sorted
+             * position and re-insert it into the NACK zone. */
+            if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_5) {
+                uint64_t nacked_count = rdbLoadLen(rdb, NULL);
+                if (nacked_count == RDB_LENERR) {
+                    rdbReportReadError("Stream NACK zone count loading failed.");
+                    decrRefCount(o);
+                    return NULL;
+                }
+
+                /* Load each NACKed entry's stream ID, look it up in the
+                 * group PEL, unlink from its current time-list position,
+                 * and re-insert into the NACK zone. */
+                for (uint64_t i = 0; i < nacked_count; i++) {
+                    unsigned char rawid[sizeof(streamID)];
+                    if (rioRead(rdb, rawid, sizeof(rawid)) == 0) {
+                        rdbReportReadError("Stream NACK zone entry ID loading failed.");
                         decrRefCount(o);
                         return NULL;
                     }
+
+                    void *result;
+                    if (!raxFind(cgroup->pel, rawid, sizeof(rawid), &result)) {
+                        rdbReportCorruptRDB("Stream NACK zone entry not found "
+                                            "in group global PEL");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    streamNACK *nack = result;
+                    if (nack->consumer != NULL) {
+                        rdbReportCorruptRDB("Stream NACK zone entry has a "
+                                            "consumer assigned");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    pelListUnlink(cgroup, nack);
+                    pelListInsertNacked(cgroup, nack);
                 }
-                raxStop(&ri_cg_pel);
+
+            }
+
+            /* Verify entries outside the NACK zone all have a consumer
+             * assigned. For old RDB types pel_nack_tail is NULL, so
+             * this walks the entire PEL — equivalent to checking all. */
+            if (deep_integrity_validation) {
+                streamNACK *cur = cgroup->pel_nack_tail ?
+                                 cgroup->pel_nack_tail->pel_next :
+                                 cgroup->pel_time_head;
+                while (cur) {
+                    if (!cur->consumer) {
+                        rdbReportCorruptRDB("Stream CG PEL entry without "
+                                            "consumer outside NACK zone");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    cur = cur->pel_next;
+                }
             }
         }
 

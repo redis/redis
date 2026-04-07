@@ -2127,6 +2127,7 @@ void hsetnxCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
     notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,&c->argv[2],1);
+    KSN_INVALIDATE_KVOBJ(kv);
     server.dirty++;
 }
 
@@ -2172,7 +2173,7 @@ void hsetCommand(client *c) {
     }
     notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,fields,numfields);
     ROBJ_LOCAL_ARRAY_FREE(fields);
-
+    KSN_INVALIDATE_KVOBJ(kv);
     server.dirty += (c->argc - 2)/2;
 }
 
@@ -2512,6 +2513,7 @@ out:
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
     if (fields_set || expired) {
+        newlen = (int64_t) hashTypeLength(o, 0); 
         keyModified(c, c->db, c->argv[1], o, 1);
         if (expired)
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
@@ -2527,24 +2529,25 @@ out:
                                                c->db->id, updated_fields, updated);
             }
         }
-    }
 
-    ROBJ_LOCAL_ARRAY_FREE(expired_fields);
-    ROBJ_LOCAL_ARRAY_FREE(set_fields);
-    ROBJ_LOCAL_ARRAY_FREE(deleted_fields);
-    ROBJ_LOCAL_ARRAY_FREE(updated_fields);
-
-    /* Key may become empty due to lazy expiry in hashTypeExists()
-     * or the new expiration time is in the past.*/
-    newlen = (int64_t) hashTypeLength(o, 0);
-    if (newlen == 0) {
-        newlen = -1;
-        /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
-        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        ROBJ_LOCAL_ARRAY_FREE(expired_fields);
+        ROBJ_LOCAL_ARRAY_FREE(set_fields);
+        ROBJ_LOCAL_ARRAY_FREE(deleted_fields);
+        ROBJ_LOCAL_ARRAY_FREE(updated_fields);
+        
+        KSN_INVALIDATE_KVOBJ(o);
+        
+        /* Key may become empty due to lazy expiry in hashTypeGetValue()
+         * or the new expiration time is in the past.*/
+        if (newlen == 0) {
+            newlen = -1;
+            /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        }
+        if (oldlen != newlen)
+            updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     }
-    if (oldlen != newlen)
-        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
 void hincrbyCommand(client *c) {
@@ -2595,6 +2598,7 @@ void hincrbyCommand(client *c) {
     addReplyLongLong(c,value);
     keyModified(c,c->db,c->argv[1], o, 1);
     notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id,&c->argv[2],1);
+    KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 }
 
@@ -2653,6 +2657,7 @@ void hincrbyfloatCommand(client *c) {
     addReplyBulkCBuffer(c,buf,len);
     keyModified(c,c->db,c->argv[1],o,1);
     notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id,&c->argv[2],1);
+    KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSETEX command with the final value
@@ -2808,8 +2813,20 @@ void hgetdelCommand(client *c) {
         return;
     }
 
+    int64_t newlen = (int64_t) hashTypeLength(o, 0);
+    /* del key if become empty */
+    int delete_key = (newlen == 0);
+    /* update new len for keysizes histogram */
+    int64_t hist_newlen = delete_key ? -1 : newlen;
+    if (oldlen != hist_newlen)
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, hist_newlen);
+    /* update memory tracking */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
+    /* is it last HFE */
+    if (!delete_key && hfe && (hashTypeIsFieldsWithExpire(o) == 0))
+        estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+    
     keyModified(c, c->db, c->argv[1], o, 1);
 
     if (expired)
@@ -2830,22 +2847,14 @@ void hgetdelCommand(client *c) {
 
     ROBJ_LOCAL_ARRAY_FREE(expired_fields);
     ROBJ_LOCAL_ARRAY_FREE(deleted_fields);
+    KSN_INVALIDATE_KVOBJ(o);
 
     /* Key may have become empty because of deleting fields or lazy expire. */
-    int64_t newlen = (int64_t) hashTypeLength(o, 0);
-    if (newlen == 0) {
-        newlen = -1;
+    if (delete_key) {
         /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
         dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-    } else {
-        if (hfe && (hashTypeIsFieldsWithExpire(o) == 0)) { /*is it last HFE*/
-            estoreRemove(c->db->subexpires, getKeySlot(kvobjGetKey(o)), o);
-        }
     }
-
-    if (oldlen != newlen)
-        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
 /* Get the value of one or more fields of a given hash key and optionally set 
@@ -3040,33 +3049,40 @@ void hdelCommand(client *c) {
             deleted_fields[deleted] = c->argv[j];
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
-                if (server.memory_tracking_enabled)
-                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
-                /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
-                dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
+    
     if (!keyremoved && o->encoding == OBJ_ENCODING_HT) {
         dictResumeAutoResize((dict*)o->ptr);
         dictShrinkIfNeeded((dict*)o->ptr);
     }
-    if (server.memory_tracking_enabled && !keyremoved)
+    if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     if (deleted) {
-        int64_t newLen = -1; /* The value -1 indicates that the key is deleted. */
+        /* Update keysizes histogram */
+        int64_t newLen = (int64_t) hashTypeLength(o, 0);
+        updateKeysizesHist(c->db, OBJ_HASH, oldLen, keyremoved ? -1 : newLen);
+        
+        if (keyremoved) {
+            /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+        } else {
+            /* is it last HFE */
+            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0))
+                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+        }
+
+        /* Signal key modification */
         keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hdel",c->argv[1],c->db->id,deleted_fields,deleted);
-        if (keyremoved) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        } else {
-            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0)) /* is it last HFE */
-                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
-            newLen = oldLen - deleted;
-        }
-        updateKeysizesHist(c->db, OBJ_HASH, oldLen, newLen);
+        
+        KSN_INVALIDATE_KVOBJ(o); /* Invalidate local kvobj pointer */
+        
+        /* Notify del event if key was deleted */
+        if (keyremoved) notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty += deleted;
     }
     ROBJ_LOCAL_ARRAY_FREE(deleted_fields);

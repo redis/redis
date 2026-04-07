@@ -2197,6 +2197,35 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
     return 1;
 }
 
+/* Helper for rewriteStreamObject(): emit a single XNACK FORCE command that
+ * reconstructs one or more NACKed (unowned) PEL entries sharing the same
+ * delivery_count. `ids` points to an array of `count` streamIDs (at most
+ * AOF_REWRITE_ITEMS_PER_CMD). Returns 0 on error, 1 on success. */
+int rioWriteStreamNackedEntries(rio *r, robj *key, const char *groupname,
+                                size_t groupname_len, streamID *ids,
+                                int count, uint64_t delivery_count) {
+    serverAssert(count > 0 && count <= AOF_REWRITE_ITEMS_PER_CMD);
+
+    /* XNACK <key> <group> FAIL IDS <n> <id..> RETRYCOUNT <cnt> FORCE
+     * 6 fixed tokens before IDs + count IDs + 3 fixed tokens after. */
+    if (rioWriteBulkCount(r,'*',6+count+3) == 0) return 0;
+    if (rioWriteBulkString(r,"XNACK",5) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
+    if (rioWriteBulkString(r,"FAIL",4) == 0) return 0;
+    if (rioWriteBulkString(r,"IDS",3) == 0) return 0;
+    if (rioWriteBulkLongLong(r,count) == 0) return 0;
+
+    for (int i = 0; i < count; i++) {
+        if (rioWriteBulkStreamID(r,&ids[i]) == 0) return 0;
+    }
+
+    if (rioWriteBulkString(r,"RETRYCOUNT",10) == 0) return 0;
+    if (rioWriteBulkLongLong(r,delivery_count) == 0) return 0;
+    if (rioWriteBulkString(r,"FORCE",5) == 0) return 0;
+    return 1;
+}
+
 /* Helper for rewriteStreamObject(): emit the XGROUP CREATECONSUMER is
  * needed in order to create consumers that do not have any pending entries.
  * All this in the context of the specified key and group. */
@@ -2354,6 +2383,43 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 raxStop(&ri_pel);
             }
             raxStop(&ri_cons);
+
+            /* Emit XNACK FORCE for NACKed (unowned) entries from the
+             * NACK zone of the PEL time-ordered list
+             * (pel_time_head..pel_nack_tail). Consecutive entries with
+             * the same delivery_count are batched into a single command.
+             *
+             * nack_stop is the first node outside the NACK zone (or NULL
+             * when the zone extends to the end of the PEL). When
+             * pel_nack_tail is NULL (no NACKed entries) the guard below
+             * skips the whole block. */
+            streamNACK *nack_end = group->pel_nack_tail;
+            if (nack_end != NULL) {
+                streamID batch_ids[AOF_REWRITE_ITEMS_PER_CMD];
+                streamNACK *nack_stop = nack_end->pel_next;
+                streamNACK *nack = group->pel_time_head;
+                int batch_count = 0;
+                uint64_t batch_dc = 0;
+                while (nack && nack != nack_stop) {
+                    if (batch_count == 0) batch_dc = nack->delivery_count;
+                    batch_ids[batch_count++] = nack->id;
+                    streamNACK *next = nack->pel_next;
+                    if (batch_count >= AOF_REWRITE_ITEMS_PER_CMD ||
+                        !next || next == nack_stop ||
+                        next->delivery_count != batch_dc)
+                    {
+                        if (rioWriteStreamNackedEntries(r,key,(char*)ri.key,
+                                                        ri.key_len,batch_ids,
+                                                        batch_count,batch_dc) == 0)
+                        {
+                            raxStop(&ri);
+                            return 0;
+                        }
+                        batch_count = 0;
+                    }
+                    nack = next;
+                }
+            }
         }
         raxStop(&ri);
     }
