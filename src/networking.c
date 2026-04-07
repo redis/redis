@@ -4078,8 +4078,8 @@ sds catClientInfoString(sds s, client *client) {
     obufmem += client->reply_bytes_shared; /* Logical size of output buffer including shared reply bytes. */
 
     /* Unshared reply bytes: key deleted, this client is the sole owner. */
-    size_t reply_bytes_unshared = getClientUnsharedReplyBytes(client);
-    total_mem += reply_bytes_unshared;
+    size_t unshared_mem = getClientUnsharedReplyBytes(client);
+    total_mem += unshared_mem;
 
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
@@ -4113,7 +4113,7 @@ sds catClientInfoString(sds s, client *client) {
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* total shared reply bytes */
-        " omem-unshared=%U", (unsigned long long) reply_bytes_unshared, /* unshared reply bytes where this client is the sole owner */
+        " omem-unshared=%U", (unsigned long long) unshared_mem, /* unshared reply bytes where this client is the sole owner */
         " tot-mem=%U", (unsigned long long) total_mem,
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
