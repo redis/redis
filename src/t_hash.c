@@ -2484,6 +2484,8 @@ out:
         
         KSN_INVALIDATE_KVOBJ(o);
         
+        /* Key may become empty due to lazy expiry in hashTypeExists()
+         * or the new expiration time is in the past.*/
         if (newlen == 0) {
             newlen = -1;
             /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
@@ -2924,7 +2926,7 @@ void hgetexCommand(client *c) {
 
 void hdelCommand(client *c) {
     kvobj *o;
-    int j, deleted = 0, delete_key = 0;
+    int j, deleted = 0, keyremoved = 0;
     size_t oldsize = 0;
 
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -2948,13 +2950,13 @@ void hdelCommand(client *c) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
-                delete_key = 1;
+                keyremoved = 1;
                 break;
             }
         }
     }
     
-    if (!delete_key && o->encoding == OBJ_ENCODING_HT) {
+    if (!keyremoved && o->encoding == OBJ_ENCODING_HT) {
         dictResumeAutoResize((dict*)o->ptr);
         dictShrinkIfNeeded((dict*)o->ptr);
     }
@@ -2963,9 +2965,9 @@ void hdelCommand(client *c) {
     if (deleted) {
         /* Update keysizes histogram */
         int64_t newLen = (int64_t) hashTypeLength(o, 0);
-        updateKeysizesHist(c->db, OBJ_HASH, oldLen, delete_key ? -1 : newLen);
+        updateKeysizesHist(c->db, OBJ_HASH, oldLen, keyremoved ? -1 : newLen);
         
-        if (delete_key) {
+        if (keyremoved) {
             /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
             dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         } else {
@@ -2975,13 +2977,13 @@ void hdelCommand(client *c) {
         }
 
         /* Signal key modification */
-        keyModified(c, c->db, c->argv[1], delete_key ? NULL : o, 1);
+        keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
         
         KSN_INVALIDATE_KVOBJ(o); /* Invalidate local kvobj pointer */
         
         /* Notify del event if key was deleted */
-        if (delete_key) notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        if (keyremoved) notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
