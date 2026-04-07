@@ -62,21 +62,46 @@ static void pelListUnlink(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
 
 /* -----------------------------------------------------------------------
- * Two-level PEL: rax(ms -> flax(seq -> streamNACK*))
+ * Two-level PEL: rax(ms -> direct | flax(seq -> data*))
+ *
+ * When a bucket contains a single entry, the data pointer and the flax key
+ * (low byte of seq) are packed into a tagged pointer stored directly in the
+ * rax value, avoiding the flax struct + data block allocations (~32 bytes
+ * saved per single-entry bucket).
+ *
+ * Tagged pointer layout (64-bit, LP64):
+ *   Bit  0:      1 = direct entry, 0 = flax pointer
+ *   Bits 56..63: flax key (uint8_t, low byte of seq)
+ *   Bits 1..55:  data pointer (heap-allocated, >=8-byte aligned)
  * ----------------------------------------------------------------------- */
 
 #define PEL_RAX_KEY_LEN 15
 
+_Static_assert(sizeof(void *) == 8, "PEL direct encoding requires 64-bit pointers");
+
 /* Cache embedded in rax metadata to speed up sequential PEL ops
- * when consecutive operations target the same 15-byte rax bucket. */
+ * when consecutive operations target the same 15-byte rax bucket.
+ * When 'dirty' is set, the cached value has been created/updated but not yet
+ * inserted into the rax; it will be committed on the next cache eviction
+ * or explicit flush. The cached value may be a flax* or a direct entry. */
 typedef struct pelCache {
     unsigned char key[PEL_RAX_KEY_LEN];
-    flax *f;
+    void *val;
+    int dirty;
 } pelCache;
 
+static void pelCacheFlush(rax *r) {
+    pelCache *cache = (pelCache *)r->metadata;
+    if (!cache->dirty) return;
+    raxInsert(r, cache->key, PEL_RAX_KEY_LEN, cache->val, NULL);
+    cache->dirty = 0;
+}
+
 void pelCacheInvalidate(rax *pel) {
+    pelCacheFlush(pel);
     pelCache *cache = (pelCache *)pel->metadata;
-    cache->f = NULL;
+    cache->val = NULL;
+    cache->dirty = 0;
 }
 
 /* Encode a 15-byte rax key: full 8B big-endian ms + upper 7 bytes of
@@ -96,95 +121,141 @@ static inline uint8_t pelFlaxKey(uint64_t seq) {
 
 rax *pelNew(size_t *alloc_size) {
     rax *pel = raxNewWithMetadata(sizeof(pelCache), alloc_size);
-    if (pel) pelCacheInvalidate(pel);
+    if (pel) {
+        pelCache *cache = (pelCache *)pel->metadata;
+        cache->val = NULL;
+        cache->dirty = 0;
+    }
     return pel;
 }
 
-/* Free all flax structures and call nack_free for each NACK. */
+/* Free all buckets and call nack_free for each data pointer. */
 void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx) {
     if (!pel) return;
+    pelCacheFlush(pel);
     raxIterator ri;
     raxStart(&ri, pel);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
-        flax *f = ri.data;
-        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
-        if (nack_free)
-            flaxFreeWithCallback(f, nack_free, ctx);
-        else
-            flaxFree(f);
+        void *bucket = ri.data;
+        if (PEL_IS_DIRECT(bucket)) {
+            if (nack_free) nack_free(PEL_DIRECT_PTR(bucket), ctx);
+        } else {
+            flax *f = (flax *)bucket;
+            if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+            if (nack_free)
+                flaxFreeWithCallback(f, nack_free, ctx);
+            else
+                flaxFree(f);
+        }
     }
     raxStop(&ri);
     raxFreeWithCbAndContext(pel, NULL, NULL);
 }
 
-/* Free flax structures without freeing NACKs (for consumer PEL where NACKs are shared). */
+/* Free buckets without freeing data (for consumer PEL where NACKs are shared). */
 void pelFreeShallow(rax *pel) {
     if (!pel) return;
+    pelCacheFlush(pel);
     raxIterator ri;
     raxStart(&ri, pel);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
-        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize((flax *)ri.data);
-        flaxFree((flax *)ri.data);
+        void *bucket = ri.data;
+        if (PEL_IS_FLAX(bucket)) {
+            if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize((flax *)bucket);
+            flaxFree((flax *)bucket);
+        }
     }
     raxStop(&ri);
     raxFree(pel);
 }
 
-/* pelResolveFlax -- Resolve the flax bucket for a given 15-byte rax key.
- *
- * With the 15+1 byte key scheme, each rax key is the first 15 bytes of the
- * big-endian encoded stream ID (full ms + upper 56 bits of seq). The flax
- * stores the low byte of seq as its uint8_t key, so each bucket holds at
- * most 256 entries and never needs splitting.
- *
- * Returns the flax bucket, or NULL if no matching bucket exists (create==0).
- * When prev is non-NULL, *prev is set to the previously cached flax bucket
- * before the cache is updated. */
-static flax *pelResolveFlax(rax *r, unsigned char *keybuf,
-                            int create, flax **prev) {
-    pelCache *cache = (pelCache *)r->metadata;
-    if (prev) *prev = cache->f;
-
-    /* Cache hit */
-    if (cache->f && memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0)
-        return cache->f;
-
-    /* Rax lookup (exact match) */
-    void *data;
-    if (raxFind(r, keybuf, PEL_RAX_KEY_LEN, &data)) {
-        cache->f = (flax *)data;
-        memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
-        return cache->f;
-    }
-    if (!create) return NULL;
-
-    /* Create new bucket */
-    flax *f = flaxNew();
-    if (r->alloc_size) *r->alloc_size += flaxAllocSize(f);
-    raxInsert(r, keybuf, PEL_RAX_KEY_LEN, f, NULL);
-    cache->f = f;
-    memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
-    return f;
-}
-
 /* Generic insert into two-level PEL. If 'overwrite' is true, an existing
  * entry's value is replaced; otherwise the insert is skipped when the key
- * already exists. Returns 1 if a new entry was created, 0 otherwise. */
+ * already exists. Returns 1 if a new entry was created, 0 otherwise.
+ *
+ * New buckets are created as direct entries (tagged pointers). When a second
+ * entry is inserted into a direct bucket with a different flax key, the
+ * bucket is promoted to a flax. */
 static int pelGenericInsert(rax *pel, streamID *id, void *data, uint64_t *count, int overwrite) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, id->ms, id->seq);
-    flax *prev;
-    flax *f = pelResolveFlax(pel, keybuf, 1, &prev);
-    if (prev && prev != f) {
-        size_t before = flaxAllocSize(prev);
-        flaxShrink(prev);
-        if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
+    uint8_t fkey = pelFlaxKey(id->seq);
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    /* Check cache for this key. */
+    int cache_hit = (cache->val != NULL &&
+                     memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0);
+
+    void *bucket;
+    if (cache_hit) {
+        bucket = cache->val;
+    } else {
+        /* Switching away from previous bucket: shrink it if it was a flax. */
+        if (cache->val && PEL_IS_FLAX(cache->val)) {
+            flax *prev = (flax *)cache->val;
+            size_t before = flaxAllocSize(prev);
+            flaxShrink(prev);
+            if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
+        }
+        pelCacheFlush(pel);
+
+        /* Check rax. */
+        void *raxval;
+        if (raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &raxval)) {
+            bucket = raxval;
+            cache->val = bucket;
+            memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
+        } else {
+            bucket = NULL;
+        }
     }
+
+    /* No existing bucket: store as direct entry. */
+    if (!bucket) {
+        cache->val = PEL_DIRECT_ENCODE(data, fkey);
+        memcpy(cache->key, keybuf, PEL_RAX_KEY_LEN);
+        cache->dirty = 1;
+        if (count) (*count)++;
+        return 1;
+    }
+
+    /* Existing direct entry. */
+    if (PEL_IS_DIRECT(bucket)) {
+        uint8_t efkey = PEL_DIRECT_FKEY(bucket);
+
+        if (efkey == fkey) {
+            if (overwrite) {
+                void *nv = PEL_DIRECT_ENCODE(data, fkey);
+                cache->val = nv;
+                if (!cache->dirty)
+                    raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, nv, NULL);
+            }
+            return 0;
+        }
+
+        /* Different fkey: promote to flax. */
+        void *eptr = PEL_DIRECT_PTR(bucket);
+        flax *f = flaxNew();
+        if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f);
+        flaxInsert(f, efkey, eptr, NULL);
+        size_t before = flaxAllocSize(f);
+        int inserted = overwrite ? flaxInsert(f, fkey, data, NULL)
+                                 : flaxTryInsert(f, fkey, data, NULL);
+        if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
+        cache->val = f;
+        if (!cache->dirty)
+            raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, f, NULL);
+        if (inserted && count) (*count)++;
+        return inserted;
+    }
+
+    /* Existing flax bucket. */
+    flax *f = (flax *)bucket;
     size_t before = flaxAllocSize(f);
-    int inserted = overwrite ? flaxInsert(f, pelFlaxKey(id->seq), data, NULL)
-                             : flaxTryInsert(f, pelFlaxKey(id->seq), data, NULL);
+    int inserted = overwrite ? flaxInsert(f, fkey, data, NULL)
+                             : flaxTryInsert(f, fkey, data, NULL);
     if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
     if (inserted && count) (*count)++;
     return inserted;
@@ -203,64 +274,217 @@ int pelTryInsert(rax *pel, streamID *id, void *data, uint64_t *count) {
     return pelGenericInsert(pel, id, data, count, 0);
 }
 
-/* Replace the NACK pointer for an existing entry without cache interaction or
+/* Replace the data pointer for an existing entry without cache interaction or
  * flax shrink side-effects. Intended for defrag, where the key is guaranteed
  * to exist and we must avoid allocations that would increase fragmentation. */
 void pelReplace(rax *pel, streamID *id, void *data) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, id->ms, id->seq);
-    void *raxval;
-    int found = raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &raxval);
-    serverAssert(found);
-    flax *f = (flax *)raxval;
-    flaxInsert(f, pelFlaxKey(id->seq), data, NULL);
+    uint8_t fkey = pelFlaxKey(id->seq);
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    int cache_hit = (cache->val != NULL &&
+                     memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0);
+    void *bucket;
+    if (cache_hit) {
+        bucket = cache->val;
+    } else {
+        int found = raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &bucket);
+        serverAssert(found);
+    }
+
+    if (PEL_IS_DIRECT(bucket)) {
+        serverAssert(PEL_DIRECT_FKEY(bucket) == fkey);
+        void *nv = PEL_DIRECT_ENCODE(data, fkey);
+        if (cache_hit) {
+            cache->val = nv;
+            if (!cache->dirty)
+                raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, nv, NULL);
+        } else {
+            raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, nv, NULL);
+        }
+    } else {
+        flaxInsert((flax *)bucket, fkey, data, NULL);
+    }
 }
 
 /* Find a value by streamID. Returns 1 if found (setting *data), 0 if not. */
 int pelFind(rax *pel, streamID *id, void **data) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, id->ms, id->seq);
-    flax *f = pelResolveFlax(pel, keybuf, 0, NULL);
-    if (!f) return 0;
+    uint8_t fkey = pelFlaxKey(id->seq);
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    void *bucket;
+    if (cache->val && memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0) {
+        bucket = cache->val;
+    } else {
+        pelCacheFlush(pel);
+        if (!raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &bucket)) return 0;
+    }
+
+    if (PEL_IS_DIRECT(bucket)) {
+        if (PEL_DIRECT_FKEY(bucket) != fkey) return 0;
+        if (data) *data = PEL_DIRECT_PTR(bucket);
+        return 1;
+    }
+
     void *val;
-    if (!flaxFind(f, pelFlaxKey(id->seq), &val)) return 0;
+    if (!flaxFind((flax *)bucket, fkey, &val)) return 0;
     if (data) *data = val;
     return 1;
 }
 
-/* Remove a value by streamID. Returns the removed value or NULL. */
+/* Remove a value by streamID. Returns the removed value or NULL.
+ * When a flax bucket drops to 1 entry, it is demoted to a direct entry. */
 void *pelRemove(rax *pel, streamID *id, uint64_t *count) {
     unsigned char keybuf[PEL_RAX_KEY_LEN];
     pelEncodeRaxKey(keybuf, id->ms, id->seq);
-    flax *f = pelResolveFlax(pel, keybuf, 0, NULL);
-    if (!f) return NULL;
+    uint8_t fkey = pelFlaxKey(id->seq);
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    int cache_hit = (cache->val != NULL &&
+                     memcmp(cache->key, keybuf, PEL_RAX_KEY_LEN) == 0);
+    void *bucket;
+    if (cache_hit) {
+        bucket = cache->val;
+    } else {
+        pelCacheFlush(pel);
+        if (!raxFind(pel, keybuf, PEL_RAX_KEY_LEN, &bucket)) return NULL;
+    }
+
+    /* Direct entry. */
+    if (PEL_IS_DIRECT(bucket)) {
+        if (PEL_DIRECT_FKEY(bucket) != fkey) return NULL;
+        void *old = PEL_DIRECT_PTR(bucket);
+        if (count) (*count)--;
+        if (cache_hit && cache->dirty) {
+            cache->val = NULL;
+            cache->dirty = 0;
+        } else {
+            raxRemove(pel, keybuf, PEL_RAX_KEY_LEN, NULL);
+            pelCacheInvalidate(pel);
+        }
+        return old;
+    }
+
+    /* Flax bucket. */
+    flax *f = (flax *)bucket;
     void *old;
-    if (!flaxRemove(f, pelFlaxKey(id->seq), &old)) return NULL;
+    if (!flaxRemove(f, fkey, &old)) return NULL;
     if (count) (*count)--;
+
     if (f->numele == 0) {
         if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
         flaxFree(f);
-        raxRemove(pel, keybuf, PEL_RAX_KEY_LEN, NULL);
-        pelCacheInvalidate(pel);
+        if (cache_hit && cache->dirty) {
+            cache->val = NULL;
+            cache->dirty = 0;
+        } else {
+            raxRemove(pel, keybuf, PEL_RAX_KEY_LEN, NULL);
+            pelCacheInvalidate(pel);
+        }
+    } else if (f->numele == 1) {
+        /* Demote to direct entry. */
+        flaxIterator fi;
+        flaxStart(&fi, f);
+        flaxSeek(&fi, "^", 0);
+        void *direct = PEL_DIRECT_ENCODE(fi.data, fi.key);
+        flaxStop(&fi);
+        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+        flaxFree(f);
+        if (cache_hit) {
+            cache->val = direct;
+            if (!cache->dirty)
+                raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, direct, NULL);
+        } else {
+            raxInsert(pel, keybuf, PEL_RAX_KEY_LEN, direct, NULL);
+        }
     }
+
     return old;
 }
 
 /* --- PEL Iterator --- */
 
-/* Refresh iterator fields from current rax+flax positions. */
+/* Refresh iterator fields from current rax+flax positions (flax bucket). */
 static void pelIterRefresh(pelIterator *pi) {
     memcpy(pi->key, pi->ri.key, PEL_RAX_KEY_LEN);
     pi->key[PEL_RAX_KEY_LEN] = (unsigned char)pi->fi.key;
     streamDecodeID(pi->key, &pi->id);
     pi->data = pi->fi.data;
     pi->valid = 1;
+    pi->is_direct = 0;
+}
+
+/* Refresh iterator fields from a direct entry in the current rax node. */
+static void pelIterRefreshDirect(pelIterator *pi) {
+    void *bucket = pi->ri.data;
+    memcpy(pi->key, pi->ri.key, PEL_RAX_KEY_LEN);
+    pi->key[PEL_RAX_KEY_LEN] = PEL_DIRECT_FKEY(bucket);
+    streamDecodeID(pi->key, &pi->id);
+    pi->data = PEL_DIRECT_PTR(bucket);
+    pi->valid = 1;
+    pi->is_direct = 1;
+}
+
+/* Position the iterator on the first valid entry starting from the current
+ * rax position (calling raxNext first). Returns 1 on success, 0 if no more. */
+static int pelIterAdvanceRax(pelIterator *pi) {
+    while (raxNext(&pi->ri)) {
+        void *bucket = pi->ri.data;
+        if (PEL_IS_DIRECT(bucket)) {
+            pelIterRefreshDirect(pi);
+            return 1;
+        }
+        flaxStart(&pi->fi, (flax *)bucket);
+        if (flaxSeek(&pi->fi, "^", 0)) {
+            pelIterRefresh(pi);
+            return 1;
+        }
+    }
+    pi->valid = 0;
+    return 0;
+}
+
+/* Position the iterator on the first entry of the current rax node's bucket.
+ * Returns 1 on success, 0 if bucket is empty (should not happen). */
+static int pelIterEnterBucketHead(pelIterator *pi) {
+    void *bucket = pi->ri.data;
+    if (PEL_IS_DIRECT(bucket)) {
+        pelIterRefreshDirect(pi);
+        return 1;
+    }
+    flaxStart(&pi->fi, (flax *)bucket);
+    if (flaxSeek(&pi->fi, "^", 0)) {
+        pelIterRefresh(pi);
+        return 1;
+    }
+    return 0;
+}
+
+/* Position the iterator on the last entry of the current rax node's bucket.
+ * Returns 1 on success, 0 if bucket is empty. */
+static int pelIterEnterBucketTail(pelIterator *pi) {
+    void *bucket = pi->ri.data;
+    if (PEL_IS_DIRECT(bucket)) {
+        pelIterRefreshDirect(pi);
+        return 1;
+    }
+    flaxStart(&pi->fi, (flax *)bucket);
+    if (flaxSeek(&pi->fi, "$", 0)) {
+        pelIterRefresh(pi);
+        return 1;
+    }
+    return 0;
 }
 
 void pelIterStart(pelIterator *pi, rax *pel) {
+    pelCacheFlush(pel);
     raxStart(&pi->ri, pel);
     pi->valid = 0;
     pi->just_seeked = 0;
+    pi->is_direct = 0;
     memset(&pi->fi, 0, sizeof(pi->fi));
     memset(&pi->id, 0, sizeof(pi->id));
     pi->data = NULL;
@@ -272,17 +496,13 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
     if (op[0] == '^') {
         raxSeek(&pi->ri, "^", NULL, 0);
         if (!raxNext(&pi->ri)) return 0;
-        flaxStart(&pi->fi, (flax *)pi->ri.data);
-        if (!flaxSeek(&pi->fi, "^", 0)) return 0;
-        pelIterRefresh(pi);
+        if (!pelIterEnterBucketHead(pi)) return 0;
         pi->just_seeked = 1;
         return 1;
     } else if (op[0] == '$') {
         raxSeek(&pi->ri, "$", NULL, 0);
         if (!raxNext(&pi->ri)) return 0;
-        flaxStart(&pi->fi, (flax *)pi->ri.data);
-        if (!flaxSeek(&pi->fi, "$", 0)) return 0;
-        pelIterRefresh(pi);
+        if (!pelIterEnterBucketTail(pi)) return 0;
         pi->just_seeked = 1;
         return 1;
     } else if (op[0] == '>' && op[1] == '=') {
@@ -290,38 +510,40 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
         pelEncodeRaxKey(keybuf, id->ms, id->seq);
         uint8_t fkey = pelFlaxKey(id->seq);
 
-        /* Seek to the largest rax key <= target 15-byte key. */
         raxSeek(&pi->ri, "<=", keybuf, PEL_RAX_KEY_LEN);
         if (!raxNext(&pi->ri)) {
-            /* All rax keys are > target, start from the very first bucket. */
             raxSeek(&pi->ri, "^", NULL, 0);
             if (!raxNext(&pi->ri)) return 0;
-            flaxStart(&pi->fi, (flax *)pi->ri.data);
-            if (!flaxSeek(&pi->fi, "^", 0)) return 0;
-            pelIterRefresh(pi);
+            if (!pelIterEnterBucketHead(pi)) return 0;
             pi->just_seeked = 1;
             return 1;
         }
 
         int cmp = memcmp(pi->ri.key, keybuf, PEL_RAX_KEY_LEN);
-        flaxStart(&pi->fi, (flax *)pi->ri.data);
+        void *bucket = pi->ri.data;
+
         if (cmp == 0) {
-            /* Exact rax key match — seek flax for >= fkey. */
-            if (!flaxSeek(&pi->fi, ">=", fkey)) {
-                if (!raxNext(&pi->ri)) return 0;
-                flaxStart(&pi->fi, (flax *)pi->ri.data);
-                if (!flaxSeek(&pi->fi, "^", 0)) return 0;
+            if (PEL_IS_DIRECT(bucket)) {
+                if (PEL_DIRECT_FKEY(bucket) >= fkey) {
+                    pelIterRefreshDirect(pi);
+                } else {
+                    if (!pelIterAdvanceRax(pi)) return 0;
+                }
+            } else {
+                flaxStart(&pi->fi, (flax *)bucket);
+                if (!flaxSeek(&pi->fi, ">=", fkey)) {
+                    if (!pelIterAdvanceRax(pi)) return 0;
+                } else {
+                    pelIterRefresh(pi);
+                }
             }
         } else if (cmp < 0) {
-            /* Landed in an earlier bucket, advance to next. */
-            if (!raxNext(&pi->ri)) return 0;
-            flaxStart(&pi->fi, (flax *)pi->ri.data);
-            if (!flaxSeek(&pi->fi, "^", 0)) return 0;
+            if (!pelIterAdvanceRax(pi)) return 0;
         } else {
-            /* rax key > target: start from head of this bucket. */
-            if (!flaxSeek(&pi->fi, "^", 0)) return 0;
+            if (!pelIterEnterBucketHead(pi)) {
+                if (!pelIterAdvanceRax(pi)) return 0;
+            }
         }
-        pelIterRefresh(pi);
         pi->just_seeked = 1;
         return 1;
     }
@@ -334,20 +556,13 @@ int pelIterNext(pelIterator *pi) {
         return pi->valid;
     }
     if (!pi->valid) return 0;
-    if (flaxNext(&pi->fi)) {
+
+    if (!pi->is_direct && flaxNext(&pi->fi)) {
         pelIterRefresh(pi);
         return 1;
     }
-    /* Current flax exhausted, advance to next non-empty bucket. */
-    do {
-        if (!raxNext(&pi->ri)) {
-            pi->valid = 0;
-            return 0;
-        }
-        flaxStart(&pi->fi, (flax *)pi->ri.data);
-    } while (!flaxSeek(&pi->fi, "^", 0));
-    pelIterRefresh(pi);
-    return 1;
+
+    return pelIterAdvanceRax(pi);
 }
 
 void pelIterStop(pelIterator *pi) {

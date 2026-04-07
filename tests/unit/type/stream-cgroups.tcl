@@ -3475,4 +3475,187 @@ start_server {
         }
         assert_equal [llength $collected] 800
     }
+
+    test "Two-level PEL direct entries with 1 msg/ms pattern" {
+        r DEL mystream
+
+        # Add entries with unique ms values (1 msg per ms), each with seq=0.
+        # This exercises the direct entry path: each rax bucket has 1 entry.
+        for {set i 0} {$i < 100} {incr i} {
+            set ms [expr {10000 + $i}]
+            r XADD mystream $ms-0 field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 100 STREAMS mystream >
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 100
+
+        # Verify iteration returns all entries in order.
+        set all [r XPENDING mystream grp - + 200]
+        assert_equal [llength $all] 100
+        assert_equal [lindex $all 0 0] "10000-0"
+        assert_equal [lindex $all end 0] "10099-0"
+
+        # ACK some entries to test direct entry removal.
+        r XACK mystream grp 10000-0 10050-0 10099-0
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 97
+
+        # Verify boundaries after ACK.
+        set all [r XPENDING mystream grp - + 200]
+        assert_equal [llength $all] 97
+        assert_equal [lindex $all 0 0] "10001-0"
+        assert_equal [lindex $all end 0] "10098-0"
+    }
+
+    test "Two-level PEL direct-to-flax promotion and flax-to-direct demotion" {
+        r DEL mystream
+
+        # Create two entries sharing the same ms but different seq.
+        # First entry creates a direct bucket; second promotes to flax.
+        r XADD mystream 20000-0 field val0
+        r XADD mystream 20000-1 field val1
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 2 STREAMS mystream >
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 2
+
+        set all [r XPENDING mystream grp - + 10]
+        assert_equal [llength $all] 2
+        assert_equal [lindex $all 0 0] "20000-0"
+        assert_equal [lindex $all 1 0] "20000-1"
+
+        # ACK one entry: flax drops to 1 element, should demote to direct.
+        r XACK mystream grp 20000-0
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 1
+        set all [r XPENDING mystream grp - + 10]
+        assert_equal [lindex $all 0 0] "20000-1"
+
+        # ACK the last entry: bucket removed entirely.
+        r XACK mystream grp 20000-1
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 0
+    }
+
+    test "Two-level PEL direct entries with XCLAIM across consumers" {
+        r DEL mystream
+
+        # 1 msg/ms pattern
+        for {set i 0} {$i < 10} {incr i} {
+            set ms [expr {30000 + $i}]
+            r XADD mystream $ms-0 field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 10 STREAMS mystream >
+
+        # XCLAIM first 5 entries to consumer2
+        for {set i 0} {$i < 5} {incr i} {
+            set ms [expr {30000 + $i}]
+            r XCLAIM mystream grp consumer2 0 $ms-0
+        }
+
+        set pending_c1 [r XPENDING mystream grp - + 20 consumer1]
+        set pending_c2 [r XPENDING mystream grp - + 20 consumer2]
+        assert_equal [llength $pending_c1] 5
+        assert_equal [llength $pending_c2] 5
+
+        # Verify ordering in each consumer's PEL.
+        assert_equal [lindex $pending_c1 0 0] "30005-0"
+        assert_equal [lindex $pending_c1 end 0] "30009-0"
+        assert_equal [lindex $pending_c2 0 0] "30000-0"
+        assert_equal [lindex $pending_c2 end 0] "30004-0"
+    }
+
+    test "Two-level PEL direct entries survive RDB save/load" {
+        r DEL mystream
+
+        # 1 msg/ms pattern
+        for {set i 0} {$i < 50} {incr i} {
+            set ms [expr {40000 + $i}]
+            r XADD mystream $ms-0 field value$i
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 50 STREAMS mystream >
+
+        r DEBUG RELOAD
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 50
+
+        set all [r XPENDING mystream grp - + 100]
+        assert_equal [llength $all] 50
+        assert_equal [lindex $all 0 0] "40000-0"
+        assert_equal [lindex $all end 0] "40049-0"
+    } {} {needs:debug}
+
+    test "Two-level PEL mixed direct and flax buckets" {
+        r DEL mystream
+
+        # Create a mix: some ms values with 1 entry (direct) and some with
+        # multiple entries (flax). This exercises iteration across both types.
+        for {set ms 50000} {$ms < 50005} {incr ms} {
+            r XADD mystream $ms-0 field val-$ms-0
+        }
+        # Add multiple entries under ms=50005 (will be flax after promotion)
+        for {set seq 0} {$seq < 5} {incr seq} {
+            r XADD mystream 50005-$seq field val-50005-$seq
+        }
+        # More single-entry ms values after the flax bucket
+        for {set ms 50006} {$ms < 50010} {incr ms} {
+            r XADD mystream $ms-0 field val-$ms-0
+        }
+
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp consumer1 COUNT 100 STREAMS mystream >
+
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 14
+
+        set all [r XPENDING mystream grp - + 20]
+        assert_equal [llength $all] 14
+
+        # Verify full ordering across direct and flax buckets.
+        set prev_ms 0
+        set prev_seq -1
+        foreach entry $all {
+            set id [lindex $entry 0]
+            set parts [split $id -]
+            set ms [lindex $parts 0]
+            set seq [lindex $parts 1]
+            if {$ms == $prev_ms} {
+                assert {$seq > $prev_seq}
+            } else {
+                assert {$ms > $prev_ms}
+            }
+            set prev_ms $ms
+            set prev_seq $seq
+        }
+
+        assert_equal [lindex $all 0 0] "50000-0"
+        assert_equal [lindex $all end 0] "50009-0"
+
+        # ACK all the flax bucket entries except one -> demote to direct
+        r XACK mystream grp 50005-0 50005-1 50005-2 50005-3
+        set summary [r XPENDING mystream grp]
+        assert_equal [lindex $summary 0] 10
+
+        set all [r XPENDING mystream grp - + 20]
+        assert_equal [llength $all] 10
+
+        # Verify the remaining entry from the former flax bucket
+        set found 0
+        foreach entry $all {
+            if {[lindex $entry 0] eq "50005-4"} {
+                set found 1
+            }
+        }
+        assert_equal $found 1
+    }
 }

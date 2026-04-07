@@ -6,6 +6,27 @@
 #include "dict.h"
 #include "xxhash.h"
 #include "flax.h"
+#include <stdint.h>
+
+/* Tagged pointer helpers for PEL direct single-entry buckets.
+ *
+ * When a PEL rax bucket contains a single entry, the data pointer and the
+ * flax key (low byte of seq) are packed into a tagged pointer stored directly
+ * in the rax value, avoiding the flax struct + data block allocations.
+ *
+ * Layout (LP64, 64-bit pointers):
+ *   Bit  0:      1 = direct entry, 0 = flax pointer
+ *   Bits 56..63: flax key (uint8_t, low byte of seq)
+ *   Bits 1..55:  data pointer (heap-allocated, >=8-byte aligned)
+ */
+#define PEL_IS_FLAX(v)    (((uintptr_t)(v) & 1) == 0)
+#define PEL_IS_DIRECT(v)  (((uintptr_t)(v) & 1) == 1)
+#define PEL_DIRECT_ENCODE(ptr, fkey) \
+    ((void *)(((uintptr_t)(uint8_t)(fkey) << 56) | (uintptr_t)(ptr) | 1))
+#define PEL_DIRECT_PTR(v) \
+    ((void *)((uintptr_t)(v) & 0x00FFFFFFFFFFFFFEULL))
+#define PEL_DIRECT_FKEY(v) \
+    ((uint8_t)((uintptr_t)(v) >> 56))
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
  * a sequence counter. IDs generated in the same millisecond (or in a past
@@ -201,12 +222,15 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id);
 
-/* Two-level PEL iterator: walks outer rax (ms buckets) and inner flax (seq). */
+/* Two-level PEL iterator: walks outer rax (ms buckets) and inner flax (seq).
+ * Single-entry buckets are stored as tagged pointers (direct entries) without
+ * a flax allocation; is_direct tracks whether the current entry is direct. */
 typedef struct pelIterator {
     raxIterator ri;
     flaxIterator fi;
     int valid;
     int just_seeked;
+    int is_direct;
     streamID id;
     void *data;
     unsigned char key[sizeof(streamID)];
