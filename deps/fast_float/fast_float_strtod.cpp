@@ -30,3 +30,17 @@ extern "C" double fast_float_strtod(const char *nptr, char **endptr) {
   }
   return result;
 }
+
+/* Length-aware variant that avoids the need for null-terminated input.
+ * Parses at most 'len' bytes starting from 'nptr'. */
+extern "C" double fast_float_strtod_n(const char *nptr, size_t len, char **endptr) {
+  double result = 0.0;
+  auto answer = fast_float::from_chars(nptr, nptr + len, result);
+  if (answer.ec != std::errc()) {
+    errno = EINVAL;
+  }
+  if (endptr != NULL) {
+    *endptr = (char *)answer.ptr;
+  }
+  return result;
+}
