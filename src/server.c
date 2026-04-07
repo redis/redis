@@ -7534,10 +7534,12 @@ void dismissMemoryInChild(void) {
         dismissClientMemory(c);
     }
 
-    /* Dismiss the hash table bucket arrays for all dicts in expires kvstores
-     * since we never access expires kvstores in child process. */
-    for (int dbid = 0; dbid < server.dbnum; dbid++) {
-        dismissKvstoreBucketsMemory(server.db[dbid].expires);
+    /* Dismiss expires kvstore bucket arrays since the child process never
+     * accesses them, expire times are embedded in key objects. */
+    if (server.in_fork_child == CHILD_TYPE_RDB || server.in_fork_child == CHILD_TYPE_AOF) {
+        for (int dbid = 0; dbid < server.dbnum; dbid++) {
+            dismissKvstoreBucketsMemory(server.db[dbid].expires);
+        }
     }
 #endif
 }

@@ -1657,9 +1657,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
             written += res;
             if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr2;
             written += res;
-            /* Dismiss bucket arrays of the previous slot which won't be accessed again.
-             * Note: the final slot in the iteration is not dismissed, but that's fine
-             * since the child process will exit shortly after. */
+            /* Dismiss bucket arrays of the previous slot to reduce CoW.
+             * The final slot is not dismissed since the child exits shortly after. */
             if (server.in_fork_child && last_slot != -1)
                 dismissDictBucketsMemory(kvstoreGetDict(db->keys, last_slot));
             last_slot = curr_slot;
@@ -1741,8 +1740,8 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
         for (j = 0; j < server.dbnum; j++) {
             if (rdbSaveDb(rdb, j, rdbflags, &key_counter, &skipped) == -1) goto werr;
-            /* Dismiss bucket arrays of kvstore to avoid CoW. And in cluster mode
-             * this is already done per-slot in rdbSaveDb(). */
+            /* In standalone mode, dismiss bucket arrays of the saved DB's
+             * kvstore to reduce CoW. In cluster mode this is done per-slot. */
             if (server.in_fork_child && !server.cluster_enabled)
                 dismissKvstoreBucketsMemory(server.db[j].keys);
         }
