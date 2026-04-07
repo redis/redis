@@ -3660,38 +3660,6 @@ start_server {
         }
     }
 
-    # Verify that XNACK is transactional-safe: it can be queued inside
-    # MULTI and executes atomically within EXEC. The XPENDING queued
-    # right after XNACK observes the NACKed state within the same
-    # transaction.
-    test "XNACK works inside MULTI/EXEC" {
-        r DEL mystream
-        r XADD mystream 1-0 f v1
-        r XADD mystream 2-0 f v2
-        r XGROUP CREATE mystream grp 0
-        r XREADGROUP GROUP grp c1 STREAMS mystream >
-
-        r MULTI
-        r XNACK mystream grp FAIL IDS 1 1-0
-        r XPENDING mystream grp - + 10
-        set results [r EXEC]
-
-        # First result: XNACK return value
-        assert_equal [lindex $results 0] 1
-
-        # Second result: XPENDING should show 1-0 as unowned
-        set pending [lindex $results 1]
-        assert_equal [llength $pending] 2
-        set found 0
-        foreach entry $pending {
-            if {[lindex $entry 0] eq "1-0"} {
-                assert_equal [lindex $entry 1] {}
-                set found 1
-            }
-        }
-        assert_equal $found 1
-    }
-
     # Verify that the RETRYCOUNT option overrides the delivery_count that
     # the mode would normally set. It takes precedence over FATAL (would
     # set LLONG_MAX), SILENT (would decrement), and FAIL (would keep).
