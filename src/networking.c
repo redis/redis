@@ -1950,7 +1950,12 @@ void tryUnlinkClientFromPendingRefReply(client *c, int force) {
 /* Count bytes in an encoded buffer where the client holds the last remaining
  * reference to the underlying string object (refcount == 1), meaning the key
  * has been deleted from the keyspace and only this client buffer keeps the
- * memory alive. */
+ * memory alive.
+ *
+ * Note: when multiple clients hold a zero-copy reference to the same object,
+ * the object's refcount stays above 1 even after the key is deleted. In that
+ * case none of those clients will be counted here, so the shared memory is
+ * under-reported until all but one client has consumed its copy. */
 static size_t computeOrphanRefBytes(char *buf, size_t bufpos) {
     size_t total = 0;
     char *ptr = buf;
