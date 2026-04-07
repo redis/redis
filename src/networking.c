@@ -1975,11 +1975,11 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
  * unshared reply bytes where the client is the sole owner (refcount == 1).
  * This memory would actually be freed when the client disconnects. */
 size_t getClientUnsharedReplyBytes(client *c) {
-    size_t unshared_reply_bytes = 0;
+    size_t reply_bytes_unshared = 0;
 
     /* Scan the static output buffer. */
     if (c->buf_encoded)
-        unshared_reply_bytes += computeUnsharedReplyBytes(c->buf, c->bufpos);
+        reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
 
     /* Scan each block in the reply list. */
     listIter reply_li;
@@ -1989,9 +1989,9 @@ size_t getClientUnsharedReplyBytes(client *c) {
         clientReplyBlock *block = listNodeValue(reply_ln);
         if (block == NULL) continue; /* deferred-length placeholder */
         if (block->buf_encoded)
-            unshared_reply_bytes += computeUnsharedReplyBytes(block->buf, block->used);
+            reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
     }
-    return unshared_reply_bytes;
+    return reply_bytes_unshared;
 }
 
 /* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
@@ -4080,8 +4080,8 @@ sds catClientInfoString(sds s, client *client) {
     /* Compute per-client unshared reply bytes: the client is the sole owner
      * (refcount == 1) because the key was deleted.
      * This memory would actually be freed when the client disconnects. */
-    size_t unshared_reply_bytes = getClientUnsharedReplyBytes(client);
-    total_mem += unshared_reply_bytes;
+    size_t reply_bytes_unshared = getClientUnsharedReplyBytes(client);
+    total_mem += reply_bytes_unshared;
 
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
@@ -4115,7 +4115,7 @@ sds catClientInfoString(sds s, client *client) {
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* total shared reply bytes */
-        " omem-unshared=%U", (unsigned long long) unshared_reply_bytes, /* unshared reply bytes where this client is the sole owner */
+        " omem-unshared=%U", (unsigned long long) reply_bytes_unshared, /* unshared reply bytes where this client is the sole owner */
         " tot-mem=%U", (unsigned long long) total_mem,
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
