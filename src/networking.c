@@ -4077,9 +4077,7 @@ sds catClientInfoString(sds s, client *client) {
     size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
     obufmem += client->reply_bytes_shared; /* Logical size of output buffer including shared reply bytes. */
 
-    /* Compute per-client unshared reply bytes: the client is the sole owner
-     * (refcount == 1) because the key was deleted.
-     * This memory would actually be freed when the client disconnects. */
+    /* Unshared reply bytes: key deleted, this client is the sole owner. */
     size_t reply_bytes_unshared = getClientUnsharedReplyBytes(client);
     total_mem += reply_bytes_unshared;
 

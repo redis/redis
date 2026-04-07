@@ -1327,10 +1327,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->repl_backlog;
     mem_total += mh->clients_slaves;
 
-    /* Compute zero-copy ref memory: total referenced bytes and the unshared
-     * subset where the key has been deleted (refcount == 1) so the client is
-     * the sole owner. Must be done before clients_normal so we can fold the
-     * unshared bytes into the owned-memory total. */
+    /* Compute shared/unshared reply memory. */
     getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
 
     /* Computing the memory used by the clients would be O(N) if done
