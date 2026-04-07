@@ -1327,11 +1327,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->repl_backlog;
     mem_total += mh->clients_slaves;
 
-    /* Compute zero-copy ref memory: total referenced bytes and the orphaned
+    /* Compute zero-copy ref memory: total referenced bytes and the unshared
      * subset where the key has been deleted (refcount == 1) so the client is
      * the sole owner. Must be done before clients_normal so we can fold the
-     * orphaned bytes into the owned-memory total. */
-    getClientsRefMemoryUsage(&mh->clients_ref, &mh->clients_orphan_ref);
+     * unshared bytes into the owned-memory total. */
+    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
@@ -1339,7 +1339,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
-    mh->clients_normal += mh->clients_orphan_ref;
+    mh->clients_normal += mh->clients_normal_unshared;
     mem_total += mh->clients_normal;
 
     mh->cluster_links = server.stat_cluster_links_memory;
@@ -1712,11 +1712,11 @@ NULL
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
 
-        addReplyBulkCString(c,"clients.ref");
-        addReplyLongLong(c,mh->clients_ref);
+        addReplyBulkCString(c,"clients.normal.shared");
+        addReplyLongLong(c,mh->clients_normal_shared);
 
-        addReplyBulkCString(c,"clients.orphan.ref");
-        addReplyLongLong(c,mh->clients_orphan_ref);
+        addReplyBulkCString(c,"clients.normal.unshared");
+        addReplyLongLong(c,mh->clients_normal_unshared);
 
         addReplyBulkCString(c,"cluster.links");
         addReplyLongLong(c,mh->cluster_links);

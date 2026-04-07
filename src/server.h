@@ -1475,7 +1475,7 @@ typedef struct client {
     long bulklen;           /* Length of bulk argument in multi bulk request. */
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
-    unsigned long long reply_bytes_ref; /* Referenced bytes in reply list. */
+    unsigned long long reply_bytes_shared; /* Bytes shared with keyspace objects in reply list. */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
@@ -1781,8 +1781,8 @@ struct redisMemOverhead {
     size_t replica_fullsync_buffer;
     size_t clients_slaves;
     size_t clients_normal;
-    size_t clients_ref;
-    size_t clients_orphan_ref;
+    size_t clients_normal_shared;
+    size_t clients_normal_unshared;
     size_t cluster_links;
     size_t aof_buffer;
     size_t eval_caches;
@@ -3209,8 +3209,8 @@ void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
-size_t getClientOrphanRefMemoryUsage(client *c);
-void getClientsRefMemoryUsage(size_t *ref_mem, size_t *orphan_ref_mem);
+size_t getClientUnsharedReplyBytes(client *c);
+void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);

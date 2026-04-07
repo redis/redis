@@ -247,77 +247,77 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         r client setname refmem_test
         r multi
         r get bigkey      ;# adds zero-copy ref to output buffer
-        r client list     ;# per-client omem / omem-ref / omem-ref-orphan / tot-mem
-        r info memory     ;# global mem_clients_ref / mem_clients_orphan_ref
-        r memory stats    ;# clients.ref and clients.orphan.ref
+        r client list     ;# per-client omem / omem-shared / omem-unshared / tot-mem
+        r info memory     ;# global mem_clients_normal_shared / mem_clients_normal_unshared
+        r memory stats    ;# clients.normal.shared and clients.normal.unshared
         set res [r exec]
         
-        # omem-ref tracks total zero-copy ref bytes, key is still alive so omem-ref-orphan must be 0.
+        # omem-shared tracks total shared reply bytes, key is still alive so omem-unshared must be 0.
         set clients [split [string trim [lindex $res 1]] "\r\n"]
         set c [lsearch -inline $clients *name=refmem_test*]
-        regexp {omem-ref=([0-9]+)} $c - omem_ref
-        regexp {omem-ref-orphan=([0-9]+)} $c - omem_ref_orphan
-        assert {$omem_ref >= $val_size}
-        assert_equal 0 $omem_ref_orphan
-        
-        # mem_clients_ref is incremented at write time, before the reply is sent
-        set info_mem [lindex $res 2]
-        assert {[getInfoProperty $info_mem mem_clients_ref] >= $val_size}
-        assert_equal 0 [getInfoProperty $info_mem mem_clients_orphan_ref]
+        regexp {omem-shared=([0-9]+)} $c - omem_shared
+        regexp {omem-unshared=([0-9]+)} $c - omem_unshared
+        assert {$omem_shared >= $val_size}
+        assert_equal 0 $omem_unshared
 
-        # MEMORY STATS exposes the same ref bytes; orphan.ref is 0 since the key is still in keyspace
+        # mem_clients_normal_shared is incremented at write time, before the reply is sent
+        set info_mem [lindex $res 2]
+        assert {[getInfoProperty $info_mem mem_clients_normal_shared] >= $val_size}
+        assert_equal 0 [getInfoProperty $info_mem mem_clients_normal_unshared]
+
+        # MEMORY STATS exposes the same shared bytes; normal.unshared is 0 since the key is still in keyspace
         set mem_stats [lindex $res 3]
-        assert {[dict get $mem_stats clients.ref] >= $val_size}
-        assert_equal 0 [dict get $mem_stats clients.orphan.ref] ;# key still in keyspace
+        assert {[dict get $mem_stats clients.normal.shared] >= $val_size}
+        assert_equal 0 [dict get $mem_stats clients.normal.unshared] ;# key still in keyspace
 
         # After the reply is fully sent, the global counter must return to 0
         wait_for_condition 50 10 {
-            [s mem_clients_ref] == 0
+            [s mem_clients_normal_shared] == 0
         } else {
-            fail "mem_clients_ref did not return to 0 after reply was sent"
+            fail "mem_clients_normal_shared did not return to 0 after reply was sent"
         }
     }
 
-    test "zero-copy referenced reply bytes are tracked as orphaned after the key is deleted" {
+    test "shared reply bytes are tracked as unshared after the key is deleted" {
         r flushdb
         r config set client-output-buffer-limit {normal 0 0 0}
         set val_size 100000
         r set bigkey [string repeat v $val_size]
 
-        # Use MULTI/EXEC so all observers see the zero-copy ref before it is sent.
-        r client setname ormem_orphan_test
+        # Use MULTI/EXEC so all observers see the shared ref before it is sent.
+        r client setname ormem_unshared_test
         r multi
-        r get bigkey      ;# adds zero-copy ref to output buffer
+        r get bigkey      ;# adds shared ref to output buffer
         r del bigkey      ;# key removed from keyspace - refcount drops to 1
-        r client list     ;# per-client ormem (orphan ref bytes)
-        r info memory     ;# global mem_clients_orphan_ref
-        r memory stats    ;# clients.ref and clients.orphan.ref
+        r client list     ;# per-client omem-shared / omem-unshared
+        r info memory     ;# global mem_clients_normal_unshared
+        r memory stats    ;# clients.normal.shared and clients.normal.unshared
         set res [r exec]
 
-        # after DEL the buffered ref has refcount == 1, so it is counted as an orphan
-        # per-client ormem must reflect the orphaned bytes
+        # after DEL the buffered ref has refcount == 1, so it is counted as unshared
+        # per-client omem-unshared must reflect the unshared bytes
         set clients [split [string trim [lindex $res 2]] "\r\n"]
-        set c [lsearch -inline $clients *name=ormem_orphan_test*]
-        regexp {omem-ref=([0-9]+)} $c - omem_ref
-        regexp {omem-ref-orphan=([0-9]+)} $c - omem_ref_orphan
-        assert {$omem_ref >= $val_size}
-        assert {$omem_ref_orphan >= $val_size}
+        set c [lsearch -inline $clients *name=ormem_unshared_test*]
+        regexp {omem-shared=([0-9]+)} $c - omem_shared
+        regexp {omem-unshared=([0-9]+)} $c - omem_unshared
+        assert {$omem_shared >= $val_size}
+        assert {$omem_unshared >= $val_size}
 
-        # mem_clients_orphan_ref (global) must also be >= val_size
+        # mem_clients_normal_unshared (global) must also be >= val_size
         set info_mem [lindex $res 3]
-        assert {[getInfoProperty $info_mem mem_clients_orphan_ref] >= $val_size}
+        assert {[getInfoProperty $info_mem mem_clients_normal_unshared] >= $val_size}
         assert {[getInfoProperty $info_mem mem_clients_normal] >= $val_size}
-        
-        # MEMORY STATS exposes the same ref bytes;
-        set mem_stats [lindex $res 4]
-        assert {[dict get $mem_stats clients.ref] >= $val_size}
-        assert {[dict get $mem_stats clients.orphan.ref] >= $val_size}
 
-        # After the reply is fully sent, orphan refs are released and the counter returns to 0
+        # MEMORY STATS exposes the same bytes;
+        set mem_stats [lindex $res 4]
+        assert {[dict get $mem_stats clients.normal.shared] >= $val_size}
+        assert {[dict get $mem_stats clients.normal.unshared] >= $val_size}
+
+        # After the reply is fully sent, unshared bytes are released and the counter returns to 0
         wait_for_condition 50 10 {
-            [s mem_clients_orphan_ref] == 0
+            [s mem_clients_normal_unshared] == 0
         } else {
-            fail "mem_clients_orphan_ref did not return to 0 after reply was sent"
+            fail "mem_clients_normal_unshared did not return to 0 after reply was sent"
         }
     }
 }

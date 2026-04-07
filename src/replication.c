@@ -4485,7 +4485,7 @@ void replicationCacheMaster(client *c) {
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
     c->sentlen = 0;
-    c->reply_bytes = c->reply_bytes_ref = 0;
+    c->reply_bytes = c->reply_bytes_shared = 0;
     c->bufpos = 0;
     resetClient(c, -1);
     resetClientQbufState(c);
