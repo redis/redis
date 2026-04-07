@@ -410,6 +410,74 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
 
 } ;# foreach ip_or_localhost
 
+# Test redis-cli --cluster del-node shuts down the removed node.
+# This verifies that after del-node, the deleted node's process is terminated
+# (SHUTDOWN NOSAVE) rather than left running as a standalone instance that
+# could confuse clients with empty cluster info. See #14965.
+start_multiple_servers 4 [list overrides $base_conf] {
+
+    test {del-node should shut down the removed node} {
+        # Create a 3-node cluster
+        exec src/redis-cli --cluster-yes --cluster create \
+                           127.0.0.1:[srv 0 port] \
+                           127.0.0.1:[srv -1 port] \
+                           127.0.0.1:[srv -2 port]
+
+        wait_for_condition 1000 50 {
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Add node4 to the cluster (no slots assigned)
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                       127.0.0.1:[srv -3 port] \
+                       127.0.0.1:[srv 0 port]
+
+        wait_for_cluster_size 4
+
+        wait_for_condition 1000 50 {
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize after add-node"
+        }
+
+        set node4_pid [srv -3 pid]
+        set node4_r [redis_client -3]
+        set node4_id [$node4_r cluster myid]
+
+        # Delete node4 from the cluster
+        exec src/redis-cli --cluster-yes --cluster del-node \
+                       127.0.0.1:[srv 0 port] $node4_id
+
+        # Verify the deleted node's process is terminated
+        wait_for_condition 50 100 {
+            [is_alive $node4_pid] == 0
+        } else {
+            fail "Deleted node process is still alive after del-node"
+        }
+
+        # Verify remaining nodes no longer know about the deleted node
+        wait_for_condition 1000 50 {
+            [CI 0 cluster_known_nodes] == 3 &&
+            [CI 1 cluster_known_nodes] == 3 &&
+            [CI 2 cluster_known_nodes] == 3
+        } else {
+            fail "Deleted node was not forgotten by all nodes"
+        }
+
+        # Verify the cluster is still healthy
+        assert_equal [CI 0 cluster_state] {ok}
+        assert_equal [CI 1 cluster_state] {ok}
+        assert_equal [CI 2 cluster_state] {ok}
+    }
+} ;# stop servers
+
 } ;# tags
 
 set ::singledb $old_singledb
