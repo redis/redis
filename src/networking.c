@@ -1477,9 +1477,9 @@ void AddReplyFromClient(client *dst, client *src) {
     /* Concatenate the reply list into the dest */
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
+    serverAssert(src->reply_bytes_ref == 0); /* It is non-normal client, never has references. */
     dst->reply_bytes += src->reply_bytes;
-    dst->reply_bytes_ref += src->reply_bytes_ref;
-    src->reply_bytes = src->reply_bytes_ref = 0;
+    src->reply_bytes = 0;
     src->bufpos = 0;
 
     if (src->deferred_reply_errors) {
