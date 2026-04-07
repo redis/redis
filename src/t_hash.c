@@ -2484,7 +2484,7 @@ out:
         
         KSN_INVALIDATE_KVOBJ(o);
         
-        /* Key may become empty due to lazy expiry in hashTypeExists()
+        /* Key may become empty due to lazy expiry in hashTypeGetValue()
          * or the new expiration time is in the past.*/
         if (newlen == 0) {
             newlen = -1;
