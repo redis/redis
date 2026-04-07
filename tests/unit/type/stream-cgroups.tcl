@@ -1927,8 +1927,6 @@ start_server {
                 $master XADD mystream 1-0 f v
                 $master XGROUP CREATE mystream grp 0
 
-                wait_for_ofs_sync $master $replica
-
                 # Consume the only message so the stream has no
                 # new messages pending for delivery.
                 $master XREADGROUP GROUP grp c1 STREAMS mystream >

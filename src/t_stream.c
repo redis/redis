@@ -1911,7 +1911,8 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
 /* Propagate creation of a consumer that was implicitly created by XREADGROUP.
  * Called only when no XCLAIM commands were propagated for this consumer,
  * since XCLAIM implicitly creates the consumer on the replica.  This covers
- * two cases: (1) NOACK, where the PEL/XCLAIM path is skipped entirely, and
+ * two cases:
+ * (1) NOACK, where the PEL/XCLAIM path is skipped entirely.
  * (2) no messages were available to deliver (see #7140).
  *
  * XGROUP CREATECONSUMER <key> <groupname> <consumername>
