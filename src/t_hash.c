@@ -2529,11 +2529,6 @@ out:
                                                c->db->id, updated_fields, updated);
             }
         }
-
-        ROBJ_LOCAL_ARRAY_FREE(expired_fields);
-        ROBJ_LOCAL_ARRAY_FREE(set_fields);
-        ROBJ_LOCAL_ARRAY_FREE(deleted_fields);
-        ROBJ_LOCAL_ARRAY_FREE(updated_fields);
         
         KSN_INVALIDATE_KVOBJ(o);
         
@@ -2548,6 +2543,11 @@ out:
         if (oldlen != newlen)
             updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     }
+
+    ROBJ_LOCAL_ARRAY_FREE(expired_fields);
+    ROBJ_LOCAL_ARRAY_FREE(set_fields);
+    ROBJ_LOCAL_ARRAY_FREE(deleted_fields);
+    ROBJ_LOCAL_ARRAY_FREE(updated_fields);
 }
 
 void hincrbyCommand(client *c) {
