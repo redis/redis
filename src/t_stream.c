@@ -1942,11 +1942,14 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     decrRefCount(argv[6]);
 }
 
-/* We need this when we want to propagate creation of consumer that was created
- * by XREADGROUP with the NOACK option. In that case, the only way to create
- * the consumer at the replica is by using XGROUP CREATECONSUMER (see issue #7140)
+/* Propagate creation of a consumer that was implicitly created by XREADGROUP.
+ * Called only when no XCLAIM commands were propagated for this consumer,
+ * since XCLAIM implicitly creates the consumer on the replica.  This covers
+ * two cases:
+ * (1) NOACK, where the PEL/XCLAIM path is skipped entirely.
+ * (2) no messages were available to deliver (see #7140).
  *
- *  XGROUP CREATECONSUMER <key> <groupname> <consumername>
+ * XGROUP CREATECONSUMER <key> <groupname> <consumername>
  */
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername) {
     robj *argv[5];
@@ -2910,6 +2913,7 @@ void xreadCommand(client *c) {
         int serve_claimed = 0;
         int serve_synchronously = 0;
         int serve_history = 0; /* True for XREADGROUP with ID != ">". */
+        int consumer_created = 0;
         streamConsumer *consumer = NULL; /* Unused if XREAD */
         streamPropInfo spi = {c->argv[streams_arg+i],groupname}; /* Unused if XREAD */
 
@@ -2970,10 +2974,7 @@ void xreadCommand(client *c) {
                                                 c->db->id,SCC_DEFAULT);
                 if (server.memory_tracking_enabled)
                     updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
-                if (noack)
-                    streamPropagateConsumerCreation(c,spi.keyname,
-                                                    spi.groupname,
-                                                    consumer->name);
+                consumer_created = 1;
             }
             consumer->seen_time = commandTimeSnapshot();
             keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
@@ -2999,6 +3000,7 @@ void xreadCommand(client *c) {
             flags |= STREAM_RWR_CLAIMED;
         }
 
+        unsigned long propCount = 0;
         if (serve_synchronously) {
             arraylen++;
             if (arraylen == 1) arraylen_ptr = addReplyDeferredLen(c);
@@ -3013,7 +3015,6 @@ void xreadCommand(client *c) {
             if (c->resp == 2) addReplyArrayLen(c,2);
             addReplyBulk(c,c->argv[streams_arg+i]);
             
-            unsigned long propCount = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
             if (server.memory_tracking_enabled)
@@ -3027,6 +3028,14 @@ void xreadCommand(client *c) {
                 server.dirty++;
                 keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
             }
+        }
+
+        /* Propagate consumer creation only when no XCLAIM was generated,
+         * since XCLAIM implicitly creates the consumer on the replica.
+         * With NOACK the PEL/XCLAIM path is skipped entirely, so we
+         * always need explicit propagation regardless of propCount. */
+        if (consumer_created && (noack || propCount == 0)) {
+            streamPropagateConsumerCreation(c,spi.keyname, spi.groupname, consumer->name);
         }
     }
 
