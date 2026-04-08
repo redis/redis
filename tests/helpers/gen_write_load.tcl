@@ -48,8 +48,16 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
         incr count
         if {$count % 500 == 0} {
             for {set i 0} {$i < 500} {incr i} {
-                $r read
+                if {[catch {$r read} err]} {
+                    # MOVED/ASK means the slot migrated to another node,
+                    # continuing to write is pointless, exit gracefully.
+                    if {[string match {MOVED*} $err] || [string match {ASK*} $err]} {
+                        exit 0
+                    }
+                    error $err
+                }
             }
+            set count 0
         }
 
         if {[clock seconds]-$start_time > $seconds} {
@@ -60,9 +68,10 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
         }
     }
     
-    # Read remaining replies
+    # Read remaining replies, catch errors since the process is about to exit
+    # and the connection may already be broken or redirected.
     for {set i 0} {$i < $count} {incr i} {
-        $r read
+        catch {$r read}
     }
     exit 0
 }
