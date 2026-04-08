@@ -5700,7 +5700,7 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
  * by a previous XADD operation), this function does nothing, as the stream
  * is already registered for periodic cleanup. */
 static void trackStreamIdmpEntries(client *c, robj *key) {
-    if (dictAdd(c->db->stream_idmp_keys, key, NULL) == DICT_OK) {
+    if (dictAddRaw(c->db->stream_idmp_keys, key, NULL)) {
         incrRefCount(key);
     }
 }
@@ -5712,7 +5712,7 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
         robj *tracked_key = key;
         if (key->refcount == OBJ_STATIC_REFCOUNT)
             tracked_key = createStringObject(key->ptr, sdslen(key->ptr));
-        if (dictAdd(db->stream_idmp_keys, tracked_key, NULL) == DICT_OK) {
+        if (dictAddRaw(db->stream_idmp_keys, tracked_key, NULL)) {
             incrRefCount(tracked_key);
         }
         if (tracked_key != key)
