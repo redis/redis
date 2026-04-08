@@ -1977,6 +1977,9 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
 size_t getClientUnsharedReplyBytes(client *c) {
     size_t reply_bytes_unshared = 0;
 
+    /* No shared references means no unshared references either. */
+    if (c->reply_bytes_shared == 0) return 0;
+
     /* Scan the static output buffer. */
     if (c->buf_encoded)
         reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
@@ -4075,11 +4078,9 @@ sds catClientInfoString(sds s, client *client) {
 
     /* Compute the total memory consumed by this client. */
     size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
-    obufmem += client->reply_bytes_shared; /* Logical size of output buffer including shared reply bytes. */
 
     /* Unshared reply bytes: key deleted, this client is the sole owner. */
     size_t unshared_mem = getClientUnsharedReplyBytes(client);
-    total_mem += unshared_mem;
 
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
@@ -5175,7 +5176,11 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
 
     if (output_buffer_mem_usage != NULL)
-        *output_buffer_mem_usage = mem;
+        *output_buffer_mem_usage = mem + c->reply_bytes_shared;
+
+    /* Add memory of references exclusively owned by this client. */
+    mem += getClientUnsharedReplyBytes(c);
+
     mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
     mem += c->buf_usable_size;
