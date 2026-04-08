@@ -5,6 +5,7 @@
 #include <time.h>
 #include "redisassert.h"
 #include <string.h>
+#include <errno.h>
 
 /* The function pointer for clock retrieval.  */
 monotime (*getMonotonicUs)(void) = NULL;
@@ -82,14 +83,27 @@ static void monotonicInit_x86linux(void) {
     struct timespec ts_start, ts_end;
     uint64_t tsc_start, tsc_end;
 
-    clock_gettime(CLOCK_MONOTONIC, &ts_start);
+    if (clock_gettime(CLOCK_MONOTONIC, &ts_start) != 0) {
+        fprintf(stderr, "monotonic: x86 linux, clock_gettime failed during calibration\n");
+        return;
+    }
     tsc_start = __rdtsc();
 
-    /* Sleep ~10 ms to accumulate enough ticks for an accurate measurement. */
-    struct timespec req = {0, 10000000};
-    nanosleep(&req, NULL);
+    /* Sleep ~10 ms to accumulate enough ticks for an accurate measurement.
+     * Retry on EINTR to ensure we get a meaningful interval. */
+    struct timespec req = {0, 10000000}, rem;
+    while (nanosleep(&req, &rem) != 0) {
+        if (errno != EINTR) {
+            fprintf(stderr, "monotonic: x86 linux, nanosleep failed during calibration\n");
+            return;
+        }
+        req = rem;
+    }
 
-    clock_gettime(CLOCK_MONOTONIC, &ts_end);
+    if (clock_gettime(CLOCK_MONOTONIC, &ts_end) != 0) {
+        fprintf(stderr, "monotonic: x86 linux, clock_gettime failed during calibration\n");
+        return;
+    }
     tsc_end = __rdtsc();
 
     long long elapsed_ns = (long long)(ts_end.tv_sec - ts_start.tv_sec) * 1000000000LL
