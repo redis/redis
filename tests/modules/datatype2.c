@@ -146,9 +146,11 @@ size_t MemBlockWrite(struct MemBlock *head, long long block_index, const char *d
     }
 
     if (block) {
-        size = size > BLOCK_SIZE ? BLOCK_SIZE:size;
-        memcpy(block->block, data, size);
-        w_size += size;
+        if (size > BLOCK_SIZE) size = BLOCK_SIZE;
+        if (size > 0 && data != NULL) {
+            memcpy(block->block, data, size);
+            w_size += size;
+        }
     }
 
     return w_size;
