@@ -321,6 +321,7 @@ void restoreCommand(client *c) {
     objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
     keyModified(c,c->db,key,NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
+    KSN_INVALIDATE_KVOBJ(kv);
 
     /* If we deleted a key that means REPLACE parameter was passed and the
      * destination key existed. */

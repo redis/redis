@@ -99,6 +99,7 @@ proc flushallAndVerifyCleanup {} {
 
 start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
     r module load $testmodule
+    r debug enable-keymeta-runtime-registration 1
 
     array set classesSpec {}
     set classesSpec(1) "KEEPONCOPY:KEEPONRENAME:KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
@@ -763,6 +764,7 @@ test "RDB: Load with different module registration order preserves metadata corr
     # metadata values should still be correctly associated with their classes.
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
+        r debug enable-keymeta-runtime-registration 1
 
         # Helper function to generate class names (needed in inner scope)
         proc cname {id} { return "CLS$id" }
@@ -805,6 +807,7 @@ test "RDB: Load with different module registration order preserves metadata corr
         # INNER SERVER: Start new server, register classes in DIFFERENT order, then load RDB
         start_server [list overrides [list dir $rdb_dir enable-debug-command yes]] {
             r module load $testmodule
+            r debug enable-keymeta-runtime-registration 1
 
             # Helper function to generate class names (needed in inner scope)
             proc cname {id} { return "CLS$id" }
@@ -866,6 +869,7 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
 
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
+        r debug enable-keymeta-runtime-registration 1
 
         # Get RDB directory
         set rdb_dir [lindex [r config get dir] 1]
@@ -900,11 +904,11 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
 } {} {external:skip needs:save}
 
 test "Creating key metadata not during OnLoad should fail" {
-    # This time start_server without "enable-debug-command yes"
+    # Start server without enabling keymeta runtime registration debug flag
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command no}} {
         r module load $testmodule
-        # Creating a class not during OnLoad should fail
+        # Creating a class not during server startup should fail
         catch {r keymeta.register [cname 1] 1 "ALLOWIGNORE"} err
-        assert_match {*failed to create metadata class*} $err        
+        assert_match {*failed to create metadata class*} $err
     }
 } {} {external:skip needs:save}
