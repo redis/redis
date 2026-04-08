@@ -32,7 +32,6 @@ jobs:
             --form token="${COVERITY_SCAN_TOKEN}" \
             --form file=@cov-int.tgz \
             https://scan.coverity.com/builds
-
       env:
         COVERITY_SCAN_EMAIL: ${{ secrets.COVERITY_SCAN_EMAIL }}
         COVERITY_SCAN_TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
