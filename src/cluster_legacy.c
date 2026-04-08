@@ -2648,7 +2648,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             ext_shardid = shardid_ext->shard_id;
         } else {
             /* Unknown type, we will ignore it but log what happened. */
-            serverLog(LL_WARNING, "Received unknown extension type %d", type);
+            serverLog(LL_VERBOSE, "Received unknown extension type %d", type);
         }
 
         /* We know this will be valid since we validated it ahead of time */
