@@ -90,7 +90,7 @@ To-Do List
   directly manipulating sockets for most actions. This will need to be cleaned
   up for proper TLS support. The best approach is probably to migrate to hiredis
   async mode.
-- [ ] redis-cli `--replica` and `--rdb` support.
+- [ ] redis-cli `--replica` (or `--slave`) and `--rdb` support.
 
 Multi-port
 ----------
