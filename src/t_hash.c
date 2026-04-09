@@ -3591,8 +3591,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
 
             args->firstFieldPos = i + 2;
 
-            /* Validate that the FIELDS block fits in argv without overflowing. Extra
-             * option tokens may still appear after the field list. */
+            /* Check bounds - we must have exactly the right number of fields */
             if (numFields > c->argc - args->firstFieldPos) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
