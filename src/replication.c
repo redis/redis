@@ -452,24 +452,24 @@ void freeReplicaReferencedReplBuffer(client *replica) {
     replica->ref_block_pos = 0;
 }
 
-/* ---- replStream: direct-write API for the replication backlog ----
+/* ---- replBufWriter: direct-write API for the replication backlog ----
  *
  * Unlike feedReplicationBuffer() which does bookkeeping (replica iteration,
  * backlog index, trim) on every call, the stream API defers all bookkeeping
- * to replStreamEnd(). Each replStreamWrite() only does a memcpy into the
+ * to replBufWriterEnd(). Each replBufWriterAppend() only does a memcpy into the
  * tail block, allocating a new block when needed. */
 
-typedef struct replStream {
+typedef struct replBufWriter {
     listNode *start_node;  /* First repl buffer block written to. */
     size_t start_pos;      /* Byte offset within start_node where writing began. */
     size_t total_len;      /* Total bytes written across all writes. */
     int new_blocks;        /* Number of new blocks allocated during this stream. */
     replBufBlock *tail;    /* Cached tail block for fast path. */
     size_t avail;          /* Cached available bytes in tail for fast path. */
-} replStream;
+} replBufWriter;
 
 /* Initialize a replication stream, cache the current tail position. */
-static void replStreamBegin(replStream *s) {
+static void replBufWriterBegin(replBufWriter *s) {
     listNode *ln = listLast(server.repl_buffer_blocks);
     replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
     s->start_node = ln;
@@ -481,7 +481,7 @@ static void replStreamBegin(replStream *s) {
 }
 
 /* Allocate a new replication backlog block. Called when current block is full. */
-static void replStreamAllocBlock(replStream *s, size_t hint) {
+static void replBufWriterAllocBlock(replBufWriter *s, size_t hint) {
     static long long repl_block_id = 0;
     size_t usable_size;
     /* Avoid creating nodes smaller than PROTO_REPLY_CHUNK_BYTES, so that we can append more data into them,
@@ -511,7 +511,7 @@ static void replStreamAllocBlock(replStream *s, size_t hint) {
 }
 
 /* Slow path: fill remainder of current block + allocate as needed. */
-static void replStreamWriteSlow(replStream *s, const char *buf, size_t len) {
+static void replBufWriterAppendSlow(replBufWriter *s, const char *buf, size_t len) {
     while (len > 0) {
         if (s->avail > 0) {
             size_t copy = (s->avail >= len) ? len : s->avail;
@@ -524,31 +524,31 @@ static void replStreamWriteSlow(replStream *s, const char *buf, size_t len) {
         }
 
         if (len > 0)
-            replStreamAllocBlock(s, len);
+            replBufWriterAllocBlock(s, len);
     }
 }
 
 /* Write data into the replication buffer. The slow path is split out to give 
  * the compiler a chance to inline the common case where the write fits entirely
  * in the current block. */
-static inline void replStreamWrite(replStream *s, const char *buf, size_t len) {
-    if (s->avail >= len) {
+static inline void replBufWriterAppend(replBufWriter *s, const char *buf, size_t len) {
+    if (len > 0 && s->avail >= len) {
         memcpy(s->tail->buf + s->tail->used, buf, len);
         s->tail->used += len;
         s->avail -= len;
         s->total_len += len;
         return;
     }
-    replStreamWriteSlow(s, buf, len);
+    replBufWriterAppendSlow(s, buf, len);
 }
 
 /* Write a RESP header prefix<value>\r\n (e.g. "$12\r\n" or "*3\r\n").
  * Uses pre-built shared objects for small values, formats manually otherwise. */
-static inline void replStreamWriteBulkLen(replStream *s, char prefix, long long value) {
+static inline void replBufWriterAppendBulkLen(replBufWriter *s, char prefix, long long value) {
     serverAssert(prefix == '$' || prefix == '*');
     if (value >= 0 && value < OBJ_SHARED_BULKHDR_LEN) {
         robj **tbl = (prefix == '$') ? shared.bulkhdr : shared.mbulkhdr;
-        replStreamWrite(s, tbl[value]->ptr, OBJ_SHARED_HDR_STRLEN(value));
+        replBufWriterAppend(s, tbl[value]->ptr, OBJ_SHARED_HDR_STRLEN(value));
         return;
     }
     char buf[LONG_STR_SIZE+3];
@@ -556,14 +556,14 @@ static inline void replStreamWriteBulkLen(replStream *s, char prefix, long long 
     int len = ll2string(buf+1, sizeof(buf)-1, value);
     buf[len+1] = '\r';
     buf[len+2] = '\n';
-    replStreamWrite(s, buf, len+3);
+    replBufWriterAppend(s, buf, len+3);
 }
 
 
 /* Finalize the replication stream write: update global offsets, set up replica
  * references for new data, check output buffer limits, and trim the
  * backlog if new blocks were allocated. */
-static void replStreamEnd(replStream *s) {
+static void replBufWriterEnd(replBufWriter *s) {
     if (s->total_len == 0) return;
 
     clusterSlotStatsIncrNetworkBytesOutForReplication(s->total_len);
@@ -616,10 +616,10 @@ static void replStreamEnd(replStream *s) {
 
 /* Append bytes into the global replication buffer. */
 static void feedReplicationBuffer(const char *buf, size_t len) {
-    replStream s;
-    replStreamBegin(&s);
-    replStreamWrite(&s, buf, len);
-    replStreamEnd(&s);
+    replBufWriter s;
+    replBufWriterBegin(&s);
+    replBufWriterAppend(&s, buf, len);
+    replBufWriterEnd(&s);
 }
 
 /* Propagate write commands to replication stream.
@@ -700,28 +700,28 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* Write the command to the replication buffer if any. */
     char aux[LONG_STR_SIZE+3];
-    replStream s;
-    replStreamBegin(&s);
+    replBufWriter s;
+    replBufWriterBegin(&s);
     
     /* Write the multi bulk count */
-    replStreamWriteBulkLen(&s, '*', argc);
+    replBufWriterAppendBulkLen(&s, '*', argc);
 
     for (j = 0; j < argc; j++) {
         /* Write the bulk count */
         long objlen = stringObjectLen(argv[j]);
-        replStreamWriteBulkLen(&s, '$', objlen);
+        replBufWriterAppendBulkLen(&s, '$', objlen);
 
         /* <data> */
         if (argv[j]->encoding == OBJ_ENCODING_INT) {
             len = ll2string(aux, sizeof(aux), (long)argv[j]->ptr);
-            replStreamWrite(&s, aux, len);
+            replBufWriterAppend(&s, aux, len);
         } else {
-            replStreamWrite(&s, argv[j]->ptr, objlen);
+            replBufWriterAppend(&s, argv[j]->ptr, objlen);
         }
-        replStreamWrite(&s, "\r\n", 2);
+        replBufWriterAppend(&s, "\r\n", 2);
     }
 
-    replStreamEnd(&s);
+    replBufWriterEnd(&s);
 }
 
 /* This is a debugging function that gets called when we detect something
