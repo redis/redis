@@ -1974,11 +1974,15 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
 /* Compute the number of bytes in the client's output buffer that are
  * unshared reply bytes where the client is the sole owner (refcount == 1).
  * This memory would actually be freed when the client disconnects. */
-size_t getClientUnsharedReplyBytes(client *c) {
+size_t getClientUnsharedReplyBytes(client *c, int use_cache) {
     size_t reply_bytes_unshared = 0;
 
     /* No shared references means no unshared references either. */
     if (c->reply_bytes_shared == 0) return 0;
+
+    /* If we are allowed to use the cache and the cached value is valid, return it. */
+    if (use_cache && c->reply_bytes_unshared <= c->reply_bytes_shared)
+        return c->reply_bytes_unshared;
 
     /* Scan the static output buffer. */
     if (c->buf_encoded)
@@ -2011,7 +2015,7 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
 
         /* Unshared reply bytes: the client is the sole owner
          * (refcount == 1) because the key was deleted. */
-        *unshared_mem += c->reply_bytes_unshared;
+        *unshared_mem += getClientUnsharedReplyBytes(c, 1);
     }
 }
 
@@ -4111,7 +4115,7 @@ sds catClientInfoString(sds s, client *client) {
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* includes shared refs; excludes client->buf so static clients show 0 */
         " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* refs shared with others (not solely owned by this client) */
-        " omem-unshared=%U", (unsigned long long) client->reply_bytes_unshared, /* refs solely owned by this client */
+        " omem-unshared=%U", (unsigned long long) getClientUnsharedReplyBytes(client, 1), /* refs solely owned by this client */
         " tot-mem=%U", (unsigned long long) total_mem, /* includes unshared refs, excludes shared refs */
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
@@ -5174,7 +5178,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
 
     if (output_buffer_mem_usage != NULL)
         *output_buffer_mem_usage = mem + c->reply_bytes_shared;
-    mem += c->reply_bytes_unshared; /* Add memory of references exclusively owned by this client */
+    mem += getClientUnsharedReplyBytes(c, 1); /* Add memory of references exclusively owned by this client */
 
     mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);

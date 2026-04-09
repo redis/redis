@@ -3211,7 +3211,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
-size_t getClientUnsharedReplyBytes(client *c);
+size_t getClientUnsharedReplyBytes(client *c, int use_cache);
 void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
 int freeClientsInAsyncFreeQueue(void);

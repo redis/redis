@@ -1002,7 +1002,7 @@ int clientsCronTrackExpansiveClients(client *c) {
     size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
     size_t in_usage = qb_size + c->all_argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
-    c->reply_bytes_unshared = getClientUnsharedReplyBytes(c);
+    c->reply_bytes_unshared = getClientUnsharedReplyBytes(c, 0);
 
     /* Track the biggest values observed so far in this slot. */
     if (in_usage > ClientsPeakMemInput[CurrentPeakMemUsageSlot])
