@@ -9373,16 +9373,29 @@ int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, 
     return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* Check any subscriber for event */
-int moduleHasSubscribersForKeyspaceEvent(int type) {
+static int moduleHasSubscribersForKeyspaceEventInternal(int type, int with_subkeys) {
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
-        if (sub->event_mask & type) return 1;
+        /* Match event type, and if with_subkeys is set, only match
+         * subscribers that registered a subkeys-aware callback. */
+        if ((sub->event_mask & type) &&
+            (!with_subkeys || sub->notify_callback_with_subkeys))
+            return 1;
     }
     return 0;
+}
+
+/* Check any subscriber for event. */
+int moduleHasSubscribersForKeyspaceEvent(int type) {
+    return moduleHasSubscribersForKeyspaceEventInternal(type, 0);
+}
+
+/* Check any subscriber for event with subkeys. */
+int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type) {
+    return moduleHasSubscribersForKeyspaceEventInternal(type, 1);
 }
 
 void firePostExecutionUnitJobs(void) {

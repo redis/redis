@@ -278,9 +278,9 @@ void notifyKeyspaceEventWithSubkeys(int type, const char *event, robj *key, int 
 
 /* Check if subkey information should be collected for the given event type.
  * Returns true if any subkey-level notification channel is enabled for this
- * event type, or if any module has subscribed to keyspace events of this type. */
+ * event type, or if any module subscribed to this event with subkeys. */
 int isSubkeyNotifyEnabled(int type) {
-    if (moduleHasSubscribersForKeyspaceEvent(type)) return 1;
+    if (moduleHasSubscribersForKeyspaceEventWithSubkeys(type)) return 1;
     return (server.notify_keyspace_events & type) &&
            (server.notify_keyspace_events & (NOTIFY_SUBKEYSPACE | NOTIFY_SUBKEYEVENT |
                                              NOTIFY_SUBKEYSPACEITEM | NOTIFY_SUBKEYSPACEEVENT));
