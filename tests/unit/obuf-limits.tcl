@@ -291,6 +291,7 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         # Loop until cron runs and updates omem-unshared while the referenced string
         # is still sitting in the output buffer.
         set val_size 100000
+        set deadline [expr {[clock milliseconds] + 5000}]
         while {true} {
             r set k [string repeat v $val_size]
             $rr get k
@@ -302,6 +303,10 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
             if {$unshared_mem >= $val_size} {
                 assert_morethan_equal $shared_mem $unshared_mem
                 break
+            }
+
+            if {[clock milliseconds] > $deadline} {
+                fail "timed out waiting for omem-unshared to reflect unshared bytes"
             }
         }
 
