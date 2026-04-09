@@ -4109,10 +4109,10 @@ sds catClientInfoString(sds s, client *client) {
         " rbp=%U", (unsigned long long) client->buf_peak,
         " obl=%U", (unsigned long long) client->bufpos,
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
-        " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* total shared reply bytes */
-        " omem-unshared=%U", (unsigned long long) client->reply_bytes_unshared, /* unshared reply bytes where this client is the sole owner */
-        " tot-mem=%U", (unsigned long long) total_mem,
+        " omem=%U", (unsigned long long) obufmem, /* includes shared refs; excludes client->buf so static clients show 0 */
+        " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* refs shared with others (not solely owned by this client) */
+        " omem-unshared=%U", (unsigned long long) client->reply_bytes_unshared, /* refs solely owned by this client */
+        " tot-mem=%U", (unsigned long long) total_mem, /* includes unshared refs, excludes shared refs */
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
         " user=%s", client->user ? client->user->name : "(superuser)",

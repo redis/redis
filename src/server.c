@@ -6457,9 +6457,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem + server.repl_full_sync_buffer.mem_used,
             "mem_replica_full_sync_buffer:%zu\r\n", server.repl_full_sync_buffer.mem_used,
             "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
-            "mem_clients_normal:%zu\r\n", mh->clients_normal,
-            "mem_clients_normal_shared:%zu\r\n", mh->clients_normal_shared,
-            "mem_clients_normal_unshared:%zu\r\n", mh->clients_normal_unshared,
+            "mem_clients_normal:%zu\r\n", mh->clients_normal, /* includes unshared refs, excludes shared refs */
+            "mem_clients_normal_shared:%zu\r\n", mh->clients_normal_shared, /* refs shared with others (not solely owned by this client) */
+            "mem_clients_normal_unshared:%zu\r\n", mh->clients_normal_unshared, /* refs solely owned by this client */
             "mem_cluster_slot_migration_output_buffer:%zu\r\n", mh->asm_migrate_output_buffer,
             "mem_cluster_slot_migration_input_buffer:%zu\r\n", mh->asm_import_input_buffer,
             "mem_cluster_slot_migration_input_buffer_peak:%zu\r\n", asmGetPeakSyncBufferSize(),
