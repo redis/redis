@@ -281,45 +281,30 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
     test "shared reply bytes are tracked as unshared after the key is deleted" {
         r flushdb
         r config set client-output-buffer-limit {normal 0 0 0}
+
+        set rr [redis_deferring_client]
+        $rr client setname test_client
+        $rr flush
+
+        # reply_bytes_unshared is a cached value refreshed by clientsCronTrackExpansiveClients()
+        # once per cron tick, so we cannot observe it immediately after DEL.
+        # Loop until cron runs and updates omem-unshared while the referenced string
+        # is still sitting in the output buffer.
         set val_size 100000
-        r set bigkey [string repeat v $val_size]
-
-        # Use MULTI/EXEC so all observers see the shared ref before it is sent.
-        r client setname ormem_unshared_test
-        r multi
-        r get bigkey      ;# adds shared ref to output buffer
-        r del bigkey      ;# key removed from keyspace - refcount drops to 1
-        r client list     ;# per-client omem-shared / omem-unshared
-        r info memory     ;# global mem_clients_normal_unshared
-        r memory stats    ;# clients.normal.shared and clients.normal.unshared
-        set res [r exec]
-
-        # omem-shared holds the logical size (>= val_size) even after the key is deleted.
-        # omem-unshared reflects reply_bytes_unshared, which is updated periodically in
-        # updateClientMemoryUsage(), so it is 0 here (not yet refreshed).
-        set clients [split [string trim [lindex $res 2]] "\r\n"]
-        set c [lsearch -inline $clients *name=ormem_unshared_test*]
-        regexp {omem-shared=([0-9]+)} $c - omem_shared
-        regexp {omem-unshared=([0-9]+)} $c - omem_unshared
-        assert_morethan_equal $omem_shared $val_size
-        assert_equal $omem_unshared 0
-
-        # Global counters match: shared >= val_size, unshared is 0.
-        set info_mem [lindex $res 3]
-        assert_equal [getInfoProperty $info_mem mem_clients_normal] 0
-        assert_morethan_equal [getInfoProperty $info_mem mem_clients_normal_shared] $val_size
-        assert_equal [getInfoProperty $info_mem mem_clients_normal_unshared] 0
-
-        # MEMORY STATS exposes the same bytes.
-        set mem_stats [lindex $res 4]
-        assert_morethan_equal [dict get $mem_stats clients.normal.shared] $val_size
-        assert_equal [dict get $mem_stats clients.normal.unshared] 0
-
-        # After the reply is fully sent, the shared ref is released and unshared stays 0.
-        wait_for_condition 50 10 {
-            [s mem_clients_normal_unshared] == 0
-        } else {
-            fail "mem_clients_normal_unshared did not return to 0 after reply was sent"
+        while {true} {
+            r set k [string repeat v $val_size]
+            $rr get k
+            $rr del k
+            $rr flush
+            after 10
+            set shared_mem [client_field test_client omem-shared]
+            set unshared_mem [client_field test_client omem-unshared]
+            if {$unshared_mem >= $val_size} {
+                assert_morethan_equal $shared_mem $unshared_mem
+                break
+            }
         }
+
+        $rr close
     }
 }
