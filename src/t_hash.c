@@ -3074,18 +3074,15 @@ void genericHgetallCommand(client *c, int flags) {
      * value SDS data, then emit replies while the data is cache-warm.
      * This hides the latency of pointer chasing through scattered
      * heap allocations (dictEntry → Entry → value SDS). */
+    #define HGETALL_BATCH 16
     if (o->encoding == OBJ_ENCODING_HT &&
-        (flags & OBJ_HASH_KEY) && (flags & OBJ_HASH_VALUE) &&
-        server.prefetch_batch_max_size > 0)
+        (flags & OBJ_HASH_KEY) && (flags & OBJ_HASH_VALUE))
     {
-        #define HGETALL_BATCH_MAX 16
-        int batch_size = server.prefetch_batch_max_size < HGETALL_BATCH_MAX
-                       ? server.prefetch_batch_max_size : HGETALL_BATCH_MAX;
         int skip_expired = !server.allow_access_expired;
         dict *d = o->ptr;
         dictIterator di;
         dictInitSafeIterator(&di, d);
-        Entry *batch_entry[HGETALL_BATCH_MAX];
+        Entry *batch_entry[HGETALL_BATCH];
 
         int batch_count;
         while (1) {
@@ -3093,7 +3090,7 @@ void genericHgetallCommand(client *c, int flags) {
              * skipping expired fields (unless allow_access_expired),
              * and prefetching Entry structs. */
             batch_count = 0;
-            for (int i = 0; i < batch_size; i++) {
+            for (int i = 0; i < HGETALL_BATCH; i++) {
                 dictEntry *de;
                 Entry *e;
                 while ((de = dictNext(&di)) != NULL) {
@@ -3133,24 +3130,26 @@ void genericHgetallCommand(client *c, int flags) {
                 count += 2;
             }
         }
-        #undef HGETALL_BATCH_MAX
         dictResetIterator(&di);
-    } else {
-        hashTypeInitIterator(&hi, o);
-
-        while (hashTypeNext(&hi, 1 /*skipExpiredFields*/) != C_ERR) {
-            if (flags & OBJ_HASH_KEY) {
-                addHashIteratorCursorToReply(c, &hi, OBJ_HASH_KEY);
-                count++;
-            }
-            if (flags & OBJ_HASH_VALUE) {
-                addHashIteratorCursorToReply(c, &hi, OBJ_HASH_VALUE);
-                count++;
-            }
-        }
-
-        hashTypeResetIterator(&hi);
+        goto done;
     }
+
+    hashTypeInitIterator(&hi, o);
+
+    while (hashTypeNext(&hi, 1 /*skipExpiredFields*/) != C_ERR) {
+        if (flags & OBJ_HASH_KEY) {
+            addHashIteratorCursorToReply(c, &hi, OBJ_HASH_KEY);
+            count++;
+        }
+        if (flags & OBJ_HASH_VALUE) {
+            addHashIteratorCursorToReply(c, &hi, OBJ_HASH_VALUE);
+            count++;
+        }
+    }
+
+    hashTypeResetIterator(&hi);
+
+done:
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
