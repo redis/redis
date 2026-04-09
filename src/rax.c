@@ -496,13 +496,15 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
                 j = h->size;
                 break;
             } else {
-                /* Even when h->size is large, linear scan provides good
-                 * performances compared to other approaches that are in theory
-                 * more sounding, like performing a binary search. */
-                for (j = 0; j < h->size; j++) {
-                    if (v[j] == s[i]) break;
-                }
-                if (j == h->size) break;
+                /* Lookup the matching child edge. memchr() is used instead
+                 * of an open-coded scalar loop because libc implementations
+                 * on most platforms are SIMD-optimized (SSE2/AVX2 on x86,
+                 * NEON on arm64), which is significantly faster than a
+                 * byte-by-byte scan at the small fan-out sizes (<= 256)
+                 * that rax nodes can have. */
+                unsigned char *p = memchr(v, s[i], h->size);
+                if (p == NULL) break;
+                j = (size_t)(p - v);
             }
             i++;
         }
