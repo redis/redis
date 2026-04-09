@@ -298,10 +298,13 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
             $rr del k
             $rr flush
             after 10
-            set shared_mem [client_field test_client omem-shared]
-            set unshared_mem [client_field test_client omem-unshared]
-            if {$unshared_mem >= $val_size} {
-                assert_morethan_equal $shared_mem $unshared_mem
+
+            set clients [split [r client list] "\r\n"]
+            set c [lsearch -inline $clients *name=test_client*]
+            regexp {omem-shared=([0-9]+)} $c - omem_shared
+            regexp {omem-unshared=([0-9]+)} $c - omem_unshared
+            if {$omem_unshared >= $val_size} {
+                assert_morethan_equal $omem_shared $omem_unshared
                 break
             }
 

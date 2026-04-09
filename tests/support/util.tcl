@@ -1286,15 +1286,3 @@ proc generate_largevalue_test_array {} {
     set largevalue(quicklist) [string repeat "x" 8192]
     return [array get largevalue]
 }
-
-# Get info about a redis client connection:
-# name - name of client we want to query
-# f - field name from "CLIENT LIST" we want to get
-proc client_field {name f} {
-    set clients [split [string trim [r client list]] "\r\n"]
-    set c [lsearch -inline $clients *name=$name*]
-    if {![regexp $f=(\[a-zA-Z0-9-\]+) $c - res]} {
-        error "no client named $name found with field $f"
-    }
-    return $res
-}

@@ -1,5 +1,17 @@
 tags {"external:skip logreqres:skip"} {
 
+# Get info about a redis client connection:
+# name - name of client we want to query
+# f - field name from "CLIENT LIST" we want to get
+proc client_field {name f} {
+    set clients [split [string trim [r client list]] "\r\n"]
+    set c [lsearch -inline $clients *name=$name*]
+    if {![regexp $f=(\[a-zA-Z0-9-\]+) $c - res]} {
+        error "no client named $name found with field $f"
+    }
+    return $res
+}
+
 proc client_exists {name} {
     if {[catch { client_field $name tot-mem } e]} {
         return false
