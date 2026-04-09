@@ -5174,12 +5174,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
 
     if (output_buffer_mem_usage != NULL)
         *output_buffer_mem_usage = mem + c->reply_bytes_shared;
-
-    /* Add memory of references exclusively owned by this client (refcount == 1).
-     * reply_bytes_unshared is refreshed once per cron tick by
-     * clientsCronTrackExpansiveClients(), so we reuse that cached value here
-     * instead of scanning the reply buffer a second time. */
-    mem += c->reply_bytes_unshared;
+    mem += c->reply_bytes_unshared; /* Add memory of references exclusively owned by this client */
 
     mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
