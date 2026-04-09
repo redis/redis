@@ -294,26 +294,28 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         r memory stats    ;# clients.normal.shared and clients.normal.unshared
         set res [r exec]
 
-        # after DEL the buffered ref has refcount == 1, so it is counted as unshared
-        # per-client omem-unshared must reflect the unshared bytes
+        # omem-shared holds the logical size (>= val_size) even after the key is deleted.
+        # omem-unshared reflects reply_bytes_unshared, which is updated periodically in
+        # updateClientMemoryUsage(), so it is 0 here (not yet refreshed).
         set clients [split [string trim [lindex $res 2]] "\r\n"]
         set c [lsearch -inline $clients *name=ormem_unshared_test*]
         regexp {omem-shared=([0-9]+)} $c - omem_shared
         regexp {omem-unshared=([0-9]+)} $c - omem_unshared
-        assert {$omem_shared >= $val_size}
-        assert {$omem_unshared >= $val_size}
+        assert_morethan_equal $omem_shared $val_size
+        assert_equal $omem_unshared 0
 
-        # mem_clients_normal_unshared (global) must also be >= val_size
+        # Global counters match: shared >= val_size, unshared is 0.
         set info_mem [lindex $res 3]
-        assert {[getInfoProperty $info_mem mem_clients_normal_unshared] >= $val_size}
-        assert {[getInfoProperty $info_mem mem_clients_normal] >= $val_size}
+        assert_equal [getInfoProperty $info_mem mem_clients_normal] 0
+        assert_morethan_equal [getInfoProperty $info_mem mem_clients_normal_shared] $val_size
+        assert_equal [getInfoProperty $info_mem mem_clients_normal_unshared] 0
 
-        # MEMORY STATS exposes the same bytes;
+        # MEMORY STATS exposes the same bytes.
         set mem_stats [lindex $res 4]
-        assert {[dict get $mem_stats clients.normal.shared] >= $val_size}
-        assert {[dict get $mem_stats clients.normal.unshared] >= $val_size}
+        assert_morethan_equal [dict get $mem_stats clients.normal.shared] $val_size
+        assert_equal [dict get $mem_stats clients.normal.unshared] 0
 
-        # After the reply is fully sent, unshared bytes are released and the counter returns to 0
+        # After the reply is fully sent, the shared ref is released and unshared stays 0.
         wait_for_condition 50 10 {
             [s mem_clients_normal_unshared] == 0
         } else {

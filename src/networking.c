@@ -212,7 +212,7 @@ client *createClient(connection *conn) {
     c->main_ch_client_id = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
-    c->reply_bytes = c->reply_bytes_shared = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -2011,7 +2011,7 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
 
         /* Unshared reply bytes: the client is the sole owner
          * (refcount == 1) because the key was deleted. */
-        *unshared_mem += getClientUnsharedReplyBytes(c);
+        *unshared_mem += c->reply_bytes_unshared;
     }
 }
 
@@ -4079,9 +4079,6 @@ sds catClientInfoString(sds s, client *client) {
     /* Compute the total memory consumed by this client. */
     size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
 
-    /* Unshared reply bytes: key deleted, this client is the sole owner. */
-    size_t unshared_mem = getClientUnsharedReplyBytes(client);
-
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
         replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
@@ -4114,7 +4111,7 @@ sds catClientInfoString(sds s, client *client) {
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* total shared reply bytes */
-        " omem-unshared=%U", (unsigned long long) unshared_mem, /* unshared reply bytes where this client is the sole owner */
+        " omem-unshared=%U", (unsigned long long) client->reply_bytes_unshared, /* unshared reply bytes where this client is the sole owner */
         " tot-mem=%U", (unsigned long long) total_mem,
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
@@ -5178,8 +5175,11 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     if (output_buffer_mem_usage != NULL)
         *output_buffer_mem_usage = mem + c->reply_bytes_shared;
 
-    /* Add memory of references exclusively owned by this client. */
-    mem += getClientUnsharedReplyBytes(c);
+    /* Add memory of references exclusively owned by this client (refcount == 1).
+     * reply_bytes_unshared is refreshed once per cron tick by
+     * clientsCronTrackExpansiveClients(), so we reuse that cached value here
+     * instead of scanning the reply buffer a second time. */
+    mem += c->reply_bytes_unshared;
 
     mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
