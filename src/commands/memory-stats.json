@@ -126,6 +126,12 @@
                         },
                         "overhead.hashtable.expires": {
                             "type": "integer"
+                        },
+                        "clients.normal.shared": {
+                            "type": "integer"
+                        },
+                        "clients.normal.unshared": {
+                            "type": "integer"
                         }
                     },
                     "additionalProperties": false
