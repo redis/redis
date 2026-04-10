@@ -592,6 +592,7 @@ dictType objectKeyNoValueDictType = {
     NULL,                      /* val destructor */
     NULL,                      /* allow to expand */
     .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 0,         /* stream keys (robj pointers) are not odd */
 };
 
 /* Like objectKeyPointerValueDictType(), but values can be destroyed, if
