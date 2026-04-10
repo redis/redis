@@ -5195,9 +5195,7 @@ size_t getNormalClientPendingReplyBytes(client *c) {
     return (c->reply_bytes + c->reply_bytes_shared - block->size + block->used) + c->bufpos;
 }
 
-/* Returns the total client's memory usage.
- * Optionally, if output_buffer_mem_usage is not NULL, it fills it with
- * the logical output buffer size (including all shared refs). */
+/* Returns the total client's memory usage. */
 size_t getClientMemoryUsage(client *c) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
 
