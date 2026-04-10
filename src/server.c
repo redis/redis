@@ -581,8 +581,7 @@ dictType objectKeyPointerValueDictType = {
     NULL                       /* allow to expand */
 };
 
-/* Dict type for stream IDMP keys - keys are set of stream keys (robj pointers), 
- * values unused */
+/* Dict type with robj pointer keys and no values. */
 dictType objectKeyNoValueDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
@@ -592,7 +591,7 @@ dictType objectKeyNoValueDictType = {
     NULL,                      /* val destructor */
     NULL,                      /* allow to expand */
     .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 0,         /* stream keys (robj pointers) are not odd */
+    .keys_are_odd = 0,         /* robj pointers are not odd */
 };
 
 /* Like objectKeyPointerValueDictType(), but values can be destroyed, if
