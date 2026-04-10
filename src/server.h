@@ -1476,7 +1476,7 @@ typedef struct client {
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     unsigned long long reply_bytes_shared; /* Bytes shared with keyspace objects in reply list. */
-    unsigned long long reply_bytes_unshared;
+    unsigned long long reply_bytes_unshared; /* Cached subset of reply_bytes_shared solely owned by this client. */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
@@ -3210,10 +3210,11 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
+size_t getClientOutputBufferSize(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientUnsharedReplyBytes(client *c, int use_cache);
 void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
-size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
+size_t getClientMemoryUsage(client *c);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);

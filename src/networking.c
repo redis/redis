@@ -4081,7 +4081,8 @@ sds catClientInfoString(sds s, client *client) {
     *p = '\0';
 
     /* Compute the total memory consumed by this client. */
-    size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
+    size_t obufmem = getClientOutputBufferSize(client);
+    size_t total_mem = getClientMemoryUsage(client);
 
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
@@ -5140,11 +5141,13 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
 
 /* This function returns the number of bytes that Redis is
  * using to store the reply still not read by the client.
+ * It does NOT include any referenced bytes
+ * (neither shared nor unshared).
  *
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
-size_t getClientOutputBufferMemoryUsage(client *c) {
+static size_t getClientOutputBufferAllocSize(client *c) {
     if (unlikely(clientTypeIsSlave(c))) {
         size_t repl_buf_size = 0;
         size_t repl_node_num = 0;
@@ -5162,6 +5165,28 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
     }
 }
 
+/* Returns the actual memory bytes that Redis is using to store the reply
+ * still not read by the client. This includes unshared referenced bytes
+ * (where the client is the sole owner) because those
+ * bytes would actually be freed when the client disconnects. */
+size_t getClientOutputBufferMemoryUsage(client *c) {
+    size_t mem = getClientOutputBufferAllocSize(c);
+    mem += getClientUnsharedReplyBytes(c, 1);
+    return mem;
+}
+
+/* Returns the logical output buffer size for limit enforcement.
+ * This includes all shared referenced bytes (refs to keyspace
+ * objects), even though the underlying memory is shared with the keyspace.
+ * This ensures that a single client requesting huge amounts of data via
+ * zero-copy references is still subject to output buffer limits. */
+size_t getClientOutputBufferSize(client *c) {
+    size_t mem = getClientOutputBufferAllocSize(c);
+    if (!clientTypeIsSlave(c))
+        mem += c->reply_bytes_shared;
+    return mem;
+}
+
 size_t getNormalClientPendingReplyBytes(client *c) {
     serverAssert(!clientTypeIsSlave(c));
     if (listLength(c->reply) == 0) return c->bufpos + c->reply_bytes_shared;
@@ -5172,13 +5197,9 @@ size_t getNormalClientPendingReplyBytes(client *c) {
 
 /* Returns the total client's memory usage.
  * Optionally, if output_buffer_mem_usage is not NULL, it fills it with
- * the client output buffer memory usage portion of the total. */
-size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
+ * the logical output buffer size (including all shared refs). */
+size_t getClientMemoryUsage(client *c) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
-
-    if (output_buffer_mem_usage != NULL)
-        *output_buffer_mem_usage = mem + c->reply_bytes_shared;
-    mem += getClientUnsharedReplyBytes(c, 1); /* Add memory of references exclusively owned by this client */
 
     mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
@@ -5257,11 +5278,7 @@ char *getClientTypeName(int class) {
  *               Otherwise zero is returned. */
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
-    unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
-    
-    /* Count toward the logical output buffer size for limit enforcement,
-     * even though the underlying memory is shared. */
-    used_mem += c->reply_bytes_shared; 
+    unsigned long used_mem = getClientOutputBufferSize(c);
 
     /* For unauthenticated clients the output buffer is limited to prevent
      * them from abusing it by not reading the replies */
