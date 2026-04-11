@@ -791,15 +791,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Migration will be successful after fail points are cleared" {
-        # Ensure slot 0-100 is owned by R1 so R0 can import them.
-        # When running standalone (--only), R0 owns them initially.
-        if {[catch {R 1 set [slot_key 0 __probe__] __probe__}]} {
-            R 0 debug asm-failpoint "" ""
-            R 1 debug asm-failpoint "" ""
-            R 1 CLUSTER MIGRATION IMPORT 0 100
-            wait_for_asm_done
-        }
-
         R 0 flushall
         R 1 flushall
         set slot0_key [slot_key 0 mykey]
