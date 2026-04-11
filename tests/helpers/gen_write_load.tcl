@@ -50,6 +50,7 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
             for {set i 0} {$i < 500} {incr i} {
                 $r read
             }
+            set count 0
         }
 
         if {[clock seconds]-$start_time > $seconds} {
