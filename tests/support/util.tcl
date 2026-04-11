@@ -604,9 +604,12 @@ proc find_valgrind_errors {stderr on_termination} {
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance. If key is omitted, a random key
 # is used for every SET command.
-proc start_write_load {host port seconds {key ""} {size 0} {sleep 0}} {
+#
+# cluster_load (default 0): set 1 when cluster slot migration may hit the load
+# connection with MOVED/ASK; passed as the last argv to tests/helpers/gen_write_load.tcl.
+proc start_write_load {host port seconds {key ""} {size 0} {sleep 0} {cluster_load 0}} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key $size $sleep &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key $size $sleep $cluster_load &
 }
 
 # Stop a process generating write load executed with start_write_load.

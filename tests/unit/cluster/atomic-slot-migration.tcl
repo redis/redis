@@ -810,8 +810,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # we set a delay to write incremental data
         R 1 config set rdb-key-save-delay 1000000
 
-        # Start the slot 0 write load on the R 1
-        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key]
+        # Start the slot 0 write load on R1. cluster_load 1: R0 imports slot 0 while
+        # load runs; pipelined reads on this fixed connection may see MOVED/ASK.
+        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key 0 0 0]
 
         # Clear all fail points
         assert_equal {OK} [R 0 debug asm-failpoint "" ""]
