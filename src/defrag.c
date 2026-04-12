@@ -856,46 +856,13 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
     raxStop(&ri);
 }
 
-typedef struct {
-    streamCG *cg;
-    streamConsumer *c;
-} PendingEntryContext;
-
-/* Defrag helper: after a NACK is moved to a new address, update the
- * doubly-linked time list pointers and the group PEL entry. */
-static void defragNackFixup(PendingEntryContext *ctx, streamNACK *newnack) {
-    pelReplace(ctx->cg->pel, &newnack->id, newnack);
-    if (newnack->pel_prev) {
-        newnack->pel_prev->pel_next = newnack;
-    } else {
-        ctx->cg->pel_time_head = newnack;
-    }
-    if (newnack->pel_next) {
-        newnack->pel_next->pel_prev = newnack;
-    } else {
-        ctx->cg->pel_time_tail = newnack;
-    }
-}
-
-/* Defrag a bucket in the consumer PEL. Each value is a NACK shared
- * with the group PEL, so we update pointers in both places.
- * Handles both direct (16-byte key) and flax (15-byte key) buckets. */
-void* defragStreamConsumerPelBucket(raxIterator *ri, void *privdata) {
-    PendingEntryContext *ctx = privdata;
-
-    if (ri->key_len == PEL_RAX_DIRECT_KEYLEN) {
-        streamNACK *nack = ri->data;
-        nack->consumer = ctx->c;
-        nack->cgroup_ref_node->value = ctx->cg;
-        streamNACK *newnack = activeDefragAlloc(nack);
-        if (newnack) {
-            defragNackFixup(ctx, newnack);
-            return newnack;
-        }
-        return NULL;
-    }
-
-    flax *f = (flax *)ri->data;
+/* Walk a consumer-PEL flax bucket and fix up the consumer back-pointer for
+ * every NACK. NACKs themselves are defragged during the group PEL walk
+ * (defragStreamGroupPelFlax) which also covers unowned NACK-zone entries;
+ * here we only repair the stale consumer pointer. */
+void* defragStreamConsumerPelFlax(raxIterator *ri, void *privdata) {
+    streamConsumer *c = privdata;
+    flax *f = ri->data;
     flax *newflax = activeDefragAlloc(f);
     if (newflax) f = newflax;
     void *newdata = activeDefragAlloc(f->data);
@@ -906,27 +873,14 @@ void* defragStreamConsumerPelBucket(raxIterator *ri, void *privdata) {
     if (flaxSeek(&fi, "^", 0)) {
         do {
             streamNACK *nack = fi.data;
-            nack->consumer = ctx->c;
-            nack->cgroup_ref_node->value = ctx->cg;
-            streamNACK *newnack = activeDefragAlloc(nack);
-            if (newnack) {
-                flaxInsert(f, fi.key, newnack, NULL);
-                defragNackFixup(ctx, newnack);
-            }
+            nack->consumer = c;
         } while (flaxNext(&fi));
     }
     return newflax;
 }
 
-typedef struct {
-    stream *s;
-    streamCG *cg;
-} StreamConsumerContext;
-
 void* defragStreamConsumer(raxIterator *ri, void *privdata) {
-    StreamConsumerContext *ctx = privdata;
-    stream *s = ctx->s;
-    streamCG *cg = ctx->cg;
+    stream *s = privdata;
     streamConsumer *c = ri->data;
     void *newc = activeDefragAlloc(c);
     if (newc) {
@@ -937,24 +891,53 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
         c->name = newsds;
     if (c->pel) {
         c->pel->alloc_size = &s->alloc_size;
-        PendingEntryContext pel_ctx = {cg, c};
-        defragRadixTree(&c->pel, 0, defragStreamConsumerPelBucket, &pel_ctx);
+        defragRadixTree(&c->pel, 0, defragStreamConsumerPelFlax, c);
         pelCacheInvalidate(c->pel);
     }
     return newc; /* returns NULL if c was not defragged */
 }
 
-/* Defrag a bucket in the group PEL. Only defrags the flax struct itself,
- * not the NACKs (those are defragged via consumer PEL traversal).
- * Direct entries (16-byte key) have no allocation to defrag. */
-void* defragStreamGroupPelBucket(raxIterator *ri, void *privdata) {
-    (void)privdata;
-    if (ri->key_len == PEL_RAX_DIRECT_KEYLEN) return NULL;
-    flax *f = (flax *)ri->data;
+/* Walk a group-PEL flax bucket: defrag the flax struct itself, then defrag
+ * every NACK inside and update pointers in the consumer PEL, the doubly-linked
+ * time list, and the NACK-zone tail. cgroup_ref_node->value is also updated
+ * here for every NACK (including unowned NACK-zone entries). */
+void* defragStreamGroupPelFlax(raxIterator *ri, void *privdata) {
+    streamCG *cg = privdata;
+    flax *f = ri->data;
     flax *newf = activeDefragAlloc(f);
     if (newf) f = newf;
     void *newdata = activeDefragAlloc(f->data);
     if (newdata) f->data = newdata;
+
+    flaxIterator fi;
+    flaxStart(&fi, f);
+    if (flaxSeek(&fi, "^", 0)) {
+        do {
+            streamNACK *nack = fi.data, *newnack;
+            nack->cgroup_ref_node->value = cg;
+            newnack = activeDefragAlloc(nack);
+            if (newnack) {
+                flaxInsert(f, fi.key, newnack, NULL);
+
+                if (newnack->consumer) {
+                    pelReplace(newnack->consumer->pel, &newnack->id, newnack);
+                }
+                if (newnack->pel_prev) {
+                    newnack->pel_prev->pel_next = newnack;
+                } else {
+                    cg->pel_time_head = newnack;
+                }
+                if (newnack->pel_next) {
+                    newnack->pel_next->pel_prev = newnack;
+                } else {
+                    cg->pel_time_tail = newnack;
+                }
+                if (cg->pel_nack_tail == nack) {
+                    cg->pel_nack_tail = newnack;
+                }
+            }
+        } while (flaxNext(&fi));
+    }
     return newf;
 }
 
@@ -965,13 +948,12 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
         cg = newcg;
     if (cg->pel) {
         cg->pel->alloc_size = &s->alloc_size;
-        defragRadixTree(&cg->pel, 0, defragStreamGroupPelBucket, NULL);
+        defragRadixTree(&cg->pel, 0, defragStreamGroupPelFlax, cg);
         pelCacheInvalidate(cg->pel);
     }
     if (cg->consumers) {
         cg->consumers->alloc_size = &s->alloc_size;
-        StreamConsumerContext consumer_ctx = {s, cg};
-        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);
+        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, s);
     }
     return cg;
 }

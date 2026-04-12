@@ -1,10 +1,10 @@
-/* Test module: SetKeyMeta during keyspace notification callback.
+/* Test module for KSN paths that must tolerate keymeta writes.
  *
- * This module registers keyspace notification callbacks for HASH, STRING,
- * GENERIC, EXPIRED, and EVICTED events that write to key metadata (via
- * RedisModule_SetKeyMeta). It is used to verify that commands remain safe
- * when a notification callback modifies key metadata, which may trigger
- * kvobj reallocation.
+ * In general, keyspace notification callbacks must not perform write
+ * operations. However, Search module modifies key metadata as part of KSN, so 
+ * this module exercises the subset of KSN flows that must remain resilient to
+ * such keymeta modifications, including cases that may trigger kvobj
+ * reallocation.
  *
  * Commands:
  *   KEYMETANOTIFY.GET <key>      - Get the metadata value attached to a key
@@ -143,6 +143,17 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "keymetanotify.setcount", SetCountCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    REDISMODULE_NOT_USED(ctx);
+
+    if (meta_class_id >= 0) {
+        RedisModule_ReleaseKeyMetaClass(meta_class_id);
+        meta_class_id = -1;
+    }
 
     return REDISMODULE_OK;
 }

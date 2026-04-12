@@ -128,6 +128,10 @@ typedef struct streamCG {
     streamNACK *pel_time_tail; /* Tail of time-ordered doubly-linked list of pending
                                   entries (newest delivery_time). O(1) append for
                                   updates that set delivery_time to current time. */
+    streamNACK *pel_nack_tail; /* Tail of the NACK zone at the head of the
+                                  PEL time-ordered list. NACKed entries occupy
+                                  positions from pel_time_head to pel_nack_tail.
+                                  NULL if no NACKed entries exist. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
@@ -190,6 +194,7 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name);
 streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *key, int dbid, int flags);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read);
 streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamID *id);
+void streamEncodeID(void *buf, streamID *id);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(stream *s, streamNACK *na);
@@ -245,6 +250,9 @@ void pelIterStop(pelIterator *pi);
 
 /* PEL time list management (used by RDB loading) */
 void pelListInsertSorted(streamCG *cg, streamNACK *nack);
+void pelListUnlink(streamCG *cg, streamNACK *nack);
+void pelListInsertNacked(streamCG *cg, streamNACK *nack);
+uint64_t pelListNackedCount(streamCG *cg);
 
 /* IDMP functions */
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);

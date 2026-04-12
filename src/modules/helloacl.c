@@ -147,6 +147,8 @@ int AuthAsyncCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     targs[1] = RedisModule_CreateStringFromString(NULL, argv[1]);
 
     if (pthread_create(&tid, NULL, HelloACL_ThreadMain, targs) != 0) {
+        RedisModule_FreeString(NULL, targs[1]);
+        RedisModule_Free(targs);
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
     }
