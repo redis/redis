@@ -879,25 +879,23 @@ static void defragNackFixup(PendingEntryContext *ctx, streamNACK *newnack) {
 
 /* Defrag a bucket in the consumer PEL. Each value is a NACK shared
  * with the group PEL, so we update pointers in both places.
- * Handles both direct (single-entry) and flax buckets. */
+ * Handles both direct (16-byte key) and flax (15-byte key) buckets. */
 void* defragStreamConsumerPelBucket(raxIterator *ri, void *privdata) {
     PendingEntryContext *ctx = privdata;
-    void *bucket = ri->data;
 
-    if (PEL_IS_DIRECT(bucket)) {
-        streamNACK *nack = PEL_DIRECT_PTR(bucket);
-        uint8_t fkey = PEL_DIRECT_FKEY(bucket);
+    if (ri->key_len == PEL_RAX_DIRECT_KEYLEN) {
+        streamNACK *nack = ri->data;
         nack->consumer = ctx->c;
         nack->cgroup_ref_node->value = ctx->cg;
         streamNACK *newnack = activeDefragAlloc(nack);
         if (newnack) {
             defragNackFixup(ctx, newnack);
-            return PEL_DIRECT_ENCODE(newnack, fkey);
+            return newnack;
         }
         return NULL;
     }
 
-    flax *f = (flax *)bucket;
+    flax *f = (flax *)ri->data;
     flax *newflax = activeDefragAlloc(f);
     if (newflax) f = newflax;
     void *newdata = activeDefragAlloc(f->data);
@@ -948,12 +946,11 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
 
 /* Defrag a bucket in the group PEL. Only defrags the flax struct itself,
  * not the NACKs (those are defragged via consumer PEL traversal).
- * Direct entries have no allocation to defrag. */
+ * Direct entries (16-byte key) have no allocation to defrag. */
 void* defragStreamGroupPelBucket(raxIterator *ri, void *privdata) {
     (void)privdata;
-    void *bucket = ri->data;
-    if (PEL_IS_DIRECT(bucket)) return NULL;
-    flax *f = (flax *)bucket;
+    if (ri->key_len == PEL_RAX_DIRECT_KEYLEN) return NULL;
+    flax *f = (flax *)ri->data;
     flax *newf = activeDefragAlloc(f);
     if (newf) f = newf;
     void *newdata = activeDefragAlloc(f->data);

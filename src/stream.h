@@ -8,25 +8,15 @@
 #include "flax.h"
 #include <stdint.h>
 
-/* Tagged pointer helpers for PEL direct single-entry buckets.
+/* Two-level PEL key-length convention:
  *
- * When a PEL rax bucket contains a single entry, the data pointer and the
- * flax key (low byte of seq) are packed into a tagged pointer stored directly
- * in the rax value, avoiding the flax struct + data block allocations.
- *
- * Layout (LP64, 64-bit pointers):
- *   Bit  0:      1 = direct entry, 0 = flax pointer
- *   Bits 56..63: flax key (uint8_t, low byte of seq)
- *   Bits 1..55:  data pointer (heap-allocated, >=8-byte aligned)
- */
-#define PEL_IS_FLAX(v)    (((uintptr_t)(v) & 1) == 0)
-#define PEL_IS_DIRECT(v)  (((uintptr_t)(v) & 1) == 1)
-#define PEL_DIRECT_ENCODE(ptr, fkey) \
-    ((void *)(((uintptr_t)(uint8_t)(fkey) << 56) | (uintptr_t)(ptr) | 1))
-#define PEL_DIRECT_PTR(v) \
-    ((void *)((uintptr_t)(v) & 0x00FFFFFFFFFFFFFEULL))
-#define PEL_DIRECT_FKEY(v) \
-    ((uint8_t)((uintptr_t)(v) >> 56))
+ * Single-entry ("direct") buckets use a 16-byte rax key (the complete
+ * big-endian streamID) and store the data pointer directly as the rax
+ * value.  Multi-entry ("flax") buckets use a 15-byte rax key (ms + upper
+ * 7 bytes of seq) and store a flax* mapping the low byte of seq to data
+ * pointers.  The key length in rax (16 vs 15) distinguishes the two. */
+#define PEL_RAX_DIRECT_KEYLEN  sizeof(streamID)   /* 16 */
+#define PEL_RAX_FLAX_KEYLEN    15
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
  * a sequence counter. IDs generated in the same millisecond (or in a past
@@ -66,8 +56,9 @@ typedef struct stream {
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
     rax *cgroups_ref;       /* Two-level index mapping message IDs to their
                                consumer groups.  Same key scheme as PEL:
-                               outer rax(15-byte prefix) -> flax(low byte
-                               of seq -> list* of streamCG pointers). */
+                               outer rax -> flax(low byte of seq -> list*
+                               of streamCG pointers).  Direct / flax key
+                               lengths follow the PEL convention (16/15). */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
     uint64_t idmp_duration; /* IDMP duration in seconds. */
@@ -124,12 +115,12 @@ typedef struct streamCG {
                                group reads. In the real world, the reasoning behind
                                this value is detailed at the top comment of
                                streamEstimateDistanceFromFirstEverEntry(). */
-    rax *pel;               /* Two-level pending entries list. The outer rax is
-                               keyed by a 15-byte prefix of the big-endian
-                               encoded stream ID (full ms + upper 56 bits of
-                               seq). Each value is a flax* mapping the low
-                               byte of seq (uint8_t) to streamNACK pointers.
-                               Max 256 entries per bucket, no splitting. */
+    rax *pel;               /* Two-level pending entries list.  Single-entry
+                               buckets (direct) use a 16-byte rax key (full
+                               big-endian streamID).  Multi-entry buckets use
+                               a 15-byte key (ms + upper 7 bytes of seq) and
+                               store a flax* mapping the low byte of seq to
+                               streamNACK pointers.  Max 256 per bucket. */
     uint64_t pel_count;     /* Total number of NACK entries across all flax buckets. */
     streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
                                   entries (oldest delivery_time). Used for efficient
@@ -150,9 +141,9 @@ typedef struct streamConsumer {
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
     rax *pel;                   /* Two-level consumer PEL: same structure as
-                                   streamCG.pel — 15-byte rax key (first 15
-                                   bytes of encoded ID), flax(low byte of seq
-                                   -> NACK*). NACKs are shared with group PEL. */
+                                   streamCG.pel — 16-byte key for direct,
+                                   15-byte key for flax buckets.  NACKs are
+                                   shared with group PEL. */
     uint64_t pel_count;         /* Total NACK count for this consumer. */
 } streamConsumer;
 
@@ -222,9 +213,9 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id);
 
-/* Two-level PEL iterator: walks outer rax (ms buckets) and inner flax (seq).
- * Single-entry buckets are stored as tagged pointers (direct entries) without
- * a flax allocation; is_direct tracks whether the current entry is direct. */
+/* Two-level PEL iterator: walks outer rax and inner flax.
+ * Direct entries (16-byte rax key) have no flax allocation;
+ * is_direct tracks whether the current entry is direct. */
 typedef struct pelIterator {
     raxIterator ri;
     flaxIterator fi;
