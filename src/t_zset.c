@@ -4096,6 +4096,102 @@ void zscoreCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 }
 
+/* ZMSCORE fast path for OBJ_ENCODING_LISTPACK.
+ *
+ * Instead of calling zzlFind() per requested member — each a full O(L)
+ * traversal involving varint decoding, bounds checking, and skip logic
+ * per entry — walk the listpack once and match each member entry against
+ * all N requested members using memcmp comparisons.
+ *
+ * The zset listpack has layout [member₁][score₁][member₂][score₂]…
+ * (skip=1).  The baseline zzlFind() calls lpFind(lp, eptr, ele, len, 1)
+ * which must decode every entry (both members and scores) but only
+ * compares member entries.  Score entries are decoded via lpGetWithSize()
+ * just to advance the pointer — wasted work.
+ *
+ * This reduces the expensive listpack traversal overhead from O(N × L)
+ * to O(L), replacing it with O(N) cheap memcmp calls per member entry.
+ *
+ * Score pointers are stored during the single pass and used to emit
+ * replies after traversal completes. */
+static void zmscoreListpackSinglePass(client *c, robj *zobj) {
+    serverAssert(zobj->encoding == OBJ_ENCODING_LISTPACK);
+
+    int num_members = c->argc - 2;
+    unsigned char *lp = zobj->ptr;
+
+    /* Result array: stores a pointer to the score entry in the listpack
+     * for each requested member.  NULL means not found.
+     * Using zcalloc so all entries start as NULL. */
+    unsigned char **results = zcalloc(sizeof(unsigned char *) * num_members);
+
+    /* Track how many unique members remain to be found.  Once all are
+     * found, we can stop traversing the listpack early. */
+    int remaining = num_members;
+
+    /* --- Single pass over the listpack --- */
+
+    unsigned char *eptr = lpFirst(lp);
+
+    while (eptr != NULL && remaining > 0) {
+        /* Decode the member entry */
+        int64_t elen;
+        unsigned char *estr = lpGet(eptr, &elen, NULL);
+
+        /* Advance to the score entry */
+        unsigned char *sptr = lpNext(lp, eptr);
+        serverAssert(sptr != NULL);
+
+        /* Compare this LP member against each unfound requested member */
+        for (int i = 0; i < num_members; i++) {
+            if (results[i] != NULL)
+                continue;   /* already found this argv slot */
+
+            sds reqMember = c->argv[i + 2]->ptr;
+            size_t reqLen = sdslen(reqMember);
+
+            int match;
+            if (estr != NULL) {
+                /* LP member is a string: compare raw bytes */
+                match = (reqLen == (size_t)elen &&
+                         memcmp(reqMember, estr, elen) == 0);
+            } else {
+                /* LP member is integer-encoded.
+                 * Parse the argv string as integer and compare. */
+                long long reqll;
+                match = (string2ll(reqMember, reqLen, &reqll) &&
+                         reqll == (long long)elen);
+            }
+
+            if (match) {
+                results[i] = sptr;
+                remaining--;
+                /* Don't break: duplicate members in argv should all
+                 * get a result.  Each LP member is unique in a zset,
+                 * so no further LP entries will match this value —
+                 * but other argv slots may have the same member. */
+            }
+        }
+
+        /* Advance to the next member entry (skip past this score) */
+        eptr = lpNext(lp, sptr);
+    }
+
+    /* --- Emit replies in request order --- */
+
+    addReplyArrayLen(c, num_members);
+
+    for (int i = 0; i < num_members; i++) {
+        if (results[i] != NULL) {
+            addReplyDouble(c, zzlGetScore(results[i]));
+        } else {
+            addReplyNull(c);
+        }
+    }
+
+    zfree(results);
+}
+
 void zmscoreCommand(client *c) {
     robj *key = c->argv[1];
     double score;
@@ -4105,6 +4201,16 @@ void zmscoreCommand(client *c) {
 
     if (server.memory_tracking_enabled && zobj != NULL)
         oldsize = kvobjAllocSize(zobj);
+
+    /* Fast path: single-pass listpack scan for LISTPACK encoding.
+     * Not applicable to SKIPLIST (already O(1) per lookup via dict). */
+    if (zobj != NULL && zobj->encoding == OBJ_ENCODING_LISTPACK) {
+        zmscoreListpackSinglePass(c, zobj);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
+        return;
+    }
+
     addReplyArrayLen(c,c->argc - 2);
     for (int j = 2; j < c->argc; j++) {
         /* Treat a missing set the same way as an empty set */
