@@ -466,8 +466,14 @@ typedef struct replBufWriter {
 static void replBufWriterBegin(replBufWriter *wr) {
     listNode *ln = listLast(server.repl_buffer_blocks);
     replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
-    wr->start_node = ln;
-    wr->start_pos = tail ? tail->used : 0;
+
+    if (tail && tail->used < tail->size) {
+        wr->start_node = ln;
+        wr->start_pos = tail->used;
+    } else {
+        wr->start_node = NULL;
+        wr->start_pos = 0;
+    }
     wr->total_len = 0;
     wr->tail = tail;
 }
