@@ -33,13 +33,13 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_match "*not a valid float*" $err
 
         # tokens (optional) must be >= 1
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS} err
-        assert_match "*Missing NUM_REQUESTS value*" $err
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS 0} err
+        catch {r gcra mykey 10 5 10 TOKENS} err
+        assert_match "*Missing TOKENS value*" $err
+        catch {r gcra mykey 10 5 10 TOKENS 0} err
         assert_match "*out of range*" $err
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS -1} err
+        catch {r gcra mykey 10 5 10 TOKENS -1} err
         assert_match "*out of range*" $err
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS notanumber} err
+        catch {r gcra mykey 10 5 10 TOKENS notanumber} err
         assert_match "*not an integer*" $err
 
         # Valid arguments with default tokens
@@ -53,7 +53,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
         # Valid arguments with explicit tokens
         r del mykey
-        set result [r gcra mykey 10 5 60 NUM_REQUESTS 2]
+        set result [r gcra mykey 10 5 60 TOKENS 2]
         assert_equal 5 [llength $result]
         assert_equal 11 [lindex $result 1]
 
@@ -130,7 +130,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
         r del mykey
         # Consume 3 tokens from fresh state
-        set result2 [r gcra mykey 5 1 60 NUM_REQUESTS 3]
+        set result2 [r gcra mykey 5 1 60 TOKENS 3]
         set avail2 [lindex $result2 2]
         assert_equal 3 $avail2
     }
@@ -168,7 +168,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
         r del mykey
         r gcra mykey 5 1 60
-        set result [r gcra mykey 5 1 60 NUM_REQUESTS 4]
+        set result [r gcra mykey 5 1 60 TOKENS 4]
         set full_burst_after [lindex $result 4]
         assert {$full_burst_after >= 299}
     }
@@ -216,7 +216,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
     test {GCRA - overflow} {
         r del mykey
-        catch {r gcra mykey 1 1 86400 NUM_REQUESTS 200000000} err
+        catch {r gcra mykey 1 1 86400 TOKENS 200000000} err
         assert_match "*would cause an overflow*" $err
 
         r del mykey
@@ -224,7 +224,7 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_match "*would cause an overflow*" $err
 
         r del mykey
-        catch {r gcra mykey 1 1 2147483647 NUM_REQUESTS 2147483647} err
+        catch {r gcra mykey 1 1 2147483647 TOKENS 2147483647} err
         assert_match "*would cause an overflow*" $err
     }
 }
@@ -255,7 +255,7 @@ start_server {tags {"gcra repl" "external:skip"}} {
         assert_equal [lsearch -glob $cmdinfo "cmdstat_set:*"] -1
 
         $master del mykey
-        $master gcra mykey 2 1 1000 NUM_REQUESTS 2
+        $master gcra mykey 2 1 1000 TOKENS 2
 
         wait_for_ofs_sync $master $replica
 

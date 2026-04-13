@@ -123,6 +123,7 @@ test "PUBSUB channels/shardchannels" {
     assert_equal {3} [llength [$publishclient pubsub shardchannels]]
 
     sunsubscribe $subscribeclient
+    $subscribeclient read
     set channel_list [$publishclient pubsub shardchannels]
     assert_equal {2} [llength $channel_list]
     assert {[lsearch -exact $channel_list "\{channel.0\}2"] >= 0}

@@ -581,6 +581,19 @@ dictType objectKeyPointerValueDictType = {
     NULL                       /* allow to expand */
 };
 
+/* Dict type with robj pointer keys and no values. */
+dictType objectKeyNoValueDictType = {
+    dictEncObjHash,            /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictEncObjKeyCompare,      /* key compare */
+    dictObjectDestructor,      /* key destructor */
+    NULL,                      /* val destructor */
+    NULL,                      /* allow to expand */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 0,         /* robj pointers are not odd */
+};
+
 /* Like objectKeyPointerValueDictType(), but values can be destroyed, if
  * not NULL, calling zfree(). */
 dictType objectKeyHeapPointerValueDictType = {
@@ -2232,6 +2245,7 @@ void createSharedObjects(void) {
     shared.srem = createStringObject("SREM",4);
     shared.xgroup = createStringObject("XGROUP",6);
     shared.xclaim = createStringObject("XCLAIM",6);
+    shared.xack = createStringObject("XACK",4);
     shared.script = createStringObject("SCRIPT",6);
     shared.replconf = createStringObject("REPLCONF",8);
     shared.pexpireat = createStringObject("PEXPIREAT",9);
@@ -2342,6 +2356,7 @@ void initServerConfig(void) {
     server.allow_access_expired = 0;
     server.allow_access_trimmed = 0;
     server.skip_checksum_validation = 0;
+    server.allow_keymeta_registration = 0;
     server.loading = 0;
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
@@ -2994,7 +3009,7 @@ void initServer(void) {
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].stream_claim_pending_keys = dictCreate(&objectKeyPointerValueDictType);
-        server.db[j].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
@@ -7377,6 +7392,8 @@ int redisFork(int purpose) {
         updateDictResizePolicy();
         dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
+        /* Memory tracking for slots is unnecessary in child processes. */
+        server.memory_tracking_enabled = 0;
         /* Close the reading part, so that if the parent crashes, the child will
          * get a write error and exit. */
         if (server.child_info_pipe[0] != -1)
@@ -7783,7 +7800,8 @@ int zsetTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
-    int failed;
+    int test_count;
+    int passed_count;
 } redisTests[] = {
     {"ziplist", ziplistTest},
     {"quicklist", quicklistTest},
@@ -7837,32 +7855,40 @@ int main(int argc, char **argv) {
 
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
-            for (j = 0; j < numtests; j++) {
-                redisTests[j].failed = (redisTests[j].proc(argc,argv,flags) != 0);
-            }
-
-            /* Report tests result */
             int failed_num = 0;
             for (j = 0; j < numtests; j++) {
-                if (redisTests[j].failed) {
+                int before_total = __test_num;
+                int before_failed = __failed_tests;
+                redisTests[j].proc(argc,argv,flags);
+                redisTests[j].test_count = __test_num - before_total;
+                redisTests[j].passed_count = redisTests[j].test_count - (__failed_tests - before_failed);
+                if (redisTests[j].passed_count < redisTests[j].test_count)
                     failed_num++;
-                    printf("[failed] Test - %s\n", redisTests[j].name);
-                } else {
-                    printf("[ok] Test - %s\n", redisTests[j].name);
-                }
             }
 
-            printf("%d tests, %d passed, %d failed\n", numtests,
-                   numtests-failed_num, failed_num);
+            printf("\n========== Test Suite Summary ==========\n\n");
+            for (j = 0; j < numtests; j++) {
+                int failed = redisTests[j].passed_count < redisTests[j].test_count;
+                printf("  %s %-15s (%d/%d passed)%s\n",
+                       failed ? "\033[31m[failed]" : "\033[32m[ok]    \033[0m",
+                       redisTests[j].name,
+                       redisTests[j].passed_count, redisTests[j].test_count,
+                       failed ? "\033[0m" : "");
+            }
 
-            return failed_num == 0 ? 0 : 1;
+            printf("\n  Test Groups: %s%d passed\033[0m, %s%d failed\033[0m, %d total\n",
+                   failed_num ? "" : "\033[32m", numtests-failed_num,
+                   failed_num ? "\033[31m" : "", failed_num, numtests);
+
+            test_report();
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
             if (!proc) return -1; /* test not found */
-            return proc(argc,argv,flags);
+            proc(argc,argv,flags);
+            test_report();
         }
 
-        return 0;
+        return __failed_tests ? 1 : 0;
     }
 #endif
 
