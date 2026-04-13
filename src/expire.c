@@ -178,27 +178,18 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 
     /* currently we only support hash type sub-expire */
     assert(kv->type == OBJ_HASH);
-    /* Keep this callback as a single execution unit, so inner calls to
-     * postExecutionUnitOperations() won't run synchronous module jobs while
-     * hashTypeExpire() is still operating on the hash internals. */
-    enterExecutionUnit(1, 0);
     uint64_t nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
-    ExpireAction action;
 
     /* If hash has no more fields to expire or got deleted, indicate
      * to remove it from HFE DB to the caller ebExpire() */
     if (nextExpTime == EB_EXPIRE_TIME_INVALID || nextExpTime == 0) {
-        action = ACT_REMOVE_EXP_ITEM;
+        return ACT_REMOVE_EXP_ITEM;
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
         ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
-        action = ACT_UPDATE_EXP_ITEM;
+        return ACT_UPDATE_EXP_ITEM;
     }
-
-    exitExecutionUnit();
-    postExecutionUnitOperations();
-    return action;
 }
 
 /* DB active expire and update hashes with time-expiration on fields.
@@ -223,7 +214,13 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
             .now = commandTimeSnapshot(),
             .itemsExpired = 0};
 
+    /* Keep the entire active sub-expiration pass atomic with respect to
+     * module post-notification jobs. This prevents jobs from mutating or
+     * deleting hashes while ebuckets internals are mid-iteration. */
+    enterExecutionUnit(1, 0);
     estoreActiveExpire(db->subexpires, slot, &info);
+    exitExecutionUnit();
+    postExecutionUnitOperations();
 
     /* Return number of fields active-expired */
     return maxFieldsToExpire - ctx.fieldsToExpireQuota;
