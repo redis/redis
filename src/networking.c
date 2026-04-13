@@ -22,6 +22,7 @@
 #include "cluster_asm.h"
 #include "memory_prefetch.h"
 #include "connection.h"
+#include "redisassert.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -1766,6 +1767,7 @@ void freeClientIODeferredObjects(client *c, int free_array) {
 
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
+        replyRefsUntrackClient(c, obj);
         decrRefCount(obj);
     }
 
@@ -1937,6 +1939,22 @@ void unlinkClient(client *c) {
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
+#ifdef DEBUG_ASSERTIONS
+/* Iterate server.clients_reply_refs and assert that 'c' does not appear as a
+ * key in any inner client dict. Used to verify that all bulkStrRef tracking
+ * has been cleaned up once a client finishes sending its replies. */
+static void replyRefsAssertClientNotTracked(client *c) {
+    dictEntry *de;
+    dictIterator di;
+    dictInitSafeIterator(&di, server.clients_reply_refs);
+    while ((de = dictNext(&di)) != NULL) {
+        dict *clients = dictGetVal(de);
+        debugAssert(dictFind(clients, c) == NULL);
+    }
+    dictResetIterator(&di);
+}
+#endif
+
 /* Remove client from the list of clients with pending referenced replies.
  * This is called when the client has finished sending all pending replies,
  * or when the client is being freed.
@@ -1947,6 +1965,10 @@ void unlinkClient(client *c) {
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
+
+#ifdef DEBUG_ASSERTIONS
+        replyRefsAssertClientNotTracked(c);
+#endif
     }
 }
 
