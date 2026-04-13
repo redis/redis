@@ -32,21 +32,10 @@ void vec_init(vec *v, void **stack, size_t initcap) {
     
     v->size = 0;
     v->cap = initcap;
-    /* stack is NULL if not used */
-    v->stack = stack;
+    v->stack = stack; /* stack is NULL if not used */
     
-    /* now init data */
-    if (stack) {
-        v->data = stack;    
-    } else {
-        if (initcap > 0) {
-            v->data = zmalloc(initcap * sizeof(void *));
-            if (v->data == NULL) 
-                v->cap = 0; /* If malloc failed, set cap to 0 */
-        } else {
-            v->data = NULL;
-        }
-    }
+    /* now init data either stack, heap or NULL */
+    v->data = (stack) ? stack : ((initcap > 0) ? zmalloc(initcap * sizeof(void *)) : NULL);
 }
 
 /* Free only heap storage if any */
@@ -89,12 +78,10 @@ int vec_push(vec *v, void *value) {
 
         /* If so far didn't use heap, then malloc. Else realloc. */
         if (v->data == v->stack) {
-            newdata = ztrymalloc(newcap * sizeof(void *));
-            if (newdata == NULL) return 0;
+            newdata = zmalloc(newcap * sizeof(void *));
             if (v->size) memcpy(newdata, v->data, v->size * sizeof(void *));
         } else {
-            newdata = ztryrealloc(v->data, newcap * sizeof(void *));
-            if (newdata == NULL) return 0;
+            newdata = zrealloc(v->data, newcap * sizeof(void *));
         }
 
         v->data = newdata;
