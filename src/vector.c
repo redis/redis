@@ -34,7 +34,6 @@ void vec_init(vec *v, void **stack, size_t initcap) {
     v->cap = initcap;
     /* stack is NULL if not used */
     v->stack = stack;
-    v->stack_cap = (stack) ? initcap : 0;
     
     /* now init data */
     if (stack) {
@@ -59,7 +58,6 @@ void vec_destroy(vec *v) {
     v->cap = 0;
     v->data = NULL;
     v->stack = NULL;
-    v->stack_cap = 0;
 }
 
 /* Reset the logical length to zero while preserving allocated storage. */

@@ -55,7 +55,6 @@ typedef struct vec {
     size_t cap;        /* Capacity of the vector. */
     void **data;       /* Heap-allocated storage or refers to stack. */
     void **stack;      /* Optional stack buffer. */
-    size_t stack_cap;  /* Capacity of stack buffer. 0 if not used. */
 } vec;
 
 /* Initialize a vector */
