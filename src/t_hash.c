@@ -788,12 +788,13 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     /* If the field is the last one in the hash, then the hash will be deleted */
     res = GETF_EXPIRED;
     robj *keyObj = createStringObject(key, sdslen(key));
-    if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION)) {
+    unsigned long length = hashTypeLength(o, 0);
+    if ((length != 0) && !(hfeFlags & HFE_LAZY_NO_NOTIFICATION)) {
         robj fobj, *farr[1] = {&fobj};
         initStaticStringObject(fobj, field);
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", keyObj, db->id, farr, 1);
     }
-    if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
+    if ((length == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
         if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);

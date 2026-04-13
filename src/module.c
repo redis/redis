@@ -9299,9 +9299,13 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
 /* Subscribe to keyspace notifications with subkey information.
  *
  * This is the extended version of RM_SubscribeToKeyspaceEvents. When subkeys
- * are available they are passed to the callback. When no subkeys are present,
- * subkeys will be NULL and count will be 0. Whether events without subkeys
- * are delivered depends on the `flags` parameter (see below).
+ * are available, the `subkeys` array and `count` are passed to the callback.
+ * `subkeys` contains only the names of affected subkeys (values are not included),
+ * and `count` is the number of elements. The array may contain duplicates when
+ * the same subkey appears more than once in a command (e.g. HSET key f1 v1 f1 v2
+ * produces subkeys=["f1","f1"], count=2). When no subkeys are present, `subkeys`
+ * will be NULL and `count` will be 0. Whether events without subkeys are delivered
+ * depends on the `flags` parameter (see below).
  *
  * `types` is a bit mask of event types the module is interested in
  * (using the same REDISMODULE_NOTIFY_* flags as RM_SubscribeToKeyspaceEvents).

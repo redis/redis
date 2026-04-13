@@ -136,7 +136,6 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
 {
     sds chan;
     robj *chanobj, *eventobj;
-    int len = -1;
     char buf[24];
     serverAssert(sdsEncodedObject(key));
 
@@ -151,11 +150,11 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
     if (!(server.notify_keyspace_events & type)) return;
 
     eventobj = createStringObject(event,strlen(event));
+    int len = ll2string(buf,sizeof(buf),dbid);
 
     /* __keyspace@<db>__:<key> <event> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYSPACE) {
         chan = sdsnewlen("__keyspace@",11);
-        len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, key->ptr);
@@ -167,7 +166,6 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
     /* __keyevent@<db>__:<event> <key> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {
         chan = sdsnewlen("__keyevent@",11);
-        if (len == -1) len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, eventobj->ptr);
@@ -183,7 +181,6 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
          * is used as a separator between event and subkeys in the payload. */
         if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACE && !strchr(event, '|')) {
             chan = sdsnewlen("__subkeyspace@", 14);
-            if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             chan = sdscatlen(chan, buf, len);
             chan = sdscatlen(chan, "__:", 3);
             chan = sdscatsds(chan, key->ptr);
@@ -202,7 +199,6 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
         /* __subkeyevent@<db>__:<event> <key_len>:<key>|<len>:<subkey>[,...] notifications. */
         if (server.notify_keyspace_events & NOTIFY_SUBKEYEVENT) {
             chan = sdsnewlen("__subkeyevent@", 14);
-            if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             chan = sdscatlen(chan, buf, len);
             chan = sdscatlen(chan, "__:", 3);
             chan = sdscatsds(chan, eventobj->ptr);
@@ -248,7 +244,6 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
          * is used as a separator between event and key in the channel name. */
         if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACEEVENT && !strchr(event, '|')) {
             chan = sdsnewlen("__subkeyspaceevent@", 19);
-            if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             chan = sdscatlen(chan, buf, len);
             chan = sdscatlen(chan, "__:", 3);
             chan = sdscatsds(chan, eventobj->ptr);

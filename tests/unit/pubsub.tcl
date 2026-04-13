@@ -602,7 +602,6 @@ start_server {tags {"pubsub network"}} {
         after 15
         r hget myhash f2
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
-        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
 
         # FNX on logically expired field
