@@ -41,6 +41,11 @@
  *                                   ...
  *                                   vec_init(&v, NULL, 0);
  *
+ * 3. Depends on var size:           vec v;
+ *                                   void *vstack[8];
+ *                                   vec_reserve(&v, varsize); // varsize <= 8 ? stack : heap
+ *                                   vec_init(&v, NULL, varsize);
+ *
  * Notes:
  * ------
  * - Not thread-safe.
@@ -74,8 +79,11 @@ void *vec_get(const vec *v, size_t index);
 /* Return the contiguous backing array. */
 void **vec_data(vec *v);
 
-/* Append one element, growing storage as needed. Returns status. */
-int vec_push(vec *v, void *value);
+/* Ensure capacity is at least mincap. */
+void vec_reserve(vec *v, size_t mincap);
+
+/* Append one element, growing storage as needed. */
+void vec_push(vec *v, void *value);
 
 #ifdef REDIS_TEST
 int vectorTest(int argc, char **argv, int flags);

@@ -70,26 +70,32 @@ void **vec_data(vec *v) {
     return v->data;
 }
 
-/* Append one element, growing storage as needed. Returns status. */
-int vec_push(vec *v, void *value) {
+/* Ensure capacity is at least mincap. */
+void vec_reserve(vec *v, size_t mincap) {
+    void **newdata;
+
+    if (mincap <= v->cap) return;
+
+    /* If no heap storage is used yet, allocate and copy from stack if needed. */
+    if (v->data == v->stack) {
+        newdata = zmalloc(mincap * sizeof(void *));
+        if (v->size) memcpy(newdata, v->data, v->size * sizeof(void *));
+    } else {
+        newdata = zrealloc(v->data, mincap * sizeof(void *));
+    }
+
+    v->data = newdata;
+    v->cap = mincap;
+}
+
+/* Append one element, growing storage as needed. */
+void vec_push(vec *v, void *value) {
     if (v->size == v->cap) {
-        void **newdata;
         size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
-
-        /* If so far didn't use heap, then malloc. Else realloc. */
-        if (v->data == v->stack) {
-            newdata = zmalloc(newcap * sizeof(void *));
-            if (v->size) memcpy(newdata, v->data, v->size * sizeof(void *));
-        } else {
-            newdata = zrealloc(v->data, newcap * sizeof(void *));
-        }
-
-        v->data = newdata;
-        v->cap = newcap;
+        vec_reserve(v, newcap);
     }
 
     v->data[v->size++] = value;
-    return 1;
 }
 
 #ifdef REDIS_TEST
@@ -109,17 +115,26 @@ int vectorTest(int argc, char **argv, int flags)
 
     vec v;
     void *vstack[2];
-    int one = 1, two = 2, three = 3, four = 4, five = 5;
+    int one = 1, two = 2, three = 3, four = 4, five = 5, six = 6;
 
     vec_init(&v, vstack, 2);
     test_cond("vec_init() stack-backed size is 0", vec_size(&v) == 0);
     test_cond("vec_init() uses stack buffer", vec_data(&v) == vstack);
+    vec_reserve(&v, 1);
+    test_cond("vec_reserve() no-ops when capacity is already sufficient",
+              v.cap == 2 && vec_data(&v) == vstack);
+    vec_push(&v, &one);
+    vec_push(&v, &two);
     test_cond("vec_push() appends into stack storage",
-              vec_push(&v, &one) && vec_push(&v, &two) &&
               vec_size(&v) == 2 && vec_data(&v) == vstack &&
               vec_get(&v, 0) == &one && vec_get(&v, 1) == &two);
+    vec_reserve(&v, 4);
+    test_cond("vec_reserve() spills from stack to heap preserving values",
+              v.cap == 4 && vec_data(&v) != vstack &&
+              vec_get(&v, 0) == &one && vec_get(&v, 1) == &two);
+    vec_push(&v, &three);
     test_cond("vec_push() spills from stack to heap preserving values",
-              vec_push(&v, &three) && vec_size(&v) == 3 &&
+              vec_size(&v) == 3 &&
               vec_data(&v) != vstack && vec_get(&v, 0) == &one &&
               vec_get(&v, 1) == &two && vec_get(&v, 2) == &three);
 
@@ -134,13 +149,23 @@ int vectorTest(int argc, char **argv, int flags)
     vec_init(&v, NULL, 4);
     test_cond("vec_init() heap-backed hint allocates storage",
               vec_size(&v) == 0 && vec_data(&v) != NULL && v.cap == 4);
+    vec_push(&v, &four);
     test_cond("vec_push() works in heap-backed mode",
-              vec_push(&v, &four) && vec_get(&v, 0) == &four);
+              vec_get(&v, 0) == &four);
+    vec_reserve(&v, 8);
+    test_cond("vec_reserve() grows heap-backed storage preserving values",
+              v.cap == 8 && vec_get(&v, 0) == &four);
     vec_destroy(&v);
 
     vec_init(&v, NULL, 0);
-    test_cond("vec_push() allocates on first push with default growth",
-              vec_push(&v, &five) && vec_size(&v) == 1 && vec_data(&v) != NULL);
+    vec_reserve(&v, 6);
+    test_cond("vec_reserve() allocates heap storage from empty vector",
+              v.cap == 6 && vec_data(&v) != NULL);
+    vec_push(&v, &five);
+    vec_push(&v, &six);
+    test_cond("vec_push() works after vec_reserve() on empty vector",
+              vec_size(&v) == 2 &&
+              vec_get(&v, 0) == &five && vec_get(&v, 1) == &six);
     vec_destroy(&v);
 
     return 0;
