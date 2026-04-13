@@ -224,7 +224,6 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
         if (server.notify_keyspace_events & NOTIFY_SUBKEYSPACEITEM &&
             memchr(key->ptr, '\n', sdslen(key->ptr)) == NULL)
         {
-            if (len == -1) len = ll2string(buf, sizeof(buf), dbid);
             for (int i = 0; i < count; i++) {
                 serverAssert(sdsEncodedObject(subkeys[i]));
                 chan = sdsnewlen("__subkeyspaceitem@", 18);
