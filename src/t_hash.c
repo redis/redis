@@ -370,13 +370,6 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
 
     sds key = kvobjGetKey(kv);
 
-    /* Collect field names before propagating. propagateHashFieldDeletion() may
-     * flush module post-notification jobs that write to this hash, causing
-     * lpRealloc() to move the buffer and leaving `ptr` dangling. Copying names
-     * first and propagating after lpDeleteRange() keeps the iterator safe. */
-    unsigned int expiredFieldsCap = 8;
-    sds *expiredFields = NULL;
-
     while (ptr != NULL && (info->itemsExpired < info->maxToExpire)) {
         long long val;
         int64_t flen;
@@ -394,15 +387,7 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
-        if (!expiredFields) {
-            expiredFields = zmalloc(sizeof(sds) * expiredFieldsCap);
-        }
-        if (expired == expiredFieldsCap) {
-            expiredFieldsCap *= 2;
-            expiredFields = zrealloc(expiredFields, sizeof(sds) * expiredFieldsCap);
-        }
-        expiredFields[expired] = sdsnewlen(fref ? fref : intbuf, flen);
-
+        propagateHashFieldDeletion(db, key, (char *)((fref) ? fref : intbuf), flen);
         server.stat_expired_subkeys++;
         if (activeEx) server.stat_expired_subkeys_active++;
 
@@ -422,15 +407,9 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
 
         /* update keysizes */
         unsigned long l = lpLength(lpt->lp) / 3;
-        updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l + expired, l);
-
-        for (uint64_t i = 0; i < expired; i++) {
-            propagateHashFieldDeletion(db, key, expiredFields[i], sdslen(expiredFields[i]));
-            sdsfree(expiredFields[i]);
-        }
+        updateKeysizesHist(db, OBJ_HASH, l + expired, l);
     }
 
-    zfree(expiredFields);
     min = hashTypeGetMinExpire(kv, 1 /*accurate*/);
     info->nextExpireTime = min;
 }
@@ -795,7 +774,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
 
     if (!(hfeFlags & HFE_LAZY_NO_UPDATE_KEYSIZES)) {
         uint64_t l = hashTypeLength(o, 0);
-        updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l+1, l);
+        updateKeysizesHist(db, OBJ_HASH, l+1, l);
     }
 
     /* If the field is the last one in the hash, then the hash will be deleted */
@@ -2121,11 +2100,12 @@ void hsetnxCommand(client *c) {
     hashTypeSet(c->db, kv, c->argv[2]->ptr, c->argv[3]->ptr, HASH_SET_COPY);
     addReply(c, shared.cone);
     keyModified(c,c->db,c->argv[1], kv, 1);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     hlen = hashTypeLength(kv, 0);
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, hlen - 1, hlen);
+    updateKeysizesHist(c->db, OBJ_HASH, hlen - 1, hlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
+    KSN_INVALIDATE_KVOBJ(kv);
     server.dirty++;
 }
 
@@ -2159,10 +2139,11 @@ void hsetCommand(client *c) {
     }
     keyModified(c,c->db,c->argv[1],kv,1);
     unsigned long l = hashTypeLength(kv, 0);
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l - created, l);
+    updateKeysizesHist(c->db, OBJ_HASH, l - created, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    KSN_INVALIDATE_KVOBJ(kv);
     server.dirty += (c->argc - 2)/2;
 }
 
@@ -2229,6 +2210,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
+            /* Ensure only one FIELDS argument is provided */
+            if (*first_field_pos != -1) {
+                addReplyError(c, "FIELDS keyword specified multiple times");
+                return C_ERR;
+            }
+
             int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
             long val;
             /* Ensure we have at least the numfields argument */
@@ -2310,19 +2297,19 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
                 return C_ERR;
 
             *expire_time_pos = i;
-        } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST")) {
+        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "PERSIST")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_PERSIST))
                 goto err_expiration;
             *flags |= HFE_PERSIST;
-        } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
-        } else if (!strcasecmp(c->argv[i]->ptr, "FXX")) {
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "FXX")) {
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FXX;
-        } else if (!strcasecmp(c->argv[i]->ptr, "FNX")) {
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "FNX")) {
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FNX;
@@ -2332,10 +2319,9 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
         }
     }
 
-    /* Validate command-specific argument compatibility */
-    if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
-        (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST))) {
-        addReplyError(c, "unknown argument");
+    /* Ensure FIELDS is specified */
+    if (*first_field_pos == -1) {
+        addReplyError(c, "missing FIELDS argument");
         return C_ERR;
     }
 
@@ -2486,6 +2472,7 @@ out:
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
     if (fields_set || expired) {
+        newlen = (int64_t) hashTypeLength(o, 0); 
         keyModified(c, c->db, c->argv[1], o, 1);
         if (expired)
             notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
@@ -2494,19 +2481,20 @@ out:
             if (deleted || updated)
                 notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire", c->argv[1], c->db->id);
         }
+        
+        KSN_INVALIDATE_KVOBJ(o);
+        
+        /* Key may become empty due to lazy expiry in hashTypeGetValue()
+         * or the new expiration time is in the past.*/
+        if (newlen == 0) {
+            newlen = -1;
+            /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        }
+        if (oldlen != newlen)
+            updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     }
-    /* Key may become empty due to lazy expiry in hashTypeExists()
-     * or the new expiration time is in the past.*/
-    newlen = (int64_t) hashTypeLength(o, 0);
-    if (newlen == 0) {
-        newlen = -1;
-        /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
-        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-    }
-    if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
 }
 
 void hincrbyCommand(client *c) {
@@ -2532,13 +2520,13 @@ void hincrbyCommand(client *c) {
     } else if ((res == GETF_NOT_FOUND) || (res == GETF_EXPIRED)) {
         value = 0;
         unsigned long l = hashTypeLength(o, 0);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l, l + 1);
+        updateKeysizesHist(c->db, OBJ_HASH, l, l + 1);
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
         o = createHashObject();
         dbAdd(c->db,c->argv[1],&o);
         value = 0;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, 0, 1);
+        updateKeysizesHist(c->db, OBJ_HASH, 0, 1);
     }
 
     oldvalue = value;
@@ -2557,6 +2545,7 @@ void hincrbyCommand(client *c) {
     addReplyLongLong(c,value);
     keyModified(c,c->db,c->argv[1], o, 1);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
+    KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 }
 
@@ -2589,13 +2578,13 @@ void hincrbyfloatCommand(client *c) {
     } else if ((res == GETF_NOT_FOUND) || (res == GETF_EXPIRED)) {
         value = 0;
         unsigned long l = hashTypeLength(o, 0);
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l, l + 1);
+        updateKeysizesHist(c->db, OBJ_HASH, l, l + 1);
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
         o = createHashObject();
         dbAdd(c->db, c->argv[1], &o);
         value = 0;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, 0, 1);
+        updateKeysizesHist(c->db, OBJ_HASH, 0, 1);
     }
 
     value += incr;
@@ -2615,6 +2604,7 @@ void hincrbyfloatCommand(client *c) {
     addReplyBulkCBuffer(c,buf,len);
     keyModified(c,c->db,c->argv[1],o,1);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
+    KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSETEX command with the final value
@@ -2754,8 +2744,20 @@ void hgetdelCommand(client *c) {
     if (expired == 0 && deleted == 0)
         return;
 
+    int64_t newlen = (int64_t) hashTypeLength(o, 0);
+    /* del key if become empty */
+    int delete_key = (newlen == 0);
+    /* update new len for keysizes histogram */
+    int64_t hist_newlen = delete_key ? -1 : newlen;
+    if (oldlen != hist_newlen)
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, hist_newlen);
+    /* update memory tracking */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
+    /* is it last HFE */
+    if (!delete_key && hfe && (hashTypeIsFieldsWithExpire(o) == 0))
+        estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+    
     keyModified(c, c->db, c->argv[1], o, 1);
 
     if (expired)
@@ -2772,22 +2774,14 @@ void hgetdelCommand(client *c) {
         rewriteClientCommandArgument(c, 2, NULL);  /* Delete <numfields> arg */
     }
 
+    KSN_INVALIDATE_KVOBJ(o);
+
     /* Key may have become empty because of deleting fields or lazy expire. */
-    int64_t newlen = (int64_t) hashTypeLength(o, 0);
-    if (newlen == 0) {
-        newlen = -1;
+    if (delete_key) {
         /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
         dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-    } else {
-        if (hfe && (hashTypeIsFieldsWithExpire(o) == 0)) { /*is it last HFE*/
-            estoreRemove(c->db->subexpires, getKeySlot(kvobjGetKey(o)), o);
-        }
     }
-
-    if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
 }
 
 /* Get the value of one or more fields of a given hash key and optionally set 
@@ -2923,7 +2917,7 @@ void hgetexCommand(client *c) {
      * or the new expiration time is in the past.*/
     newlen = hashTypeLength(o, 0);
 
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldlen, newlen);
+    updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     if (newlen == 0) {
         dbDelete(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
@@ -2956,33 +2950,40 @@ void hdelCommand(client *c) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
-                if (server.memory_tracking_enabled)
-                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
-                /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
-                dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
+    
     if (!keyremoved && o->encoding == OBJ_ENCODING_HT) {
         dictResumeAutoResize((dict*)o->ptr);
         dictShrinkIfNeeded((dict*)o->ptr);
     }
-    if (server.memory_tracking_enabled && !keyremoved)
+    if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     if (deleted) {
-        int64_t newLen = -1; /* The value -1 indicates that the key is deleted. */
+        /* Update keysizes histogram */
+        int64_t newLen = (int64_t) hashTypeLength(o, 0);
+        updateKeysizesHist(c->db, OBJ_HASH, oldLen, keyremoved ? -1 : newLen);
+        
+        if (keyremoved) {
+            /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+        } else {
+            /* is it last HFE */
+            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0))
+                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+        }
+
+        /* Signal key modification */
         keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
-        if (keyremoved) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        } else {
-            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0)) /* is it last HFE */
-                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
-            newLen = oldLen - deleted;
-        }
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldLen, newLen);
+        
+        KSN_INVALIDATE_KVOBJ(o); /* Invalidate local kvobj pointer */
+        
+        /* Notify del event if key was deleted */
+        if (keyremoved) notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -3530,7 +3531,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
 
     /* update keysizes */
     unsigned long l = hashTypeLength(expCtx->hashObj, 0);
-    updateKeysizesHist(expCtx->db, getKeySlot(key), OBJ_HASH, l, l - 1);
+    updateKeysizesHist(expCtx->db, OBJ_HASH, l, l - 1);
 
     serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
     if (server.memory_tracking_enabled)
@@ -3607,14 +3608,15 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
                                               &numFields, "Parameter `numFields` should be greater than 0") != C_OK)
                 return C_ERR;
 
-            args->fieldCount = (int)numFields;
             args->firstFieldPos = i + 2;
 
             /* Check bounds - we must have exactly the right number of fields */
-            if (args->firstFieldPos + args->fieldCount > c->argc) {
+            if (numFields > c->argc - args->firstFieldPos) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
             }
+
+            args->fieldCount = (int)numFields;
 
             /* Skip over the field arguments */
             i = args->firstFieldPos + args->fieldCount - 1;
@@ -3637,6 +3639,12 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
         }
 
         addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+        return C_ERR;
+    }
+
+    /* Ensure FIELDS is specified */
+    if (args->fieldsPos == -1) {
+        addReplyError(c, "missing FIELDS argument");
         return C_ERR;
     }
 
@@ -3887,8 +3895,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     }
 
     if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 
     /* Avoid propagating command if not even one field was updated (Either because
      * the time is in the past, and corresponding HDELs were sent, or conditions
