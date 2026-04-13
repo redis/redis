@@ -1968,6 +1968,7 @@ static void replyRefsMarkSoleClientDirty(dict *clients) {
     dictIterator di;
     dictInitIterator(&di, clients);
     dictEntry *entry = dictNext(&di);
+    serverAssert(dictGetUnsignedIntegerVal(entry) >= 1);
     client *sole = dictGetKey(entry);
     sole->flags |= CLIENT_UNSHARED_MEM_DIRTY;
     dictResetIterator(&di);
@@ -1992,6 +1993,7 @@ void replyRefsTrackClient(client *c, robj *obj) {
         cde = dictFind(clients, c);
         dictSetUnsignedIntegerVal(cde, 1);
     }
+    serverAssert(dictGetUnsignedIntegerVal(cde) >= 1);
 }
 
 /* Unregister client 'c' from 'obj' tracking. Called when the client has
@@ -2005,11 +2007,10 @@ void replyRefsUntrackClient(client *c, robj *obj) {
     dictEntry *cde = dictFind(clients, c);
     if (cde) {
         uint64_t count = dictGetUnsignedIntegerVal(cde);
-        if (count > 1) {
-            dictIncrUnsignedIntegerVal(cde, 1);
-        } else {
+        serverAssert(count >= 1);
+        uint64_t new_count = dictIncrUnsignedIntegerVal(cde, -1);
+        if (new_count == 0)
             dictDelete(clients, c);
-        }
     }
 
     if (dictSize(clients) == 0) {
