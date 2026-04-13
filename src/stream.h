@@ -220,13 +220,13 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id);
 
 /* Two-level PEL iterator: walks outer rax and inner flax.
  * Direct entries (16-byte rax key) have no flax allocation;
- * is_direct tracks whether the current entry is direct. */
+ * direct tracks whether the current entry is direct. */
 typedef struct pelIterator {
     raxIterator ri;
     flaxIterator fi;
     int valid;
     int just_seeked;
-    int is_direct;
+    int direct;
     streamID id;
     void *data;
     unsigned char key[sizeof(streamID)];
