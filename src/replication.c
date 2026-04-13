@@ -376,7 +376,6 @@ int prepareReplicasToWrite(void) {
     return prepared;
 }
 
-
 /* Generally, we only have one replication buffer block to trim when replication
  * backlog size exceeds our setting and no replica reference it. But if replica
  * clients disconnect, we need to free many replication buffer blocks that are
@@ -452,36 +451,29 @@ void freeReplicaReferencedReplBuffer(client *replica) {
     replica->ref_block_pos = 0;
 }
 
-/* ---- replBufWriter: direct-write API for the replication backlog ----
- *
- * Unlike feedReplicationBuffer() which does bookkeeping (replica iteration,
- * backlog index, trim) on every call, the stream API defers all bookkeeping
- * to replBufWriterEnd(). Each replBufWriterAppend() only does a memcpy into the
- * tail block, allocating a new block when needed. */
-
+/* Batched write API for the global replication backlog, optimized for minimal
+ * overhead per append: data writes are just memcpys into the tail block.
+ * Replica references and stats are updated once at the end, while trim and
+ * output buffer limit checks run on each block allocation. */
 typedef struct replBufWriter {
     listNode *start_node;  /* First repl buffer block written to. */
     size_t start_pos;      /* Byte offset within start_node where writing began. */
     size_t total_len;      /* Total bytes written across all writes. */
-    int new_blocks;        /* Number of new blocks allocated during this stream. */
-    replBufBlock *tail;    /* Cached tail block for fast path. */
-    size_t avail;          /* Cached available bytes in tail for fast path. */
+    replBufBlock *tail;    /* Current replication backlog tail block. */
 } replBufWriter;
 
-/* Initialize a replication stream, cache the current tail position. */
-static void replBufWriterBegin(replBufWriter *s) {
+/* Initialize the writer, cache the current tail position. */
+static void replBufWriterBegin(replBufWriter *wr) {
     listNode *ln = listLast(server.repl_buffer_blocks);
     replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
-    s->start_node = ln;
-    s->start_pos = tail ? tail->used : 0;
-    s->total_len = 0;
-    s->new_blocks = 0;
-    s->tail = tail;
-    s->avail = tail ? (tail->size - tail->used) : 0;
+    wr->start_node = ln;
+    wr->start_pos = tail ? tail->used : 0;
+    wr->total_len = 0;
+    wr->tail = tail;
 }
 
 /* Allocate a new replication backlog block. Called when current block is full. */
-static void replBufWriterAllocBlock(replBufWriter *s, size_t hint) {
+static void replBufWriterAllocBlock(replBufWriter *wr, size_t hint) {
     static long long repl_block_id = 0;
     size_t usable_size;
     /* Avoid creating nodes smaller than PROTO_REPLY_CHUNK_BYTES, so that we can append more data into them,
@@ -494,61 +486,88 @@ static void replBufWriterAllocBlock(replBufWriter *s, size_t hint) {
     tail->size = usable_size - sizeof(replBufBlock);
     tail->used = 0;
     tail->refcount = 0;
-    tail->repl_offset = server.master_repl_offset + s->total_len + 1;
+    tail->repl_offset = server.master_repl_offset + 1;
     tail->id = repl_block_id++;
     listAddNodeTail(server.repl_buffer_blocks, tail);
     server.repl_buffer_mem += (usable_size + sizeof(listNode));
     createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
 
-    /* Update stream state. */
-    s->tail = tail;
-    s->avail = tail->size;
-    s->new_blocks++;
-    if (s->start_node == NULL) {
-        s->start_node = listLast(server.repl_buffer_blocks);
-        s->start_pos = 0;
+    /* Update writer state. */
+    wr->tail = tail;
+    if (wr->start_node == NULL) {
+        wr->start_node = listLast(server.repl_buffer_blocks);
+        wr->start_pos = 0;
     }
+
+    /* Set backlog reference to the start block if not yet set. Must happen
+     * before trim so the refcount prevents the block from being freed. */
+    if (server.repl_backlog->ref_repl_buf_node == NULL) {
+        server.repl_backlog->ref_repl_buf_node = wr->start_node;
+        ((replBufBlock *)listNodeValue(wr->start_node))->refcount++;
+        /* Replication buffer must be empty before adding replication stream
+         * into replication backlog. */
+        serverAssert(wr->start_pos == 0);
+    }
+
+    /* Disconnect replicas that exceeded output buffer limits so their block
+     * references are released, then trim old blocks while refs allow it. */
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li))) {
+        client *slave = ln->value;
+        closeClientOnOutputBufferLimitReached(slave, 1);
+    }
+    /* It is important to trim after adding replication data to keep the backlog size close to
+     * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
+     * unnecessary trimming attempts when small amounts of data are added. See comments in
+     * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
+    incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+}
+
+/* Copy bytes into the current tail block. Caller must ensure len <= avail. */
+static inline void replBufWriterCopy(replBufWriter *wr, const char *buf, size_t len) {
+    memcpy(wr->tail->buf + wr->tail->used, buf, len);
+    wr->tail->used += len;
+    wr->total_len += len;
+    server.master_repl_offset += len;
+    server.repl_backlog->histlen += len;
 }
 
 /* Slow path: fill remainder of current block + allocate as needed. */
-static void replBufWriterAppendSlow(replBufWriter *s, const char *buf, size_t len) {
+static void replBufWriterAppendSlow(replBufWriter *wr, const char *buf, size_t len) {
     while (len > 0) {
-        if (s->avail > 0) {
-            size_t copy = (s->avail >= len) ? len : s->avail;
-            memcpy(s->tail->buf + s->tail->used, buf, copy);
-            s->tail->used += copy;
-            s->avail -= copy;
-            s->total_len += copy;
+        size_t avail = wr->tail ? wr->tail->size - wr->tail->used : 0;
+        if (avail > 0) {
+            size_t copy = (avail >= len) ? len : avail;
+            replBufWriterCopy(wr, buf, copy);
             buf += copy;
             len -= copy;
         }
-
         if (len > 0)
-            replBufWriterAllocBlock(s, len);
+            replBufWriterAllocBlock(wr, len);
     }
 }
 
-/* Write data into the replication buffer. The slow path is split out to give 
- * the compiler a chance to inline the common case where the write fits entirely
+/* Append data to the replication buffer. The slow path is split out to give
+ * the compiler a chance to inline the common case where the data fits entirely
  * in the current block. */
-static inline void replBufWriterAppend(replBufWriter *s, const char *buf, size_t len) {
-    if (len > 0 && s->avail >= len) {
-        memcpy(s->tail->buf + s->tail->used, buf, len);
-        s->tail->used += len;
-        s->avail -= len;
-        s->total_len += len;
+static inline void replBufWriterAppend(replBufWriter *wr, const char *buf, size_t len) {
+    size_t avail = wr->tail ? wr->tail->size - wr->tail->used : 0;
+    if (len > 0 && avail >= len) {
+        replBufWriterCopy(wr, buf, len);
         return;
     }
-    replBufWriterAppendSlow(s, buf, len);
+    replBufWriterAppendSlow(wr, buf, len);
 }
 
 /* Write a RESP header prefix<value>\r\n (e.g. "$12\r\n" or "*3\r\n").
  * Uses pre-built shared objects for small values, formats manually otherwise. */
-static inline void replBufWriterAppendBulkLen(replBufWriter *s, char prefix, long long value) {
+static inline void replBufWriterAppendBulkLen(replBufWriter *wr, char prefix, long long value) {
     serverAssert(prefix == '$' || prefix == '*');
     if (value >= 0 && value < OBJ_SHARED_BULKHDR_LEN) {
         robj **tbl = (prefix == '$') ? shared.bulkhdr : shared.mbulkhdr;
-        replBufWriterAppend(s, tbl[value]->ptr, OBJ_SHARED_HDR_STRLEN(value));
+        replBufWriterAppend(wr, tbl[value]->ptr, OBJ_SHARED_HDR_STRLEN(value));
         return;
     }
     char buf[LONG_STR_SIZE+3];
@@ -556,24 +575,19 @@ static inline void replBufWriterAppendBulkLen(replBufWriter *s, char prefix, lon
     int len = ll2string(buf+1, sizeof(buf)-1, value);
     buf[len+1] = '\r';
     buf[len+2] = '\n';
-    replBufWriterAppend(s, buf, len+3);
+    replBufWriterAppend(wr, buf, len+3);
 }
 
+/* Finalize the replication stream write: update stats and attach new replicas
+ * to the backlog. */
+static void replBufWriterEnd(replBufWriter *wr) {
+    if (wr->total_len == 0) return;
 
-/* Finalize the replication stream write: update global offsets, set up replica
- * references for new data, check output buffer limits, and trim the
- * backlog if new blocks were allocated. */
-static void replBufWriterEnd(replBufWriter *s) {
-    if (s->total_len == 0) return;
-
-    clusterSlotStatsIncrNetworkBytesOutForReplication(s->total_len);
+    clusterSlotStatsIncrNetworkBytesOutForReplication(wr->total_len);
 
     /* Update the current cmd's keys with the commands replication bytes*/
-    hotkeyMetrics metrics = {0, s->total_len};
+    hotkeyMetrics metrics = {0, wr->total_len};
     hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
-
-    server.master_repl_offset += s->total_len;
-    server.repl_backlog->histlen += s->total_len;
 
     /* For output buffer of replicas. */
     listIter li;
@@ -585,41 +599,20 @@ static void replBufWriterEnd(replBufWriter *s) {
 
         /* Update shared replication buffer start position. */
         if (slave->ref_repl_buf_node == NULL) {
-            slave->ref_repl_buf_node = s->start_node;
-            slave->ref_block_pos = s->start_pos;
+            slave->ref_repl_buf_node = wr->start_node;
+            slave->ref_block_pos = wr->start_pos;
             /* Only increase the start block reference count. */
-            ((replBufBlock *)listNodeValue(s->start_node))->refcount++;
+            ((replBufBlock *)listNodeValue(wr->start_node))->refcount++;
         }
-
-        /* Check output buffer limit only when new blocks were added. */
-        if (s->new_blocks) closeClientOnOutputBufferLimitReached(slave, 1);
-    }
-
-    /* For replication backlog */
-    if (server.repl_backlog->ref_repl_buf_node == NULL) {
-        server.repl_backlog->ref_repl_buf_node = s->start_node;
-        /* Only increase the start block reference count. */
-        ((replBufBlock *)listNodeValue(s->start_node))->refcount++;
-
-        /* Replication buffer must be empty before adding replication stream
-         * into replication backlog. */
-        serverAssert(s->new_blocks > 0 && s->start_pos == 0);
-    }
-    if (s->new_blocks) {
-        /* It is important to trim after adding replication data to keep the backlog size close to
-         * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
-         * unnecessary trimming attempts when small amounts of data are added. See comments in
-         * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
-        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
 }
 
 /* Append bytes into the global replication buffer. */
 static void feedReplicationBuffer(const char *buf, size_t len) {
-    replBufWriter s;
-    replBufWriterBegin(&s);
-    replBufWriterAppend(&s, buf, len);
-    replBufWriterEnd(&s);
+    replBufWriter wr;
+    replBufWriterBegin(&wr);
+    replBufWriterAppend(&wr, buf, len);
+    replBufWriterEnd(&wr);
 }
 
 /* Propagate write commands to replication stream.
@@ -700,28 +693,28 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* Write the command to the replication buffer if any. */
     char aux[LONG_STR_SIZE+3];
-    replBufWriter s;
-    replBufWriterBegin(&s);
+    replBufWriter wr;
+    replBufWriterBegin(&wr);
     
     /* Write the multi bulk count */
-    replBufWriterAppendBulkLen(&s, '*', argc);
+    replBufWriterAppendBulkLen(&wr, '*', argc);
 
     for (j = 0; j < argc; j++) {
         /* Write the bulk count */
         long objlen = stringObjectLen(argv[j]);
-        replBufWriterAppendBulkLen(&s, '$', objlen);
+        replBufWriterAppendBulkLen(&wr, '$', objlen);
 
-        /* <data> */
+        /* Write the bulk data */
         if (argv[j]->encoding == OBJ_ENCODING_INT) {
             len = ll2string(aux, sizeof(aux), (long)argv[j]->ptr);
-            replBufWriterAppend(&s, aux, len);
+            replBufWriterAppend(&wr, aux, len);
         } else {
-            replBufWriterAppend(&s, argv[j]->ptr, objlen);
+            replBufWriterAppend(&wr, argv[j]->ptr, objlen);
         }
-        replBufWriterAppend(&s, "\r\n", 2);
+        replBufWriterAppend(&wr, "\r\n", 2);
     }
 
-    replBufWriterEnd(&s);
+    replBufWriterEnd(&wr);
 }
 
 /* This is a debugging function that gets called when we detect something
