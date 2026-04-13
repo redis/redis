@@ -856,12 +856,19 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
     raxStop(&ri);
 }
 
-/* Walk a consumer-PEL flax bucket and fix up the consumer back-pointer for
+/* Walk a consumer-PEL entry and fix up the consumer back-pointer for
  * every NACK. NACKs themselves are defragged during the group PEL walk
- * (defragStreamGroupPelFlax) which also covers unowned NACK-zone entries;
+ * (defragStreamGroupPelEntry) which also covers unowned NACK-zone entries;
  * here we only repair the stale consumer pointer. */
-void* defragStreamConsumerPelFlax(raxIterator *ri, void *privdata) {
+void* defragStreamConsumerPelEntry(raxIterator *ri, void *privdata) {
     streamConsumer *c = privdata;
+
+    if (ri->key_len == PEL_RAX_DIRECT_KEYLEN) {
+        streamNACK *nack = ri->data;
+        nack->consumer = c;
+        return NULL;
+    }
+
     flax *f = ri->data;
     flax *newflax = activeDefragAlloc(f);
     if (newflax) f = newflax;
@@ -891,18 +898,51 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
         c->name = newsds;
     if (c->pel) {
         c->pel->alloc_size = &s->alloc_size;
-        defragRadixTree(&c->pel, 0, defragStreamConsumerPelFlax, c);
+        defragRadixTree(&c->pel, 0, defragStreamConsumerPelEntry, c);
         pelCacheInvalidate(c->pel);
     }
     return newc; /* returns NULL if c was not defragged */
 }
 
-/* Walk a group-PEL flax bucket: defrag the flax struct itself, then defrag
- * every NACK inside and update pointers in the consumer PEL, the doubly-linked
+/* Defrag a single NACK and update all cross-references: the consumer PEL,
+ * the doubly-linked time list, the NACK-zone tail, and cgroup_ref_node. */
+static void defragStreamNack(streamCG *cg, streamNACK *nack, streamNACK *newnack) {
+    if (newnack->consumer) {
+        pelReplace(newnack->consumer->pel, &newnack->id, newnack);
+    }
+    if (newnack->pel_prev) {
+        newnack->pel_prev->pel_next = newnack;
+    } else {
+        cg->pel_time_head = newnack;
+    }
+    if (newnack->pel_next) {
+        newnack->pel_next->pel_prev = newnack;
+    } else {
+        cg->pel_time_tail = newnack;
+    }
+    if (cg->pel_nack_tail == nack) {
+        cg->pel_nack_tail = newnack;
+    }
+}
+
+/* Walk a group-PEL entry: for direct entries (16-byte key) defrag the single
+ * NACK; for flax buckets (15-byte key) defrag the flax struct itself and then
+ * every NACK inside.  Update pointers in the consumer PEL, the doubly-linked
  * time list, and the NACK-zone tail. cgroup_ref_node->value is also updated
  * here for every NACK (including unowned NACK-zone entries). */
-void* defragStreamGroupPelFlax(raxIterator *ri, void *privdata) {
+void* defragStreamGroupPelEntry(raxIterator *ri, void *privdata) {
     streamCG *cg = privdata;
+
+    if (ri->key_len == PEL_RAX_DIRECT_KEYLEN) {
+        streamNACK *nack = ri->data, *newnack;
+        nack->cgroup_ref_node->value = cg;
+        newnack = activeDefragAlloc(nack);
+        if (newnack) {
+            defragStreamNack(cg, nack, newnack);
+        }
+        return newnack;
+    }
+
     flax *f = ri->data;
     flax *newf = activeDefragAlloc(f);
     if (newf) f = newf;
@@ -918,23 +958,7 @@ void* defragStreamGroupPelFlax(raxIterator *ri, void *privdata) {
             newnack = activeDefragAlloc(nack);
             if (newnack) {
                 flaxInsert(f, fi.key, newnack, NULL);
-
-                if (newnack->consumer) {
-                    pelReplace(newnack->consumer->pel, &newnack->id, newnack);
-                }
-                if (newnack->pel_prev) {
-                    newnack->pel_prev->pel_next = newnack;
-                } else {
-                    cg->pel_time_head = newnack;
-                }
-                if (newnack->pel_next) {
-                    newnack->pel_next->pel_prev = newnack;
-                } else {
-                    cg->pel_time_tail = newnack;
-                }
-                if (cg->pel_nack_tail == nack) {
-                    cg->pel_nack_tail = newnack;
-                }
+                defragStreamNack(cg, nack, newnack);
             }
         } while (flaxNext(&fi));
     }
@@ -948,7 +972,7 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
         cg = newcg;
     if (cg->pel) {
         cg->pel->alloc_size = &s->alloc_size;
-        defragRadixTree(&cg->pel, 0, defragStreamGroupPelFlax, cg);
+        defragRadixTree(&cg->pel, 0, defragStreamGroupPelEntry, cg);
         pelCacheInvalidate(cg->pel);
     }
     if (cg->consumers) {

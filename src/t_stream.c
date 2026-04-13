@@ -106,21 +106,6 @@ void pelCacheInvalidate(rax *pel) {
     cache->direct = 0;
 }
 
-/* Encode a 15-byte rax key: full 8B big-endian ms + upper 7 bytes of
- * big-endian seq (i.e. first 15 bytes of the 16-byte encoded streamID). */
-static inline void pelEncodeRaxKey(unsigned char *buf, uint64_t ms, uint64_t seq) {
-    uint64_t be;
-    be = htonu64(ms);
-    memcpy(buf, &be, 8);
-    be = htonu64(seq);
-    memcpy(buf + 8, &be, 7);
-}
-
-/* Extract the low byte of seq as the flax key. */
-static inline uint8_t pelFlaxKey(uint64_t seq) {
-    return (uint8_t)(seq & 0xFF);
-}
-
 rax *pelNew(size_t *alloc_size) {
     rax *pel = raxNewWithMetadata(sizeof(pelCache), alloc_size);
     if (pel) {
