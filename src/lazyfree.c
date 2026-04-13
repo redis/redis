@@ -269,10 +269,14 @@ static void protectClientReplyObjects(void) {
                 if (header->payload_type == BULK_STR_REF) {
                     bulkStrRef *str_ref = (bulkStrRef *)ptr;
                     if (str_ref->obj != NULL) {
+                        /* Untrack this client from the clients_reply_refs dict before releasing the reference. */
+                        replyRefsUntrackClient(c, str_ref->obj);
+
                         /* Duplicate the string object */
                         robj *new_obj = dupStringObject(str_ref->obj);
                         decrRefCount(str_ref->obj);
                         str_ref->obj = new_obj;
+                        replyRefsTrackClient(c, new_obj);
                     }
                 }
                 ptr += header->payload_len;
@@ -295,10 +299,14 @@ static void protectClientReplyObjects(void) {
                         if (header->payload_type == BULK_STR_REF) {
                             bulkStrRef *str_ref = (bulkStrRef *)ptr;
                             if (str_ref->obj != NULL) {
+                                /* Untrack this client from the clients_reply_refs dict before releasing the reference. */
+                                replyRefsUntrackClient(c, str_ref->obj);
+
                                 /* Duplicate the string object */
                                 robj *new_obj = dupStringObject(str_ref->obj);
                                 decrRefCount(str_ref->obj);
                                 str_ref->obj = new_obj;
+                                replyRefsTrackClient(c, new_obj);
                             }
                         }
                         ptr += header->payload_len;

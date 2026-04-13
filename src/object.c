@@ -633,6 +633,11 @@ void decrRefCount(robj *o) {
             }
         }
         zfree(alloc);
+    } else if (o->refcount == 1 && o->type == OBJ_STRING) {
+        /* When refcount drops to 1, the object is solely owned by a single
+         * client's reply buffer (via copy-avoidance). Notify tracked clients
+         * so their cached reply_bytes_unshared is invalidated. */
+        replyRefsNotifyDecrRefCount(o);
     }
 }
 

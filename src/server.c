@@ -682,6 +682,30 @@ dictType keylistDictType = {
     NULL                        /* allow to expand */
 };
 
+/* Inner dict type for clients_reply_refs: maps client* (pointer comparison)
+ * to a reference count (uint64_t stored in the entry's u64 value). */
+dictType replyRefsClientDictType = {
+    dictPtrHash,                /* hash function (hash the pointer value) */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    NULL,                       /* key compare (default pointer equality) */
+    NULL,                       /* key destructor */
+    NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* Reply refs dict type: maps robj pointers (raw pointer comparison) to
+ * dicts of client pointers (with refcounts) that reference the object via copy-avoidance. */
+dictType clientsReplyRefsDictType = {
+    dictPtrHash,                /* hash function (hash the pointer value) */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    NULL,                       /* key compare (default pointer equality) */
+    NULL,                       /* key destructor (robj lifetime managed elsewhere) */
+    dictDictDestructor,         /* val destructor (free the inner client dict) */
+    NULL                        /* allow to expand */
+};
+
 /* KeyDict hash table type has unencoded redis objects as keys and
  * dicts as values. It's used for PUBSUB command to track clients subscribing the channels. */
 dictType objToDictDictType = {
@@ -1002,7 +1026,6 @@ int clientsCronTrackExpansiveClients(client *c) {
     size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
     size_t in_usage = qb_size + c->all_argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
-    c->reply_bytes_unshared = getClientUnsharedReplyBytes(c, 0);
 
     /* Track the biggest values observed so far in this slot. */
     if (in_usage > ClientsPeakMemInput[CurrentPeakMemUsageSlot])
@@ -2933,6 +2956,7 @@ void initServer(void) {
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_with_pending_ref_reply = listCreate();
+    server.clients_reply_refs = dictCreate(&clientsReplyRefsDictType);
     server.clients_timeout_table = raxNew();
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
