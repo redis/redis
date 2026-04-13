@@ -5038,7 +5038,7 @@ void xtrimCommand(client *c) {
 
 /* Helper function for xinfoCommand.
  * Handles the variants of XINFO STREAM */
-void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
+void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
     stream *s = kv->ptr;
     int full = 1;
     long long count = 10; /* Default COUNT is 10 so we don't block the server */
@@ -5275,7 +5275,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
         }
     }
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+        updateSlotAllocSize(c->db,getKeySlot(key->ptr),kv,old_alloc,kvobjAllocSize(kv));
 }
 
 /* XINFO CONSUMERS <key> <group>
@@ -5379,7 +5379,7 @@ NULL
         raxStop(&ri);
     } else if (!strcasecmp(opt,"STREAM")) {
         /* XINFO STREAM <key> [FULL [COUNT <count>]]. */
-        xinfoReplyWithStreamInfo(c,kv);
+        xinfoReplyWithStreamInfo(c,key,kv);
     } else {
         addReplySubcommandSyntaxError(c);
     }

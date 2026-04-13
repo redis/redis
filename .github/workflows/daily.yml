@@ -52,7 +52,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
