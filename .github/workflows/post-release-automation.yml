@@ -95,17 +95,35 @@ jobs:
   #         # This could use GitHub Environments with required reviewers
   #         # or a manual approval step
 
-  # upload-tarball:
-  #   needs: [extract-release-info, create-tarball, approval-gate]
-  #   if: always() && !cancelled() && needs.create-tarball.result == 'success' && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Upload tarball
-  #       run: |
-  #         echo "TODO: Implement tarball upload"
-  #         # This will require:
-  #         # - SSH credentials/keys for upload to download.redis.io
-  #         # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
+  upload-tarball:
+    runs-on: ubuntu-latest
+    needs: [ extract-release-info, create-tarball, approval-gate ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.UBUNTU_REDIS_IO_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H host.redis.io >> ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        run: ssh -o BatchMode=yes ubuntu@host.redis.io "echo 'SSH connection successful'"
+
+      - name: Upload tarball
+        run: |
+          if [ "${{ needs.extract-release-info.release_type }}" = "latest" ]; then
+            ./utils/releasetools/02_upload_tarball.sh --stable ${{ needs.extract-release-info.tag_name }}
+          else
+            ./utils/releasetools/02_upload_tarball.sh --unstable ${{ needs.extract-release-info.tag_name }}
+          fi
+
+      - name: Verify upload
+        run: |
+          ssh ubuntu@host.redis.io "ls -lh /var/www/download/releases/redis-${{ needs.extract-release-info.tag_name }}.tar.gz"
 
   # test-release-tarball:
   #   needs: upload-tarball
