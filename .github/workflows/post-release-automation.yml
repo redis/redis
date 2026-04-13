@@ -103,6 +103,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Download tarball artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: redis-${{ needs.extract-release-info.outputs.tag_name }}-tarball
+          path: /tmp
+
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
@@ -115,11 +121,7 @@ jobs:
 
       - name: Upload tarball
         run: |
-          if [ "${{ needs.extract-release-info.release_type }}" = "latest" ]; then
-            ./utils/releasetools/02_upload_tarball.sh --stable ${{ needs.extract-release-info.tag_name }}
-          else
-            ./utils/releasetools/02_upload_tarball.sh --unstable ${{ needs.extract-release-info.tag_name }}
-          fi
+          ./utils/releasetools/02_upload_tarball.sh ${{ needs.extract-release-info.tag_name }}
 
       - name: Verify upload
         run: |
