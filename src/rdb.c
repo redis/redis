@@ -1990,7 +1990,7 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
  * a dummy redis object is returned just to conform to the API. */
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
     uint64_t opcode;
-    while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
+    while((opcode = rdbLoadLen(rdb,NULL)) != RDB_LENERR) {
         if (opcode == RDB_MODULE_OPCODE_SINT ||
             opcode == RDB_MODULE_OPCODE_UINT)
         {
@@ -2005,7 +2005,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
                 rdbReportCorruptRDB(
                     "Error reading string from module %s value", modulename);
             }
-            decrRefCount(o);
+            if (o) decrRefCount(o);
         } else if (opcode == RDB_MODULE_OPCODE_FLOAT) {
             float val;
             if (rdbLoadBinaryFloatValue(rdb,&val) == -1) {
@@ -2018,6 +2018,9 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
                 rdbReportCorruptRDB(
                     "Error reading double from module %s value", modulename);
             }
+        } else if (opcode == RDB_MODULE_OPCODE_EOF) {
+            /* End of value */
+            break;
         }
     }
     return createStringObject("module-dummy-value",18);
@@ -3998,7 +4001,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else {
                 /* RDB check mode. */
                 robj *aux = rdbLoadCheckModuleValue(rdb,name);
-                decrRefCount(aux);
+                if (aux) decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
         } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
