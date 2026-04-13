@@ -214,7 +214,13 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
             .now = commandTimeSnapshot(),
             .itemsExpired = 0};
 
+    /* Keep the entire active sub-expiration pass atomic with respect to
+     * module post-notification jobs. This prevents jobs from mutating or
+     * deleting hashes while ebuckets internals are mid-iteration. */
+    enterExecutionUnit(1, 0);
     estoreActiveExpire(db->subexpires, slot, &info);
+    exitExecutionUnit();
+    postExecutionUnitOperations();
 
     /* Return number of fields active-expired */
     return maxFieldsToExpire - ctx.fieldsToExpireQuota;
@@ -836,6 +842,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
         keyModified(c,c->db,key,kv,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+        KSN_INVALIDATE_KVOBJ(kv);
         server.dirty++;
         return;
     }
@@ -913,6 +920,7 @@ void persistCommand(client *c) {
         if (removeExpire(c->db,c->argv[1])) {
             keyModified(c,c->db,c->argv[1],kv,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
+            KSN_INVALIDATE_KVOBJ(kv);
             addReply(c,shared.cone);
             server.dirty++;
         } else {

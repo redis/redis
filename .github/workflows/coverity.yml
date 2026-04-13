@@ -14,9 +14,11 @@ jobs:
     - uses: actions/checkout@main
     - name: Download and extract the Coverity Build Tool
       run: |
-          wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=${{ secrets.COVERITY_SCAN_TOKEN }}&project=redis-unstable" -O cov-analysis-linux64.tar.gz
+          wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=${COVERITY_SCAN_TOKEN}&project=redis-unstable" -O cov-analysis-linux64.tar.gz
           mkdir cov-analysis-linux64
           tar xzf cov-analysis-linux64.tar.gz --strip 1 -C cov-analysis-linux64
+      env:
+        COVERITY_SCAN_TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
     - name: Install Redis dependencies
       run: sudo apt install -y gcc tcl8.6 tclx procps libssl-dev
     - name: Build with cov-build
@@ -26,7 +28,10 @@ jobs:
           tar czvf cov-int.tgz cov-int
           curl \
             --form project=redis-unstable \
-            --form email=${{ secrets.COVERITY_SCAN_EMAIL }} \
-            --form token=${{ secrets.COVERITY_SCAN_TOKEN }} \
+            --form email="${COVERITY_SCAN_EMAIL}" \
+            --form token="${COVERITY_SCAN_TOKEN}" \
             --form file=@cov-int.tgz \
             https://scan.coverity.com/builds
+      env:
+        COVERITY_SCAN_EMAIL: ${{ secrets.COVERITY_SCAN_EMAIL }}
+        COVERITY_SCAN_TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}

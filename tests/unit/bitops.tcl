@@ -313,6 +313,31 @@ start_server {tags {"bitops"}} {
         }
     }
 
+    # The AVX-512 BITOP path is triggered when minlen >= 10000 and numkeys >= 8.
+    foreach op {and or xor diff diff1 andor one} {
+        test "BITOP $op with large values (AVX-512 path)" {
+            set min_args 1
+            if {$op eq "diff" || $op eq "diff1" || $op eq "andor"} {
+                set min_args 2
+            }
+            # Test at and above the 10000-byte / 8-key threshold.
+            foreach {numvec strlen} {8 10000 10 10001 10 12000} {
+                assert {$numvec >= $min_args}
+                r flushall
+                set vec {}
+                set veckeys {}
+                for {set j 0} {$j < $numvec} {incr j} {
+                    set str [randstring $strlen $strlen]
+                    lappend vec $str
+                    lappend veckeys vector_$j{t}
+                    r set vector_$j{t} $str
+                }
+                r bitop $op target{t} {*}$veckeys
+                assert_equal [r get target{t}] [simulate_bit_op $op {*}$vec]
+            }
+        }
+    }
+
     test {BITOP with integer encoded source objects} {
         r set a{t} 1
         r set b{t} 2

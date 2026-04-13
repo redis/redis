@@ -1064,6 +1064,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                 != REDISMODULE_OK || count <= 0)
             {
                 RedisModule_Free(vec);
+                if (filter_expr) exprFree(filter_expr);
                 return RedisModule_ReplyWithError(ctx, "ERR invalid COUNT");
             }
             j += 2;
@@ -1072,6 +1073,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                 REDISMODULE_OK || epsilon <= 0)
             {
                 RedisModule_Free(vec);
+                if (filter_expr) exprFree(filter_expr);
                 return RedisModule_ReplyWithError(ctx, "ERR invalid EPSILON");
             }
             j += 2;
@@ -1080,6 +1082,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                 REDISMODULE_OK || ef <= 0 || ef > 1000000)
             {
                 RedisModule_Free(vec);
+                if (filter_expr) exprFree(filter_expr);
                 return RedisModule_ReplyWithError(ctx, "ERR invalid EF");
             }
             j += 2;
@@ -1088,6 +1091,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                 REDISMODULE_OK || filter_ef <= 0)
             {
                 RedisModule_Free(vec);
+                if (filter_expr) exprFree(filter_expr);
                 return RedisModule_ReplyWithError(ctx, "ERR invalid FILTER-EF");
             }
             j += 2;
@@ -1096,6 +1100,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             size_t exprlen;
             char *exprstr = (char*)RedisModule_StringPtrLen(exprarg,&exprlen);
             int errpos;
+            if (filter_expr) exprFree(filter_expr);
             filter_expr = exprCompile(exprstr,&errpos);
             if (filter_expr == NULL) {
                 if ((size_t)errpos >= exprlen) errpos = 0;
@@ -1107,6 +1112,7 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             j += 2;
         } else {
             RedisModule_Free(vec);
+            if (filter_expr) exprFree(filter_expr);
             return RedisModule_ReplyWithError(ctx,
                 "ERR syntax error in VSIM command");
         }

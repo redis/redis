@@ -747,7 +747,7 @@ tags "modules aof external:skip" {
             r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar8
             r exec
 
-            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0} [cmdrstat set r]
+            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0*} [cmdrstat set r]
             
             
             # Load the AOF

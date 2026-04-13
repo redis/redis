@@ -1650,7 +1650,7 @@ void pfaddCommand(client *c) {
     }
 
     hdr = kv->ptr;
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(kv));
+    updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(kv));
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
     if (updated) {
@@ -1841,8 +1841,7 @@ void pfmergeCommand(client *c) {
      * since in theory this is a mass-add of elements. */
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
 
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr),
-                       OBJ_STRING, oldLen, stringObjectLen(kv));
+    updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -2011,7 +2010,7 @@ void pfdebugCommand(client *c) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
+            updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(o));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
             server.dirty++; /* Force propagation on encoding change. */
@@ -2080,7 +2079,7 @@ void pfdebugCommand(client *c) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
+            updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(o));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
             conv = 1;
