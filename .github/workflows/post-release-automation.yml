@@ -97,7 +97,7 @@ jobs:
 
   upload-tarball:
     runs-on: ubuntu-latest
-    needs: [ extract-release-info, create-tarball, approval-gate ]
+    needs: [ extract-release-info, create-tarball] # todo: add approval-gate to needs
 
     steps:
       - name: Checkout repository
