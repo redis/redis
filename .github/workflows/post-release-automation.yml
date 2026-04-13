@@ -1,0 +1,165 @@
+name: Post-Release Automation
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  extract-release-info:
+    if: github.repository == 'redis/redis'
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.release-info.outputs.tag_name }}
+      release_type: ${{ steps.release-info.outputs.release_type }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Extract and validate release information
+        id: release-info
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "Release tag: ${TAG_NAME}"
+
+          LATEST_TAG=$(gh release view --json tagName --jq '.tagName')
+          echo "Latest release tag(from gh release): ${LATEST_TAG}"
+
+          if [[ "${TAG_NAME}" == "${LATEST_TAG}" ]]; then
+            echo "release_type=latest" >> $GITHUB_OUTPUT
+            echo "Detected latest release: ${TAG_NAME}"
+          else
+            echo "release_type=non-latest" >> $GITHUB_OUTPUT
+            echo "Detected non-latest release: ${TAG_NAME} (latest is ${LATEST_TAG})"
+          fi
+
+  create-tarball:
+    needs: extract-release-info
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
+    outputs:
+      sha256: ${{ steps.checksum.outputs.sha256 }}
+      size_mb: ${{ steps.size.outputs.size_mb }}
+      size_warning: ${{ steps.size.outputs.size_warning }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG_NAME }}
+          fetch-depth: 0
+
+      - name: Create tarball
+        run: ./utils/releasetools/01_create_tarball.sh "$TAG_NAME"
+
+      - name: Verify tarball size
+        id: size
+        run: |
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          SIZE_MB=$(du -m "$TARBALL" | cut -f1)
+          echo "Tarball size: ${SIZE_MB} MB"
+          echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
+          if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
+            echo "::warning::Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
+            echo "size_warning=true" >> $GITHUB_OUTPUT
+          else
+            echo "size_warning=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate SHA256 checksum
+        id: checksum
+        run: |
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+          echo "SHA256: $SHA256"
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Upload tarball as artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: redis-${{ env.TAG_NAME }}-tarball
+          path: /tmp/redis-${{ env.TAG_NAME }}.tar.gz
+          compression-level: 0
+
+  # approval-gate:
+  #   needs: [extract-release-info, create-tarball]
+  #   if: needs.extract-release-info.outputs.release_type == 'latest'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Approval gate
+  #       run: |
+  #         echo "Latest release detected. Manual approval required for production deployment."
+  #         # TODO: Implement approval workflow
+  #         # This could use GitHub Environments with required reviewers
+  #         # or a manual approval step
+
+  # upload-tarball:
+  #   needs: [extract-release-info, create-tarball, approval-gate]
+  #   if: always() && !cancelled() && needs.create-tarball.result == 'success' && (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Upload tarball
+  #       run: |
+  #         echo "TODO: Implement tarball upload"
+  #         # This will require:
+  #         # - SSH credentials/keys for upload to download.redis.io
+  #         # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
+
+  # test-release-tarball:
+  #   needs: upload-tarball
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Test release tarball
+  #       run: |
+  #         echo "TODO: Implement release testing using utils/releasetools/03_test_release.sh"
+  #         # This will:
+  #         # - Download the uploaded tarball
+  #         # - Extract and build Redis
+
+  # update-release-hashes:
+  #   needs: test-release-tarball
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Update release hashes
+  #       run: |
+  #         echo "TODO: Implement hash update using utils/releasetools/04_release_hash.sh"
+  #         # This will require:
+  #         # - Access to redis-hashes repository
+  #         # - Git credentials for committing and pushing
+
+  summary-and-notify:
+    needs: [extract-release-info, create-tarball] # update-release-hashes
+    if: always() && github.repository == 'redis/redis'
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
+      RELEASE_TYPE: ${{ needs.extract-release-info.outputs.release_type }}
+      SHA256: ${{ needs.create-tarball.outputs.sha256 }}
+      SIZE_MB: ${{ needs.create-tarball.outputs.size_mb }}
+      SIZE_WARNING: ${{ needs.create-tarball.outputs.size_warning }}
+    steps:
+      - name: Summary
+        run: |
+          {
+            echo "## Post-Release Automation Summary"
+            echo ""
+            echo "- **Release Tag:** ${TAG_NAME}"
+            echo "- **Release Type:** ${RELEASE_TYPE}"
+            echo "- **Tarball SHA256:** ${SHA256}"
+            echo "- **Tarball Size:** ${SIZE_MB} MB"
+            if [ "${SIZE_WARNING}" == "true" ]; then
+              echo ""
+              echo "> [!WARNING]"
+              echo "> Tarball size is outside expected range, check the logs for details."
+            fi
+          } >> $GITHUB_STEP_SUMMARY
+
+      # - name: Send Slack notification
+      #   run: |
+      #     echo "TODO: Implement Slack notification"
+      #     # This will require:
+      #     # - Slack webhook URL or bot token (stored in secrets)
+      #     # - Determine appropriate channel (e.g., #releases, #redis-releases)
+      #     # - Craft message with release information and workflow status

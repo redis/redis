@@ -855,51 +855,52 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
     raxStop(&ri);
 }
 
-typedef struct {
-    streamCG *cg;
-    streamConsumer *c;
-} PendingEntryContext;
-
 void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
-    PendingEntryContext *ctx = privdata;
+    streamConsumer *c = privdata;
+    streamNACK *nack = ri->data;
+    /* NACKs are already defragged by the CG PEL walk (defragStreamCGPendingEntry).
+     * cgroup_ref_node->value is also updated there for all NACKs (including
+     * unowned NACK-zone entries that have no consumer PEL walk).
+     * Here we only fix up the back-pointer to the possibly-relocated consumer. */
+    nack->consumer = c;
+    return NULL;
+}
+
+void* defragStreamCGPendingEntry(raxIterator *ri, void *privdata) {
+    streamCG *cg = privdata;
     streamNACK *nack = ri->data, *newnack;
-    nack->consumer = ctx->c; /* update nack pointer to consumer */
-    nack->cgroup_ref_node->value = ctx->cg; /* Update the value of cgroups_ref node to the consumer group. */
+    /* Update cgroup_ref_node to the possibly-relocated CG for every NACK.
+     * Consumer-owned entries will get this overwritten again redundantly by
+     * defragStreamConsumerPendingEntry; unowned (NACK zone) entries have no
+     * consumer PEL walk, so this is their only chance. */
+    nack->cgroup_ref_node->value = cg;
     newnack = activeDefragAlloc(nack);
     if (newnack) {
-        /* Update consumer group pointer to the nack. */
-        void *prev;
-        raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
-        serverAssert(prev==nack);
-        
-        /* Update the doubly-linked list pointers in adjacent nacks.
-         * When we move a nack to a new address, we need to update the
-         * pel_prev->pel_next and pel_next->pel_prev pointers. */
+        /* If this NACK is owned by a consumer, update the consumer's PEL. */
+        if (newnack->consumer) {
+            void *prev;
+            raxInsert(newnack->consumer->pel, ri->key, ri->key_len, newnack, &prev);
+            serverAssert(prev == nack);
+        }
         if (newnack->pel_prev) {
             newnack->pel_prev->pel_next = newnack;
         } else {
-            /* This is the head of the list */
-            ctx->cg->pel_time_head = newnack;
+            cg->pel_time_head = newnack;
         }
         if (newnack->pel_next) {
             newnack->pel_next->pel_prev = newnack;
         } else {
-            /* This is the tail of the list */
-            ctx->cg->pel_time_tail = newnack;
+            cg->pel_time_tail = newnack;
+        }
+        if (cg->pel_nack_tail == nack) {
+            cg->pel_nack_tail = newnack;
         }
     }
     return newnack;
 }
 
-typedef struct {
-    stream *s;
-    streamCG *cg;
-} StreamConsumerContext;
-
 void* defragStreamConsumer(raxIterator *ri, void *privdata) {
-    StreamConsumerContext *ctx = privdata;
-    stream *s = ctx->s;
-    streamCG *cg = ctx->cg;
+    stream *s = privdata;
     streamConsumer *c = ri->data;
     void *newc = activeDefragAlloc(c);
     if (newc) {
@@ -911,8 +912,7 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
     if (c->pel) {
         /* Update pel back-pointer to new stream */
         c->pel->alloc_size = &s->alloc_size;
-        PendingEntryContext pel_ctx = {cg, c};
-        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, &pel_ctx);
+        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, c);
     }
     return newc; /* returns NULL if c was not defragged */
 }
@@ -925,14 +925,12 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     if (cg->pel) {
         /* Update pel back-pointer to new stream */
         cg->pel->alloc_size = &s->alloc_size;
-        defragRadixTree(&cg->pel, 0, NULL, NULL);
+        defragRadixTree(&cg->pel, 0, defragStreamCGPendingEntry, cg);
     }
-    /* pel_time_head/tail are just pointers to NACKs in pel, no separate defrag needed */
     if (cg->consumers) {
         /* Update consumers back-pointer to new stream */
         cg->consumers->alloc_size = &s->alloc_size;
-        StreamConsumerContext consumer_ctx = {s, cg};
-        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);
+        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, s);
     }
     return cg;
 }

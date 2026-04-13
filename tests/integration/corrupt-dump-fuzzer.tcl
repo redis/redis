@@ -145,7 +145,13 @@ foreach sanitize_dump {no yes} {
                         }
                     }
                 } else {
-                    r ping ;# an attempt to check if the server didn't terminate (this will throw an error that will terminate the tests)
+                    # an attempt to check if the server didn't terminate (this will throw an error that will terminate the tests)
+                    if { [catch { r ping } err] } {
+                        set msg "Server crashed after RESTORE with payload: $printable_dump"
+                        write_log_line 0 $msg
+                        puts $msg
+                        error $err
+                    }
                 }
 
                 set print_commands false

@@ -21,9 +21,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         set client_list [r client list]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client_list
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client_list
         }
     }
 
@@ -36,9 +36,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=* read-events=* avg-pipeline-len-sum=* avg-pipeline-len-cnt=*} $client
         }
     } 
 
@@ -139,6 +139,74 @@ start_server {tags {"introspection"}} {
 
         # We executed 3 commands - EVAL, which in turn executed PING and finally CLIENT INFO
         assert_equal [expr $tot_cmd_before+3] $tot_cmd_after
+    }
+
+    test {CLIENT INFO read-events and pipeline-length stats} {
+        # Use a fresh client so counters start from a known state
+        set r2 [redis_client]
+
+        # Baseline: the redis_client constructor issues some commands internally,
+        # so capture the current state rather than assuming zeros.
+        set info1 [$r2 client info]
+        set re1 [get_field_in_client_info $info1 "read-events"]
+        set plsum1 [get_field_in_client_info $info1 "avg-pipeline-len-sum"]
+        set plcnt1 [get_field_in_client_info $info1 "avg-pipeline-len-cnt"]
+
+        # Send 3 sequential (non-pipelined) commands
+        $r2 ping
+        $r2 ping
+        $r2 ping
+
+        set info2 [$r2 client info]
+        set re2 [get_field_in_client_info $info2 "read-events"]
+        set plsum2 [get_field_in_client_info $info2 "avg-pipeline-len-sum"]
+        set plcnt2 [get_field_in_client_info $info2 "avg-pipeline-len-cnt"]
+
+        # read-events should have increased (3 PINGs + the CLIENT INFO itself)
+        assert_morethan_equal $re2 [expr {$re1 + 4}]
+
+        # For sequential commands each batch has exactly 1 command,
+        # so delta of sum should equal delta of cnt (average pipeline length = 1.0)
+        set delta_sum [expr {$plsum2 - $plsum1}]
+        set delta_cnt [expr {$plcnt2 - $plcnt1}]
+        assert_morethan $delta_sum 0
+        assert_equal $delta_sum $delta_cnt
+
+        $r2 close
+    }
+
+    test {CLIENT INFO pipeline-length stats for pipelined commands} {
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+
+        # Capture baseline from CLIENT LIST
+        set info_list [r client list]
+        set plsum1 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-sum"]
+        set plcnt1 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-cnt"]
+
+        # Send 5 pipelined commands without reading replies
+        for {set i 0} {$i < 5} {incr i} {
+            $rd ping
+        }
+
+        # Read all 5 replies to ensure they have been processed
+        for {set i 0} {$i < 5} {incr i} {
+            $rd read
+        }
+
+        set info_list [r client list]
+        set plsum2 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-sum"]
+        set plcnt2 [get_field_in_client_list $rd_id $info_list "avg-pipeline-len-cnt"]
+
+        # All 5 commands must have been counted in the sum
+        set delta_sum [expr {$plsum2 - $plsum1}]
+        set delta_cnt [expr {$plcnt2 - $plcnt1}]
+        assert_equal $delta_sum 5
+        assert_morethan $delta_cnt 0
+        assert_morethan_equal $delta_sum $delta_cnt
+
+        $rd close
     }
 
     test {CLIENT KILL with illegal arguments} {

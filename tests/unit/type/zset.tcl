@@ -1114,6 +1114,18 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 e 5} [r zrange zsete{t} 0 -1 withscores]
         }
 
+        test "ZDIFF algorithm 2 empty result early exit - $encoding" {
+            # Force algorithm 2 by inflating setnum with non-existing keys.
+            # algo_one_work = len(src[0]) * setnum / 2 = 2 * 10 / 2 = 10
+            # algo_two_work = 2 + 2 + 0*8 = 4
+            # algo_one (10) > algo_two (4) -> algorithm 2 is selected
+            r del zseta{t} zsetb{t} zsetc{t}
+            r zadd zseta{t} 1 a 2 b
+            r zadd zsetb{t} 1 a 2 b
+            assert_equal 0 [r zdiffstore zsetc{t} 10 zseta{t} zsetb{t} nx1{t} nx2{t} nx3{t} nx4{t} nx5{t} nx6{t} nx7{t} nx8{t}]
+            assert_equal {} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
         test "ZDIFF fuzzing - $encoding" {
             for {set j 0} {$j < 100} {incr j} {
                 unset -nocomplain s

@@ -85,6 +85,8 @@ TEST_MODULES = \
     internalsecret.so \
     configaccess.so \
     test_keymeta.so \
+    keymeta_notify.so \
+    atomicslotmigration.so
     atomicslotmigration.so \
     hfe_crash.so
 

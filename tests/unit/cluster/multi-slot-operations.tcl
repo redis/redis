@@ -195,6 +195,7 @@ foreach trim_method {"active" "bg"} {
         wait_for_ofs_sync [Rn 0] [Rn 2]
 
         set loglines [count_log_lines 0]
+        set loglines2 [count_log_lines -2]
 
         # since we have optimization, if the master is not running in blocking context,
         # we will try to run in blocking ASYNC mode, so we need to use MULTI/EXEC to make it blocking
@@ -207,7 +208,7 @@ foreach trim_method {"active" "bg"} {
         if {$sync_method eq "ASYNC"} {
             set sync_option "ASYNC"
         }
-        R 0 SFLUSH 0 8191 $sync_option
+        R 0 SFLUSH 0 8190 $sync_option
 
         # Execute EXEC if using SYNC
         if {$sync_method eq "SYNC"} {
@@ -223,10 +224,12 @@ foreach trim_method {"active" "bg"} {
 
         if {$sync_method ne "SYNC"} {
             if {$trim_method eq "active"} {
-                wait_for_log_messages 0 {"*Active trim completed for slots*0-8191*"} $loglines 1000 10
+                wait_for_log_messages 0 {"*Active trim completed for slots*0-8190*"} $loglines 1000 10
+                wait_for_log_messages -2 {"*Active trim completed for slots*0-8190*"} $loglines2 1000 10
             } else {
                 # background trim
-                wait_for_log_messages 0 {"*Background trim started for slots*0-8191*"} $loglines 1000 10
+                wait_for_log_messages 0 {"*Background trim started for slots*0-8190*"} $loglines 1000 10
+                wait_for_log_messages -2 {"*Background trim started for slots*0-8190*"} $loglines2 1000 10
             }
         }
     }
@@ -241,14 +244,14 @@ foreach trim_method {"active" "bg"} {
         }
 
         set rd [redis_deferring_client 0]
-        $rd SFLUSH 0 8191 SYNC ;# running in blocking async method
+        $rd SFLUSH 0 8190 SYNC ;# running in blocking async method
 
         # FLUSHDB will cancel all trim jobs
         R 0 SELECT 0
         R 0 FLUSHDB SYNC
 
         # SFLUSH should be unblocked and return empty array
-        assert_equal [$rd read] "{0 8191}"
+        assert_equal [$rd read] "{0 8190}"
         $rd close
     }
 
@@ -267,7 +270,7 @@ foreach trim_method {"active" "bg"} {
         wait_for_ofs_sync [Rn 0] [Rn 2]
 
         set rd [redis_deferring_client 0]
-        $rd SFLUSH 0 8191 SYNC ;# running in blocking async method
+        $rd SFLUSH 0 8190 SYNC ;# running in blocking async method
 
         # we can read the slot 1 key
         assert_equal [R 0 get $slot1_key] "slot1"
@@ -278,11 +281,42 @@ foreach trim_method {"active" "bg"} {
         assert_error "*TRYAGAIN Slot is being trimmed*" {R 0 set $slot1_key "value1"}
 
         # wait for SFLUSH to complete
-        assert_equal [$rd read] "{0 8191}"
+        assert_equal [$rd read] "{0 8190}"
         $rd close
 
         # there is no trim event since we sfluh the owned slots of this node
         assert_equal [R 0 asm.get_cluster_event_log] {}
         assert_equal [R 2 asm.get_cluster_event_log] {}
+    }
+
+    test "SFLUSH all local slots uses flushdb optimization (no trim)" {
+        R 0 flushall
+        R 0 debug asm-trim-method active
+
+        # Add keys in slot 0
+        for {set i 0} {$i < 100} {incr i} {
+            R 0 set "{06S}$i" "value$i"
+        }
+        assert {[R 0 DBSIZE] == 100}
+        wait_for_ofs_sync [Rn 0] [Rn 2]
+        assert {[R 2 DBSIZE] == 100}
+
+        set prev_trim_done [CI 0 cluster_slot_migration_stats_active_trim_completed]
+        set prev_trim_done2 [CI 2 cluster_slot_migration_stats_active_trim_completed]
+
+        # SFLUSH with multiple ranges that together cover all local slots.
+        # If the selected slots are exactly the same as the local slots, we can
+        # simply flush the entire DB.
+        assert_match "{0 8191}" [R 0 SFLUSH 0 1000 1001 5000 5001 8191]
+        assert {[R 0 DBSIZE] == 0}
+
+        # Verify replica is also flushed
+        wait_for_ofs_sync [Rn 0] [Rn 2]
+        assert {[R 2 DBSIZE] == 0}
+
+        # Verify active_trim_completed counter did NOT increase since it will trigger
+        # flush (similar to flushdb command) instead of triggering trim.
+        assert_equal [CI 0 cluster_slot_migration_stats_active_trim_completed] $prev_trim_done
+        assert_equal [CI 2 cluster_slot_migration_stats_active_trim_completed] $prev_trim_done2
     }
 }
