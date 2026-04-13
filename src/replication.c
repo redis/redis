@@ -459,8 +459,7 @@ typedef struct replBufWriter {
     size_t start_pos;      /* Byte offset within start_node where writing began. */
     size_t total_len;      /* Total bytes written across all writes. */
     int new_blocks;        /* Number of new blocks allocated during this stream. */
-    replBufBlock *tail;    /* Cached tail block for fast path. */
-    size_t avail;          /* Cached available bytes in tail for fast path. */
+    replBufBlock *tail;    /* Current tail block. */
 } replBufWriter;
 
 /* Initialize the writer, cache the current tail position. */
@@ -479,7 +478,6 @@ static void replBufWriterBegin(replBufWriter *wr) {
     wr->total_len = 0;
     wr->new_blocks = 0;
     wr->tail = tail;
-    wr->avail = tail ? (tail->size - tail->used) : 0;
 }
 
 /* Allocate a new replication backlog block. Called when current block is full. */
@@ -504,7 +502,6 @@ static void replBufWriterAllocBlock(replBufWriter *wr, size_t hint) {
 
     /* Update stream state. */
     wr->tail = tail;
-    wr->avail = tail->size;
     wr->new_blocks++;
     if (wr->start_node == NULL) {
         wr->start_node = listLast(server.repl_buffer_blocks);
@@ -515,11 +512,11 @@ static void replBufWriterAllocBlock(replBufWriter *wr, size_t hint) {
 /* Slow path: fill remainder of current block + allocate as needed. */
 static void replBufWriterAppendSlow(replBufWriter *wr, const char *buf, size_t len) {
     while (len > 0) {
-        if (wr->avail > 0) {
-            size_t copy = (wr->avail >= len) ? len : wr->avail;
+        size_t avail = wr->tail ? wr->tail->size - wr->tail->used : 0;
+        if (avail > 0) {
+            size_t copy = (avail >= len) ? len : avail;
             memcpy(wr->tail->buf + wr->tail->used, buf, copy);
             wr->tail->used += copy;
-            wr->avail -= copy;
             wr->total_len += copy;
             buf += copy;
             len -= copy;
@@ -534,10 +531,10 @@ static void replBufWriterAppendSlow(replBufWriter *wr, const char *buf, size_t l
  * the compiler a chance to inline the common case where the write fits entirely
  * in the current block. */
 static inline void replBufWriterAppend(replBufWriter *wr, const char *buf, size_t len) {
-    if (len > 0 && wr->avail >= len) {
+    size_t avail = wr->tail ? wr->tail->size - wr->tail->used : 0;
+    if (len > 0 && avail >= len) {
         memcpy(wr->tail->buf + wr->tail->used, buf, len);
         wr->tail->used += len;
-        wr->avail -= len;
         wr->total_len += len;
         return;
     }
