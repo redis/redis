@@ -43,8 +43,8 @@
  *
  * 3. Depends on var size:           vec v;
  *                                   void *vstack[8];
+ *                                   vec_init(&v, vstack, 8);
  *                                   vec_reserve(&v, varsize); // varsize <= 8 ? stack : heap
- *                                   vec_init(&v, NULL, varsize);
  *
  * Notes:
  * ------
