@@ -18,9 +18,8 @@ set ::tlsdir "tests/tls"
 
 # Continuously sends SET commands to the server. If key is omitted, a random key
 # is used for every SET command. The value is always random.
-#
-# cluster_load (default 0): when 1, exit 0 on MOVED or ASK while draining pipelined
-# SET replies; the final drain uses catch so read errors there do not fail shutdown.
+# cluster_load (default 0): when 1, MOVED/ASK replies are tolerated while
+# draining pipelined responses.
 proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {cluster_load 0}} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
@@ -54,7 +53,7 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {cluster_
                 if {$cluster_load == 1} {
                     if {[catch {$r read} err]} {
                         if {[string match {MOVED*} $err] || [string match {ASK*} $err]} {
-                            exit 0
+                            continue
                         }
                         error $err
                     }
@@ -76,7 +75,12 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {cluster_
     # Read remaining replies
     for {set i 0} {$i < $count} {incr i} {
         if {$cluster_load == 1} {
-            catch {$r read}
+            if {[catch {$r read} err]} {
+                if {[string match {MOVED*} $err] || [string match {ASK*} $err]} {
+                    continue
+                }
+                error $err
+            }
         } else {
             $r read
         }
@@ -84,4 +88,8 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {cluster_
     exit 0
 }
 
-gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] [lindex $argv 7]
+set cluster_load 0
+if {[llength $argv] > 7} {
+    set cluster_load [lindex $argv 7]
+}
+gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] $cluster_load
