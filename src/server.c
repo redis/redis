@@ -7797,6 +7797,7 @@ int __test_num = 0;
 typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
+int vectorTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7820,6 +7821,7 @@ struct redisTest {
     {"fwtree", fwtreeTest},
     {"estore", estoreTest},
     {"ebuckets", ebucketsTest},
+    {"vector", vectorTest},
     {"bitmap", bitopsTest},
     {"rax", raxTest},
     {"zset", zsetTest},
