@@ -149,6 +149,11 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
 
+    /* If there are no Pub/Sub subscribers (neither pattern nor channel),
+     * skip the remaining notification work since nobody would receive it. */
+    if (dictSize(server.pubsub_patterns) == 0 && kvstoreSize(server.pubsub_channels) == 0 &&
+        kvstoreSize(server.pubsubshard_channels) == 0)  return;
+
     eventobj = createStringObject(event,strlen(event));
     int len = ll2string(buf,sizeof(buf),dbid);
 
