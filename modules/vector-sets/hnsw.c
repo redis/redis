@@ -46,6 +46,8 @@
 #include <assert.h>
 #include "hnsw.h"
 #include "mixer.h"
+#include <time.h>
+#include <pthread.h>
 
 /* Check if we can compile SIMD code with function attributes.
  * This defines HAVE_AVX2, HAVE_AVX512, and HAVE_POPCNT when the compiler
@@ -128,6 +130,60 @@
 static void (*hfree)(void *p) = free;
 static void *(*hmalloc)(size_t s) = malloc;
 static void *(*hrealloc)(void *old, size_t s) = realloc;
+
+/* --- Thread-Local PRNG (xoshiro128**) Implementation --- */
+
+// Thread-local state variables
+static __thread uint32_t thread_rng_state[4];
+static __thread int thread_rng_initialized = 0;
+
+// Rotate Left helper function
+static inline uint32_t rotl(const uint32_t x, int k) {
+    return (x << k) | (x >> (32 - k));
+}
+
+/**
+ * thread_local_rand:
+ * Returns a 32-bit pseudo-random number.
+ * Each thread maintains its own state to avoid lock contention.
+ */
+static uint32_t thread_local_rand(void) {
+    if (!thread_rng_initialized) {
+        // Seed using time and thread ID for high entropy per thread
+        uint32_t s = (uint32_t)time(NULL) ^ (uint32_t)(uintptr_t)pthread_self();
+        
+        // Splitmix32-style initialization to fill the 4 state slots
+        for (int i = 0; i < 4; i++) {
+            s += 0x9e3779b9;
+            uint32_t z = s;
+            z = (z ^ (z >> 16)) * 0x85ebca6b;
+            z = (z ^ (z >> 13)) * 0xc2b2ae35;
+            thread_rng_state[i] = z ^ (z >> 16);
+        }
+        
+        // Ensure state is not all zeros
+        if (thread_rng_state[0] == 0 && thread_rng_state[1] == 0 && 
+            thread_rng_state[2] == 0 && thread_rng_state[3] == 0) {
+            thread_rng_state[0] = 1;
+        }
+        
+        thread_rng_initialized = 1;
+    }
+
+    // xoshiro128** algorithm
+    const uint32_t result = rotl(thread_rng_state[1] * 5, 7) * 9;
+    const uint32_t t = thread_rng_state[1] << 9;
+
+    thread_rng_state[2] ^= thread_rng_state[0];
+    thread_rng_state[3] ^= thread_rng_state[1];
+    thread_rng_state[1] ^= thread_rng_state[2];
+    thread_rng_state[0] ^= thread_rng_state[3];
+
+    thread_rng_state[2] ^= t;
+    thread_rng_state[3] = rotl(thread_rng_state[3], 11);
+
+    return result;
+}
 
 void hnsw_set_allocator(void (*free_ptr)(void*), void *(*malloc_ptr)(size_t),
                         void *(*realloc_ptr)(void*, size_t))
@@ -789,13 +845,18 @@ void hnsw_normalize_vector(float *x, float *l2ptr, uint32_t dim) {
     for (i = 0; i < dim; i++) x[i] /= l2;
 }
 
-/* Helper function to generate random level. */
+/* Helper function to generate random level using thread-local PRNG. */
 uint32_t random_level(void) {
-    static const int threshold = HNSW_P * RAND_MAX;
+    // We scale the probability HNSW_P (usually 0.25 or 0.5) to the full 32-bit range.
+    // 0.25 * 0xFFFFFFFF ensures we maintain the same logic as the original.
+    static const uint32_t threshold = (uint32_t)(HNSW_P * UINT32_MAX);
     uint32_t level = 0;
 
-    while (rand() < threshold && level < HNSW_MAX_LEVEL)
+    // Use the thread-local PRNG to avoid global lock contention.
+    while (thread_local_rand() < threshold && level < HNSW_MAX_LEVEL) {
         level += 1;
+    }
+    
     return level;
 }
 
@@ -2374,8 +2435,9 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
         if (current->level < level || current->layers[level].num_links == 0)
             continue;
 
-        /* Choose random neighbor at this level. */
-        uint32_t rand_neighbor = rand() % current->layers[level].num_links;
+        /* Choose a random neighbor at this level using the thread-local PRNG.
+         * This avoids the global lock contention associated with rand(). */
+        uint32_t rand_neighbor = thread_local_rand() % current->layers[level].num_links;
         current = current->layers[level].links[rand_neighbor];
     }
 
@@ -2385,18 +2447,19 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
     uint32_t num_walks = (uint32_t)(logN * c);
 
     /* Avoid the ping-pong effect: imagine there are just two nodes and
-     * the number of walks selected is even. We will select always the
+     * the number of walks selected is even. We will always select the
      * first element of the graph; conversely, if it is odd, we will always
-     * select the other element. One way to add more selection randomness is
-     * to randomly add '1' or '0' to the number of walks to perform. */
-    num_walks += rand() & 1;
+     * select the other element. To improve selection randomness, we 
+     * add '1' or '0' to the number of walks using our thread-local PRNG. 
+     * This avoids the global lock contention found in standard rand(). */
+    num_walks += thread_local_rand() & 1;
 
     // Perform random walk at level 0.
     for (uint32_t i = 0; i < num_walks; i++) {
         if (current->layers[0].num_links == 0) return current;
 
-        // Choose random neighbor.
-        uint32_t rand_neighbor = rand() % current->layers[0].num_links;
+        // Choose random neighbor using thread-local PRNG
+        uint32_t rand_neighbor = thread_local_rand() % current->layers[0].num_links;
         current = current->layers[0].links[rand_neighbor];
     }
     return current;
