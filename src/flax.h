@@ -91,6 +91,7 @@ int flaxNext(flaxIterator *it);
 int flaxPrev(flaxIterator *it);
 void flaxStop(flaxIterator *it);
 int flaxEOF(flaxIterator *it);
+void flaxIterSetData(flaxIterator *it, void *data);
 
 /* --- Introspection --- */
 uint16_t flaxSize(flax *f);

@@ -474,6 +474,16 @@ int flaxEOF(flaxIterator *it) {
     return it->idx < 0 || it->idx >= it->f->numele;
 }
 
+/* Replace the data pointer at the current iterator position. Unlike
+ * flaxInsert(), this is safe to call during iteration: it only writes to
+ * the value slot at the current index and never touches the key layout,
+ * element count, or capacity.  The iterator's own 'data' field is updated
+ * to reflect the new value. */
+void flaxIterSetData(flaxIterator *it, void *data) {
+    flax_values(it->f)[it->idx] = data;
+    it->data = data;
+}
+
 /* ----------------------------- Unit tests --------------------------------- */
 
 #ifdef REDIS_TEST
@@ -1145,6 +1155,32 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "=", 42) == 0);
 
         flaxStop(&it);
+        flaxFree(a);
+    }
+
+    TEST("flaxIterSetData replaces value during iteration") {
+        flax *a = flaxNew();
+        flaxInsert(a, 10, "ten", NULL);
+        flaxInsert(a, 20, "twenty", NULL);
+        flaxInsert(a, 30, "thirty", NULL);
+
+        flaxIterator it;
+        flaxStart(&it, a);
+        assert(flaxSeek(&it, "^", 0));
+        do {
+            if (it.key == 20) flaxIterSetData(&it, "TWENTY");
+        } while (flaxNext(&it));
+        flaxStop(&it);
+
+        void *val;
+        assert(flaxFind(a, 10, &val) == 1);
+        assert(strcmp(val, "ten") == 0);
+        assert(flaxFind(a, 20, &val) == 1);
+        assert(strcmp(val, "TWENTY") == 0);
+        assert(flaxFind(a, 30, &val) == 1);
+        assert(strcmp(val, "thirty") == 0);
+        assert(flaxSize(a) == 3);
+
         flaxFree(a);
     }
 

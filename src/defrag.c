@@ -958,7 +958,7 @@ void* defragStreamCGPendingEntry(raxIterator *ri, void *privdata) {
             nack->cgroup_ref_node->value = cg;
             newnack = activeDefragAlloc(nack);
             if (newnack) {
-                flaxInsert(f, fi.key, newnack, NULL);
+                flaxIterSetData(&fi, newnack);
                 relinkStreamNack(cg, nack, newnack);
             }
         } while (flaxNext(&fi));
