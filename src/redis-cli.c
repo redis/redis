@@ -2997,7 +2997,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-fix-with-unreachable-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
-        } else if (!strcmp(argv[i],"--shutdown-nosave-on-del")) {
+        } else if (!strcmp(argv[i],"--cluster-shutdown-nosave-on-del")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_SHUTDOWN_NOSAVE_ON_DEL;
         } else if (!strcmp(argv[i],"--test_hint") && !lastarg) {
@@ -7567,7 +7567,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     }
 
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_SHUTDOWN_NOSAVE_ON_DEL) {
-        /* With --shutdown-nosave-on-del: send SHUTDOWN NOSAVE so that clients get a
+        /* With --cluster-shutdown-nosave-on-del: send SHUTDOWN NOSAVE so that clients get a
          * clear connection failure instead of connecting to a stale standalone
          * node.  If SHUTDOWN fails, fall back to CLUSTER RESET SOFT. */
         clusterManagerLogInfo(">>> Sending SHUTDOWN NOSAVE to the deleted node.\n");
