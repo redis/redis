@@ -3398,11 +3398,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         decrRefCount(o);
                         return NULL;
                     }
+                    streamNACK *nack = result;
 
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
-                    streamNACK *nack = result;
                     nack->consumer = consumer;
                     if (!pelTryInsert(consumer->pel,&nack_id,nack,&consumer->pel_count)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
