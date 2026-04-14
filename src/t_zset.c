@@ -4098,8 +4098,8 @@ void zscoreCommand(client *c) {
 
 /* ZMSCORE fast path for OBJ_ENCODING_LISTPACK.
  *
- * Instead of calling zzlFind() per requested member — each a full O(L)
- * traversal involving varint decoding, bounds checking, and skip logic
+ * Instead of calling zzlFind() per requested member — each traversal 
+ * involving varint decoding, bounds checking, and skip logic
  * per entry — walk the listpack once and match each member entry against
  * all N requested members using memcmp comparisons.
  *
@@ -4109,8 +4109,8 @@ void zscoreCommand(client *c) {
  * compares member entries.  Score entries are decoded via lpGetWithSize()
  * just to advance the pointer — wasted work.
  *
- * This reduces the expensive listpack traversal overhead from O(N × L)
- * to O(L), replacing it with O(N) cheap memcmp calls per member entry.
+ * This reduces the expensive listpack traversal overhead replacing it with 
+ * cheap memcmp calls per member entry.
  *
  * Score pointers are stored during the single pass and used to emit
  * replies after traversal completes. */
