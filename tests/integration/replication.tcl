@@ -1828,3 +1828,79 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+# Fullsync should not free the functions lib ctx while the replica has 
+# a timed out function that is still running.
+foreach type {script function} {
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            set master [srv -1 client]
+            set master_host [srv -1 host]
+            set master_port [srv -1 port]
+            set replica [srv 0 client]
+
+            test "Fullsync should not free scripting engine on a replica while a $type is running" {
+                $master config set repl-diskless-sync yes
+                $master config set repl-diskless-sync-delay 0
+                # Set small client output buffer limit to trigger fullsync quickly
+                $master config set client-output-buffer-limit "replica 1k 1k 0"
+                $replica config set busy-reply-threshold 1 ;# script timeout in 1 ms
+
+                # Load function
+                if {$type eq "function"} {
+                    $master function load replace {#!lua name=blocklib
+                        redis.register_function{
+                            function_name='blockfunc',
+                            callback=function() while true do end end,
+                            flags={'no-writes'}
+                        }
+                    }
+                }
+
+                # Start replication
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+
+                # Run the blocking script on replica
+                set rd [redis_deferring_client]
+                if {$type eq "script"} {
+                    $rd eval {while true do end} 0
+                } else {
+                    $rd fcall_ro blockfunc 0
+                }
+
+                # Verify replica replies with BUSY
+                wait_for_condition 50 100 {
+                    [catch {$replica ping} e] == 1 && [string match {*BUSY*} $e]
+                } else {
+                    fail "$type didn't become busy"
+                }
+
+                # Fills client output buffer and triggers fullsync
+                populate 5 bigkey 1000000 -1
+                wait_for_condition 50 100 {
+                    [s -1 sync_full] >= 2
+                } else {
+                    fail "Fullsync was not triggered"
+                }
+                
+                # Verify replica is still running the function
+                after 1000
+                catch {$replica ping} e
+                assert_match {*BUSY*} $e "replica should still reply with BUSY"
+
+                if {$type eq "script"} {
+                    $replica script kill
+                } else {
+                    $replica function kill
+                }
+
+                # Verify replica is responsive again
+                catch {$rd read} result
+                $rd close
+                wait_for_sync $replica
+                assert_equal [$replica ping] "PONG"
+            }
+        }
+    }
+}
