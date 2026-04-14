@@ -392,7 +392,9 @@ void *pelRemove(rax *pel, streamID *id, uint64_t *count) {
     /* Flax bucket. */
     flax *f = (flax *)bucket;
     void *old;
+    size_t before = flaxAllocSize(f);
     if (!flaxRemove(f, fkey, &old)) return NULL;
+    if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(f);
     if (count) (*count)--;
 
     if (f->numele == 0) {

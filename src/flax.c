@@ -242,6 +242,16 @@ int flaxRemove(flax *f, uint8_t key, void **old) {
     }
 
     f->numele--;
+
+    if (f->numele > 0 &&
+        f->capacity > FLAX_INIT_CAPACITY &&
+        f->numele <= f->capacity / 2)
+    {
+        uint16_t new_cap = f->capacity / 2;
+        if (new_cap < FLAX_INIT_CAPACITY) new_cap = FLAX_INIT_CAPACITY;
+        flax_resize(f, new_cap);
+    }
+
     return 1;
 }
 
@@ -663,22 +673,21 @@ int flaxTest(int argc, char **argv, int flags) {
         flaxFreeWithCallback(a, flax_test_counting_free, NULL);
     }
 
-    TEST("shrink after many removals") {
+    TEST("auto-shrink on remove") {
         flax *a = flaxNew();
         for (int i = 0; i < 64; i++)
             flaxInsert(a, (uint8_t)i, "x", NULL);
 
         assert(flaxSize(a) == 64);
-        uint16_t cap_before = a->capacity;
+        uint16_t cap_full = a->capacity;
 
         for (int i = 0; i < 56; i++)
             flaxRemove(a, (uint8_t)i, NULL);
 
         assert(flaxSize(a) == 8);
-        flaxShrink(a);
-        if (a->capacity >= cap_before) {
-            ERR("shrink: capacity %u should be less than %u",
-                a->capacity, cap_before);
+        if (a->capacity >= cap_full) {
+            ERR("auto-shrink: capacity %u should be less than %u after removals",
+                a->capacity, cap_full);
         }
 
         for (int i = 56; i < 64; i++) {
@@ -686,6 +695,44 @@ int flaxTest(int argc, char **argv, int flags) {
             assert(flaxFind(a, (uint8_t)i, &val) == 1);
             assert(strcmp(val, "x") == 0);
         }
+
+        flaxFree(a);
+    }
+
+    TEST("explicit shrink after removals") {
+        flax *a = flaxNew();
+        for (int i = 0; i < 64; i++)
+            flaxInsert(a, (uint8_t)i, "x", NULL);
+
+        for (int i = 0; i < 56; i++)
+            flaxRemove(a, (uint8_t)i, NULL);
+
+        assert(flaxSize(a) == 8);
+        uint16_t cap_after_remove = a->capacity;
+        flaxShrink(a);
+        assert(a->capacity <= cap_after_remove);
+        assert(a->capacity >= a->numele);
+
+        for (int i = 56; i < 64; i++) {
+            void *val;
+            assert(flaxFind(a, (uint8_t)i, &val) == 1);
+            assert(strcmp(val, "x") == 0);
+        }
+
+        flaxFree(a);
+    }
+
+    TEST("no shrink below FLAX_INIT_CAPACITY") {
+        flax *a = flaxNew();
+        for (int i = 0; i < 4; i++)
+            flaxInsert(a, (uint8_t)i, "x", NULL);
+
+        assert(a->capacity == FLAX_INIT_CAPACITY);
+        for (int i = 0; i < 3; i++)
+            flaxRemove(a, (uint8_t)i, NULL);
+
+        assert(flaxSize(a) == 1);
+        assert(a->capacity == FLAX_INIT_CAPACITY);
 
         flaxFree(a);
     }
