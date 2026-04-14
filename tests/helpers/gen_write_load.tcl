@@ -50,11 +50,12 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
         incr count
         if {$count % 500 == 0} {
             for {set i 0} {$i < 500} {incr i} {
-                if {[catch {$r read} err]} {
+                # Capture opts to preserve original errorInfo/errorCode on re-raise.
+                if {[catch {$r read} err opts]} {
                     if {$ignore_error_reply && ([string match {MOVED*} $err] || [string match {ASK*} $err])} {
                         continue
                     }
-                    error $err
+                    return -options $opts $err
                 }
             }
             set count 0
@@ -70,11 +71,11 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
 
     # Read remaining replies
     for {set i 0} {$i < $count} {incr i} {
-        if {[catch {$r read} err]} {
+        if {[catch {$r read} err opts]} {
             if {$ignore_error_reply && ([string match {MOVED*} $err] || [string match {ASK*} $err])} {
                 continue
             }
-            error $err
+            return -options $opts $err
         }
     }
     exit 0
