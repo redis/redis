@@ -268,7 +268,10 @@ static void protectClientReplyObjects(void) {
 
                 if (header->payload_type == BULK_STR_REF) {
                     bulkStrRef *str_ref = (bulkStrRef *)ptr;
-                    if (str_ref->obj != NULL) {
+
+                    /* Only duplicate if the object is referenced elsewhere,
+                     * to avoid unnecessary copies for solely-owned objects. */
+                    if (str_ref->obj != NULL && str_ref->obj->refcount > 1) {
                         /* Untrack this client from the clients_reply_refs dict before releasing the reference. */
                         replyRefsUntrackClient(c, str_ref->obj);
 
@@ -297,7 +300,10 @@ static void protectClientReplyObjects(void) {
 
                         if (header->payload_type == BULK_STR_REF) {
                             bulkStrRef *str_ref = (bulkStrRef *)ptr;
-                            if (str_ref->obj != NULL) {
+
+                            /* Only duplicate if the object is referenced elsewhere,
+                             * to avoid unnecessary copies for solely-owned objects. */
+                            if (str_ref->obj != NULL && str_ref->obj->refcount > 1) {
                                 /* Untrack this client from the clients_reply_refs dict before releasing the reference. */
                                 replyRefsUntrackClient(c, str_ref->obj);
 
@@ -317,8 +323,6 @@ static void protectClientReplyObjects(void) {
          * pending ref list since all refs have been duplicated above. */
         freeClientIODeferredObjects(c, 0);
         tryUnlinkClientFromPendingRefReply(c, 1);
-
-        /* Mark client as dirty so its unshared memory stats get recalculated. */
         c->flags |= CLIENT_UNSHARED_MEM_DIRTY;
     }
 
