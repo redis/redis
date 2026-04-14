@@ -20,7 +20,7 @@ set ::tlsdir "tests/tls"
 # is used for every SET command. The value is always random.
 # cluster_load (default 0): when 1, MOVED/ASK replies are tolerated while
 # draining pipelined responses.
-proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {cluster_load 0}} {
+proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_error_reply 0}} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
     $r client setname LOAD_HANDLER
