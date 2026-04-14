@@ -2655,16 +2655,25 @@ static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_MAX 3
 #define REDIS_AGGR_COUNT 4
 
+/* Return the weighted contribution of a single sorted set member.
+ * For COUNT aggregation the actual score is irrelevant — each member
+ * contributes its set's weight (i.e. "one occurrence worth <weight>").
+ * For all other aggregation modes the contribution is weight * score. */
 inline static double zuiWeightedScore(double score, double weight, int aggregate) {
     return (aggregate == REDIS_AGGR_COUNT) ? weight : weight * score;
 }
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
-    if (aggregate == REDIS_AGGR_SUM || aggregate == REDIS_AGGR_COUNT) {
+    if (aggregate == REDIS_AGGR_SUM) {
         *target = *target + val;
         /* The result of adding two doubles is NaN when one variable
          * is +inf and the other is -inf. When these numbers are added,
          * we maintain the convention of the result being 0.0. */
+        if (isnan(*target)) *target = 0.0;
+    } else if (aggregate == REDIS_AGGR_COUNT) {
+        *target += val;
+        /* The val is zuiWeightedScore(…) == weight, which can be +inf/-inf,
+         * so the NaN guard applies here. */
         if (isnan(*target)) *target = 0.0;
     } else if (aggregate == REDIS_AGGR_MIN) {
         *target = val < *target ? val : *target;
