@@ -413,7 +413,7 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
 # Test del-node default behavior: CLUSTER RESET SOFT (node stays alive).
 start_multiple_servers 4 [list overrides $base_conf] {
 
-    test {del-node without --cluster-shutdown-after-del resets the node but keeps it alive} {
+    test {del-node without --shutdown-nosave-on-del resets the node but keeps it alive} {
         # Create a 3-node cluster
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
@@ -478,12 +478,12 @@ start_multiple_servers 4 [list overrides $base_conf] {
     }
 } ;# stop servers
 
-# Test del-node with --cluster-shutdown-after-del: SHUTDOWN NOSAVE (node terminated).
+# Test del-node with --shutdown-nosave-on-del: SHUTDOWN NOSAVE (node terminated).
 # With this flag the deleted node is shut down so that clients get a clear
 # connection failure instead of hitting a stale standalone node. See #14965.
 start_multiple_servers 4 [list overrides $base_conf] {
 
-    test {del-node with --cluster-shutdown-after-del shuts down the removed node} {
+    test {del-node with --shutdown-nosave-on-del shuts down the removed node} {
         # Create a 3-node cluster
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
@@ -518,16 +518,16 @@ start_multiple_servers 4 [list overrides $base_conf] {
         set node4_r [redis_client -3]
         set node4_id [$node4_r cluster myid]
 
-        # Delete node4 from the cluster with --cluster-shutdown-after-del
+        # Delete node4 from the cluster with --shutdown-nosave-on-del
         exec src/redis-cli --cluster-yes --cluster del-node \
                        127.0.0.1:[srv 0 port] $node4_id \
-                       --cluster-shutdown-after-del
+                       --shutdown-nosave-on-del
 
         # Verify the deleted node's process is terminated
         wait_for_condition 50 100 {
             [is_alive $node4_pid] == 0
         } else {
-            fail "Deleted node process is still alive after del-node --cluster-shutdown-after-del"
+            fail "Deleted node process is still alive after del-node --shutdown-nosave-on-del"
         }
 
         # Verify remaining nodes no longer know about the deleted node
