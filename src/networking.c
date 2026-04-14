@@ -2058,6 +2058,9 @@ void replyRefsUntrackClient(client *c, robj *obj) {
     }
 
     if (dictSize(clients) == 0) {
+        /* The current client is the last owner. */
+        if (obj->refcount == 1)
+            c->flags |= CLIENT_UNSHARED_MEM_DIRTY;
         dictDelete(server.clients_reply_refs, obj);
     } else {
         replyRefsMarkSoleClientDirty(clients);
