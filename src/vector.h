@@ -44,7 +44,7 @@
  * 3. Depends on var size:           vec v;
  *                                   void *vstack[8];
  *                                   vecInit(&v, vstack, 8);
- *                                   vecReverse(&v, varsize); // varsize <= 8 ? stack : heap
+ *                                   vecReserve(&v, varsize); // varsize <= 8 ? stack : heap
  *
  * Notes:
  * ------
@@ -80,7 +80,7 @@ void *vecGet(const vec *v, size_t index);
 void **vecData(vec *v);
 
 /* Ensure capacity is at least mincap. */
-void vecReverse(vec *v, size_t mincap);
+void vecReserve(vec *v, size_t mincap);
 
 /* Append one element, growing storage as needed. */
 void vecPush(vec *v, void *value);
