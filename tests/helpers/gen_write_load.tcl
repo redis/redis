@@ -84,8 +84,4 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
     exit 0
 }
 
-set ignore_error_reply 0
-if {[llength $argv] > 7} {
-    set ignore_error_reply [lindex $argv 7]
-}
-gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] $ignore_error_reply
+gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] [lindex $argv 7]
