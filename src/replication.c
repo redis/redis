@@ -2042,6 +2042,11 @@ void replicationAttachToNewMaster(void) {
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
+    /* During full sync, the functions engine is freed right before loading
+     * the RDB. To avoid this happening while a function is still running,
+     * delay full sync processing until it finishes. */
+    if (isInsideYieldingLongCommand()) return;
+
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
