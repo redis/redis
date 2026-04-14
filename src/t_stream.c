@@ -522,6 +522,7 @@ void pelIterStart(pelIterator *pi, rax *pel) {
 }
 
 int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
+    pelCacheFlush(pi->ri.rt);
     pi->valid = 0;
     pi->just_seeked = 0;
     if (op[0] == '^') {

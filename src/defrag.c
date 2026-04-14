@@ -905,7 +905,7 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
 }
 
 /* Defrag a single NACK and update all cross-references: the consumer PEL,
- * the doubly-linked time list, the NACK-zone tail, and cgroup_ref_node. */
+ * the doubly-linked time list, and the NACK-zone tail. */
 static void defragStreamNack(streamCG *cg, streamNACK *nack, streamNACK *newnack) {
     if (newnack->consumer) {
         pelReplace(newnack->consumer->pel, &newnack->id, newnack);
@@ -979,7 +979,7 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
         cg->consumers->alloc_size = &s->alloc_size;
         defragRadixTree(&cg->consumers, 0, defragStreamConsumer, s);
     }
-    return cg;
+    return newcg;
 }
 
 /* Defrag a single idmpProducer's dict and linked list entries. */
