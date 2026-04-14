@@ -9,13 +9,13 @@
  * Design:
  * --------
  * - Stores elements in a contiguous array (void **).
- * - Supports append (vec_push) and read access.
+ * - Supports append (vecPush) and read access.
  * - Optionally uses caller-provided stack buffer to avoid heap allocations.
- * - See also comment in vector.c of vec_init() for more details.
+ * - See also comment in vector.c of vecInit() for more details.
  *
  * Memory:
  * -------
- * - vec_destroy() frees heap memory if used.
+ * - vecDestroy() frees heap memory if used.
  * - Stack buffer is never freed.
  * - Stored elements are never freed.
  *
@@ -24,27 +24,27 @@
  * 1. Start On Stack (grow to heap): vec v;
  *                                   void *vstack[8];
  *                                   ...
- *                                   vec_init(&v, vstack, 8);
+ *                                   vecInit(&v, vstack, 8);
  *
  *   Start Embedded (grow to heap):  typedef struct { 
  *                                     vec v; 
  *                                     void *vembedded[8]; 
  *                                   } obj;
  *                                   ...
- *                                   vec_init(&obj->v, obj->vembedded, 8);
+ *                                   vecInit(&obj->v, obj->vembedded, 8);
  *
  * 2. Heap only, init capacity 8:    vec v;
  *                                   ...
- *                                   vec_init(&v, NULL, 8);
+ *                                   vecInit(&v, NULL, 8);
  *
  *    Heap only, init capacity 0:    vec v;
  *                                   ...
- *                                   vec_init(&v, NULL, 0);
+ *                                   vecInit(&v, NULL, 0);
  *
  * 3. Depends on var size:           vec v;
  *                                   void *vstack[8];
- *                                   vec_init(&v, vstack, 8);
- *                                   vec_reserve(&v, varsize); // varsize <= 8 ? stack : heap
+ *                                   vecInit(&v, vstack, 8);
+ *                                   vecReverse(&v, varsize); // varsize <= 8 ? stack : heap
  *
  * Notes:
  * ------
@@ -63,27 +63,27 @@ typedef struct vec {
 } vec;
 
 /* Initialize a vector */
-void vec_init(vec *v, void **stack, size_t initcap);
+void vecInit(vec *v, void **stack, size_t initcap);
 
 /* Free only heap storage if any */
-void vec_destroy(vec *v);
+void vecDestroy(vec *v);
 
 /* Reset the logical length to zero while preserving allocated storage. */
-void vec_clear(vec *v);
+void vecClear(vec *v);
 
-size_t vec_size(const vec *v);
+size_t vecSize(const vec *v);
 
-/* Requires index < vec_size(v). */
-void *vec_get(const vec *v, size_t index);
+/* Requires index < vecSize(v). */
+void *vecGet(const vec *v, size_t index);
 
 /* Return the contiguous backing array. */
-void **vec_data(vec *v);
+void **vecData(vec *v);
 
 /* Ensure capacity is at least mincap. */
-void vec_reserve(vec *v, size_t mincap);
+void vecReverse(vec *v, size_t mincap);
 
 /* Append one element, growing storage as needed. */
-void vec_push(vec *v, void *value);
+void vecPush(vec *v, void *value);
 
 #ifdef REDIS_TEST
 int vectorTest(int argc, char **argv, int flags);

@@ -26,7 +26,7 @@
  * - stack == NULL && initcap > 0: start heap-backed with an initial 'initcap' capacity.
  * - stack == NULL && initcap == 0: start heap-backed with no initial storage.
  */
-void vec_init(vec *v, void **stack, size_t initcap) {
+void vecInit(vec *v, void **stack, size_t initcap) {
     /* If stack is provided, initcap must be > 0 and at the size of the stack */
     assert(initcap > 0 || stack == NULL);
     
@@ -39,7 +39,7 @@ void vec_init(vec *v, void **stack, size_t initcap) {
 }
 
 /* Free only heap storage if any */
-void vec_destroy(vec *v) {
+void vecDestroy(vec *v) {
     /* if data is not stack-allocated and is not NULL, free it */
     if (v->data && v->data != v->stack)
         zfree(v->data);
@@ -50,28 +50,28 @@ void vec_destroy(vec *v) {
 }
 
 /* Reset the logical length to zero while preserving allocated storage. */
-void vec_clear(vec *v) {
+void vecClear(vec *v) {
     v->size = 0;
 }
 
 /* Return the number of elements in the vector. */
-size_t vec_size(const vec *v) {
+size_t vecSize(const vec *v) {
     return v->size;
 }
 
-/* get element at index. index must be < vec_size(v). */
-void *vec_get(const vec *v, size_t index) {
+/* get element at index. index must be < vecSize(v). */
+void *vecGet(const vec *v, size_t index) {
     assert(index < v->size);
     return v->data[index];
 }
 
 /* Return the contiguous backing array. */
-void **vec_data(vec *v) {
+void **vecData(vec *v) {
     return v->data;
 }
 
 /* Ensure capacity is at least mincap. */
-void vec_reserve(vec *v, size_t mincap) {
+void vecReverse(vec *v, size_t mincap) {
     void **newdata;
 
     if (mincap <= v->cap) return;
@@ -89,10 +89,10 @@ void vec_reserve(vec *v, size_t mincap) {
 }
 
 /* Append one element, growing storage as needed. */
-void vec_push(vec *v, void *value) {
+void vecPush(vec *v, void *value) {
     if (v->size == v->cap) {
         size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
-        vec_reserve(v, newcap);
+        vecReverse(v, newcap);
     }
 
     v->data[v->size++] = value;
@@ -117,56 +117,56 @@ int vectorTest(int argc, char **argv, int flags)
     void *vstack[2];
     int one = 1, two = 2, three = 3, four = 4, five = 5, six = 6;
 
-    vec_init(&v, vstack, 2);
-    test_cond("vec_init() stack-backed size is 0", vec_size(&v) == 0);
-    test_cond("vec_init() uses stack buffer", vec_data(&v) == vstack);
-    vec_reserve(&v, 1);
-    test_cond("vec_reserve() no-ops when capacity is already sufficient",
-              v.cap == 2 && vec_data(&v) == vstack);
-    vec_push(&v, &one);
-    vec_push(&v, &two);
-    test_cond("vec_push() appends into stack storage",
-              vec_size(&v) == 2 && vec_data(&v) == vstack &&
-              vec_get(&v, 0) == &one && vec_get(&v, 1) == &two);
-    vec_reserve(&v, 4);
-    test_cond("vec_reserve() spills from stack to heap preserving values",
-              v.cap == 4 && vec_data(&v) != vstack &&
-              vec_get(&v, 0) == &one && vec_get(&v, 1) == &two);
-    vec_push(&v, &three);
-    test_cond("vec_push() spills from stack to heap preserving values",
-              vec_size(&v) == 3 &&
-              vec_data(&v) != vstack && vec_get(&v, 0) == &one &&
-              vec_get(&v, 1) == &two && vec_get(&v, 2) == &three);
+    vecInit(&v, vstack, 2);
+    test_cond("vecInit() stack-backed size is 0", vecSize(&v) == 0);
+    test_cond("vecInit() uses stack buffer", vecData(&v) == vstack);
+    vecReverse(&v, 1);
+    test_cond("vecReverse() no-ops when capacity is already sufficient",
+              v.cap == 2 && vecData(&v) == vstack);
+    vecPush(&v, &one);
+    vecPush(&v, &two);
+    test_cond("vecPush() appends into stack storage",
+              vecSize(&v) == 2 && vecData(&v) == vstack &&
+              vecGet(&v, 0) == &one && vecGet(&v, 1) == &two);
+    vecReverse(&v, 4);
+    test_cond("vecReverse() spills from stack to heap preserving values",
+              v.cap == 4 && vecData(&v) != vstack &&
+              vecGet(&v, 0) == &one && vecGet(&v, 1) == &two);
+    vecPush(&v, &three);
+    test_cond("vecPush() spills from stack to heap preserving values",
+              vecSize(&v) == 3 &&
+              vecData(&v) != vstack && vecGet(&v, 0) == &one &&
+              vecGet(&v, 1) == &two && vecGet(&v, 2) == &three);
 
-    void **heap_data = vec_data(&v);
-    vec_clear(&v);
-    test_cond("vec_clear() resets size but preserves storage",
-              vec_size(&v) == 0 && vec_data(&v) == heap_data);
-    vec_destroy(&v);
-    test_cond("vec_destroy() resets vector state",
-              vec_size(&v) == 0 && vec_data(&v) == NULL && v.cap == 0);
+    void **heap_data = vecData(&v);
+    vecClear(&v);
+    test_cond("vecClear() resets size but preserves storage",
+              vecSize(&v) == 0 && vecData(&v) == heap_data);
+    vecDestroy(&v);
+    test_cond("vecDestroy() resets vector state",
+              vecSize(&v) == 0 && vecData(&v) == NULL && v.cap == 0);
 
-    vec_init(&v, NULL, 4);
-    test_cond("vec_init() heap-backed hint allocates storage",
-              vec_size(&v) == 0 && vec_data(&v) != NULL && v.cap == 4);
-    vec_push(&v, &four);
-    test_cond("vec_push() works in heap-backed mode",
-              vec_get(&v, 0) == &four);
-    vec_reserve(&v, 8);
-    test_cond("vec_reserve() grows heap-backed storage preserving values",
-              v.cap == 8 && vec_get(&v, 0) == &four);
-    vec_destroy(&v);
+    vecInit(&v, NULL, 4);
+    test_cond("vecInit() heap-backed hint allocates storage",
+              vecSize(&v) == 0 && vecData(&v) != NULL && v.cap == 4);
+    vecPush(&v, &four);
+    test_cond("vecPush() works in heap-backed mode",
+              vecGet(&v, 0) == &four);
+    vecReverse(&v, 8);
+    test_cond("vecReverse() grows heap-backed storage preserving values",
+              v.cap == 8 && vecGet(&v, 0) == &four);
+    vecDestroy(&v);
 
-    vec_init(&v, NULL, 0);
-    vec_reserve(&v, 6);
-    test_cond("vec_reserve() allocates heap storage from empty vector",
-              v.cap == 6 && vec_data(&v) != NULL);
-    vec_push(&v, &five);
-    vec_push(&v, &six);
-    test_cond("vec_push() works after vec_reserve() on empty vector",
-              vec_size(&v) == 2 &&
-              vec_get(&v, 0) == &five && vec_get(&v, 1) == &six);
-    vec_destroy(&v);
+    vecInit(&v, NULL, 0);
+    vecReverse(&v, 6);
+    test_cond("vecReverse() allocates heap storage from empty vector",
+              v.cap == 6 && vecData(&v) != NULL);
+    vecPush(&v, &five);
+    vecPush(&v, &six);
+    test_cond("vecPush() works after vecReverse() on empty vector",
+              vecSize(&v) == 2 &&
+              vecGet(&v, 0) == &five && vecGet(&v, 1) == &six);
+    vecDestroy(&v);
 
     return 0;
 }
