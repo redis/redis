@@ -125,7 +125,7 @@ int get_user_username(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
     }
     RedisModule_ReplyWithString(ctx, name);
-    RedisModule_FreeString(NULL, name);
+    RedisModule_FreeString(ctx, name);
     return REDISMODULE_OK;
 }
 
