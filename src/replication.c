@@ -565,6 +565,7 @@ static inline void replBufWriterAppendBulkLen(replBufWriter *wr, char prefix, lo
 static void replBufWriterEnd(replBufWriter *wr) {
     if (wr->total_len == 0) return;
 
+    serverAssert(wr->start_node != NULL);
     clusterSlotStatsIncrNetworkBytesOutForReplication(wr->total_len);
 
     /* Update the current cmd's keys with the commands replication bytes*/
