@@ -3246,6 +3246,7 @@ void tryUnlinkClientFromPendingRefReply(client *c, int force);
 void replyRefsTrackClient(client *c, robj *obj);
 void replyRefsUntrackClient(client *c, robj *obj);
 void replyRefsNotifyDecrRefCount(robj *obj);
+void replyRefsAssertTotalRefCount(robj *o);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
 void protectClient(client *c);

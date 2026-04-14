@@ -1953,6 +1953,28 @@ static void replyRefsAssertClientNotTracked(client *c) {
     }
     dictResetIterator(&di);
 }
+
+/* For object 'o', sum up all per-client reference counts recorded in the
+ * inner dict of server.clients_reply_refs and assert that the total does not
+ * exceed o->refcount.  Each bulkStrRef addition calls incrRefCount + track,
+ * and each release calls untrack + decrRefCount, so the two counters must
+ * stay in sync.  The total can be strictly less than o->refcount when
+ * non-tracked holders (e.g. the keyspace) still own a reference. */
+void replyRefsAssertTotalRefCount(robj *o) {
+    dictEntry *de = dictFind(server.clients_reply_refs, o);
+    if (!de) return;
+
+    dict *clients = dictGetVal(de);
+    uint64_t total = 0;
+    dictEntry *cde;
+    dictIterator di;
+    dictInitSafeIterator(&di, clients);
+    while ((cde = dictNext(&di)) != NULL)
+        total += dictGetUnsignedIntegerVal(cde);
+    dictResetIterator(&di);
+
+    debugAssert(total <= (uint64_t)o->refcount);
+}
 #endif
 
 /* Remove client from the list of clients with pending referenced replies.
