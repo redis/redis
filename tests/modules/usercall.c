@@ -119,7 +119,7 @@ int get_user_username(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_ReplyWithSimpleString(ctx, "none");
         return REDISMODULE_OK;
     }
-    RedisModuleString *name = RedisModule_GetUserUsername(user);
+    RedisModuleString *name = RedisModule_GetUserUsername(ctx, user);
     if (name == NULL) {
         RedisModule_ReplyWithSimpleString(ctx, "none");
         return REDISMODULE_OK;
