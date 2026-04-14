@@ -70,15 +70,11 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
 
     # Read remaining replies
     for {set i 0} {$i < $count} {incr i} {
-        if {$ignore_error_reply} {
-            if {[catch {$r read} err]} {
-                if {[string match {MOVED*} $err] || [string match {ASK*} $err]} {
-                    continue
-                }
-                error $err
+        if {[catch {$r read} err]} {
+            if {$ignore_error_reply && ([string match {MOVED*} $err] || [string match {ASK*} $err])} {
+                continue
             }
-        } else {
-            $r read
+            error $err
         }
     }
     exit 0
