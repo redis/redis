@@ -15,7 +15,7 @@
  *
  * Memory:
  * -------
- * - vecDestroy() frees heap memory if used.
+ * - vecRelease() frees heap memory if used.
  * - Stack buffer is never freed.
  * - Stored elements are never freed.
  *
@@ -66,7 +66,7 @@ typedef struct vec {
 void vecInit(vec *v, void **stack, size_t initcap);
 
 /* Free only heap storage if any */
-void vecDestroy(vec *v);
+void vecRelease(vec *v);
 
 /* Reset the logical length to zero while preserving allocated storage. */
 void vecClear(vec *v);

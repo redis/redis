@@ -39,7 +39,7 @@ void vecInit(vec *v, void **stack, size_t initcap) {
 }
 
 /* Free only heap storage if any */
-void vecDestroy(vec *v) {
+void vecRelease(vec *v) {
     /* if data is not stack-allocated and is not NULL, free it */
     if (v->data && v->data != v->stack)
         zfree(v->data);
@@ -59,7 +59,7 @@ size_t vecSize(const vec *v) {
     return v->size;
 }
 
-/* get element at index. index must be < vecSize(v). */
+/* Get element at index. index must be < vecSize(v). */
 void *vecGet(const vec *v, size_t index) {
     assert(index < v->size);
     return v->data[index];
@@ -142,8 +142,8 @@ int vectorTest(int argc, char **argv, int flags)
     vecClear(&v);
     test_cond("vecClear() resets size but preserves storage",
               vecSize(&v) == 0 && vecData(&v) == heap_data);
-    vecDestroy(&v);
-    test_cond("vecDestroy() resets vector state",
+    vecRelease(&v);
+    test_cond("vecRelease() resets vector state",
               vecSize(&v) == 0 && vecData(&v) == NULL && v.cap == 0);
 
     vecInit(&v, NULL, 4);
@@ -155,7 +155,7 @@ int vectorTest(int argc, char **argv, int flags)
     vecReserve(&v, 8);
     test_cond("vecReserve() grows heap-backed storage preserving values",
               v.cap == 8 && vecGet(&v, 0) == &four);
-    vecDestroy(&v);
+    vecRelease(&v);
 
     vecInit(&v, NULL, 0);
     vecReserve(&v, 6);
@@ -166,7 +166,7 @@ int vectorTest(int argc, char **argv, int flags)
     test_cond("vecPush() works after vecReserve() on empty vector",
               vecSize(&v) == 2 &&
               vecGet(&v, 0) == &five && vecGet(&v, 1) == &six);
-    vecDestroy(&v);
+    vecRelease(&v);
 
     return 0;
 }
