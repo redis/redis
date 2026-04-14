@@ -276,7 +276,6 @@ static void protectClientReplyObjects(void) {
                         robj *new_obj = dupStringObject(str_ref->obj);
                         decrRefCount(str_ref->obj);
                         str_ref->obj = new_obj;
-                        replyRefsTrackClient(c, new_obj);
                     }
                 }
                 ptr += header->payload_len;
@@ -306,7 +305,6 @@ static void protectClientReplyObjects(void) {
                                 robj *new_obj = dupStringObject(str_ref->obj);
                                 decrRefCount(str_ref->obj);
                                 str_ref->obj = new_obj;
-                                replyRefsTrackClient(c, new_obj);
                             }
                         }
                         ptr += header->payload_len;
@@ -319,6 +317,9 @@ static void protectClientReplyObjects(void) {
          * pending ref list since all refs have been duplicated above. */
         freeClientIODeferredObjects(c, 0);
         tryUnlinkClientFromPendingRefReply(c, 1);
+
+        /* Mark client as dirty so its unshared memory stats get recalculated. */
+        c->flags |= CLIENT_UNSHARED_MEM_DIRTY;
     }
 
     if (allpaused) resumeAllIOThreads();
