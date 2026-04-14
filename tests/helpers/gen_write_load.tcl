@@ -50,16 +50,11 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
         incr count
         if {$count % 500 == 0} {
             for {set i 0} {$i < 500} {incr i} {
-                if {$cluster_load == 1} {
-                    if {[catch {$r read} err]} {
-                        if {[string match {MOVED*} $err] || [string match {ASK*} $err]} {
-                            continue
-                        }
-                        error $err
-                    }
-                } else {
-                    $r read
+                [catch {$r read} err]
+                if {ignore_error_reply && [string match {MOVED*} $err] || [string match {ASK*} $err]} {
+                    continue
                 }
+                error $err
             }
             set count 0
         }
