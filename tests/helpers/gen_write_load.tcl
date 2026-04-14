@@ -18,8 +18,8 @@ set ::tlsdir "tests/tls"
 
 # Continuously sends SET commands to the server. If key is omitted, a random key
 # is used for every SET command. The value is always random.
-# cluster_load (default 0): when 1, MOVED/ASK replies are tolerated while
-# draining pipelined responses.
+# ignore_error_reply (default 0): when non-zero, MOVED/ASK replies are tolerated
+# while draining pipelined responses (periodic 500-reply batches and final drain).
 proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_error_reply 0}} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
@@ -51,7 +51,7 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
         if {$count % 500 == 0} {
             for {set i 0} {$i < 500} {incr i} {
                 [catch {$r read} err]
-                if {ignore_error_reply && [string match {MOVED*} $err] || [string match {ASK*} $err]} {
+                if {$ignore_error_reply && ([string match {MOVED*} $err] || [string match {ASK*} $err])} {
                     continue
                 }
                 error $err
@@ -69,7 +69,7 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
 
     # Read remaining replies
     for {set i 0} {$i < $count} {incr i} {
-        if {$cluster_load == 1} {
+        if {$ignore_error_reply} {
             if {[catch {$r read} err]} {
                 if {[string match {MOVED*} $err] || [string match {ASK*} $err]} {
                     continue
@@ -83,8 +83,8 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_e
     exit 0
 }
 
-set cluster_load 0
+set ignore_error_reply 0
 if {[llength $argv] > 7} {
-    set cluster_load [lindex $argv 7]
+    set ignore_error_reply [lindex $argv 7]
 }
-gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] $cluster_load
+gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] $ignore_error_reply

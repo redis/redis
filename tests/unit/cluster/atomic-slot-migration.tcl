@@ -577,13 +577,13 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug asm-trim-method none
         populate_slot 10000 -idx 1 -slot 6000
 
-        # Start write traffic on node-0 (cluster_load=1 tolerates MOVED/ASK
+        # Start write traffic on node-0 (ignore_error_reply=1 tolerates MOVED/ASK
         # replies while slots are being migrated).
         set port [get_port 0]
         set key [slot_key 0 mykey]
         set load_handle0 [start_write_load "127.0.0.1" $port 100 $key 0 5 1]
 
-        # Start write traffic on node-1 (cluster_load=1 for migration redirects).
+        # Start write traffic on node-1 (ignore_error_reply=1 for migration redirects).
         set port [get_port 1]
         set key [slot_key 6000 mykey]
         set load_handle1 [start_write_load "127.0.0.1" $port 100 $key 0 5 1]
@@ -794,7 +794,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # we set a delay to write incremental data
         R 1 config set rdb-key-save-delay 1000000
 
-        # Start slot 0 write load on R1. cluster_load=1 tolerates MOVED/ASK
+        # Start slot 0 write load on R1. ignore_error_reply=1 tolerates MOVED/ASK
         # replies that can appear while slot 0 is being migrated.
         set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key 0 0 1]
 
