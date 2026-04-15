@@ -564,15 +564,13 @@ start_server {} {
 }
 
 start_server {} {
-    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
     foreach type {"client no-evict" "maxmemory-clients disabled"} {
         r flushall
         r client no-evict on
         r config set maxmemory-clients 0
 
         test "client total memory grows during $type" {
-            r setrange k [mb 1] v
+            r setrange k [kb 10] v ;# Keep value <= 16KB to avoid copy-avoidance, which shares memory and slows tot-mem growth.
             set rr [redis_client]
             $rr client setname test_client
             if {$type eq "client no-evict"} {
@@ -584,8 +582,9 @@ start_server {} {
             # Fill output buffer in loop without reading it and make sure
             # the tot-mem of client has increased (OS buffers didn't swallow it)
             # and eviction not occurring.
+            set mget_args [lrepeat 100 k] ;# Use mget with 100 keys so each reply adds ~1MB to tot-mem, reaching 10MB faster.
             while {true} {
-                $rr get k
+                $rr mget {*}$mget_args
                 $rr flush
                 after 10
                 if {[client_field test_client tot-mem] > [mb 10]} {
