@@ -52,9 +52,10 @@ typedef listpackEntry CommonEntry; /* extend usage beyond lp */
  * for subkey notifications without heap allocation in the common case. */
 typedef struct fieldvec { vec v; void *buf[FIELDS_STACK_SIZE]; } fieldvec;
 
-static inline vec *fieldvecInit(fieldvec *vf, size_t cap) {
-    vecInit(&vf->v, cap <= FIELDS_STACK_SIZE ? vf->buf : NULL, cap);
-    return &vf->v;
+static inline vec *fieldvecInit(fieldvec *fv, size_t cap) {
+    vecInit(&fv->v, fv->buf, FIELDS_STACK_SIZE);
+    vecReserve(&fv->v, cap);
+    return &fv->v;
 }
 
 /* hash field expiration (HFE) funcs */
@@ -138,7 +139,7 @@ typedef struct OnFieldExpireCtx {
     robj *hashObj;
     redisDb *db;
     int activeEx; /* 1 for active expire, 0 for lazy expire */
-    vec *vexpired; /* Expired fileds vector */
+    vec *vexpired; /* Expired fields vector */
 } OnFieldExpireCtx;
 
 /* The implementation of hashes by dict was modified from storing fields as sds

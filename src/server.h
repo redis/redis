@@ -1063,24 +1063,6 @@ struct RedisModuleDigest {
 /* Macro to check if the client is in the middle of module based authentication. */
 #define clientHasModuleAuthInProgress(c) ((c)->module_auth_ctx != NULL)
 
-/* Default stack buffer size for LOCAL_ARRAY.
- * When the number of items exceeds this, heap allocation is used. */
-#define LOCAL_ARRAY_STACK_SIZE 16
-
-/* Declare a local array that uses stack for small sizes, heap for larger.
- * Must be paired with LOCAL_ARRAY_FREE. */
-#define LOCAL_ARRAY(type, name, count) \
-    type name##_stack[LOCAL_ARRAY_STACK_SIZE]; \
-    type *name = ((count) <= LOCAL_ARRAY_STACK_SIZE) ? \
-                  name##_stack : zmalloc(sizeof(type) * (count))
-
-#define LOCAL_ARRAY_FREE(name) \
-    do { if ((name) != name##_stack) zfree(name); } while (0)
-
-/* Convenience wrappers for robj* arrays. */
-#define ROBJ_LOCAL_ARRAY(name, count) LOCAL_ARRAY(robj*, name, count)
-#define ROBJ_LOCAL_ARRAY_FREE(name) LOCAL_ARRAY_FREE(name)
-
 /* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
