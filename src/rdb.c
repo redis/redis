@@ -2001,7 +2001,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error) {
             if (rdbLoadLenByRef(rdb,NULL,&len) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading integer from module %s value", modulename);
-                goto fail;
+                goto error;
             }
         } else if (opcode == RDB_MODULE_OPCODE_STRING) {
             robj *o = rdbGenericLoadStringObject(rdb,RDB_LOAD_NONE,NULL);
