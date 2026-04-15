@@ -560,30 +560,33 @@ void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
             r14 = (r[10] >> 4 | r[11] << 4) & 63;
             r15 = (r[11] >> 2) & 63;
 
-            /* Distribute across 4 accumulators: registers 0-3 → h0,
-             * 4-7 → h1, 8-11 → h2, 12-15 → h3. This interleaves
-             * the store→load chains across independent memory. */
+            /* Interleave across 4 accumulators by index mod 4:
+             * r0,r4,r8,r12 → h0;  r1,r5,r9,r13 → h1;
+             * r2,r6,r10,r14 → h2; r3,r7,r11,r15 → h3.
+             * Consecutive registers (which tend to have similar values)
+             * go to different accumulators, breaking store→load
+             * dependency chains when adjacent registers collide. */
             h0[r0]++;
-            h0[r1]++;
-            h0[r2]++;
-            h0[r3]++;
-            h1[r4]++;
+            h1[r1]++;
+            h2[r2]++;
+            h3[r3]++;
+            h0[r4]++;
             h1[r5]++;
-            h1[r6]++;
-            h1[r7]++;
-            h2[r8]++;
-            h2[r9]++;
+            h2[r6]++;
+            h3[r7]++;
+            h0[r8]++;
+            h1[r9]++;
             h2[r10]++;
-            h2[r11]++;
-            h3[r12]++;
-            h3[r13]++;
-            h3[r14]++;
+            h3[r11]++;
+            h0[r12]++;
+            h1[r13]++;
+            h2[r14]++;
             h3[r15]++;
 
             r += 12;
         }
 
-        /* Merge accumulators — 64 entries, negligible cost. */
+        /* Merge accumulators — 64 entries (6-bit register values), negligible cost. */
         for (j = 0; j < 64; j++) {
             reghisto[j] = h0[j] + h1[j] + h2[j] + h3[j];
         }
@@ -1033,8 +1036,9 @@ void hllRawRegHisto(uint8_t *registers, int* reghisto) {
         r += 8;
     }
 
-    /* Merge accumulators. The histogram has only 64 entries (HLL_Q+2),
-     * so this loop is negligible compared to the 16384-iteration main loop. */
+    /* Merge accumulators. The histogram has 64 entries (register values
+     * are 6-bit, range 0-63), so this loop is negligible compared to
+     * the 16384-register main loop. */
     for (j = 0; j < 64; j++) {
         reghisto[j] = h0[j] + h1[j] + h2[j] + h3[j];
     }
