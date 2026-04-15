@@ -3608,14 +3608,15 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
                                               &numFields, "Parameter `numFields` should be greater than 0") != C_OK)
                 return C_ERR;
 
-            args->fieldCount = (int)numFields;
             args->firstFieldPos = i + 2;
 
             /* Check bounds - we must have exactly the right number of fields */
-            if (args->firstFieldPos + args->fieldCount > c->argc) {
+            if (numFields > c->argc - args->firstFieldPos) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
             }
+
+            args->fieldCount = (int)numFields;
 
             /* Skip over the field arguments */
             i = args->firstFieldPos + args->fieldCount - 1;
