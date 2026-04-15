@@ -168,7 +168,7 @@ Because vector sets perform insertion time normalization and optional
 quantization, the returned vector could be approximated. `VEMB` will take
 care to de-quantized and de-normalize the vector before returning it.
 
-It is possible to ask VEMB to return raw data, that is, the internal representation used by the vector: fp32, int8, or a bitmap for binary quantization. This behavior is triggered by the `RAW` option of of VEMB:
+It is possible to ask VEMB to return raw data, that is, the internal representation used by the vector: fp32, int8, or a bitmap for binary quantization. This behavior is triggered by the `RAW` option of VEMB:
 
     VEMB word_embedding apple RAW
 
