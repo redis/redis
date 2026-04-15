@@ -2181,13 +2181,13 @@ void hsetCommand(client *c) {
 
     /* Collect field pointers for subkey notification. Fields are at argv[2,4,6...]. */
     int numfields = (c->argc - 2) / 2;
-    fieldvec fvfields;
-    vec *vfields = fieldvecInit(&fvfields, numfields);
+    fieldvec fvset;
+    vec *vset = fieldvecInit(&fvset, numfields);
     for (i = 0; i < numfields; i++) {
-        vecPush(vfields, c->argv[2 + i * 2]);
+        vecPush(vset, c->argv[2 + i * 2]);
     }
-    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,(robj**)vecData(vfields),numfields);
-    vecRelease(vfields);
+    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,(robj**)vecData(vset),numfields);
+    vecRelease(vset);
     KSN_INVALIDATE_KVOBJ(kv);
     server.dirty += (c->argc - 2)/2;
 }
@@ -2530,9 +2530,10 @@ out:
     if (vecSize(vset) || vecSize(vexpired)) {
         newlen = (int64_t) hashTypeLength(o, 0); 
         keyModified(c, c->db, c->argv[1], o, 1);
-        if (vecSize(vexpired))
+        if (vecSize(vexpired)) {
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
                                            c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+        }
         if (vecSize(vset)) {
             notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hset", c->argv[1],
                                            c->db->id, (robj**)vecData(vset), vecSize(vset));
@@ -2746,9 +2747,10 @@ void hmgetCommand(client *c) {
         }
     }
 
-    if (vecSize(vexpired))
+    if (vecSize(vexpired)) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
                                        c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+    }
     if (deleted)
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
 
@@ -2845,9 +2847,10 @@ void hgetdelCommand(client *c) {
     
     keyModified(c, c->db, c->argv[1], o, 1);
 
-    if (vecSize(vexpired))
+    if (vecSize(vexpired)) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
                                        c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+    }
     if (vecSize(vdeleted)) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hdel", c->argv[1],
                                        c->db->id, (robj**)vecData(vdeleted), vecSize(vdeleted));
@@ -2971,9 +2974,10 @@ void hgetexCommand(client *c) {
      * If PERSIST flags is used, it will be propagated as HPERSIST command.
      * IF EX/EXAT/PX/PXAT flags are used, it will be replicated as HPEXPRITEAT.
      */
-    if (vecSize(vexpired))
+    if (vecSize(vexpired)) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
                                        c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+    }
     if (vecSize(vupdated)) {
         /* Build canonical command for propagation */
         int canonical_argc;
