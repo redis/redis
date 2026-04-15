@@ -3075,8 +3075,7 @@ void genericHgetallCommand(client *c, int flags) {
      * This hides the latency of pointer chasing through scattered
      * heap allocations (dictEntry → Entry → value SDS). */
     #define HGETALL_BATCH 16
-    if (o->encoding == OBJ_ENCODING_HT &&
-        (flags & OBJ_HASH_KEY) && (flags & OBJ_HASH_VALUE))
+    if (o->encoding == OBJ_ENCODING_HT)
     {
         int skip_expired = !server.allow_access_expired;
         dict *d = o->ptr;
@@ -3113,21 +3112,26 @@ void genericHgetallCommand(client *c, int flags) {
             /* Phase 2: Entry structs are now warm — prefetch value SDS.
              * For entries with pointer-based values (Type 3), this
              * dereferences the value pointer and prefetches the
-             * separately allocated value data. */
-            for (int i = 0; i < batch_count; i++) {
-                sds val = entryGetValue(batch_entry[i]);
-                redis_prefetch_read(val);
+             * separately allocated value data. Skip if only keys. */
+            if (flags & OBJ_HASH_VALUE) {
+                for (int i = 0; i < batch_count; i++) {
+                    sds val = entryGetValue(batch_entry[i]);
+                    redis_prefetch_read(val);
+                }
             }
 
             /* Phase 3: process batch — field + value data is cache-warm. */
             for (int i = 0; i < batch_count; i++) {
-                sds field = entryGetField(batch_entry[i]);
-                size_t flen = sdslen(field);
-                sds val = entryGetValue(batch_entry[i]);
-                size_t vlen = sdslen(val);
-                addReplyBulkCBuffer(c, field, flen);
-                addReplyBulkCBuffer(c, val, vlen);
-                count += 2;
+                if (flags & OBJ_HASH_KEY) {
+                    sds field = entryGetField(batch_entry[i]);
+                    addReplyBulkCBuffer(c, field, sdslen(field));
+                    count++;
+                }
+                if (flags & OBJ_HASH_VALUE) {
+                    sds val = entryGetValue(batch_entry[i]);
+                    addReplyBulkCBuffer(c, val, sdslen(val));
+                    count++;
+                }
             }
         }
         dictResetIterator(&di);
