@@ -523,7 +523,6 @@ int fastFloatTest(int argc, char **argv, int flags) {
                   eptr == big && ff_eq(d, 0.0));
     }
 
-    test_report();
     return 0;
 }
 #endif
