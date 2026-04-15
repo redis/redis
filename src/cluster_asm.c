@@ -3033,7 +3033,7 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
-    dict *stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+    dict *stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
 
     size_t total_keys = 0;
 

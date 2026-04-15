@@ -248,16 +248,16 @@ foreach call_type {nested normal} {
         # RM_Call that propagates an error
         assert_error "WRONGTYPE*" {r do_rm_call hgetall x}
         assert_equal [errorrstat WRONGTYPE r] {count=1}
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdrstat hgetall r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat hgetall r]
 
         # RM_Call from bg thread that propagates an error
         assert_error "WRONGTYPE*" {r do_bg_rm_call hgetall x}
         assert_equal [errorrstat WRONGTYPE r] {count=2}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat hgetall r]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2*} [cmdrstat hgetall r]
 
         assert_equal [s total_error_replies] 6
-        assert_match {*calls=5,*,rejected_calls=0,failed_calls=4} [cmdrstat do_rm_call r]
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=4*} [cmdrstat do_rm_call r]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2*} [cmdrstat do_bg_rm_call r]
     }
 
     set master [srv 0 client]

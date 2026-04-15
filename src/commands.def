@@ -9165,7 +9165,9 @@ struct COMMAND_ARG ZINCRBY_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZINTER history */
-#define ZINTER_History NULL
+commandHistory ZINTER_History[] = {
+{"8.8.0","Added `COUNT` aggregate option."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -9185,6 +9187,7 @@ struct COMMAND_ARG ZINTER_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_PURE_TOKEN,-1,"COUNT",NULL,"8.8.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* ZINTER argument table */
@@ -9192,7 +9195,7 @@ struct COMMAND_ARG ZINTER_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZINTER_aggregate_Subargs},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=ZINTER_aggregate_Subargs},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
@@ -9226,7 +9229,9 @@ struct COMMAND_ARG ZINTERCARD_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZINTERSTORE history */
-#define ZINTERSTORE_History NULL
+commandHistory ZINTERSTORE_History[] = {
+{"8.8.0","Added `COUNT` aggregate option."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -9246,6 +9251,7 @@ struct COMMAND_ARG ZINTERSTORE_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_PURE_TOKEN,-1,"COUNT",NULL,"8.8.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* ZINTERSTORE argument table */
@@ -9254,7 +9260,7 @@ struct COMMAND_ARG ZINTERSTORE_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZINTERSTORE_aggregate_Subargs},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=ZINTERSTORE_aggregate_Subargs},
 };
 
 /********** ZLEXCOUNT ********************/
@@ -9894,7 +9900,9 @@ struct COMMAND_ARG ZSCORE_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZUNION history */
-#define ZUNION_History NULL
+commandHistory ZUNION_History[] = {
+{"8.8.0","Added `COUNT` aggregate option."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -9914,6 +9922,7 @@ struct COMMAND_ARG ZUNION_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_PURE_TOKEN,-1,"COUNT",NULL,"8.8.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* ZUNION argument table */
@@ -9921,7 +9930,7 @@ struct COMMAND_ARG ZUNION_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZUNION_aggregate_Subargs},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=ZUNION_aggregate_Subargs},
 {MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
@@ -9929,7 +9938,9 @@ struct COMMAND_ARG ZUNION_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* ZUNIONSTORE history */
-#define ZUNIONSTORE_History NULL
+commandHistory ZUNIONSTORE_History[] = {
+{"8.8.0","Added `COUNT` aggregate option."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -9949,6 +9960,7 @@ struct COMMAND_ARG ZUNIONSTORE_aggregate_Subargs[] = {
 {MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_PURE_TOKEN,-1,"COUNT",NULL,"8.8.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* ZUNIONSTORE argument table */
@@ -9957,7 +9969,7 @@ struct COMMAND_ARG ZUNIONSTORE_Args[] = {
 {MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZUNIONSTORE_aggregate_Subargs},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=ZUNIONSTORE_aggregate_Subargs},
 };
 
 /********** XACK ********************/
@@ -11988,9 +12000,9 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("zdiff","Returns the difference between multiple sorted sets.","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZDIFF_History,0,ZDIFF_Tips,0,zdiffCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZDIFF_Keyspecs,1,zunionInterDiffGetKeys,3),.args=ZDIFF_Args},
 {MAKE_CMD("zdiffstore","Stores the difference of multiple sorted sets in a key.","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_History,0,ZDIFFSTORE_Tips,0,zdiffstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZDIFFSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,3),.args=ZDIFFSTORE_Args},
 {MAKE_CMD("zincrby","Increments the score of a member in a sorted set.","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINCRBY_History,0,ZINCRBY_Tips,0,zincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZINCRBY_Keyspecs,1,NULL,3),.args=ZINCRBY_Args},
-{MAKE_CMD("zinter","Returns the intersect of multiple sorted sets.","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTER_History,0,ZINTER_Tips,0,zinterCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZINTER_Keyspecs,1,zunionInterDiffGetKeys,5),.args=ZINTER_Args},
+{MAKE_CMD("zinter","Returns the intersect of multiple sorted sets.","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTER_History,1,ZINTER_Tips,0,zinterCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZINTER_Keyspecs,1,zunionInterDiffGetKeys,5),.args=ZINTER_Args},
 {MAKE_CMD("zintercard","Returns the number of members of the intersect of multiple sorted sets.","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTERCARD_History,0,ZINTERCARD_Tips,0,zinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZINTERCARD_Keyspecs,1,zunionInterDiffGetKeys,3),.args=ZINTERCARD_Args},
-{MAKE_CMD("zinterstore","Stores the intersect of multiple sorted sets in a key.","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTERSTORE_History,0,ZINTERSTORE_Tips,0,zinterstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZINTERSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,5),.args=ZINTERSTORE_Args},
+{MAKE_CMD("zinterstore","Stores the intersect of multiple sorted sets in a key.","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTERSTORE_History,1,ZINTERSTORE_Tips,0,zinterstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZINTERSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,5),.args=ZINTERSTORE_Args},
 {MAKE_CMD("zlexcount","Returns the number of members in a sorted set within a lexicographical range.","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_History,0,ZLEXCOUNT_Tips,0,zlexcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZLEXCOUNT_Keyspecs,1,NULL,3),.args=ZLEXCOUNT_Args},
 {MAKE_CMD("zmpop","Returns the highest- or lowest-scoring members from one or more sorted sets after removing them. Deletes the sorted set if the last member was popped.","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZMPOP_History,0,ZMPOP_Tips,0,zmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,ZMPOP_Keyspecs,1,zmpopGetKeys,4),.args=ZMPOP_Args},
 {MAKE_CMD("zmscore","Returns the score of one or more members in a sorted set.","O(N) where N is the number of members being requested.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZMSCORE_History,0,ZMSCORE_Tips,0,zmscoreCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZMSCORE_Keyspecs,1,NULL,2),.args=ZMSCORE_Args},
@@ -12012,8 +12024,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("zrevrank","Returns the index of a member in a sorted set ordered by descending scores.","O(log(N))","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZREVRANK_History,1,ZREVRANK_Tips,0,zrevrankCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZREVRANK_Keyspecs,1,NULL,3),.args=ZREVRANK_Args},
 {MAKE_CMD("zscan","Iterates over members and scores of a sorted set.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZSCAN_History,0,ZSCAN_Tips,1,zscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZSCAN_Keyspecs,1,NULL,4),.args=ZSCAN_Args},
 {MAKE_CMD("zscore","Returns the score of a member in a sorted set.","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZSCORE_History,0,ZSCORE_Tips,0,zscoreCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZSCORE_Keyspecs,1,NULL,2),.args=ZSCORE_Args},
-{MAKE_CMD("zunion","Returns the union of multiple sorted sets.","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZUNION_History,0,ZUNION_Tips,0,zunionCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZUNION_Keyspecs,1,zunionInterDiffGetKeys,5),.args=ZUNION_Args},
-{MAKE_CMD("zunionstore","Stores the union of multiple sorted sets in a key.","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_History,0,ZUNIONSTORE_Tips,0,zunionstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZUNIONSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,5),.args=ZUNIONSTORE_Args},
+{MAKE_CMD("zunion","Returns the union of multiple sorted sets.","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZUNION_History,1,ZUNION_Tips,0,zunionCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZUNION_Keyspecs,1,zunionInterDiffGetKeys,5),.args=ZUNION_Args},
+{MAKE_CMD("zunionstore","Stores the union of multiple sorted sets in a key.","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_History,1,ZUNIONSTORE_Tips,0,zunionstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZUNIONSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,5),.args=ZUNIONSTORE_Args},
 /* stream */
 {MAKE_CMD("xack","Returns the number of messages that were successfully acknowledged by the consumer group member of a stream.","O(1) for each message ID processed.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACK_History,0,XACK_Tips,0,xackCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACK_Keyspecs,1,NULL,3),.args=XACK_Args},
 {MAKE_CMD("xackdel","Acknowledges and deletes one or multiple messages for a stream consumer group.","O(1) for each message ID processed.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACKDEL_History,0,XACKDEL_Tips,0,xackdelCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACKDEL_Keyspecs,1,NULL,4),.args=XACKDEL_Args},

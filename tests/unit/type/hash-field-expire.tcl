@@ -2359,6 +2359,11 @@ start_server {tags {"hash"}} {
             assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash 60 FIELDS -1 f1}
             assert_error {*invalid number of fields*} {r HSETEX myhash FIELDS 0 f1 v1 EX 60}
             assert_error {*invalid number of fields*} {r HGETEX myhash FIELDS 0 f1 EX 60}
+            set future_sec [expr {[clock seconds] + 60}]
+            set future_ms [expr {[clock milliseconds] + 60000}]
+            foreach {cmd expire} [list HEXPIRE 60 HPEXPIRE 60000 HEXPIREAT $future_sec HPEXPIREAT $future_ms] {
+                assert_error {*wrong number of arguments*} [list r $cmd myhash $expire FIELDS 2147483647 f1]
+            }
 
             # Test missing FIELDS keyword
             assert_error {*unknown argument*} {r HEXPIRE myhash 60 2 f1 f2}

@@ -2901,11 +2901,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                         /* search for duplicate records */
                         sds field = sdstrynewlen(fstr, flen);
-                        if (!field || dictAdd(dupSearchDict, field, NULL) != DICT_OK ||
-                            !lpSafeToAdd(lp, (size_t)flen + vlen)) {
+                        int field_added = (field != NULL && dictAdd(dupSearchDict, field, NULL) == DICT_OK);
+                        if (!field_added || !lpSafeToAdd(lp, (size_t)flen + vlen)) {
                             rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
+                            /* If field was not added to dict, we still own it.
+                             * If it was added, dict owns it and dictRelease will free it. */
+                            if (!field_added) sdsfree(field);
                             dictRelease(dupSearchDict);
-                            sdsfree(field);
                             lpFree(lp);
                             zfree(encoded);
                             o->ptr = NULL;

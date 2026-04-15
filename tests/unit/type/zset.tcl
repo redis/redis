@@ -971,6 +971,26 @@ start_server {tags {"zset"}} {
             assert_equal {b 2 c 3} [r zinter 2 zseta{t} zsetb{t} aggregate max withscores]
         }
 
+        test "ZUNIONSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} aggregate count]
+            assert_equal {a 1 d 1 b 2 c 2} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZUNION/ZINTER with AGGREGATE COUNT - $encoding" {
+            assert_equal {a 1 d 1 b 2 c 2} [r zunion 2 zseta{t} zsetb{t} aggregate count withscores]
+            assert_equal {b 2 c 2} [r zinter 2 zseta{t} zsetb{t} aggregate count withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE COUNT and WEIGHTS - $encoding" {
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} weights 2 3 aggregate count]
+            assert_equal {a 2 d 3 b 5 c 5} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZUNION/ZINTER with AGGREGATE COUNT and WEIGHTS - $encoding" {
+            assert_equal {a 2 d 3 b 5 c 5} [r zunion 2 zseta{t} zsetb{t} weights 2 3 aggregate count withscores]
+            assert_equal {b 5 c 5} [r zinter 2 zseta{t} zsetb{t} weights 2 3 aggregate count withscores]
+        }
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t}]
             assert_equal {b 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
@@ -1028,6 +1048,39 @@ start_server {tags {"zset"}} {
         test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate max]
             assert_equal {b 2 c 3} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate count]
+            assert_equal {b 2 c 2} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE COUNT and WEIGHTS - $encoding" {
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} weights 2 3 aggregate count]
+            assert_equal {b 5 c 5} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE/ZINTERSTORE with AGGREGATE COUNT - 3 sets - $encoding" {
+            r del s1{t} s2{t} s3{t} t1{t}
+            r zadd s1{t} 1 foo 1 bar
+            r zadd s2{t} 2 foo 2 bar
+            r zadd s3{t} 3 foo
+
+            assert_equal 1 [r zinterstore t1{t} 3 s1{t} s2{t} s3{t} aggregate count]
+            assert_equal {foo 3} [r zrange t1{t} 0 -1 withscores]
+
+            assert_equal 2 [r zunionstore t1{t} 3 s1{t} s2{t} s3{t} aggregate count]
+            assert_equal {bar 2 foo 3} [r zrange t1{t} 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE/ZINTERSTORE with AGGREGATE COUNT and WEIGHTS - 3 sets - $encoding" {
+            assert_equal 1 [r zinterstore t1{t} 3 s1{t} s2{t} s3{t} weights 10 5 3 aggregate count]
+            assert_equal {foo 18} [r zrange t1{t} 0 -1 withscores]
+
+            assert_equal 2 [r zunionstore t1{t} 3 s1{t} s2{t} s3{t} weights 10 5 3 aggregate count]
+            assert_equal {bar 15 foo 18} [r zrange t1{t} 0 -1 withscores]
+
+            r del s1{t} s2{t} s3{t} t1{t}
         }
 
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {

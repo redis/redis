@@ -1083,7 +1083,7 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     }
 
     return tempDb;
@@ -1117,7 +1117,7 @@ void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         if (calculateKeySlot(key->ptr) == slot) {
-            if (dictAdd(dst, key, dictGetVal(de)) == DICT_OK) {
+            if (dictAddRaw(dst, key, NULL)) {
                 incrRefCount(key);
             }
             dictDelete(src, key);
