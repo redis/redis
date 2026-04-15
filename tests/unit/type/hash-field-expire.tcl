@@ -298,7 +298,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash field1 value1 field2 value2
 
             # Use a long expiry to accommodate slow debug reloads
-            r hpexpire myhash 5000 NX FIELDS 1 field1
+            r hpexpire myhash 1500 NX FIELDS 1 field1
             set before [r HPEXPIRETIME myhash FIELDS 1 field1]
             r debug reload
             set after [r HPEXPIRETIME myhash FIELDS 1 field1]
