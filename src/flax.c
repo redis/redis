@@ -189,8 +189,6 @@ static int flaxGenericInsert(flax *f, uint8_t key, void *data, void **old, int o
     if (f->numele == f->capacity)
         flax_resize(f, f->capacity * 2);
 
-    /* Re-fetch pointers after potential resize (flax_resize may
-     * reallocate the data block, invalidating earlier pointers). */
     uint8_t *keys = flax_keys(f);
     void **vals = flax_values(f);
     int16_t tail = f->numele - idx; /* elements from [idx] onward that must shift right */
