@@ -2921,7 +2921,7 @@ void hgetexCommand(client *c) {
 
     updateKeysizesHist(c->db, OBJ_HASH, oldlen, hist_newlen);
     if (newlen == 0) {
-        dbDelete(c->db, c->argv[1]);
+        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     }
 }
