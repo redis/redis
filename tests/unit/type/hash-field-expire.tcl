@@ -310,7 +310,6 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # shorten expiry to speed up expiration verification
             r hpexpire myhash 50 XX FIELDS 1 field1
-            
             # Wait for field1 to expire robustly
             wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" }
             assert_equal [r hget myhash field1] ""
