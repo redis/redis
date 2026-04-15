@@ -288,6 +288,114 @@ struct standardConfig {
 
 dict *configs = NULL; /* Runtime config values */
 
+/*-----------------------------------------------------------------------------
+ * Config source tracking
+ *----------------------------------------------------------------------------*/
+
+/* Metadata describing where a config value was set from. */
+struct configSourceInfo {
+    configSource source;
+    sds filename;       /* Non-NULL for FILE/INCLUDE sources */
+};
+
+/* Global dictionary mapping config key -> configSourceInfo*. */
+static dict *config_sources = NULL;
+
+/* One entry in the active include chain: the file currently being parsed. */
+#define CONFIG_INCLUDE_MAX_DEPTH 16
+
+typedef struct configIncludeFrame {
+    configSource source;
+    sds filename;
+} configIncludeFrame;
+
+/* The full chain of nested includes active during a parse pass.
+ * frames[0] is the root (main config file / stdin / cmdline),
+ * frames[depth] is the innermost file currently being parsed. */
+typedef struct configIncludeChain {
+    configIncludeFrame frames[CONFIG_INCLUDE_MAX_DEPTH];
+    int depth;
+} configIncludeChain;
+
+/* Return the frame for the file currently being parsed. */
+static configIncludeFrame *configIncludeChainTop(configIncludeChain *chain) {
+    return &chain->frames[chain->depth];
+}
+
+/* Push a new frame for an included file.
+ * Returns 1 on success, 0 on failure (sets *err to a static error string). */
+static int configIncludeChainPush(configIncludeChain *chain,
+                                   configSource source, const char *filename,
+                                   const char **err) {
+    if (chain->depth + 1 >= CONFIG_INCLUDE_MAX_DEPTH) {
+        *err = "include nesting depth limit exceeded";
+        return 0;
+    }
+    if (filename) {
+        for (int i = 0; i <= chain->depth; i++) {
+            if (chain->frames[i].filename &&
+                !strcmp(chain->frames[i].filename, filename)) {
+                *err = "circular include detected";
+                return 0;
+            }
+        }
+    }
+    chain->frames[++chain->depth].source   = source;
+    chain->frames[chain->depth].filename   = filename ? sdsnew(filename) : NULL;
+    return 1;
+}
+
+/* Pop the current frame after an included file has been fully parsed. */
+static void configIncludeChainPop(configIncludeChain *chain) {
+    if (chain->depth > 0) {
+        sdsfree(chain->frames[chain->depth].filename);
+        chain->frames[chain->depth].filename = NULL;
+        chain->depth--;
+    }
+}
+
+void initConfigSourceTracking(void) {
+    config_sources = dictCreate(&sdsHashDictType);
+}
+
+void freeConfigSourceInfo(configSourceInfo *info) {
+    if (!info) return;
+    sdsfree(info->filename);
+    zfree(info);
+}
+
+/* Record (or overwrite) the source for a named config directive. */
+void recordConfigSource(const char *name, configSource source,
+                        const char *filename) {
+    if (!config_sources) return;
+
+    configSourceInfo *info = zmalloc(sizeof(configSourceInfo));
+    info->source   = source;
+    info->filename = filename ? sdsnew(filename) : NULL;
+
+    sds key = sdsnew(name);
+    dictEntry *existing = dictFind(config_sources, key);
+    if (existing) {
+        freeConfigSourceInfo(dictGetVal(existing));
+        dictSetVal(config_sources, existing, info);
+        sdsfree(key);
+    } else {
+        dictAdd(config_sources, key, info);
+    }
+}
+
+/* Look up source information for config parameter `name`. Returns NULL if not
+ * tracked.
+ */
+configSourceInfo *getConfigSource(const char *name) {
+    if (!config_sources) return NULL;
+    sds key = sdsnew(name);
+    dictEntry *de = dictFind(config_sources, key);
+    sdsfree(key);
+    return de ? dictGetVal(de) : NULL;
+}
+
+
 /* Lookup a config by the provided sds string name, or return NULL
  * if the config does not exist */
 static standardConfig *lookupConfig(const sds name) {
@@ -372,7 +480,8 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
-void queueLoadModule(sds path, sds *argv, int argc) {
+void queueLoadModule(sds path, sds *argv, int argc,
+                     configSource source, const char *source_filename) {
     int i;
     struct moduleLoadQueueEntry *loadmod;
 
@@ -384,6 +493,12 @@ void queueLoadModule(sds path, sds *argv, int argc) {
         loadmod->argv[i] = createRawStringObject(argv[i],sdslen(argv[i]));
     }
     listAddNodeTail(server.loadmodule_queue,loadmod);
+
+    /* Record the source immediately so the info is available for CONFIG REWRITE
+     * even before the module is actually loaded. Key is "loadmodule:<path>". */
+    sds tracking_key = sdscatfmt(sdsempty(), "loadmodule:%s", path);
+    recordConfigSource(tracking_key, source, source_filename);
+    sdsfree(tracking_key);
 }
 
 /* Parse an array of `arg_len` sds strings, validate and populate
@@ -447,7 +562,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
  * abnormal aggregate `save T C` functionality. Remove in the future. */
 static int reading_config_file;
 
-void loadServerConfigFromString(char *config) {
+void loadServerConfigFromString(char *config, configIncludeChain *chain) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
         {"list-max-ziplist-value", 2, 2},
@@ -487,6 +602,11 @@ void loadServerConfigFromString(char *config) {
         }
         sdstolower(argv[0]);
 
+        /* Determine the effective source for this line.
+         * frame->filename is already NULL for non-file sources (cmdline/stdin). */
+        configIncludeFrame *frame = configIncludeChainTop(chain);
+        const char *line_filename = frame->filename;
+
         /* Iterate the configs that are standard */
         standardConfig *config = lookupConfig(argv[0]);
         if (config) {
@@ -516,15 +636,16 @@ void loadServerConfigFromString(char *config) {
                 }
             }
 
+            recordConfigSource(config->name, frame->source, line_filename);
             sdsfreesplitres(argv,argc);
             argv = NULL;
             continue;
         } else {
             int match = 0;
             for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
-                if (!strcasecmp(argv[0], config->name) && 
-                    config->argc_min <= argc && 
-                    argc <= config->argc_max) 
+                if (!strcasecmp(argv[0], config->name) &&
+                    config->argc_min <= argc &&
+                    argc <= config->argc_max)
                 {
                     match = 1;
                     break;
@@ -539,7 +660,7 @@ void loadServerConfigFromString(char *config) {
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1], 0, NULL);
+            loadServerConfig(argv[1], 0, NULL, chain);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -574,7 +695,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
-            queueLoadModule(argv[1],&argv[2],argc-2);
+            queueLoadModule(argv[1],&argv[2],argc-2,frame->source,line_filename);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -583,14 +704,14 @@ void loadServerConfigFromString(char *config) {
                     err = "sentinel directive while not in sentinel mode";
                     goto loaderr;
                 }
-                queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
+                queueSentinelConfig(argv+1,argc-1,linenum,lines[i],
+                                    frame->source,line_filename);
             }
         } else {
             /* Collect all unknown configurations into `module_configs_queue`.
              * These may include valid module configurations or invalid ones.
              * They will be validated later by loadModuleConfigs() against the
              * configurations declared by the loaded module(s). */
-            
             if (argc < 2) {
                 err = "Bad directive or wrong number of arguments";
                 goto loaderr;
@@ -600,6 +721,7 @@ void loadServerConfigFromString(char *config) {
             for (int i = 2; i < argc; i++)
                 val = sdscatfmt(val, " %S", argv[i]);
             if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
+            recordConfigSource(argv[0], frame->source, line_filename);
         }
         sdsfreesplitres(argv,argc);
         argv = NULL;
@@ -651,85 +773,103 @@ loaderr:
     exit(1);
 }
 
+/* Read and parse a single concrete (non-wildcard) config file. */
+#define CONFIG_READ_LEN 1024
+static void loadOneConfigFile(const char *filename, configIncludeChain *chain) {
+    const char *push_err = NULL;
+    if (!configIncludeChainPush(chain, CONFIG_SOURCE_FILE, filename, &push_err)) {
+        serverLog(LL_WARNING, "Fatal error, can't process config file '%s': %s",
+                  filename, push_err);
+        exit(1);
+    }
+    char buf[CONFIG_READ_LEN+1];
+    FILE *fp = fopen(filename, "r");
+    if (fp == NULL) {
+        serverLog(LL_WARNING, "Fatal error, can't open config file '%s': %s",
+                  filename, strerror(errno));
+        exit(1);
+    }
+    sds config = sdsempty();
+    while (fgets(buf, CONFIG_READ_LEN+1, fp) != NULL)
+        config = sdscat(config, buf);
+    fclose(fp);
+    loadServerConfigFromString(config, chain);
+    sdsfree(config);
+    configIncludeChainPop(chain);
+}
+
 /* Load the server configuration from the specified filename.
- * The function appends the additional configuration directives stored
- * in the 'options' string to the config file before loading.
+ * stdin and options are only processed on the root call (chain == NULL).
  *
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
-#define CONFIG_READ_LEN 1024
-void loadServerConfig(char *filename, char config_from_stdin, char *options) {
-    sds config = sdsempty();
-    char buf[CONFIG_READ_LEN+1];
-    FILE *fp;
+void loadServerConfig(char *filename, char config_from_stdin, char *options,
+                      configIncludeChain *chain) {
+    int is_root = (chain == NULL);
+    configIncludeChain root_chain;
     glob_t globbuf;
 
-    /* Load the file content */
-    if (filename) {
+    if (is_root) {
+        memset(&root_chain, 0, sizeof(root_chain));
+        chain = &root_chain;
+    }
 
-        /* The logic for handling wildcards has slightly different behavior in cases where
-         * there is a failure to locate the included file.
-         * Whether or not a wildcard is specified, we should ALWAYS log errors when attempting
-         * to open included config files.
-         *
-         * However, we desire a behavioral difference between instances where a wildcard was
-         * specified and those where it hasn't:
-         *      no wildcards   : attempt to open the specified file and fail with a logged error
-         *                       if the file cannot be found and opened.
-         *      with wildcards : attempt to glob the specified pattern; if no files match the
-         *                       pattern, then gracefully continue on to the next entry in the
-         *                       config file, as if the current entry was never encountered.
-         *                       This will allow for empty conf.d directories to be included. */
+    if (filename &&
+        (strchr(filename,'*') || strchr(filename,'?') || strchr(filename,'[')))
+    {
+        /* Wildcard filename: expand the glob and process each matched file
+         * individually so source tracking records the actual filename.
+         * Silently skip if nothing matches (allows empty conf.d/). */
+        int has_matches = (glob(filename, 0, NULL, &globbuf) == 0) &&
+                          globbuf.gl_pathc > 0;
 
-        if (strchr(filename, '*') || strchr(filename, '?') || strchr(filename, '[')) {
-            /* A wildcard character detected in filename, so let us use glob */
-            if (glob(filename, 0, NULL, &globbuf) == 0) {
-
-                for (size_t i = 0; i < globbuf.gl_pathc; i++) {
-                    if ((fp = fopen(globbuf.gl_pathv[i], "r")) == NULL) {
-                        serverLog(LL_WARNING,
-                                  "Fatal error, can't open config file '%s': %s",
-                                  globbuf.gl_pathv[i], strerror(errno));
-                        exit(1);
-                    }
-                    while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
-                        config = sdscat(config,buf);
-                    fclose(fp);
-                }
-
-                globfree(&globbuf);
-            }
-        } else {
-            /* No wildcard in filename means we can use the original logic to read and
-             * potentially fail traditionally */
-            if ((fp = fopen(filename, "r")) == NULL) {
-                serverLog(LL_WARNING,
-                          "Fatal error, can't open config file '%s': %s",
-                          filename, strerror(errno));
-                exit(1);
-            }
-            while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
-                config = sdscat(config,buf);
-            fclose(fp);
+        if (is_root && has_matches) {
+            /* Resolve server.configfile to the first matched path so that
+             * CONFIG REWRITE always has a concrete target. */
+            sdsfree(server.configfile);
+            server.configfile = sdsnew(globbuf.gl_pathv[0]);
         }
+
+        if (has_matches) {
+            for (size_t i = 0; i < globbuf.gl_pathc; i++)
+                loadOneConfigFile(globbuf.gl_pathv[i], chain);
+            globfree(&globbuf);
+        }
+    } else if (filename) {
+        loadOneConfigFile(filename, chain);
     }
 
-    /* Append content from stdin */
+    if (!is_root) return;
+
+    /* stdin and options are only processed at the root call level. */
+    char buf[CONFIG_READ_LEN+1];
+
     if (config_from_stdin) {
-        serverLog(LL_NOTICE,"Reading config from stdin");
-        fp = stdin;
-        while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
-            config = sdscat(config,buf);
+        serverLog(LL_NOTICE, "Reading config from stdin");
+        sds stdin_config = sdsempty();
+        while (fgets(buf, CONFIG_READ_LEN+1, stdin) != NULL)
+            stdin_config = sdscat(stdin_config, buf);
+        const char *push_err = NULL;
+        if (!configIncludeChainPush(chain, CONFIG_SOURCE_STDIN, NULL, &push_err)) {
+            serverLog(LL_WARNING, "Fatal error processing stdin config: %s", push_err);
+            sdsfree(stdin_config);
+            exit(1);
+        }
+        loadServerConfigFromString(stdin_config, chain);
+        configIncludeChainPop(chain);
+        sdsfree(stdin_config);
     }
 
-    /* Append the additional options */
     if (options) {
-        config = sdscat(config,"\n");
-        config = sdscat(config,options);
+        const char *push_err = NULL;
+        if (!configIncludeChainPush(chain, CONFIG_SOURCE_CMDLINE, NULL, &push_err)) {
+            serverLog(LL_WARNING, "Fatal error processing cmdline options: %s", push_err);
+            exit(1);
+        }
+        loadServerConfigFromString(options, chain);
+        configIncludeChainPop(chain);
     }
-    loadServerConfigFromString(config);
-    sdsfree(config);
 }
 
 static int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
@@ -1578,15 +1718,35 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
-/* Rewrite the loadmodule option. */
-void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
+/* Return the rewrite state for an include file, creating it on first access. */
+static struct rewriteConfigState *rewriteConfigGetIncludeState(dict *include_states,
+                                                                const char *filename) {
+    dictEntry *de = dictFind(include_states, filename);
+    if (de) return dictGetVal(de);
+
+    struct rewriteConfigState *inc_state = rewriteConfigReadOldFile((char *)filename);
+    if (!inc_state) inc_state = rewriteConfigCreateState();
+    /* Include files must not get the Redis rewrite signature. */
+    inc_state->needs_signature = 0;
+    dictAdd(include_states, sdsnew(filename), inc_state);
+    return inc_state;
+}
+
+/* Rewrite the loadmodule option.
+ * Routes each module to the state for the file it was originally loaded from,
+ * using the same include-file routing logic as the standard config loop.
+ * include_states and path may be NULL when there is no includes or no main
+ * config file. */
+void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state,
+                                   dict *include_states, const char *path,
+                                   int force_write) {
     sds line;
     dictIterator di;
     dictEntry *de;
     dictInitIterator(&di, modules);
     while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
-        /* Internal modules doesn't have path and are not part of the configuration file */
+        /* Internal modules don't have a path and are not part of the config file. */
         if (sdslen(module->loadmod->path) == 0) continue;
 
         line = sdsnew("loadmodule ");
@@ -1595,11 +1755,34 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
             line = sdscatlen(line, " ", 1);
             line = sdscatsds(line, module->loadmod->argv[i]->ptr);
         }
-        rewriteConfigRewriteLine(state,"loadmodule",line,1);
+
+        /* Route to the include-file state when the module was loaded from a
+         * file other than the main config.  force_write overrides routing.
+         * loadmodule directives from the command line or stdin are never persisted. */
+        struct rewriteConfigState *target = state;
+        if (!force_write && include_states) {
+            sds tracking_key = sdscatfmt(sdsempty(), "loadmodule:%s",
+                                         module->loadmod->path);
+            configSourceInfo *src = getConfigSource(tracking_key);
+            sdsfree(tracking_key);
+            if (src && (src->source == CONFIG_SOURCE_CMDLINE ||
+                        src->source == CONFIG_SOURCE_STDIN)) {
+                sdsfree(line);
+                continue;
+            } else if (src && src->filename &&
+                       (!path || strcmp(src->filename, path) != 0)) {
+                target = rewriteConfigGetIncludeState(include_states,
+                                                      src->filename);
+            }
+        }
+        if (target) rewriteConfigRewriteLine(target, "loadmodule", line, 1);
+        else sdsfree(line);
     }
     dictResetIterator(&di);
-    /* Mark "loadmodule" as processed in case modules is empty. */
-    rewriteConfigMarkAsProcessed(state,"loadmodule");
+    /* Always mark "loadmodule" as processed in the main state so that
+     * orphan removal can blank any stale loadmodule lines that have moved
+     * to an include file (or that belong to unloaded modules). */
+    if (state) rewriteConfigMarkAsProcessed(state, "loadmodule");
 }
 
 /* Glue together the configuration lines in the current configuration
@@ -1745,27 +1928,43 @@ cleanup:
     return retval;
 }
 
-/* Rewrite the configuration file at "path".
+/**
+ * Return the rewriteConfigState for an include file, creating it on first use.
+ * `include_states` maps include path (sds) -> rewriteConfigState*.
+ */
+/* Rewrite actual configuration parameters into their original locations.
  * If the configuration file already exists, we try at best to retain comments
  * and overall structure.
+ * If path is NULL, try to rewrite all configs to their original source files
+ * (includes)
  *
  * Configuration parameters that are at their default value, unless already
  * explicitly included in the old configuration file, are not rewritten.
  * The force_write flag overrides this behavior and forces everything to be
- * written. This is currently only used for testing purposes.
+ * written into main config. This is currently only used for testing purposes.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
 int rewriteConfig(char *path, int force_write) {
-    struct rewriteConfigState *state;
+    struct rewriteConfigState *state = NULL;
     sds newcontent;
-    int retval;
+    int retval = 0;
 
-    /* Step 1: read the old config into our rewrite state. */
-    if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
-    if (force_write) state->force_write = 1;
+    /* force_write consolidates everything into the main config; a path is
+     * required for that to make sense. */
+    if (!path && force_write) return -1;
+
+    /* Step 1: read the main config into our rewrite state if there is one. */
+    if (path) {
+        if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
+        if (force_write) state->force_write = 1;
+    }
+
+    /* Lazy-initialised map of include-file path -> rewriteConfigState for
+     * configs that originated in a file other than the main config file. */
+    dict *include_states = dictCreate(&sdsHashDictType);
 
     /* Step 2: rewrite every single option, replacing or appending it inside
-     * the rewrite state. */
+     * the appropriate rewrite state (main config or an include file). */
 
     /* Iterate the configs that are standard */
     dictIterator di;
@@ -1775,28 +1974,61 @@ int rewriteConfig(char *path, int force_write) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
+        if (!config->interface.rewrite) continue;
+
+        /* Route to include-file state when the value originated in a file
+         * other than the main config file.  When force_write is set, skip
+         * routing so that everything lands in the main config.
+         * When there is no main config (state == NULL), any config without
+         * an include-file source has nowhere to go and is skipped.
+         * Configs from the command line or stdin are never persisted to any file. */
+        struct rewriteConfigState *target = state;
+        if (!force_write) {
+            configSourceInfo *src = getConfigSource(config->name);
+            if (src && (src->source == CONFIG_SOURCE_CMDLINE ||
+                        src->source == CONFIG_SOURCE_STDIN)) {
+                continue;
+            } else if (src && src->filename &&
+                       (!path || sdscmp(src->filename, path) != 0)) {
+                target = rewriteConfigGetIncludeState(include_states, src->filename);
+            }
+        }
+        if (!target) continue;
+        config->interface.rewrite(config, dictGetKey(de), target);
     }
     dictResetIterator(&di);
 
-    rewriteConfigUserOption(state);
-    rewriteConfigLoadmoduleOption(state);
+    rewriteConfigLoadmoduleOption(state, include_states, path, force_write);
 
-    /* Rewrite Sentinel config if in Sentinel mode. */
-    if (server.sentinel_mode) rewriteConfigSentinelOption(state);
+    if (state) {
+        rewriteConfigUserOption(state);
 
-    /* Step 3: remove all the orphaned lines in the old file, that is, lines
-     * that were used by a config option and are no longer used, like in case
-     * of multiple "save" options or duplicated options. */
-    rewriteConfigRemoveOrphaned(state);
+        /* Rewrite Sentinel config if in Sentinel mode. */
+        if (server.sentinel_mode) rewriteConfigSentinelOption(state);
+    }
 
-    /* Step 4: generate a new configuration file from the modified state
-     * and write it into the original file. */
-    newcontent = rewriteConfigGetContentFromState(state);
-    retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
+    /* Step 3: remove orphaned lines and write every include file. */
+    dictInitIterator(&di, include_states);
+    while ((de = dictNext(&di)) != NULL) {
+        sds inc_path = dictGetKey(de);
+        struct rewriteConfigState *inc_state = dictGetVal(de);
+        rewriteConfigRemoveOrphaned(inc_state);
+        sds inc_content = rewriteConfigGetContentFromState(inc_state);
+        if (rewriteConfigOverwriteFile(inc_path, inc_content) == -1) retval = -1;
+        sdsfree(inc_content);
+        rewriteConfigReleaseState(inc_state);
+    }
+    dictResetIterator(&di);
+    dictRelease(include_states);
 
-    sdsfree(newcontent);
-    rewriteConfigReleaseState(state);
+    /* Step 4: remove orphaned lines and write the main config file. */
+    if (state) {
+        rewriteConfigRemoveOrphaned(state);
+        newcontent = rewriteConfigGetContentFromState(state);
+        if (rewriteConfigOverwriteFile(path, newcontent) == -1) retval = -1;
+        sdsfree(newcontent);
+        rewriteConfigReleaseState(state);
+    }
     return retval;
 }
 
@@ -3355,6 +3587,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
  * runtime configuration dictionary. */
 void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
+    initConfigSourceTracking();
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
         if (config->interface.init) config->interface.init(config);
@@ -3774,3 +4007,5 @@ void configRewriteCommand(client *c) {
 int configExists(const sds name) {
     return lookupConfig(name) != NULL;
 }
+
+

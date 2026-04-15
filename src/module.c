@@ -13001,6 +13001,7 @@ void moduleLoadFromQueue(void) {
                 loadmod->path);
             exit(1);
         }
+
         moduleLoadQueueEntryFree(loadmod);
         listDelNode(server.loadmodule_queue, ln);
     }

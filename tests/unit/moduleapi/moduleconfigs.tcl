@@ -382,5 +382,35 @@ start_server {tags {"modules external:skip"}} {
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string modified_value"
         r module unload moduleconfigs
     }
+
+    test {CONFIG REWRITE routes loadmodule and module config back to include file} {
+        # Both loadmodule and the module-specific config live in an include
+        # file, not the main redis.conf.  After changing the enum value and
+        # rewriting, everything must stay in the include file and nothing must
+        # spill into the main config.
+        set module_conf [file normalize [tmpfile moduleconfigs_inc.conf]]
+
+        set fd [open $module_conf w]
+        puts $fd "loadmodule $testmodule"
+        puts $fd "moduleconfigs.enum one"
+        close $fd
+
+        start_server [list tags {modules external:skip} config_lines [list include $module_conf]] {
+            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
+
+            r config set moduleconfigs.enum five
+            r config rewrite
+
+            set main_content [exec cat [srv 0 config_file]]
+            set inc_content  [exec cat $module_conf]
+
+            # loadmodule must not migrate into the main config
+            assert {![string match "*loadmodule*" $main_content]}
+
+            # Both directives must be rewritten into the include file
+            assert_match "*loadmodule*"               $inc_content
+            assert_match "*moduleconfigs.enum five*"  $inc_content
+        }
+    }
 }
 

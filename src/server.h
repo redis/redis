@@ -1661,6 +1661,15 @@ struct saveparam {
     int changes;
 };
 
+/* Source of a configuration value. */
+typedef enum {
+    CONFIG_SOURCE_DEFAULT,   /* Default value (never explicitly set) */
+    CONFIG_SOURCE_FILE,      /* From a config file (main or included) */
+    CONFIG_SOURCE_STDIN,     /* From stdin */
+    CONFIG_SOURCE_CMDLINE,   /* From command-line argument */
+    CONFIG_SOURCE_RUNTIME,   /* From CONFIG SET at runtime */
+} configSource;
+
 struct moduleLoadQueueEntry {
     sds path;
     int argc;
@@ -1672,6 +1681,9 @@ struct sentinelLoadQueueEntry {
     sds *argv;
     int linenum;
     sds line;
+    /* Source tracking */
+    configSource source;
+    sds source_filename;    /* Non-NULL for FILE sources */
 };
 
 struct sentinelConfig {
@@ -3873,7 +3885,9 @@ typedef enum {
     SPECIAL_CONFIG,
 } configType;
 
-void loadServerConfig(char *filename, char config_from_stdin, char *options);
+struct configIncludeChain; /* defined in config.c */
+void loadServerConfig(char *filename, char config_from_stdin, char *options,
+                      struct configIncludeChain *chain);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
@@ -3884,6 +3898,13 @@ void initConfigValues(void);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
+/* Config source tracking API */
+typedef struct configSourceInfo configSourceInfo;
+void initConfigSourceTracking(void);
+void recordConfigSource(const char *name, configSource source,
+                        const char *filename);
+configSourceInfo *getConfigSource(const char *name);
+void freeConfigSourceInfo(configSourceInfo *info);
 void initServerClientMemUsageBuckets(void);
 void freeServerClientMemUsageBuckets(void);
 static inline int clusterSlotStatsEnabled(int stat) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & stat); }
@@ -4055,7 +4076,8 @@ void initSentinelConfig(void);
 void initSentinel(void);
 void sentinelTimer(void);
 const char *sentinelHandleConfiguration(char **argv, int argc);
-void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);
+void queueSentinelConfig(sds *argv, int argc, int linenum, sds line,
+                         configSource source, const char *source_filename);
 void loadSentinelConfigFromQueue(void);
 void sentinelIsRunning(void);
 void sentinelCheckConfigFile(void);

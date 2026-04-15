@@ -1103,6 +1103,65 @@ test {CONFIG REWRITE handles alias config properly} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE writes changed value back to the include file} {
+    set include_file [file normalize [tmpfile include.conf]]
+
+    set fd [open $include_file w]
+    puts $fd "tcp-keepalive 301"
+    close $fd
+
+    start_server [list tags {introspection} config_lines [list include $include_file]] {
+        assert_equal 301 [lindex [r config get tcp-keepalive] 1]
+
+        r config set tcp-keepalive 500
+        r config rewrite
+
+        # The updated value must appear in the include file, not only the main config
+        set include_content [exec cat $include_file]
+        assert_match "*tcp-keepalive 500*" $include_content
+
+        # Survives a restart, confirming the rewritten file is valid
+        restart_server 0 true false
+        assert_equal 500 [lindex [r config get tcp-keepalive] 1]
+    }
+} {} {external:skip}
+
+test {Circular include is detected and causes a fatal error} {
+    set conf_a [file normalize [tmpfile circular_a.conf]]
+    set conf_b [file normalize [tmpfile circular_b.conf]]
+
+    # a.conf includes b.conf and b.conf includes a.conf
+    set fd [open $conf_a w]
+    puts $fd "include $conf_b"
+    close $fd
+
+    set fd [open $conf_b w]
+    puts $fd "include $conf_a"
+    close $fd
+
+    catch {exec src/redis-server $conf_a} err
+    assert_match "*circular include detected*" $err
+} {} {external:skip}
+
+test {CONFIG REWRITE routes value from --include file back to that file} {
+    set include_file [file normalize [tmpfile cmdline_include.conf]]
+
+    set fd [open $include_file w]
+    puts $fd "timeout 30"
+    close $fd
+
+    start_server [list tags {introspection} args [list --include $include_file]] {
+        assert_equal 30 [lindex [r config get timeout] 1]
+
+        r config set timeout 60
+        r config rewrite
+
+        # The updated value must appear in the include file, not the main config
+        set include_content [exec cat $include_file]
+        assert_match "*timeout 60*" $include_content
+    }
+} {} {external:skip}
+
 test {IO threads client number} {
     start_server {overrides {io-threads 2} tags {external:skip}} {
         set iothread_clients [get_io_thread_clients 1]

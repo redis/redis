@@ -1757,13 +1757,15 @@ void freeSentinelLoadQueueEntry(void *item) {
     struct sentinelLoadQueueEntry *entry = item;
     sdsfreesplitres(entry->argv,entry->argc);
     sdsfree(entry->line);
+    if (entry->source_filename) sdsfree(entry->source_filename);
     zfree(entry);
 }
 
 /* This function is used for queuing sentinel configuration, the main
  * purpose of this function is to delay parsing the sentinel config option
  * in order to avoid the order dependent issue from the config. */
-void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
+void queueSentinelConfig(sds *argv, int argc, int linenum, sds line,
+                         configSource source, const char *source_filename) {
     int i;
     struct sentinelLoadQueueEntry *entry;
 
@@ -1775,6 +1777,8 @@ void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
     entry->argc = argc;
     entry->linenum = linenum;
     entry->line = sdsdup(line);
+    entry->source = source;
+    entry->source_filename = source_filename ? sdsnew(source_filename) : NULL;
     for (i = 0; i < argc; i++) {
         entry->argv[i] = sdsdup(argv[i]);
     }
@@ -1821,6 +1825,11 @@ void loadSentinelConfigFromQueue(void) {
                 line = entry->line;
                 goto loaderr;
             }
+            /* Record source under "sentinel:<subcommand>" (e.g. "sentinel:monitor"). */
+            sds tracking_key = sdscatfmt(sdsempty(), "sentinel:%s", entry->argv[0]);
+            recordConfigSource(tracking_key, entry->source,
+                               entry->source_filename);
+            sdsfree(tracking_key);
         }
     }
 
@@ -2265,6 +2274,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
 int sentinelFlushConfig(void) {
     int saved_hz = server.hz;
     int rewrite_status;
+
+    if (!server.configfile) {
+        serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: no config file");
+        return C_ERR;
+    }
 
     server.hz = CONFIG_DEFAULT_HZ;
     rewrite_status = rewriteConfig(server.configfile, 0);
