@@ -85,7 +85,7 @@ static void **flax_values(flax *f) {
  *   - Tail: key > keys[numele-1] is the append case, overwhelmingly common
  *     when keys are monotonically increasing sequence numbers.
  *   - Head: key <= keys[0] catches prepend and exact-match-at-zero. */
-static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int16_t *out_idx) {
+static int flax_search(const uint8_t *keys, uint16_t numele, uint8_t key, int16_t *out_idx) {
     if (numele == 0) {
         *out_idx = 0;
         return 0;
@@ -108,7 +108,7 @@ static int flax_search(const uint8_t *keys, uint32_t numele, uint8_t key, int16_
     }
 
     /* Linear scan through the middle. */
-    for (uint32_t i = 1; i < numele - 1; i++) {
+    for (uint16_t i = 1; i < numele - 1; i++) {
         if (keys[i] < key) continue;
         *out_idx = i;
         return keys[i] == key;
@@ -189,10 +189,13 @@ static int flaxGenericInsert(flax *f, uint8_t key, void *data, void **old, int o
     if (f->numele == f->capacity)
         flax_resize(f, f->capacity * 2);
 
+    /* Re-fetch pointers after potential resize (flax_resize may
+     * reallocate the data block, invalidating earlier pointers). */
     uint8_t *keys = flax_keys(f);
     void **vals = flax_values(f);
-    int16_t tail = f->numele - idx;
+    int16_t tail = f->numele - idx; /* elements from [idx] onward that must shift right */
 
+    /* Shift elements after idx one slot to the right to open a gap. */
     if (tail > 0) {
         memmove(&keys[idx + 1], &keys[idx], (size_t)tail * sizeof(uint8_t));
         memmove(&vals[idx + 1], &vals[idx], (size_t)tail * sizeof(void *));
@@ -202,7 +205,7 @@ static int flaxGenericInsert(flax *f, uint8_t key, void *data, void **old, int o
     vals[idx] = data;
     f->numele++;
     if (old) *old = NULL;
-    return 1;
+    return 1; /* new element created */
 }
 
 /* Overwriting insert. This is just a wrapper for flaxGenericInsert(). */
@@ -234,8 +237,9 @@ int flaxRemove(flax *f, uint8_t key, void **old) {
     uint8_t *keys = flax_keys(f);
     void **vals = flax_values(f);
     if (old) *old = vals[idx];
-    int16_t tail = f->numele - idx - 1;
+    int16_t tail = f->numele - idx - 1; /* elements after [idx] that must shift left */
 
+    /* Collapse the gap left by the removed element. */
     if (tail > 0) {
         memmove(&keys[idx], &keys[idx + 1], (size_t)tail * sizeof(uint8_t));
         memmove(&vals[idx], &vals[idx + 1], (size_t)tail * sizeof(void *));
