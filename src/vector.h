@@ -62,6 +62,12 @@ typedef struct vec {
     void **stack;      /* Optional stack buffer. */
 } vec;
 
+/* Return the contiguous backing array. */
+#define vecData(v) ((v)->data)
+
+/* Return the number of elements in the vector. */
+#define vecSize(v) ((v)->size)
+
 /* Initialize a vector */
 void vecInit(vec *v, void **stack, size_t initcap);
 
@@ -71,13 +77,8 @@ void vecRelease(vec *v);
 /* Reset the logical length to zero while preserving allocated storage. */
 void vecClear(vec *v);
 
-size_t vecSize(const vec *v);
-
 /* Requires index < vecSize(v). */
 void *vecGet(const vec *v, size_t index);
-
-/* Return the contiguous backing array. */
-void **vecData(vec *v);
 
 /* Ensure capacity is at least mincap. */
 void vecReserve(vec *v, size_t mincap);

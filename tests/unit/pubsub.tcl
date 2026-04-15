@@ -963,6 +963,45 @@ start_server {tags {"pubsub network"}} {
 
     ### Subkey-level notification tests for HASH type ###
 
+    # Helper: build expected payload "event|len:field0,len:field1,..."
+    proc build_expected_payload {event prefix count} {
+        set parts {}
+        for {set i 0} {$i < $count} {incr i} {
+            set f "${prefix}${i}"
+            lappend parts "[string length $f]:$f"
+        }
+        return "${event}|[join $parts ,]"
+    }
+
+    # Compare subkey notification payloads as sets (order-insensitive).
+    # Parses "event|f1,f2,..." and checks event matches and fields match as sets.
+    proc assert_subkey_payload_equal {expected actual} {
+        set ep [split $expected "|"]
+        set ap [split $actual "|"]
+        assert_equal [lindex $ep 0] [lindex $ap 0] ;# event name
+        set ef [lsort [split [lindex $ep 1] ","]]
+        set af [lsort [split [lindex $ap 1] ","]]
+        assert_equal $ef $af
+    }
+
+    # Generate N field-value pairs: {f0 v0 f1 v1 ...}
+    proc gen_field_values {prefix n} {
+        set args {}
+        for {set i 0} {$i < $n} {incr i} {
+            lappend args "${prefix}${i}" "v${i}"
+        }
+        return $args
+    }
+
+    # Generate N field names: {f0 f1 ...}
+    proc gen_fields {prefix n} {
+        set fields {}
+        for {set i 0} {$i < $n} {incr i} {
+            lappend fields "${prefix}${i}"
+        }
+        return $fields
+    }
+
     # Subkey notification: subkeyspace channel
     foreach {type max_lp_entries} {listpackex 512 hashtable 0} {
         r config set hash-max-listpack-entries $max_lp_entries
@@ -974,20 +1013,6 @@ start_server {tags {"pubsub network"}} {
         r del myhash
         r hset myhash f1 v1
         assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1" [$rd1 read]
-    }
-
-    test "Subkey notifications: subkeyspace - HSET multiple fields ($type)" {
-        r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2,2:f3" [$rd1 read]
-    }
-
-    test "Subkey notifications: subkeyspace - HDEL ($type)" {
-        r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3
-        r hdel myhash f1 f3
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2,2:f3" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hdel|2:f1,2:f3" [$rd1 read]
     }
 
     test "Subkey notifications: subkeyspace - HINCRBY ($type)" {
@@ -1012,98 +1037,153 @@ start_server {tags {"pubsub network"}} {
         assert_equal "message __subkeyspace@${db}__:myhash hincrbyfloat|7:counter" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HGETDEL ($type)" {
+    # Test with N=3 (stack path, within FIELDS_STACK_SIZE=16) and
+    # N=32 (heap path, exceeds FIELDS_STACK_SIZE).
+    foreach N {3 32} {
+
+    test "Subkey notifications: HSET $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3
-        r hgetdel myhash FIELDS 2 f1 f3
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2,2:f3" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hdel|2:f1,2:f3" [$rd1 read]
+        r hset myhash {*}[gen_field_values "f" $N]
+        set expected [build_expected_payload "hset" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HGETEX with expire ($type)" {
+    test "Subkey notifications: HDEL $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
-        r hgetex myhash EX 1000 FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
+        r hset myhash {*}[gen_field_values "f" $N]
+        $rd1 read ;# consume hset notification
+        r hdel myhash {*}[gen_fields "f" $N]
+        set expected [build_expected_payload "hdel" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HGETEX with persist ($type)" {
+    test "Subkey notifications: HGETDEL $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
-        r hexpire myhash 1000 FIELDS 2 f1 f2
-        r hgetex myhash PERSIST FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hpersist|2:f1,2:f2" [$rd1 read]
+        r hset myhash {*}[gen_field_values "f" $N]
+        $rd1 read ;# consume hset notification
+        r hgetdel myhash FIELDS $N {*}[gen_fields "f" $N]
+        set expected [build_expected_payload "hdel" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HGETEX with past timestamp triggers hdel ($type)" {
+    test "Subkey notifications: HEXPIRE $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
-        r hgetex myhash PX 0 FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hdel|2:f1,2:f2" [$rd1 read]
+        r hset myhash {*}[gen_field_values "f" $N]
+        $rd1 read ;# consume hset notification
+        r hexpire myhash 1000 FIELDS $N {*}[gen_fields "f" $N]
+        set expected [build_expected_payload "hexpire" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HEXPIRE ($type)" {
+    test "Subkey notifications: HEXPIRE past timestamp $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
-        r hexpire myhash 1000 FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
+        r hset myhash {*}[gen_field_values "f" $N]
+        $rd1 read ;# consume hset notification
+        r hexpireat myhash 1 FIELDS $N {*}[gen_fields "f" $N]
+        set expected [build_expected_payload "hdel" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HEXPIRE with past timestamp triggers hdel ($type)" {
+    test "Subkey notifications: HPERSIST $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3
-        r hexpireat myhash 1 FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2,2:f3" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hdel|2:f1,2:f2" [$rd1 read]
+        set fields [gen_fields "f" $N]
+        r hset myhash {*}[gen_field_values "f" $N]
+        r hexpire myhash 1000 FIELDS $N {*}$fields
+        $rd1 read ;# consume hset
+        $rd1 read ;# consume hexpire
+        r hpersist myhash FIELDS $N {*}$fields
+        set expected [build_expected_payload "hpersist" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HPERSIST ($type)" {
+    test "Subkey notifications: HGETEX with expire $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
-        r hexpire myhash 1000 FIELDS 2 f1 f2
-        r hpersist myhash FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hpersist|2:f1,2:f2" [$rd1 read]
+        r hset myhash {*}[gen_field_values "f" $N]
+        $rd1 read ;# consume hset
+        r hgetex myhash EX 1000 FIELDS $N {*}[gen_fields "f" $N]
+        set expected [build_expected_payload "hexpire" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: subkeyspace - HSETEX ($type)" {
+    test "Subkey notifications: HGETEX with persist $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hsetex myhash EX 1000 FIELDS 2 f1 v1 f2 v2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
+        set fields [gen_fields "f" $N]
+        r hset myhash {*}[gen_field_values "f" $N]
+        r hexpire myhash 1000 FIELDS $N {*}$fields
+        $rd1 read ;# consume hset
+        $rd1 read ;# consume hexpire
+        r hgetex myhash PERSIST FIELDS $N {*}$fields
+        set expected [build_expected_payload "hpersist" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
     }
 
-    test "Subkey notifications: lazy field expiry triggers hexpired ($type)" {
+    test "Subkey notifications: HGETEX past timestamp $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3
+        r hset myhash {*}[gen_field_values "f" $N]
+        $rd1 read ;# consume hset
+        r hgetex myhash PX 0 FIELDS $N {*}[gen_fields "f" $N]
+        set expected [build_expected_payload "hdel" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected" [$rd1 read]
+    }
+
+    test "Subkey notifications: HSETEX $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
+        r del myhash
+        r hsetex myhash EX 1000 FIELDS $N {*}[gen_field_values "f" $N]
+        set expected_hset [build_expected_payload "hset" "f" $N]
+        set expected_hexpire [build_expected_payload "hexpire" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected_hset" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected_hexpire" [$rd1 read]
+    }
+
+    test "Subkey notifications: HSETEX past timestamp $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
+        r del myhash
+        r hsetex myhash PX 0 FIELDS $N {*}[gen_field_values "f" $N]
+        set expected_hset [build_expected_payload "hset" "f" $N]
+        set expected_hdel [build_expected_payload "hdel" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected_hset" [$rd1 read]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected_hdel" [$rd1 read]
+    }
+
+    test "Subkey notifications: lazy field expiry triggers hexpired $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
+        r del myhash
+        # Create N+1 fields, expire N of them; keep one to prevent hash deletion.
+        set fields [gen_fields "f" $N]
+        set args [gen_field_values "f" $N]
+        lappend args "keep" "val"
+        r hset myhash {*}$args
         r debug set-active-expire 0
-        r hpexpire myhash 10 FIELDS 2 f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2,2:f3" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1,2:f2" [$rd1 read]
-        # Trigger lazy expiry by reading the field
+        r hpexpire myhash 10 FIELDS $N {*}$fields
+        $rd1 read ;# consume hset
+        $rd1 read ;# consume hexpire
+        # Trigger lazy expiry by reading the fields
         after 100
-        r hmget myhash f1 f2
-        assert_equal "message __subkeyspace@${db}__:myhash hexpired|2:f1,2:f2" [$rd1 read]
+        r hmget myhash {*}$fields
+        set expected_hexpired [build_expected_payload "hexpired" "f" $N]
+        assert_equal "message __subkeyspace@${db}__:myhash $expected_hexpired" [$rd1 read]
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
-    test "Subkey notifications: active field expiry triggers hexpired ($type)" {
+    test "Subkey notifications: active field expiry triggers hexpired $N fields ($type, [expr {$N <= 16 ? {stack} : {heap}}])" {
         r del myhash
-        r hset myhash f1 v1 f2 v2
-        r hpexpire myhash 10 FIELDS 1 f1
-        assert_equal "message __subkeyspace@${db}__:myhash hset|2:f1,2:f2" [$rd1 read]
-        assert_equal "message __subkeyspace@${db}__:myhash hexpire|2:f1" [$rd1 read]
-        # Wait for active expiry
-        assert_equal "message __subkeyspace@${db}__:myhash hexpired|2:f1" [$rd1 read]
+        # Create N+1 fields, expire N of them; keep one to prevent hash deletion.
+        set fields [gen_fields "f" $N]
+        set args [gen_field_values "f" $N]
+        lappend args "keep" "val"
+        r hset myhash {*}$args
+        r hpexpire myhash 10 FIELDS $N {*}$fields
+        $rd1 read ;# consume hset
+        $rd1 read ;# consume hexpire
+        # Wait for active expiry; field order depends on hash table iteration,
+        # so compare as set.
+        set expected_hexpired [build_expected_payload "hexpired" "f" $N]
+        set actual [$rd1 read]
+        set prefix "message __subkeyspace@${db}__:myhash "
+        assert_equal $prefix [string range $actual 0 [expr {[string length $prefix]-1}]]
+        assert_subkey_payload_equal $expected_hexpired [string range $actual [string length $prefix] end]
     }
-        $rd1 close
-    } ;
+    } ;# end foreach N
+    $rd1 close
+    } ;# end foreach type
 
     # Subkey notification format tests for subkeyevent/subkeyspaceitem/subkeyspaceevent
     # Full command coverage is done via subkeyspace channel below; here we only verify channel format.

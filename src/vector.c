@@ -54,20 +54,10 @@ void vecClear(vec *v) {
     v->size = 0;
 }
 
-/* Return the number of elements in the vector. */
-size_t vecSize(const vec *v) {
-    return v->size;
-}
-
 /* Get element at index. index must be < vecSize(v). */
 void *vecGet(const vec *v, size_t index) {
     assert(index < v->size);
     return v->data[index];
-}
-
-/* Return the contiguous backing array. */
-void **vecData(vec *v) {
-    return v->data;
 }
 
 /* Ensure capacity is at least mincap. */
