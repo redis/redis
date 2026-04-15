@@ -1692,11 +1692,27 @@ sds createStreamIDString(streamID *id) {
     return sdscatfmt(str,"%U-%U", id->ms,id->seq);
 }
 
+/* Format a stream ID into the supplied buffer as "<ms>-<seq>".
+ * Returns the number of characters written (excluding null terminator).
+ * The buffer must be at least STREAM_ID_STR_LEN bytes; two uint64 decimals
+ * plus the separator fit comfortably, and the contract is enforced via an
+ * assert on the caller-supplied buflen. */
+static inline int streamFormatID(char *buf, size_t buflen, streamID *id) {
+    serverAssert(buflen >= STREAM_ID_STR_LEN);
+    int n = ull2string(buf, buflen, id->ms);
+    buf[n++] = '-';
+    n += ull2string(buf + n, buflen - n, id->seq);
+    return n;
+}
+
 /* Emit a reply in the client output buffer by formatting a Stream ID
- * in the standard <ms>-<seq> format, using the simple string protocol
- * of REPL. */
+ * in the standard <ms>-<seq> format, using the bulk string protocol.
+ * Uses a stack buffer to avoid heap allocation — this replaces an
+ * SDS allocation+free round-trip for every stream ID reply. */
 void addReplyStreamID(client *c, streamID *id) {
-    addReplyBulkSds(c,createStreamIDString(id));
+    char buf[STREAM_ID_STR_LEN];
+    int len = streamFormatID(buf, sizeof(buf), id);
+    addReplyBulkCBuffer(c, buf, len);
 }
 
 void setDeferredReplyStreamID(client *c, void *dr, streamID *id) {
