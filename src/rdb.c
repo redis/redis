@@ -1986,11 +1986,14 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
 
 /* This function is called by rdbLoadObject() when the code is in RDB-check
  * mode and we find a module value of type 2 that can be parsed without
- * the need of the actual module. The value is parsed for errors, finally
- * a dummy redis object is returned just to conform to the API. */
-robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
+ * the need of the actual module. The value is parsed for errors.
+ * If null_on_fail is true, NULL is returned when data corruption is detected;
+ * otherwise a dummy redis object is always returned regardless of success or
+ * failure. */
+robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error) {
     uint64_t opcode;
-    while((opcode = rdbLoadLen(rdb,NULL)) != RDB_LENERR) {
+    while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
+        if (opcode == RDB_LENERR) goto fail;
         if (opcode == RDB_MODULE_OPCODE_SINT ||
             opcode == RDB_MODULE_OPCODE_UINT)
         {
@@ -1998,32 +2001,41 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
             if (rdbLoadLenByRef(rdb,NULL,&len) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading integer from module %s value", modulename);
+                goto fail;
             }
         } else if (opcode == RDB_MODULE_OPCODE_STRING) {
             robj *o = rdbGenericLoadStringObject(rdb,RDB_LOAD_NONE,NULL);
             if (o == NULL) {
                 rdbReportCorruptRDB(
                     "Error reading string from module %s value", modulename);
+                goto fail;
             }
-            if (o) decrRefCount(o);
+            decrRefCount(o);
         } else if (opcode == RDB_MODULE_OPCODE_FLOAT) {
             float val;
             if (rdbLoadBinaryFloatValue(rdb,&val) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading float from module %s value", modulename);
+                goto fail;
             }
         } else if (opcode == RDB_MODULE_OPCODE_DOUBLE) {
             double val;
             if (rdbLoadBinaryDoubleValue(rdb,&val) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading double from module %s value", modulename);
+                goto fail;
             }
-        } else if (opcode == RDB_MODULE_OPCODE_EOF) {
-            /* End of value */
-            break;
+        } else {
+            rdbReportCorruptRDB(
+                "Unknown module opcode %llu reading module %s value",
+                (unsigned long long)opcode, modulename);
+            goto fail;
         }
     }
+
     return createStringObject("module-dummy-value",18);
+fail:
+    return null_on_error ? NULL : createStringObject("module-dummy-value",18);
 }
 
 /* Load object type and optional key metadata (into `keymeta`) from RDB stream.
@@ -3548,7 +3560,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (rdbCheckMode) {
             char name[10];
             moduleTypeNameByID(name,moduleid);
-            return rdbLoadCheckModuleValue(rdb,name);
+            return rdbLoadCheckModuleValue(rdb,name,0);
         }
 
         if (mt == NULL) {
@@ -4000,8 +4012,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue;
             } else {
                 /* RDB check mode. */
-                robj *aux = rdbLoadCheckModuleValue(rdb,name);
-                if (aux) decrRefCount(aux);
+                rdbLoadCheckModuleValue(rdb,name,1);
                 continue; /* Read next opcode. */
             }
         } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
