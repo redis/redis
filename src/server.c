@@ -1002,7 +1002,6 @@ int clientsCronTrackExpansiveClients(client *c) {
     size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
     size_t in_usage = qb_size + c->all_argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
-    c->reply_bytes_unshared = getClientUnsharedReplyBytes(c, 0);
 
     /* Track the biggest values observed so far in this slot. */
     if (in_usage > ClientsPeakMemInput[CurrentPeakMemUsageSlot])
@@ -1047,6 +1046,12 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
 void updateClientMemoryUsage(client *c) {
     serverAssert(c->conn);
     size_t mem = getClientMemoryUsage(c);
+
+    /* Unshared reply bytes are solely owned by this client, so they
+     * must be included in the client's memory usage for eviction. */
+    size_t unshared_mem = getClientUnsharedReplyBytes(c, 0);
+    mem += unshared_mem;
+
     int type = getClientType(c);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
@@ -1055,6 +1060,7 @@ void updateClientMemoryUsage(client *c) {
     /* Remember what we added and where, to remove it next time. */
     c->last_memory_type = type;
     c->last_memory_usage = mem;
+    c->reply_bytes_unshared = unshared_mem;
 }
 
 int clientEvictionAllowed(client *c) {
