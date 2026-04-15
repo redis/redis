@@ -90,7 +90,7 @@ void vecReserve(vec *v, size_t mincap) {
 
 /* Append one element, growing storage as needed. */
 void vecPush(vec *v, void *value) {
-    if (v->size == v->cap) {
+    if (unlikely(v->size == v->cap)) {
         size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
         vecReserve(v, newcap);
     }
