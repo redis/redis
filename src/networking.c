@@ -1971,22 +1971,16 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
     return total;
 }
 
-/* Compute the number of bytes in the client's output buffer that are
- * unshared reply bytes where the client is the sole owner (refcount == 1).
- * This memory would actually be freed when the client disconnects. */
-size_t getClientUnsharedReplyBytes(client *c, int use_cache) {
-    size_t reply_bytes_unshared = 0;
+/* Update the client's unshared reply memory (solely owned). */
+void updateClientUnsharedReplyBytes(client *c) {
+    c->reply_bytes_unshared = 0;
 
-    /* No shared references means no unshared references either. */
-    if (c->reply_bytes_shared == 0) return 0;
-
-    /* If we are allowed to use the cache and the cached value is valid, return it. */
-    if (use_cache && c->reply_bytes_unshared <= c->reply_bytes_shared)
-        return c->reply_bytes_unshared;
+    /* No shared memory means no unshared memory either. */
+    if (c->reply_bytes_shared == 0) return;
 
     /* Scan the static output buffer. */
     if (c->buf_encoded)
-        reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
+        c->reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
 
     /* Scan each block in the reply list. */
     listIter reply_li;
@@ -1996,9 +1990,17 @@ size_t getClientUnsharedReplyBytes(client *c, int use_cache) {
         clientReplyBlock *block = listNodeValue(reply_ln);
         if (block == NULL) continue; /* deferred-length placeholder */
         if (block->buf_encoded)
-            reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
+            c->reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
     }
-    return reply_bytes_unshared;
+}
+
+/* Return the cached unshared reply bytes for the client.
+ * Note: call updateClientUnsharedReplyBytes() first to refresh the cache if the value may be stale. */
+size_t getClientUnsharedReplyBytes(client *c) {
+    /* Sanity check: unshared bytes should never exceed shared bytes. */
+    if (c->reply_bytes_unshared > c->reply_bytes_shared)
+        updateClientUnsharedReplyBytes(c);
+    return c->reply_bytes_unshared;
 }
 
 /* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
@@ -2015,7 +2017,7 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
 
         /* Unshared reply bytes: the client is the sole owner
          * (refcount == 1) because the key was deleted. */
-        *unshared_mem += getClientUnsharedReplyBytes(c, 1);
+        *unshared_mem += getClientUnsharedReplyBytes(c);
     }
 }
 
@@ -4116,7 +4118,7 @@ sds catClientInfoString(sds s, client *client) {
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* logical output buffer memory (includes shared memory; excludes client->buf so static clients show 0) */
         " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* shared memory (not solely owned by this client) */
-        " omem-unshared=%U", (unsigned long long) getClientUnsharedReplyBytes(client, 1), /* unshared memory (solely owned by this client) */
+        " omem-unshared=%U", (unsigned long long) getClientUnsharedReplyBytes(client), /* unshared memory (solely owned by this client) */
         " tot-mem=%U", (unsigned long long) total_mem, /* actual memory usage (includes unshared memory, excludes shared memory) */
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
@@ -5171,7 +5173,7 @@ static size_t getClientOutputBufferAllocSize(client *c) {
  * bytes would actually be freed when the client disconnects. */
 size_t getClientOutputBufferMemoryUsage(client *c) {
     size_t mem = getClientOutputBufferAllocSize(c);
-    mem += getClientUnsharedReplyBytes(c, 1);
+    mem += getClientUnsharedReplyBytes(c);
     return mem;
 }
 

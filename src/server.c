@@ -1045,13 +1045,12 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  */
 void updateClientMemoryUsage(client *c) {
     serverAssert(c->conn);
-    size_t mem = getClientMemoryUsage(c);
 
     /* Unshared reply bytes are solely owned by this client, so they
      * must be included in the client's memory usage for eviction. */
-    size_t unshared_mem = getClientUnsharedReplyBytes(c, 0);
-    mem += unshared_mem;
+    updateClientUnsharedReplyBytes(c);
 
+    size_t mem = getClientMemoryUsage(c);
     int type = getClientType(c);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
@@ -1060,7 +1059,6 @@ void updateClientMemoryUsage(client *c) {
     /* Remember what we added and where, to remove it next time. */
     c->last_memory_type = type;
     c->last_memory_usage = mem;
-    c->reply_bytes_unshared = unshared_mem;
 }
 
 int clientEvictionAllowed(client *c) {
