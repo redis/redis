@@ -382,8 +382,10 @@ static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
         size_t len = strlen(s);
         char *eptr;
 
+        errno = 0;
         double d = fast_float_strtod(s, len, &eptr);
-        int failed = ((size_t)(eptr - s) != len);
+        int failed = ((size_t)(eptr - s) != len) || errno == EINVAL ||
+            (errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
         int ok = (expect_failed == failed) && ff_eq(d, cases[i].expected);
         char descr[128];
         if (ok)
@@ -431,6 +433,7 @@ int fastFloatTest(int argc, char **argv, int flags) {
         {"9007199254740992", 9007199254740992.0},
         {"9007199254740993", 9007199254740992.0},
         {"12345678901234567890", 1.2345678901234567e19},
+        {"2.2250738585072012e-308", 2.2250738585072012e-308}, /* Near DBL_MIN boundary */
         {"0x10", 16.0},
     };
     run_ff_tests(decimal_ok, COUNTOF(decimal_ok), 0);
