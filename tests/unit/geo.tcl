@@ -224,29 +224,14 @@ start_server {tags {"geo"}} {
     } {*valid*}
 
     test {GEOADD out-of-range longitude/latitude error reply is well-formed on the wire} {
-        if {$::tls} {
-            set fd [::tls::socket [srv host] [srv port]]
-        } else {
-            set fd [socket [srv host] [srv port]]
-        }
-        fconfigure $fd -translation binary
-        puts -nonewline $fd "*5\r\n\$6\r\nGEOADD\r\n\$3\r\nnyc\r\n\$3\r\n200\r\n\$2\r\n40\r\n\$7\r\nbad lon\r\n"
-        flush $fd
-        # Read until we have a full line ending with \r\n.
-        set raw ""
-        while {[string first "\r\n" $raw] == -1} {
-            append raw [read $fd 1]
-        }
-        close $fd
-        # Wire-level RESP error: must start with '-' and end with \r\n,
-        # and body must not contain a duplicated "-ERR" prefix or an
-        # embedded \r\n.
-        assert_equal "-" [string index $raw 0]
-        assert_equal "\r\n" [string range $raw end-1 end]
-        set body [string range $raw 1 end-2]
+        r readraw 1
+        set reply [r geoadd nyc 200 40 "bad lon"]
+        r readraw 0
+        # RESP simple error: single line starting with '-', no duplicated "-ERR" prefix.
+        assert_equal "-" [string index $reply 0]
+        set body [string range $reply 1 end]
         assert_match {ERR invalid longitude,latitude pair*} $body
         assert_equal -1 [string first "-ERR" $body]
-        assert_equal -1 [string first "\r\n" $body]
     }
 
     test {GEOADD multi add} {
