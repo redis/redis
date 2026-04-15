@@ -441,7 +441,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 #define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
 #define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
-#define CLIENT_UNSHARED_MEM_DIRTY (1ULL<<55) /* Reply unshared memory stats are dirty, needs recalculation. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -2008,7 +2007,6 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *clients_with_pending_ref_reply; /* Clients with referenced reply objects. */
-    dict *clients_reply_refs;   /* Maps robj* -> dict(client* -> refcount) that reference it via bulkStrRef. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
@@ -3028,8 +3026,6 @@ extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
 extern dictType keylistDictType;
-extern dictType replyRefsClientDictType;
-extern dictType clientsReplyRefsDictType;
 extern kvstoreType kvstoreBaseType;
 extern kvstoreType kvstoreExType;
 extern dict *modules;
@@ -3217,6 +3213,7 @@ size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getClientOutputBufferSize(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c);
+size_t getClientUnsharedReplyBytes(client *c, int use_cache);
 void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
@@ -3243,10 +3240,6 @@ int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 void tryUnlinkClientFromPendingRefReply(client *c, int force);
-void replyRefsTrackClient(client *c, robj *obj);
-void replyRefsUntrackClient(client *c, robj *obj);
-void replyRefsNotifyDecrRefCount(robj *obj);
-void replyRefsAssertTotalRefCount(robj *o);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
 void protectClient(client *c);

@@ -234,29 +234,6 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
     }
 }
 
-/* Duplicate shared bulk string references in an encoded buffer.
- * Only duplicates objects referenced elsewhere (refcount > 1) to protect
- * against race conditions with bio threads during async flushdb.
- * Solely-owned objects are left as-is. */
-static void protectEncodedBufferRefs(client *c, char *buf, size_t buflen) {
-    char *ptr = buf;
-    while (ptr < buf + buflen) {
-        payloadHeader *header = (payloadHeader *)ptr;
-        ptr += sizeof(payloadHeader);
-
-        if (header->payload_type == BULK_STR_REF) {
-            bulkStrRef *str_ref = (bulkStrRef *)ptr;
-            if (str_ref->obj != NULL && str_ref->obj->refcount > 1) {
-                replyRefsUntrackClient(c, str_ref->obj);
-                robj *new_obj = dupStringObject(str_ref->obj);
-                decrRefCount(str_ref->obj);
-                str_ref->obj = new_obj;
-            }
-        }
-        ptr += header->payload_len;
-    }
-}
-
 /* Duplicate client reply objects that reference database objects to avoid race
  * conditions with bio threads during async flushdb.
  *
@@ -283,8 +260,24 @@ static void protectClientReplyObjects(void) {
         client *c = listNodeValue(ln);
 
         /* Process c->buf if it's encoded */
-        if (c->buf_encoded && c->bufpos > 0)
-            protectEncodedBufferRefs(c, c->buf, c->bufpos);
+        if (c->buf_encoded && c->bufpos > 0) {
+            char *ptr = c->buf;
+            while (ptr < c->buf + c->bufpos) {
+                payloadHeader *header = (payloadHeader *)ptr;
+                ptr += sizeof(payloadHeader);
+
+                if (header->payload_type == BULK_STR_REF) {
+                    bulkStrRef *str_ref = (bulkStrRef *)ptr;
+                    if (str_ref->obj != NULL) {
+                        /* Duplicate the string object */
+                        robj *new_obj = dupStringObject(str_ref->obj);
+                        decrRefCount(str_ref->obj);
+                        str_ref->obj = new_obj;
+                    }
+                }
+                ptr += header->payload_len;
+            }
+        }
 
         /* Process reply list */
         if (c->reply && listLength(c->reply)) {
@@ -293,8 +286,24 @@ static void protectClientReplyObjects(void) {
             listRewind(c->reply, &reply_li);
             while ((reply_ln = listNext(&reply_li))) {
                 clientReplyBlock *block = listNodeValue(reply_ln);
-                if (block && block->buf_encoded)
-                    protectEncodedBufferRefs(c, block->buf, block->used);
+                if (block && block->buf_encoded) {
+                    char *ptr = block->buf;
+                    while (ptr < block->buf + block->used) {
+                        payloadHeader *header = (payloadHeader *)ptr;
+                        ptr += sizeof(payloadHeader);
+
+                        if (header->payload_type == BULK_STR_REF) {
+                            bulkStrRef *str_ref = (bulkStrRef *)ptr;
+                            if (str_ref->obj != NULL) {
+                                /* Duplicate the string object */
+                                robj *new_obj = dupStringObject(str_ref->obj);
+                                decrRefCount(str_ref->obj);
+                                str_ref->obj = new_obj;
+                            }
+                        }
+                        ptr += header->payload_len;
+                    }
+                }
             }
         }
 
@@ -302,7 +311,6 @@ static void protectClientReplyObjects(void) {
          * pending ref list since all refs have been duplicated above. */
         freeClientIODeferredObjects(c, 0);
         tryUnlinkClientFromPendingRefReply(c, 1);
-        c->flags |= CLIENT_UNSHARED_MEM_DIRTY;
     }
 
     if (allpaused) resumeAllIOThreads();

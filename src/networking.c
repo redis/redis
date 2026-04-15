@@ -22,7 +22,6 @@
 #include "cluster_asm.h"
 #include "memory_prefetch.h"
 #include "connection.h"
-#include "redisassert.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -585,10 +584,6 @@ static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     if (!clientIsInPendingRefReplyList(c)) {
         listLinkNodeTail(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
-
-    /* Track this client in the global clients_reply_refs dict for memory
-     * accounting, when the robj's refcount changes we can notify clients. */
-    replyRefsTrackClient(c, obj);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1767,7 +1762,6 @@ void freeClientIODeferredObjects(client *c, int free_array) {
 
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
-        replyRefsUntrackClient(c, obj);
         decrRefCount(obj);
     }
 
@@ -1939,44 +1933,6 @@ void unlinkClient(client *c) {
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
-#ifdef DEBUG_ASSERTIONS
-/* Iterate server.clients_reply_refs and assert that 'c' does not appear as a
- * key in any inner client dict. Used to verify that all bulkStrRef tracking
- * has been cleaned up once a client finishes sending its replies. */
-static void replyRefsAssertClientNotTracked(client *c) {
-    dictEntry *de;
-    dictIterator di;
-    dictInitSafeIterator(&di, server.clients_reply_refs);
-    while ((de = dictNext(&di)) != NULL) {
-        dict *clients = dictGetVal(de);
-        debugAssert(dictFind(clients, c) == NULL);
-    }
-    dictResetIterator(&di);
-}
-
-/* For object 'o', sum up all per-client reference counts recorded in the
- * inner dict of server.clients_reply_refs and assert that the total does not
- * exceed o->refcount.  Each bulkStrRef addition calls incrRefCount + track,
- * and each release calls untrack + decrRefCount, so the two counters must
- * stay in sync.  The total can be strictly less than o->refcount when
- * non-tracked holders (e.g. the keyspace) still own a reference. */
-void replyRefsAssertTotalRefCount(robj *o) {
-    dictEntry *de = dictFind(server.clients_reply_refs, o);
-    if (!de) return;
-
-    dict *clients = dictGetVal(de);
-    uint64_t total = 0;
-    dictEntry *cde;
-    dictIterator di;
-    dictInitSafeIterator(&di, clients);
-    while ((cde = dictNext(&di)) != NULL)
-        total += dictGetUnsignedIntegerVal(cde);
-    dictResetIterator(&di);
-
-    debugAssert(total <= (uint64_t)o->refcount);
-}
-#endif
-
 /* Remove client from the list of clients with pending referenced replies.
  * This is called when the client has finished sending all pending replies,
  * or when the client is being freed.
@@ -1987,95 +1943,7 @@ void replyRefsAssertTotalRefCount(robj *o) {
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
-
-#ifdef DEBUG_ASSERTIONS
-        replyRefsAssertClientNotTracked(c);
-#endif
     }
-}
-
-/* ---------------------------------------------------------------------------
- * Reply reference tracking.
- *
- * When copy-avoidance stores a bulkStrRef in a client's reply buffer, we track
- * the mapping from robj -> dict(client* -> refcount) in server.clients_reply_refs.
- * This allows us to:
- *   1. Invalidate cached reply_bytes_unshared when refcount transitions matter.
- *   2. Correctly mark clients as "memory dirty" when a shared object becomes
- *      solely owned or when a co-referencing client releases its reference.
- * --------------------------------------------------------------------------- */
-
-/* If the inner dict has exactly one client, mark it as memory-dirty so its
- * cached reply_bytes_unshared gets recalculated. */
-static void replyRefsMarkSoleClientDirty(dict *clients) {
-    if (dictSize(clients) != 1) return;
-    dictIterator di;
-    dictInitIterator(&di, clients);
-    dictEntry *entry = dictNext(&di);
-    serverAssert(dictGetUnsignedIntegerVal(entry) >= 1);
-    client *sole = dictGetKey(entry);
-    sole->flags |= CLIENT_UNSHARED_MEM_DIRTY;
-    dictResetIterator(&di);
-}
-
-/* Register that client 'c' holds a reference to 'obj' via bulkStrRef. */
-void replyRefsTrackClient(client *c, robj *obj) {
-    dictEntry *de = dictFind(server.clients_reply_refs, obj);
-    dict *clients;
-    if (de) {
-        clients = dictGetVal(de);
-    } else {
-        clients = dictCreate(&replyRefsClientDictType);
-        dictAdd(server.clients_reply_refs, obj, clients);
-    }
-
-    dictEntry *cde = dictFind(clients, c);
-    if (cde) {
-        dictIncrUnsignedIntegerVal(cde, 1);
-    } else {
-        dictAdd(clients, c, NULL);
-        cde = dictFind(clients, c);
-        dictSetUnsignedIntegerVal(cde, 1);
-    }
-    serverAssert(dictGetUnsignedIntegerVal(cde) >= 1);
-}
-
-/* Unregister client 'c' from 'obj' tracking. Called when the client has
- * finished sending or releasing this particular bulkStrRef.
- * Marks remaining clients as dirty so their memory stats get recalculated. */
-void replyRefsUntrackClient(client *c, robj *obj) {
-    dictEntry *de = dictFind(server.clients_reply_refs, obj);
-    if (!de) return;
-
-    dict *clients = dictGetVal(de);
-    dictEntry *cde = dictFind(clients, c);
-    if (cde) {
-        uint64_t count = dictGetUnsignedIntegerVal(cde);
-        serverAssert(count >= 1);
-        uint64_t new_count = dictIncrUnsignedIntegerVal(cde, -1);
-        if (new_count == 0)
-            dictDelete(clients, c);
-    }
-
-    if (dictSize(clients) == 0) {
-        /* The current client is the last owner. */
-        if (obj->refcount == 1)
-            c->flags |= CLIENT_UNSHARED_MEM_DIRTY;
-        dictDelete(server.clients_reply_refs, obj);
-    } else {
-        replyRefsMarkSoleClientDirty(clients);
-    }
-}
-
-/* Called from decrRefCount when an robj's refcount drops to 1.
- * If only one client still holds a reference, mark it dirty so
- * getClientUnsharedReplyBytes picks up the now-solely-owned memory. */
-void replyRefsNotifyDecrRefCount(robj *obj) {
-    dictEntry *de = dictFind(server.clients_reply_refs, obj);
-    if (!de) return;
-
-    dict *clients = dictGetVal(de);
-    replyRefsMarkSoleClientDirty(clients);
 }
 
 /* Count bytes in an encoded buffer where the client holds the last remaining
@@ -2105,20 +1973,15 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
 
 /* Compute the number of bytes in the client's output buffer that are
  * unshared reply bytes where the client is the sole owner (refcount == 1).
- * This memory would actually be freed when the client disconnects.
- *
- * Uses a cached value (reply_bytes_unshared) when the cache is still valid.
- * The cache is invalidated by setting CLIENT_UNSHARED_MEM_DIRTY, which is done
- * automatically by the clients_reply_refs tracking when a refcount transition
- * makes the cached value stale. */
-static size_t getClientUnsharedReplyBytes(client *c) {
+ * This memory would actually be freed when the client disconnects. */
+size_t getClientUnsharedReplyBytes(client *c, int use_cache) {
     size_t reply_bytes_unshared = 0;
 
     /* No shared references means no unshared references either. */
     if (c->reply_bytes_shared == 0) return 0;
 
-    /* Return cached value if still valid. */
-    if (!(c->flags & CLIENT_UNSHARED_MEM_DIRTY))
+    /* If we are allowed to use the cache and the cached value is valid, return it. */
+    if (use_cache && c->reply_bytes_unshared <= c->reply_bytes_shared)
         return c->reply_bytes_unshared;
 
     /* Scan the static output buffer. */
@@ -2135,10 +1998,6 @@ static size_t getClientUnsharedReplyBytes(client *c) {
         if (block->buf_encoded)
             reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
     }
-
-    /* Update cache and clear dirty flag. */
-    c->reply_bytes_unshared = reply_bytes_unshared;
-    c->flags &= ~CLIENT_UNSHARED_MEM_DIRTY;
     return reply_bytes_unshared;
 }
 
@@ -2154,8 +2013,9 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
         /* Total shared reply bytes (logical size, shared with keyspace). */
         *shared_mem += c->reply_bytes_shared;
 
-        /* Unshared reply bytes: the client is the sole owner. */
-        *unshared_mem += getClientUnsharedReplyBytes(c);
+        /* Unshared reply bytes: the client is the sole owner
+         * (refcount == 1) because the key was deleted. */
+        *unshared_mem += getClientUnsharedReplyBytes(c, 1);
     }
 }
 
@@ -2254,12 +2114,10 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             /* Only release if not already released. */
             if (str_ref->obj != NULL) {
                 c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
-                if (in_io_thread) {
+                if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
-                } else {
-                    replyRefsUntrackClient(c, str_ref->obj);
+                else
                     decrRefCount(str_ref->obj);
-                }
                 str_ref->obj = NULL;
             }
         } else {
@@ -2676,7 +2534,6 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
             } else {
-                replyRefsUntrackClient(c, str_ref->obj);
                 decrRefCount(str_ref->obj);
             }
             str_ref->obj = NULL; /* Mark as released to prevent double free */
@@ -4259,7 +4116,7 @@ sds catClientInfoString(sds s, client *client) {
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         " omem=%U", (unsigned long long) obufmem, /* includes shared refs; excludes client->buf so static clients show 0 */
         " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* refs shared with others (not solely owned by this client) */
-        " omem-unshared=%U", (unsigned long long) getClientUnsharedReplyBytes(client), /* refs solely owned by this client */
+        " omem-unshared=%U", (unsigned long long) getClientUnsharedReplyBytes(client, 1), /* refs solely owned by this client */
         " tot-mem=%U", (unsigned long long) total_mem, /* includes unshared refs, excludes shared refs */
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
@@ -5314,7 +5171,7 @@ static size_t getClientOutputBufferAllocSize(client *c) {
  * bytes would actually be freed when the client disconnects. */
 size_t getClientOutputBufferMemoryUsage(client *c) {
     size_t mem = getClientOutputBufferAllocSize(c);
-    mem += getClientUnsharedReplyBytes(c);
+    mem += getClientUnsharedReplyBytes(c, 1);
     return mem;
 }
 
