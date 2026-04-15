@@ -753,6 +753,12 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1}
     } {} {cluster:skip needs:debug}
 
+    test "KEYSIZES - HGETEX deleting the last hash fields removes the histogram entry $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server HSET myhash f1 v1 f2 v2 f3 v3} {db0_HASH:2=1}
+        run_cmd_verify_hist {$server HGETEX myhash PXAT 1 FIELDS 3 f1 f2 f3} {}
+    } {} {cluster:skip}
+
     test "KEYSIZES - Test RDB $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         # Write list, set and zset to db0
