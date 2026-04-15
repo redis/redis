@@ -436,6 +436,8 @@ void debugCommand(client *c) {
 "    Show low level info about `key` and associated value.",
 "DROP-CLUSTER-PACKET-FILTER <packet-type>",
 "    Drop all packets that match the filtered type. Set to -1 allow all packets.",
+"ENABLE-KEYMETA-RUNTIME-REGISTRATION <0|1>",
+"    Allow keymeta class registration outside server startup (for testing).",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
@@ -926,6 +928,11 @@ NULL
                c->argc == 3)
     {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
+               c->argc == 3)
+    {
+        server.allow_keymeta_registration = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&
                c->argc == 3)

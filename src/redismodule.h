@@ -1011,8 +1011,8 @@ typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply
 typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
 typedef int (*RedisModuleKeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
-typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
-typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *reserved, uint64_t *meta);
+typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *reserved, uint64_t meta);
 typedef void (*RedisModuleKeyMetaFreeFunc)(const char *keyname, uint64_t meta);
 typedef int (*RedisModuleKeyMetaCopyFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 typedef int (*RedisModuleKeyMetaRenameFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
