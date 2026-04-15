@@ -1718,6 +1718,22 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
+static void rewriteConfigStateDictValDestructor(dict *d, void *val) {
+    UNUSED(d);
+    rewriteConfigReleaseState(val);
+}
+
+/* Dict type for the include_states map (include path -> rewriteConfigState*). */
+static dictType includeStatesDictType = {
+    dictSdsCaseHash,                        /* hash function */
+    NULL,                                   /* key dup */
+    NULL,                                   /* val dup */
+    dictSdsKeyCaseCompare,                  /* key compare */
+    dictSdsDestructor,                      /* key destructor */
+    rewriteConfigStateDictValDestructor,    /* val destructor */
+    NULL                                    /* allow to expand */
+};
+
 /* Return the rewrite state for an include file, creating it on first access. */
 static struct rewriteConfigState *rewriteConfigGetIncludeState(dict *include_states,
                                                                 const char *filename) {
@@ -1961,7 +1977,7 @@ int rewriteConfig(char *path, int force_write) {
 
     /* Lazy-initialised map of include-file path -> rewriteConfigState for
      * configs that originated in a file other than the main config file. */
-    dict *include_states = dictCreate(&sdsHashDictType);
+    dict *include_states = dictCreate(&includeStatesDictType);
 
     /* Step 2: rewrite every single option, replacing or appending it inside
      * the appropriate rewrite state (main config or an include file). */
@@ -2016,7 +2032,6 @@ int rewriteConfig(char *path, int force_write) {
         sds inc_content = rewriteConfigGetContentFromState(inc_state);
         if (rewriteConfigOverwriteFile(inc_path, inc_content) == -1) retval = -1;
         sdsfree(inc_content);
-        rewriteConfigReleaseState(inc_state);
     }
     dictResetIterator(&di);
     dictRelease(include_states);
