@@ -348,7 +348,20 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     /* Use fast path for non-null-terminated strings */
     if (likely(fast_float_try_fast(nptr, pend, &result, &eptr) && eptr == pend)) {
         if (endptr) *endptr = (char *)eptr;
+#if UINTPTR_MAX == 0xffffffff
+        /* On 32-bit x86 with x87 FPU, the fast-path fdiv/fmul result lives in
+         * an 80-bit extended-precision register. With optimisation the compiler
+         * may return that value in st(0) without ever storing it to a 64-bit
+         * memory slot, so the caller would receive an 80-bit value that differs
+         * from the correctly-rounded 64-bit double.  Writing through a volatile
+         * forces a real fstpl (store + pop to 64-bit memory) followed by fldl
+         * (reload into st(0) from that 64-bit slot), ensuring the return value
+         * is truncated to double precision before it reaches the caller. */
+        volatile double ret = result;
+        return ret;
+#else
         return result;
+#endif
     }
     
     /* Fall back to strtod for complex cases:
@@ -389,10 +402,10 @@ static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
         int ok = (expect_failed == failed) && ff_eq(d, cases[i].expected);
         char descr[128];
         if (ok)
-            snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.17g)",
+            snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.20g)",
                      s, expect_failed ? "fail" : "ok", cases[i].expected);
         else
-            snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.17g) but got %s(%.17g)",
+            snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.20g) but got %s(%.20g)",
                      s, expect_failed ? "fail" : "ok", cases[i].expected, failed ? "fail" : "ok", d);
         test_cond(descr, ok);
     }
