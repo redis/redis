@@ -56,11 +56,9 @@ typedef struct flax {
  *   flaxStart(&it, myflax);        -- initialize
  *   flaxSeek(&it, ">=", somekey);  -- position
  *   while (flaxNext(&it)) { ... }  -- iterate (or flaxPrev)
- *   flaxStop(&it);                 -- cleanup
  *
  * After flaxStart() the iterator is in EOF state until a successful
- * flaxSeek(). The iterator does not allocate heap memory, so flaxStop()
- * is a no-op included for API symmetry with rax.
+ * flaxSeek(). The iterator does not allocate heap memory.
  *
  * WARNING: the iterator is invalidated by any mutation (insert / remove /
  * resize) on the underlying flax.  Do not modify the flax while iterating. */
@@ -89,7 +87,6 @@ void flaxStart(flaxIterator *it, flax *f);
 int flaxSeek(flaxIterator *it, const char *op, uint8_t key);
 int flaxNext(flaxIterator *it);
 int flaxPrev(flaxIterator *it);
-void flaxStop(flaxIterator *it);
 int flaxEOF(flaxIterator *it);
 void flaxIterSetData(flaxIterator *it, void *data);
 

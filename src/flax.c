@@ -463,11 +463,6 @@ int flaxPrev(flaxIterator *it) {
     return 1;
 }
 
-/* Stop the iterator (no-op, included for API symmetry with rax). */
-void flaxStop(flaxIterator *it) {
-    (void)it;
-}
-
 /* Return if the iterator is in an EOF state. This happens when flaxSeek()
  * failed to seek an appropriate element, so that flaxNext() or flaxPrev()
  * will return zero, or when an EOF condition was reached while iterating
@@ -819,7 +814,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxEOF(&it) == 1);
         assert(flaxSeek(&it, "$", 0) == 0);
         assert(flaxSeek(&it, ">=", 42) == 0);
-        flaxStop(&it);
+
 
         flaxFree(a);
     }
@@ -844,7 +839,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(it.key == 40);
         assert(flaxNext(&it) == 0);
         assert(flaxEOF(&it) == 1);
-        flaxStop(&it);
+
 
         flaxFree(a);
     }
@@ -864,7 +859,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxPrev(&it));
         assert(it.key == 10);
         assert(flaxPrev(&it) == 0);
-        flaxStop(&it);
+
 
         flaxFree(a);
     }
@@ -890,7 +885,7 @@ int flaxTest(int argc, char **argv, int flags) {
 
         assert(flaxSeek(&it, ">=", 41) == 0);
         assert(flaxEOF(&it) == 1);
-        flaxStop(&it);
+
 
         flaxFree(a);
     }
@@ -910,7 +905,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "$", 0));
         assert(it.key == 42);
         assert(flaxPrev(&it) == 0);
-        flaxStop(&it);
+
 
         flaxFree(a);
     }
@@ -958,7 +953,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, ">", 50) == 0);
         assert(flaxEOF(&it) == 1);
 
-        flaxStop(&it);
+
         flaxFree(a);
     }
 
@@ -992,7 +987,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "<=", 5) == 0);
         assert(flaxEOF(&it) == 1);
 
-        flaxStop(&it);
+
         flaxFree(a);
     }
 
@@ -1026,7 +1021,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "<", 5) == 0);
         assert(flaxEOF(&it) == 1);
 
-        flaxStop(&it);
+
         flaxFree(a);
     }
 
@@ -1059,7 +1054,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "=", 0) == 0);
         assert(flaxSeek(&it, "=", 255) == 0);
 
-        flaxStop(&it);
+
         flaxFree(a);
     }
 
@@ -1142,7 +1137,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "=", 255));
         assert(it.key == 255);
 
-        flaxStop(&it);
+
         flaxFree(a);
     }
 
@@ -1156,7 +1151,7 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxSeek(&it, "<", 42) == 0);
         assert(flaxSeek(&it, "=", 42) == 0);
 
-        flaxStop(&it);
+
         flaxFree(a);
     }
 
@@ -1172,7 +1167,7 @@ int flaxTest(int argc, char **argv, int flags) {
         do {
             if (it.key == 20) flaxIterSetData(&it, "TWENTY");
         } while (flaxNext(&it));
-        flaxStop(&it);
+
 
         void *val;
         assert(flaxFind(a, 10, &val) == 1);

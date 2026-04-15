@@ -417,7 +417,6 @@ void *pelRemove(rax *pel, streamID *id, uint64_t *count) {
         unsigned char directkey[PEL_RAX_DIRECT_KEYLEN];
         memcpy(directkey, fullkey, PEL_RAX_FLAX_KEYLEN);
         directkey[PEL_RAX_FLAX_KEYLEN] = (unsigned char)fi.key;
-        flaxStop(&fi);
         if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
         flaxFree(f);
         if (cache_hit) {
