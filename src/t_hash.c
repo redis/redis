@@ -2914,16 +2914,14 @@ void hgetexCommand(client *c) {
     }
 
     /* Key may become empty due to lazy expiry in addHashFieldToReply()
-     * or the new expiration time is in the past. Keep the KEYSIZES
-     * histogram aligned with the fact that an empty hash key is removed. */
+     * or the new expiration time is in the past. */
     newlen = hashTypeLength(o, 0);
-    int64_t hist_newlen = (newlen == 0) ? -1 : newlen;
-
-    updateKeysizesHist(c->db, OBJ_HASH, oldlen, hist_newlen);
     if (newlen == 0) {
         dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        newlen = -1;
     }
+    updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
 void hdelCommand(client *c) {
