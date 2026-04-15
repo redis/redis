@@ -4012,7 +4012,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue;
             } else {
                 /* RDB check mode. */
-                rdbLoadCheckModuleValue(rdb,name,1);
+                robj *aux = rdbLoadCheckModuleValue(rdb,name,0);
+                decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
         } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
