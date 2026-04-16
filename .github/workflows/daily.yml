@@ -1263,7 +1263,7 @@ jobs:
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'
     - name: testprep
-      run: apt-get install -y tcl tcltls tclx
+      run: apt-get install -y tcl8.6 tcl-tls tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
@@ -1311,7 +1311,7 @@ jobs:
         make CC=gcc BUILD_TLS=module REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
-        apt-get install -y tcl tcltls tclx
+        apt-get install -y tcl8.6 tcl-tls tclx
         ./utils/gen-test-certs.sh
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
@@ -1363,7 +1363,7 @@ jobs:
         make BUILD_TLS=module CC=gcc REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
-        apt-get install -y tcl tcltls tclx
+        apt-get install -y tcl8.6 tcl-tls tclx
         ./utils/gen-test-certs.sh
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
