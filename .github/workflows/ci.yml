@@ -85,6 +85,8 @@ jobs:
   build-old-chain-jemalloc:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
     - uses: actions/checkout@v4
     - name: make

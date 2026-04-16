@@ -1234,6 +1234,8 @@ jobs:
       !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:22.04
     timeout-minutes: 360
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -1281,6 +1283,8 @@ jobs:
       !contains(github.event.inputs.skipjobs, 'tls') && !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:22.04
     timeout-minutes: 360
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -1333,6 +1337,8 @@ jobs:
       !contains(github.event.inputs.skipjobs, 'tls') && !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:22.04
     timeout-minutes: 360
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
