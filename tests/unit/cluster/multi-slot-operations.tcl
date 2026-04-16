@@ -108,10 +108,84 @@ test "DELSLOTSRANGE command with several boundary conditions test suite" {
 }
 } cluster_allocate_with_continuous_slots_local
 
-start_cluster 2 0 {tags {external:skip cluster experimental}} {
+start_cluster 2 0 {tags {external:skip cluster}} {
 
 set master1 [srv 0 "client"]
 set master2 [srv -1 "client"]
+
+# Stream IDMP + cluster partial SFLUSH (multi slot ranges)
+# Covers streamMoveIdmpKeys() moving keys for all trimmed ranges in one pass.
+# Requires: cluster mode, background trim (default), partial SFLUSH (not full node flush).
+
+# Helper: find a key name whose hash tag lands on a given slot (0 - 16383).
+# Only the part inside {...} is hashed, so we bruteforce the tag text.
+proc stream_keys_for_slot {redis_cmd slot} {
+    for {set i 0} {$i < 100000} {incr i} {
+        set key "\{sidmp$i\}:s"
+        if {[$redis_cmd cluster keyslot $key] == $slot} {
+            return $key
+        }
+    }
+    error "could not build a key for slot $slot"
+}
+
+test {SFLUSH multiple ranges removes IDMP streams in those slots only} {
+    # clean state on this master (owns slots 0-8191)
+    $master1 FLUSHALL
+
+    # Use background trim (since we want to test asmTriggerBackgroundTrim())
+    $master1 debug asm-trim-method bg
+
+    # Three slots, all on node 0 (0-8191): two we will flush (slot_a and slot_b), one of it we will keep (slot_c)
+    set slot_a 100
+    set slot_b 5000
+    set slot_c 7000
+
+    set k_a [stream_keys_for_slot $master1 $slot_a]
+    set k_b [stream_keys_for_slot $master1 $slot_b]
+    set k_c [stream_keys_for_slot $master1 $slot_c]
+
+    # create streams with IDMP so they are tracked in dict stream_idmp_keys
+    $master1 XADD $k_a IDMP p1 "init" * field "init"
+    $master1 XADD $k_b IDMP p1 "init" * field "init"
+    $master1 XADD $k_c IDMP p1 "init" * field "init"
+
+    # Long duration so the cron does not clear IDMP state during the test
+    $master1 XCFGSET $k_a IDMP-DURATION 86400
+    $master1 XCFGSET $k_b IDMP-DURATION 86400
+    $master1 XCFGSET $k_c IDMP-DURATION 86400
+
+    # Real IDMP entries
+    set id_a [$master1 XADD $k_a IDMP p1 "req_a" * field v1]
+    set id_b [$master1 XADD $k_b IDMP p1 "req_b" * field v1]
+    set id_c [$master1 XADD $k_c IDMP p1 "req_c" * field v1]
+
+    assert_equal 1 [dict get [$master1 XINFO STREAM $k_a] pids-tracked]
+    assert_equal 1 [dict get [$master1 XINFO STREAM $k_b] pids-tracked]
+    assert_equal 1 [dict get [$master1 XINFO STREAM $k_c] pids-tracked]
+
+    # two disjoint ranges that include slot_a and slot_b but not slot_c
+    set lo_a [expr {$slot_a - 5}]
+    set hi_a [expr {$slot_a + 5}]
+    set lo_b [expr {$slot_b - 5}]
+    set hi_b [expr {$slot_b + 5}]
+
+    # partial SFLUSH: not the whole 0-8191, this is a real trim (not FLUSHDB shortcut)
+    $master1 SFLUSH $lo_a $hi_a $lo_b $hi_b SYNC
+
+    # Wait until two flushed streams are gone and third remains
+    wait_for_condition 1000 10 {
+        [$master1 EXISTS $k_a] == 0 && [$master1 EXISTS $k_b] == 0 && [$master1 EXISTS $k_c] == 1
+    } else {
+        fail "SFLUSH did not delete only the expected streams in time"
+    }
+
+    # remaining streams should still deduplicate IDMP correctly
+    assert_equal $id_c [$master1 XADD $k_c IDMP p1 "req_c" * field "dup"]
+
+    # sanity, we did not accidentally wipe the whole db
+    assert {[$master1 DBSIZE] >= 1}
+}
 
 test "SFLUSH - Errors and output validation" {
     assert_match "* 0-8191*" [$master1 CLUSTER NODES]
