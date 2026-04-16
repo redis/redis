@@ -123,7 +123,7 @@ static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigne
 #define LISTPACK_MAX_SAFETY_SIZE (1<<30)
 int lpSafeToAdd(unsigned char* lp, size_t add) {
     size_t len = lp? lpGetTotalBytes(lp): 0;
-    if (len + add > LISTPACK_MAX_SAFETY_SIZE)
+    if (add > LISTPACK_MAX_SAFETY_SIZE || len > LISTPACK_MAX_SAFETY_SIZE - add)
         return 0;
     return 1;
 }
@@ -1208,7 +1208,10 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
 
     uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
     uint64_t new_listpack_bytes = old_listpack_bytes + addedlen;
-    if (new_listpack_bytes > UINT32_MAX) return NULL;
+    if (new_listpack_bytes > UINT32_MAX) {
+        if (enc != tmp) lp_free(enc);
+        return NULL;
+    }
 
     /* Store the offset of the element 'p', so that we can obtain its
      * address again after a reallocation. */
@@ -1218,7 +1221,10 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
     /* Realloc before: we need more room. */
     if (new_listpack_bytes > old_listpack_bytes &&
         new_listpack_bytes > lp_malloc_size(lp)) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) {
+            if (enc != tmp) lp_free(enc);
+            return NULL;
+        }
         dst = lp + poff;
     }
 

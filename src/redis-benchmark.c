@@ -828,8 +828,21 @@ static void createMissingClients(client c) {
 }
 
 static void showLatencyReport(void) {
+    if (config.latency_histogram->total_count == 0) {
+        if (config.csv) {
+            printf("\"%s\",\"0.00\",\"0.000\",\"0.000\",\"0.000\",\"0.000\",\"0.000\",\"0.000\"\n", config.title);
+        } else if (config.quiet) {
+            printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
+            printf("%s: 0.00 requests per second, p50=0.000 msec\n", config.title);
+        } else {
+            printf("%*s\r", config.last_printed_bytes, " "); // ensure there is a clean line
+            printf("====== %s ======\n", config.title);
+            printf("No latency samples collected\n");
+        }
+        return;
+    }
 
-    const float reqpersec = (float)config.requests_finished/((float)config.totlatency/1000.0f);
+    const float reqpersec = config.totlatency > 0 ? (float)config.requests_finished/((float)config.totlatency/1000.0f) : 0.0f;
     const float p0 = ((float) hdr_min(config.latency_histogram))/1000.0f;
     const float p50 = hdr_value_at_percentile(config.latency_histogram, 50.0 )/1000.0f;
     const float p95 = hdr_value_at_percentile(config.latency_histogram, 95.0 )/1000.0f;
@@ -1666,13 +1679,15 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
         return SHOW_THROUGHPUT_INTERVAL;
     }
     const float dt = (float)(current_tick-config.start)/1000.0;
-    const float rps = (float)requests_finished/dt;
+    const float rps = dt > 0 ? (float)requests_finished/dt : 0.0f;
     const float instantaneous_dt = (float)(current_tick-config.previous_tick)/1000.0;
-    const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
+    const float instantaneous_rps = instantaneous_dt > 0 ? (float)(requests_finished-previous_requests_finished)/instantaneous_dt : 0.0f;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
     printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
-    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    double avg_mean = config.current_sec_latency_histogram->total_count > 0 ? hdr_mean(config.current_sec_latency_histogram)/1000.0f : 0.0;
+    double overall_mean = config.latency_histogram->total_count > 0 ? hdr_mean(config.latency_histogram)/1000.0f : 0.0;
+    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, avg_mean, overall_mean);
     config.last_printed_bytes = printed_bytes;
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);

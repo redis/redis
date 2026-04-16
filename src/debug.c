@@ -123,6 +123,14 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
+void mixGCRAObjectDigest(unsigned char *digest, robj *o) {
+    char buf[LONG_STR_SIZE];
+    long long val;
+    getLongLongFromGCRAObject(o, &val);
+    int len = ll2string(buf, sizeof(buf), val);
+    mixDigest(digest,buf,len);
+}
+
 /* This function computes the digest of a data structure stored in the
  * object 'o'. It is the core of the DEBUG DIGEST command: when taking the
  * digest of a whole dataset, we take the digest of the key and the value
@@ -255,6 +263,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         }
         streamIteratorStop(&si);
+    } else if (o->type == OBJ_GCRA) {
+        mixGCRAObjectDigest(digest, o);
     } else if (o->type == OBJ_MODULE) {
         RedisModuleDigest md = {{0},{0},keyobj,db->id};
         moduleValue *mv = o->ptr;
@@ -436,6 +446,8 @@ void debugCommand(client *c) {
 "    Show low level info about `key` and associated value.",
 "DROP-CLUSTER-PACKET-FILTER <packet-type>",
 "    Drop all packets that match the filtered type. Set to -1 allow all packets.",
+"ENABLE-KEYMETA-RUNTIME-REGISTRATION <0|1>",
+"    Allow keymeta class registration outside server startup (for testing).",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
@@ -553,13 +565,19 @@ NULL
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbg_assert_keysizes = (flag != 0);
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_KEYSIZES;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_KEYSIZES;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbg_assert_alloc_per_slot = (flag != 0);
+        if (flag)
+            server.dbg_assert_flags |= DBG_ASSERT_ALLOC_SLOT;
+        else
+            server.dbg_assert_flags &= ~DBG_ASSERT_ALLOC_SLOT;
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
@@ -787,7 +805,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db, key, &val);
-            keyModified(c,c->db,key,NULL,1);
+            keyModified(c,c->db,key,val,1);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -888,7 +906,7 @@ NULL
             addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
-        double dtime = fast_float_strtod(c->argv[2]->ptr,NULL);
+        double dtime = fast_float_strtod(c->argv[2]->ptr,sdslen(c->argv[2]->ptr),NULL);
         long long utime = dtime*1000000;
         struct timespec tv;
 
@@ -920,6 +938,11 @@ NULL
                c->argc == 3)
     {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
+               c->argc == 3)
+    {
+        server.allow_keymeta_registration = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&
                c->argc == 3)
@@ -1289,6 +1312,10 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
+    } else if (o->type == OBJ_GCRA) {
+#if UINTPTR_MAX == 0xffffffffffffffff
+        serverLog(LL_WARNING, "GCRA object: %lld", (long long)o->ptr);
+#endif
     }
 #endif
 }

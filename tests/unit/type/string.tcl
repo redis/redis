@@ -878,28 +878,28 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {DIGEST basic usage with plain string} {
         r set mykey "hello world"
         set digest [r digest mykey]
-        # Ensure reply is hex string
-        assert {[string is wideinteger -strict "0x$digest"]}
+        # Ensure reply is exactly 16 hex characters (works across all Tcl versions)
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with empty string} {
         r set mykey ""
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with integer-encoded value} {
         r set mykey 12345
         assert_encoding int mykey
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with negative integer} {
         r set mykey -999
         assert_encoding int mykey
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST returns consistent hash for same value} {
@@ -928,20 +928,20 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {DIGEST with binary data} {
         r set mykey "\x00\x01\x02\x03\xff\xfe"
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with unicode characters} {
         r set mykey "Hello 世界"
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST with very long string} {
         set longstring [string repeat "Lorem ipsum dolor sit amet. " 1000]
         r set mykey $longstring
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST against non-existing key} {
@@ -981,7 +981,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {DIGEST with special characters and whitespace} {
         r set mykey "  spaces  \t\n\r"
         set digest [r digest mykey]
-        assert {[string is wideinteger -strict "0x$digest"]}
+        assert {[string length $digest] == 16 && [string is xdigit -strict $digest]}
     }
 
     test {DIGEST consistency across SET operations} {
@@ -1037,7 +1037,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 0 [r exists mykey]
 
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal 0 [r delex mykey IFDEQ $wrong_digest]
         assert_equal 1 [r exists mykey]
         assert_equal "hello" [r get mykey]
@@ -1045,7 +1045,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {DELEX basic usage with IFDNE} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal 1 [r delex mykey IFDNE $wrong_digest]
         assert_equal 0 [r exists mykey]
 
@@ -1273,7 +1273,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDEQ - key exists but digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal {} [r set mykey "world" IFDEQ $wrong_digest]
         assert_equal "hello" [r get mykey]
     }
@@ -1287,7 +1287,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE - key exists and digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
         assert_equal "world" [r get mykey]
     }
@@ -1351,7 +1351,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDEQ and GET - key exists but digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "hello" [r set mykey "world" IFDEQ $wrong_digest GET]
         assert_equal "hello" [r get mykey]
     }
@@ -1365,7 +1365,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE and GET - key exists and digest doesn't match} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "hello" [r set mykey "world" IFDNE $wrong_digest GET]
         assert_equal "world" [r get mykey]
     }
@@ -1408,7 +1408,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET with IFDNE and expiration} {
         r set mykey "hello"
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest EX 10]
         assert_equal "world" [r get mykey]
         assert_range [r ttl mykey] 5 10
@@ -1540,7 +1540,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {Extended SET with negative digest} {
         r set mykey "test"
         set digest [r digest mykey]
-        set wrong_digest [format %x [expr [scan [r digest mykey] %x] + 1]]
+        set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
         assert_equal "world" [r get mykey]
     }

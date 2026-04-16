@@ -89,6 +89,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_ZSET 5
 #define REDISMODULE_KEYTYPE_MODULE 6
 #define REDISMODULE_KEYTYPE_STREAM 7
+#define REDISMODULE_KEYTYPE_GCRA 8
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -247,11 +248,12 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 #define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
+#define REDISMODULE_NOTIFY_RATE_LIMIT (1<<18) /* r, rate limit event */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<18)
+#define _REDISMODULE_NOTIFY_NEXT (1<<19)
 
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
 
@@ -1011,8 +1013,8 @@ typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply
 typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
 typedef int (*RedisModuleKeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
-typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
-typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *reserved, uint64_t *meta);
+typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *reserved, uint64_t meta);
 typedef void (*RedisModuleKeyMetaFreeFunc)(const char *keyname, uint64_t meta);
 typedef int (*RedisModuleKeyMetaCopyFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 typedef int (*RedisModuleKeyMetaRenameFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
@@ -1409,6 +1411,8 @@ REDISMODULE_API size_t (*RedisModule_MallocSizeDict)(RedisModuleDict* dict) REDI
 REDISMODULE_API RedisModuleUser * (*RedisModule_CreateModuleUser)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeModuleUser)(RedisModuleUser *user) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetContextUser)(RedisModuleCtx *ctx, const RedisModuleUser *user) REDISMODULE_ATTR;
+REDISMODULE_API const RedisModuleUser *(*RedisModule_GetContextUser)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString *(*RedisModule_GetUserUsername)(const RedisModuleUser *user) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetModuleUserACL)(RedisModuleUser *user, const char* acl) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetModuleUserACLString)(RedisModuleCtx * ctx, RedisModuleUser *user, const char* acl, RedisModuleString **error) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetModuleUserACLString)(RedisModuleUser *user) REDISMODULE_ATTR;
@@ -1808,6 +1812,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateModuleUser);
     REDISMODULE_GET_API(FreeModuleUser);
     REDISMODULE_GET_API(SetContextUser);
+    REDISMODULE_GET_API(GetContextUser);
+    REDISMODULE_GET_API(GetUserUsername);
     REDISMODULE_GET_API(SetModuleUserACL);
     REDISMODULE_GET_API(SetModuleUserACLString);
     REDISMODULE_GET_API(GetModuleUserACLString);

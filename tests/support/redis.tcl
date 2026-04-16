@@ -167,7 +167,9 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         foreach a $argv {
             # In Tcl 9.0, only convert to UTF-8 if the string contains non-byte characters
             # to preserve binary data while handling unicode correctly
-            if {$::tcl_version >= 9.0 && [string match "*\[^\u0000-\u00ff\]*" $a]} {
+            # Uses regexp rather than "string match *[^\u0000-\u00ff]*" to avoid the
+            # catastrophic backtracking bug in Tcl 9.0's glob engine.
+            if {$::tcl_version >= 9.0 && [regexp {[^\u0000-\u00ff]} $a]} {
                 set a [encoding convertto utf-8 $a]
             }
             append cmd "$[string length $a]\r\n$a\r\n"

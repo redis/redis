@@ -721,24 +721,26 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     if (min->encoding == OBJ_ENCODING_INT) {
         spec->min = (long)min->ptr;
     } else {
+        size_t len = sdslen(min->ptr);
         if (((char*)min->ptr)[0] == '(') {
-            spec->min = fast_float_strtod((char*)min->ptr+1,&eptr);
+            spec->min = fast_float_strtod((char*)min->ptr+1,len-1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
         } else {
-            spec->min = fast_float_strtod((char*)min->ptr,&eptr);
+            spec->min = fast_float_strtod((char*)min->ptr,len,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
     }
     if (max->encoding == OBJ_ENCODING_INT) {
         spec->max = (long)max->ptr;
     } else {
+        size_t len = sdslen(max->ptr);
         if (((char*)max->ptr)[0] == '(') {
-            spec->max = fast_float_strtod((char*)max->ptr+1,&eptr);
+            spec->max = fast_float_strtod((char*)max->ptr+1,len-1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
         } else {
-            spec->max = fast_float_strtod((char*)max->ptr,&eptr);
+            spec->max = fast_float_strtod((char*)max->ptr,len,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
         }
     }
@@ -945,13 +947,8 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n, un
  *----------------------------------------------------------------------------*/
 
 static double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
-    char buf[128];
-    if (vlen > sizeof(buf) - 1)
-        vlen = sizeof(buf) - 1;
-    memcpy(buf,vstr,vlen);
-    buf[vlen] = '\0';
-    return fast_float_strtod(buf,NULL);
- }
+    return fast_float_strtod((char*)vstr, vlen, NULL);
+}
 
 double zzlGetScore(unsigned char *sptr) {
     unsigned char *vstr;
@@ -2078,7 +2075,7 @@ void zaddGenericCommand(client *c, int flags) {
     server.dirty += (added+updated);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
-    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, llen, llen+added);
+    updateKeysizesHist(c->db, OBJ_ZSET, llen, llen+added);
 
 reply_to_client:
     if (incr) { /* ZINCRBY or INCR option. */
@@ -2146,7 +2143,7 @@ void zremCommand(client *c) {
             newlen = -1; /* means key got deleted */
         }
 
-        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
         keyModified(c, c->db, key, keyremoved ? NULL : zobj, 1);
         server.dirty += deleted;
     }
@@ -2278,7 +2275,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             newlen = zsetLength(zobj);
             oldlen = newlen + deleted;
         }
-        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
+        updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
     }
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
@@ -2653,6 +2650,15 @@ static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
+#define REDIS_AGGR_COUNT 4
+
+/* Return the weighted contribution of a single sorted set member.
+ * For COUNT aggregation the actual score is irrelevant — each member
+ * contributes its set's weight (i.e. "one occurrence worth <weight>").
+ * For all other aggregation modes the contribution is weight * score. */
+inline static double zuiWeightedScore(double score, double weight, int aggregate) {
+    return (aggregate == REDIS_AGGR_COUNT) ? weight : weight * score;
+}
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
@@ -2660,6 +2666,11 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
         /* The result of adding two doubles is NaN when one variable
          * is +inf and the other is -inf. When these numbers are added,
          * we maintain the convention of the result being 0.0. */
+        if (isnan(*target)) *target = 0.0;
+    } else if (aggregate == REDIS_AGGR_COUNT) {
+        *target += val;
+        /* The val is zuiWeightedScore(…) == weight, which can be +inf/-inf,
+         * so the NaN guard applies here. */
         if (isnan(*target)) *target = 0.0;
     } else if (aggregate == REDIS_AGGR_MIN) {
         *target = val < *target ? val : *target;
@@ -2793,7 +2804,10 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
 
             /* Exit if result set is empty as any additional removal
                 * of elements will have no effect. */
-            if (cardinality == 0) break;
+            if (cardinality == 0) {
+                zuiDiscardDirtyValue(&zval);
+                break;
+            }
         }
         zuiClearIterator(&src[j]);
 
@@ -2959,6 +2973,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     aggregate = REDIS_AGGR_MIN;
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
+                } else if (!strcasecmp(c->argv[j]->ptr,"count")) {
+                    aggregate = REDIS_AGGR_COUNT;
                 } else {
                     zfree(src);
                     addReplyErrorObject(c,shared.syntaxerr);
@@ -3015,17 +3031,17 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             while (zuiNext(&src[0],&zval)) {
                 double score, value;
 
-                score = src[0].weight * zval.score;
+                score = zuiWeightedScore(zval.score, src[0].weight, aggregate);
                 if (isnan(score)) score = 0;
 
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
                     if (src[j].subject == src[0].subject) {
-                        value = zval.score*src[j].weight;
+                        value = zuiWeightedScore(zval.score, src[j].weight, aggregate);
                         zunionInterAggregate(&score,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
-                        value *= src[j].weight;
+                        value = zuiWeightedScore(value, src[j].weight, aggregate);
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
                         break;
@@ -3072,7 +3088,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
                 /* Initialize value */
-                score = src[i].weight * zval.score;
+                score = zuiWeightedScore(zval.score, src[i].weight, aggregate);
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the dict (which stores node pointers). */
@@ -4342,7 +4358,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
         newlen = -1; 
     }
-    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
+    updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
     keyModified(c, c->db, key, (newlen > 0) ? zobj : NULL, 1);
 
     if (c->cmd->proc == zmpopCommand) {

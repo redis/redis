@@ -1,5 +1,5 @@
 #!/bin/sh
-TCL_VERSIONS="8.5 8.6 8.7"
+TCL_VERSIONS="8.5 8.6 8.7 9.0"
 TCLSH=""
 [ -z "$MAKE" ] && MAKE=make
 
@@ -59,4 +59,6 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/crash \
 --single unit/moduleapi/internalsecret \
 --single unit/moduleapi/configaccess \
+--single unit/moduleapi/keymeta \
+--single unit/moduleapi/ksn_notify_side_effect \
 "${@}"

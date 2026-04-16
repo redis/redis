@@ -165,6 +165,11 @@ static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
             info->state = PREFETCH_DONE;
             continue;
         }
+
+        /* We skip prefetch during loading, so ht_table[0] should never be NULL
+         * when dictSize() > 0 (which only happens mid-dictEmpty via _dictReset). */
+        serverAssert(batch->current_dicts[i]->ht_table[0]);
+
         info->ht_idx = HT_IDX_INVALID;
         info->current_entry = NULL;
         info->current_kv = NULL;
@@ -334,7 +339,7 @@ int determinePrefetchCount(int len) {
  * 3. Prefetch the keys and values for all commands in the current batch from
  *    the main dictionaries. */
 void prefetchCommands(void) {
-    if (!batch) return;
+    if (!batch || server.loading) return;
 
     /* Prefetch argv's for all pending commands */
     for (size_t i = 0; i < batch->pcmd_count; i++) {

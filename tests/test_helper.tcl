@@ -354,7 +354,7 @@ proc accept_test_clients {fd addr port} {
 #       ready to accept a new task.
 proc read_from_test_client fd {
     set bytes [gets $fd]
-    set payload [read $fd $bytes]
+    set payload [encoding convertfrom utf-8 [read $fd $bytes]]
     foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
 
@@ -528,7 +528,7 @@ proc test_client_main server_port {
     send_data_packet $::test_server_fd ready [pid]
     while 1 {
         set bytes [gets $::test_server_fd]
-        set payload [read $::test_server_fd $bytes]
+        set payload [encoding convertfrom utf-8 [read $::test_server_fd $bytes]]
         foreach {cmd data} $payload break
         if {$cmd eq {run}} {
             execute_test_file $data
@@ -543,8 +543,14 @@ proc test_client_main server_port {
 
 proc send_data_packet {fd status data {elapsed 0}} {
     set payload [list $status $data $elapsed]
-    puts $fd [string length $payload]
-    puts -nonewline $fd $payload
+    # Convert to UTF-8 bytes before sending so that:
+    # 1. The byte count is accurate (Tcl 9.0 string length returns character
+    #    count, which differs from byte count for non-ASCII Unicode chars).
+    # 2. Characters above U+00FF (not representable in the channel's iso8859-1
+    #    encoding) are safely transmitted as multi-byte UTF-8 sequences.
+    set payload_bytes [encoding convertto utf-8 $payload]
+    puts $fd [string length $payload_bytes]
+    puts -nonewline $fd $payload_bytes
     flush $fd
 }
 

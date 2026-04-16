@@ -287,6 +287,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_CONNECTION (1ULL<<18)
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
+#define ACL_CATEGORY_RATE_LIMIT (1ULL<<21)
 
 /* Key-spec flags *
  * -------------- */
@@ -520,7 +521,7 @@ typedef enum {
     REPL_STATE_RECEIVE_AUTH_REPLY,  /* Wait for AUTH reply */
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
-    REPL_STATE_RECEIVE_COMP_REPLY,  /* Wait for REPLCONF reply */
+    REPL_STATE_RECEIVE_REQ_REPLY,   /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
@@ -580,13 +581,17 @@ typedef enum {
 #define SLAVE_CAPA_PSYNC2           (1<<1) /* Supports PSYNC2 protocol. */
 #define SLAVE_CAPA_RDB_CHANNEL_REPL (1<<2) /* Supports rdb channel replication during full sync */
 
-/* Slave requirements */
+/* Slave requirements. NO_COMPRESS and NO_CHECKSUM are hints rather than strict
+ * requirements - the replica can handle compressed/checksummed RDB either way,
+ * but prefers to skip them for diskless loading since they become redundant.
+ * We reuse the REQ mechanism for simplicity, avoiding a separate HINT bitfield. */
 #define SLAVE_REQ_NONE                  0
 #define SLAVE_REQ_RDB_EXCLUDE_DATA      (1 << 0) /* Exclude data from RDB */
 #define SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS (1 << 1) /* Exclude functions from RDB */
 #define SLAVE_REQ_SLOTS_SNAPSHOT        (1 << 2) /* Only slots snapshot is required */
 #define SLAVE_REQ_RDB_CHANNEL           (1 << 3) /* Use rdb channel replication, transfer RDB background */
 #define SLAVE_REQ_RDB_NO_COMPRESS       (1 << 4) /* Don't enable RDB compression */
+#define SLAVE_REQ_RDB_NO_CHECKSUM       (1 << 5) /* Don't enable RDB checksum */
 /* Mask of all bits in the slave requirements bitfield that represent non-standard (filtered) RDB requirements */
 #define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS | SLAVE_REQ_SLOTS_SNAPSHOT)
 
@@ -791,6 +796,7 @@ typedef enum {
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
+#define NOTIFY_RATE_LIMIT (1<<18) /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
 
 /* Using the following macro you can run code inside serverCron() with the
@@ -855,7 +861,17 @@ typedef enum {
  * encoding version. */
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
-#define OBJ_TYPE_MAX 7  /* Maximum number of object types */
+#define OBJ_GCRA 7    /* GCRA object. */
+#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+
+/* NOTE: adding a new object requires changes in the following places:
+ * - rdb.c - save/load (also bump RDB_VERSION if needed)
+ * - aof.c - rewrite
+ * - db.c - obj_type_name, copyCommand
+ * - debug.c - xorObjectDigest, serverLogObjectDebugInfo
+ * - defrag.c - defragKey
+ * - module.c - RM_KeyType (and add the new keytype to redismodule.h)
+ * - object.c - object(create/free/dismiss/allocSize/Length) */
 
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
@@ -1196,8 +1212,16 @@ typedef struct {
     uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
     uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
     uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
-    keysizesHist keysizes_hist;
 } kvstoreDictMetadata;
+
+/* Context for ASM background trim with delta histogram tracking */
+typedef struct asmTrimCtx {
+    int refcount;                      /* For shared bg/main thread ownership */
+    struct slotRangeArray *slots;      /* Slot ranges being trimmed */
+    kvstore *target_kvstore;           /* Target kvstore to update (for validation) */
+    keysizesHist delta_keysizes_hist;  /* Delta populated by BIO thread */
+    keysizesHist delta_allocsizes_hist;/* Delta populated by BIO thread */
+} asmTrimCtx;
 
 /* forward declaration for functions ctx */
 typedef struct functionsLibCtx functionsLibCtx;
@@ -1336,6 +1360,8 @@ typedef struct {
 #define CLIENT_ID_AOF (UINT64_MAX) /* Reserved ID for the AOF client. If you
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
+#define CLIENT_ID_NONE (0)         /* Non-existent client ID, used when no client
+                                      is associated with an operation. */
 
 /* Replication backlog is not a separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
@@ -1603,6 +1629,11 @@ typedef struct client {
 
     redisAtomic int pending_read; /* Flag indicating an IO thread client residing
                                    * in main thread has received a read event. */
+
+    mstime_t last_ts_when_counted_as_active; /* Timestamp of last time this client was counted as active */
+    size_t stat_total_read_events; /* Number of times readQueryFromClient() was called */
+    size_t stat_avg_pipeline_length_sum; /* Sum of pipeline lengths for computing average */
+    size_t stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
@@ -1672,7 +1703,7 @@ struct sharedObjectsStruct {
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
-    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,
+    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim, *xack,
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
     *hdel, *hpexpireat, *hpersist, *hsetex,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
@@ -1780,7 +1811,7 @@ struct redisMemOverhead {
     float allocator_rss;
     ssize_t allocator_rss_bytes;
     float rss_extra;
-    size_t rss_extra_bytes;
+    ssize_t rss_extra_bytes;
     size_t num_dbs;
     size_t overhead_db_hashtable_lut;
     size_t overhead_db_hashtable_rehashing;
@@ -2029,6 +2060,7 @@ struct redisServer {
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
+    int loading_skip_checksum; /* Skip checksum verification during diskless loading */
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -2071,6 +2103,9 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+    long long stat_slowlog_count;          /* Total slowlog entries ever pushed */
+    long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
+    long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
@@ -2097,6 +2132,10 @@ struct redisServer {
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
     long long stat_total_prefetch_entries;  /* Total number of prefetched dict entries */
     long long stat_total_prefetch_batches;  /* Total number of prefetched batches */
+    redisAtomic long long stat_avg_pipeline_length_sum; /* Sum of pipeline lengths for computing average */
+    redisAtomic long long stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
+    redisAtomic long long stat_total_client_process_input_buff_events; /* Number of times processInputBuffer() was called */
+    size_t stat_eventloop_cycles_with_clients_input_buff_processing; /* Event loop cycles with client input buffer processing */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -2132,6 +2171,7 @@ struct redisServer {
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
+    int allow_keymeta_registration; /* Allow keymeta class registration outside server startup (for testing). */
     int jemalloc_bg_thread;         /* Enable jemalloc background thread */
     int active_defrag_configuration_changed; /* defrag configuration has been changed and need to reconsider
                                               * active_defrag_running in computeDefragCycles. */
@@ -2499,9 +2539,12 @@ struct redisServer {
     int reply_copy_avoidance_enabled; /* Is reply copy avoidance enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
-    int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
-    int dbg_assert_alloc_per_slot; /* Assert per-slot alloc_size after each command */
+    unsigned int dbg_assert_flags; /* Bitmask of debug assertions to run after each command */
 };
+
+/* Debug assertion flags for server.dbg_assert_flags */
+#define DBG_ASSERT_KEYSIZES    (1 << 0) /* Assert keysizes histogram */
+#define DBG_ASSERT_ALLOC_SLOT  (1 << 1) /* Assert per-slot alloc_size */
 
 /* we use 6 so that all getKeyResult fits a cacheline */
 #define MAX_KEYS_BUFFER 6
@@ -2741,6 +2784,7 @@ typedef enum {
     COMMAND_GROUP_STREAM,
     COMMAND_GROUP_BITMAP,
     COMMAND_GROUP_MODULE,
+    COMMAND_GROUP_RATE_LIMIT,
 } redisCommandGroup;
 
 typedef void redisCommandProc(client *c);
@@ -2878,6 +2922,7 @@ struct redisCommand {
 
     /* Runtime populated data */
     long long microseconds, calls, rejected_calls, failed_calls;
+    long long slowlog_count, slowlog_time_us_sum, slowlog_time_us_max;
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
                    ACLs. A connection is able to execute a given command if
@@ -2973,6 +3018,7 @@ typedef struct {
 extern struct redisServer server;
 extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
+extern dictType objectKeyNoValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
 extern dictType BenchmarkDictType;
@@ -3112,6 +3158,8 @@ void setDeferredAttributeLen(client *c, void *node, long length);
 void setDeferredPushLen(client *c, void *node, long length);
 int isClientReadErrorFatal(client *c);
 int processInputBuffer(client *c);
+void statsUpdateActiveClients(client *c);
+int getActiveClientsInWindow(void);
 void acceptCommonHandler(connection *conn, int flags, char *ip);
 void readQueryFromClient(connection *conn);
 int prepareClientToWrite(client *c);
@@ -3327,7 +3375,6 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen);
 void resetReplicationBuffer(void);
-void feedReplicationBuffer(char *buf, size_t len);
 void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
@@ -3565,6 +3612,9 @@ int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
+/* gcra related */
+robj *gcraDup(robj *o);
+
 /* Core functions */
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
 void updatePeakMemory(void);
@@ -3649,6 +3699,8 @@ void activeDefragFreeRaw(void *ptr);
 robj *activeDefragStringOb(robj* ob);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
+void dismissDictBucketsMemory(dict *d);
+void dismissKvstoreBucketsMemory(kvstore *kvs);
 void dismissMemoryInChild(void);
 int clientsCronRunClient(client *c);
 
@@ -3794,6 +3846,14 @@ void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
+/* As part of KSN the module should not attempt to modify the key. Nevertheless,
+ * RediSearch does it in some specific flows and modifies key metadata which in
+ * turn might invalidates the local kvobj pointer. Those specific flows are
+ * protected by the following macro which invalidates the local kvobj pointer
+ * after the notification to prevent further access to it (Currently it is only 
+ * using it with hash type keys, without hash field expiration) */
+#define KSN_INVALIDATE_KVOBJ(o) do { (o) = NULL; } while (0)
+
 /* Configuration */
 /* Configuration Flags */
 #define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard
@@ -3883,11 +3943,10 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
 int moduleSetNumericConfig(client *c, sds name, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
-void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
+void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen);
+void updateKeysizesHist(redisDb *db, uint32_t type, int64_t oldLen, int64_t newLen);
 void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize);
-void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t type, int64_t oldLen, int64_t newLen);
-void dbgAssertKeysizesHist(redisDb *db);
-void dbgAssertAllocSizePerSlot(redisDb *db);
+void dbgRunAssertions(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
@@ -3945,9 +4004,10 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
-void replySlotsFlushAndFree(client *c, struct slotRangeArray *slots);
-int flushCommandCommon(client *c, int type, int flags);
-void unblockClientForAsyncFlush(uint64_t client_id, void *userdata);
+void replySlotsFlush(client *c, struct slotRangeArray *slots);
+int flushCommandCommon(client *c, int type, int flags, struct asmTrimCtx *trim_ctx);
+void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata);
+void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots);
 void blockClientForAsyncFlush(client *c);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
@@ -3967,7 +4027,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires);
+void streamMoveIdmpKeys(dict *src, dict *dst, int slot);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys, struct asmTrimCtx *ctx);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
@@ -3994,6 +4055,7 @@ int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int pfmergeGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -4406,6 +4468,7 @@ void xgroupCommand(client *c);
 void xsetidCommand(client *c);
 void xidmprecordCommand(client *c);
 void xackCommand(client *c);
+void xnackCommand(client *c);
 void xackdelCommand(client *c);
 void xpendingCommand(client *c);
 void xclaimCommand(client *c);
@@ -4423,6 +4486,8 @@ void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
 void digestCommand(client *c);
+void gcraCommand(client *c);
+void gcraSetValueCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
