@@ -339,6 +339,11 @@ typedef struct RedisModulePostExecUnitJob {
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
 
+/* Cached event types that have at least one subscriber.
+ * Updated on subscribe/unsubscribe to avoid traversing the list on every event. */
+static int moduleKeyspaceSubscribersTypes = 0;
+static int moduleKeyspaceSubscribersWithSubkeysTypes = 0;
+
 /* The module post keyspace jobs list */
 static list *modulePostExecUnitJobs;
 
@@ -788,6 +793,23 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     } else {
         return 0;
     }
+}
+
+/* Update the cached subscriber types by walking the subscriber list.
+ * Called after subscribe/unsubscribe operations. */
+static void moduleUpdateKeyspaceSubscribersTypes(void) {
+    int mask = 0, subkeys_mask = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
+        mask |= sub->event_mask;
+        if (sub->notify_callback_with_subkeys)
+            subkeys_mask |= sub->event_mask;
+    }
+    moduleKeyspaceSubscribersTypes = mask;
+    moduleKeyspaceSubscribersWithSubkeysTypes = subkeys_mask;
 }
 
 /* --------------------------------------------------------------------------
@@ -9263,6 +9285,7 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    moduleUpdateKeyspaceSubscribersTypes();
     return REDISMODULE_OK;
 }
 
@@ -9295,6 +9318,7 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
             removed++;
         }
     }
+    if (removed > 0) moduleUpdateKeyspaceSubscribersTypes();
     return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
@@ -9341,6 +9365,7 @@ int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, int 
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    moduleUpdateKeyspaceSubscribersTypes();
     return REDISMODULE_OK;
 }
 
@@ -9376,32 +9401,18 @@ int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, 
             removed++;
         }
     }
+    if (removed > 0) moduleUpdateKeyspaceSubscribersTypes();
     return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
-}
-
-static int moduleHasSubscribersForKeyspaceEventInternal(int type, int with_subkeys) {
-    listIter li;
-    listNode *ln;
-    listRewind(moduleKeyspaceSubscribers,&li);
-    while((ln = listNext(&li))) {
-        RedisModuleKeyspaceSubscriber *sub = ln->value;
-        /* Match event type, and if with_subkeys is set, only match
-         * subscribers that registered a subkeys-aware callback. */
-        if ((sub->event_mask & type) &&
-            (!with_subkeys || sub->notify_callback_with_subkeys))
-            return 1;
-    }
-    return 0;
 }
 
 /* Check any subscriber for event. */
 int moduleHasSubscribersForKeyspaceEvent(int type) {
-    return moduleHasSubscribersForKeyspaceEventInternal(type, 0);
+    return (moduleKeyspaceSubscribersTypes & type) != 0;
 }
 
 /* Check any subscriber for event with subkeys. */
 int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type) {
-    return moduleHasSubscribersForKeyspaceEventInternal(type, 1);
+    return (moduleKeyspaceSubscribersWithSubkeysTypes & type) != 0;
 }
 
 void firePostExecutionUnitJobs(void) {
@@ -9582,6 +9593,7 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
             zfree(sub);
         }
     }
+    moduleUpdateKeyspaceSubscribersTypes();
 }
 
 /* --------------------------------------------------------------------------

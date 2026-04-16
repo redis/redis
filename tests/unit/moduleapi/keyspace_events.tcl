@@ -188,17 +188,29 @@ tags "modules external:skip" {
             r del myhash
         }
 
-        test "Subkey notification: unsubscribe stops callback" {
+        test "Subkey notification: unsubscribe stops callback and resubscribe resumes" {
             r keyspace.reset_subkey_events
             r hset myhash f1 v1
             set events [r keyspace.get_subkey_events]
             assert_equal 1 [llength $events]
 
+            # Unsubscribe — events should stop
             r keyspace.unsubscribe_subkeys
             r keyspace.reset_subkey_events
             r hset myhash f2 v2
             set events [r keyspace.get_subkey_events]
             assert_equal 0 [llength $events]
+
+            # Re-subscribe — events should resume
+            r keyspace.subscribe_subkeys
+            r keyspace.reset_subkey_events
+            r hset myhash f3 v3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 1 f3" [lindex $events 0]
+
+            r keyspace.unsubscribe_subkeys
+            r keyspace.reset_subkey_events
             r del myhash
         }
 
