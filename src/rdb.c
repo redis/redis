@@ -1993,7 +1993,11 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error) {
     uint64_t opcode;
     while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
-        if (opcode == RDB_LENERR) goto error;
+        if (opcode == RDB_LENERR) {
+            rdbReportCorruptRDB("Error reading module opcode length from module %s value", modulename);
+            goto error;
+        }
+
         if (opcode == RDB_MODULE_OPCODE_SINT ||
             opcode == RDB_MODULE_OPCODE_UINT)
         {
@@ -2027,8 +2031,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error) {
             }
         } else {
             rdbReportCorruptRDB(
-                "Unknown module opcode %llu reading module %s value",
-                (unsigned long long)opcode, modulename);
+                "Unknown module opcode %llu reading module %s value", (unsigned long long)opcode, modulename);
             goto error;
         }
     }
