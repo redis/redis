@@ -153,8 +153,8 @@ static void notifyKeyspaceEventImpl(int type, const char *event, robj *key, int 
 
     /* If there are no Pub/Sub subscribers (neither pattern nor channel),
      * skip the remaining notification work since nobody would receive it. */
-    if (dictSize(server.pubsub_patterns) == 0 && kvstoreSize(server.pubsub_channels) == 0 &&
-        kvstoreSize(server.pubsubshard_channels) == 0)  return;
+    if (dictSize(server.pubsub_patterns) == 0 && kvstoreSize(server.pubsub_channels) == 0)
+        return;
 
     eventobj = createStringObject(event,strlen(event));
     int len = ll2string(buf,sizeof(buf),dbid);
@@ -278,10 +278,13 @@ void notifyKeyspaceEventWithSubkeys(int type, const char *event, robj *key, int 
 }
 
 /* Check if subkey information should be collected for the given event type.
- * Returns true if any subkey-level notification channel is enabled for this
- * event type, or if any module subscribed to this event with subkeys. */
+ * Returns true if any module subscribed to this event with subkeys, or if
+ * there are Pub/Sub subscribers and any subkey-level notification channel is
+ * enabled for this event type. */
 int isSubkeyNotifyEnabled(int type) {
     if (moduleHasSubscribersForKeyspaceEventWithSubkeys(type)) return 1;
+    if (dictSize(server.pubsub_patterns) == 0 && kvstoreSize(server.pubsub_channels) == 0)
+        return 0;
     return (server.notify_keyspace_events & type) &&
            (server.notify_keyspace_events & (NOTIFY_SUBKEYSPACE | NOTIFY_SUBKEYEVENT |
                                              NOTIFY_SUBKEYSPACEITEM | NOTIFY_SUBKEYSPACEEVENT));
