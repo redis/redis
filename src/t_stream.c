@@ -559,6 +559,9 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
 
         int prefix_cmp = memcmp(pi->ri.key, fullkey, PEL_RAX_FLAX_KEYLEN);
 
+        /* raxSeek("<=", fullkey, 16) guarantees the returned key is <= fullkey,
+         * so its first 15 bytes cannot exceed fullkey's prefix. */
+        serverAssert(prefix_cmp <= 0);
         if (prefix_cmp == 0) {
             if (pi->ri.key_len == PEL_RAX_DIRECT_KEYLEN) {
                 if (pi->ri.key[PEL_RAX_FLAX_KEYLEN] >= fkey) {
@@ -574,12 +577,8 @@ int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
                     pelIterRefresh(pi);
                 }
             }
-        } else if (prefix_cmp < 0) {
-            if (!pelIterAdvanceRax(pi)) return 0;
         } else {
-            if (!pelIterEnterBucketHead(pi)) {
-                if (!pelIterAdvanceRax(pi)) return 0;
-            }
+            if (!pelIterAdvanceRax(pi)) return 0;
         }
         pi->just_seeked = 1;
         return 1;
