@@ -55,6 +55,7 @@ IGNORED_COMMANDS = {
     "sunsubscribe",
     "psubscribe",
     "punsubscribe",
+    "gcrasetvalue",  # internal replication command, only sent via replication stream (CLIENT_TYPE_MASTER)
     # Commands to which we decided not write a reply schema
     "pfdebug",
     "lolwut",
