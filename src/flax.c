@@ -125,7 +125,11 @@ static int flax_search(const uint8_t *keys, uint16_t numele, uint8_t key, int16_
  * that depend on the capacity (the values offset is re-aligned for the new
  * capacity), we must perform two independent memcpy operations -- one for
  * the keys at the start of the block and one for the values at the new
- * aligned offset. The old data block is freed afterwards. */
+ * aligned offset. The old data block is freed afterwards.
+ *
+ * IMPORTANT: this function replaces f->data but never moves the flax struct
+ * itself. External code (e.g. the PEL cache in t_stream.c) relies on the
+ * struct pointer remaining stable across resize operations. */
 static void flax_resize(flax *f, uint16_t new_capacity) {
     if (new_capacity > UINT8_MAX + 1) new_capacity = UINT8_MAX + 1;
     size_t new_voff = flax_values_offset(new_capacity);

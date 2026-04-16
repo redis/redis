@@ -244,7 +244,16 @@ static int pelGenericInsert(rax *pel, streamID *id, void *data, uint64_t *count,
 
         /* Different fkey: promote direct -> flax.
          * When dirty, the old direct was never committed to rax, so we
-         * skip rax ops and just overwrite the cache (see pelCache invariant). */
+         * skip rax ops and just overwrite the cache (see pelCache invariant).
+         *
+         * When non-dirty, we commit the new flax entry to rax immediately
+         * and leave dirty==0. Subsequent inserts into the same flax bucket
+         * modify the flax object in-place (including possible flax_resize of
+         * its internal data block), but the flax *struct pointer* stored in
+         * the rax never changes -- flax_resize only replaces f->data, not f
+         * itself. So the rax entry remains valid without needing a dirty
+         * flush. This invariant depends on flax using a separate heap
+         * allocation for the struct vs. its data block. */
         flax *f = flaxNew();
         flaxInsert(f, efkey, bucket, NULL);
         flaxInsert(f, fkey, data, NULL);
