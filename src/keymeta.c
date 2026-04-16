@@ -416,7 +416,7 @@ int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
          *
          * Note: rdbLoadCheckModuleValue() reads opcodes until it finds RDB_MODULE_OPCODE_EOF,
          * so it consumes the EOF marker as well. We don't need to read it separately. */
-        robj *dummy = rdbLoadCheckModuleValue(rdb, cname);
+        robj *dummy = rdbLoadCheckModuleValue(rdb, cname, 1);
         if (dummy == NULL) {
             serverLog(LL_WARNING, "Corrupted metadata value for class '%s'", cname);
             return -1;
