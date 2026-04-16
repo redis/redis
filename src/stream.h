@@ -121,7 +121,7 @@ typedef struct streamCG {
                                a 15-byte key (ms + upper 7 bytes of seq) and
                                store a flax* mapping the low byte of seq to
                                streamNACK pointers.  Max 256 per bucket. */
-    uint64_t pel_count;     /* Total number of NACK entries across all flax buckets. */
+    uint64_t pel_count;     /* Total number of NACK entries in this PEL (direct + flax). */
     streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
                                   entries (oldest delivery_time). Used for efficient
                                   CLAIM operations. O(1) access to oldest entries. */

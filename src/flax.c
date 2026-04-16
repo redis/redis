@@ -320,7 +320,7 @@ void flaxShrink(flax *f) {
 
 /* Initialize a flax iterator. This call should be performed a single time
  * to initialize the iterator, and must be followed by a flaxSeek() call,
- * otherwise the flaxPrev()/flaxNext() functions will just return EOF. */
+ * otherwise the flaxNext() function will just return 0. */
 void flaxStart(flaxIterator *it, flax *f) {
     it->f = f;
     it->idx = -1;
@@ -330,9 +330,8 @@ void flaxStart(flaxIterator *it, flax *f) {
 
 /* Seek an iterator at the specified element. The 'op' argument selects the
  * seek mode: "^" for the first element, "$" for the last, ">=" for greater
- * or equal, ">" for strictly greater, "<=" for less or equal, "<" for
- * strictly less, and "=" for exact match. Return 0 if no matching element
- * was found, otherwise 1 is returned. */
+ * or equal. Return 0 if no matching element was found, otherwise 1 is
+ * returned. */
 int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
     if (!it->f || it->f->numele == 0) {
         it->idx = -1;
@@ -367,66 +366,6 @@ int flaxSeek(flaxIterator *it, const char *op, uint8_t key) {
         return 1;
     }
 
-    if (op[0] == '>' && op[1] == '\0') {
-        int16_t idx;
-        int found = flax_search(flax_keys(it->f), it->f->numele, key, &idx);
-        if (found) idx++;
-        if (idx >= it->f->numele) {
-            it->idx = -1;
-            it->key = 0;
-            it->data = NULL;
-            return 0;
-        }
-        it->idx = idx;
-        flaxIterRefresh(it);
-        return 1;
-    }
-
-    if (op[0] == '<' && op[1] == '=') {
-        int16_t idx;
-        int found = flax_search(flax_keys(it->f), it->f->numele, key, &idx);
-        if (found) {
-            it->idx = idx;
-        } else {
-            if (idx == 0) {
-                it->idx = -1;
-                it->key = 0;
-                it->data = NULL;
-                return 0;
-            }
-            it->idx = idx - 1;
-        }
-        flaxIterRefresh(it);
-        return 1;
-    }
-
-    if (op[0] == '<' && op[1] == '\0') {
-        int16_t idx;
-        flax_search(flax_keys(it->f), it->f->numele, key, &idx);
-        if (idx == 0) {
-            it->idx = -1;
-            it->key = 0;
-            it->data = NULL;
-            return 0;
-        }
-        it->idx = idx - 1;
-        flaxIterRefresh(it);
-        return 1;
-    }
-
-    if (op[0] == '=' && op[1] == '\0') {
-        int16_t idx;
-        if (!flax_search(flax_keys(it->f), it->f->numele, key, &idx)) {
-            it->idx = -1;
-            it->key = 0;
-            it->data = NULL;
-            return 0;
-        }
-        it->idx = idx;
-        flaxIterRefresh(it);
-        return 1;
-    }
-
     assert(0 && "flaxSeek: unrecognized op");
     it->idx = -1;
     it->key = 0;
@@ -449,34 +388,13 @@ int flaxNext(flaxIterator *it) {
     return 1;
 }
 
-/* Go to the previous element in the scope of the iterator 'it'.
- * If EOF is reached, 0 is returned, otherwise 1 is returned. */
-int flaxPrev(flaxIterator *it) {
-    if (it->idx < 0) return 0;
-    it->idx--;
-    if (it->idx < 0) {
-        it->key = 0;
-        it->data = NULL;
-        return 0;
-    }
-    flaxIterRefresh(it);
-    return 1;
-}
-
-/* Return if the iterator is in an EOF state. This happens when flaxSeek()
- * failed to seek an appropriate element, so that flaxNext() or flaxPrev()
- * will return zero, or when an EOF condition was reached while iterating
- * with flaxNext() and flaxPrev(). */
-int flaxEOF(flaxIterator *it) {
-    return it->idx < 0 || it->idx >= it->f->numele;
-}
-
 /* Replace the data pointer at the current iterator position. Unlike
  * flaxInsert(), this is safe to call during iteration: it only writes to
  * the value slot at the current index and never touches the key layout,
  * element count, or capacity.  The iterator's own 'data' field is updated
  * to reflect the new value. */
 void flaxIterSetData(flaxIterator *it, void *data) {
+    assert(it->idx >= 0 && it->idx < it->f->numele);
     flax_values(it->f)[it->idx] = data;
     it->data = data;
 }
@@ -811,7 +729,6 @@ int flaxTest(int argc, char **argv, int flags) {
         flaxIterator it;
         flaxStart(&it, a);
         assert(flaxSeek(&it, "^", 0) == 0);
-        assert(flaxEOF(&it) == 1);
         assert(flaxSeek(&it, "$", 0) == 0);
         assert(flaxSeek(&it, ">=", 42) == 0);
 
@@ -838,27 +755,6 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(flaxNext(&it));
         assert(it.key == 40);
         assert(flaxNext(&it) == 0);
-        assert(flaxEOF(&it) == 1);
-
-
-        flaxFree(a);
-    }
-
-    TEST("iterator backward") {
-        flax *a = flaxNew();
-        flaxInsert(a, 10, "ten", NULL);
-        flaxInsert(a, 20, "twenty", NULL);
-        flaxInsert(a, 30, "thirty", NULL);
-
-        flaxIterator it;
-        flaxStart(&it, a);
-        assert(flaxSeek(&it, "$", 0));
-        assert(it.key == 30);
-        assert(flaxPrev(&it));
-        assert(it.key == 20);
-        assert(flaxPrev(&it));
-        assert(it.key == 10);
-        assert(flaxPrev(&it) == 0);
 
 
         flaxFree(a);
@@ -884,7 +780,6 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(it.key == 10);
 
         assert(flaxSeek(&it, ">=", 41) == 0);
-        assert(flaxEOF(&it) == 1);
 
 
         flaxFree(a);
@@ -901,11 +796,6 @@ int flaxTest(int argc, char **argv, int flags) {
         assert(strcmp(it.data, "answer") == 0);
         assert(flaxNext(&it) == 0);
 
-        flaxStart(&it, a);
-        assert(flaxSeek(&it, "$", 0));
-        assert(it.key == 42);
-        assert(flaxPrev(&it) == 0);
-
 
         flaxFree(a);
     }
@@ -921,141 +811,6 @@ int flaxTest(int argc, char **argv, int flags) {
             ERR("freeWithCallback: expected 3 frees, got %d",
                 ctx_free_count);
         }
-    }
-
-    TEST("iterator seek >") {
-        flax *a = flaxNew();
-        flaxInsert(a, 10, "ten", NULL);
-        flaxInsert(a, 20, "twenty", NULL);
-        flaxInsert(a, 30, "thirty", NULL);
-        flaxInsert(a, 40, "forty", NULL);
-
-        flaxIterator it;
-        flaxStart(&it, a);
-
-        /* ">" on existing key skips to the next one. */
-        assert(flaxSeek(&it, ">", 20));
-        assert(it.key == 30);
-
-        /* ">" on non-existing key lands on the first key greater. */
-        assert(flaxSeek(&it, ">", 25));
-        assert(it.key == 30);
-
-        /* ">" on a key smaller than all elements returns the first. */
-        assert(flaxSeek(&it, ">", 5));
-        assert(it.key == 10);
-
-        /* ">" on the largest key returns EOF. */
-        assert(flaxSeek(&it, ">", 40) == 0);
-        assert(flaxEOF(&it) == 1);
-
-        /* ">" on a key beyond all elements returns EOF. */
-        assert(flaxSeek(&it, ">", 50) == 0);
-        assert(flaxEOF(&it) == 1);
-
-
-        flaxFree(a);
-    }
-
-    TEST("iterator seek <=") {
-        flax *a = flaxNew();
-        flaxInsert(a, 10, "ten", NULL);
-        flaxInsert(a, 20, "twenty", NULL);
-        flaxInsert(a, 30, "thirty", NULL);
-        flaxInsert(a, 40, "forty", NULL);
-
-        flaxIterator it;
-        flaxStart(&it, a);
-
-        /* "<=" on existing key lands on that key. */
-        assert(flaxSeek(&it, "<=", 20));
-        assert(it.key == 20);
-
-        /* "<=" on non-existing key lands on the greatest smaller key. */
-        assert(flaxSeek(&it, "<=", 25));
-        assert(it.key == 20);
-
-        /* "<=" on the largest key lands on it. */
-        assert(flaxSeek(&it, "<=", 40));
-        assert(it.key == 40);
-
-        /* "<=" on a key beyond all elements lands on the last. */
-        assert(flaxSeek(&it, "<=", 100));
-        assert(it.key == 40);
-
-        /* "<=" on a key smaller than all returns EOF. */
-        assert(flaxSeek(&it, "<=", 5) == 0);
-        assert(flaxEOF(&it) == 1);
-
-
-        flaxFree(a);
-    }
-
-    TEST("iterator seek <") {
-        flax *a = flaxNew();
-        flaxInsert(a, 10, "ten", NULL);
-        flaxInsert(a, 20, "twenty", NULL);
-        flaxInsert(a, 30, "thirty", NULL);
-        flaxInsert(a, 40, "forty", NULL);
-
-        flaxIterator it;
-        flaxStart(&it, a);
-
-        /* "<" on existing key lands on the previous one. */
-        assert(flaxSeek(&it, "<", 20));
-        assert(it.key == 10);
-
-        /* "<" on non-existing key lands on the greatest smaller key. */
-        assert(flaxSeek(&it, "<", 25));
-        assert(it.key == 20);
-
-        /* "<" on a key beyond all elements lands on the last. */
-        assert(flaxSeek(&it, "<", 100));
-        assert(it.key == 40);
-
-        /* "<" on the smallest key returns EOF. */
-        assert(flaxSeek(&it, "<", 10) == 0);
-        assert(flaxEOF(&it) == 1);
-
-        /* "<" on a key smaller than all returns EOF. */
-        assert(flaxSeek(&it, "<", 5) == 0);
-        assert(flaxEOF(&it) == 1);
-
-
-        flaxFree(a);
-    }
-
-    TEST("iterator seek =") {
-        flax *a = flaxNew();
-        flaxInsert(a, 10, "ten", NULL);
-        flaxInsert(a, 20, "twenty", NULL);
-        flaxInsert(a, 30, "thirty", NULL);
-
-        flaxIterator it;
-        flaxStart(&it, a);
-
-        /* "=" on existing key succeeds. */
-        assert(flaxSeek(&it, "=", 20));
-        assert(it.key == 20);
-        assert(strcmp(it.data, "twenty") == 0);
-
-        /* "=" on first key. */
-        assert(flaxSeek(&it, "=", 10));
-        assert(it.key == 10);
-
-        /* "=" on last key. */
-        assert(flaxSeek(&it, "=", 30));
-        assert(it.key == 30);
-
-        /* "=" on non-existing key returns EOF. */
-        assert(flaxSeek(&it, "=", 15) == 0);
-        assert(flaxEOF(&it) == 1);
-
-        assert(flaxSeek(&it, "=", 0) == 0);
-        assert(flaxSeek(&it, "=", 255) == 0);
-
-
-        flaxFree(a);
     }
 
     TEST("flaxAllocSize tracks allocations") {
@@ -1101,56 +856,6 @@ int flaxTest(int argc, char **argv, int flags) {
         void *val;
         assert(flaxFind(a, 10, &val) == 1);
         assert(strcmp(val, "ten") == 0);
-
-        flaxFree(a);
-    }
-
-    TEST("iterator seek with boundary keys 0 and 255") {
-        flax *a = flaxNew();
-        flaxInsert(a, 0, "zero", NULL);
-        flaxInsert(a, 128, "mid", NULL);
-        flaxInsert(a, 255, "max", NULL);
-
-        flaxIterator it;
-        flaxStart(&it, a);
-
-        assert(flaxSeek(&it, ">=", 0));
-        assert(it.key == 0);
-        assert(flaxSeek(&it, ">=", 255));
-        assert(it.key == 255);
-
-        assert(flaxSeek(&it, ">", 0));
-        assert(it.key == 128);
-        assert(flaxSeek(&it, ">", 255) == 0);
-
-        assert(flaxSeek(&it, "<=", 255));
-        assert(it.key == 255);
-        assert(flaxSeek(&it, "<=", 0));
-        assert(it.key == 0);
-
-        assert(flaxSeek(&it, "<", 255));
-        assert(it.key == 128);
-        assert(flaxSeek(&it, "<", 0) == 0);
-
-        assert(flaxSeek(&it, "=", 0));
-        assert(it.key == 0);
-        assert(flaxSeek(&it, "=", 255));
-        assert(it.key == 255);
-
-
-        flaxFree(a);
-    }
-
-    TEST("iterator seek on empty flax all operators") {
-        flax *a = flaxNew();
-        flaxIterator it;
-        flaxStart(&it, a);
-
-        assert(flaxSeek(&it, ">", 42) == 0);
-        assert(flaxSeek(&it, "<=", 42) == 0);
-        assert(flaxSeek(&it, "<", 42) == 0);
-        assert(flaxSeek(&it, "=", 42) == 0);
-
 
         flaxFree(a);
     }

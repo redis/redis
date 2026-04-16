@@ -55,7 +55,7 @@ typedef struct flax {
  *   flaxIterator it;
  *   flaxStart(&it, myflax);        -- initialize
  *   flaxSeek(&it, ">=", somekey);  -- position
- *   while (flaxNext(&it)) { ... }  -- iterate (or flaxPrev)
+ *   while (flaxNext(&it)) { ... }  -- iterate
  *
  * After flaxStart() the iterator is in EOF state until a successful
  * flaxSeek(). The iterator does not allocate heap memory.
@@ -86,8 +86,6 @@ int flaxFind(flax *f, uint8_t key, void **value);
 void flaxStart(flaxIterator *it, flax *f);
 int flaxSeek(flaxIterator *it, const char *op, uint8_t key);
 int flaxNext(flaxIterator *it);
-int flaxPrev(flaxIterator *it);
-int flaxEOF(flaxIterator *it);
 void flaxIterSetData(flaxIterator *it, void *data);
 
 /* --- Introspection --- */

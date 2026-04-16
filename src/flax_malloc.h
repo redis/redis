@@ -15,8 +15,8 @@
  * the include of your alternate allocator if needed (not needed in order
  * to use the default libc allocator). */
 
-#ifndef FLAX_ALLOC_H
-#define FLAX_ALLOC_H
+#ifndef FLAX_MALLOC_H
+#define FLAX_MALLOC_H
 #include "zmalloc.h"
 #define flax_malloc zmalloc
 #define flax_malloc_usable zmalloc_usable

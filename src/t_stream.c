@@ -80,7 +80,15 @@ void streamEncodeID(void *buf, streamID *id);
  * When 'dirty' is set, the cached value has been created/updated but not yet
  * inserted into the rax; it will be committed on the next cache eviction
  * or explicit flush. 'direct' mirrors the key-length convention:
- * 1 = direct (16-byte key, raw data pointer), 0 = flax (15-byte key). */
+ * 1 = direct (16-byte key, raw data pointer), 0 = flax (15-byte key).
+ *
+ * KEY INVARIANT: dirty==1 means "this bucket exists ONLY in the cache, not in
+ * the rax".  This permits type transitions (direct<->flax) while dirty without
+ * touching the rax: the old entry was never committed, so there is nothing
+ * stale to remove.  For example, a dirty direct can be promoted to a dirty
+ * flax (pelGenericInsert), or a dirty flax can be demoted to a dirty direct
+ * (pelRemove), and in both cases pelCacheFlush will later insert the new
+ * representation using the correct key length derived from cache->direct. */
 typedef struct pelCache {
     unsigned char key[PEL_RAX_DIRECT_KEYLEN];
     void *val;
@@ -234,7 +242,9 @@ static int pelGenericInsert(rax *pel, streamID *id, void *data, uint64_t *count,
             return 0;
         }
 
-        /* Different fkey: promote to flax. */
+        /* Different fkey: promote direct -> flax.
+         * When dirty, the old direct was never committed to rax, so we
+         * skip rax ops and just overwrite the cache (see pelCache invariant). */
         flax *f = flaxNew();
         flaxInsert(f, efkey, bucket, NULL);
         flaxInsert(f, fkey, data, NULL);
@@ -407,7 +417,9 @@ void *pelRemove(rax *pel, streamID *id, uint64_t *count) {
             pelCacheInvalidate(pel);
         }
     } else if (f->numele == 1) {
-        /* Demote to direct entry with 16-byte key. */
+        /* Demote flax -> direct entry with 16-byte key.
+         * When dirty, the flax was never committed to rax, so we just
+         * replace the cache contents (see pelCache invariant). */
         flaxIterator fi;
         flaxStart(&fi, f);
         flaxSeek(&fi, "^", 0);
