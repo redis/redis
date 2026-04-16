@@ -2917,11 +2917,13 @@ void hgetexCommand(client *c) {
      * or the new expiration time is in the past. */
     newlen = hashTypeLength(o, 0);
     if (newlen == 0) {
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, 0);
         dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        newlen = -1;
+        updateKeysizesHist(c->db, OBJ_HASH, 0, -1);
+    } else {
+        updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     }
-    updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
 }
 
 void hdelCommand(client *c) {
