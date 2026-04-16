@@ -236,11 +236,9 @@ static int pelGenericInsert(rax *pel, streamID *id, void *data, uint64_t *count,
 
         /* Different fkey: promote to flax. */
         flax *f = flaxNew();
-        if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f);
         flaxInsert(f, efkey, bucket, NULL);
-        size_t before = flaxAllocSize(f);
         flaxInsert(f, fkey, data, NULL);
-        if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
+        if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f);
         if (!cache->dirty) {
             raxRemove(pel, cache->key, PEL_RAX_DIRECT_KEYLEN, NULL);
             raxInsert(pel, fullkey, PEL_RAX_FLAX_KEYLEN, f, NULL);
