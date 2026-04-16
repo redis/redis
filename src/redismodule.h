@@ -89,6 +89,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_ZSET 5
 #define REDISMODULE_KEYTYPE_MODULE 6
 #define REDISMODULE_KEYTYPE_STREAM 7
+#define REDISMODULE_KEYTYPE_GCRA 8
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -247,16 +248,17 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 #define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
+#define REDISMODULE_NOTIFY_RATE_LIMIT (1<<18) /* r, rate limit event */
 
-#define REDISMODULE_NOTIFY_SUBKEYSPACE (1<<18)      /* S */
-#define REDISMODULE_NOTIFY_SUBKEYEVENT (1<<19)      /* T */
-#define REDISMODULE_NOTIFY_SUBKEYSPACEITEM (1<<20)  /* I */
-#define REDISMODULE_NOTIFY_SUBKEYSPACEEVENT (1<<21) /* V */
+#define REDISMODULE_NOTIFY_SUBKEYSPACE (1<<19)      /* S */
+#define REDISMODULE_NOTIFY_SUBKEYEVENT (1<<20)      /* T */
+#define REDISMODULE_NOTIFY_SUBKEYSPACEITEM (1<<21)  /* I */
+#define REDISMODULE_NOTIFY_SUBKEYSPACEEVENT (1<<22) /* V */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<22)
+#define _REDISMODULE_NOTIFY_NEXT (1<<23)
 
 /* Delivery flags for RM_SubscribeToKeyspaceEventsWithSubkeys.
  * These are passed in the 'flags' parameter, not in 'types'. */

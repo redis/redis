@@ -1756,7 +1756,8 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "zset", 
     "hash", 
     NULL, /* module type is special */
-    "stream"
+    "stream",
+    "gcra"
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2438,6 +2439,7 @@ void copyCommand(client *c) {
         case OBJ_ZSET: newobj = zsetDup(o); break;
         case OBJ_HASH: newobj = hashTypeDup(o, &minHashExpire); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
+        case OBJ_GCRA: newobj = gcraDup(o); break;
         case OBJ_MODULE:
             newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
             if (!newobj) return;

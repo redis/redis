@@ -32,6 +32,7 @@
 #include "fwtree.h"
 #include "estore.h"
 #include "chk.h"
+#include "fast_float_strtod.h"
 
 #include <time.h>
 #include <signal.h>
@@ -7496,6 +7497,20 @@ void dismissClientMemory(client *c) {
     }
 }
 
+/* Dismiss the hash table bucket arrays of a dict. */
+void dismissDictBucketsMemory(dict *d) {
+    if (!d) return;
+    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * sizeof(dictEntry*));
+    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * sizeof(dictEntry*));
+}
+
+/* Dismiss the hash table bucket arrays for all dicts in the given kvstore. */
+void dismissKvstoreBucketsMemory(kvstore *kvs) {
+    for (int didx = 0; didx < kvstoreNumDicts(kvs); didx++) {
+        dismissDictBucketsMemory(kvstoreGetDict(kvs, didx));
+    }
+}
+
 /* In the child process, we don't need some buffers anymore, and these are
  * likely to change in the parent when there's heavy write traffic.
  * We dismiss them right away, to avoid CoW.
@@ -7533,6 +7548,14 @@ void dismissMemoryInChild(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         dismissClientMemory(c);
+    }
+
+    /* Dismiss expires kvstore bucket arrays since the child process never
+     * accesses them, expire times are embedded in key objects. */
+    if (server.in_fork_child == CHILD_TYPE_RDB || server.in_fork_child == CHILD_TYPE_AOF) {
+        for (int dbid = 0; dbid < server.dbnum; dbid++) {
+            dismissKvstoreBucketsMemory(server.db[dbid].expires);
+        }
     }
 #endif
 }
@@ -7826,6 +7849,7 @@ struct redisTest {
     {"rax", raxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
+    {"fastfloat", fastFloatTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
