@@ -228,10 +228,7 @@ start_server {tags {"geo"}} {
         set reply [r geoadd nyc 200 40 "bad lon"]
         r readraw 0
         # RESP simple error: single line starting with '-', no duplicated "-ERR" prefix.
-        assert_equal "-" [string index $reply 0]
-        set body [string range $reply 1 end]
-        assert_match {ERR invalid longitude,latitude pair*} $body
-        assert_equal -1 [string first "-ERR" $body]
+        assert_match {-ERR invalid longitude,latitude pair*} $reply
     }
 
     test {GEOADD multi add} {
