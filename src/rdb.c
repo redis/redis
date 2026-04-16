@@ -2035,7 +2035,6 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error) {
             goto error;
         }
     }
-
     return createStringObject("module-dummy-value",18);
 error:
     return null_on_error ? NULL : createStringObject("module-dummy-value",18);
