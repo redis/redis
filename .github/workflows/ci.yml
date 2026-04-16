@@ -84,18 +84,20 @@ jobs:
 
   build-old-chain-jemalloc:
     runs-on: ubuntu-latest
-    container: ubuntu:20.04
+    container: ubuntu:22.04
     steps:
     - uses: actions/checkout@v4
     - name: make
       run: |
         apt-get update
-        apt-get install -y gnupg2
-        echo "deb http://archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
-        echo "deb http://archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
-        apt-get update
-        apt-get install -y make gcc-4.8
+        apt-get install -y make wget
+        BASE=http://mirrors.kernel.org/ubuntu/pool/universe/g/gcc-4.8
+        VER=4.8.5-4ubuntu8
+        wget -q ${BASE}/gcc-4.8-base_${VER}_amd64.deb \
+                ${BASE}/cpp-4.8_${VER}_amd64.deb \
+                ${BASE}/libasan0_${VER}_amd64.deb \
+                ${BASE}/libgcc-4.8-dev_${VER}_amd64.deb \
+                ${BASE}/gcc-4.8_${VER}_amd64.deb
+        apt-get install -y ./*.deb
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'
