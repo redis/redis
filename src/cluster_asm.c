@@ -1058,15 +1058,15 @@ void clusterMigrationCommand(client *c) {
 }
 
 /* Returns the address of the node in the format "ip:port". */
-static const char *getNodeAddressStr(const char *node_id) {
+static const char *getNodeAddressStr(const char *node_id, int len) {
     serverAssert(node_id != NULL);
     static char buf[NET_HOST_PORT_STR_LEN];
 
-    clusterNode *n = clusterLookupNode(node_id, CLUSTER_NAMELEN);
-    const char *ip = n ? clusterNodeIp(n) : "?";
+    clusterNode *n = clusterLookupNode(node_id, len);
+    char *ip = n ? clusterNodeIp(n) : "?";
     int port = n ? (server.tls_replication ? clusterNodeTlsPort(n) :
                                              clusterNodeTcpPort(n)) : 0;
-    snprintf(buf, sizeof(buf), "%s:%d", ip, port);
+    formatAddr(buf, sizeof(buf), ip, port);
     return buf;
 }
 
@@ -1077,7 +1077,7 @@ void asmLogTaskEvent(asmTask *task, int event) {
     switch (event) {
         case ASM_EVENT_IMPORT_STARTED:
             serverLog(LL_NOTICE, "Import task %s started for slots: %s, source address: %s",
-                      task->id, str, getNodeAddressStr(task->source));
+                      task->id, str, getNodeAddressStr(task->source, CLUSTER_NAMELEN));
             break;
         case ASM_EVENT_IMPORT_FAILED:
             serverLog(LL_NOTICE, "Import task %s failed for slots: %s", task->id, str);
@@ -1091,7 +1091,7 @@ void asmLogTaskEvent(asmTask *task, int event) {
             break;
         case ASM_EVENT_MIGRATE_STARTED:
             serverLog(LL_NOTICE, "Migrate task %s started for slots: %s, destination address: %s, (number of keys at start: %llu)",
-                      task->id, str, getNodeAddressStr(task->dest), getKeyCountInSlotRangeArray(task->slots));
+                      task->id, str, getNodeAddressStr(task->dest, CLUSTER_NAMELEN), getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_FAILED:
             serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
