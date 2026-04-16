@@ -2467,6 +2467,18 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+int rewriteGCRAObject(rio *r, robj *key, robj *o) {
+    long long val;
+    getLongLongFromGCRAObject(o, &val);
+
+    /* GCRASETVALUE <key> <tat> */
+    if (rioWriteBulkCount(r,'*',3) == 0) return 0;
+    if (rioWriteBulkString(r,"GCRASETVALUE",12) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkLongLong(r,val) == 0) return 0;
+    return 1;
+}
+
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
@@ -2522,6 +2534,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rewriteHashObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_STREAM) {
         if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_GCRA) {
+        if (rewriteGCRAObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {
@@ -2570,10 +2584,20 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
         kvstoreIteratorInit(&kvs_it, db->keys);
+        int last_slot = -1;
         /* Iterate this DB writing every entry */
         while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             long long expiretime;
             size_t aof_bytes_before_key = aof->processed_bytes;
+            int curr_slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
+
+            /* In cluster mode, dismiss bucket arrays of the previous slot
+             * which won't be accessed again, to avoid CoW. */
+            if (server.cluster_enabled && curr_slot != last_slot) {
+                if (server.in_fork_child && last_slot != -1)
+                    dismissDictBucketsMemory(kvstoreGetDict(db->keys, last_slot));
+                last_slot = curr_slot;
+            }
 
             /* Get the value object (of type kvobj) */
             kvobj *o = dictGetKV(de);
@@ -2582,12 +2606,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             expiretime = kvobjGetExpire(o);
 
             /* Skip keys that are being trimmed */
-            if (server.cluster_enabled) {
-                int curr_slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
-                if (isSlotInTrimJob(curr_slot)) {
-                    skipped++;
-                    continue;
-                }
+            if (server.cluster_enabled && isSlotInTrimJob(curr_slot)) {
+                skipped++;
+                continue;
             }
             
             /* Set on stack string object for key */
@@ -2600,7 +2621,8 @@ int rewriteAppendOnlyFileRio(rio *aof) {
              * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
-            if (server.in_fork_child) dismissObject(o, dump_size);
+            if (server.in_fork_child && dump_size > server.page_size/2)
+                dismissObject(o, dump_size);
 
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
@@ -2618,6 +2640,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 debugDelay(server.rdb_key_save_delay);
         }
         kvstoreIteratorReset(&kvs_it);
+
+        /* Dismiss bucket arrays of kvstore in standalone mode. */
+        if (server.in_fork_child && !server.cluster_enabled)
+            dismissKvstoreBucketsMemory(db->keys);
     }
     serverLog(LL_NOTICE, "AOF rewrite done, %ld keys saved, %llu keys skipped.", key_count, skipped);
     return C_OK;

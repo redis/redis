@@ -1022,7 +1022,6 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             if (newExpireAt != EB_EXPIRE_TIME_INVALID) {
                 dict *d = o->ptr;
                 htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
-                serverAssert(dictExpireMeta->expireMeta.trash == 0);
                 ebAdd(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, newEntry, newExpireAt);
             }
 
@@ -3478,9 +3477,6 @@ static void hfieldPersist(robj *hashObj, Entry *entry) {
     dict *d = hashObj->ptr;
     htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
 
-    /* If field has valid expiry then dict must have valid metadata as well */
-    serverAssert(dictExpireMeta->expireMeta.trash == 0);
-
     /* Remove field from private HFE DS */
     ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, entry);
 
@@ -3608,14 +3604,15 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
                                               &numFields, "Parameter `numFields` should be greater than 0") != C_OK)
                 return C_ERR;
 
-            args->fieldCount = (int)numFields;
             args->firstFieldPos = i + 2;
 
             /* Check bounds - we must have exactly the right number of fields */
-            if (args->firstFieldPos + args->fieldCount > c->argc) {
+            if (numFields > c->argc - args->firstFieldPos) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
             }
+
+            args->fieldCount = (int)numFields;
 
             /* Skip over the field arguments */
             i = args->firstFieldPos + args->fieldCount - 1;

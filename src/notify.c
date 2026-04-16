@@ -40,6 +40,7 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'n': flags |= NOTIFY_NEW; break;
         case 'o': flags |= NOTIFY_OVERWRITTEN; break;
         case 'c': flags |= NOTIFY_TYPE_CHANGED; break;
+        case 'r': flags |= NOTIFY_RATE_LIMIT; break;
         default: return -1;
         }
     }
@@ -70,6 +71,7 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_NEW) res = sdscatlen(res,"n",1);
         if (flags & NOTIFY_OVERWRITTEN) res = sdscatlen(res,"o",1);
         if (flags & NOTIFY_TYPE_CHANGED) res = sdscatlen(res,"c",1);
+        if (flags & NOTIFY_RATE_LIMIT) res = sdscatlen(res,"r",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);

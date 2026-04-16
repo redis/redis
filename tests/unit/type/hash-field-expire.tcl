@@ -1277,6 +1277,24 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r hpttl myhash FIELDS 1 f3] 4500 5000
         }
 
+        test "HSETEX EX - field appears twice in FIELDS list with EX is allowed ($type)" {
+            # The EX condition passes, so all fields must be set, and the last value wins.
+            r del myhash
+            r hset myhash f1 v1
+            r hsetex myhash EX 100 FIELDS 2 f1 new1 f1 new2
+            # Last value wins (same as plain HSET behavior with duplicate fields)
+            assert_equal "new2" [r hget myhash f1]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+        }
+
+        test "HSETEX FNX - field appears twice in FIELDS list with EX is allowed ($type)" {
+            # The FNX condition passes, so all fields must be set, and the last value wins.
+            r del myhash
+            r hsetex myhash FNX EX 100 FIELDS 2 f1 new1 f1 new2
+            assert_equal "new2" [r hget myhash f1]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+        }
+
         test "HSETEX - Test 'EX' flag ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2
@@ -2359,6 +2377,11 @@ start_server {tags {"hash"}} {
             assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash 60 FIELDS -1 f1}
             assert_error {*invalid number of fields*} {r HSETEX myhash FIELDS 0 f1 v1 EX 60}
             assert_error {*invalid number of fields*} {r HGETEX myhash FIELDS 0 f1 EX 60}
+            set future_sec [expr {[clock seconds] + 60}]
+            set future_ms [expr {[clock milliseconds] + 60000}]
+            foreach {cmd expire} [list HEXPIRE 60 HPEXPIRE 60000 HEXPIREAT $future_sec HPEXPIREAT $future_ms] {
+                assert_error {*wrong number of arguments*} [list r $cmd myhash $expire FIELDS 2147483647 f1]
+            }
 
             # Test missing FIELDS keyword
             assert_error {*unknown argument*} {r HEXPIRE myhash 60 2 f1 f2}

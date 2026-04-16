@@ -229,6 +229,103 @@ start_server {tags {"gcra" "external:skip"}} {
     }
 }
 
+start_server {tags {"gcra" "external:skip"}} {
+    test {GCRA - RDB save and reload preserves value} {
+        r del mykey
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set dump_before [r dump mykey]
+
+        r debug reload
+
+        assert_equal [r type mykey] "gcra"
+        set dump_after [r dump mykey]
+        assert_equal $dump_before $dump_after
+    } {} {needs:debug}
+
+    test {GCRA - RDB save and reload preserves TTL} {
+        r del mykey
+        r gcra mykey 5 1 60
+        set ttl_before [r pexpiretime mykey]
+        assert_morethan $ttl_before 0
+
+        r debug reload
+
+        set ttl_after [r pexpiretime mykey]
+        assert_morethan $ttl_after 0
+        assert_equal $ttl_after $ttl_before
+    } {} {needs:debug}
+
+    test {GCRA - DUMP and RESTORE roundtrip} {
+        r del mykey mykey2
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set dump [r dump mykey]
+        set ttl [r pttl mykey]
+        r restore mykey2 $ttl $dump
+
+        assert_equal [r type mykey2] "gcra"
+
+        set result_orig [r gcra mykey 5 1 60]
+        set result_restored [r gcra mykey2 5 1 60]
+        assert_equal [lindex $result_orig 2] [lindex $result_restored 2]
+    }
+
+    test {GCRA - AOF rewrite preserves value} {
+        r del mykey
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set dump_before [r dump mykey]
+
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        r debug reload
+
+        assert_equal [r type mykey] "gcra"
+        set dump_after [r dump mykey]
+        assert_equal $dump_before $dump_after
+    } {} {external:skip needs:debug}
+
+    test {GCRA - AOF rewrite preserves TTL} {
+        r del mykey
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        r gcra mykey 5 1 60
+
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+
+        set ttl_before [r pttl mykey]
+        assert {$ttl_before > 0}
+
+        r debug reload
+
+        set ttl_after [r pttl mykey]
+        assert {$ttl_after > 0}
+        assert {$ttl_after <= $ttl_before}
+    } {} {external:skip needs:debug}
+
+    test {GCRA - DEBUG DIGEST consistent after RDB reload} {
+        r del mykey
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set digest_before [r debug digest]
+
+        r debug reload
+
+        set digest_after [r debug digest]
+        assert_equal $digest_before $digest_after
+    } {} {needs:debug}
+}
+
 start_server {tags {"gcra repl" "external:skip"}} {
     set replica [srv 0 client]
     set replica_host [srv 0 host]
@@ -240,27 +337,26 @@ start_server {tags {"gcra repl" "external:skip"}} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
 
-        $master flushdb
-        $replica flushdb
+        test {GCRA - Replication works} {
+            $master flushdb
+            $replica flushdb
 
-        $replica replicaof $master_host $master_port
-        wait_for_condition 100 100 {
-            [s -1 master_link_status] eq "up"
-        } else {
-            fail "Master <-> Replica didn't finish sync"
-        }
+            $replica replicaof $master_host $master_port
+            wait_for_condition 100 100 {
+                [s -1 master_link_status] eq "up"
+            } else {
+                fail "Master <-> Replica didn't finish sync"
+            }
 
-        set cmdinfo [$replica info commandstats]
-        assert_equal [lsearch -glob $cmdinfo "cmdstat_gcra:*"] -1
-        assert_equal [lsearch -glob $cmdinfo "cmdstat_set:*"] -1
+            set cmdinfo [$replica info commandstats]
+            assert_equal [lsearch -glob $cmdinfo "cmdstat_gcrasetvalue:*"] -1
 
-        $master del mykey
-        $master gcra mykey 2 1 1000 TOKENS 2
+            $master del mykey
+            $master gcra mykey 2 1 1000 TOKENS 2
+            wait_for_ofs_sync $master $replica
 
-        wait_for_ofs_sync $master $replica
-
-        set cmdinfo [$replica info commandstats]
-        assert_equal [lsearch -glob $cmdinfo "cmdstat_gcra:*"] -1
-        assert_morethan_equal [lsearch -glob $cmdinfo "cmdstat_set:*"] 0
+            set cmdinfo [$replica info commandstats]
+            assert_morethan_equal [lsearch -glob $cmdinfo "cmdstat_gcrasetvalue:*"] 0
+        } {} {external:skip}
     }
 }

@@ -129,23 +129,11 @@ void gcraCommand(client *c) {
     long long tat_us, new_tat_us;
     dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
-    if (checkType(c, kv, OBJ_STRING)) {
+    if (checkType(c, kv, OBJ_GCRA)) {
         return;
     }
     if (kv != NULL) {
-        /* Note the value of the key may have been overwritten outside of the
-         * GCRA command (f.e by calling SET). We don't try to catch such errors
-         * as this would be possible only with a dedicated structures for GCRA,
-         * while using STRING gives us all the benefits of a redis key -
-         * replication, setting expiration, etc. */
-        if (getLongLongFromObject(kv, &tat_us) != C_OK) {
-            addReplyError(c, "Invalid GCRA key");
-            return;
-        }
-        if (tat_us <= 0) {
-            addReplyError(c, "Negative time is invalid value for GCRA");
-            return;
-        }
+        getLongLongFromGCRAObject(kv, &tat_us);
     } else {
         tat_us = now;
     }
@@ -208,10 +196,18 @@ void gcraCommand(client *c) {
     } else {
         limited = 0;
         ttl_us = new_tat_us - now;
-        robj *tatobj = createStringObjectFromLongLong(new_tat_us);
+        robj *tatobj = createGCRAObject(new_tat_us);
         setKeyByLink(c, c->db, key, &tatobj, kv ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST, &link);
-        notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
+        notifyKeyspaceEvent(NOTIFY_RATE_LIMIT,"gcra",key,c->db->id);
 
+        /* The key implicitly sets its own expiry time (which is basically the
+         * TaT after which time the value is no longer of any use). That way even
+         * if only one GCRA command is called on a key it will automatically
+         * expire after reaching its TaT without user needing to explicitly call
+         * DEL on it.
+         * These keys are expected to be numerous and short lived thus the
+         * decision to keep the implicit expiraty.
+         * NOTE: idea is same as in redis-cell. */
         long long when = new_tat_us / 1000;
         kv = setExpireByLink(c, c->db, key->ptr, when, link);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -219,9 +215,11 @@ void gcraCommand(client *c) {
         /* Replicating the command directly would mess up TaT as we use
          * commandTimeSnapshot. We instead rewrite the command as SET with the
          * appropriate expire time. */
-        robj *pexat_obj = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c, 5, shared.set, key, kv, shared.pxat, pexat_obj);
-        decrRefCount(pexat_obj);
+        robj *gcrasetvalue = createStringObject("GCRASETVALUE", 12);
+        robj *newtatstr = createStringObjectFromLongLong(new_tat_us);
+        rewriteClientCommandVector(c, 3, gcrasetvalue, key, newtatstr);
+        decrRefCount(gcrasetvalue);
+        decrRefCount(newtatstr);
 
         server.dirty++;
     }
@@ -238,4 +236,45 @@ void gcraCommand(client *c) {
     addReplyLongLong(c, remaining);
     addReplyLongLong(c, retry_after_s);
     addReplyLongLong(c, reset_after_s);
+}
+
+/* GCRASETVALUE key tat
+ *
+ * Internal command used during AOF rewrite to record a GCRA TAT value. The GCRA
+ * command is also rewritten as GCRASETVALUE for replication since GCRA uses
+ * commandTimeSnapshot. */
+void gcraSetValueCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *tat = c->argv[2];
+    long long when;
+
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
+    if (checkType(c, kv, OBJ_GCRA)) return;
+
+    if (getLongLongFromObjectOrReply(c, tat, &when, "Invalid TaT value") == C_ERR) {
+        return;
+    }
+    if (when < 0) {
+        addReplyError(c, "Invalid negative TaT value");
+        return;
+    }
+
+    robj *tatobj = createGCRAObject(when);
+    setKeyByLink(c, c->db, key, &tatobj, kv ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST, &link);
+    notifyKeyspaceEvent(NOTIFY_RATE_LIMIT,"gcra",key,c->db->id);
+
+    /* Just like the base GCRA command we set the expire time of the key implicitly. */
+    long long when_ms = when / 1000;
+    kv = setExpireByLink(c, c->db, key->ptr, when_ms, link);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+    server.dirty++;
+
+    addReply(c, shared.ok);
+}
+
+robj *gcraDup(robj *o) {
+    long long val;
+    getLongLongFromGCRAObject(o, &val);
+    return createGCRAObject(val);
 }
