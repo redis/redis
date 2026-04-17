@@ -1,5 +1,5 @@
 name: 'Install gcc-4.8'
-description: 'Download and install gcc-4.8 (Ubuntu 18.04 bionic) from mirrors.kernel.org'
+description: 'Download and install gcc-4.8 from mirrors.kernel.org'
 
 runs:
   using: composite
