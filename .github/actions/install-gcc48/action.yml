@@ -1,0 +1,22 @@
+name: 'Install gcc-4.8'
+description: 'Download and install gcc-4.8 (Ubuntu 18.04 bionic) from mirrors.kernel.org'
+
+runs:
+  using: composite
+  steps:
+    - name: Download and install gcc-4.8
+      shell: bash
+      run: |
+        BASE=https://mirrors.kernel.org/ubuntu/pool/universe/g/gcc-4.8
+        VER=4.8.5-4ubuntu8
+        wget -q ${BASE}/gcc-4.8-base_${VER}_amd64.deb \
+                ${BASE}/cpp-4.8_${VER}_amd64.deb \
+                ${BASE}/libasan0_${VER}_amd64.deb \
+                ${BASE}/libgcc-4.8-dev_${VER}_amd64.deb \
+                ${BASE}/gcc-4.8_${VER}_amd64.deb
+        apt-get install -y ./gcc-4.8-base_${VER}_amd64.deb \
+                           ./cpp-4.8_${VER}_amd64.deb \
+                           ./libasan0_${VER}_amd64.deb \
+                           ./libgcc-4.8-dev_${VER}_amd64.deb \
+                           ./gcc-4.8_${VER}_amd64.deb
+        update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100

@@ -93,17 +93,6 @@ jobs:
       run: |
         apt-get update
         apt-get install -y make wget
-        BASE=https://mirrors.kernel.org/ubuntu/pool/universe/g/gcc-4.8
-        VER=4.8.5-4ubuntu8
-        wget -q ${BASE}/gcc-4.8-base_${VER}_amd64.deb \
-                ${BASE}/cpp-4.8_${VER}_amd64.deb \
-                ${BASE}/libasan0_${VER}_amd64.deb \
-                ${BASE}/libgcc-4.8-dev_${VER}_amd64.deb \
-                ${BASE}/gcc-4.8_${VER}_amd64.deb
-        apt-get install -y ./gcc-4.8-base_${VER}_amd64.deb \
-                           ./cpp-4.8_${VER}_amd64.deb \
-                           ./libasan0_${VER}_amd64.deb \
-                           ./libgcc-4.8-dev_${VER}_amd64.deb \
-                           ./gcc-4.8_${VER}_amd64.deb
-        update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
-        make CC=gcc REDIS_CFLAGS='-Werror'
+    - uses: ./.github/actions/install-gcc48
+    - name: build
+      run: make CC=gcc REDIS_CFLAGS='-Werror'
