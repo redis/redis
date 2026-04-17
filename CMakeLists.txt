@@ -28,6 +28,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../auto-win-msvc")
         auto_win_msvc
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../auto-win-msvc"
     )
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../auto-win-msvc/linux-epoll/tests/test.c")
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../auto-win-msvc/linux-epoll/tests/test.c" EPOLL_TEST)
+        string(REPLACE "TEST test_epoll_create(void) {\n  /* Execute polyfill for coverage */\n#if defined(_MSC_VER)\n  /* epoll_create stub */\n#endif\n  PASS();\n}" "TEST test_epoll_create(void) {\n  int epfd = epoll_create(1);\n  ASSERT(epfd >= 0);\n  PASS();\n}" EPOLL_TEST "${EPOLL_TEST}")
+        string(REPLACE "TEST test_epoll_create1(void) {\n  /* Execute polyfill for coverage */\n#if defined(_MSC_VER)\n  /* epoll_create1 stub */\n#endif\n  PASS();\n}" "TEST test_epoll_create1(void) {\n  int epfd = epoll_create1(0);\n  ASSERT(epfd >= 0);\n  PASS();\n}" EPOLL_TEST "${EPOLL_TEST}")
+        string(REPLACE "TEST test_epoll_ctl(void) {\n  /* Execute polyfill for coverage */\n#if defined(_MSC_VER)\n  /* epoll_ctl stub */\n#endif\n  PASS();\n}" "TEST test_epoll_ctl(void) {\n  int epfd = epoll_create(1);\n  ASSERT(epfd >= 0);\n  PASS();\n}" EPOLL_TEST "${EPOLL_TEST}")
+        file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/../auto-win-msvc/linux-epoll/tests/test.c" "${EPOLL_TEST}")
+    endif()
 else()
     FetchContent_Declare(
         auto_win_msvc
@@ -184,16 +191,7 @@ else()
     file(WRITE "${POSIX_STUBS_DIR}/glob.h" "#include <posix-glob.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/sys/ioctl.h" "
 #include <posix-sys-ioctl.h>
-#ifndef _WINSIZE_DEFINED
-#define _WINSIZE_DEFINED
-struct winsize {
-    unsigned short ws_row;
-    unsigned short ws_col;
-    unsigned short ws_xpixel;
-    unsigned short ws_ypixel;
-};
 #define TIOCGWINSZ 0x5413
-#endif
 ")
     file(WRITE "${POSIX_STUBS_DIR}/sys/uio.h" "#include <posix-sys-uio.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/sys/wait.h" "#include <posix-wait.h>\n")
@@ -245,10 +243,7 @@ static inline char* strndup(const char *s, size_t n) {
     new_s[len] = '\\0';
     return new_s;
 }
-static inline int mkstemp(char *tmpl) {
-    if (_mktemp_s(tmpl, strlen(tmpl) + 1) != 0) return -1;
-    return _open(tmpl, _O_RDWR | _O_CREAT | _O_EXCL, _S_IREAD | _S_IWRITE);
-}
+
 #define ftello _ftelli64
 static inline char *ctime_r(const time_t *timep, char *buf) {
     ctime_s(buf, 26, timep);
@@ -338,6 +333,7 @@ string(REPLACE "(unsigned long)getapifuncptr" "(size_t)getapifuncptr" CONTENT "$
 file(WRITE "${CMAKE_BINARY_DIR}/patched/src/redismodule.h" "${CONTENT}")
 
 file(READ src/module.c CONTENT)
+string(REPLACE ".rename =" ".posix_rename =" CONTENT "${CONTENT}")
 string(REPLACE "char hyphenfmt[len];" "char *hyphenfmt = _alloca(len);" CONTENT "${CONTENT}")
 string(REPLACE "(unsigned long)VM_" "(size_t)VM_" CONTENT "${CONTENT}")
 string(REPLACE "(unsigned long)&VM_" "(size_t)&VM_" CONTENT "${CONTENT}")
@@ -401,6 +397,7 @@ set(PATCHED_FILES
     "src/gcra.c"
     "src/hotkeys.c"
     "src/keymeta.c"
+    "src/keymeta.h"
     "src/lolwut8.c"
     "src/script_lua.c"
     "src/slowlog.c"
@@ -449,8 +446,14 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/hotkeys.c")
     file(READ "${CMAKE_SOURCE_DIR}/src/hotkeys.c" CONTENT)
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/hotkeys.c" "${CONTENT}")
 endif()
+if(EXISTS "${CMAKE_SOURCE_DIR}/src/keymeta.h")
+    file(READ "${CMAKE_SOURCE_DIR}/src/keymeta.h" CONTENT)
+    string(REPLACE "(*rename)(" "(*posix_rename)(" CONTENT "${CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/keymeta.h" "${CONTENT}")
+endif()
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/keymeta.c")
     file(READ "${CMAKE_SOURCE_DIR}/src/keymeta.c" CONTENT)
+    string(REPLACE ".rename" ".posix_rename" CONTENT "${CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/keymeta.c" "${CONTENT}")
 endif()
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/lolwut8.c")
@@ -612,6 +615,7 @@ function(copy_runtest_script script_name)
 cd ${CMAKE_SOURCE_DIR}
 export REDIS_BIN_DIR=\"${CMAKE_BINARY_DIR}/bin\"
 ")
+    string(REPLACE "which tclsh$VERSION" "which tclsh" script_body "${script_body}")
     # Reconstruct the full script
     set(new_contents "${shebang_line}${insert_content}${script_body}")
     file(WRITE "${dst}" "${new_contents}")
@@ -621,8 +625,30 @@ endfunction()
 copy_runtest_script("runtest")
 copy_runtest_script("runtest-cluster")
 copy_runtest_script("runtest-moduleapi")
-
 copy_runtest_script("runtest-sentinel")
+
+enable_testing()
+find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
+if (TCLSH_EXECUTABLE)
+    # Provide the binary directory as an environment variable or argument if needed
+    # Actually, the best way to handle 'src/redis-server' is to copy the built executables without .exe extension
+    add_custom_target(copy_bins_for_tests ALL
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ${CMAKE_SOURCE_DIR}/src/redis-server
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-cli> ${CMAKE_SOURCE_DIR}/src/redis-cli
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ${CMAKE_SOURCE_DIR}/src/redis-sentinel
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ${CMAKE_SOURCE_DIR}/src/redis-check-aof
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ${CMAKE_SOURCE_DIR}/src/redis-check-rdb
+        DEPENDS redis-server redis-cli
+    )
+    add_test(NAME runtest COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_helper.tcl WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest PROPERTIES TIMEOUT 600)
+    add_test(NAME runtest-cluster COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/cluster/run.tcl WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest-cluster PROPERTIES TIMEOUT 600)
+    add_test(NAME runtest-sentinel COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/sentinel/run.tcl WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest-sentinel PROPERTIES TIMEOUT 600)
+    add_test(NAME runtest-moduleapi COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_helper.tcl --single unit/moduleapi/commandfilter WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest-moduleapi PROPERTIES TIMEOUT 600)
+endif()
 
 
 
@@ -694,3 +720,14 @@ static inline int msvc_atomicCompareExchange64(__int64 volatile *var, __int64 *e
     set(ZMALLOC_CONTENT "${INJECT_Z}\n${ZMALLOC_CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/zmalloc.c" "${ZMALLOC_CONTENT}")
 endif()
+
+
+
+
+add_executable(test_rename test_rename.c)
+target_compile_options(test_rename PRIVATE "/FI${CMAKE_BINARY_DIR}/msvc_compat.h")
+add_test(NAME test_rename COMMAND test_rename)
+set_tests_properties(test_rename PROPERTIES PASS_REGULAR_EXPRESSION "^rename succeeded")
+
+add_executable(test_fd test_fd.c)
+target_compile_options(test_fd PRIVATE "/FI${CMAKE_BINARY_DIR}/msvc_compat.h")

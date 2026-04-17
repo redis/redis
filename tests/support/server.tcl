@@ -16,11 +16,19 @@ set ::global_overrides {}
 set ::tags {}
 set ::valgrind_errors {}
 
+proc cat_file {filename} {
+    if {![file exists $filename]} { return "" }
+    set fd [open $filename r]
+    set data [read $fd]
+    close $fd
+    return $data
+}
+
 proc start_server_error {config_file error} {
     set err {}
     append err "Can't start the Redis server\n"
     append err "CONFIGURATION:\n"
-    append err [exec cat $config_file]
+    append err [cat_file $config_file]
     append err "\nERROR:\n"
     append err [string trim $error]
     send_data_packet $::test_server_fd err $err
@@ -431,17 +439,17 @@ proc spawn_server {config_file stdout stderr args} {
     if {$::valgrind} {
         set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full {*}$cmd >> $stdout 2>> $stderr &]
     } elseif ($::stack_logging) {
-        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt {*}$cmd >> $stdout 2>> $stderr &]
+        set ::env(MallocStackLogging) 1
+        set ::env(MallocLogFile) "/tmp/malloc_log.txt"
+        set pid [exec {*}$cmd >> $stdout 2>> $stderr &]
     } else {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set env [list \
-            "ASAN_OPTIONS=allocator_may_return_null=1" \
-            "MSAN_OPTIONS=allocator_may_return_null=1" \
-            "TSAN_OPTIONS=allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup" \
-        ]
-        set pid [exec /usr/bin/env {*}$env {*}$cmd >> $stdout 2>> $stderr &]
+        set ::env(ASAN_OPTIONS) "allocator_may_return_null=1"
+        set ::env(MSAN_OPTIONS) "allocator_may_return_null=1"
+        set ::env(TSAN_OPTIONS) "allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup"
+        set pid [exec {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -461,7 +469,7 @@ proc wait_server_started {config_file stdout pid} {
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
-        if {[regexp -- " PID: $pid.*Server initialized" [exec cat $stdout]]} {
+        if {[regexp -- " PID: $pid.*Server initialized" [cat_file $stdout]]} {
             break
         }
         after $checkperiod
@@ -469,14 +477,14 @@ proc wait_server_started {config_file stdout pid} {
         if {$maxiter == 0} {
             start_server_error $config_file "No PID detected in log $stdout"
             puts "--- LOG CONTENT ---"
-            puts [exec cat $stdout]
+            puts [cat_file $stdout]
             puts "-------------------"
             break
         }
 
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Failed listening on port} [exec cat $stdout]]} {
+        if {[regexp {Failed listening on port} [cat_file $stdout]]} {
             set port_busy 1
             break
         }
@@ -487,11 +495,11 @@ proc wait_server_started {config_file stdout pid} {
 proc dump_server_log {srv} {
     set pid [dict get $srv "pid"]
     puts "\n===== Start of server log (pid $pid) =====\n"
-    puts [exec cat [dict get $srv "stdout"]]
+    puts [cat_file [dict get $srv "stdout"]]
     puts "===== End of server log (pid $pid) =====\n"
 
     puts "\n===== Start of server stderr log (pid $pid) =====\n"
-    puts [exec cat [dict get $srv "stderr"]]
+    puts [cat_file [dict get $srv "stderr"]]
     puts "===== End of server stderr log (pid $pid) =====\n"
 }
 
@@ -633,7 +641,7 @@ proc start_server {options {code undefined}} {
         return
     }
 
-    set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
+    set data [split [cat_file "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
         if {$::tls_module} {
@@ -671,8 +679,8 @@ proc start_server {options {code undefined}} {
         dict set config port $port
     }
 
-    set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
-    dict set config "unixsocket" $unixsocket
+    # set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
+    # dict set config "unixsocket" $unixsocket
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {
@@ -768,7 +776,7 @@ proc start_server {options {code undefined}} {
 
         if {!$serverisup} {
             set err {}
-            append err [exec cat $stdout] "\n" [exec cat $stderr]
+            append err [cat_file $stdout] "\n" [cat_file $stderr]
             start_server_error $config_file $err
             set ::tags [lrange $::tags 0 end-[llength $tags]]
             return
@@ -790,7 +798,7 @@ proc start_server {options {code undefined}} {
     dict set srv "port" $port
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
-    dict set srv "unixsocket" $unixsocket
+    # dict set srv "unixsocket" $unixsocket
     if {$::tls} {
         dict set srv "pport" $pport
     }
@@ -798,7 +806,9 @@ proc start_server {options {code undefined}} {
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards
     if {$code ne "undefined"} {
-        set line [exec head -n1 $stdout]
+        set fp [open $stdout r]
+        set line [gets $fp]
+        close $fp
         if {[string match {*already in use*} $line]} {
             set ::tags [lrange $::tags 0 end-[llength $tags]]
             error_and_quit $config_file $line
