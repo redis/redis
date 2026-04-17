@@ -38,8 +38,7 @@ static int ClusterReceiverRegister(RedisModuleCtx *ctx, RedisModuleString **argv
 static int ClusterReceiverUnregister(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
     long long type;
-    if (RedisModule_StringToLongLong(argv[1], &type) != REDISMODULE_OK ||
-        type < 0 || type > 255)
+    if (RedisModule_StringToLongLong(argv[1], &type) != REDISMODULE_OK || type < 0 || type > 255)
         return RedisModule_ReplyWithError(ctx, "ERR invalid type, must be 0-255");
     RedisModule_RegisterClusterMessageReceiver(ctx, (uint8_t)type, NULL);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
