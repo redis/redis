@@ -273,8 +273,8 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
         if (exponent < 0)       value = value / powers_of_ten[-exponent];
         else if (exponent > 0)  value = value * powers_of_ten[exponent];
     }
-#ifdef __SIZEOF_INT128__
     else {
+#ifdef __SIZEOF_INT128__
         /* Widened fast path for 17-19 significant-digit mantissas.
          *
          * (double)mantissa alone loses up to 11 bits when mantissa > 2^53,
@@ -312,15 +312,13 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
             value = ((double)hi * 18446744073709551616.0 + (double)lo)
                   * 5.421010862427522170037e-20; /* 2^-64 */
         }
-    }
 #else
-    else {
         /* 32-bit target without __uint128_t: fall through to the strtod()
          * fallback. Correctness is preserved (it's the same path that shipped
          * in 8.8-M02); only the perf gain is 64-bit-target-specific. */
         return 0;
-    }
 #endif
+    }
 
     if (negative) value = -value;
     *result = value;
