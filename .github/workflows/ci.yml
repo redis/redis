@@ -93,7 +93,7 @@ jobs:
       run: |
         apt-get update
         apt-get install -y make wget
-        BASE=http://mirrors.kernel.org/ubuntu/pool/universe/g/gcc-4.8
+        BASE=https://mirrors.kernel.org/ubuntu/pool/universe/g/gcc-4.8
         VER=4.8.5-4ubuntu8
         wget -q ${BASE}/gcc-4.8-base_${VER}_amd64.deb \
                 ${BASE}/cpp-4.8_${VER}_amd64.deb \
