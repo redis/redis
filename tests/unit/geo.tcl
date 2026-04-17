@@ -223,7 +223,7 @@ start_server {tags {"geo"}} {
         set err
     } {*valid*}
 
-    test {GEOADD out-of-range longitude/latitude error reply is well-formed on the wire} {
+    test {GEOADD out-of-range longitude/latitude error reply is well-formed} {
         r readraw 1
         set reply [r geoadd nyc 200 40 "bad lon"]
         r readraw 0
