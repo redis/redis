@@ -250,3 +250,36 @@ start_cluster 1 0 [list tags {external:skip cluster needs:debug modules} config_
         $node1 test.string.truncate
     }
 }
+
+# -----------------------------------------------------------------------------
+# Regression test: RM_RegisterClusterMessageReceiver head-node removal
+#
+# Bug: when prev==NULL (removing the head of clusterReceivers[type]), the old
+# code did clusterReceivers[type]->next = r->next (a no-op, since r IS the
+# head), then freed r — leaving a dangling pointer as the list head.
+#
+# The sequence register → unregister → register → unregister triggers a
+# double-free of the same node on the second unregister, which jemalloc will
+# abort on, making this a reliable crash-based regression test.
+# -----------------------------------------------------------------------------
+
+set testmodule_clusterreceiver [file normalize tests/modules/clusterreceiver.so]
+set modules [list loadmodule $testmodule_clusterreceiver]
+start_cluster 1 0 [list tags {external:skip cluster modules} config_lines $modules] {
+    set node1 [srv 0 client]
+
+    test "RM_RegisterClusterMessageReceiver: head-node removal does not leave dangling pointer" {
+        # Register a receiver — creates the head node (prev will be NULL on removal)
+        $node1 clusterreceiver.register 42
+        # Unregister it — hits the prev==NULL path; fix sets clusterReceivers[42]=r->next (NULL)
+        # Bug left clusterReceivers[42] pointing to the now-freed node
+        $node1 clusterreceiver.unregister 42
+        # Re-register — with the bug this walks the dangling freed node and writes its callback field
+        $node1 clusterreceiver.register 42
+        # Unregister again — with the bug this double-frees the original node, crashing jemalloc
+        # With the fix this correctly frees the freshly allocated node
+        $node1 clusterreceiver.unregister 42
+        # Server still alive = no double-free = fix is in place
+        $node1 ping
+    } {PONG}
+}
