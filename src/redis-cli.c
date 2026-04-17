@@ -472,7 +472,7 @@ static void cliLegacyIntegrateHelp(void) {
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
-            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
+            entry->element[3]->type != REDIS_REPLY_INTEGER) goto cleanup;
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -511,6 +511,7 @@ static void cliLegacyIntegrateHelp(void) {
         new->docs.since = "Not known";
         new->docs.group = "generic";
     }
+cleanup:
     freeReplyObject(reply);
 }
 
