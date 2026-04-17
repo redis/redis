@@ -15,6 +15,7 @@
 #include "ebuckets.h"
 #include "entry.h"
 #include "cluster_asm.h"
+#include "vector.h"
 #include <math.h>
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
@@ -44,6 +45,18 @@ typedef enum GetFieldRes {
 } GetFieldRes;
 
 typedef listpackEntry CommonEntry; /* extend usage beyond lp */
+
+#define FIELDS_STACK_SIZE 16
+
+/* A vec with an embedded stack buffer, used to collect field robj pointers
+ * for subkey notifications without heap allocation in the common case. */
+typedef struct fieldvec { vec v; void *buf[FIELDS_STACK_SIZE]; } fieldvec;
+
+static inline vec *fieldvecInit(fieldvec *fv, size_t cap) {
+    vecInit(&fv->v, fv->buf, FIELDS_STACK_SIZE);
+    vecReserve(&fv->v, cap);
+    return &fv->v;
+}
 
 /* hash field expiration (HFE) funcs */
 static ExpireAction onFieldExpire(eItem item, void *ctx);
@@ -126,6 +139,7 @@ typedef struct OnFieldExpireCtx {
     robj *hashObj;
     redisDb *db;
     int activeEx; /* 1 for active expire, 0 for lazy expire */
+    vec *vexpired; /* Expired fields vector */
 } OnFieldExpireCtx;
 
 /* The implementation of hashes by dict was modified from storing fields as sds
@@ -360,7 +374,8 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 }
 
 /* Walk over fields and delete the expired ones. */
-void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
+void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
+    OnFieldExpireCtx *ctx = info->ctx;
     serverAssert(kv->encoding == OBJ_ENCODING_LISTPACK_EX);
     uint64_t expired = 0, min = EB_EXPIRE_TIME_INVALID;
     unsigned char *ptr;
@@ -387,9 +402,15 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
+        /* Collect expired field for subkey notification. */
+        if (ctx->vexpired) {
+            char *fstr = (char *)(fref ? fref : intbuf);
+            vecPush(ctx->vexpired, createStringObject(fstr, flen));
+        }
+
         propagateHashFieldDeletion(db, key, (char *)((fref) ? fref : intbuf), flen);
         server.stat_expired_subkeys++;
-        if (activeEx) server.stat_expired_subkeys_active++;
+        if (ctx->activeEx) server.stat_expired_subkeys_active++;
 
         ptr = lpNext(lpt->lp, ptr);
 
@@ -780,9 +801,13 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     /* If the field is the last one in the hash, then the hash will be deleted */
     res = GETF_EXPIRED;
     robj *keyObj = createStringObject(key, sdslen(key));
-    if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
-    if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
+    unsigned long length = hashTypeLength(o, 0);
+    if ((length != 0) && !(hfeFlags & HFE_LAZY_NO_NOTIFICATION)) {
+        robj fobj, *farr[1] = {&fobj};
+        initStaticStringObject(fobj, field);
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", keyObj, db->id, farr, 1);
+    }
+    if ((length == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
         if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
@@ -1876,30 +1901,29 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
  */
 uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires, int activeEx) {
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
-    ExpireInfo info = {0};
 
-    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        info = (ExpireInfo) {
+    /* Collect expired field names for batched subkey notification.
+     * Skip allocation entirely when subkey notifications are disabled. */
+    fieldvec fvexpired;
+    vec *vexpired = isSubkeyNotifyEnabled(NOTIFY_HASH) ?
+                        fieldvecInit(&fvexpired, FIELDS_STACK_SIZE) : NULL;
+
+    OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db, .activeEx = activeEx, .vexpired = vexpired };
+    ExpireInfo info = (ExpireInfo) {
                 .maxToExpire = *quota,
                 .now = commandTimeSnapshot(),
+                .ctx = &onFieldExpireCtx,
                 .itemsExpired = 0};
 
-        listpackExExpire(db, o, &info, activeEx);
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        listpackExExpire(db, o, &info);
     } else {
         serverAssert(o->encoding == OBJ_ENCODING_HT);
 
         dict *d = o->ptr;
         htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
 
-        OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db, .activeEx = activeEx };
-
-        info = (ExpireInfo){
-            .maxToExpire = *quota,
-            .onExpireItem = onFieldExpire,
-            .ctx = &onFieldExpireCtx,
-            .now = commandTimeSnapshot()
-        };
-
+        info.onExpireItem = onFieldExpire;
         ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
     }
 
@@ -1912,7 +1936,11 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
     if (info.itemsExpired) {
         sds keystr = kvobjGetKey(o);
         robj *key = createStringObject(keystr, sdslen(keystr));
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", key, db->id);
+
+        /* Send subkey notification with all expired fields */
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", key, db->id,
+            vexpired ? (robj**)vecData(vexpired) : NULL, vexpired ? vecSize(vexpired) : 0);
+
         int slot;
         int deleted = 0;
 
@@ -1933,6 +1961,14 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
 
         keyModified(NULL, db, key, deleted ? NULL : o, 1);
         decrRefCount(key);
+    }
+
+    /* Free collected expired fields */
+    if (vexpired) {
+        for (size_t i = 0; i < vecSize(vexpired); i++) {
+            decrRefCount(vecGet(vexpired, i));
+        }
+        vecRelease(vexpired);
     }
 
     /* return 0 if hash got deleted, EB_EXPIRE_TIME_INVALID if no more fields
@@ -2103,7 +2139,7 @@ void hsetnxCommand(client *c) {
     updateKeysizesHist(c->db, OBJ_HASH, hlen - 1, hlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-    notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
+    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,&c->argv[2],1);
     KSN_INVALIDATE_KVOBJ(kv);
     server.dirty++;
 }
@@ -2141,7 +2177,16 @@ void hsetCommand(client *c) {
     updateKeysizesHist(c->db, OBJ_HASH, l - created, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+
+    /* Collect field pointers for subkey notification. Fields are at argv[2,4,6...]. */
+    int numfields = (c->argc - 2) / 2;
+    fieldvec fvset;
+    vec *vset = fieldvecInit(&fvset, numfields);
+    for (i = 0; i < numfields; i++) {
+        vecPush(vset, c->argv[2 + i * 2]);
+    }
+    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hset",c->argv[1],c->db->id,(robj**)vecData(vset),numfields);
+    vecRelease(vset);
     KSN_INVALIDATE_KVOBJ(kv);
     server.dirty += (c->argc - 2)/2;
 }
@@ -2355,8 +2400,7 @@ err_expiration:
  */
 void hsetexCommand(client *c) {
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
-    int updated = 0, deleted = 0, set_expiry;
-    int expired = 0, fields_set = 0;
+    int set_expiry;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
     HashTypeSetEx setex;
@@ -2383,6 +2427,13 @@ void hsetexCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(o);
 
+    /* Track fields for subkey notifications by event type. */
+    fieldvec fvexpired, fvset, fvdeleted, fvupdated;
+    vec *vexpired = fieldvecInit(&fvexpired, field_count);
+    vec *vset = fieldvecInit(&fvset, field_count);
+    vec *vdeleted = fieldvecInit(&fvdeleted, field_count);
+    vec *vupdated = fieldvecInit(&fvupdated, field_count);
+
     if (flags & (HFE_FXX | HFE_FNX)) {
         int found = 0;
         for (int i = 0; i < field_count; i++) {
@@ -2398,7 +2449,9 @@ void hsetexCommand(client *c) {
 
             GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, opt, NULL);
             int exists = (res == GETF_OK);
-            expired += (res == GETF_EXPIRED);
+            if (res == GETF_EXPIRED) {
+                vecPush(vexpired, c->argv[first_field_pos + (i * 2)]);
+            }
             found += exists;
 
             /* Check for early exit if the condition is already invalid. */
@@ -2435,12 +2488,15 @@ void hsetexCommand(client *c) {
             opt |= HASH_SET_KEEP_TTL;
 
         hashTypeSet(c->db, o, field, value, opt);
-        fields_set = 1;
+        vecPush(vset, c->argv[first_field_pos + (i * 2)]);
         /* Update the expiration time. */
         if (set_expiry) {
             int ret = hashTypeSetEx(o, field, expire_time, &setex);
-            updated += (ret == HSETEX_OK);
-            deleted += (ret == HSETEX_DELETED);
+            if (ret == HSETEX_OK) {
+                vecPush(vupdated, c->argv[first_field_pos + (i * 2)]);
+            } else if (ret == HSETEX_DELETED) {
+                vecPush(vdeleted, c->argv[first_field_pos + (i * 2)]);
+            }
         }
     }
 
@@ -2449,7 +2505,7 @@ void hsetexCommand(client *c) {
 
     server.dirty += field_count;
 
-    if (deleted) {
+    if (vecSize(vdeleted)) {
         /* If fields are deleted due to timestamp is being in the past, hdel's
          * are already propagated. No need to propagate the command itself. */
         preventCommandPropagation(c);
@@ -2470,15 +2526,23 @@ out:
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
-    if (fields_set || expired) {
+    if (vecSize(vset) || vecSize(vexpired)) {
         newlen = (int64_t) hashTypeLength(o, 0); 
         keyModified(c, c->db, c->argv[1], o, 1);
-        if (expired)
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
-        if (fields_set) {
-            notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
-            if (deleted || updated)
-                notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire", c->argv[1], c->db->id);
+        if (vecSize(vexpired)) {
+            notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
+                                           c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+        }
+        if (vecSize(vset)) {
+            notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hset", c->argv[1],
+                                           c->db->id, (robj**)vecData(vset), vecSize(vset));
+            if (vecSize(vdeleted)) {
+                notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hdel", c->argv[1],
+                                               c->db->id, (robj**)vecData(vdeleted), vecSize(vdeleted));
+            } else if (vecSize(vupdated)) {
+                notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpire", c->argv[1],
+                                               c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
+            }
         }
         
         KSN_INVALIDATE_KVOBJ(o);
@@ -2494,6 +2558,11 @@ out:
         if (oldlen != newlen)
             updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     }
+
+    vecRelease(vexpired);
+    vecRelease(vset);
+    vecRelease(vdeleted);
+    vecRelease(vupdated);
 }
 
 void hincrbyCommand(client *c) {
@@ -2543,7 +2612,7 @@ void hincrbyCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     addReplyLongLong(c,value);
     keyModified(c,c->db,c->argv[1], o, 1);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
+    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id,&c->argv[2],1);
     KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 }
@@ -2602,7 +2671,7 @@ void hincrbyfloatCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     addReplyBulkCBuffer(c,buf,len);
     keyModified(c,c->db,c->argv[1],o,1);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
+    notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id,&c->argv[2],1);
     KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 
@@ -2651,19 +2720,24 @@ void hgetCommand(client *c) {
 
 void hmgetCommand(client *c) {
     GetFieldRes res = GETF_OK;
-    int i;
-    int expired = 0, deleted = 0;
+    int i, deleted = 0;
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */
     kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c,o,OBJ_HASH)) return;
 
+    /* Track expired fields for subkey notification. */
+    fieldvec fvexpired;
+    vec *vexpired = fieldvecInit(&fvexpired, c->argc-2);
+
     addReplyArrayLen(c, c->argc-2);
     for (i = 2; i < c->argc ; i++) {
         if (!deleted) {
             res = addHashFieldToReply(c, o, c->argv[i]->ptr, HFE_LAZY_NO_NOTIFICATION);
-            expired += (res == GETF_EXPIRED);
+            if (res == GETF_EXPIRED) {
+                vecPush(vexpired, c->argv[i]);
+            }
             deleted += (res == GETF_EXPIRED_HASH);
         } else {
             /* If hash got lazy expired since all fields are expired (o is invalid),
@@ -2672,11 +2746,14 @@ void hmgetCommand(client *c) {
         }
     }
 
-    if (expired) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
-        if (deleted)
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+    if (vecSize(vexpired)) {
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
+                                       c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
     }
+    if (deleted)
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+
+    vecRelease(vexpired);
 }
 
 /* Get and delete the value of one or more fields of a given hash key.
@@ -2685,7 +2762,7 @@ void hmgetCommand(client *c) {
  *        doesn’t exist.
  */
 void hgetdelCommand(client *c) {
-    int res = 0, hfe = 0, deleted = 0, expired = 0;
+    int res = 0, hfe = 0;
     int64_t oldlen = -1; /* not exists as long as it is not set */
     long num_fields = 0;
     size_t oldsize = 0;
@@ -2723,6 +2800,11 @@ void hgetdelCommand(client *c) {
             oldsize = kvobjAllocSize(o);
     }
 
+    /* Track fields for subkey notifications. */
+    fieldvec fvexpired, fvdeleted;
+    vec *vexpired = fieldvecInit(&fvexpired, num_fields);
+    vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
+
     addReplyArrayLen(c, num_fields);
     for (int i = 4; i < c->argc; i++) {
         const int flags = HFE_LAZY_NO_NOTIFICATION |
@@ -2731,17 +2813,22 @@ void hgetdelCommand(client *c) {
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
                           HFE_LAZY_NO_UPDATE_ALLOCSIZES;
         res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
-        expired += (res == GETF_EXPIRED);
+        if (res == GETF_EXPIRED) {
+            vecPush(vexpired, c->argv[i]);
+        }
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
-            deleted++;
+            vecPush(vdeleted, c->argv[i]);
             serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
         }
     }
 
     /* Return if no modification has been made. */
-    if (expired == 0 && deleted == 0)
+    if (vecSize(vexpired) == 0 && vecSize(vdeleted) == 0) {
+        vecRelease(vexpired);
+        vecRelease(vdeleted);
         return;
+    }
 
     int64_t newlen = (int64_t) hashTypeLength(o, 0);
     /* del key if become empty */
@@ -2759,11 +2846,14 @@ void hgetdelCommand(client *c) {
     
     keyModified(c, c->db, c->argv[1], o, 1);
 
-    if (expired)
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
-    if (deleted) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", c->argv[1], c->db->id);
-        server.dirty += deleted;
+    if (vecSize(vexpired)) {
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
+                                       c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+    }
+    if (vecSize(vdeleted)) {
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hdel", c->argv[1],
+                                       c->db->id, (robj**)vecData(vdeleted), vecSize(vdeleted));
+        server.dirty += vecSize(vdeleted);
 
         /* Propagate as HDEL command.
          * Orig: HGETDEL <key> FIELDS <numfields> field1 field2 ...
@@ -2773,6 +2863,8 @@ void hgetdelCommand(client *c) {
         rewriteClientCommandArgument(c, 2, NULL);  /* Delete <numfields> arg */
     }
 
+    vecRelease(vexpired);
+    vecRelease(vdeleted);
     KSN_INVALIDATE_KVOBJ(o);
 
     /* Key may have become empty because of deleting fields or lazy expire. */
@@ -2794,7 +2886,6 @@ void hgetdelCommand(client *c) {
  *        doesn’t exist.
  */
 void hgetexCommand(client *c) {
-    int expired = 0, deleted = 0, updated = 0;
     int parse_flags = 0, expire_time_pos = -1, first_field_pos = -1, num_fields = -1;
     long long expire_time = 0;
     int64_t oldlen = 0, newlen = -1;
@@ -2824,6 +2915,12 @@ void hgetexCommand(client *c) {
     if (parse_flags)
         hashTypeSetExInit(c->argv[1], o, c, c->db, 0, &setex);
 
+    /* Track fields for subkey notifications by event type. */
+    fieldvec fvexpired, fvdeleted, fvupdated;
+    vec *vexpired = fieldvecInit(&fvexpired, num_fields);
+    vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
+    vec *vupdated = fieldvecInit(&fvupdated, num_fields);
+
     addReplyArrayLen(c, num_fields);
     for (int i = first_field_pos; i < first_field_pos + num_fields; i++) {
         const int flags = HFE_LAZY_NO_NOTIFICATION |
@@ -2833,7 +2930,9 @@ void hgetexCommand(client *c) {
                           HFE_LAZY_NO_UPDATE_ALLOCSIZES;
         sds field = c->argv[i]->ptr;
         int res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
-        expired += (res == GETF_EXPIRED);
+        if (res == GETF_EXPIRED) {
+            vecPush(vexpired, c->argv[i]);
+        }
 
         /* Set expiration only if the field exists and not expired lazily. */
         if (res == GETF_OK && parse_flags) {
@@ -2841,8 +2940,11 @@ void hgetexCommand(client *c) {
                 expire_time = EB_EXPIRE_TIME_INVALID;
 
             res = hashTypeSetEx(o, field, expire_time, &setex);
-            deleted += (res == HSETEX_DELETED);
-            updated += (res == HSETEX_OK);
+            if (res == HSETEX_DELETED) {
+                vecPush(vdeleted, c->argv[i]);
+            } else if (res == HSETEX_OK) {
+                vecPush(vupdated, c->argv[i]);
+            }
         }
     }
 
@@ -2853,10 +2955,14 @@ void hgetexCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
     /* Exit early if no modification has been made. */
-    if (expired == 0 && deleted == 0 && updated == 0)
+    if (vecSize(vexpired) == 0 && vecSize(vdeleted) == 0 && vecSize(vupdated) == 0) {
+        vecRelease(vexpired);
+        vecRelease(vdeleted);
+        vecRelease(vupdated);
         return;
+    }
 
-    server.dirty += deleted + updated;
+    server.dirty += vecSize(vdeleted) + vecSize(vupdated);
     keyModified(c, c->db, c->argv[1], o, 1);
 
     /* This command will never be propagated as it is. It will be propagated as
@@ -2867,16 +2973,19 @@ void hgetexCommand(client *c) {
      * If PERSIST flags is used, it will be propagated as HPERSIST command.
      * IF EX/EXAT/PX/PXAT flags are used, it will be replicated as HPEXPRITEAT.
      */
-    if (expired)
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
-    if (updated) {
+    if (vecSize(vexpired)) {
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
+                                       c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
+    }
+    if (vecSize(vupdated)) {
         /* Build canonical command for propagation */
         int canonical_argc;
         robj **canonical_argv;
         int idx = 0;
 
         if (parse_flags & HFE_PERSIST) {
-            notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
+            notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
+                                           c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
             /* Build canonical HPERSIST command: HPERSIST key FIELDS numfields field1 field2 ... */
             canonical_argc = 4 + num_fields;
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
@@ -2885,7 +2994,8 @@ void hgetexCommand(client *c) {
             canonical_argv[idx++] = c->argv[1]; /* key */
             incrRefCount(c->argv[1]);
         } else {
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", c->argv[1], c->db->id);
+            notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpire", c->argv[1],
+                                           c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
             /* Build canonical HPEXPIREAT command: HPEXPIREAT key timestamp FIELDS numfields field1 field2 ... */
             canonical_argc = 5 + num_fields;
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
@@ -2905,12 +3015,17 @@ void hgetexCommand(client *c) {
         }
 
         replaceClientCommandVector(c, canonical_argc, canonical_argv);
-    } else if (deleted) {
+    } else if (vecSize(vdeleted)) {
         /* If we are here, fields are deleted because new timestamp was in the
          * past. HDELs are already propagated as part of hashTypeSetEx(). */
-        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", c->argv[1], c->db->id);
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hdel", c->argv[1],
+                                       c->db->id, (robj**)vecData(vdeleted), vecSize(vdeleted));
         preventCommandPropagation(c);
     }
+
+    vecRelease(vexpired);
+    vecRelease(vdeleted);
+    vecRelease(vupdated);
 
     /* Key may become empty due to lazy expiry in addHashFieldToReply()
      * or the new expiration time is in the past.*/
@@ -2925,7 +3040,7 @@ void hgetexCommand(client *c) {
 
 void hdelCommand(client *c) {
     kvobj *o;
-    int j, deleted = 0, keyremoved = 0;
+    int j, keyremoved = 0;
     size_t oldsize = 0;
 
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -2943,11 +3058,15 @@ void hdelCommand(client *c) {
      * field with expiration and removes it from global HFE DS. */
     int isHFE = hashTypeIsFieldsWithExpire(o);
 
+    /* Track which fields were actually deleted for subkey notification. */
+    fieldvec fvdeleted;
+    vec *vdeleted = fieldvecInit(&fvdeleted, c->argc - 2);
+
     if (o->encoding == OBJ_ENCODING_HT)
         dictPauseAutoResize((dict*)o->ptr);
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
-            deleted++;
+            vecPush(vdeleted, c->argv[j]);
             if (hashTypeLength(o, 0) == 0) {
                 keyremoved = 1;
                 break;
@@ -2961,7 +3080,7 @@ void hdelCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
-    if (deleted) {
+    if (vecSize(vdeleted)) {
         /* Update keysizes histogram */
         int64_t newLen = (int64_t) hashTypeLength(o, 0);
         updateKeysizesHist(c->db, OBJ_HASH, oldLen, keyremoved ? -1 : newLen);
@@ -2977,15 +3096,16 @@ void hdelCommand(client *c) {
 
         /* Signal key modification */
         keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH,"hdel",c->argv[1],c->db->id,(robj**)vecData(vdeleted),vecSize(vdeleted));
         
         KSN_INVALIDATE_KVOBJ(o); /* Invalidate local kvobj pointer */
         
         /* Notify del event if key was deleted */
         if (keyremoved) notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        server.dirty += deleted;
+        server.dirty += vecSize(vdeleted);
     }
-    addReplyLongLong(c,deleted);
+    addReplyLongLong(c,vecSize(vdeleted));
+    vecRelease(vdeleted);
 }
 
 void hlenCommand(client *c) {
@@ -3523,6 +3643,11 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
     sds field = entryGetField(e);
+
+    /* Collect expired field for subkey notification (before deletion) */
+    if (expCtx->vexpired)
+        vecPush(expCtx->vexpired, createStringObject(field, sdslen(field)));
+
     propagateHashFieldDeletion(expCtx->db, key, field, sdslen(field));
 
     /* update keysizes */
@@ -3816,7 +3941,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  */
 static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     HashCommandArgs args;
-    int fieldsNotSet = 0, updated = 0, deleted = 0;
+    int fieldsNotSet = 0;
     int64_t oldlen, newlen;
     robj *keyArg = c->argv[1];
     size_t oldsize = 0;
@@ -3852,12 +3977,20 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     int *fieldsToRemove = NULL;
     int removeCount = 0;
 
+    /* Track fields for subkey notifications. */
+    fieldvec fvupdated, fvdeleted;
+    vec *vupdated = fieldvecInit(&fvupdated, args.fieldCount);
+    vec *vdeleted = fieldvecInit(&fvdeleted, args.fieldCount);
+
     for (int i = 0; i < args.fieldCount; i++) {
         int fieldPos = args.firstFieldPos + i;
         sds field = c->argv[fieldPos]->ptr;
         SetExRes res = hashTypeSetEx(hashObj, field, args.expireTime, &exCtx);
-        updated += (res == HSETEX_OK);
-        deleted += (res == HSETEX_DELETED);
+        if (res == HSETEX_OK) {
+            vecPush(vupdated, c->argv[fieldPos]);
+        } else if (res == HSETEX_DELETED) {
+            vecPush(vdeleted, c->argv[fieldPos]);
+        }
 
         if (unlikely(res != HSETEX_OK)) {
             if (fieldsToRemove == NULL) {
@@ -3875,11 +4008,13 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
 
-    if (deleted + updated > 0) {
-        server.dirty += deleted + updated;
+    if (vecSize(vdeleted) + vecSize(vupdated) > 0) {
+        server.dirty += vecSize(vdeleted) + vecSize(vupdated);
         keyModified(c, c->db, keyArg, hashObj, 1);
-        notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire",
-                            keyArg, c->db->id);
+        if (vecSize(vdeleted)) notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hdel",
+                                keyArg, c->db->id, (robj**)vecData(vdeleted), vecSize(vdeleted));
+        if (vecSize(vupdated)) notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpire",
+                                keyArg, c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
     }
 
     newlen = (int64_t) hashTypeLength(hashObj, 0);
@@ -3896,7 +4031,9 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     /* Avoid propagating command if not even one field was updated (Either because
      * the time is in the past, and corresponding HDELs were sent, or conditions
      * not met) then it is useless and invalid to propagate command with no fields */
-    if (updated == 0) {
+    if (vecSize(vupdated) == 0) {
+        vecRelease(vupdated);
+        vecRelease(vdeleted);
         preventCommandPropagation(c);
         zfree(fieldsToRemove);
         return;
@@ -3917,13 +4054,16 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
         for (int i = removeCount - 1; i >= 0; i--) {
             rewriteClientCommandArgument(c, fieldsToRemove[i], NULL);
         }
-        robj *newFieldCount = createStringObjectFromLongLong(updated);
+        robj *newFieldCount = createStringObjectFromLongLong(vecSize(vupdated));
         rewriteClientCommandArgument(c, args.fieldsPos + 1, newFieldCount);
         decrRefCount(newFieldCount);
     }
 
     if (fieldsToRemove)
         zfree(fieldsToRemove);
+
+    vecRelease(vupdated);
+    vecRelease(vdeleted);
 }
 
 /* HPEXPIRE key milliseconds [ NX | XX | GT | LT] FIELDS numfields <field [field ...]> */
@@ -3970,7 +4110,6 @@ void hpexpiretimeCommand(client *c) {
 /* HPERSIST key FIELDS numfields <field [field ...]> */
 void hpersistCommand(client *c) {
     long numFields = 0, numFieldsAt = 3;
-    int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
     kvobj *hashObj = lookupKeyWrite(c->db, c->argv[1]);
@@ -4003,6 +4142,10 @@ void hpersistCommand(client *c) {
         return;
     }
 
+    /* Track which fields were successfully persisted for subkey notification. */
+    fieldvec fvpersisted;
+    vec *vpersisted = fieldvecInit(&fvpersisted, numFields);
+
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
@@ -4018,6 +4161,7 @@ void hpersistCommand(client *c) {
             else
                 addReplyLongLong(c, HFE_PERSIST_NO_TTL);
         }
+        vecRelease(vpersisted);
         return;
     } else if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         long long prevExpire;
@@ -4059,7 +4203,7 @@ void hpersistCommand(client *c) {
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
             addReplyLongLong(c, HFE_PERSIST_OK);
-            changed = 1;
+            vecPush(vpersisted, c->argv[numFieldsAt + 1 + i]);
         }
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
@@ -4091,7 +4235,7 @@ void hpersistCommand(client *c) {
 
             hfieldPersist(hashObj, entry);
             addReplyLongLong(c, HFE_PERSIST_OK);
-            changed = 1;
+            vecPush(vpersisted, c->argv[numFieldsAt + 1 + i]);
         }
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
@@ -4101,9 +4245,11 @@ void hpersistCommand(client *c) {
 
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
-    if (changed) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
+    if (vecSize(vpersisted)) {
+        notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
+                                       c->db->id, (robj**)vecData(vpersisted), vecSize(vpersisted));
         keyModified(c, c->db, c->argv[1], hashObj, 1);
         server.dirty++;
     }
+    vecRelease(vpersisted);
 }

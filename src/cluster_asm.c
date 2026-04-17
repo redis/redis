@@ -3662,7 +3662,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int migration_cleanup) {
         * to another node. The modules need to know that these keys are no longer
         * available locally, so just send the keyspace notification to the modules,
         * but not to clients. */
-        moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+        moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id, NULL, 0);
     } else {
         /* Not a migration cleanup, the key is really deleted from the database,
          * need to notify the clients. */

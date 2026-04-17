@@ -91,6 +91,9 @@
                                 },
                                 {
                                     "const": "transactions"
+                                },
+                                {
+                                    "const": "rate_limit"
                                 }
                             ]
                         },

@@ -54,20 +54,10 @@ void vecClear(vec *v) {
     v->size = 0;
 }
 
-/* Return the number of elements in the vector. */
-size_t vecSize(const vec *v) {
-    return v->size;
-}
-
 /* Get element at index. index must be < vecSize(v). */
 void *vecGet(const vec *v, size_t index) {
     assert(index < v->size);
     return v->data[index];
-}
-
-/* Return the contiguous backing array. */
-void **vecData(vec *v) {
-    return v->data;
 }
 
 /* Ensure capacity is at least mincap. */
@@ -90,7 +80,7 @@ void vecReserve(vec *v, size_t mincap) {
 
 /* Append one element, growing storage as needed. */
 void vecPush(vec *v, void *value) {
-    if (v->size == v->cap) {
+    if (unlikely(v->size == v->cap)) {
         size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
         vecReserve(v, newcap);
     }
