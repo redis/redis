@@ -1893,17 +1893,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         ht = zs->dict;
     }
 
-    /* Use a stack-backed vec instead of a heap-allocated list to collect keys.
-     * This avoids per-key listNode allocations (~48 bytes each) in the
-     * scan hot path. The stack buffer handles small COUNT values; larger
-     * scans grow to a single heap allocation via vecPush. */
     vec keys;
     void *keys_stack[256];
     vecInit(&keys, keys_stack, 256);
-
-    /* Track whether collected elements need freeing (ZSET allocates
-     * temporary sds for scores; listpack paths allocate sds copies). */
-    int free_collected = (o && (!ht || o->type == OBJ_ZSET));
+    /* Hash on dict only has pointers to dict entries; other paths allocate
+     * temporary sds that must be released. */
+    if (o && (!ht || o->type == OBJ_ZSET))
+        vecSetFreeMethod(&keys, sdsfreegeneric);
 
     /* For main dictionary scan or data structure using hashtable. */
     if (!o || ht) {
@@ -2103,13 +2099,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         addReplyBulkCBuffer(c, key, sdslen(key));
     }
 
-    /* Free temporary strings if the encoding required allocations
-     * (ZSET dict-encoded scores are sds copies). */
-    if (free_collected) {
-        for (size_t i = 0; i < vecSize(&keys); i++) {
-            sdsfree(vecGet(&keys, i));
-        }
-    }
     vecRelease(&keys);
 }
 
