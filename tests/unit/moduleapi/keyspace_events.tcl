@@ -175,8 +175,8 @@ tags "modules external:skip" {
         test "Subkey notification: active hash field expiry triggers hexpired with subkeys" {
             r del myhash
             r hset myhash f1 v1 f2 v2
-            r hpexpire myhash 10 FIELDS 2 f1 f2
             r keyspace.reset_subkey_events
+            r hpexpire myhash 10 FIELDS 2 f1 f2
             # wait for active expiry to kick in
             wait_for_condition 50 100 {
                 [r exists myhash] == 0
@@ -184,7 +184,7 @@ tags "modules external:skip" {
                 fail "Fields not expired by active expiry"
             }
             # fields order is undefined
-            assert_match "hexpired myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 0]
+            assert_match "hexpired myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 1]
             r del myhash
         }
 
@@ -200,14 +200,30 @@ tags "modules external:skip" {
             r hset myhash f2 v2
             set events [r keyspace.get_subkey_events]
             assert_equal 0 [llength $events]
+            # active expire should not trigger subkey callback
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            wait_for_condition 50 100 {
+                [r exists myhash] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            set events [r keyspace.get_subkey_events]
+            assert_equal 0 [llength $events]
 
             # Re-subscribe — events should resume
             r keyspace.subscribe_subkeys
+            r del myhash
+            r hset myhash f1 v1 f2 v2
             r keyspace.reset_subkey_events
-            r hset myhash f3 v3
-            set events [r keyspace.get_subkey_events]
-            assert_equal 1 [llength $events]
-            assert_equal "hset myhash 1 f3" [lindex $events 0]
+            r hpexpire myhash 10 FIELDS 2 f1 f2
+            assert_match "hexpire myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 0]
+            # active expire should also resume subkey callback
+            wait_for_condition 50 100 {
+                [r exists myhash] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            assert_match "hexpired myhash 2 f* f*" [lindex [r keyspace.get_subkey_events] 1]
 
             r keyspace.unsubscribe_subkeys
             r keyspace.reset_subkey_events
