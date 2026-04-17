@@ -84,17 +84,11 @@ jobs:
 
   build-old-chain-jemalloc:
     runs-on: ubuntu-latest
-    container: ubuntu:20.04
+    container: ubuntu:16.04
     steps:
     - uses: actions/checkout@v4
     - name: make
       run: |
-        apt-get update
-        apt-get install -y gnupg2
-        echo "deb http://archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
-        echo "deb http://archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update
         apt-get install -y make gcc-4.8
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
