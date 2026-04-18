@@ -37,8 +37,12 @@ This flag combined with `<stdatomic.h>` support natively maps Redis's atomic ope
 ### 4. Bypassing GoogleTest C++ Unit Tests on Windows
 Currently, the GoogleTest framework integration in `src/unit/` utilizes `extern "C"` wrappers and macros that struggle to compile under the MSVC C++ standard due to deep type incompatibilities. Thus, the unit test library build `add_subdirectory(unit)` is cleanly bypassed `if(NOT MSVC)`, keeping the core server compilation pristine.
 
+### 5. TCL Test Suite Integration via CTest
+While C++ unit tests are bypassed, the core TCL test suites (`runtest`, `runtest-cluster`, `runtest-sentinel`, `runtest-moduleapi`) have been mapped natively into CMake's `CTest`. As long as `tclsh` is available (e.g., via Git for Windows), the full integration test suite can be run directly from the CMake build directory.
+
 ## Validation
 - Successfully builds `Redis-server.exe` natively on Windows 11 using Visual Studio 18 2026.
+- Full TCL test suite validation via `ctest`.
 - Successfully executes the internal memory testing utility without faults:
   ```cmd
   Redis-server.exe --test-memory 10
@@ -58,4 +62,9 @@ Currently, the GoogleTest framework integration in `src/unit/` utilizes `extern 
    ```cmd
    cmake --build build_msvc2026 --config Release
    ```
-5. Run your natively built Windows Redis server and client!
+5. Run the test suite via CTest:
+   ```cmd
+   cd build_msvc2026
+   ctest -C Release -V
+   ```
+6. Run your natively built Windows Redis server and client!

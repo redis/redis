@@ -119,8 +119,8 @@ proc kill_server config {
     send_data_packet $::test_server_fd server-killing $pid
     # Node might have been stopped in the test
     # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
-    catch {exec kill -SIGCONT $pid}
-    catch {exec kill $pid}
+    catch {exec taskkill /F /PID $pid}
+    catch {exec taskkill /F /PID $pid}
     if {$::valgrind} {
         set max_wait 120000
     } else {
@@ -131,10 +131,10 @@ proc kill_server config {
 
         if {$wait == $max_wait} {
             puts "Forcing process $pid to crash..."
-            catch {exec kill -SEGV $pid}
+            catch {exec taskkill /F /PID $pid}
         } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
-            catch {exec kill -KILL $pid}
+            catch {exec taskkill /F /PID $pid}
         } elseif {$wait % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
         }
@@ -153,10 +153,13 @@ proc kill_server config {
 }
 
 proc is_alive pid {
-    if {[catch {exec kill -0 $pid} err]} {
+    if {[catch {exec tasklist /FI "PID eq $pid"} err]} {
         return 0
     } else {
-        return 1
+        if {[string match "*$pid*" $err]} {
+            return 1
+        }
+        return 0
     }
 }
 

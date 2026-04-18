@@ -179,7 +179,7 @@ proc reconnect {args} {
     set host [dict get $srv "host"]
     set port [dict get $srv "port"]
     set config [dict get $srv "config"]
-    set client [redis $host $port 0 $::tls]
+    set f [open "C:/Users/samue/repos/redis/reconnect_trace.txt" a]; puts $f "Calling redis $host $port"; close $f; set client [redis $host $port 0 $::tls]; set f [open "C:/Users/samue/repos/redis/reconnect_trace.txt" a]; puts $f "Done calling redis"; close $f
     if {[dict exists $srv "client"]} {
         set old [dict get $srv "client"]
         $old close
@@ -398,10 +398,11 @@ proc read_from_test_client fd {
             gets stdin
         }
     } elseif {$status eq {exception}} {
-        puts "\[[colorstr red $status]\]: $data"
-        kill_clients
-        force_kill_all_servers
-        exit 1
+        set err "\[[colorstr red $status]\]: $data"
+        puts $err
+        lappend ::failed_tests $err
+        set ::active_clients_task($fd) "(EXCEPTION) $data"
+        signal_idle_client $fd
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
     } elseif {$status eq {server-spawning}} {
@@ -532,13 +533,23 @@ proc test_client_main server_port {
         set bytes [gets $::test_server_fd]
         set payload [encoding convertfrom utf-8 [read $::test_server_fd $bytes]]
         foreach {cmd data} $payload break
-        if {$cmd eq {run}} {
-            execute_test_file $data
-        } elseif {$cmd eq {run_code}} {
-            foreach {name filename code} $data break
-            execute_test_code $name $filename $code
-        } else {
-            error "Unknown test client command: $cmd"
+        if {[catch {
+            if {$cmd eq {run}} {
+                execute_test_file $data
+            } elseif {$cmd eq {run_code}} {
+                foreach {name filename code} $data break
+                execute_test_code $name $filename $code
+            } else {
+                error "Unknown test client command: $cmd"
+            }
+        } err]} {
+            set estr "Executing test client: $err.\n$::errorInfo"
+            catch {send_data_packet $::test_server_fd exception $estr}
+            if {$cmd eq {run}} {
+                catch {send_data_packet $::test_server_fd done $data}
+            } elseif {$cmd eq {run_code}} {
+                catch {send_data_packet $::test_server_fd done [lindex $data 0]}
+            }
         }
     }
 }

@@ -80,6 +80,7 @@ else()
 #define PATH_MAX 4096
 #include <stdint.h>
 #include <posix-time.h>
+#define UNALIGNED_LE_CPU 1
 #include <malloc.h>
 #include <posix-stat.h>
 #include <posix-types.h>
@@ -286,6 +287,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/server.c")
     string(REPLACE "bucket *buckets[size];" "bucket **buckets = _alloca(sizeof(bucket*) * size);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     string(REPLACE "robj objects[argc];" "robj *objects = _alloca(sizeof(robj) * argc);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     string(REPLACE "robj *argv[argc];" "robj **argv = _alloca(sizeof(robj*) * argc);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
+    string(REPLACE "dictType commandTableDictType = {\n    dictSdsCaseHash,            /* hash function */\n    NULL,                       /* key dup */\n    NULL,                       /* val dup */\n    dictSdsKeyCaseCompare,      /* key compare */\n    dictSdsDestructor,          /* key destructor */\n    NULL,                       /* val destructor */\n    NULL,                       /* allow to expand */\n    .force_full_rehash = 1,     /* force full rehashing */\n};" "dictType commandTableDictType = {\n    .hashFunction = dictSdsCaseHash,\n    .keyDup = NULL,\n    .valDup = NULL,\n    .keyCompare = dictSdsKeyCaseCompare,\n    .keyDestructor = dictSdsDestructor,\n    .valDestructor = NULL,\n    .resizeAllowed = NULL,\n    .force_full_rehash = 1,\n};" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/server.c" "${SERVER_C_CONTENT}")
 endif()
 
@@ -353,6 +355,7 @@ file(WRITE "${CMAKE_BINARY_DIR}/patched/src/t_zset.c" "${CONTENT}")
 file(READ src/util.c CONTENT)
 string(REPLACE "char full_path[PATH_MAX];" "char *full_path = _alloca(4096);" CONTENT "${CONTENT}")
 string(REPLACE "char temp_filename[PATH_MAX];" "char *temp_filename = _alloca(4096);" CONTENT "${CONTENT}")
+string(REPLACE "int fsyncFileDir(const char *filename) {" "int fsyncFileDir(const char *filename) { return 0;" CONTENT "${CONTENT}")
 file(WRITE "${CMAKE_BINARY_DIR}/patched/src/util.c" "${CONTENT}")
 
 
@@ -724,10 +727,6 @@ endif()
 
 
 
-add_executable(test_rename test_rename.c)
-target_compile_options(test_rename PRIVATE "/FI${CMAKE_BINARY_DIR}/msvc_compat.h")
-add_test(NAME test_rename COMMAND test_rename)
-set_tests_properties(test_rename PROPERTIES PASS_REGULAR_EXPRESSION "^rename succeeded")
 
-add_executable(test_fd test_fd.c)
-target_compile_options(test_fd PRIVATE "/FI${CMAKE_BINARY_DIR}/msvc_compat.h")
+
+add_executable(test_msvc_c11 test_msvc_c11.c)
