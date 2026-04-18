@@ -47,9 +47,9 @@ void vecSetFreeMethod(vec *v, void (*free)(void *ptr)) {
 /* Release storage. If a free method is set, it is applied to every element
  * before the backing storage is released. Stack storage is never freed. */
 void vecRelease(vec *v) {
-    if (v->free) {
-        for (size_t i = 0; i < v->size; i++) v->free(v->data[i]);
-    }
+    if (v->free)
+        for (size_t i = 0; i < v->size; i++)
+            v->free(v->data[i]);
     /* if data is not stack-allocated and is not NULL, free it */
     if (v->data && v->data != v->stack)
         zfree(v->data);

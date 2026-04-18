@@ -1632,7 +1632,7 @@ void keysCommand(client *c) {
 
 /* Data used by the dict scan callback. */
 typedef struct {
-    vec *keys;    /* elements collected from dict (pointer vec, stack-backed) */
+    vec *keys;    /* elements collected from dict */
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
@@ -1896,6 +1896,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     vec keys;
     void *keys_stack[256];
     vecInit(&keys, keys_stack, 256);
+    /* When COUNT exceeds the stack buffer, pre-size the heap buffer to avoid
+     * the grow-by-doubling path during scanCallback. */
+    if ((size_t)count > sizeof(keys_stack) / sizeof(keys_stack[0]))
+        vecReserve(&keys, count);
     /* Hash on dict only has pointers to dict entries; other paths allocate
      * temporary sds that must be released. */
     if (o && (!ht || o->type == OBJ_ZSET))
