@@ -786,6 +786,49 @@ void msetexCommand(client *c) {
         }
     }
 
+    /* If the expire time is already elapsed, avoid materializing the new
+     * values only to have expiration delete them later. Mirror SET's fast-path
+     * exactly while handling the multi-key case in one consolidated DEL/UNLINK:
+     * dbDelete() routes through lazyfree_lazy_server_del + DB_FLAG_KEY_DELETED,
+     * matching how Redis categorizes user-initiated writes that remove keys
+     * (as opposed to natural TTL expiration, which is the GETEX fast-path's
+     * domain with DB_FLAG_KEY_EXPIRED + lazy_expire).
+     *
+     * From stats perspective, we behave as if we inserted kv_count new keys
+     * (possibly overwrites) and later expired them, matching how SET treats
+     * the same fast-path for stat_expiredkeys. */
+    if (args.expire && checkAlreadyExpired(milliseconds)) {
+        robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
+        robj **newargv = zmalloc(sizeof(robj *) * (kv_count + 1));
+        newargv[0] = aux;
+        incrRefCount(aux);
+        int del_idx = 1;
+
+        for (int j = 0; j < kv_count; j++) {
+            int key_idx = (j * 2) + 2;
+            robj *key = c->argv[key_idx];
+            if (dbDelete(c->db, key)) {
+                newargv[del_idx++] = key;
+                incrRefCount(key);
+                keyModified(c, c->db, key, NULL, 1);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+                server.dirty++;
+            }
+        }
+        server.stat_expiredkeys += kv_count;
+
+        if (del_idx > 1) {
+            replaceClientCommandVector(c, del_idx, newargv);
+        } else {
+            preventCommandPropagation(c);
+            decrRefCount(aux);
+            zfree(newargv);
+        }
+
+        addReply(c, shared.cone);
+        return;
+    }
+
     /* Set all key-value pairs */
     for (int j = 0; j < kv_count; j++) {
         int key_idx = (j * 2) + 2;
