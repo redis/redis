@@ -98,7 +98,6 @@ jobs:
   upload-tarball:
     runs-on: ubuntu-latest
     needs: [ extract-release-info, create-tarball] # todo: add approval-gate to needs
-    if: needs.extract-release-info.outputs.release_type == 'latest'
 
     steps:
       - name: Checkout repository
@@ -122,11 +121,15 @@ jobs:
 
       - name: Upload tarball
         run: |
-          echo "" | ./utils/releasetools/02_upload_tarball.sh ${{ needs.extract-release-info.outputs.tag_name }}
+          if [[ "${{ needs.extract-release-info.outputs.release_type }}" == "latest" ]]; then
+            ./utils/releasetools/02_upload_tarball.sh ${{ needs.extract-release-info.outputs.tag_name }} --stable
+          else
+            ./utils/releasetools/02_upload_tarball.sh ${{ needs.extract-release-info.outputs.tag_name }} --unstable
+          fi
 
       - name: Verify upload
         run: |
-          ssh ubuntu@host.redis.io "ls -lh /var/www/download/releases/redis-${{ needs.extract-release-info.tag_name }}.tar.gz"
+          ssh ubuntu@host.redis.io "ls -lh /var/www/download/releases/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz"
 
   # test-release-tarball:
   #   needs: upload-tarball
