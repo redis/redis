@@ -107,16 +107,247 @@ jobs:
   #         # - SSH credentials/keys for upload to download.redis.io
   #         # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
 
-  # test-release-tarball:
-  #   needs: upload-tarball
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Test release tarball
-  #       run: |
-  #         echo "TODO: Implement release testing using utils/releasetools/03_test_release.sh"
-  #         # This will:
-  #         # - Download the uploaded tarball
-  #         # - Extract and build Redis
+  test-release-tarball:
+    needs: [extract-release-info, create-tarball, upload-tarball]
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
+      EXPECTED_SHA256: ${{ needs.create-tarball.outputs.sha256 }}
+      DOWNLOAD_URL: http://download.redis.io/releases/redis-${{ needs.extract-release-info.outputs.tag_name }}.tar.gz
+    steps:
+      - name: Download tarball from public URL
+        run: |
+          echo "Downloading tarball from: ${DOWNLOAD_URL}"
+          cd /tmp
+          wget -O "redis-${TAG_NAME}.tar.gz" "${DOWNLOAD_URL}"
+          ls -lh "redis-${TAG_NAME}.tar.gz"
+
+      - name: Verify tarball size is reasonable (3-5 MB compressed)
+        run: |
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          SIZE_MB=$(du -m "$TARBALL" | cut -f1)
+          echo "Downloaded tarball size: ${SIZE_MB} MB"
+
+          if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
+            echo "::error::Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
+            exit 1
+          else
+            echo "✓ Tarball size ${SIZE_MB} MB is within expected range"
+          fi
+
+      - name: Verify checksum matches (SHA256)
+        run: |
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          ACTUAL_SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+
+          echo "Expected SHA256: ${EXPECTED_SHA256}"
+          echo "Actual SHA256:   ${ACTUAL_SHA256}"
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::SHA256 checksum mismatch!"
+            exit 1
+          else
+            echo "✓ SHA256 checksum matches"
+          fi
+
+      - name: Verify tarball extraction succeeds
+        run: |
+          cd /tmp
+          echo "Extracting tarball..."
+          tar -xzf "redis-${TAG_NAME}.tar.gz"
+
+          if [ ! -d "redis-${TAG_NAME}" ]; then
+            echo "::error::Extraction failed - directory redis-${TAG_NAME} not found"
+            exit 1
+          fi
+
+          echo "✓ Tarball extracted successfully"
+          ls -la "redis-${TAG_NAME}/"
+
+      - name: Verify tarball contains all necessary files
+        run: |
+          cd "/tmp/redis-${TAG_NAME}"
+
+          # Check for critical files and directories
+          REQUIRED_FILES=(
+            "Makefile"
+            "README.md"
+            "COPYING"
+            "src/Makefile"
+            "src/redis-server.c"
+            "src/redis-cli.c"
+            "deps/jemalloc"
+            "deps/hiredis"
+            "deps/lua"
+            "runtest"
+            "runtest-sentinel"
+            "runtest-cluster"
+            "runtest-moduleapi"
+          )
+
+          MISSING_FILES=()
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -e "$file" ]; then
+              MISSING_FILES+=("$file")
+            fi
+          done
+
+          if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+            echo "::error::Missing required files:"
+            printf '%s\n' "${MISSING_FILES[@]}"
+            exit 1
+          fi
+
+          echo "✓ All necessary files are present"
+
+      - name: Check file permissions are correct
+        run: |
+          cd "/tmp/redis-${TAG_NAME}"
+
+          # Check that scripts are executable
+          SCRIPTS=(
+            "runtest"
+            "runtest-sentinel"
+            "runtest-cluster"
+            "runtest-moduleapi"
+            "src/mkreleasehdr.sh"
+            "utils/install_server.sh"
+          )
+
+          PERMISSION_ISSUES=()
+          for script in "${SCRIPTS[@]}"; do
+            if [ -f "$script" ] && [ ! -x "$script" ]; then
+              PERMISSION_ISSUES+=("$script is not executable")
+            fi
+          done
+
+          if [ ${#PERMISSION_ISSUES[@]} -gt 0 ]; then
+            echo "::error::Permission issues found:"
+            printf '%s\n' "${PERMISSION_ISSUES[@]}"
+            exit 1
+          fi
+
+          echo "✓ File permissions are correct"
+
+      - name: Verify no missing dependencies
+        run: |
+          cd "/tmp/redis-${TAG_NAME}"
+
+          # Check for build dependencies on Ubuntu
+          echo "Checking for required build tools..."
+
+          REQUIRED_TOOLS=(
+            "gcc"
+            "make"
+            "pkg-config"
+          )
+
+          MISSING_TOOLS=()
+          for tool in "${REQUIRED_TOOLS[@]}"; do
+            if ! command -v "$tool" &> /dev/null; then
+              MISSING_TOOLS+=("$tool")
+            fi
+          done
+
+          if [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
+            echo "::error::Missing required build tools:"
+            printf '%s\n' "${MISSING_TOOLS[@]}"
+            exit 1
+          fi
+
+          echo "✓ All required dependencies are available"
+
+      - name: Build Redis from extracted tarball (not from git repo)
+        run: |
+          cd "/tmp/redis-${TAG_NAME}"
+
+          # Ensure we're building from tarball, not a git repo
+          if [ -d ".git" ]; then
+            echo "::error::Tarball should not contain .git directory"
+            exit 1
+          fi
+
+          echo "Building Redis from extracted tarball..."
+          make -j$(nproc)
+
+          # Verify binaries were created
+          BINARIES=(
+            "src/redis-server"
+            "src/redis-cli"
+            "src/redis-benchmark"
+          )
+
+          MISSING_BINARIES=()
+          for binary in "${BINARIES[@]}"; do
+            if [ ! -f "$binary" ]; then
+              MISSING_BINARIES+=("$binary")
+            fi
+          done
+
+          if [ ${#MISSING_BINARIES[@]} -gt 0 ]; then
+            echo "::error::Build failed - missing binaries:"
+            printf '%s\n' "${MISSING_BINARIES[@]}"
+            exit 1
+          fi
+
+          echo "✓ Redis built successfully from tarball"
+          ./src/redis-server --version
+
+      - name: Run smoke test (start redis-server, execute PING, shutdown)
+        run: |
+          cd "/tmp/redis-${TAG_NAME}"
+
+          echo "Starting Redis server..."
+          ./src/redis-server --daemonize yes --port 6379 --save "" --appendonly no
+
+          # Wait for Redis to start
+          sleep 2
+
+          # Check if Redis is running
+          if ! pgrep -f redis-server > /dev/null; then
+            echo "::error::Redis server failed to start"
+            exit 1
+          fi
+
+          echo "Testing PING command..."
+          PING_RESPONSE=$(./src/redis-cli PING)
+
+          if [ "$PING_RESPONSE" != "PONG" ]; then
+            echo "::error::PING test failed. Expected 'PONG', got '${PING_RESPONSE}'"
+            ./src/redis-cli SHUTDOWN NOSAVE || true
+            exit 1
+          fi
+
+          echo "✓ PING test passed"
+
+          # Test a few more basic commands
+          echo "Testing SET/GET commands..."
+          ./src/redis-cli SET test_key "test_value"
+          GET_RESPONSE=$(./src/redis-cli GET test_key)
+
+          if [ "$GET_RESPONSE" != "test_value" ]; then
+            echo "::error::SET/GET test failed"
+            ./src/redis-cli SHUTDOWN NOSAVE || true
+            exit 1
+          fi
+
+          echo "✓ SET/GET test passed"
+
+          # Shutdown Redis
+          echo "Shutting down Redis..."
+          ./src/redis-cli SHUTDOWN NOSAVE
+
+          # Wait for shutdown
+          sleep 1
+
+          # Verify Redis has stopped
+          if pgrep -f redis-server > /dev/null; then
+            echo "::error::Redis server did not shutdown properly"
+            pkill -9 redis-server || true
+            exit 1
+          fi
+
+          echo "✓ Smoke test completed successfully"
 
   # update-release-hashes:
   #   needs: test-release-tarball
@@ -130,7 +361,7 @@ jobs:
   #         # - Git credentials for committing and pushing
 
   summary-and-notify:
-    needs: [extract-release-info, create-tarball] # update-release-hashes
+    needs: [extract-release-info, create-tarball, upload-tarball, test-release-tarball] # update-release-hashes
     if: always() && github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     env:
