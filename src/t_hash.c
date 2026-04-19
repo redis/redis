@@ -3075,8 +3075,7 @@ void genericHgetallCommand(client *c, int flags) {
      * This hides the latency of pointer chasing through scattered
      * heap allocations (dictEntry → Entry → value SDS). */
     #define HGETALL_BATCH 16
-    if (o->encoding == OBJ_ENCODING_HT)
-    {
+    if (o->encoding == OBJ_ENCODING_HT) {
         int skip_expired = !server.allow_access_expired;
         dict *d = o->ptr;
         dictIterator di;
