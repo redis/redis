@@ -272,8 +272,7 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
         value = (double)mantissa;
         if (exponent < 0)       value = value / powers_of_ten[-exponent];
         else if (exponent > 0)  value = value * powers_of_ten[exponent];
-    }
-    else {
+    } else {
 #ifdef __SIZEOF_INT128__
         /* Widened fast path for 17-19 significant-digit mantissas.
          *
