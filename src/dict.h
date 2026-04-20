@@ -273,6 +273,8 @@ void dictEmpty(dict *d, void(callback)(dict*));
 void dictSetResizeEnabled(dictResizeEnable enable);
 int dictRehash(dict *d, int n);
 int dictRehashMicroseconds(dict *d, uint64_t us);
+extern uint64_t dictRehashStepElapsedUs;
+extern int dictRehashStepTiming;
 void dictSetHashFunctionSeed(uint8_t *seed);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
 unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);

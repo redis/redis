@@ -44,6 +44,18 @@
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 4;
 
+/* Accumulator of microseconds spent in incremental rehash steps performed
+ * inside dict lookup/insert/delete operations. Read and reset by higher
+ * layers (server.c call()) to attribute per-command rehash cost. */
+uint64_t dictRehashStepElapsedUs = 0;
+
+/* Non-zero when latency monitoring is active
+ * (server.latency_monitor_threshold != 0). Set by server.c at the outermost
+ * call() entry and cleared at the outermost call() exit. While zero, the
+ * rehash timing path is skipped entirely: no clock reads, no accumulator
+ * writes - just one predictable branch. */
+int dictRehashStepTiming = 0;
+
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
     struct dictEntry *next;  /* Must be first */
@@ -466,7 +478,19 @@ int dictRehashMicroseconds(dict *d, uint64_t us) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-    if (d->pauserehash == 0) dictRehash(d,1);
+    if (d->pauserehash == 0) {
+        /* Skip the timing path when latency monitoring is off, and also
+         * when getMonotonicUs is still NULL during early startup (core
+         * module registration runs dictAdd before monotonicInit). */
+        if (!dictRehashStepTiming || getMonotonicUs == NULL) {
+            dictRehash(d,1);
+            return;
+        }
+        monotime t;
+        elapsedStart(&t);
+        dictRehash(d,1);
+        dictRehashStepElapsedUs += elapsedUs(t);
+    }
 }
 
 /* Performs rehashing on a single bucket. */
@@ -1705,6 +1729,12 @@ static void _dictShrinkIfNeeded(dict *d)
 static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx) {
     if ((!dictIsRehashing(d)) || (d->pauserehash != 0))
         return;
+    /* Skip the timing path when latency monitoring is off, and also when
+     * getMonotonicUs is still NULL during early startup (core module
+     * registration runs dictAdd before monotonicInit). */
+    const int time_it = dictRehashStepTiming && (getMonotonicUs != NULL);
+    monotime t;
+    if (time_it) elapsedStart(&t);
     /* rehashing not in progress if rehashidx == -1 */
     if ((long)visitedIdx >= d->rehashidx && d->ht_table[0][visitedIdx]) {
         /* If we have a valid hash entry at `idx` in ht0, we perform
@@ -1715,6 +1745,7 @@ static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx) {
          * on the rehashidx (not CPU cache friendly). */
         dictRehash(d,1);
     }
+    if (time_it) dictRehashStepElapsedUs += elapsedUs(t);
 }
 
 /* Our hash table capability is a power of two */
