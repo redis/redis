@@ -170,19 +170,69 @@ jobs:
 
           # Check for critical files and directories
           REQUIRED_FILES=(
+            # Build files
             "Makefile"
-            "README.md"
-            "COPYING"
             "src/Makefile"
+            "deps/Makefile"
+            "modules/Makefile"
+
+            # Documentation
+            "README.md"
+            "LICENSE.txt"
+            "00-RELEASENOTES"
+            "INSTALL"
+            "CONTRIBUTING.md"
+            "CODE_OF_CONDUCT.md"
+            "SECURITY.md"
+            "TLS.md"
+            "MANIFESTO"
+            "BUGS"
+            "REDISCONTRIBUTIONS.txt"
+
+            # Configuration files
+            "redis.conf"
+            "redis-full.conf"
+            "sentinel.conf"
+
+            # Source files
             "src/redis-server.c"
             "src/redis-cli.c"
-            "deps/jemalloc"
+            "src/redis-benchmark.c"
+            "src/redis-check-rdb.c"
+            "src/redis-check-aof.c"
+            "src/server.c"
+            "src/server.h"
+            "src/sds.c"
+            "src/sds.h"
+            "src/dict.c"
+            "src/dict.h"
+            "src/ae.c"
+            "src/ae.h"
+            "src/anet.c"
+            "src/anet.h"
+            "src/commands.def"
+            "src/mkreleasehdr.sh"
+
+            # Dependencies
             "deps/hiredis"
+            "deps/linenoise"
             "deps/lua"
+            "deps/jemalloc"
+            "deps/hdr_histogram"
+            "deps/fpconv"
+            "deps/xxhash"
+
+            # Test scripts
             "runtest"
             "runtest-sentinel"
             "runtest-cluster"
             "runtest-moduleapi"
+            "tests/test_helper.tcl"
+
+            # Utilities
+            "utils/create-cluster"
+            "utils/install_server.sh"
+            "utils/gen-test-certs.sh"
           )
 
           MISSING_FILES=()
