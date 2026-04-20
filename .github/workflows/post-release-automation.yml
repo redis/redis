@@ -6,7 +6,7 @@ on:
 
 jobs:
   extract-release-info:
-#    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' || github.repository == 'stav-nachmias/fork-redis'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release-info.outputs.tag_name }}
