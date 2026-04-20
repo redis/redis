@@ -361,7 +361,7 @@ jobs:
   #         # - Git credentials for committing and pushing
 
   summary-and-notify:
-    needs: [extract-release-info, create-tarball, upload-tarball, test-release-tarball] # update-release-hashes
+    needs: [extract-release-info, create-tarball] #, upload-tarball, test-release-tarball] # update-release-hashes
     if: always() && github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     env:
