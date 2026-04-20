@@ -213,12 +213,14 @@ sds sdsdup(const sds s) {
 /* Free an sds string. No operation is performed if 's' is NULL. */
 void sdsfree(sds s) {
     if (s == NULL) return;
-    s_free((char*)s-sdsHdrSize(s[-1]));
-}
-
-void sdsfreeusable(sds s, size_t *usable) {
-    if (s == NULL) return;
-    s_free_usable((char*)s-sdsHdrSize(s[-1]), usable);
+    if (sdsType(s) == SDS_TYPE_5) {
+        /* TYPE_5 has no alloc field so sdsAllocSize() returns the requested
+         * size which may not match the actual allocation, so not suitable for
+         * s_free_with_size(). */
+        s_free(sdsAllocPtr(s));
+    } else {
+        s_free_with_size(sdsAllocPtr(s), sdsAllocSize(s));
+    }
 }
 
 /* Generic version of sdsfree. */
