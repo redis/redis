@@ -989,6 +989,15 @@ test {corrupt payload: fuzzer findings - vector sets with wrong encoding} {
     }
 }
 
+test {corrupt payload: fuzzer findings - decrRefCount on NULL robj on corrupt KEY_META payload} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\xF3\x02\x01\x0D\x00\x54\x23\x3F\xC9\x82\x32\x05\x8D" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
 
 } ;# tags
 

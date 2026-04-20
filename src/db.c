@@ -1083,7 +1083,7 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     }
 
     return tempDb;
@@ -1117,7 +1117,7 @@ void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         if (calculateKeySlot(key->ptr) == slot) {
-            if (dictAdd(dst, key, dictGetVal(de)) == DICT_OK) {
+            if (dictAddRaw(dst, key, NULL)) {
                 incrRefCount(key);
             }
             dictDelete(src, key);
@@ -1756,7 +1756,8 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "zset", 
     "hash", 
     NULL, /* module type is special */
-    "stream"
+    "stream",
+    "gcra"
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2438,6 +2439,7 @@ void copyCommand(client *c) {
         case OBJ_ZSET: newobj = zsetDup(o); break;
         case OBJ_HASH: newobj = hashTypeDup(o, &minHashExpire); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
+        case OBJ_GCRA: newobj = gcraDup(o); break;
         case OBJ_MODULE:
             newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
             if (!newobj) return;
