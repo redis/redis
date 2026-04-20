@@ -116,9 +116,6 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H host.redis.io >> ~/.ssh/known_hosts
 
-      - name: Test SSH connection
-        run: ssh -o BatchMode=yes ubuntu@host.redis.io "echo 'SSH connection successful'"
-
       - name: Upload tarball
         run: |
           if [[ "${{ needs.extract-release-info.outputs.release_type }}" == "latest" ]]; then
