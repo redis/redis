@@ -1778,18 +1778,14 @@ start_server {tags {"zset"}} {
                 0.9955843393406656
                 -0.8731899671198792
             }
-            set i 0
             foreach s $widecases {
                 r zadd zscorewide $s m$i
                 assert_equal [expr $s] [expr [r zscore zscorewide m$i]]
-                incr i
             }
             r debug reload
             assert_encoding $encoding zscorewide
-            set i 0
             foreach s $widecases {
                 assert_equal [expr $s] [expr [r zscore zscorewide m$i]]
-                incr i
             }
         } {} {needs:debug}
 
