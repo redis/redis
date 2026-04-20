@@ -24,8 +24,6 @@ if [ "$VERSION_TYPE" == "--stable" ]
 then
     echo "Updating web site... "
     echo "Please check the github action tests for the release."
-    echo "Press any key if it is a stable release, or Ctrl+C to abort"
-    read x
     ssh ubuntu@host.redis.io "cd /var/www/download;
                               rm -rf redis-${VERSION_TAG}.tar.gz;
                               wget http://download.redis.io/releases/redis-${VERSION_TAG}.tar.gz;
