@@ -38,8 +38,11 @@ The following compatibility and capability tags are currently used:
 | `external:skip`           | Not compatible with external servers. |
 | `cluster:skip`            | Not compatible with `--cluster-mode`. |
 | `large-memory`            | Test that requires more than 100mb |
+| `singledb:skip`           | Not compatible with `--singledb`. |
 | `tls:skip`                | Not compatible with `--tls`. |
 | `tsan:skip`               | Not compatible with running under thread sanitizer. |
+| `debug_defrag:skip`       | Not compatible with a server built with `DEBUG_DEFRAG`. |
+| `logreqres:skip`          | Not compatible with `--log-req-res`. |
 | `needs:repl`              | Uses replication and needs to be able to `SYNC` from server. |
 | `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT REFCOUNT`). |
 | `needs:pfdebug`           | Uses the `PFDEBUG` command. |
@@ -54,11 +57,10 @@ When using an external server (`--host` and `--port`), filtering using the
 When using `--cluster-mode`, filtering using the `cluster:skip` tag is done
 automatically.
 
-When not using `--large-memory`, filtering using the `largemem:skip` tag is done
+When not using `--large-memory`, filtering using the `large-memory` tag is done
 automatically.
 
 In addition, it is possible to specify additional configuration. For example, to
 run tests on a server that does not permit `SYNC` use:
 
     ./runtest --host <host> --port <port> --tags -needs:repl
-
