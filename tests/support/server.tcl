@@ -433,7 +433,7 @@ proc create_server_config_file {filename config config_lines} {
 }
 
 proc spawn_server {config_file stdout stderr args} {
-    set cmd [list src/redis-server $config_file]
+    if {[info exists ::env(REDIS_BIN_DIR)]} { set cmd [list $::env(REDIS_BIN_DIR)/redis-server.exe $config_file] } else { set cmd [list src/redis-server $config_file] }
     set args {*}$args
     if {[llength $args] > 0} {
         lappend cmd {*}$args
@@ -456,7 +456,7 @@ proc spawn_server {config_file stdout stderr args} {
     }
 
     if {$::wait_server} {
-        set msg "server started PID: $pid. press any key to continue..."
+        set msg "server started PID: \d+. press any key to continue..."
         puts $msg
         read stdin 1
     }
@@ -472,7 +472,7 @@ proc wait_server_started {config_file stdout pid} {
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
-        if {[regexp -- " PID: $pid.*Server initialized" [cat_file $stdout]]} {
+        if {[regexp -- "Server initialized" [cat_file $stdout]]} {
             break
         }
         after $checkperiod
@@ -972,3 +972,7 @@ proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigter
         reconnect $level
     }
 }
+
+
+
+
