@@ -4020,13 +4020,15 @@ void call(client *c, int flags) {
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
             latencyAddSampleIfNeeded("dict-rehash-during-command",
                                      (long long)(dictRehashStepElapsedUs/1000));
-            /* Disarm the dict-rehash timing path between top-level calls so
-             * any rehash work done in cron (e.g. via active expire) does not
-             * pay the timing cost. The accumulator is zeroed again at the
-             * next top-level entry. */
-            dictRehashStepTiming = 0;
         }
     }
+
+    /* Disarm the dict-rehash timing path unconditionally at outermost call()
+     * exit, so cron work between commands does not pay the timing cost. This
+     * must run regardless of update_command_stats (e.g. during AOF loading)
+     * so the flag cannot stay armed across paths that skip the stats block. */
+    if (server.execution_nesting == 0)
+        dictRehashStepTiming = 0;
 
     /* Log the command into the Slow log if needed.
      * If the client is blocked we will handle slowlog when it is unblocked. */
