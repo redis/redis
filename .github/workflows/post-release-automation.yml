@@ -195,11 +195,6 @@ jobs:
             "sentinel.conf"
 
             # Source files
-            "src/redis-server.c"
-            "src/redis-cli.c"
-            "src/redis-benchmark.c"
-            "src/redis-check-rdb.c"
-            "src/redis-check-aof.c"
             "src/server.c"
             "src/server.h"
             "src/sds.c"
