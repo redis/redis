@@ -1360,7 +1360,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     /* Cluster atomic slot migration buffers. */
     mh->asm_import_input_buffer = asmGetImportInputBufferSize();
-    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputMemoryUsage();
     mem_total += mh->asm_import_input_buffer;
     mem_total += mh->asm_migrate_output_buffer;
 
