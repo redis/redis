@@ -37,7 +37,7 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
 static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
-static size_t getClientOutputBufferAllocSizeIncludingShared(client *c);
+static size_t getClientOutputBufferLogicalSize(client *c);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
@@ -4084,7 +4084,7 @@ sds catClientInfoString(sds s, client *client) {
     *p = '\0';
 
     /* Compute the total memory consumed by this client. */
-    size_t obufmem = getClientOutputBufferAllocSizeIncludingShared(client);
+    size_t obufmem = getClientOutputBufferLogicalSize(client);
     size_t total_mem = getClientMemoryUsage(client);
 
     size_t used_blocks_of_repl_buf = 0;
@@ -5171,7 +5171,7 @@ static size_t getClientOutputBufferAllocSize(client *c) {
  * This includes all shared memory (shared with the keyspace), ensuring that
  * a client requesting huge amounts of data via copy-avoidance is still
  * subject to output buffer limits. */
-static size_t getClientOutputBufferAllocSizeIncludingShared(client *c) {
+static size_t getClientOutputBufferLogicalSize(client *c) {
     size_t mem = getClientOutputBufferAllocSize(c);
     if (!clientTypeIsSlave(c))
         mem += c->reply_bytes_shared;
@@ -5276,7 +5276,7 @@ char *getClientTypeName(int class) {
  *               Otherwise zero is returned. */
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
-    unsigned long used_mem = getClientOutputBufferAllocSizeIncludingShared(c);
+    unsigned long used_mem = getClientOutputBufferLogicalSize(c);
 
     /* For unauthenticated clients the output buffer is limited to prevent
      * them from abusing it by not reading the replies */
