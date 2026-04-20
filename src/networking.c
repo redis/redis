@@ -5167,15 +5167,6 @@ static size_t getClientOutputBufferAllocSize(client *c) {
     }
 }
 
-/* Returns the actual memory used to store the reply not yet read by the client.
- * This includes unshared memory (solely owned by this client), which would be
- * freed when the client disconnects. */
-size_t getClientOutputBufferMemoryUsage(client *c) {
-    size_t mem = getClientOutputBufferAllocSize(c);
-    mem += getClientUnsharedReplyBytes(c);
-    return mem;
-}
-
 /* Returns the logical output buffer size for limit enforcement.
  * This includes all shared memory (shared with the keyspace), ensuring that
  * a client requesting huge amounts of data via copy-avoidance is still
@@ -5184,6 +5175,15 @@ static size_t getClientOutputBufferAllocSizeIncludingShared(client *c) {
     size_t mem = getClientOutputBufferAllocSize(c);
     if (!clientTypeIsSlave(c))
         mem += c->reply_bytes_shared;
+    return mem;
+}
+
+/* Returns the actual memory used to store the reply not yet read by the client.
+ * This includes unshared memory (solely owned by this client), which would be
+ * freed when the client disconnects. */
+size_t getClientOutputBufferMemoryUsage(client *c) {
+    size_t mem = getClientOutputBufferAllocSize(c);
+    mem += getClientUnsharedReplyBytes(c);
     return mem;
 }
 
