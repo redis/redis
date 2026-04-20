@@ -3434,6 +3434,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
+                    if (nack->consumer != NULL) {
+                        rdbReportCorruptRDB("Stream consumer PEL entry "
+                                                "already has a consumer assigned");
+                        decrRefCount(o);
+                        return NULL;
+                    }
                     nack->consumer = consumer;
                     if (!raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
