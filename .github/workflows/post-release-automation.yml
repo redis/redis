@@ -42,8 +42,6 @@ jobs:
       TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
     outputs:
       sha256: ${{ steps.checksum.outputs.sha256 }}
-      size_mb: ${{ steps.size.outputs.size_mb }}
-      size_warning: ${{ steps.size.outputs.size_warning }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -53,20 +51,6 @@ jobs:
 
       - name: Create tarball
         run: ./utils/releasetools/01_create_tarball.sh "$TAG_NAME"
-
-      - name: Verify tarball size
-        id: size
-        run: |
-          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
-          SIZE_MB=$(du -m "$TARBALL" | cut -f1)
-          echo "Tarball size: ${SIZE_MB} MB"
-          echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
-          if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
-            echo "::warning::Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
-            echo "size_warning=true" >> $GITHUB_OUTPUT
-          else
-            echo "size_warning=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Calculate SHA256 checksum
         id: checksum
@@ -110,6 +94,8 @@ jobs:
   test-release-tarball:
     needs: [extract-release-info, create-tarball, upload-tarball]
     runs-on: ubuntu-latest
+    outputs:
+      size_mb: ${{ steps.tarball_size.outputs.size_mb }}
     env:
       TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
       EXPECTED_SHA256: ${{ needs.create-tarball.outputs.sha256 }}
@@ -123,10 +109,12 @@ jobs:
           ls -lh "redis-${TAG_NAME}.tar.gz"
 
       - name: Verify tarball size is reasonable (3-5 MB compressed)
+        id: tarball_size
         if: success() || failure()
         run: |
           TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
+          echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
           echo "Downloaded tarball size: ${SIZE_MB} MB"
 
           if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
@@ -421,8 +409,7 @@ jobs:
       TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
       RELEASE_TYPE: ${{ needs.extract-release-info.outputs.release_type }}
       SHA256: ${{ needs.create-tarball.outputs.sha256 }}
-      SIZE_MB: ${{ needs.create-tarball.outputs.size_mb }}
-      SIZE_WARNING: ${{ needs.create-tarball.outputs.size_warning }}
+      SIZE_MB: ${{ needs.test-release-tarball.outputs.size_mb }}
     steps:
       - name: Summary
         run: |
