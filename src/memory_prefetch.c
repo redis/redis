@@ -430,10 +430,17 @@ void prefetchCommands(void) {
  *               keys[k] = c->argv[j+k+1]->ptr;
  *               dicts[k] = d;
  *           }
- *           dictPrefetchKeys(dicts, keys, n, prefetchGetObjectValuePtr);
- *           // Now process these n keys — data is in cache.
+ *           dictPrefetchKeys(dicts, keys, n, NULL);
+ *           // Now process these n keys — dict bucket / entry / kvobj are in cache.
  *       }
  *   }
+ *
+ * The value-data callback (last argument) is typically NULL. For commands
+ * like MGET the extra state the callback pushes through the prefetch pipeline
+ * costs more than warming the value payload saves, because lookupKeyRead +
+ * addReplyBulk reach the payload immediately afterwards and the hardware
+ * prefetcher is already on it. Pass prefetchGetObjectValuePtr only when the
+ * caller has measured a benefit from warming the value as well.
  * ----------------------------------------------------------------------- */
 void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys,
                       PrefetchGetValueDataFunc get_val_data)

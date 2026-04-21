@@ -790,6 +790,7 @@ void mgetCommand(client *c) {
         j = batch_end;
     }
     #undef MGET_BATCH
+    #undef MGET_LIGHT_PREFETCH_MAX
 }
 
 void msetGenericCommand(client *c, int nx) {
