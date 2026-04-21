@@ -3213,7 +3213,6 @@ size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c);
 void updateClientUnsharedReplyBytes(client *c);
-size_t getClientUnsharedReplyBytes(client *c);
 void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
