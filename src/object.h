@@ -5,7 +5,7 @@
  * values of different logical types (strings, lists, sets, hashes, sorted sets,
  * streams, modules, ...). It contains:
  *   - type: one of OBJ_STRING, OBJ_LIST, OBJ_SET, OBJ_ZSET, OBJ_HASH, OBJ_STREAM,
- *           OBJ_MODULE, ...
+ *           OBJ_GCRA, OBJ_MODULE, ...
  *   - encoding: an implementation detail of how the value is represented in
  *           memory for the given type (see OBJ_ENCODING_* below). For example,
  *           strings may be RAW/EMBSTR/INT, sets may be INTSET or HT, etc.
@@ -161,6 +161,7 @@ robj *createHashObject(void);
 robj *createZsetObject(void);
 robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
+robj *createGCRAObject(long long value);
 robj *createModuleObject(struct RedisModuleType *mt, void *value);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
@@ -170,6 +171,7 @@ int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, c
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);
 int getLongLongFromObject(robj *o, long long *target);
+int getLongLongFromGCRAObject(robj *o, long long *target);
 int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(struct client *c, robj *o, long double *target, const char *msg);
 int getIntFromObjectOrReply(struct client *c, robj *o, int *target, const char *msg);
@@ -179,6 +181,8 @@ int collateStringObjects(const robj *a, const robj *b);
 int equalStringObjects(robj *a, robj *b);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 size_t kvobjAllocSize(kvobj *o);
+size_t gcraTypeAllocSize(robj *o);
+size_t gcraObjectLength(robj *o);
 
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                       long long lru_clock, int lru_multiplier);

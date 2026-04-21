@@ -1057,13 +1057,27 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
+/* Returns the address of the node in the format "ip:port". */
+static const char *getNodeAddressStr(const char *node_id, int len) {
+    serverAssert(node_id != NULL);
+    static char buf[NET_HOST_PORT_STR_LEN];
+
+    clusterNode *n = clusterLookupNode(node_id, len);
+    char *ip = n ? clusterNodeIp(n) : "?";
+    int port = n ? (server.tls_replication ? clusterNodeTlsPort(n) :
+                                             clusterNodeTcpPort(n)) : 0;
+    formatAddr(buf, sizeof(buf), ip, port);
+    return buf;
+}
+
 /* Log a human-readable message for ASM task lifecycle events. */
 void asmLogTaskEvent(asmTask *task, int event) {
     sds str = slotRangeArrayToString(task->slots);
 
     switch (event) {
         case ASM_EVENT_IMPORT_STARTED:
-            serverLog(LL_NOTICE, "Import task %s started for slots: %s", task->id, str);
+            serverLog(LL_NOTICE, "Import task %s started for slots: %s, source address: %s",
+                      task->id, str, getNodeAddressStr(task->source, CLUSTER_NAMELEN));
             break;
         case ASM_EVENT_IMPORT_FAILED:
             serverLog(LL_NOTICE, "Import task %s failed for slots: %s", task->id, str);
@@ -1076,8 +1090,8 @@ void asmLogTaskEvent(asmTask *task, int event) {
                       task->id, str, getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_STARTED:
-            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (number of keys at start: %llu)",
-                      task->id, str, getKeyCountInSlotRangeArray(task->slots));
+            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s, destination address: %s, (number of keys at start: %llu)",
+                      task->id, str, getNodeAddressStr(task->dest, CLUSTER_NAMELEN), getKeyCountInSlotRangeArray(task->slots));
             break;
         case ASM_EVENT_MIGRATE_FAILED:
             serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
@@ -3648,7 +3662,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj, int migration_cleanup) {
         * to another node. The modules need to know that these keys are no longer
         * available locally, so just send the keyspace notification to the modules,
         * but not to clients. */
-        moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
+        moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id, NULL, 0);
     } else {
         /* Not a migration cleanup, the key is really deleted from the database,
          * need to notify the clients. */

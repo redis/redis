@@ -18,7 +18,9 @@ set ::tlsdir "tests/tls"
 
 # Continuously sends SET commands to the server. If key is omitted, a random key
 # is used for every SET command. The value is always random.
-proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
+# ignore_error_reply (default 0): when non-zero, MOVED/ASK replies are tolerated
+# while draining pipelined responses (periodic 500-reply batches and final drain).
+proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0} {ignore_error_reply 0}} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
     $r client setname LOAD_HANDLER
@@ -44,12 +46,19 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
         } else {
             $r set $key $value
         }
-        
+
         incr count
         if {$count % 500 == 0} {
             for {set i 0} {$i < 500} {incr i} {
-                $r read
+                # Capture opts to preserve original errorInfo/errorCode on re-raise.
+                if {[catch {$r read} err opts]} {
+                    if {$ignore_error_reply && ([string match {MOVED*} $err] || [string match {ASK*} $err])} {
+                        continue
+                    }
+                    return -options $opts $err
+                }
             }
+            set count 0
         }
 
         if {[clock seconds]-$start_time > $seconds} {
@@ -59,12 +68,17 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
             after $sleep
         }
     }
-    
+
     # Read remaining replies
     for {set i 0} {$i < $count} {incr i} {
-        $r read
+        if {[catch {$r read} err opts]} {
+            if {$ignore_error_reply && ([string match {MOVED*} $err] || [string match {ASK*} $err])} {
+                continue
+            }
+            return -options $opts $err
+        }
     }
     exit 0
 }
 
-gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6]
+gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6] [lindex $argv 7]
