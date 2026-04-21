@@ -4074,7 +4074,7 @@ sds catClientInfoString(sds s, client *client) {
     }
     *p = '\0';
 
-    /*  */
+    /* Refresh the cached unshared reply bytes before computing memory stats below. */
     updateClientUnsharedReplyBytes(client);
 
     /* Compute the total memory consumed by this client. */
