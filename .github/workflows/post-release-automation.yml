@@ -123,6 +123,7 @@ jobs:
           ls -lh "redis-${TAG_NAME}.tar.gz"
 
       - name: Verify tarball size is reasonable (3-5 MB compressed)
+        if: success() || failure()
         run: |
           TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
@@ -135,22 +136,24 @@ jobs:
             echo "✓ Tarball size ${SIZE_MB} MB is within expected range"
           fi
 
-#      - name: Verify checksum matches (SHA256)
-#        run: |
-#          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
-#          ACTUAL_SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
-#
-#          echo "Expected SHA256: ${EXPECTED_SHA256}"
-#          echo "Actual SHA256:   ${ACTUAL_SHA256}"
-#
-#          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-#            echo "::error::SHA256 checksum mismatch!"
-#            exit 1
-#          else
-#            echo "✓ SHA256 checksum matches"
-#          fi
+      - name: Verify checksum matches (SHA256)
+        if: success() || failure()
+        run: |
+          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          ACTUAL_SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+
+          echo "Expected SHA256: ${EXPECTED_SHA256}"
+          echo "Actual SHA256:   ${ACTUAL_SHA256}"
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::SHA256 checksum mismatch!"
+            exit 1
+          else
+            echo "✓ SHA256 checksum matches"
+          fi
 
       - name: Verify tarball extraction succeeds
+        if: success() || failure()
         run: |
           cd /tmp
           echo "Extracting tarball..."
@@ -165,6 +168,7 @@ jobs:
           ls -la "redis-${TAG_NAME}/"
 
       - name: Verify tarball contains all necessary files
+        if: success() || failure()
         run: |
           cd "/tmp/redis-${TAG_NAME}"
 
@@ -246,6 +250,7 @@ jobs:
           echo "✓ All necessary files are present"
 
       - name: Check file permissions are correct
+        if: success() || failure()
         run: |
           cd "/tmp/redis-${TAG_NAME}"
 
@@ -275,6 +280,7 @@ jobs:
           echo "✓ File permissions are correct"
 
       - name: Verify no missing dependencies
+        if: success() || failure()
         run: |
           cd "/tmp/redis-${TAG_NAME}"
 
@@ -303,6 +309,7 @@ jobs:
           echo "✓ All required dependencies are available"
 
       - name: Build Redis from extracted tarball (not from git repo)
+        if: success() || failure()
         run: |
           cd "/tmp/redis-${TAG_NAME}"
 
@@ -339,6 +346,7 @@ jobs:
           ./src/redis-server --version
 
       - name: Run smoke test (start redis-server, execute PING, shutdown)
+        if: success() || failure()
         run: |
           cd "/tmp/redis-${TAG_NAME}"
 
@@ -406,7 +414,7 @@ jobs:
   #         # - Git credentials for committing and pushing
 
   summary-and-notify:
-    needs: [extract-release-info, create-tarball] #, upload-tarball, test-release-tarball] # update-release-hashes
+    needs: [extract-release-info, create-tarball, test-release-tarball] #, upload-tarball] # update-release-hashes
     if: always() && github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     env:
@@ -425,10 +433,13 @@ jobs:
             echo "- **Release Type:** ${RELEASE_TYPE}"
             echo "- **Tarball SHA256:** ${SHA256}"
             echo "- **Tarball Size:** ${SIZE_MB} MB"
-            if [ "${SIZE_WARNING}" == "true" ]; then
-              echo ""
-              echo "> [!WARNING]"
-              echo "> Tarball size is outside expected range, check the logs for details."
+            echo ""
+
+            # Test results
+            if [ "${{ needs.test-release-tarball.result }}" == "success" ]; then
+              echo "- **Tests:** ✅ All tests passed"
+            elif [ "${{ needs.test-release-tarball.result }}" == "failure" ]; then
+              echo "- **Tests:** ❌ One or more tests failed"
             fi
           } >> $GITHUB_STEP_SUMMARY
 
