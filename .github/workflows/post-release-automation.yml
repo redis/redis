@@ -415,7 +415,7 @@ jobs:
 
   summary-and-notify:
     needs: [extract-release-info, create-tarball, test-release-tarball] #, upload-tarball] # update-release-hashes
-    if: always() && github.repository == 'redis/redis'
+    if: always()
     runs-on: ubuntu-latest
     env:
       TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
@@ -444,6 +444,7 @@ jobs:
           } >> $GITHUB_STEP_SUMMARY
 
       # - name: Send Slack notification
+      #   if: github.repository == 'redis/redis'
       #   run: |
       #     echo "TODO: Implement Slack notification"
       #     # This will require:
