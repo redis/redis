@@ -6,7 +6,7 @@ on:
 
 jobs:
   extract-release-info:
-    if: github.repository == 'redis/redis' || github.repository == 'stav-nachmias/fork-redis'
+    if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release-info.outputs.tag_name }}
@@ -108,7 +108,7 @@ jobs:
   #         # - Adaptation of utils/releasetools/02_upload_tarball.sh for CI environment
 
   test-release-tarball:
-    needs: [extract-release-info, create-tarball] #, upload-tarball]
+    needs: [extract-release-info, create-tarball, upload-tarball]
     runs-on: ubuntu-latest
     env:
       TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
@@ -414,7 +414,7 @@ jobs:
   #         # - Git credentials for committing and pushing
 
   summary-and-notify:
-    needs: [extract-release-info, create-tarball, test-release-tarball] #, upload-tarball] # update-release-hashes
+    needs: [extract-release-info, create-tarball, upload-tarball, test-release-tarball]  # update-release-hashes
     if: always()
     runs-on: ubuntu-latest
     env:
