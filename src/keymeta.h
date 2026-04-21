@@ -60,8 +60,8 @@ typedef int KeyMetaClassId; /* Index into redisServer.keyMetaClass[] */
 
 /* RDB load callback: Return 1 to attach, 0 to skip, -1 on error */
 typedef int (*KeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
-typedef void (*KeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
-typedef void (*KeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*KeyMetaSaveFunc)(RedisModuleIO *rdb, void *reserved, uint64_t *meta);
+typedef void (*KeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *reserved, uint64_t meta);
 typedef void (*KeyMetaFreeFunc)(const char *keyname, uint64_t meta);
 typedef int (*KeyMetaCopyFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 typedef int (*KeyMetaRenameFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
@@ -90,8 +90,8 @@ typedef struct KeyMetaClassConf {
     void (*unlink)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
     void (*free)(const char *keyname, uint64_t meta);
     int (*rdb_load)(struct RedisModuleIO *rdb, uint64_t *meta, int metaver);
-    void (*rdb_save)(struct RedisModuleIO *rdb, void *value, uint64_t *meta);
-    void (*aof_rewrite)(struct RedisModuleIO *aof, void *value, uint64_t meta);
+    void (*rdb_save)(struct RedisModuleIO *rdb, void *reserved, uint64_t *meta);
+    void (*aof_rewrite)(struct RedisModuleIO *aof, void *reserved, uint64_t meta);
     
     /****************************** TBD: ******************************/
     int (*defrag) (struct RedisModuleDefragCtx *ctx, struct redisObject *key, uint64_t meta);

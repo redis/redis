@@ -89,6 +89,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_ZSET 5
 #define REDISMODULE_KEYTYPE_MODULE 6
 #define REDISMODULE_KEYTYPE_STREAM 7
+#define REDISMODULE_KEYTYPE_GCRA 8
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -247,11 +248,22 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 #define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
+#define REDISMODULE_NOTIFY_RATE_LIMIT (1<<18) /* r, rate limit event */
+
+#define REDISMODULE_NOTIFY_SUBKEYSPACE (1<<19)      /* S */
+#define REDISMODULE_NOTIFY_SUBKEYEVENT (1<<20)      /* T */
+#define REDISMODULE_NOTIFY_SUBKEYSPACEITEM (1<<21)  /* I */
+#define REDISMODULE_NOTIFY_SUBKEYSPACEEVENT (1<<22) /* V */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<18)
+#define _REDISMODULE_NOTIFY_NEXT (1<<23)
+
+/* Delivery flags for RM_SubscribeToKeyspaceEventsWithSubkeys.
+ * These are passed in the 'flags' parameter, not in 'types'. */
+#define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
+#define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
 
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
 
@@ -975,6 +987,7 @@ typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
+typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
 typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
@@ -1011,8 +1024,8 @@ typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply
 typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
 typedef int (*RedisModuleKeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
-typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
-typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *reserved, uint64_t *meta);
+typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *reserved, uint64_t meta);
 typedef void (*RedisModuleKeyMetaFreeFunc)(const char *keyname, uint64_t meta);
 typedef int (*RedisModuleKeyMetaCopyFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 typedef int (*RedisModuleKeyMetaRenameFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
@@ -1360,8 +1373,11 @@ REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx)
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_NotifyKeyspaceEventWithSubkeys)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetNotifyKeyspaceEvents)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_RegisterClusterMessageReceiver)(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback) REDISMODULE_ATTR;
@@ -1762,8 +1778,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
     REDISMODULE_GET_API(UnsubscribeFromKeyspaceEvents);
+    REDISMODULE_GET_API(SubscribeToKeyspaceEventsWithSubkeys);
+    REDISMODULE_GET_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
     REDISMODULE_GET_API(AddPostNotificationJob);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);
+    REDISMODULE_GET_API(NotifyKeyspaceEventWithSubkeys);
     REDISMODULE_GET_API(GetNotifyKeyspaceEvents);
     REDISMODULE_GET_API(BlockedClientDisconnected);
     REDISMODULE_GET_API(RegisterClusterMessageReceiver);

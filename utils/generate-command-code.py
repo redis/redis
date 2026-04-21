@@ -34,6 +34,7 @@ GROUPS = {
     "geo": "COMMAND_GROUP_GEO",
     "stream": "COMMAND_GROUP_STREAM",
     "bitmap": "COMMAND_GROUP_BITMAP",
+    "rate_limit": "COMMAND_GROUP_RATE_LIMIT",
 }
 
 
@@ -602,7 +603,8 @@ const char *COMMAND_GROUP_STR[] = {
     "geo",
     "stream",
     "bitmap",
-    "module"
+    "module",
+    "rate_limit"
 };
 
 const char *commandGroupStr(int index) {
