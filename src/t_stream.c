@@ -1696,12 +1696,21 @@ sds createStreamIDString(streamID *id) {
  * Returns the number of characters written (excluding null terminator).
  * The buffer must be at least STREAM_ID_STR_LEN bytes; two uint64 decimals
  * plus the separator fit comfortably, and the contract is enforced via an
- * assert on the caller-supplied buflen. */
+ * assert on the caller-supplied buflen.
+ *
+ * ull2string() returns 0 when the destination is too small; with the buflen
+ * assertion above a zero return is impossible on a well-formed uint64, but
+ * we assert the postcondition so future callers that shrink buflen or pass
+ * a non-uint64 value fail loudly here instead of silently producing
+ * malformed output like "-<seq>" when ull2string(ms) returns 0. */
 static inline int streamFormatID(char *buf, size_t buflen, streamID *id) {
     serverAssert(buflen >= STREAM_ID_STR_LEN);
     int n = ull2string(buf, buflen, id->ms);
+    serverAssert(n > 0);
     buf[n++] = '-';
-    n += ull2string(buf + n, buflen - n, id->seq);
+    int seq_n = ull2string(buf + n, buflen - n, id->seq);
+    serverAssert(seq_n > 0);
+    n += seq_n;
     return n;
 }
 
