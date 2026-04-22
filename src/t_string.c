@@ -9,6 +9,7 @@
 
 #include "server.h"
 #include "xxhash.h"
+#include <float.h>
 #include <math.h> /* isnan(), isinf() */
 
 /* XXH3 64-bit hash produces 16 hex characters when formatted */
@@ -69,6 +70,11 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_SET_IFNE (1<<10)       /* Set if value does not equal match value */
 #define OBJ_SET_IFDEQ (1<<11)      /* Set if current digest equals match digest */
 #define OBJ_SET_IFDNE (1<<12)      /* Set if current digest does not equal match digest */
+#define OBJ_INCREX_BYFLOAT (1<<13) /* Set if float-point increment is given */
+#define OBJ_INCREX_BYINT (1<<14)   /* Set if integer increment is given */
+#define OBJ_INCREX_LBOUND (1<<15)  /* Set if lower bound of increx result is given */
+#define OBJ_INCREX_UBOUND (1<<16)  /* Set if upper bound of increx result is given */
+#define OBJ_INCREX_ENX (1<<17)     /* Set expiration only when the key has no expiry */
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
@@ -269,9 +275,12 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
     return C_OK;
 }
 
-#define COMMAND_GET 0
-#define COMMAND_SET 1
-#define COMMAND_MSETEX 2
+#define COMMAND_GET 1
+#define COMMAND_SET 2
+#define COMMAND_MSETEX 4
+#define COMMAND_INCREX 8
+
+#define COMMAND_ALL (COMMAND_GET | COMMAND_SET | COMMAND_MSETEX | COMMAND_INCREX)
 
 /* Extended string command arguments structure */
 typedef struct {
@@ -280,24 +289,75 @@ typedef struct {
     int expire_pos;  /* Position of EX/PX flag for replication rewriting */
     robj *expire;
     robj *match_value; /* For IFEQ/IFNE/IFDEQ/IFDNE conditions */
+    robj *increment;   /* Only for INCREX increment arg */
+    robj *lower_bound; /* Only for INCREX lbound arg */
+    robj *upper_bound; /* Only for INCREX ubound arg */
 } extendedStringArgs;
+
+typedef struct {
+    const char* name;          /* arg name, case-insensitive */
+    int flag;                  /* OBJ_* flag */
+    int allowed_cmds;          /* allowed command types */
+    int conflict_flags;        /* other OBJ_* flags this arg conflict with */
+    int unit;                  /* unit for ex/exat/px/pxat */
+    int needs_next;            /* whether this arg consumes next token */
+    size_t next_field_offset;  /* field in extendedStringArgs to store the next token into */
+} argDescriptor;
+
+/* We can have either none or exactly one of these conditionals as they are
+ * mutually exclusive. We'll make sure to check if none of the other flags
+ * are already set if we are going to set one of them. This is done via the
+ * check:
+ *
+ * if (opt == OBJ_SET_XXX && !(*flags & (cond_mut_excl & ~OBJ_SET_XXX)))
+ *
+ * A bit ugly - but concise.
+ */
+#define COND_MUT_EXCL (OBJ_SET_NX|OBJ_SET_XX|OBJ_SET_IFEQ|OBJ_SET_IFNE|OBJ_SET_IFDEQ|OBJ_SET_IFDNE)
+#define CONFLICT_TTL (OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT|OBJ_PERSIST|OBJ_KEEPTTL)
+
+static const argDescriptor argTable[] = {
+    /* name     flag                allowed_cmds                conflict_flags                unit               needs_next next_field_offset*/
+    {"NX",      OBJ_SET_NX,         COMMAND_SET|COMMAND_MSETEX, OBJ_SET_XX,                   0,                 0,         0},
+    {"XX",      OBJ_SET_XX,         COMMAND_SET|COMMAND_MSETEX, OBJ_SET_NX,                   0,                 0,         0},
+    {"EX",      OBJ_EX,             COMMAND_ALL,                CONFLICT_TTL&~OBJ_EX,         UNIT_SECONDS,      1,         offsetof(extendedStringArgs, expire)},
+    {"PX",      OBJ_PX,             COMMAND_ALL,                CONFLICT_TTL&~OBJ_PX,         UNIT_MILLISECONDS, 1,         offsetof(extendedStringArgs, expire)},
+    {"KEEPTTL", OBJ_KEEPTTL,        COMMAND_SET|COMMAND_MSETEX, CONFLICT_TTL&~OBJ_KEEPTTL,    0,                 0,         0},
+    {"GET",     OBJ_SET_GET,        COMMAND_SET,                0,                            0,                 0,         0},
+    {"EXAT",    OBJ_EXAT,           COMMAND_ALL,                CONFLICT_TTL&~OBJ_EXAT,       UNIT_SECONDS,      1,         offsetof(extendedStringArgs, expire)},
+    {"PXAT",    OBJ_PXAT,           COMMAND_ALL,                CONFLICT_TTL&~OBJ_PXAT,       UNIT_MILLISECONDS, 1,         offsetof(extendedStringArgs, expire)},
+    {"PERSIST", OBJ_PERSIST,        COMMAND_GET|COMMAND_INCREX, (CONFLICT_TTL|OBJ_INCREX_ENX)&~OBJ_PERSIST, 0,   0,         0},
+    {"IFEQ",    OBJ_SET_IFEQ,       COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFEQ,  0,                 1,         offsetof(extendedStringArgs, match_value)},
+    {"IFNE",    OBJ_SET_IFNE,       COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFNE,  0,                 1,         offsetof(extendedStringArgs, match_value)},
+    {"IFDEQ",   OBJ_SET_IFDEQ,      COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFDEQ, 0,                 1,         offsetof(extendedStringArgs, match_value)},
+    {"IFDNE",   OBJ_SET_IFDNE,      COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFDNE, 0,                 1,         offsetof(extendedStringArgs, match_value)},
+    {"BYFLOAT", OBJ_INCREX_BYFLOAT, COMMAND_INCREX,             OBJ_INCREX_BYINT,             0,                 1,         offsetof(extendedStringArgs, increment)},
+    {"BYINT",   OBJ_INCREX_BYINT,   COMMAND_INCREX,             OBJ_INCREX_BYFLOAT,           0,                 1,         offsetof(extendedStringArgs, increment)},
+    {"LBOUND",  OBJ_INCREX_LBOUND,  COMMAND_INCREX,             0,                            0,                 1,         offsetof(extendedStringArgs, lower_bound)},
+    {"UBOUND",  OBJ_INCREX_UBOUND,  COMMAND_INCREX,             0,                            0,                 1,         offsetof(extendedStringArgs, upper_bound)},
+    {"ENX",     OBJ_INCREX_ENX,     COMMAND_INCREX,             OBJ_PERSIST,                  0,                 0,         0},
+};
+#define ARG_TABLE_SIZE (sizeof(argTable)/sizeof(argDescriptor))
 
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
- * string arguments used in SET, GET and MSETEX commands.
+ * string arguments used in SET, GET, INCREX and MSETEX commands.
  *
- * Get specific commands - PERSIST/DEL
  * Set specific commands - XX/NX/GET/IFEQ/IFNE/IFDEQ/IFDNE
- * Common commands - EX/EXAT/PX/PXAT/KEEPTTL
+ * Increx specific commands - BYFLOAT/BYINT/LBOUND/UBOUND/ENX
+ * Common commands - EX/EXAT/PX/PXAT/KEEPTTL/PERSIST
  *
  * Function takes pointers to client, start_pos for where to begin parsing, extendedStringArgs
- * structure to populate, and command_type which can be COMMAND_GET, COMMAND_SET, or COMMAND_MSETEX.
+ * structure to populate, and command_type which can be COMMAND_GET, COMMAND_SET, COMMAND_INCREX, or COMMAND_MSETEX.
  *
  * If there are any syntax violations C_ERR is returned else C_OK is returned.
  *
  * The args structure is updated upon parsing the arguments. Unit and expire are updated if there are any
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  * match_value is updated if any of IFEQ/IFNE/IFDEQ/IFDNE is set.
+ * increment is updated if any of BYFLOAT/BYINT is set.
+ * lower_bound is updated if LBOUND is set.
+ * upper_bound is updated if UBOUND is set.
  */
 int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedStringArgs *args, int command_type) {
     /* Initialize arguments to defaults */
@@ -305,123 +365,29 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
     args->expire_pos = -1;
     args->unit = UNIT_SECONDS;
 
-    int j = start_pos;
-   /* We can have either none or exactly one of these conditionals as they are
-     * mutually exclusive. We'll make sure to check if none of the other flags
-     * are already set if we are going to set one of them. This is done via the
-     * check:
-     *
-     * if (opt == OBJ_SET_XXX && !(*flags & (cond_mut_excl & ~OBJ_SET_XXX)))
-     *
-     * A bit ugly - but concise.
-     */
-    int cond_mut_excl = OBJ_SET_NX | OBJ_SET_XX | OBJ_SET_IFEQ | OBJ_SET_IFNE |
-                        OBJ_SET_IFDEQ | OBJ_SET_IFDNE;
-    for (; j < c->argc; j++) {
+    for (int j = start_pos; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
+        int matched = 0;
 
-        if ((opt[0] == 'n' || opt[0] == 'N') &&
-            (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-            !(args->flags & OBJ_SET_XX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
-        {
-            args->flags |= OBJ_SET_NX;
-        } else if ((opt[0] == 'x' || opt[0] == 'X') &&
-                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & OBJ_SET_NX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
-        {
-            args->flags |= OBJ_SET_XX;
-        } else if ((opt[0] == 'g' || opt[0] == 'G') &&
-                   (opt[1] == 'e' || opt[1] == 'E') &&
-                   (opt[2] == 't' || opt[2] == 'T') && opt[3] == '\0' &&
-                   (command_type == COMMAND_SET))
-        {
-            args->flags |= OBJ_SET_GET;
-        } else if (!strcasecmp(opt, "KEEPTTL") && !(args->flags & OBJ_PERSIST) &&
-            !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
-            !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
-            (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
-        {
-            args->flags |= OBJ_KEEPTTL;
-        } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
-               !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
-               !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
-               !(args->flags & OBJ_KEEPTTL))
-        {
-            args->flags |= OBJ_PERSIST;
-        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
-                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
-                   !(args->flags & OBJ_EXAT) && !(args->flags & OBJ_PX) &&
-                   !(args->flags & OBJ_PXAT) && next)
-        {
-            args->flags |= OBJ_EX;
-            args->expire = next;
-            args->expire_pos = j;
-            j++;
-        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
-                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
-                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
-                   !(args->flags & OBJ_PXAT) && next)
-        {
-            args->flags |= OBJ_PX;
-            args->unit = UNIT_MILLISECONDS;
-            args->expire = next;
-            args->expire_pos = j;
-            j++;
-        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
-                   (opt[1] == 'x' || opt[1] == 'X') &&
-                   (opt[2] == 'a' || opt[2] == 'A') &&
-                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
-                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_PX) &&
-                   !(args->flags & OBJ_PXAT) && next)
-        {
-            args->flags |= OBJ_EXAT;
-            args->expire = next;
-            j++;
-        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
-                   (opt[1] == 'x' || opt[1] == 'X') &&
-                   (opt[2] == 'a' || opt[2] == 'A') &&
-                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
-                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
-                   !(args->flags & OBJ_PX) && next)
-        {
-            args->flags |= OBJ_PXAT;
-            args->unit = UNIT_MILLISECONDS;
-            args->expire = next;
-            j++;
-        } else if (!strcasecmp(opt, "ifeq") && next &&
-                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFEQ)) &&
-                   (command_type == COMMAND_SET))
-        {
-            args->flags |= OBJ_SET_IFEQ;
-            args->match_value = next;
-            j++;
-        } else if (!strcasecmp(opt, "ifne") && next &&
-                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFNE)) &&
-                   (command_type == COMMAND_SET))
-        {
-            args->flags |= OBJ_SET_IFNE;
-            args->match_value = next;
-            j++;
-        } else if (!strcasecmp(opt, "ifdeq") && next &&
-                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDEQ)) &&
-                   (command_type == COMMAND_SET))
-        {
-            args->flags |= OBJ_SET_IFDEQ;
-            args->match_value = next;
-            j++;
-        } else if (!strcasecmp(opt, "ifdne") && next &&
-                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDNE)) &&
-                   (command_type == COMMAND_SET))
-        {
-            args->flags |= OBJ_SET_IFDNE;
-            args->match_value = next;
-            j++;
-        } else {
+        for (size_t i = 0; i < ARG_TABLE_SIZE; i++) {
+            if (!strcasecmp(opt, argTable[i].name) && (command_type & argTable[i].allowed_cmds) &&
+                !(args->flags & argTable[i].conflict_flags) &&
+                (!argTable[i].needs_next || next)) {
+                args->flags |= argTable[i].flag;
+                if (argTable[i].flag & (OBJ_EX | OBJ_PX))
+                    args->expire_pos = j;
+                if (argTable[i].unit)
+                    args->unit = argTable[i].unit;
+                if (argTable[i].needs_next) {
+                    *(robj **)((char*)args + argTable[i].next_field_offset) = next;
+                    j++;
+                }
+                matched = 1;
+            }
+        }
+
+        if (!matched) {
             addReplyErrorObject(c,shared.syntaxerr);
             return C_ERR;
         }
@@ -921,6 +887,193 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,0,shared.set);
     rewriteClientCommandArgument(c,2,new);
     rewriteClientCommandArgument(c,3,shared.keepttl);
+}
+
+/*
+ * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound]
+ *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
+ *
+ * Increments the numeric value of a key and optionally updates its expiration time.
+ *
+ * Increment options:
+ * Defaults to incrementing by 1 (like INCR) if no increment option is given.
+ * At most one of the following may be specified:
+ * - BYINT:   Increment by an integer (like INCRBY).
+ * - BYFLOAT: Increment by a float (like INCRBYFLOAT). Returns an error if the result is NaN or Infinity.
+ *
+ * Range options:
+ * LBOUND and UBOUND optionally clamp the result to a range.
+ * If the result exceeds the range, it is capped at UBOUND or floored at LBOUND.
+ * When omitted, the limits default to the min/max of 'long long' (for BYINT) or 'long double' (for BYFLOAT).
+ *
+ * Expiration options:
+ * At most one of the following may be specified:
+ * - EX:      Set expiration in seconds.
+ * - PX:      Set expiration in milliseconds.
+ * - EXAT:    Set expiration to an absolute Unix timestamp (seconds).
+ * - PXAT:    Set expiration to an absolute Unix timestamp (milliseconds).
+ * - PERSIST: Remove the key's TTL.
+ *
+ * If no expiration option is given, the key's existing TTL is preserved.
+ * ENX restricts expiration updates to keys that currently have no TTL.
+ *
+ * Reply:
+ * - (Simple Error) if any parameter is invalid, or if BYFLOAT produces NaN or Infinity.
+ * - (Array) of two Bulk Strings on success:
+ *   1. The new value of the key after the increment.
+ *   2. The actual increment applied.
+ *
+ * Note: When the result is clamped by LBOUND/UBOUND, the expiration is still updated normally.
+ */
+void increxCommand(client *c) {
+    extendedStringArgs args;
+    if (parseExtendedStringArgumentsOrReply(c, 2, &args, COMMAND_INCREX) != C_OK) {
+        return;
+    }
+    if ((args.flags & OBJ_INCREX_ENX) && !(args.flags & (OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT))) {
+        /* ENX flag set without expiration */
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+    long long milliseconds = 0;
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
+        return;
+    }
+
+    dictEntryLink link;
+    kvobj *o = NULL;
+    robj *result = NULL, *actual_increment = NULL;
+    int hasExpiry = 0;
+    if (args.flags & OBJ_INCREX_BYFLOAT) {
+        long double value, oldvalue, incr, lb = -LDBL_MAX, ub = LDBL_MAX;
+        if (getLongDoubleFromObjectOrReply(c,args.increment,&incr,NULL) != C_OK ||
+            ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c,args.lower_bound,&lb,NULL) != C_OK) ||
+            ((args.flags & OBJ_INCREX_UBOUND) && getLongDoubleFromObjectOrReply(c,args.upper_bound,&ub,NULL) != C_OK))
+            return;
+        if (lb > ub) {
+            addReplyError(c,"LBOUND can't be greater than UBOUND");
+            return;
+        }
+
+        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+        if (checkType(c,o,OBJ_STRING)) return;
+        if (getLongDoubleFromObjectOrReply(c,o,&value, NULL) != C_OK) {
+            return;
+        }
+
+        oldvalue = value;
+        value += incr;
+        if (isnan(value) || isinf(value)) {
+            addReplyError(c,"increment would produce NaN or Infinity");
+            return;
+        }
+        if (value < lb) {
+            value = lb;
+        } else if (value > ub) {
+            value = ub;
+        }
+        result = createStringObjectFromLongDouble(value,1);
+        actual_increment = createStringObjectFromLongDouble(value - oldvalue, 1);
+    } else {
+        long long value, oldvalue, incr = 1, lb = LLONG_MIN, ub = LLONG_MAX;
+        if (((args.flags & OBJ_INCREX_BYINT) && getLongLongFromObjectOrReply(c, args.increment, &incr, NULL) != C_OK) ||
+            ((args.flags & OBJ_INCREX_LBOUND) && getLongLongFromObjectOrReply(c,args.lower_bound,&lb,NULL) != C_OK) ||
+            ((args.flags & OBJ_INCREX_UBOUND) && getLongLongFromObjectOrReply(c,args.upper_bound,&ub,NULL) != C_OK))
+          return;
+        if (lb > ub) {
+            addReplyError(c,"LBOUND can't be greater than UBOUND");
+            return;
+        }
+
+        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+        if (checkType(c,o,OBJ_STRING)) return;
+        if (getLongLongFromObjectOrReply(c,o,&value, NULL) != C_OK) {
+            return;
+        }
+
+        oldvalue = value;
+        if (incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) {
+            value = lb;
+        } else if (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue)) {
+            value = ub;
+        } else {
+            value += incr;
+            if (value < lb) {
+                value = lb;
+            } else if (value > ub) {
+                value = ub;
+            }
+        }
+        result = createStringObjectFromLongLongForValue(value);
+        actual_increment = createStringObjectFromLongLongForValue(value - oldvalue);
+    }
+
+    addReplyArrayLen(c, 2);
+    addReplyBulk(c, result);
+    addReplyBulk(c, actual_increment);
+    decrRefCount(actual_increment);
+
+    hasExpiry = o && (kvobjGetExpire(o) != -1);
+    /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
+    if (!((args.flags & OBJ_INCREX_ENX) && hasExpiry) && args.expire && checkAlreadyExpired(milliseconds)) {
+        if (o) {
+            int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
+            serverAssert(deleted);
+            robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+            rewriteClientCommandVector(c,2,aux,c->argv[1]);
+            keyModified(c, c->db, c->argv[1], NULL, 1);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+            server.dirty++;
+        }
+        decrRefCount(result);
+        server.stat_expiredkeys++;
+        return;
+    }
+
+    if (o)
+        dbReplaceValueWithLink(c->db, c->argv[1], &result, link);
+    else
+        dbAddByLink(c->db, c->argv[1], &result, &link);
+    keyModified(c, c->db, c->argv[1], result, 1);
+    notifyKeyspaceEvent(NOTIFY_STRING, args.flags & OBJ_INCREX_BYFLOAT ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
+    server.dirty++;
+
+    /*
+     * Always replicate INCREX as a SET command with the final value
+     * in order to make sure that differences in float precision or formatting
+     * will not create differences in replicas or after an AOF restart.
+     *
+     * (a) If no expiration option is provided:
+     *     The key's ttl is preserved.
+     *     Propagated as: SET <key> <result> KEEPTTL
+     *
+     * (b) If PERSIST is provided:
+     *     The key's ttl is removed.
+     *     Propagated as: SET <key> <result>
+     *
+     * (c) If an expiration option is provided:
+     *     (c1) If ENX is specified AND the key already has an expiration:
+     *          The key's ttl remains unchanged.
+     *          Propagated as: SET <key> <result> KEEPTTL
+     *
+     *     (c2) If ENX is not specified, OR the key doesn't have a expiration:
+     *          A new ttl will be set from expiration options.
+     *          Propagated as: SET <key> <result> PXAT <timestamp>
+     */
+     if (args.flags & OBJ_PERSIST) {
+        if (removeExpire(c->db, c->argv[1])) {
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
+        }
+        rewriteClientCommandVector(c, 3, shared.set, c->argv[1], result);
+     } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !hasExpiry)) {
+        result = setExpire(c, c->db, c->argv[1], milliseconds);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c, 5, shared.set, c->argv[1], result, shared.pxat, milliseconds_obj);
+        decrRefCount(milliseconds_obj);
+     } else {
+        rewriteClientCommandVector(c, 4, shared.set, c->argv[1], result, shared.keepttl);
+     }
 }
 
 void appendCommand(client *c) {
