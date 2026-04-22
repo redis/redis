@@ -796,7 +796,11 @@ typedef enum {
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
-#define NOTIFY_RATE_LIMIT (1<<18) /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
+#define NOTIFY_RATE_LIMIT (1<<18)      /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
+#define NOTIFY_SUBKEYSPACE (1<<19)       /* S, subkey-level keyspace notification */
+#define NOTIFY_SUBKEYEVENT (1<<20)       /* T, subkey-level keyevent notification */
+#define NOTIFY_SUBKEYSPACEITEM (1<<21)   /* I, subkey-level notification per item: channel=key\nsubkey */
+#define NOTIFY_SUBKEYSPACEEVENT (1<<22)  /* V, subkey-level notification: channel=event|key */
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
 
 /* Using the following macro you can run code inside serverCron() with the
@@ -871,7 +875,15 @@ typedef enum {
  * - debug.c - xorObjectDigest, serverLogObjectDebugInfo
  * - defrag.c - defragKey
  * - module.c - RM_KeyType (and add the new keytype to redismodule.h)
- * - object.c - object(create/free/dismiss/allocSize/Length) */
+ * - object.c - object(create/free/dismiss/allocSize/Length)
+ * - tests/support/util.tcl:generate_fuzzy_traffic_on_key - add command(s) for the new object type to the `commands` dict.
+ *
+ * If the new object type requires new command group make sure to update the following:
+ * - src/commands/command-docs.json - update the group:oneOf map with the new group
+ * - utils/generate-command-code.py - add the new group to GROUPS and COMMAND_GROUP_STR arrays
+ * - src/acl.c - add the new group to ACLDefaultCommandCategories array
+ * - src/server.h - add the new group to redisCommandGroup enum
+ * - if needed add new KSN type related to the group - search for NOTIFY_* and REDISMODULE_NOTIFY_* defines. */
 
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
@@ -3078,7 +3090,7 @@ size_t moduleCount(void);
 void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
-void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 void firePostExecutionUnitJobs(void);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
@@ -3106,6 +3118,7 @@ void moduleDefragEnd(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 int moduleHasSubscribersForKeyspaceEvent(int type);
+int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type);
 
 /* pcmd */
 void initPendingCommand(pendingCommand *pcmd);
@@ -3841,8 +3854,10 @@ dict *getClientPubSubShardChannels(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void notifyKeyspaceEventWithSubkeys(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
+int isSubkeyNotifyEnabled(int type);
 
 /* As part of KSN the module should not attempt to modify the key. Nevertheless,
  * RediSearch does it in some specific flows and modifies key metadata which in

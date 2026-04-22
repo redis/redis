@@ -227,6 +227,14 @@ start_server {tags {"gcra" "external:skip"}} {
         catch {r gcra mykey 1 1 2147483647 TOKENS 2147483647} err
         assert_match "*would cause an overflow*" $err
     }
+
+    test {GCRASETVALUE - basic functionality} {
+        r del mykey
+        set tat_us [expr {[clock microseconds] + 60000000}]
+        assert_equal {OK} [r gcrasetvalue mykey $tat_us]
+        assert_equal {gcra} [r type mykey]
+        assert {[r pttl mykey] > 0}
+    }
 }
 
 start_server {tags {"gcra" "external:skip"}} {
