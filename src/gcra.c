@@ -212,8 +212,9 @@ void gcraCommand(client *c) {
         /* TaT is in microseconds; expirations are absolute ms. Ceil so the key
          * does not expire in the same millisecond when increment_us < 1000us
          * (floor would truncate TaT to the current ms and active expire could
-         * drop the key immediately, losing limiter state). */
-        long long when = (new_tat_us + 999) / 1000;
+         * drop the key immediately, losing limiter state). Use ceil() rather than
+         * (tat+999)/1000 to avoid signed overflow when tat is near LLONG_MAX. */
+        long long when = (long long)ceil((double)new_tat_us / 1000.0);
         kv = setExpireByLink(c, c->db, key->ptr, when, link);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
 
@@ -273,7 +274,7 @@ void gcraSetValueCommand(client *c) {
 
     /* Use ceil(ms) from tat microseconds so expire is not truncated to the past
      * or current millisecond. */
-    long long when_ms = (when + 999) / 1000;
+    long long when_ms = (long long)ceil((double)when / 1000.0);
     kv = setExpireByLink(c, c->db, key->ptr, when_ms, link);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     server.dirty++;
