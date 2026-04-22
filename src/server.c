@@ -1045,8 +1045,8 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  */
 void updateClientMemoryUsage(client *c) {
     serverAssert(c->conn);
-
     size_t mem = getClientMemoryUsage(c);
+
     int type = getClientType(c);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
