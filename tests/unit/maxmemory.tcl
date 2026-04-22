@@ -90,7 +90,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                     }
                 }
             }
- 
+
             verify_eviction_test $client_eviction
         }
         foreach rr $clients {
