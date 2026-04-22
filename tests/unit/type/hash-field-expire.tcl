@@ -2585,3 +2585,41 @@ start_server {tags {"hash"}} {
         }
     }
 }
+
+start_cluster 1 0 {tags {"expire external:skip cluster"}} {
+    test "HFE active expire drains many sparse slots within budget" {
+        # In cluster mode, db->subexpires is slot-partitioned across
+        # CLUSTER_SLOTS buckets. activeSubexpiresCycle processes one slot per
+        # cron tick. When each hash lives in its own slot (typical HFE
+        # workload: many small hashes with a single TTL'd field), draining N
+        # hashes takes N cron ticks. At hz=10, N=200 hashes => ~20 s to fully
+        # drain, which is the bug this test catches. A reasonable per-tick
+        # CPU budget (maxToExpire fields) should allow draining many sparse
+        # slots in one tick.
+        r config set hz 10
+        r debug set-active-expire 0
+
+        set n 200
+        set ttl_ms 50
+        for {set i 1} {$i <= $n} {incr i} {
+            r hset "h$i" f v
+            r hpexpire "h$i" $ttl_ms FIELDS 1 f
+        }
+
+        assert_equal [get_stat_subexpiry r] $n
+
+        # Wait for the TTL to elapse in wall-clock time (no timeleap in
+        # the core testsuite).
+        after [expr {$ttl_ms + 50}]
+
+        # Re-enable active expire. Give the cron 2 seconds to drain 200
+        # sparse slots. Without the fix this takes ~20 s; test fails.
+        r debug set-active-expire 1
+
+        wait_for_condition 20 100 {
+            [get_stat_subexpiry r] == 0
+        } else {
+            fail "subexpiry stuck at [get_stat_subexpiry r] after 2 s; expected 0 (one-slot-per-tick too slow for sparse distribution)"
+        }
+    }
+}
