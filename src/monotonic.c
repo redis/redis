@@ -113,6 +113,17 @@ static void monotonicInit_x86linux(void) {
         return;
     }
 
+    /* Invariant TSC on modern x86 is guaranteed to be monotonic across a
+     * single core's context, but migration across sockets/cores with
+     * misaligned TSC, virtualisation, or firmware quirks can still produce
+     * a non-monotonic sample pair. Subtracting uint64_t in that case would
+     * wrap to a huge value and yield a nonsense tick rate, so bail out to
+     * the POSIX clock path. */
+    if (tsc_end <= tsc_start) {
+        fprintf(stderr, "monotonic: x86 linux, non-monotonic TSC during calibration\n");
+        return;
+    }
+
     /* ticks_per_us = total_ticks / total_microseconds
      * Multiply first to preserve precision, then divide. */
     mono_ticksPerMicrosecond = (long)((tsc_end - tsc_start) * 1000 / elapsed_ns);
