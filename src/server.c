@@ -2434,9 +2434,9 @@ void initServerConfig(void) {
 
     /* Double constants initialization */
     R_Zero = 0.0;
-    R_PosInf = INFINITY;
-    R_NegInf = -INFINITY;
-    R_Nan = NAN;
+    R_PosInf = 1.0/R_Zero;
+    R_NegInf = -1.0/R_Zero;
+    R_Nan = R_Zero/R_Zero;
 
     /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via

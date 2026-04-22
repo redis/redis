@@ -1793,21 +1793,9 @@ static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int 
     int saved_errno;
     char *err_op;    /* For a detailed log */
 
-    
-    
-    char abs_filename[1024];
-    char *cwdp = getcwd(cwd, 1024);
-    if (cwdp && filename[0] != '/' && filename[0] != '\\' && filename[1] != ':') {
-        snprintf(abs_filename, 1024, "%s\\%s", cwdp, filename);
-    } else {
-        snprintf(abs_filename, 1024, "%s", filename);
-    }
-    FILE *fp = fopen(abs_filename, "w");
-
-
+    FILE *fp = fopen(filename,"w");
     if (!fp) {
         saved_errno = errno;
-
         char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,

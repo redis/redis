@@ -281,6 +281,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
 if(MSVC)
+if(EXISTS "${CMAKE_SOURCE_DIR}/src/rdb.c")
+    file(READ "${CMAKE_SOURCE_DIR}/src/rdb.c" RDB_C_CONTENT)
+    string(REPLACE "FILE *fp = fopen(filename,\"w\");" "char abs_filename[1024];\n    char *cwdp = getcwd(cwd, 1024);\n    if (cwdp && filename[0] != '/' && filename[0] != '\\\\' && filename[1] != ':') {\n        snprintf(abs_filename, 1024, \"%s\\\\\\\\%s\", cwdp, filename);\n    } else {\n        snprintf(abs_filename, 1024, \"%s\", filename);\n    }\n    FILE *fp = fopen(abs_filename, \"w\");" RDB_C_CONTENT "${RDB_C_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/rdb.c" "${RDB_C_CONTENT}")
+endif()
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/server.c")
     file(READ "${CMAKE_SOURCE_DIR}/src/server.c" SERVER_C_CONTENT)
     string(REPLACE "void *samples[num_samples];" "void **samples = _alloca(sizeof(void*) * num_samples);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
@@ -290,6 +296,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/src/server.c")
     string(REPLACE "dictType commandTableDictType = {\n    dictSdsCaseHash,            /* hash function */\n    NULL,                       /* key dup */\n    NULL,                       /* val dup */\n    dictSdsKeyCaseCompare,      /* key compare */\n    dictSdsDestructor,          /* key destructor */\n    NULL,                       /* val destructor */\n    NULL,                       /* allow to expand */\n    .force_full_rehash = 1,     /* force full rehashing */\n};" "dictType commandTableDictType = {\n    .hashFunction = dictSdsCaseHash,\n    .keyDup = NULL,\n    .valDup = NULL,\n    .keyCompare = dictSdsKeyCaseCompare,\n    .keyDestructor = dictSdsDestructor,\n    .valDestructor = NULL,\n    .resizeAllowed = NULL,\n    .force_full_rehash = 1,\n};" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     
     string(REPLACE "server.repl_full_sync_buffer = (struct replDataBuf) {0};" "memset(&server.repl_full_sync_buffer, 0, sizeof(server.repl_full_sync_buffer));" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
+    string(REPLACE "R_PosInf = 1.0/R_Zero;\n    R_NegInf = -1.0/R_Zero;\n    R_Nan = R_Zero/R_Zero;" "R_PosInf = INFINITY;\n    R_NegInf = -INFINITY;\n    R_Nan = NAN;" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/server.c" "${SERVER_C_CONTENT}")
 
 endif()
@@ -413,6 +420,7 @@ set(PATCHED_FILES
     "src/acl.c"
     "src/unit/main.cpp"
     "deps/linenoise/linenoise.c"
+    "src/rdb.c"
     "src/server.c"
     "src/redis-benchmark.c"
     "src/networking.c"
