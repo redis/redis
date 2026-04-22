@@ -76,7 +76,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 set rr [redis_deferring_client]
                 lappend clients $rr
             }
-
+            
             # Generate client output buffers via MGET until we can observe some effect on 
             # keys / client eviction, or we time out.
             set t [clock seconds]
