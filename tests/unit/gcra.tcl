@@ -76,11 +76,15 @@ start_server {tags {"gcra" "external:skip"}} {
         # 10k tokens / 1s => 100us emission interval.
         # First allowed TaT is now+100us; still inside the same ms as commandTimeSnapshot*1000,
         # so floor(TaT/1000) for PXAT can equal current ms and the key vanishes before the next command.
-        # Ceil ms fixes the issue.
-        set result [r gcra mykey 1 10000 1]
-        assert_equal 0 [lindex $result 0]
-        assert_equal 1 [r exists mykey]
-        assert {[r pttl mykey] > 0}
+        # Ceil ms fixes the issue. Implicit TTL can be ~1ms, so run GCRA + EXISTS + PTTL inside one
+        # EVAL: slow CI can otherwise expire the key between separate redis.tcl round trips.
+        set res [r eval {
+            local g = redis.call('GCRA', KEYS[1], '1', '10000', '1')
+            return {g[1], redis.call('EXISTS', KEYS[1]), redis.call('PTTL', KEYS[1])}
+        } 1 mykey]
+        assert_equal 0 [lindex $res 0]
+        assert_equal 1 [lindex $res 1]
+        assert {[lindex $res 2] > 0}
     }
 
     test {GCRA - requests within burst are allowed} {
