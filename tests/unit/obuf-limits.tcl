@@ -286,10 +286,8 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         $rr client setname test_client
         $rr flush
 
-        # reply_bytes_unshared is a cached value refreshed by clientsCronTrackExpansiveClients()
-        # once per cron tick, so we cannot observe it immediately after DEL.
-        # Loop until cron runs and updates omem-unshared while the referenced string
-        # is still sitting in the output buffer.
+        # Repeatedly SET/GET/DEL a big key on a deferred client and poll CLIENT LIST
+        # until omem-unshared on test_client reflects the referenced bytes.
         set val_size 100000
         set deadline [expr {[clock milliseconds] + 5000}]
         while {true} {
