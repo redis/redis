@@ -28,11 +28,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
         }
 
         r config resetstat
-        # fill 5mb using 50 keys of 100kb
-        for {set j 0} {$j < 50} {incr j} {
-            r setrange $j 100000 x
+        # fill 5mb using 500 keys of 10kb
+        for {set j 0} {$j < 500} {incr j} {
+            r setrange key$j 10000 x
         }
-        assert_equal [r dbsize] 50
+        assert_equal [r dbsize] 500
     }
     
     # Return true if the eviction occurred (client or key) based on argument
@@ -43,12 +43,12 @@ start_server {tags {"maxmemory" "external:skip"}} {
         
         if $client_eviction {
             if {[lindex [r config get io-threads] 1] == 1} {
-                return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50]
+                return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 500]
             } else {
-                return [expr $evicted_clients >= 0 && $evicted_keys >= 0 && $dbsize <= 50]
+                return [expr $evicted_clients >= 0 && $evicted_keys >= 0 && $dbsize <= 500]
             }
         } else {
-            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50]
+            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 500]
         }
     }
 
@@ -77,17 +77,13 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 lappend clients $rr
             }
 
-            # Disable reply copy avoidance so that MGET can increase memory usage
-            # and trigger keys/clients eviction.
-            r debug reply-copy-avoidance 0
-            
             # Generate client output buffers via MGET until we can observe some effect on 
             # keys / client eviction, or we time out.
             set t [clock seconds]
             while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 foreach rr $clients {
                     if {[catch {
-                        $rr mget 1
+                        $rr mget key1 key2 key3 key4 key5 key6 key7 key8 key9 key10
                         $rr flush
                     } err]} {
                         lremove clients $rr
@@ -95,8 +91,6 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 }
             }
  
-            r debug reply-copy-avoidance 1
-
             verify_eviction_test $client_eviction
         }
         foreach rr $clients {
