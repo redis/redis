@@ -134,4 +134,6 @@ target_link_libraries(redis-cli hdr_histogram ffc xxhash)
 
 
 
-set_target_properties(redis-server PROPERTIES LINK_FLAGS /MAP)
+if(MSVC)
+    set_target_properties(redis-server PROPERTIES LINK_FLAGS /MAP)
+endif()

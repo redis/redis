@@ -51,8 +51,6 @@ Testing/
 *.exe
 *.pdb
 *.ilk
-test_exec.tcl
-tests/exec_override.tcl
 
 # Test outputs and temporary files
 tests/tmp/
@@ -66,9 +64,20 @@ patch*.py
 reset_trace.ps1
 
 # Temporary test source and script files
-test*.c
-test*.py
-test*.tcl
-test*.txt
+test_*.c
+test_*.py
+test_*.tcl
+test_*.txt
+test.c
+test.py
+test.txt
+tests_list.txt
+out.txt
+build_output.txt
+run_cdb.bat
+fix_cmake.py
+apply_final_fixes.py
+build2/
+build_msvc/
 posix-sockets.c
 src/test_hash.c

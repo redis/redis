@@ -1,5 +1,5 @@
 set override_file [file join [file dirname [info script]] exec_override.tcl]
-if {[file exists $override_file]} { source $override_file } else { source [file join [file dirname [info script]] .. exec_override.tcl] }
+if {[file exists $override_file]} { source $override_file } elseif {[file exists [file join [file dirname [info script]] .. exec_override.tcl]]} { source [file join [file dirname [info script]] .. exec_override.tcl] }
 # Redis test suite.
 #
 # Copyright (C) 2014-Present, Redis Ltd.
@@ -179,7 +179,7 @@ proc reconnect {args} {
     set host [dict get $srv "host"]
     set port [dict get $srv "port"]
     set config [dict get $srv "config"]
-    set f [open "C:/Users/samue/repos/redis/reconnect_trace.txt" a]; puts $f "Calling redis $host $port"; close $f; set client [redis $host $port 0 $::tls]; set f [open "C:/Users/samue/repos/redis/reconnect_trace.txt" a]; puts $f "Done calling redis"; close $f
+    set client [redis $host $port 0 $::tls]
     if {[dict exists $srv "client"]} {
         set old [dict get $srv "client"]
         $old close
@@ -550,6 +550,7 @@ proc test_client_main server_port {
             } elseif {$cmd eq {run_code}} {
                 catch {send_data_packet $::test_server_fd done [lindex $data 0]}
             }
+            exit 1
         }
     }
 }

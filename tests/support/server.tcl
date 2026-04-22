@@ -119,8 +119,13 @@ proc kill_server config {
     send_data_packet $::test_server_fd server-killing $pid
     # Node might have been stopped in the test
     # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
-    catch {exec taskkill /F /PID $pid}
-    catch {exec taskkill /F /PID $pid}
+    if {$::tcl_platform(platform) eq "windows"} {
+        catch {exec taskkill /F /PID $pid}
+        catch {exec taskkill /F /PID $pid}
+    } else {
+        catch {exec kill -CONT $pid}
+        catch {exec kill -TERM $pid}
+    }
     if {$::valgrind} {
         set max_wait 120000
     } else {
@@ -131,10 +136,18 @@ proc kill_server config {
 
         if {$wait == $max_wait} {
             puts "Forcing process $pid to crash..."
-            catch {exec taskkill /F /PID $pid}
+            if {$::tcl_platform(platform) eq "windows"} {
+                catch {exec taskkill /F /PID $pid}
+            } else {
+                catch {exec kill -SIGSEGV $pid}
+            }
         } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
-            catch {exec taskkill /F /PID $pid}
+            if {$::tcl_platform(platform) eq "windows"} {
+                catch {exec taskkill /F /PID $pid}
+            } else {
+                catch {exec kill -9 $pid}
+            }
         } elseif {$wait % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
         }
@@ -153,13 +166,21 @@ proc kill_server config {
 }
 
 proc is_alive pid {
-    if {[catch {exec tasklist /FI "PID eq $pid"} err]} {
-        return 0
+    if {$::tcl_platform(platform) eq "windows"} {
+        if {[catch {exec tasklist /FI "PID eq $pid"} err]} {
+            return 0
+        } else {
+            if {[string match "*$pid*" $err]} {
+                return 1
+            }
+            return 0
+        }
     } else {
-        if {[string match "*$pid*" $err]} {
+        if {[catch {exec kill -0 $pid} err]} {
+            return 0
+        } else {
             return 1
         }
-        return 0
     }
 }
 
@@ -682,8 +703,10 @@ proc start_server {options {code undefined}} {
         dict set config port $port
     }
 
-    # set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
-    # dict set config "unixsocket" $unixsocket
+    if {$::tcl_platform(platform) ne "windows"} {
+        set unixsocket [file normalize [format "%s/%s" [dict get $config "dir"] "socket"]]
+        dict set config "unixsocket" $unixsocket
+    }
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {

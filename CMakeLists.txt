@@ -227,10 +227,10 @@ else()
 #include <fcntl.h>
 static inline int __builtin_clz(unsigned int x) { unsigned long r; if (_BitScanReverse(&r, x)) return 31 - r; return 32; }
 static inline int __builtin_clzll(unsigned long long x) { unsigned long r; if (_BitScanReverse64(&r, x)) return 63 - r; return 64; }
-#define __builtin_clzl __builtin_clzll
+#define __builtin_clzl __builtin_clz
 static inline int __builtin_ctz(unsigned int x) { unsigned long r; if (_BitScanForward(&r, x)) return r; return 32; }
 static inline int __builtin_ctzll(unsigned long long x) { unsigned long r; if (_BitScanForward64(&r, x)) return r; return 64; }
-#define __builtin_ctzl __builtin_ctzll
+#define __builtin_ctzl __builtin_ctz
 static inline int __builtin_popcount(unsigned int x) { return __popcnt(x); }
 static inline uint64_t __builtin_bswap64(uint64_t x) { return _byteswap_uint64(x); }
 #define random rand
@@ -702,14 +702,14 @@ endif()
 
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "#define read posix_read
 #define write posix_write
-int posix_read(int fd, void *buf, unsigned int count);
-int posix_write(int fd, const void *buf, unsigned int count);
+ssize_t posix_read(int fd, void *buf, size_t count);
+ssize_t posix_write(int fd, const void *buf, size_t count);
 ")
 
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "#define _read posix_read
 #define _write posix_write
-int posix_read(int fd, void *buf, unsigned int count);
-int posix_write(int fd, const void *buf, unsigned int count);
+ssize_t posix_read(int fd, void *buf, size_t count);
+ssize_t posix_write(int fd, const void *buf, size_t count);
 ")
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define _close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp))\n#define __sync_fetch_and_add(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() _ReadWriteBarrier()\n\n")
 
@@ -740,5 +740,9 @@ endif()
 
 
 
-add_executable(test_msvc_c11 test_msvc_c11.c)
+if(MSVC)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_msvc_c11.c")
+        add_executable(test_msvc_c11 test_msvc_c11.c)
+    endif()
+endif()
 
