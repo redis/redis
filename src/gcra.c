@@ -208,7 +208,12 @@ void gcraCommand(client *c) {
          * These keys are expected to be numerous and short lived thus the
          * decision to keep the implicit expiraty.
          * NOTE: idea is same as in redis-cell. */
-        long long when = new_tat_us / 1000;
+
+        /* TaT is in microseconds; expirations are absolute ms. Ceil so the key
+         * does not expire in the same millisecond when increment_us < 1000us
+         * (floor would truncate TaT to the current ms and active expire could
+         * drop the key immediately, losing limiter state). */
+        long long when = (new_tat_us + 999) / 1000;
         kv = setExpireByLink(c, c->db, key->ptr, when, link);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
 
@@ -265,7 +270,10 @@ void gcraSetValueCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_RATE_LIMIT,"gcra",key,c->db->id);
 
     /* Just like the base GCRA command we set the expire time of the key implicitly. */
-    long long when_ms = when / 1000;
+
+    /* Use ceil(ms) from tat microseconds so expire is not truncated to the past
+     * or current millisecond. */
+    long long when_ms = (when + 999) / 1000;
     kv = setExpireByLink(c, c->db, key->ptr, when_ms, link);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     server.dirty++;

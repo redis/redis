@@ -71,6 +71,18 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_equal 0 $limited
     }
 
+    test {GCRA - sub-millisecond TaT does not expire key at current ms (PXAT ceil)} {
+        r del mykey
+        # 10k tokens / 1s => 100us emission interval.
+        # First allowed TaT is now+100us; still inside the same ms as commandTimeSnapshot*1000,
+        # so floor(TaT/1000) for PXAT can equal current ms and the key vanishes before the next command.
+        # Ceil ms fixes the issue.
+        set result [r gcra mykey 1 10000 1]
+        assert_equal 0 [lindex $result 0]
+        assert_equal 1 [r exists mykey]
+        assert {[r pttl mykey] > 0}
+    }
+
     test {GCRA - requests within burst are allowed} {
         r del mykey
         # max_burst=5, tokens_per_period=1, period=60
