@@ -626,8 +626,8 @@ function(copy_runtest_script script_name)
     # Insert our environment variable lines
     set(insert_content
 "# Most tests assume running from the project root
-cd ${CMAKE_SOURCE_DIR}
-export REDIS_BIN_DIR=\"${CMAKE_BINARY_DIR}/bin\"
+cd \"${CMAKE_SOURCE_DIR}\"
+export REDIS_BIN_DIR=\"${CMAKE_BINARY_DIR}/bin/Release\"
 ")
     string(REPLACE "which tclsh$VERSION" "which tclsh" script_body "${script_body}")
     # Reconstruct the full script
@@ -654,14 +654,14 @@ if (TCLSH_EXECUTABLE)
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ${CMAKE_SOURCE_DIR}/src/redis-check-rdb
         DEPENDS redis-server redis-cli
     )
-    #add_test(NAME runtest COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_helper.tcl WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    #set_tests_properties(runtest PROPERTIES TIMEOUT 600)
-    #add_test(NAME runtest-cluster COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/cluster/run.tcl WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    #set_tests_properties(runtest-cluster PROPERTIES TIMEOUT 600)
-    #add_test(NAME runtest-sentinel COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/sentinel/run.tcl WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    #set_tests_properties(runtest-sentinel PROPERTIES TIMEOUT 600)
-    #add_test(NAME runtest-moduleapi COMMAND ${TCLSH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_helper.tcl --single unit/moduleapi/commandfilter WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    #set_tests_properties(runtest-moduleapi PROPERTIES TIMEOUT 600)
+    add_test(NAME runtest COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest --clients 1 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest PROPERTIES TIMEOUT 1200)
+    add_test(NAME runtest-cluster COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-cluster --clients 1 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest-cluster PROPERTIES TIMEOUT 1200)
+    add_test(NAME runtest-sentinel COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-sentinel --clients 1 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest-sentinel PROPERTIES TIMEOUT 1200)
+    add_test(NAME runtest-moduleapi COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-moduleapi --clients 1 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(runtest-moduleapi PROPERTIES TIMEOUT 1200)
 endif()
 
 
@@ -702,14 +702,14 @@ endif()
 
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "#define read posix_read
 #define write posix_write
-ssize_t posix_read(int fd, void *buf, size_t count);
-ssize_t posix_write(int fd, const void *buf, size_t count);
+int posix_read(int fd, void *buf, unsigned int count);
+int posix_write(int fd, const void *buf, unsigned int count);
 ")
 
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "#define _read posix_read
 #define _write posix_write
-ssize_t posix_read(int fd, void *buf, size_t count);
-ssize_t posix_write(int fd, const void *buf, size_t count);
+int posix_read(int fd, void *buf, unsigned int count);
+int posix_write(int fd, const void *buf, unsigned int count);
 ")
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define _close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp))\n#define __sync_fetch_and_add(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() _ReadWriteBarrier()\n\n")
 

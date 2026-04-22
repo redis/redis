@@ -120,8 +120,8 @@ proc kill_server config {
     # Node might have been stopped in the test
     # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
     if {$::tcl_platform(platform) eq "windows"} {
-        catch {exec taskkill /F /PID $pid}
-        catch {exec taskkill /F /PID $pid}
+        catch {exec taskkill /F /T /PID $pid}
+        catch {exec taskkill /F /T /PID $pid}
     } else {
         catch {exec kill -CONT $pid}
         catch {exec kill -TERM $pid}
@@ -137,14 +137,14 @@ proc kill_server config {
         if {$wait == $max_wait} {
             puts "Forcing process $pid to crash..."
             if {$::tcl_platform(platform) eq "windows"} {
-                catch {exec taskkill /F /PID $pid}
+                catch {exec taskkill /F /T /PID $pid}
             } else {
                 catch {exec kill -SIGSEGV $pid}
             }
         } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
             if {$::tcl_platform(platform) eq "windows"} {
-                catch {exec taskkill /F /PID $pid}
+                catch {exec taskkill /F /T /PID $pid}
             } else {
                 catch {exec kill -9 $pid}
             }
