@@ -3878,7 +3878,7 @@ void xnackCommand(client *c) {
     } else if (!strcasecmp(c->argv[3]->ptr,"FATAL")) {
         mode = XNACK_FATAL;
     } else {
-        addReplyError(c,"ERR mode must be SILENT, FAIL, or FATAL");
+        addReplyError(c,"mode must be SILENT, FAIL, or FATAL");
         return;
     }
 
@@ -3897,7 +3897,7 @@ void xnackCommand(client *c) {
             numids = (int)numids_long;
             ids_start = i + 2;
             if (numids > (c->argc - ids_start)) {
-                addReplyError(c,"ERR number of IDs doesn't match numids");
+                addReplyError(c,"number of IDs doesn't match numids");
                 return;
             }
             i = ids_start + numids - 1;
@@ -3908,18 +3908,18 @@ void xnackCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
                 return;
             if (retrycount < 0) {
-                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0");
+                addReplyError(c,"Invalid RETRYCOUNT value, must be >= 0");
                 return;
             }
         } else {
-            addReplyErrorFormat(c,"ERR Unrecognized XNACK option '%s'",
+            addReplyErrorFormat(c,"Unrecognized XNACK option '%s'",
                                 (char *)c->argv[i]->ptr);
             return;
         }
     }
 
     if (ids_start == 0) {
-        addReplyError(c,"ERR syntax error, expected IDS keyword");
+        addReplyError(c,"syntax error, expected IDS keyword");
         return;
     }
 
