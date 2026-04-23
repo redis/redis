@@ -667,7 +667,7 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangestore dst fooz ( +inf BYSCORE}
             assert_error "*not*float*" {r zrangestore dst fooz -inf ( BYSCORE}
             assert_error "*not*float*" {r zrangestore dst fooz "" +inf BYSCORE}
-        }
+        } {} {cluster:skip}
 
         proc create_default_lex_zset {} {
             create_zset zset {0 alpha 0 bar 0 cool 0 down
