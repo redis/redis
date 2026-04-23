@@ -338,6 +338,82 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     return node;
 }
 
+/* Tail-append cache used by zslAppendTailCached(): callers track the
+ * per-level rightmost node + its 0-indexed rank so sequential sorted inserts
+ * skip the walk-from-head that zslInsertNode() performs. Must be zeroed
+ * before first use; 'initialized' is set by the first call. */
+typedef struct zslTailCache {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL];
+    unsigned long rank[ZSKIPLIST_MAXLEVEL];
+    int initialized;
+} zslTailCache;
+
+/* Append an already-created node at the tail of the skiplist, using a
+ * per-level tail cache to avoid the zslInsertNode() walk-from-head.
+ *
+ * CALLER CONTRACT: 'node's (score, element) must be >= the current tail's
+ * (score, element) under zslCompareWithNode(). If the invariant doesn't
+ * hold the resulting skiplist is corrupted, so this is intended for
+ * bulk-construction paths (e.g. ZRANGESTORE forward direction) that can
+ * prove the invariant by construction.
+ *
+ * Span bookkeeping is kept identical to zslInsertNode(): level-0 spans are
+ * implicit (derived from the forward pointer); level >= 1 spans are written
+ * using the same (rank[0] - rank[i]) + 1 formula so zslGetRank() /
+ * zslDelete() continue to work on the resulting skiplist. */
+static void zslAppendTailCached(zskiplist *zsl, zskiplistNode *node, zslTailCache *cache) {
+    int level = zslGetNodeInfo(node)->levels;
+    unsigned long insert_rank = zsl->length;  /* 0-indexed position of the new node */
+
+    if (!cache->initialized) {
+        for (int i = 0; i < ZSKIPLIST_MAXLEVEL; i++) {
+            cache->update[i] = zsl->header;
+            cache->rank[i] = 0;
+        }
+        cache->initialized = 1;
+    }
+
+    /* Extend skiplist level if the new node exceeds the current top. Matches
+     * the new-level branch of zslInsertNode() so headers' span accounting
+     * stays consistent (the intermediate zsl->length value is overwritten in
+     * the main stitch loop below for levels < 'level'). */
+    if (level > zsl->level) {
+        for (int i = zsl->level; i < level; i++) {
+            cache->update[i] = zsl->header;
+            cache->rank[i] = 0;
+            zslSetNodeSpanAtLevel(zsl->header, i, zsl->length);
+        }
+        zsl->level = level;
+        zslGetNodeInfo(zsl->header)->levels = level;
+    }
+
+    zskiplistNode *prev_level0 = cache->update[0];
+
+    /* Stitch the new node as the rightmost at each of its levels. */
+    for (int i = 0; i < level; i++) {
+        node->level[i].forward = NULL;  /* tail at this level */
+        cache->update[i]->level[i].forward = node;
+        /* New tail at level i has span 0; no-op at level 0 via setter. */
+        zslSetNodeSpanAtLevel(node, i, 0);
+        /* Predecessor span: distance from it (exclusive) to the new node
+         * (inclusive) in level-0 hops. */
+        zslSetNodeSpanAtLevel(cache->update[i], i, (insert_rank - cache->rank[i]) + 1);
+        cache->update[i] = node;
+        cache->rank[i] = insert_rank;
+    }
+
+    /* Levels above 'level': the existing rightmost at each level gains one
+     * more level-0 node beyond it, so its span grows by 1 (no-op at level 0). */
+    for (int i = level; i < zsl->level; i++) {
+        zslIncrNodeSpanAtLevel(cache->update[i], i, 1);
+    }
+
+    /* Backward pointer + tail update. */
+    node->backward = (prev_level0 == zsl->header) ? NULL : prev_level0;
+    zsl->tail = node;
+    zsl->length++;
+}
+
 /* Internal function used by zslDelete, zslDeleteRangeByScore and
  * zslDeleteRangeByRank.
  * This function only unlinks the node from the skiplist structure but does NOT free it.
@@ -3262,6 +3338,12 @@ struct zrange_result_handler {
     zrangeResultFinalizeFunction         finalizeResultEmission;
     zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
     zrangeResultEmitLongLongFunction     emitResultFromLongLong;
+    /* STORE mode: tail-append cache used when the destination is skiplist
+     * encoded and the source yields elements in monotonic (score, element)
+     * ascending order. 'bulk_disarmed' switches to the generic zsetAdd() slow
+     * path on the first violation. */
+    zslTailCache                         bulk_cache;
+    int                                  bulk_disarmed;
 };
 
 /* Result handler methods for responding the ZRANGE to clients.
@@ -3333,12 +3415,44 @@ static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
     handler->dstobj = zsetTypeCreate(length >= 0 ? length : 0, 0);
 }
 
+/* Tail-append fast path for skiplist-encoded destinations. Usable when the
+ * caller-provided (score, ele) is >= the current tail's. Returns 1 when the
+ * fast path was taken, 0 when the invariant failed (caller must fall back). */
+static int zrangeStoreTryAppend(zrange_result_handler *handler, double score, sds ele) {
+    if (handler->bulk_disarmed) return 0;
+    if (handler->dstobj->encoding != OBJ_ENCODING_SKIPLIST) return 0;
+    zset *zs = handler->dstobj->ptr;
+    zskiplist *zsl = zs->zsl;
+    if (zsl->tail != NULL && zslCompareWithNode(score, ele, zsl->tail) < 0) {
+        handler->bulk_disarmed = 1;
+        return 0;
+    }
+    dictEntryLink bucket;
+    dictEntryLink link = dictFindLink(zs->dict, ele, &bucket);
+    /* ZRANGESTORE sources are zsets (elements unique by construction); if a
+     * duplicate shows up anyway, fall back so zsetAdd() can do the right
+     * thing (GT/LT/UPDATED semantics) and avoid corrupting the index. */
+    if (link != NULL) {
+        handler->bulk_disarmed = 1;
+        return 0;
+    }
+    int level = zslRandomLevel();
+    zskiplistNode *znode = zslCreateNode(zsl, level, score, ele);
+    zslAppendTailCached(zsl, znode, &handler->bulk_cache);
+    dictSetKeyAtLink(zs->dict, znode, &bucket, 1);
+    return 1;
+}
+
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     const void *value, size_t value_length_in_bytes, double score)
 {
+    sds ele = sdsnewlen(value, value_length_in_bytes);
+    if (zrangeStoreTryAppend(handler, score, ele)) {
+        sdsfree(ele);
+        return;
+    }
     double newscore;
     int retflags = 0;
-    sds ele = sdsnewlen(value, value_length_in_bytes);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
@@ -3347,9 +3461,13 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     long long value, double score)
 {
+    sds ele = sdsfromlonglong(value);
+    if (zrangeStoreTryAppend(handler, score, ele)) {
+        sdsfree(ele);
+        return;
+    }
     double newscore;
     int retflags = 0;
-    sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
