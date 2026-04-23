@@ -342,6 +342,19 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
+/* Inline version of createStringObject(), used on hot paths where this call
+ * has been measured to be faster than original one.
+ * always_inline: force expansion at every call site.
+ * flatten:       transitively inline the callees (createEmbeddedStringObject /
+ *                createRawStringObject and their helpers) into the caller. */
+__attribute__((always_inline, flatten))
+inline robj *createStringObjectInline(const char *ptr, size_t len) {
+    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
+        return createEmbeddedStringObject(ptr,len);
+    else
+        return createRawStringObject(ptr,len);
+}
+
 /* Same as CreateRawStringObject, can return NULL if allocation fails */
 robj *tryCreateRawStringObject(const char *ptr, size_t len) {
     sds str = sdstrynewlen(ptr,len);

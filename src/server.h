@@ -3157,7 +3157,6 @@ void resetClient(client *c, int num_pcmds_to_free);
 void resetClientQbufState(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
-void freeClientPendingCommands(client *c, int num_pcmds_to_free);
 void tryDeferFreeClientObject(client *c, int type, void *ptr);
 void freeClientDeferredObjects(client *c, int free_array);
 void freeClientIODeferredObjects(client *c, int free_array);

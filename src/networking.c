@@ -1792,7 +1792,7 @@ void freeClientArgv(client *c) {
     freeClientArgvInternal(c, 1);
 }
 
-void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
+static inline void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
     /* (-1) means free all pending commands */
     if (num_pcmds_to_free == -1)
         num_pcmds_to_free = c->pending_cmds.len;
@@ -3286,7 +3286,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
                 (pcmd->argv)[(pcmd->argc)++] =
-                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);
+                    createStringObjectInline(c->querybuf+c->qb_pos,c->bulklen);
                 pcmd->argv_len_sum += c->bulklen;
                 c->all_argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
@@ -5596,7 +5596,7 @@ static int tryExpandPendingCommandPool(void) {
  * The shared pool is only used when IO threads are inactive to avoid race conditions
  * between multiple clients. Additionally, pool reuse provides minimal benefit in
  * multi-threaded scenarios, so we only use it in single-threaded mode. */
-static void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
+static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
     if (!server.io_threads_active) {
         /* Try to add to shared pool for reuse if argv isn't too large */
         if (likely(pcmd->argv_len < 64)) {

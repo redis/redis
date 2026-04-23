@@ -80,10 +80,27 @@ void je_free_with_usize(void *ptr, size_t *usize);
 #define realloc_with_usize(ptr,size,old_usize,new_usize) je_realloc_with_usize(ptr,size,old_usize,new_usize)
 #define free_with_usize(ptr,usize) je_free_with_usize(ptr,usize)
 #endif
+
+/* Compile-time jemalloc tuning: raise per-bin tcache limits for small size
+ * classes so bursts of same size small allocations don't spill into the
+ * arena which reduces performance.
+ *
+ *   lg_tcache_nslots_mul:3       default slot count log2 multiplier: 1 (2x) → 3 (8x).
+ *   tcache_nslots_small_max:700  per-bin hard cap 200 -> 700.
+ */
+const char *je_malloc_conf =
+    "lg_tcache_nslots_mul:3,tcache_nslots_small_max:700";
 #endif
 
-#define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
-#define THREAD_MASK (MAX_THREADS - 1)
+/* Per-thread memory accounting slots. The first DEDICATED_ENTRIES threads
+ * (typically the main thread plus the worker threads) each get a private
+ * slot and can use the cheap single-writer atomic operation (plain load+store). 
+ * Threads beyond that share a pool hashed by thread index and pay the cost of
+ * a full atomic RMW. */
+#define DEDICATED_ENTRIES 16
+#define SHARED_ENTRIES 16 /* Must be a power of 2 for modulo */
+#define SHARED_ENTRIES_MASK (SHARED_ENTRIES - 1)
+#define MAX_ENTRIES (DEDICATED_ENTRIES + SHARED_ENTRIES)
 #define PEAK_CHECK_THRESHOLD (1024 * 100) /* 100KB */
 
 typedef struct used_memory_entry {
@@ -92,7 +109,7 @@ typedef struct used_memory_entry {
     char padding[CACHE_LINE_SIZE - sizeof(long long) - sizeof(long long)];
 } used_memory_entry;
 
-static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_THREADS];
+static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_ENTRIES];
 static redisAtomic size_t num_active_threads = 0;
 static redisAtomic size_t zmalloc_peak = 0;
 static redisAtomic time_t zmalloc_peak_time = 0;
@@ -100,19 +117,38 @@ static __thread long my_thread_index = -1;
 
 static inline void init_my_thread_index(void) {
     if (unlikely(my_thread_index == -1)) {
-        atomicGetIncr(num_active_threads, my_thread_index, 1);
-        my_thread_index &= THREAD_MASK;
+        long idx;
+        atomicGetIncr(num_active_threads, idx, 1);
+        if (idx < DEDICATED_ENTRIES) {
+            my_thread_index = idx;
+        } else {
+            /* Overflow threads share the shared pool entries (atomic RMW). */
+            my_thread_index = DEDICATED_ENTRIES + ((idx - DEDICATED_ENTRIES) & SHARED_ENTRIES_MASK);
+        }
     }
 }
 
-static void update_zmalloc_stat_alloc(long long bytes_delta) {
+static inline long long update_used_memory_entry(used_memory_entry *entry, long long bytes_delta) {
+    long long thread_used;
+
+    if (my_thread_index < DEDICATED_ENTRIES) {
+        /* Dedicated slot: single writer, plain load+store (no lock prefix). */
+        atomicAddSingleWriter(entry->used_memory, bytes_delta, thread_used);
+    } else {
+        /* Shared pool slots: multiple writers, atomic RMW required. */
+        atomicIncrGet(entry->used_memory, thread_used, bytes_delta);
+    }
+    return thread_used;
+}
+
+static inline void update_zmalloc_stat_alloc(long long bytes_delta) {
     init_my_thread_index();
 
-    /* Per-thread allocation counter and the last counter value at which we ran a
-     * global peak check (throttles how often we call zmalloc_used_memory()). */
-    long long thread_used, thread_last_peak_check_used;
-    atomicIncrGet(used_memory[my_thread_index].used_memory, thread_used, bytes_delta);
-    atomicGet(used_memory[my_thread_index].last_peak_check, thread_last_peak_check_used);
+    used_memory_entry *entry = &used_memory[my_thread_index];
+    long long thread_used = update_used_memory_entry(entry, bytes_delta);
+
+    long long thread_last_peak_check_used;
+    atomicGet(entry->last_peak_check, thread_last_peak_check_used);
 
     /* Only run the (expensive) global used/peak check after this thread's
      * allocation counter has advanced enough since the last check. */
@@ -143,13 +179,13 @@ static void update_zmalloc_stat_alloc(long long bytes_delta) {
 
         /* Record the thread counter value at which we last ran a global peak check,
          * to throttle future checks for this thread. */
-        atomicSet(used_memory[my_thread_index].last_peak_check, thread_used);
+        atomicSet(entry->last_peak_check, thread_used);
     }
 }
 
-static void update_zmalloc_stat_free(long long num) {
+static inline void update_zmalloc_stat_free(long long num) {
     init_my_thread_index();
-    atomicDecr(used_memory[my_thread_index].used_memory, num);
+    update_used_memory_entry(&used_memory[my_thread_index], -num);
 }
 
 static void zmalloc_default_oom(size_t size) {
@@ -586,8 +622,8 @@ size_t zmalloc_used_memory(void) {
     size_t local_num_active_threads;
     long long total_mem = 0;
     atomicGet(num_active_threads,local_num_active_threads);
-    if (local_num_active_threads > MAX_THREADS) {
-        local_num_active_threads = MAX_THREADS;
+    if (local_num_active_threads > MAX_ENTRIES) {
+        local_num_active_threads = MAX_ENTRIES;
     }
     for (size_t i = 0; i < local_num_active_threads; ++i) {
         long long thread_used_mem;

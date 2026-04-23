@@ -136,6 +136,7 @@ void dismissObject(robj *o, size_t dump_size);
 robj *createObject(int type, void *ptr);
 void initObjectLRUOrLFU(robj *o);
 robj *createStringObject(const char *ptr, size_t len);
+robj *createStringObjectInline(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
 robj *tryCreateRawStringObject(const char *ptr, size_t len);
 robj *tryCreateStringObject(const char *ptr, size_t len);
