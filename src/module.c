@@ -9512,7 +9512,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
                 if (prev)
                     prev->next = r->next;
                 else
-                    clusterReceivers[type] = r->next; // Fix: Update the head pointer directly
+                    clusterReceivers[type] = r->next; /* Update the head */
                 zfree(r);
             }
             return;
