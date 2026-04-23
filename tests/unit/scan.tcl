@@ -482,7 +482,8 @@ proc test_scan {type} {
         set big_count [expr {$long_max / 10 + 1}]
         set res [r scan 0 count $big_count]
         assert {[llength $res] == 2}
-        assert {[string is integer [lindex $res 0]]}
+        assert_equal 0 [lindex $res 0]
+        assert_equal 10 [llength [lindex $res 1]]
     }
 
     test "{$type} SCAN MATCH pattern implies cluster slot" {
