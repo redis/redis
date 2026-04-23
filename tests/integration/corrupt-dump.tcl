@@ -1000,16 +1000,45 @@ test {corrupt payload: fuzzer findings - decrRefCount on NULL robj on corrupt KE
 }
 
 test {corrupt payload: stream with NACK shared between two consumers} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+    # Binary-patch a stream dump so two consumers share the same NACK entry,
+    # then exercise XACK / XREADGROUP / DEL to verify the server survives
+    # the resulting dangling pointer without crashing.
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
-        # Payload: stream with entry 1-0, one consumer group (mygroup),
-        # two consumers whose PELs both reference 1-0 (shared NACK).
-        # XACK on one consumer frees the NACK, leaving a dangling
-        # pointer in the other consumer's PEL (use-after-free).
-        catch {r RESTORE mystream 0 "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x01\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x7D\x08\x4E\xAA\x9D\x01\x00\x00\x01\x02\x09\x63\x6F\x6E\x73\x75\x6D\x65\x72\x41\x7D\x08\x4E\xAA\x9D\x01\x00\x00\x7D\x08\x4E\xAA\x9D\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x09\x63\x6F\x6E\x73\x75\x6D\x65\x72\x42\x7F\x08\x4E\xAA\x9D\x01\x00\x00\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x40\x64\x40\x64\x00\x00\x00\x0E\x00\xDA\x25\x97\x01\xA1\xA9\x48\x41"} err
-        catch {r XACK mystream mygroup 1-0} _
-        catch {r XREADGROUP GROUP mygroup consumerA COUNT 10 STREAMS mystream 0} _
-        catch {r DEL mystream} _
+
+        r XADD mystream 1-0 k v
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumerA COUNT 1 STREAMS mystream >
+        r XGROUP CREATECONSUMER mystream mygroup consumerB
+
+        set dump [r DUMP mystream]
+        r DEL mystream
+
+        # Patch consumerB's PEL to also claim entry 1-0 (already owned by
+        # consumerA). After the consumer name: seen_time(8B) + active_time(8B)
+        # + pel_count(1B rdbSaveLen) + N×16-byte stream IDs.
+        set consumer_name "consumerB"
+        set name_pos [string first $consumer_name $dump]
+        assert {$name_pos >= 0}
+        set pel_count_pos [expr {$name_pos + [string length $consumer_name] + 8 + 8}]
+
+        # Sanity-check: consumerB was created with no pending entries.
+        binary scan $dump @${pel_count_pos}cu pel_count
+        assert_equal $pel_count 0
+
+        # Replace pel_count 0 -> 1 and splice in stream-ID 1-0 (16 bytes:
+        # 8-byte big-endian ms + 8-byte big-endian seq).
+        set prefix [string range $dump 0 [expr {$pel_count_pos - 1}]]
+        set suffix [string range $dump [expr {$pel_count_pos + 1}] end]
+        set raw_id [binary format WW 1 0]
+
+        set patched_dump $prefix
+        append patched_dump [binary format cu 1] $raw_id $suffix
+
+        catch {r RESTORE mystream 0 $patched_dump replace} err
+        catch {r XACK mystream mygroup 1-0}
+        catch {r XREADGROUP GROUP mygroup consumerA COUNT 10 STREAMS mystream 0}
+        catch {r DEL mystream}
         assert_match "*Bad data format*" $err
         r ping
     }
