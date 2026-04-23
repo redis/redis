@@ -723,10 +723,12 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     } else {
         size_t len = sdslen(min->ptr);
         if (((char*)min->ptr)[0] == '(') {
+            if (len < 2) return C_ERR;
             spec->min = fast_float_strtod((char*)min->ptr+1,len-1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
         } else {
+            if (len == 0) return C_ERR;
             spec->min = fast_float_strtod((char*)min->ptr,len,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
@@ -736,10 +738,12 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     } else {
         size_t len = sdslen(max->ptr);
         if (((char*)max->ptr)[0] == '(') {
+            if (len < 2) return C_ERR;
             spec->max = fast_float_strtod((char*)max->ptr+1,len-1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
         } else {
+            if (len == 0) return C_ERR;
             spec->max = fast_float_strtod((char*)max->ptr,len,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
         }
