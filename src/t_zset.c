@@ -339,9 +339,11 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
 }
 
 /* Tail-append cache used by zslAppendTailCached(): callers track the
- * per-level rightmost node + its 0-indexed rank so sequential sorted inserts
- * skip the walk-from-head that zslInsertNode() performs. Must be zeroed
- * before first use; 'initialized' is set by the first call. */
+ * per-level rightmost node + total level-0 hops from header to reach it,
+ * so sequential sorted inserts skip the walk-from-head that zslInsertNode()
+ * performs. Must be zeroed before first use; 'initialized' is set by the
+ * first call. The 'rank' values here follow zslInsertNode() semantics:
+ * for a node at 0-indexed position p, rank = p + 1 (i.e. hops-from-header). */
 typedef struct zslTailCache {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL];
     unsigned long rank[ZSKIPLIST_MAXLEVEL];
@@ -366,9 +368,33 @@ static void zslAppendTailCached(zskiplist *zsl, zskiplistNode *node, zslTailCach
     unsigned long insert_rank = zsl->length;  /* 0-indexed position of the new node */
 
     if (!cache->initialized) {
-        for (int i = 0; i < ZSKIPLIST_MAXLEVEL; i++) {
-            cache->update[i] = zsl->header;
-            cache->rank[i] = 0;
+        /* Seed the cache with the current per-level rightmost node. Empty
+         * skiplist: update[i] = header, rank = 0. Non-empty (e.g. the
+         * destination was just converted from listpack to skiplist mid-
+         * store): walk the existing tail chain so our update[]/rank[]
+         * match what zslInsertNode() would have computed, otherwise the
+         * first stitch would overwrite header.forward and corrupt the
+         * existing chain. */
+        if (zsl->length == 0) {
+            for (int i = 0; i < ZSKIPLIST_MAXLEVEL; i++) {
+                cache->update[i] = zsl->header;
+                cache->rank[i] = 0;
+            }
+        } else {
+            zskiplistNode *x = zsl->header;
+            unsigned long r = 0;
+            for (int i = zsl->level - 1; i >= 0; i--) {
+                while (x->level[i].forward != NULL) {
+                    r += zslGetNodeSpanAtLevel(x, i);
+                    x = x->level[i].forward;
+                }
+                cache->update[i] = x;
+                cache->rank[i] = r;
+            }
+            for (int i = zsl->level; i < ZSKIPLIST_MAXLEVEL; i++) {
+                cache->update[i] = zsl->header;
+                cache->rank[i] = 0;
+            }
         }
         cache->initialized = 1;
     }
@@ -396,19 +422,24 @@ static void zslAppendTailCached(zskiplist *zsl, zskiplistNode *node, zslTailCach
         /* New tail at level i has span 0; no-op at level 0 via setter. */
         zslSetNodeSpanAtLevel(node, i, 0);
         /* Predecessor span: distance from it (exclusive) to the new node
-         * (inclusive) in level-0 hops. */
+         * (inclusive) in level-0 hops, using zslInsertNode's formula. */
         zslSetNodeSpanAtLevel(cache->update[i], i, (insert_rank - cache->rank[i]) + 1);
         cache->update[i] = node;
-        cache->rank[i] = insert_rank;
+        /* rank[i] = hops from header to update[i]. For a node at 0-indexed
+         * position insert_rank, that is insert_rank + 1 (matches the
+         * post-walk rank[i] zslInsertNode would produce for update[i]). */
+        cache->rank[i] = insert_rank + 1;
     }
 
     /* Levels above 'level': the existing rightmost at each level gains one
-     * more level-0 node beyond it, so its span grows by 1 (no-op at level 0). */
+     * more level-0 node beyond it, so its span grows by 1 (no-op at level 0).
+     * Its rank from header is unchanged (same node at same position). */
     for (int i = level; i < zsl->level; i++) {
         zslIncrNodeSpanAtLevel(cache->update[i], i, 1);
     }
 
-    /* Backward pointer + tail update. */
+    /* Backward pointer + tail update. Always-tail means node->forward[0]
+     * is NULL, so no existing node's backward pointer needs updating. */
     node->backward = (prev_level0 == zsl->header) ? NULL : prev_level0;
     zsl->tail = node;
     zsl->length++;
