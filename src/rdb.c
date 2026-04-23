@@ -3435,8 +3435,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                      * payload is corrupt — each global PEL entry must be
                      * claimed by exactly one consumer. */
                     if (nack->consumer != NULL) {
-                        rdbReportCorruptRDB("Stream consumer PEL entry "
-                                                "already has a consumer assigned");
+                        rdbReportCorruptRDB("Stream consumer PEL entry already has a consumer assigned");
                         decrRefCount(o);
                         return NULL;
                     }
