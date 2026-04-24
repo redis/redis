@@ -44,6 +44,7 @@
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
+#include <ctype.h>
 
 #define ZSL_OFFSET_MAX_ELE  UINT16_MAX
 #define ZSL_OFFSET_NO_ELE   UINT16_MAX
@@ -721,32 +722,22 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     if (min->encoding == OBJ_ENCODING_INT) {
         spec->min = (long)min->ptr;
     } else {
+        char *ptr = min->ptr;
         size_t len = sdslen(min->ptr);
-        if (((char*)min->ptr)[0] == '(') {
-            if (len < 2) return C_ERR;
-            spec->min = fast_float_strtod((char*)min->ptr+1,len-1,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
-            spec->minex = 1;
-        } else {
-            if (len == 0) return C_ERR;
-            spec->min = fast_float_strtod((char*)min->ptr,len,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
-        }
+        if (*ptr == '(') { ptr++; len--; spec->minex = 1; }
+        if (len == 0 || isspace((unsigned char)*ptr)) return C_ERR;
+        spec->min = fast_float_strtod(ptr,len,&eptr);
+        if ((size_t)(eptr-ptr) != len || isnan(spec->min)) return C_ERR;
     }
     if (max->encoding == OBJ_ENCODING_INT) {
         spec->max = (long)max->ptr;
     } else {
+        char *ptr = max->ptr;
         size_t len = sdslen(max->ptr);
-        if (((char*)max->ptr)[0] == '(') {
-            if (len < 2) return C_ERR;
-            spec->max = fast_float_strtod((char*)max->ptr+1,len-1,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
-            spec->maxex = 1;
-        } else {
-            if (len == 0) return C_ERR;
-            spec->max = fast_float_strtod((char*)max->ptr,len,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
-        }
+        if (*ptr == '(') { ptr++; len--; spec->maxex = 1; }
+        if (len == 0 || isspace((unsigned char)*ptr)) return C_ERR;
+        spec->max = fast_float_strtod(ptr,len,&eptr);
+        if ((size_t)(eptr-ptr) != len || isnan(spec->max)) return C_ERR;
     }
 
     return C_OK;

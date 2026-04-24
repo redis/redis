@@ -641,6 +641,13 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangebyscore fooz "" +inf}
             assert_error "*not*float*" {r zrangebyscore fooz -inf ""}
             assert_error "*not*float*" {r zrangebyscore fooz "" ""}
+            assert_error "*not*float*" {r zrangebyscore fooz "1\x00junk" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz -inf "1\x00junk"}
+            assert_error "*not*float*" {r zrangebyscore fooz "(1\x00junk" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz " 1.5" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz -inf " 1.5"}
+            assert_error "*not*float*" {r zrangebyscore fooz "( 1.5" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz "\t1" +inf}
         }
 
         test "ZREVRANGEBYSCORE with malformed min or max - $encoding" {
