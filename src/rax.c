@@ -1261,7 +1261,8 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 static void raxFreeNodesWithCallback(rax *rax, raxNode *n,
                                      void (*free_callback)(void *item),
                                      void (*free_callback_withctx)(void *item, void *ctx),
-                                     void *ctx) {
+                                     void *ctx)
+{
     raxStack stack;
     raxStackInit(&stack);
     raxStackPush(&stack, n);
