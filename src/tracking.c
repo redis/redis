@@ -56,7 +56,20 @@ void disableTracking(client *c) {
             int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
             serverAssert(found);
             bcastState *bs = result;
-            raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
+
+            /* Find the user bucket and remove this client from it. */
+            rax *user_clients;
+            found = raxFind(bs->clients,
+                            (unsigned char*)&c->user, sizeof(c->user),
+                            (void**)&user_clients);
+            serverAssert(found);
+            raxRemove(user_clients,(unsigned char*)&c,sizeof(c),NULL);
+            if (raxSize(user_clients) == 0) {
+                raxFree(user_clients);
+                raxRemove(bs->clients,
+                          (unsigned char*)&c->user,sizeof(c->user),NULL);
+            }
+
             /* Was it the last client? Remove the prefix from the
              * table. */
             if (raxSize(bs->clients) == 0) {
@@ -134,7 +147,7 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
 
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
-void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
+static void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     void *result;
     bcastState *bs;
     /* If this is the first client subscribing to such prefix, create
@@ -147,7 +160,20 @@ void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     } else {
         bs = result;
     }
-    if (raxTryInsert(bs->clients,(unsigned char*)&c,sizeof(c),NULL,NULL)) {
+
+    /* Find or create the per-user client set. */
+    rax *user_clients;
+    if (!raxFind(bs->clients,
+                 (unsigned char*)&c->user,sizeof(c->user),
+                 (void**)&user_clients))
+    {
+        user_clients = raxNew();
+        raxInsert(bs->clients,
+                  (unsigned char*)&c->user,sizeof(c->user),
+                  user_clients,NULL);
+    }
+
+    if (raxTryInsert(user_clients,(unsigned char*)&c,sizeof(c),NULL,NULL)) {
         if (c->client_tracking_prefixes == NULL)
             c->client_tracking_prefixes = raxNew();
         raxInsert(c->client_tracking_prefixes,
@@ -552,28 +578,30 @@ void trackingLimitUsedSlots(void) {
 }
 
 /* Generate Redis protocol for an array containing all the key names
- * in the 'keys' radix tree. If the client is not NULL, the list will not
- * include keys that were modified the last time by this client, in order
- * to implement the NOLOOP option.
+ * in the 'keys' radix tree, filtered by ACL permissions of user 'u' and
+ * optionally by NOLOOP (skipping keys last modified by 'noloop_client').
+ *
+ * If 'u' is non-NULL, keys the user is not permitted to observe are excluded.
+ * If 'c' is non-NULL, keys whose last modifier (ri.data) matches
+ * that client are excluded.
  *
  * If the resulting array would be empty, NULL is returned instead. */
-sds trackingBuildBroadcastReply(client *c, rax *keys) {
+sds trackingBuildBroadcastReply(user *u, client *c, rax *keys) {
+    debugServerAssert(!c || c->flags & CLIENT_TRACKING_NOLOOP);
     raxIterator ri;
-    uint64_t count;
+    uint64_t count = 0;
 
-    if (c == NULL) {
-        count = raxSize(keys);
-    } else {
-        count = 0;
-        raxStart(&ri,keys);
-        raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
-            if (ri.data != c) count++;
-        }
-        raxStop(&ri);
-
-        if (count == 0) return NULL;
+    raxStart(&ri, keys);
+    raxSeek(&ri, "^",NULL,0);
+    while(raxNext(&ri)) {
+        if (c && ri.data == c) continue;
+        if (u && ACLUserCheckKeyPerm(u, (const char*)ri.key, ri.key_len,
+                                     ACL_READ_PERMISSION) != ACL_OK) continue;
+        count++;
     }
+    raxStop(&ri);
+
+    if (count == 0) return NULL;
 
     /* Create the array reply with the list of keys once, then send
     * it to all the clients subscribed to this prefix. */
@@ -588,6 +616,8 @@ sds trackingBuildBroadcastReply(client *c, rax *keys) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         if (c && ri.data == c) continue;
+        if (u && ACLUserCheckKeyPerm(u,(const char*)ri.key,ri.key_len,
+                                     ACL_READ_PERMISSION) != ACL_OK) continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
         proto = sdscatlen(proto,"$",1);
         proto = sdscatlen(proto,buf,len);
@@ -599,11 +629,127 @@ sds trackingBuildBroadcastReply(client *c, rax *keys) {
     return proto;
 }
 
+/* Send pending BCAST invalidation messages for a single prefix's
+ * bcastState, then reset bs->keys. Iterates user buckets, builds
+ * one proto per user, and sends to each client in the bucket. */
+static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
+    if (raxSize(bs->keys) == 0) return;
+
+    raxIterator ri, ri2;
+    raxStart(&ri,bs->clients);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u;
+        memcpy(&u,ri.key,sizeof(u));
+        rax *user_clients = ri.data;
+
+        sds proto = trackingBuildBroadcastReply(u, NULL, bs->keys);
+
+        raxStart(&ri2,user_clients);
+        raxSeek(&ri2,"^",NULL,0);
+        while(raxNext(&ri2)) {
+            client *c;
+            memcpy(&c,ri2.key,sizeof(c));
+
+            if (c->flags & CLIENT_TRACKING_NOLOOP) {
+                sds adhoc = trackingBuildBroadcastReply(u, c, bs->keys);
+                if (!adhoc) continue;
+                sendTrackingMessage(c, adhoc,
+                                    sdslen(adhoc), 1);
+                sdsfree(adhoc);
+                continue;
+            }
+            if (!proto) continue;
+
+            sendTrackingMessage(c, proto, sdslen(proto), 1);
+        }
+        raxStop(&ri2);
+
+        sdsfree(proto);
+    }
+    raxStop(&ri);
+
+    raxFree(bs->keys);
+    bs->keys = raxNew();
+}
+
+/* Send pending BCAST invalidation messages for every prefix in
+ * 'prefixes' (a rax of prefix -> NULL, i.e. client_tracking_prefixes).
+ * This triggers the full broadcast cycle for each matching prefix. */
+static void trackingBcastSendInvalidationsForPrefixes(rax *prefixes) {
+    raxIterator ri;
+    raxStart(&ri,prefixes);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        void *result;
+        int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+        serverAssert(found);
+        trackingBcastInvalidationsForPrefix(result);
+    }
+    raxStop(&ri);
+}
+
+/* Move client 'c' from its current user bucket to the bucket for
+ * 'new_user' in every bcastState the client subscribes to.
+ * Must be called BEFORE c->user is updated. */
+static void trackingBcastMoveClient(client *c, user *new_user) {
+    raxIterator ri;
+    raxStart(&ri,c->client_tracking_prefixes);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        void *result;
+        int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+        serverAssert(found);
+        bcastState *bs = result;
+
+        /* Remove from old user bucket. */
+        rax *from_clients;
+        found = raxFind(bs->clients,
+                        (unsigned char*)&c->user,sizeof(c->user),
+                        (void**)&from_clients);
+        serverAssert(found);
+        raxRemove(from_clients,(unsigned char*)&c,sizeof(c),NULL);
+        if (raxSize(from_clients) == 0) {
+            raxFree(from_clients);
+            raxRemove(bs->clients,
+                      (unsigned char*)&c->user,sizeof(c->user),NULL);
+        }
+
+        /* Insert into new user bucket. */
+        rax *to_clients;
+        if (!raxFind(bs->clients,
+                     (unsigned char*)&new_user,sizeof(new_user),
+                     (void**)&to_clients))
+        {
+            to_clients = raxNew();
+            raxInsert(bs->clients,
+                      (unsigned char*)&new_user,sizeof(new_user),
+                      to_clients,NULL);
+        }
+        raxTryInsert(to_clients,
+                     (unsigned char*)&c,sizeof(c),NULL,NULL);
+    }
+    raxStop(&ri);
+}
+
+/* Prepare a BCAST tracking client for a user change: flush all pending
+ * invalidation messages for its prefixes (so every subscriber receives
+ * them under the current ACL identity), then move the client to the
+ * bucket for 'new_user'.
+ * Must be called BEFORE c->user is updated. */
+void trackingBroadcastPostUserSwitch(client *c, user *new_user) {
+    if (!(c->flags & CLIENT_TRACKING_BCAST)) return;
+    if (c->user == new_user) return;
+
+    trackingBcastSendInvalidationsForPrefixes(c->client_tracking_prefixes);
+    trackingBcastMoveClient(c, new_user);
+}
+
 /* This function will run the prefixes of clients in BCAST mode and
  * keys that were modified about each prefix, and will send the
  * notifications to each client in each prefix. */
 void trackingBroadcastInvalidationMessages(void) {
-    raxIterator ri, ri2;
+    raxIterator ri;
 
     /* Return ASAP if there is nothing to do here. */
     if (TrackingTable == NULL || !server.tracking_clients) return;
@@ -611,41 +757,8 @@ void trackingBroadcastInvalidationMessages(void) {
     raxStart(&ri,PrefixTable);
     raxSeek(&ri,"^",NULL,0);
 
-    /* For each prefix... */
     while(raxNext(&ri)) {
-        bcastState *bs = ri.data;
-
-        if (raxSize(bs->keys)) {
-            /* Generate the common protocol for all the clients that are
-             * not using the NOLOOP option. */
-            sds proto = trackingBuildBroadcastReply(NULL,bs->keys);
-
-            /* Send this array of keys to every client in the list. */
-            raxStart(&ri2,bs->clients);
-            raxSeek(&ri2,"^",NULL,0);
-            while(raxNext(&ri2)) {
-                client *c;
-                memcpy(&c,ri2.key,sizeof(c));
-                if (c->flags & CLIENT_TRACKING_NOLOOP) {
-                    /* This client may have certain keys excluded. */
-                    sds adhoc = trackingBuildBroadcastReply(c,bs->keys);
-                    if (adhoc) {
-                        sendTrackingMessage(c,adhoc,sdslen(adhoc),1);
-                        sdsfree(adhoc);
-                    }
-                } else {
-                    sendTrackingMessage(c,proto,sdslen(proto),1);
-                }
-            }
-            raxStop(&ri2);
-
-            /* Clean up: we can remove everything from this state, because we
-             * want to only track the new keys that will be accumulated starting
-             * from now. */
-            sdsfree(proto);
-        }
-        raxFree(bs->keys);
-        bs->keys = raxNew();
+        trackingBcastInvalidationsForPrefix(ri.data);
     }
     raxStop(&ri);
 }

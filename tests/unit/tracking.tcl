@@ -883,6 +883,127 @@ start_server {tags {"tracking network logreqres:skip"}} {
         assert_equal {PONG} [$rd read]
     }
 
+    test {BCAST ACL filtering - two clients same user see only permitted keys} {
+        clean_all
+
+        r ACL SETUSER shareduser on >pass123 ~public:* +@all
+        set c1 [redis_deferring_client]
+        set c2 [redis_deferring_client]
+
+        $c1 AUTH shareduser pass123
+        $c1 read
+
+        $c2 AUTH shareduser pass123
+        $c2 read
+
+        $c1 HELLO 3
+        $c1 read
+        $c2 HELLO 3
+        $c2 read
+
+        $c1 CLIENT TRACKING on BCAST PREFIX public: PREFIX admin:
+        assert_match {*OK*} [$c1 read]
+        $c2 CLIENT TRACKING on BCAST PREFIX public: PREFIX admin:
+        assert_match {*OK*} [$c2 read]
+
+        $rd_sg MSET public:a{t} 1 admin:b{t} 2
+
+        # Both clients should receive exactly {public:a{t}} for the
+        # public: prefix, and nothing for admin: (filtered out by ACL).
+        set c1_keys {}
+        set c2_keys {}
+        # Read invalidation messages: there are two prefixes, but only
+        # public: should have data for shareduser.
+        after 100
+        $c1 PING
+        set c1_resp [$c1 read]
+        if {[lindex $c1_resp 0] eq "invalidate"} {
+            set c1_keys [lindex $c1_resp 1]
+            # Read the PONG
+            $c1 read
+        }
+        $c2 PING
+        set c2_resp [$c2 read]
+        if {[lindex $c2_resp 0] eq "invalidate"} {
+            set c2_keys [lindex $c2_resp 1]
+            # Read the PONG
+            $c2 read
+        }
+
+        assert_equal [lsort $c1_keys] [list public:a{t}]
+        assert_equal [lsort $c2_keys] [list public:a{t}]
+
+        $c1 CLIENT TRACKING off
+        $c1 read
+        $c2 CLIENT TRACKING off
+        $c2 read
+        $c1 close
+        $c2 close
+        r ACL DELUSER shareduser
+    }
+
+    test {BCAST re-AUTH re-buckets correctly with ACL filtering} {
+        clean_all
+
+        r ACL SETUSER userA on >passA ~a:* +@all
+        r ACL SETUSER userB on >passB ~b:* +@all
+
+        set tc [redis_deferring_client]
+        $tc AUTH userA passA
+        $tc read
+
+        $tc HELLO 3
+        $tc read
+
+        $tc CLIENT TRACKING on BCAST PREFIX a: PREFIX b:
+        assert_match {*OK*} [$tc read]
+
+        # Write keys matching both prefixes.
+        $rd_sg SET a:1{t} val1
+        $rd_sg SET b:1{t} val1
+
+        # Under userA, only a:* is visible.
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list a:1{t}]
+
+        # Re-AUTH as userB.
+        $tc AUTH userB passB
+        $tc read
+
+        # Write again.
+        $rd_sg SET a:2{t} val2
+        $rd_sg SET b:2{t} val2
+
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list b:2{t}]
+
+        $tc CLIENT TRACKING off
+        $tc read
+        $tc close
+        r ACL DELUSER userA
+        r ACL DELUSER userB
+    }
+
     $rd_redirection close
     $rd_sg close
     $rd close

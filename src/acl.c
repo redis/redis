@@ -1496,8 +1496,10 @@ void addAuthErrReply(client *c, robj *err) {
  * The return value is AUTH_OK on success (valid username / password pair) & AUTH_ERR otherwise. */
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
+        user *new_user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        trackingBroadcastPostUserSwitch(c, new_user);
         c->authenticated = 1;
-        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        c->user = new_user;
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -2481,6 +2483,7 @@ sds ACLLoadFromFile(const char *filename) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
+            trackingBroadcastPostUserSwitch(c,new);
             c->user = new;
         }
 
