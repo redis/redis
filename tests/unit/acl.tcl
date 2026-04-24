@@ -277,7 +277,13 @@ start_server {tags {"acl external:skip"}} {
         $rd SUBSCRIBE foo:1
         $rd read
         r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
+        # ACL revocation schedules the pub/sub client for async close, so wait
+        # until CLIENT LIST no longer exposes the client.
+        wait_for_condition 50 100 {
+            [string match {*deathrow*} [r CLIENT LIST]] == 0
+        } else {
+            fail "Client still listed in CLIENT LIST after ACL channel permission revocation."
+        }
         $rd close
     } {0}
 
@@ -291,7 +297,13 @@ start_server {tags {"acl external:skip"}} {
         $rd SSUBSCRIBE foo:1
         $rd read
         r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
+        # ACL revocation schedules the pub/sub client for async close, so wait
+        # until CLIENT LIST no longer exposes the client.
+        wait_for_condition 50 100 {
+            [string match {*deathrow*} [r CLIENT LIST]] == 0
+        } else {
+            fail "Client still listed in CLIENT LIST after ACL channel permission revocation."
+        }
         $rd close
     } {0}
 
@@ -305,7 +317,13 @@ start_server {tags {"acl external:skip"}} {
         $rd PSUBSCRIBE bar:*
         $rd read
         r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
+        # ACL revocation schedules the pub/sub client for async close, so wait
+        # until CLIENT LIST no longer exposes the client.
+        wait_for_condition 50 100 {
+            [string match {*deathrow*} [r CLIENT LIST]] == 0
+        } else {
+            fail "Client still listed in CLIENT LIST after ACL channel permission revocation."
+        }
         $rd close
     } {0}
 
@@ -319,7 +337,13 @@ start_server {tags {"acl external:skip"}} {
         $rd PSUBSCRIBE foo
         $rd read
         r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
+        # ACL revocation schedules the pub/sub client for async close, so wait
+        # until CLIENT LIST no longer exposes the client.
+        wait_for_condition 50 100 {
+            [string match {*deathrow*} [r CLIENT LIST]] == 0
+        } else {
+            fail "Client still listed in CLIENT LIST after ACL channel permission revocation."
+        }
         $rd close
     } {0}
 
