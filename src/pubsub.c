@@ -293,9 +293,8 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
-            /* When a command is being executed, getKeySlot() may return current_client->slot. 
-             * If Unsubscribe is called over a different client c, we must hash the channel */
-             slot = (c == server.current_client) ? getKeySlot(channel->ptr) : keyHashSlot(channel->ptr, (int) sdslen(channel->ptr));
+            /* Hash the channel to get the slot */
+             slot = keyHashSlot(channel->ptr, (int) sdslen(channel->ptr));
         }
 
         de = kvstoreDictFind(*type.serverPubSubChannels, slot, channel);
