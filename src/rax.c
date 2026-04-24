@@ -1256,8 +1256,12 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 
 /* This is the core of raxFree(): performs an iterative depth-first scan
  * of the tree and frees all the nodes found. Uses an explicit heap stack
- * to avoid stack overflow on deep trees. */
-void raxFreeNodes(rax *rax, raxNode *n, void (*free_callback)(void*)) {
+ * to avoid stack overflow on deep trees. The caller passes exactly one
+ * callback variant and the non-NULL one is invoked. */
+static void raxFreeNodesWithCallback(rax *rax, raxNode *n,
+                                     void (*free_callback)(void *item),
+                                     void (*free_callback_withctx)(void *item, void *ctx),
+                                     void *ctx) {
     raxStack stack;
     raxStackInit(&stack);
     raxStackPush(&stack, n);
@@ -1273,8 +1277,13 @@ void raxFreeNodes(rax *rax, raxNode *n, void (*free_callback)(void*)) {
             raxStackPush(&stack, child);
         }
         debugnode("free depth-first",curr);
-        if (free_callback && curr->iskey && !curr->isnull)
-            free_callback(raxGetData(curr));
+        if (curr->iskey && !curr->isnull) {
+            void *data = raxGetData(curr);
+            if (free_callback_withctx)
+                free_callback_withctx(data, ctx);
+            else if (free_callback)
+                free_callback(data);
+        }
         raxFreeNode(rax, curr);
         rax->numnodes--;
     }
@@ -1282,32 +1291,15 @@ void raxFreeNodes(rax *rax, raxNode *n, void (*free_callback)(void*)) {
     raxStackFree(&stack);
 }
 
+void raxFreeNodes(rax *rax, raxNode *n, void (*free_callback)(void*)) {
+    raxFreeNodesWithCallback(rax, n, free_callback, NULL, NULL);
+}
+
 /* Same as raxFreeNodes() but accepts an additional context argument
  * that is passed through to the free callback. */
 void raxFreeNodesWithCtx(rax *rax, raxNode *n,
-                            void (*free_callback)(void *item, void *ctx), void *ctx) {
-    raxStack stack;
-    raxStackInit(&stack);
-    raxStackPush(&stack, n);
-
-    while (stack.items > 0) {
-        raxNode *curr = raxStackPop(&stack);
-        debugnode("free traversing",curr);
-        int numchildren = curr->iscompr ? 1 : curr->size;
-        raxNode **cp = raxNodeFirstChildPtr(curr);
-        for (int i = 0; i < numchildren; i++) {
-            raxNode *child;
-            memcpy(&child, cp + i, sizeof(child));
-            raxStackPush(&stack, child);
-        }
-        debugnode("free depth-first",curr);
-        if (free_callback && curr->iskey && !curr->isnull)
-            free_callback(raxGetData(curr), ctx);
-        raxFreeNode(rax, curr);
-        rax->numnodes--;
-    }
-
-    raxStackFree(&stack);
+                         void (*free_callback)(void *item, void *ctx), void *ctx) {
+    raxFreeNodesWithCallback(rax, n, NULL, free_callback, ctx);
 }
 
 /* Free a whole radix tree, calling the specified callback in order to
