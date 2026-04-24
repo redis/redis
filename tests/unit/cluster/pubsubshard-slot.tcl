@@ -24,17 +24,15 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         $rd_sub ssubscribe $channel
         $rd_sub read
 
-        set r_tx [redis [srv 0 host] [srv 0 port] 0 $::tls]
-        $r_tx multi
-        $r_tx set $keyk v
-        $r_tx client kill id $cid
-        set got [$r_tx exec]
+        r multi
+        r set $keyk v
+        r client kill id $cid
+        set got [r exec]
 
         assert_equal {OK 1} $got
         assert_equal PONG [R 0 ping]
 
         catch {$rd_sub read}
         $rd_sub close
-        $r_tx close
     }
 }

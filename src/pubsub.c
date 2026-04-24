@@ -255,17 +255,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
-            /* Slot in server.pubsubshard_channels for `channel`. When a command is being
-             * executed, getKeySlot() may return current_client->slot (optimization for
-             * command keys). Shard channel names are not necessarily in that slot (e.g.
-             * CLIENT KILL during EXEC unsubscribes another client), so we must hash the
-             * channel in that case. */
-            if (server.current_client && server.current_client->slot >= 0 &&
-                (server.current_client->flags & CLIENT_EXECUTING_COMMAND)) {
-                slot = calculateKeySlot(channel->ptr);
-            } else {
-                slot = getKeySlot(channel->ptr);
-            }
+            slot = getKeySlot(channel->ptr);
         }
 
         de = kvstoreDictAddRaw(*type.serverPubSubChannels, slot, channel, &existing);
@@ -303,20 +293,11 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
-
-            /* Slot in server.pubsubshard_channels for `channel`. When a command is being
-             * executed, getKeySlot() may return current_client->slot (optimization for
-             * command keys). Shard channel names are not necessarily in that slot (e.g.
-             * CLIENT KILL during EXEC unsubscribes another client), so we must hash the
-             * channel in that case. */
-
-            if (server.current_client && server.current_client->slot >= 0 &&
-                (server.current_client->flags & CLIENT_EXECUTING_COMMAND)) {
-                slot = calculateKeySlot(channel->ptr);
-            } else {
-                slot = getKeySlot(channel->ptr);
-            }
+            /* When a command is being executed, getKeySlot() may return current_client->slot. 
+             * If Unsubscribe is called over a different client c, we must hash the channel */
+             slot = (c == server.current_client) ? getKeySlot(channel->ptr) : keyHashSlot(channel->ptr, (int) sdslen(channel->ptr));
         }
+
         de = kvstoreDictFind(*type.serverPubSubChannels, slot, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
