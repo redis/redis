@@ -1292,21 +1292,10 @@ static void raxFreeNodesWithCallback(rax *rax, raxNode *n,
     raxStackFree(&stack);
 }
 
-void raxFreeNodes(rax *rax, raxNode *n, void (*free_callback)(void*)) {
-    raxFreeNodesWithCallback(rax, n, free_callback, NULL, NULL);
-}
-
-/* Same as raxFreeNodes() but accepts an additional context argument
- * that is passed through to the free callback. */
-void raxFreeNodesWithCtx(rax *rax, raxNode *n,
-                         void (*free_callback)(void *item, void *ctx), void *ctx) {
-    raxFreeNodesWithCallback(rax, n, NULL, free_callback, ctx);
-}
-
 /* Free a whole radix tree, calling the specified callback in order to
  * free the auxiliary data. */
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
-    raxFreeNodes(rax,rax->head,free_callback);
+    raxFreeNodesWithCallback(rax, rax->head, free_callback, NULL, NULL);
     assert(rax->numnodes == 0);
     size_t *alloc_size = rax->alloc_size;
     size_t usable;
@@ -1318,7 +1307,7 @@ void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
  * free the auxiliary data. */
 void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx), void *ctx) {
-    raxFreeNodesWithCtx(rax,rax->head,free_callback,ctx);
+    raxFreeNodesWithCallback(rax, rax->head, NULL, free_callback, ctx);
     assert(rax->numnodes == 0);
     size_t *alloc_size = rax->alloc_size;
     size_t usable;
