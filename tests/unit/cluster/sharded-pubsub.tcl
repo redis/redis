@@ -64,4 +64,12 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         catch {[$replica EXEC]} err
         assert_match {EXECABORT*} $err
     }
+
+    test "Sharded pubsub sunsubscribe behavior on replica" {
+        $replica SUNSUBSCRIBE foo
+
+        $replica MULTI
+        $replica SUNSUBSCRIBE foo
+        $replica EXEC
+    }
 }

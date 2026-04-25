@@ -1257,8 +1257,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         margv = pcmd->argv;
 
         /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
-        if (!pubsubshard_included &&
-            doesCommandHaveChannelsWithFlags(mcmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE))
+        if (!pubsubshard_included && (mcmd->proc == ssubscribeCommand ||
+                                      mcmd->proc == sunsubscribeCommand ||
+                                      mcmd->proc == spublishCommand))
         {
             pubsubshard_included = 1;
         }
