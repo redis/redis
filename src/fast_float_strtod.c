@@ -836,6 +836,194 @@ static inline uint32_t parse_eight_digits_swar(uint64_t val) {
     return (uint32_t)val;
 }
 
+/* ----------------------------------------------------------------------------
+ * Eisel-Lemire algorithm — core (compute_float / am_to_double).
+ *
+ * Given a decimal mantissa `w` (≤ 19 digits, fits in uint64) and exponent `q`,
+ * compute the correctly-rounded `double` representing `w * 10^q`. Internally:
+ *
+ *   1. Shift `w` so its leading bit is set (full 64-bit mantissa).
+ *   2. Multiply by the 128-bit precomputed power-of-five entry above.
+ *   3. Extract the 53-bit mantissa from the high 64 bits of the product, with
+ *      one extra bit for round-to-nearest-even.
+ *   4. Apply the round-half-to-even rule, including the rare power-of-2 tie
+ *      case that needs a second-pass check.
+ *
+ * For the 19-digit / |q| ≤ 22 input range the result is provably bit-exact
+ * with strtod() (Mushtak & Lemire, "Fast Number Parsing Without Fallback").
+ * The caller falls back to strtod() if compute_float() signals indeterminate
+ * (we never trigger that branch with parse_number_string's bounded inputs).
+ *
+ * Ported from fast_float by Daniel Lemire & Joao Paulo Magalhaes
+ * (MIT-licensed, https://github.com/fastfloat/fast_float — decimal_to_binary.h
+ * and float_common.h). C++ template machinery dropped in favour of a
+ * double-only specialisation; struct layouts kept to ease future review.
+ * ---------------------------------------------------------------------------- */
+
+/* IEEE-754 binary64 constants (mirrors fast_float's binary_format<double>). */
+#define DOUBLE_MANTISSA_EXPLICIT_BITS    52
+#define DOUBLE_MIN_EXPONENT_ROUND_EVEN   -4
+#define DOUBLE_MAX_EXPONENT_ROUND_EVEN   23
+#define DOUBLE_MINIMUM_EXPONENT          -1023
+#define DOUBLE_INFINITE_POWER            0x7FF
+
+/* 128-bit unsigned, little-endian: low holds bits [0..63]. */
+typedef struct {
+    uint64_t low;
+    uint64_t high;
+} value128;
+
+/* Result of compute_float(): a 53-bit mantissa and a biased binary exponent.
+ * power2 < 0 signals indeterminate (caller should fall back to strtod()). */
+typedef struct {
+    uint64_t mantissa;
+    int32_t  power2;
+} adjusted_mantissa;
+
+/* `__builtin_clzll` is undefined on input 0 — caller guarantees v > 0. */
+static inline int leading_zeroes_u64(uint64_t v) {
+    return __builtin_clzll(v);
+}
+
+/* 64x64 -> 128 multiplication. __uint128_t is available on every 64-bit
+ * target Redis supports (gated explicitly in the call site). */
+static inline value128 full_multiplication(uint64_t a, uint64_t b) {
+    value128 r;
+#ifdef __SIZEOF_INT128__
+    __uint128_t prod = (__uint128_t)a * (__uint128_t)b;
+    r.low  = (uint64_t)prod;
+    r.high = (uint64_t)(prod >> 64);
+#else
+    /* 32-bit fallback: split each operand into two 32-bit halves. */
+    uint64_t a_lo = (uint32_t)a, a_hi = a >> 32;
+    uint64_t b_lo = (uint32_t)b, b_hi = b >> 32;
+    uint64_t ll = a_lo * b_lo;
+    uint64_t lh = a_lo * b_hi;
+    uint64_t hl = a_hi * b_lo;
+    uint64_t hh = a_hi * b_hi;
+    uint64_t mid = (ll >> 32) + (uint32_t)lh + (uint32_t)hl;
+    r.low  = (mid << 32) | (uint32_t)ll;
+    r.high = hh + (lh >> 32) + (hl >> 32) + (mid >> 32);
+#endif
+    return r;
+}
+
+/* For q in (-400, 350), this approximates floor(log2(5^q)) + q + 63
+ * (or -ceil(log2(5^|q|)) + q + 63 for negative q). Used to derive power2. */
+static inline int32_t eisel_lemire_power(int32_t q) {
+    return (((152170 + 65536) * q) >> 16) + 63;
+}
+
+/* 128-bit approximation of `w * 5^q`. The optional fixup multiplies by the
+ * second (extension) entry of the power-of-five table when the high half is
+ * close to a rounding boundary. Mathematical proof of sufficiency: see
+ * Mushtak & Lemire, "Fast Number Parsing Without Fallback". */
+static inline value128 compute_product_approximation_d(int64_t q, uint64_t w) {
+    int index = 2 * (int)(q - EISEL_LEMIRE_SMALLEST_POWER_OF_FIVE);
+    value128 firstproduct = full_multiplication(w, power_of_five_128[index]);
+    /* For double, bit_precision = mantissa_explicit_bits (52) + 3 = 55. */
+    const uint64_t precision_mask =
+        (uint64_t)0xFFFFFFFFFFFFFFFFULL >> 55;
+    if ((firstproduct.high & precision_mask) == precision_mask) {
+        value128 secondproduct =
+            full_multiplication(w, power_of_five_128[index + 1]);
+        firstproduct.low += secondproduct.high;
+        if (secondproduct.high > firstproduct.low) {
+            firstproduct.high++;
+        }
+    }
+    return firstproduct;
+}
+
+/* Eisel-Lemire main: compute a correctly-rounded representation of w * 10^q.
+ * Returns an `adjusted_mantissa`. Special outputs:
+ *   - mantissa == 0 && power2 == 0: result is +/-0
+ *   - power2 == DOUBLE_INFINITE_POWER && mantissa == 0: result is infinity
+ *   - power2 < 0: indeterminate (caller should fall back to strtod()). With
+ *     parse_number_string()'s bounded mantissa (<= 19 digits), this branch
+ *     is unreachable, but we keep the signature for safety.
+ */
+static adjusted_mantissa compute_float_d(int64_t q, uint64_t w) {
+    adjusted_mantissa answer;
+
+    if (w == 0 || q < EISEL_LEMIRE_SMALLEST_POWER_OF_FIVE) {
+        answer.power2 = 0;
+        answer.mantissa = 0;
+        return answer;
+    }
+    if (q > EISEL_LEMIRE_LARGEST_POWER_OF_FIVE) {
+        answer.power2 = DOUBLE_INFINITE_POWER;
+        answer.mantissa = 0;
+        return answer;
+    }
+
+    /* Renormalise w so its top bit is set. */
+    int lz = leading_zeroes_u64(w);
+    w <<= lz;
+
+    value128 product = compute_product_approximation_d(q, w);
+
+    int upperbit = (int)(product.high >> 63);
+    int shift = upperbit + 64 - DOUBLE_MANTISSA_EXPLICIT_BITS - 3;
+
+    answer.mantissa = product.high >> shift;
+    answer.power2 = (int32_t)(eisel_lemire_power((int32_t)q) + upperbit -
+                              lz - DOUBLE_MINIMUM_EXPONENT);
+
+    if (answer.power2 <= 0) {
+        /* Subnormal path. */
+        if (-answer.power2 + 1 >= 64) {
+            /* More than 64 bits below minimum exponent — definitely zero. */
+            answer.power2 = 0;
+            answer.mantissa = 0;
+            return answer;
+        }
+        /* Safe: -answer.power2 + 1 < 64. */
+        answer.mantissa >>= -answer.power2 + 1;
+        answer.mantissa += (answer.mantissa & 1); /* round up */
+        answer.mantissa >>= 1;
+        /* If post-rounding the value crosses back into the normal range, mark
+         * it normal (power2 = 1) rather than subnormal (power2 = 0). */
+        answer.power2 = (answer.mantissa <
+                         ((uint64_t)1 << DOUBLE_MANTISSA_EXPLICIT_BITS))
+                            ? 0
+                            : 1;
+        return answer;
+    }
+
+    /* Normal path: handle the round-half-to-even tie case. */
+    if ((product.low <= 1) &&
+        (q >= DOUBLE_MIN_EXPONENT_ROUND_EVEN) &&
+        (q <= DOUBLE_MAX_EXPONENT_ROUND_EVEN) &&
+        ((answer.mantissa & 3) == 1)) {
+        if ((answer.mantissa << shift) == product.high) {
+            answer.mantissa &= ~(uint64_t)1; /* clear LSB so we round down */
+        }
+    }
+    answer.mantissa += (answer.mantissa & 1);
+    answer.mantissa >>= 1;
+    if (answer.mantissa >= ((uint64_t)2 << DOUBLE_MANTISSA_EXPLICIT_BITS)) {
+        answer.mantissa = (uint64_t)1 << DOUBLE_MANTISSA_EXPLICIT_BITS;
+        answer.power2++;
+    }
+    answer.mantissa &= ~((uint64_t)1 << DOUBLE_MANTISSA_EXPLICIT_BITS);
+    if (answer.power2 >= DOUBLE_INFINITE_POWER) {
+        answer.power2 = DOUBLE_INFINITE_POWER;
+        answer.mantissa = 0;
+    }
+    return answer;
+}
+
+/* Pack adjusted_mantissa back to a double via IEEE-754 bit layout. */
+static inline double am_to_double(int negative, adjusted_mantissa am) {
+    uint64_t word = am.mantissa;
+    word |= (uint64_t)am.power2 << DOUBLE_MANTISSA_EXPLICIT_BITS;
+    if (negative) word |= (uint64_t)1 << 63;
+    double value;
+    memcpy(&value, &word, sizeof(value));
+    return value;
+}
+
 /* Parse a decimal number string into components.
  * This follows the fast_float algorithm closely. */
 static inline int parse_number_string(const char *p, const char *pend, double *result, const char **endptr) {
