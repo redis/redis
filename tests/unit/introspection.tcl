@@ -64,6 +64,35 @@ start_server {tags {"introspection"}} {
         return ""
     }
 
+    test {CLIENT LIST IDLE rejects invalid arguments} {
+        assert_error "ERR syntax error*" {r client list idle 1 extra}
+        assert_error "ERR *min idle time is not an integer or out of range*" {r client list idle notanumber}
+        assert_error "ERR *greater than 0*" {r client list idle 0}
+        assert_error "ERR *greater than 0*" {r client list idle -1}
+    }
+
+    test {CLIENT LIST IDLE filters by min idle seconds} {
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+        wait_for_condition 50 200 {
+            [get_field_in_client_list $rd_id [r client list] idle] > 2
+        } else {
+            fail "deferred client idle did not exceed 2 seconds"
+        }
+        set filtered [r client list idle 2]
+        assert_match "*id=$rd_id*" $filtered
+        assert_equal {} [string trim [r client list idle 999999]]
+        set filtered_default [r client list idle]
+        assert_match "*id=$rd_id*" $filtered_default
+        foreach line [split [string trim $filtered] "\r\n"] {
+            if {$line eq {}} continue
+            set idle [get_field_in_client_info $line idle]
+            assert_morethan $idle 2
+        }
+        $rd close
+    }
+
     test {CLIENT INFO input/output/cmds-processed stats} {
         set info1 [r client info]
         set input1 [get_field_in_client_info $info1 "tot-net-in"]
