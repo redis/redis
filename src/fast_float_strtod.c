@@ -1366,8 +1366,86 @@ int fastFloatTest(int argc, char **argv, int flags) {
         /* Negative numbers exercising the widened path */
         {"-0.49606648747577575", -0.49606648747577575},
         {"-9007199254740993",    -9007199254740992.0},
+
+        /* Eisel-Lemire rounding-boundary cases.
+         * Reported by @vitahlin on #14661 against the previous
+         * `(double)hi * 2^64 + (double)lo` widened branch which
+         * double-rounded the 128-bit product. Both must now match
+         * strtod() exactly. */
+        {"9007199255094284e-19",   9007199255094284e-19}, /* was -1 ULP */
+        {"2489830482329185244e1",  2489830482329185244e1}, /* was +1 ULP */
+
+        /* Subnormal boundaries (Eisel-Lemire's subnormal branch). */
+        {"5e-324",                 5e-324},               /* smallest pos subnormal */
+        {"4.9e-324",               5e-324},               /* below half: rounds up */
+        {"2.2250738585072009e-308", 2.2250738585072009e-308}, /* largest subnormal */
+        {"2.2250738585072014e-308", 2.2250738585072014e-308}, /* smallest normal */
+        {"1e-323",                 1e-323},
+
+        /* Round-half-to-even ties: post-Clinger range, hits compute_float_d
+         * tie path (product.low <= 1, q in [-4, 23], mantissa & 3 == 1). */
+        {"5497558138880",          5497558138880.0},      /* 2^42 + 2^33 boundary */
+        {"5e-22",                  5e-22},
+        {"7.038531e-26",           7.038531e-26},
+        {"4503599627475501e-10",   4503599627475501e-10}, /* near 2^52 */
+
+        /* Largest finite double + overflow. */
+        {"1.7976931348623157e308", 1.7976931348623157e308}, /* DBL_MAX */
+        {"1.7976931348623158e308", 1.7976931348623157e308}, /* nearest is DBL_MAX */
+        {"1e308",                  1e308},
+
+        /* Wide exponent range now reachable via Eisel-Lemire (previously
+         * fell to strtod). */
+        {"1.234567890123456e100",  1.234567890123456e100},
+        {"9.999999999999999e99",   9.999999999999999e99},
+        {"1e-300",                 1e-300},
+        {"1.7e-300",               1.7e-300},
+
+        /* Repunit / many-9 mantissas — adjacent-double tie territory. */
+        {"9999999999999998",       9999999999999998.0},
+        {"99999999999999999",      1e17},
     };
     run_ff_tests(decimal_ok, COUNTOF(decimal_ok), 0);
+
+    /* Differential cross-check: every accepted input must produce the
+     * exact same bits as libc strtod(). Hand-picked hard cases covering
+     * every code path in compute_float_d (subnormal branch, round-half-
+     * to-even tie path, near-infinity, repunit mantissa, wide exponent). */
+    {
+        static const char *diff_inputs[] = {
+            /* Boundary classics around 2^53. */
+            "9007199254740992", "9007199254740993", "9007199254740994",
+            "9007199254740995", "9007199254740996",
+            /* Limits of finite double. */
+            "1.7976931348623157e308", "2.2250738585072014e-308",
+            "5e-324", "1e-323", "4.9406564584124654e-324",
+            /* The two reproducer inputs the previous widened branch missed. */
+            "9007199255094284e-19", "2489830482329185244e1",
+            /* Mushtak-Lemire stress range — 19-digit mantissas. */
+            "1234567890123456789e0", "1234567890123456789e-5",
+            "1234567890123456789e5", "9999999999999999e19",
+            /* Common scientific constants — mid-exponent sanity. */
+            "3.141592653589793", "2.718281828459045",
+            "1.4142135623730951e150", "6.022140857e23",
+            "1.602176634e-19", "9.10938356e-31",
+        };
+        for (int i = 0; i < COUNTOF(diff_inputs); i++) {
+            const char *s = diff_inputs[i];
+            char *fend, *lend;
+            errno = 0;
+            double got = fast_float_strtod(s, strlen(s), &fend);
+            errno = 0;
+            double libc = strtod(s, &lend);
+            uint64_t gb, lb;
+            memcpy(&gb, &got, sizeof(gb));
+            memcpy(&lb, &libc, sizeof(lb));
+            char descr[160];
+            snprintf(descr, sizeof(descr),
+                     "differential vs strtod: \"%s\" ff=0x%016llx libc=0x%016llx",
+                     s, (unsigned long long)gb, (unsigned long long)lb);
+            test_cond(descr, gb == lb);
+        }
+    }
 
     /* No valid prefix for full buffer, or trailing junk. */
     ff_testcase decimal_bad[] = {
