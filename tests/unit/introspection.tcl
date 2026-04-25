@@ -33,6 +33,24 @@ start_server {tags {"introspection"}} {
         assert_match "id=$myid * cmd=client|list *" [lindex $cl 0]
     }
 
+    test {CLIENT LIST IDLE filters by minimum idle time} {
+        # A threshold of 0 must keep the existing behaviour and return all
+        # clients (at least our own connection).
+        set all [string trim [r client list]]
+        set all_zero [string trim [r client list idle 0]]
+        assert_equal [llength [split $all "\r\n"]] [llength [split $all_zero "\r\n"]]
+
+        # A very large threshold should filter every client out, including
+        # the one issuing the command (which has just interacted with the
+        # server). Expect an empty payload.
+        assert_equal "" [string trim [r client list idle 1000000]]
+    }
+
+    test {CLIENT LIST IDLE rejects invalid values} {
+        assert_error "*Invalid idle time*" {r client list idle notanumber}
+        assert_error "*non-negative*" {r client list idle -1}
+    }
+
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {

@@ -4039,7 +4039,7 @@ sds catClientInfoString(sds s, client *client) {
     return ret;
 }
 
-sds getAllClientsInfoString(int type) {
+sds getAllClientsInfoString(int type, long long min_idle) {
     listNode *ln;
     listIter li;
     client *client;
@@ -4060,6 +4060,9 @@ sds getAllClientsInfoString(int type) {
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
         if (type != -1 && getClientType(client) != type) continue;
+        if (min_idle > 0 &&
+            (long long)(server.unixtime - client->lastinteraction) < min_idle)
+            continue;
         o = catClientInfoString(o,client);
         o = sdscatlen(o,"\n",1);
     }
@@ -4262,12 +4265,24 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
         int type = -1;
+        long long min_idle = 0;
         sds o = NULL;
         if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
             type = getClientTypeByName(c->argv[3]->ptr);
             if (type == -1) {
                 addReplyErrorFormat(c,"Unknown client type '%s'",
                     (char*) c->argv[3]->ptr);
+                return;
+            }
+        } else if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"idle")) {
+            /* CLIENT LIST IDLE <seconds>
+             * Return only clients whose idle time is greater than or equal
+             * to the given threshold (in seconds). */
+            if (getLongLongFromObjectOrReply(c, c->argv[3], &min_idle,
+                        "Invalid idle time") != C_OK)
+                return;
+            if (min_idle < 0) {
+                addReplyError(c, "Idle time threshold must be non-negative");
                 return;
             }
         } else if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr,"id")) {
@@ -4292,7 +4307,7 @@ NULL
         }
 
         if (!o)
-            o = getAllClientsInfoString(type);
+            o = getAllClientsInfoString(type, min_idle);
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {

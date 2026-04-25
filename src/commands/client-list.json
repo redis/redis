@@ -43,6 +43,10 @@
             [
                 "8.0.0",
                 "Added `io-thread` field."
+            ],
+            [
+                "8.2.0",
+                "Added optional `IDLE` filter."
             ]
         ],
         "command_flags": [
@@ -99,6 +103,13 @@
                 "optional": true,
                 "multiple": true,
                 "since": "6.2.0"
+            },
+            {
+                "name": "min-idle-seconds",
+                "token": "IDLE",
+                "type": "integer",
+                "optional": true,
+                "since": "8.2.0"
             }
         ]
     }
