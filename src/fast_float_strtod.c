@@ -387,7 +387,8 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     const char *eptr;
 
     /* Use fast path for non-null-terminated strings */
-    if (likely(fast_float_try_fast(nptr, pend, &result, &eptr) && eptr == pend)) {
+    int parsed = fast_float_try_fast(nptr, pend, &result, &eptr);
+    if (likely(parsed && eptr == pend)) {
         if (endptr) *endptr = (char *)eptr;
 #if UINTPTR_MAX == 0xffffffff
         /* On 32-bit x86 with x87 FPU, the fast-path fdiv/fmul result lives in
@@ -403,6 +404,15 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
 #else
         return result;
 #endif
+    }
+
+    /* Keep inf/nan parsing platform-independent. Some libc strtod()
+     * implementations accept a wider nan(n-char-seq) than C/POSIX allow, so
+     * falling back after a partial local parse would turn invalid inputs like
+     * nan(ab!c) into successful conversions on those platforms. */
+    if (parsed && (isnan(result) || isinf(result))) {
+        if (endptr) *endptr = (char *)eptr;
+        return result;
     }
     
     /* Fall back to strtod for complex cases:
