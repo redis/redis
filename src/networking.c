@@ -4224,6 +4224,10 @@ void clientCommand(client *c) {
 "    Return information about client connections. Options:",
 "    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
 "      Return clients of specified type.",
+"    * ID <client-id> [<client-id> [...]]",
+"      Return clients by client id.",
+"    * IDLE [<min-idle-seconds>]",
+"      Return clients with idle time greater than the given seconds (omit for idle > 0).",
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
@@ -4263,7 +4267,41 @@ NULL
         /* CLIENT LIST */
         int type = -1;
         sds o = NULL;
-        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
+        /* CLIENT LIST IDLE [<min-idle-seconds>]: same seconds as idle= in catClientInfoString. */
+        if ((c->argc == 3 || c->argc == 4) &&
+            !strcasecmp(c->argv[2]->ptr,"idle"))
+        {
+            long long min_idletime = 0;
+            if (c->argc == 4 && getLongLongFromObjectOrReply(c, c->argv[3], &min_idletime,
+                            "min idle time is not an integer or out of range")) {
+                return;
+            } else if (c->argc == 4 && min_idletime <= 0) {
+                addReplyError(c, "min idle time should be greater than 0");
+                return;
+            } else {
+                /* Pause IO threads like getAllClientsInfoString before scanning clients. */
+                int allpaused = 0;
+                if (server.io_threads_num > 1 && !isCrashing() &&
+                    pthread_equal(server.main_thread_id, pthread_self()))
+                {
+                    allpaused = 1;
+                    pauseAllIOThreads();
+                }
+
+                o = sdsempty();
+                listRewind(server.clients,&li);
+                while ((ln = listNext(&li)) != NULL) {
+                    client *client = listNodeValue(ln);
+                    long long idletime =
+                        (long long)(server.unixtime - client->lastinteraction);
+                    if (idletime > min_idletime) {
+                        o = catClientInfoString(o, client);
+                        o = sdscatlen(o, "\n", 1);
+                    }
+                }
+                if (allpaused) resumeAllIOThreads();
+            }
+        } else if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
             type = getClientTypeByName(c->argv[3]->ptr);
             if (type == -1) {
                 addReplyErrorFormat(c,"Unknown client type '%s'",
