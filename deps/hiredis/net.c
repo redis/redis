@@ -62,8 +62,29 @@ void redisNetClose(redisContext *c) {
 ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap) {
     ssize_t nread = recv(c->fd, buf, bufcap, 0);
     if (nread == -1) {
-        if ((errno == EWOULDBLOCK && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
-            /* Try again later */
+        if (errno == EWOULDBLOCK && !(c->flags & REDIS_BLOCK)) {
+            /* If recv() reports EWOULDBLOCK on a non-blocking socket the
+             * event loop told us to read from, the socket may still have a
+             * pending asynchronous error (e.g. ICMP unreachable stored in
+             * SO_ERROR) that is causing epoll to raise EPOLLERR in a
+             * level-triggered fashion.  Returning 0 here without consuming
+             * that error would make epoll_wait fire again immediately,
+             * busy-looping the event loop at ~100% CPU (see
+             * redis/redis#9956).  Peek at SO_ERROR so the caller can tear
+             * the dead connection down. */
+            int so_error = 0;
+            socklen_t errlen = sizeof(so_error);
+            if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &so_error, &errlen) == 0 &&
+                so_error != 0)
+            {
+                errno = so_error;
+                __redisSetError(c, REDIS_ERR_IO, strerror(errno));
+                return -1;
+            }
+            /* No pending socket error — try again later. */
+            return 0;
+        } else if (errno == EINTR) {
+            /* Signal interrupted — retry. */
             return 0;
         } else if(errno == ETIMEDOUT && (c->flags & REDIS_BLOCK)) {
             /* especially in windows */
