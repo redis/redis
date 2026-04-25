@@ -4,7 +4,7 @@
 # Actually, we may not have many asserts in the test, since we just check for
 # crashes and the dump file inconsistencies.
 
-start_server {tags {"dismiss external:skip"}} {
+start_server {tags {"dismiss external:skip needs:debug"}} {
     # In other tests, although we test child process dumping RDB file, but
     # memory allocations of key/values are usually small, they couldn't cover
     # the "dismiss" object methods, in this test, we create big size key/values
@@ -47,12 +47,15 @@ start_server {tags {"dismiss external:skip"}} {
         r xadd bigstream * entry1 $bigstr entry2 $bigstr
 
         set digest [debug_digest]
-        r config set aof-use-rdb-preamble no
-        r bgrewriteaof
-        waitForBgrewriteaof r
-        r debug loadaof
-        set newdigest [debug_digest]
-        assert {$digest eq $newdigest}
+        # Test both RDB (yes) and AOF (no) rewrite paths.
+        foreach preamble {yes no} {
+            r config set aof-use-rdb-preamble $preamble
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            set newdigest [debug_digest]
+            assert {$digest eq $newdigest}
+        }
     }
 
     test {dismiss client output buffer} {
@@ -97,6 +100,50 @@ start_server {tags {"dismiss external:skip"}} {
             }
             $master bgsave
             waitForBgsave $master
+        }
+    }
+
+    test {dismiss multi-db kvstore bucket memory in standalone mode} {
+        r flushall
+        regexp {db=(\d+)} [r client info] -> curdb
+        # Populate multiple DBs to verify each DB's bucket arrays can be dismissed.
+        foreach db {0 1 2 3} {
+            r select $db
+            populate 2000 "db${db}key:" 3 0 false 3600
+        }
+        set digest [debug_digest]
+
+        # Test both RDB (yes) and AOF (no) rewrite paths.
+        foreach preamble {yes no} {
+            r config set aof-use-rdb-preamble $preamble
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            set newdigest [debug_digest]
+            assert {$digest eq $newdigest}
+        }
+        r select $curdb
+    }
+}
+
+start_cluster 1 0 {tags {dismiss external:skip cluster needs:debug}} {
+    test {dismiss slot dict bucket memory in cluster mode} {
+        # Concentrate keys into a few slots using hash tags so each slot's
+        # bucket array is large enough to be dismissed.
+        # {06S} -> slot 0, {Qi} -> slot 1, {5L5} -> slot 2
+        foreach tag {{06S} {Qi} {5L5}} {
+            populate 2000 "${tag}key:" 3 0 false 3600
+        }
+        set digest [r debug digest]
+
+        # Test both RDB (yes) and AOF (no) rewrite paths.
+        foreach preamble {yes no} {
+            r config set aof-use-rdb-preamble $preamble
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            set newdigest [r debug digest]
+            assert {$digest eq $newdigest}
         }
     }
 }

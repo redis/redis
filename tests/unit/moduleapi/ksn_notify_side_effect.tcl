@@ -1,21 +1,17 @@
 # Test for SetKeyMeta during keyspace notification (KSN) callbacks.
 #
-# This test loads a module that registers KSN callbacks for HASH, STRING,
-# GENERIC, EXPIRED, and EVICTED events. The callback writes to key metadata
-# (via RedisModule_SetKeyMeta), which may trigger kvobj reallocation.
-# It exercises various commands across these notification types to catch
-# regressions where the kvobj pointer becomes stale after a notification
-# callback reallocates it.
-#
-# Important: each test uses a fresh key so that SetKeyMeta triggers an actual
-# kvobj reallocation (the first metadata attachment grows the kvobj). We verify
-# this by checking that the setcount increases after each command.
-# Each test also validates that the metadata is properly accessible after the
-# operation by reading it back via RedisModule_GetKeyMeta.
+# On key space notification, the module shouldn't modify the key. This focused 
+# regression tests makes an exception for RediSearch which uses SetKeyMeta
+# as part of its KSN callback (Currently only for hash keys without hash field 
+# expiration). The test module mutates key metadata during selected notifications,
+# which may reallocate the underlying kvobj and invalidates any local pointer to 
+# it. Each test uses fresh keys when possible so the first metadata write forces
+# the reallocation-sensitive path, then verifies the command still completes.
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
-start_server {tags {"modules" "external:skip"}} {
+start_server {tags {"modules" "external:skip"} overrides {enable-debug-command yes}} {
+    r debug enable-keymeta-runtime-registration 1
     r module load $testmodule
 
     # --- HASH notification tests ---
@@ -91,6 +87,107 @@ start_server {tags {"modules" "external:skip"}} {
         assert {[r keymetanotify.setcount] >= $before + 100}
     }
 
+    test {HGETDEL with SetKeyMeta in notification does not crash} {
+        # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
+        # create the key BEFORE loading the module so the first metadata
+        # attachment happens during HGETDEL, not during HSET.
+        r module unload keymetanotify
+        r HSET hgetdel_key f1 v1 f2 v2 f3 v3
+        r module load $testmodule
+
+        # HGETDEL returns the value and deletes the field
+        # This is the first SetKeyMeta call for this key, triggering kvobj reallocation
+        set before [r keymetanotify.setcount]
+        set result [r HGETDEL hgetdel_key FIELDS 1 f1]
+        assert_equal $result "v1"
+        assert_equal [r HEXISTS hgetdel_key f1] 0
+        assert_equal [r HLEN hgetdel_key] 2
+        # SetKeyMeta should be called during the hdel notification
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r keymetanotify.get hgetdel_key] "notified"
+
+        # HGETDEL multiple fields
+        set result [r HGETDEL hgetdel_key FIELDS 2 f2 f3]
+        assert_equal [lindex $result 0] "v2"
+        assert_equal [lindex $result 1] "v3"
+        assert_equal [r HLEN hgetdel_key] 0
+    }
+
+    test {HDEL with SetKeyMeta in notification does not crash} {
+        # To test the "first SetKeyMeta causes kvobj reallocation" scenario,
+        # create the key BEFORE loading the module so the first metadata
+        # attachment happens during HDEL, not during HSET.
+        r module unload keymetanotify
+        r HSET hdel_key f1 v1 f2 v2 f3 v3
+        r module load $testmodule
+
+        # HDEL single field - this is the first SetKeyMeta call for this key,
+        # triggering kvobj reallocation during the hdel notification
+        set before [r keymetanotify.setcount]
+        r HDEL hdel_key f1
+        assert_equal [r HEXISTS hdel_key f1] 0
+        assert_equal [r HLEN hdel_key] 2
+        # SetKeyMeta should be called during the hdel notification
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r keymetanotify.get hdel_key] "notified"
+
+        # HDEL multiple fields (in-place metadata update)
+        r HDEL hdel_key f2 f3
+        assert_equal [r HLEN hdel_key] 0
+    }
+
+    # --- GENERIC notification tests ---
+
+    test {PERSIST with SetKeyMeta in notification does not crash} {
+        # Create key with expiration
+        set before [r keymetanotify.setcount]
+        r SET persist_key "value"
+        r EXPIRE persist_key 1000
+        assert_equal [r keymetanotify.get persist_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify TTL is set
+        assert {[r TTL persist_key] > 0}
+
+        # PERSIST removes expiration
+        set before [r keymetanotify.setcount]
+        r PERSIST persist_key
+        # persist notification triggers SetKeyMeta
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify TTL is removed
+        assert_equal [r TTL persist_key] -1
+        assert_equal [r GET persist_key] "value"
+    }
+
+    test {COPY with SetKeyMeta in notification does not crash} {
+        # Create source key
+        set before [r keymetanotify.setcount]
+        r HSET copy_src_key f1 v1 f2 v2
+        assert_equal [r keymetanotify.get copy_src_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # COPY to new key
+        set before [r keymetanotify.setcount]
+        r COPY copy_src_key copy_dst_key
+        # copy_to notification triggers SetKeyMeta on destination
+        assert_equal [r keymetanotify.get copy_dst_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+
+        # Verify both keys have same content
+        assert_equal [r HGET copy_src_key f1] "v1"
+        assert_equal [r HGET copy_dst_key f1] "v1"
+        assert_equal [r HGET copy_src_key f2] "v2"
+        assert_equal [r HGET copy_dst_key f2] "v2"
+
+        # COPY with REPLACE
+        r HSET copy_src_key f3 v3
+        set before [r keymetanotify.setcount]
+        r COPY copy_src_key copy_dst_key REPLACE
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r HGET copy_dst_key f3] "v3"
+    }
+
     # --- STRING notification tests ---
     # Each test uses a fresh key for actual kvobj reallocation.
 
@@ -163,6 +260,37 @@ start_server {tags {"modules" "external:skip"}} {
         r DEL del_key
         assert_equal [r EXISTS del_key] 0
     }
+
+    test {DELEX with SetKeyMeta in notification does not crash} {
+        r SET delex_key "value"
+        assert_equal [r keymetanotify.get delex_key] "notified"
+        r DELEX delex_key IFEQ value
+        assert_equal [r EXISTS delex_key] 0
+    }
+
+    test {MOVE with SetKeyMeta in notification does not crash} {
+        r select 10
+        r DEL move_key
+        r select 9
+
+        # Create the key before loading the module so the first metadata
+        # attachment happens during MOVE, not during SET.
+        r module unload keymetanotify
+        r SET move_key "value"
+        r module load $testmodule
+
+        set before [r keymetanotify.setcount]
+        r MOVE move_key 10
+        assert_equal [r EXISTS move_key] 0
+
+        r select 10
+        assert_equal [r GET move_key] "value"
+        assert_equal [r keymetanotify.get move_key] "notified"
+        assert {[r keymetanotify.setcount] > $before}
+        r DEL move_key
+        r select 9
+        set _ {}
+    } {} {singledb:skip}
 
     test {RENAME with SetKeyMeta in notification does not crash} {
         r SET rename_src "value"

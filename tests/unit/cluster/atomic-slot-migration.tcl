@@ -577,23 +577,16 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug asm-trim-method none
         populate_slot 10000 -idx 1 -slot 6000
 
-        # Start write traffic on node-0
-        # Throws -MOVED error once asm is completed, catch block will ignore it.
-        catch {
-            # Start the slot 0 write load on the R 0
-            set port [get_port 0]
-            set key [slot_key 0 mykey]
-            set load_handle0 [start_write_load "127.0.0.1" $port 100 $key 0 5]
-        }
+        # Start write traffic on node-0 (ignore_error_reply=1 tolerates MOVED/ASK
+        # replies while slots are being migrated).
+        set port [get_port 0]
+        set key [slot_key 0 mykey]
+        set load_handle0 [start_write_load "127.0.0.1" $port 100 $key 0 5 1]
 
-        # Start write traffic on node-1
-        # Throws -MOVED error once asm is completed, catch block will ignore it.
-        catch {
-            # Start the slot 6000 write load on the R 1
-            set port [get_port 1]
-            set key [slot_key 6000 mykey]
-            set load_handle1 [start_write_load "127.0.0.1" $port 100 $key 0 5]
-        }
+        # Start write traffic on node-1 (ignore_error_reply=1 for migration redirects).
+        set port [get_port 1]
+        set key [slot_key 6000 mykey]
+        set load_handle1 [start_write_load "127.0.0.1" $port 100 $key 0 5 1]
 
         # Migrate keys
         R 1 CLUSTER MIGRATION IMPORT 0 100
@@ -801,8 +794,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # we set a delay to write incremental data
         R 1 config set rdb-key-save-delay 1000000
 
-        # Start the slot 0 write load on the R 1
-        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key]
+        # Start slot 0 write load on R1. ignore_error_reply=1 tolerates MOVED/ASK
+        # replies that can appear while slot 0 is being migrated.
+        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key 0 0 1]
 
         # Clear all fail points
         assert_equal {OK} [R 0 debug asm-failpoint "" ""]

@@ -1083,7 +1083,7 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+        tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     }
 
     return tempDb;
@@ -1525,6 +1525,7 @@ void delexCommand(client *c) {
         rewriteClientCommandVector(c, 2, shared.del, key);
         keyModified(c, c->db, key, NULL, 1);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        KSN_INVALIDATE_KVOBJ(o);
         server.dirty++;
     }
 
@@ -1758,7 +1759,8 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "zset", 
     "hash", 
     NULL, /* module type is special */
-    "stream"
+    "stream",
+    "gcra"
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -1913,7 +1915,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = count*10;
+        long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
 
         /* We pass scanData which have three pointers to the callback:
          * 1. data.keys: the list to which it will add new elements;
@@ -2251,10 +2253,9 @@ void renameGenericCommand(client *c, int nx) {
 
     keyModified(c,c->db,c->argv[1],NULL,1);
     keyModified(c,c->db,c->argv[2],o,1);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
-        c->argv[1],c->db->id);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
-        c->argv[2],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, "rename_from", c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, "rename_to", c->argv[2],c->db->id);
+    KSN_INVALIDATE_KVOBJ(o);
     if (overwritten) {
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", c->argv[2], c->db->id);
         if (desttype != srctype)
@@ -2349,10 +2350,9 @@ void moveCommand(client *c) {
 
     keyModified(c,src,c->argv[1],NULL,1);
     keyModified(c,dst,c->argv[1],kv,1);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,
-                "move_from",c->argv[1],src->id);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,
-                "move_to",c->argv[1],dst->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, "move_from", c->argv[1],src->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, "move_to", c->argv[1],dst->id);
+    KSN_INVALIDATE_KVOBJ(kv);
 
     server.dirty++;
     addReply(c,shared.cone);
@@ -2442,6 +2442,7 @@ void copyCommand(client *c) {
         case OBJ_ZSET: newobj = zsetDup(o); break;
         case OBJ_HASH: newobj = hashTypeDup(o, &minHashExpire); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
+        case OBJ_GCRA: newobj = gcraDup(o); break;
         case OBJ_MODULE:
             newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
             if (!newobj) return;
@@ -2474,6 +2475,7 @@ void copyCommand(client *c) {
     /* OK! key copied. Signal modification */
     keyModified(c,dst,c->argv[2],kvCopy,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
+    KSN_INVALIDATE_KVOBJ(kvCopy);
 
     /* `delete` implies the destination key was overwritten */
     if (delete) {
