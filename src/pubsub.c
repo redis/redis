@@ -296,7 +296,6 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
             /* Hash the channel to get the slot */
              slot = keyHashSlot(channel->ptr, (int) sdslen(channel->ptr));
         }
-
         de = kvstoreDictFind(*type.serverPubSubChannels, slot, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
