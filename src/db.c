@@ -1121,7 +1121,7 @@ void streamMoveIdmpKeys(dict *src, dict *dst, slotRangeArray *slots) {
         /* Check if key belongs to the slot range. */
         if (!slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
             continue;
-        if (dictAdd(dst, key, dictGetVal(de)) == DICT_OK) {
+        if (dictAddRaw(dst, key, NULL)) {
             incrRefCount(key);
         }
         dictDelete(src, key);
