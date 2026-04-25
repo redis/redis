@@ -524,6 +524,10 @@ int fastFloatTest(int argc, char **argv, int flags) {
         /* Negative numbers exercising the widened path */
         {"-0.49606648747577575", -0.49606648747577575},
         {"-9007199254740993",    -9007199254740992.0},
+
+        /* Widened-fast-path rounding-boundary cases. */
+        {"9007199255094284e-19",    0.00090071992550942845},
+        {"2489830482329185244e1",   2.4898304823291851e19},
     };
     run_ff_tests(decimal_ok, COUNTOF(decimal_ok), 0);
 
