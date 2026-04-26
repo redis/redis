@@ -19,21 +19,22 @@ fi
 echo "Uploading..."
 scp /tmp/redis-${VERSION_TAG}.tar.gz ubuntu@host.redis.io:/var/www/download/releases/
 
-# Only update the stable version if --stable flag is provided
-if [ "$VERSION_TYPE" == "--stable" ]
+# Exit if unstable release
+if [ "$VERSION_TYPE" == "--unstable" ]
 then
-    echo "Updating web site... "
-    echo "Please check the github action tests for the release."
-    ssh ubuntu@host.redis.io "cd /var/www/download;
-                              rm -rf redis-${VERSION_TAG}.tar.gz;
-                              wget http://download.redis.io/releases/redis-${VERSION_TAG}.tar.gz;
-                              tar xvzf redis-${VERSION_TAG}.tar.gz;
-                              rm -rf redis-stable;
-                              mv redis-${VERSION_TAG} redis-stable;
-                              tar cvzf redis-stable.tar.gz redis-stable;
-                              rm -rf redis-${VERSION_TAG}.tar.gz;
-                              shasum -a 256 redis-stable.tar.gz > redis-stable.tar.gz.SHA256SUM;
-                              "
-else
     echo "Unstable release - skipping stable version update"
+    exit 0
 fi
+
+echo "Updating web site... "
+echo "Please check the github action tests for the release."
+ssh ubuntu@host.redis.io "cd /var/www/download;
+                          rm -rf redis-${VERSION_TAG}.tar.gz;
+                          wget http://download.redis.io/releases/redis-${VERSION_TAG}.tar.gz;
+                          tar xvzf redis-${VERSION_TAG}.tar.gz;
+                          rm -rf redis-stable;
+                          mv redis-${VERSION_TAG} redis-stable;
+                          tar cvzf redis-stable.tar.gz redis-stable;
+                          rm -rf redis-${VERSION_TAG}.tar.gz;
+                          shasum -a 256 redis-stable.tar.gz > redis-stable.tar.gz.SHA256SUM;
+                          "
