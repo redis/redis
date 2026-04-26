@@ -836,6 +836,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
         keyModified(c,c->db,key,kv,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+        KSN_INVALIDATE_KVOBJ(kv);
         server.dirty++;
         return;
     }
@@ -913,6 +914,7 @@ void persistCommand(client *c) {
         if (removeExpire(c->db,c->argv[1])) {
             keyModified(c,c->db,c->argv[1],kv,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
+            KSN_INVALIDATE_KVOBJ(kv);
             addReply(c,shared.cone);
             server.dirty++;
         } else {

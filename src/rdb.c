@@ -712,7 +712,9 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
+    case OBJ_GCRA:
+        return rdbSaveType(rdb,RDB_TYPE_GCRA);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -1351,6 +1353,29 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
+
+                /* Save NACK zone: count followed by the IDs of NACKed entries. */
+                uint64_t nacked_count = pelListNackedCount(cg);
+                if ((n = rdbSaveLen(rdb, nacked_count)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
+
+                if (cg->pel_nack_tail) {
+                    streamNACK *nack = cg->pel_time_head;
+                    while (nack) {
+                        unsigned char buf[sizeof(streamID)];
+                        streamEncodeID(buf, &nack->id);
+                        if ((n = rdbWriteRaw(rdb, buf, sizeof(buf))) == -1) {
+                            raxStop(&ri);
+                            return -1;
+                        }
+                        nwritten += n;
+                        if (nack == cg->pel_nack_tail) break;
+                        nack = nack->pel_next;
+                    }
+                }
             }
             raxStop(&ri);
         }
@@ -1375,6 +1400,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
         /* Save the all-time count of duplicate IIDs detected. */
         if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
+        nwritten += n;
+    } else if (o->type == OBJ_GCRA) {
+        long long t;
+        getLongLongFromGCRAObject(o, &t);
+        if ((n = rdbSaveLen(rdb,t)) == -1) return -1;
         nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
@@ -1657,6 +1687,10 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
             written += res;
             if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr2;
             written += res;
+            /* Dismiss bucket arrays of the previous slot to reduce CoW.
+             * The final slot is not dismissed since the child exits shortly after. */
+            if (server.in_fork_child && last_slot != -1)
+                dismissDictBucketsMemory(kvstoreGetDict(db->keys, last_slot));
             last_slot = curr_slot;
         }
         kvobj *kv = dictGetKV(de);
@@ -1684,7 +1718,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
          * OS and possibly avoid or decrease COW. We give the dismiss
          * mechanism a hint about an estimated size of the object we stored. */
         size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-        if (server.in_fork_child) dismissObject(kv, dump_size);
+        if (server.in_fork_child && dump_size > server.page_size/2)
+            dismissObject(kv, dump_size);
 
         /* Update child info every 1 second (approximately).
          * in order to avoid calling mstime() on each iteration, we will
@@ -1735,6 +1770,10 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
         for (j = 0; j < server.dbnum; j++) {
             if (rdbSaveDb(rdb, j, rdbflags, &key_counter, &skipped) == -1) goto werr;
+            /* In standalone mode, dismiss bucket arrays of the saved DB's
+             * kvstore to reduce CoW. In cluster mode this is done per-slot. */
+            if (server.in_fork_child && !server.cluster_enabled)
+                dismissKvstoreBucketsMemory(server.db[j].keys);
         }
     }
 
@@ -1963,11 +2002,18 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
 
 /* This function is called by rdbLoadObject() when the code is in RDB-check
  * mode and we find a module value of type 2 that can be parsed without
- * the need of the actual module. The value is parsed for errors, finally
- * a dummy redis object is returned just to conform to the API. */
-robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
+ * the need of the actual module. The value is parsed for errors.
+ * If null_on_error is true, NULL is returned when data corruption is detected;
+ * otherwise a dummy redis object is always returned regardless of success or
+ * failure. */
+robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error) {
     uint64_t opcode;
     while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
+        if (opcode == RDB_LENERR) {
+            rdbReportCorruptRDB("Error reading module opcode length from module %s value", modulename);
+            goto error;
+        }
+
         if (opcode == RDB_MODULE_OPCODE_SINT ||
             opcode == RDB_MODULE_OPCODE_UINT)
         {
@@ -1975,12 +2021,14 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
             if (rdbLoadLenByRef(rdb,NULL,&len) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading integer from module %s value", modulename);
+                goto error;
             }
         } else if (opcode == RDB_MODULE_OPCODE_STRING) {
             robj *o = rdbGenericLoadStringObject(rdb,RDB_LOAD_NONE,NULL);
             if (o == NULL) {
                 rdbReportCorruptRDB(
                     "Error reading string from module %s value", modulename);
+                goto error;
             }
             decrRefCount(o);
         } else if (opcode == RDB_MODULE_OPCODE_FLOAT) {
@@ -1988,16 +2036,24 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
             if (rdbLoadBinaryFloatValue(rdb,&val) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading float from module %s value", modulename);
+                goto error;
             }
         } else if (opcode == RDB_MODULE_OPCODE_DOUBLE) {
             double val;
             if (rdbLoadBinaryDoubleValue(rdb,&val) == -1) {
                 rdbReportCorruptRDB(
                     "Error reading double from module %s value", modulename);
+                goto error;
             }
+        } else {
+            rdbReportCorruptRDB(
+                "Unknown module opcode %llu reading module %s value", (unsigned long long)opcode, modulename);
+            goto error;
         }
     }
     return createStringObject("module-dummy-value",18);
+error:
+    return null_on_error ? NULL : createStringObject("module-dummy-value",18);
 }
 
 /* Load object type and optional key metadata (into `keymeta`) from RDB stream.
@@ -2878,11 +2934,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                         /* search for duplicate records */
                         sds field = sdstrynewlen(fstr, flen);
-                        if (!field || dictAdd(dupSearchDict, field, NULL) != DICT_OK ||
-                            !lpSafeToAdd(lp, (size_t)flen + vlen)) {
+                        int field_added = (field != NULL && dictAdd(dupSearchDict, field, NULL) == DICT_OK);
+                        if (!field_added || !lpSafeToAdd(lp, (size_t)flen + vlen)) {
                             rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
+                            /* If field was not added to dict, we still own it.
+                             * If it was added, dict owns it and dictRelease will free it. */
+                            if (!field_added) sdsfree(field);
                             dictRelease(dupSearchDict);
-                            sdsfree(field);
                             lpFree(lp);
                             zfree(encoded);
                             o->ptr = NULL;
@@ -3092,7 +3150,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -3372,6 +3431,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                     streamNACK *nack = result;
 
+                    /* If the NACK already has a consumer assigned, the
+                     * payload is corrupt — each global PEL entry must be
+                     * claimed by exactly one consumer. */
+                    if (nack->consumer != NULL) {
+                        rdbReportCorruptRDB("Stream consumer PEL entry already has a consumer assigned");
+                        decrRefCount(o);
+                        return NULL;
+                    }
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
@@ -3387,21 +3454,67 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             }
 
-            /* Verify that each PEL eventually got a consumer assigned to it. */
-            if (deep_integrity_validation) {
-                raxIterator ri_cg_pel;
-                raxStart(&ri_cg_pel,cgroup->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel)) {
-                    streamNACK *nack = ri_cg_pel.data;
-                    if (!nack->consumer) {
-                        raxStop(&ri_cg_pel);
-                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+            /* For RDB_TYPE_STREAM_LISTPACKS_5 and above, load the NACK
+             * zone stream IDs and reconstruct the NACK zone. Entries with
+             * delivery_time == 0 may exist for both nacked and owned PEL
+             * entries, so we cannot rely on a simple walk — we use the
+             * stored IDs to unlink each nacked entry from its sorted
+             * position and re-insert it into the NACK zone. */
+            if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_5) {
+                uint64_t nacked_count = rdbLoadLen(rdb, NULL);
+                if (nacked_count == RDB_LENERR) {
+                    rdbReportReadError("Stream NACK zone count loading failed.");
+                    decrRefCount(o);
+                    return NULL;
+                }
+
+                /* Load each NACKed entry's stream ID, look it up in the
+                 * group PEL, unlink from its current time-list position,
+                 * and re-insert into the NACK zone. */
+                for (uint64_t i = 0; i < nacked_count; i++) {
+                    unsigned char rawid[sizeof(streamID)];
+                    if (rioRead(rdb, rawid, sizeof(rawid)) == 0) {
+                        rdbReportReadError("Stream NACK zone entry ID loading failed.");
                         decrRefCount(o);
                         return NULL;
                     }
+
+                    void *result;
+                    if (!raxFind(cgroup->pel, rawid, sizeof(rawid), &result)) {
+                        rdbReportCorruptRDB("Stream NACK zone entry not found "
+                                            "in group global PEL");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    streamNACK *nack = result;
+                    if (nack->consumer != NULL) {
+                        rdbReportCorruptRDB("Stream NACK zone entry has a "
+                                            "consumer assigned");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    pelListUnlink(cgroup, nack);
+                    pelListInsertNacked(cgroup, nack);
                 }
-                raxStop(&ri_cg_pel);
+
+            }
+
+            /* Verify entries outside the NACK zone all have a consumer
+             * assigned. For old RDB types pel_nack_tail is NULL, so
+             * this walks the entire PEL — equivalent to checking all. */
+            if (deep_integrity_validation) {
+                streamNACK *cur = cgroup->pel_nack_tail ?
+                                 cgroup->pel_nack_tail->pel_next :
+                                 cgroup->pel_time_head;
+                while (cur) {
+                    if (!cur->consumer) {
+                        rdbReportCorruptRDB("Stream CG PEL entry without "
+                                            "consumer outside NACK zone");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    cur = cur->pel_next;
+                }
             }
         }
 
@@ -3473,7 +3586,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (rdbCheckMode) {
             char name[10];
             moduleTypeNameByID(name,moduleid);
-            return rdbLoadCheckModuleValue(rdb,name);
+            return rdbLoadCheckModuleValue(rdb, name, 0);
         }
 
         if (mt == NULL) {
@@ -3520,6 +3633,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         o = createModuleObject(mt, ptr);
+    } else if (rdbtype == RDB_TYPE_GCRA) {
+        uint64_t time = rdbLoadLen(rdb, NULL);
+        if (time == RDB_LENERR || time > LLONG_MAX) {
+            rdbReportReadError("Failed loading GCRA TaT value");
+            return NULL;
+        }
+        o = createGCRAObject((long long)time);
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
@@ -3925,7 +4045,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue;
             } else {
                 /* RDB check mode. */
-                robj *aux = rdbLoadCheckModuleValue(rdb,name);
+                robj *aux = rdbLoadCheckModuleValue(rdb, name, 0);
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
@@ -4037,20 +4157,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
 
             /* Register streams with IDMP producers for cron-based expiration. */
-            if (kv->type == OBJ_STREAM) {
-                stream *s = kv->ptr;
-                if (s->idmp_producers != NULL) {
-                    robj *kobj = createStringObject(key, sdslen(key));
-                    if (dictAddRaw(db->stream_idmp_keys, kobj, NULL) == NULL)
-                        decrRefCount(kobj);
-                }
-            }
+            if (kv->type == OBJ_STREAM)
+                streamKeyLoaded(db, &keyobj, kv);
 
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
 
             /* call key space notification on key loaded for modules only */
-            moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
+            moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id, NULL, 0);
 
             /* Release key (sds), dictEntry stores a copy of it in embedded data */
             sdsfree(key);

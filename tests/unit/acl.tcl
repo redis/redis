@@ -357,7 +357,7 @@ start_server {tags {"acl external:skip"}} {
         assert_error {*NOPERM No permissions to access a key*} {$rd read}
         $rd ping
         $rd close
-        assert_match {*calls=0,usec=0,*,rejected_calls=1,failed_calls=0} [cmdrstat blpop r]
+        assert_match {*calls=0,usec=0,*,rejected_calls=1,failed_calls=0*} [cmdrstat blpop r]
     }
 
     test {Users can be configured to authenticate with any password} {
