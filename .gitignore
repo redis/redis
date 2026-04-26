@@ -81,3 +81,16 @@ build2/
 build_msvc/
 posix-sockets.c
 src/test_hash.c
+*.pid
+*.err
+build_*/
+fix*.py
+run_*.py
+run_*.ps1
+run_*.tcl
+CMakeLists_test*.txt
+TESTS.md
+debug_aof.txt
+proxy.py
+update_tests.py
+tests/arch_bits.tcl

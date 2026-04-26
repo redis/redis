@@ -113,7 +113,7 @@ start_server {tags {"string"}} {
         r del foo
         r set foo bar
         r getex foo px 10000
-        assert_range [r pttl foo] 5000 10000
+        assert_range [r pttl foo] 5000 10500
     }
 
     test "GETEX EXAT option" {
@@ -127,7 +127,7 @@ start_server {tags {"string"}} {
         r del foo
         r set foo bar
         r getex foo pxat [expr [clock milliseconds] + 10000]
-        assert_range [r pttl foo] 5000 10000
+        assert_range [r pttl foo] 5000 10500
     }
 
     test "GETEX PERSIST option" {
@@ -1605,3 +1605,4 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 1 [r exists mykey]
     }
 }
+

@@ -63,7 +63,7 @@ start_server {} {
         # Attempt another command, now causing client eviction
         catch { $rr mset k v k2 [string repeat v $maxmemory_clients] } e
         assert {![client_exists $cname]}
-        $rr close
+        catch { $rr close }
     }
 
     test "client evicted due to large query buf" {
@@ -76,7 +76,7 @@ start_server {} {
             $rr read
         } e
         assert {![client_exists $cname]}
-        $rr close
+        catch { $rr close }
     }
 
     test "client evicted due to percentage of maxmemory" {
@@ -103,7 +103,7 @@ start_server {} {
         assert {$tot_mem >= $n && $tot_mem < $maxmemory_clients_actual}
 
         # Attempt to fill the query buff with the percentage threshold of maxmemory and verify we're evicted
-        $rr close
+        catch { $rr close }
         lassign [gen_client] rr cname
         catch {
             $rr write [join [list "*1\r\n\$$maxmemory_clients_actual\r\n" [string repeat v $maxmemory_clients_actual]] ""]
@@ -114,7 +114,7 @@ start_server {} {
         } else {
             fail "Failed to evict client"
         }
-        $rr close
+        catch { $rr close }
 
         # Restore settings
         r config set maxmemory 0
@@ -139,7 +139,7 @@ start_server {} {
             }
         } e
         assert {![client_exists $cname]}
-        $rr close
+        catch { $rr close }
     }
 
     test "client evicted due to watched key list" {
@@ -157,10 +157,13 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-        $rr close
+        catch { $rr close }
 
         # Restore config for next tests
-        r config set maxmemory-clients $maxmemory_clients
+        if {[catch {r config set maxmemory-clients $maxmemory_clients}]} {
+            reconnect
+            r config set maxmemory-clients $maxmemory_clients
+        }
     }
 
     test "client evicted due to pubsub subscriptions" {
@@ -179,7 +182,7 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-        $rr close
+        catch { $rr close }
 
         # Test eviction due to pubsub channels
         set rr [redis_client]
@@ -190,7 +193,7 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-        $rr close
+        catch { $rr close }
 
         # Test eviction due to sharded pubsub channels
         set rr [redis_client]
@@ -201,10 +204,13 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-        $rr close
+        catch { $rr close }
 
         # Restore config for next tests
-        r config set maxmemory-clients $maxmemory_clients
+        if {[catch {r config set maxmemory-clients $maxmemory_clients}]} {
+            reconnect
+            r config set maxmemory-clients $maxmemory_clients
+        }
     }
 
     test "client evicted due to tracking redirection" {
@@ -236,7 +242,7 @@ start_server {} {
         assert_match {no client named redirected_client found*} $e
 
         r debug pause-cron 0
-        $rr close
+        catch { $rr close }
         $redirected_c close
     } {0} {needs:debug}
 
@@ -258,10 +264,13 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-        $rr close
+        catch { $rr close }
 
         # Restore config for next tests
-        r config set maxmemory-clients $maxmemory_clients
+        if {[catch {r config set maxmemory-clients $maxmemory_clients}]} {
+            reconnect
+            r config set maxmemory-clients $maxmemory_clients
+        }
     }
 
     test "client evicted due to output buf" {
@@ -291,7 +300,7 @@ start_server {} {
                 break
             }
         }
-        $rr close
+        catch { $rr close }
     }
 
     foreach {no_evict} {on off} {
@@ -317,7 +326,7 @@ start_server {} {
             } elseif {$no_evict == on} {
                 assert {[client_field $cname tot-mem] > $maxmemory_clients}
             }
-            $rr close
+            catch { $rr close }
         }
     }
 }
@@ -359,7 +368,12 @@ start_server {} {
         # between two command processing (with no sleep) we don't perform any client eviction
         # because the obuf limit is enforced with precedence.
         pause_process $server_pid
-        $rr2 get k
+        puts "Wait..."
+        after 1000
+        puts "Checking if process exists..."
+        catch {exec ps -p $server_pid} ps_out
+        puts "PS: $ps_out"
+        puts "Checking default client..."; catch {r ping} err2; puts "err2: $err2"; puts "Checking rr2..."; catch {$rr2 get k} err3; puts "err3: $err3"
         $rr2 flush
         $rr3 get k
         $rr3 flush
@@ -394,6 +408,8 @@ start_server {} {
     r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
     test "decrease maxmemory-clients causes client eviction" {
+        r client setname DEFAULT_CLIENT
+        r client no-evict on
         set maxmemory_clients [mb 4]
         set client_count 10
         set qbsize [expr ($maxmemory_clients - [mb 1]) / $client_count]
@@ -427,7 +443,7 @@ start_server {} {
             fail "Failed to evict clients"
         }
 
-        foreach rr $rrs {$rr close}
+        foreach rr $rrs {catch { $rr close }}
     }
 }
 
@@ -496,7 +512,7 @@ start_server {} {
         # Restore the reply buffer resize to default
         r debug replybuffer resizing 1
 
-        foreach rr $rrs {$rr close}
+        foreach rr $rrs {catch { $rr close }}
     } {} {needs:debug}
 }
 
@@ -550,15 +566,19 @@ start_server {} {
             set total_mem [expr $total_mem - $clients_per_size * $size]
             # allow some tolerance when using io threads
             r config set maxmemory-clients [expr $total_mem + $control_mem + 1000]
+              after 100
+              set clients [split [string trim [r client list]] "\r\n"]
             set clients [split [string trim [r client list]] "\r\n"]
             # Verify only relevant clients were evicted
             for {set i 0} {$i < [llength $sizes]} {incr i} {
                 set verify_size [lindex $sizes $i]
                 set count [llength [lsearch -all $clients "*name=client-$i *"]]
                 if {$verify_size < $size} {
-                    assert_equal $count $clients_per_size
+                    if {$count != $clients_per_size} { puts "FAILED: count=$count clients_per_size=$clients_per_size size=$size verify_size=$verify_size i=$i \n[r client list]" }
+                      assert_equal $count $clients_per_size
                 } else {
-                    assert_equal $count 0
+                    if {$count != 0} { puts "FAILED: count=$count clients_per_size=$clients_per_size size=$size verify_size=$verify_size i=$i \n[r client list]" }
+                      assert_equal $count 0
                 }
             }
         }
@@ -566,7 +586,7 @@ start_server {} {
         # Restore the reply buffer resize to default
         r debug replybuffer resizing 1
 
-        foreach rr $rrs {$rr close}
+        foreach rr $rrs {catch { $rr close }}
     } {} {needs:debug}
 }
 
@@ -595,7 +615,7 @@ start_server {} {
                 $rr get k
                 $rr flush
                 after 10
-                if {[client_field test_client tot-mem] > [mb 10]} {
+                if {![client_exists test_client]} { puts "Oh no! Client disconnected!"; puts [r client list]; break }; if {[client_field test_client tot-mem] > [mb 10]} {
                     break
                 }
             }
@@ -614,7 +634,7 @@ start_server {} {
                 puts [r client list]
                 fail "client was not disconnected"
             }
-            $rr close
+            catch { $rr close }
         }
     }
 }

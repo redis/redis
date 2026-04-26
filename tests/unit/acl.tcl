@@ -1260,7 +1260,9 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
 
         # Corrupt the ACL file
         set corruption "\nuser alice on nopass ~* -@all"
-        exec echo $corruption >> $server_path/user.acl
+        set _f [open $server_path/user.acl a]
+        puts $_f $corruption
+        close $_f
         catch {r ACL LOAD} err
         assert_match {*Duplicate user 'alice' found*} $err 
 
@@ -1278,7 +1280,9 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
 
         # Corrupt the ACL file
         set corruption "\nuser default on nopass ~* -@all"
-        exec echo $corruption >> $server_path/user.acl
+        set _f [open $server_path/user.acl a]
+        puts $_f $corruption
+        close $_f
         catch {r ACL LOAD} err
         assert_match {*Duplicate user 'default' found*} $err 
 

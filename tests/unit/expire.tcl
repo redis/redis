@@ -641,6 +641,7 @@ start_server {tags {"expire"}} {
        r set foo bar EX 100
        r getex foo PERSIST
        r debug loadaof
+       catch {exec powershell -c "Copy-Item (Get-ChildItem -Path tests/tmp -Filter appendonly.aof.1.incr.aof -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName -Destination debug_aof.txt"}
        r ttl foo
     } {-1} {needs:debug}
 

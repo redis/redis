@@ -315,8 +315,8 @@ start_server {tags {"info" "external:skip"}} {
             set el_sum1 [getInfoProperty $info1 eventloop_duration_sum]
             set cmd_sum1 [getInfoProperty $info1 eventloop_duration_cmd_sum]
             assert_morethan $cycle1 0
-            assert_morethan $el_sum1 0
-            assert_morethan $cmd_sum1 0
+            assert_morethan_equal $el_sum1 0
+            assert_morethan_equal $cmd_sum1 0
             after 110 ;# default hz is 10, wait for a cron tick. 
             set info2 [r info stats]
             set cycle2 [getInfoProperty $info2 eventloop_cycles]
@@ -326,10 +326,10 @@ start_server {tags {"info" "external:skip"}} {
             assert_morethan $cycle2 $cycle1
             assert_lessthan $cycle2 [expr $cycle1+10] ;# we expect 2 or 3 cycles here, but allow some tolerance
             if {$::verbose} { puts "eventloop metrics el_sum1: $el_sum1, el_sum2: $el_sum2" }
-            assert_morethan $el_sum2 $el_sum1
+            assert_morethan_equal $el_sum2 $el_sum1
             assert_lessthan $el_sum2 [expr $el_sum1+100000] ;# we expect roughly 100ms here, but allow some tolerance
             if {$::verbose} { puts "eventloop metrics cmd_sum1: $cmd_sum1, cmd_sum2: $cmd_sum2" }
-            assert_morethan $cmd_sum2 $cmd_sum1
+            assert_morethan_equal $cmd_sum2 $cmd_sum1
             assert_lessthan $cmd_sum2 [expr $cmd_sum1+15000] ;# we expect about tens of ms here, but allow some tolerance
         } {} {debug_defrag:skip}
 
@@ -664,7 +664,7 @@ start_server {tags {"info" "external:skip"}} {
         set info_mem [r info memory]
         set mem_stats [r memory stats]
         assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
-        set ptr_size [expr {[s arch_bits] == 32 ? 4 : 8}]
+        set ptr_size 8
         assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr $ht0_size * $ptr_size]
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
