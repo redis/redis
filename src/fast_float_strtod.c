@@ -406,11 +406,11 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
 #endif
     }
 
-    /* Keep inf/nan parsing platform-independent. Some libc strtod()
+    /* Keep nan parsing platform-independent. Some libc strtod()
      * implementations accept a wider nan(n-char-seq) than C/POSIX allow, so
      * falling back after a partial local parse would turn invalid inputs like
      * nan(ab!c) into successful conversions on those platforms. */
-    if (parsed && (isnan(result) || isinf(result))) {
+    if (parsed && isnan(result)) {
         if (endptr) *endptr = (char *)eptr;
         return result;
     }
