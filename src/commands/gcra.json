@@ -51,15 +51,15 @@
                 },
                 {
                     "type": "integer",
-                    "description": "Number of tokens available immediately"
+                    "description": "Number of tokens available immediately. Zero if limited with TOKENS above burst capacity (unretryable at these parameters)"
                 },
                 {
                     "type": "integer",
-                    "description": "Retry after: seconds after which the caller should retry. Always -1 if not limited"
+                    "description": "Retry after: seconds after which the caller should retry when limited; -1 if allowed, or if limited because TOKENS exceeds burst capacity (cannot succeed without changing parameters)"
                 },
                 {
                     "type": "integer",
-                    "description": "Full burst after: seconds after which a full burst will be allowed"
+                    "description": "Full burst after: seconds after which a full burst will be allowed. -1 when limited with TOKENS above burst capacity"
                 }
             ]
         },

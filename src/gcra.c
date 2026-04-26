@@ -224,11 +224,19 @@ void gcraCommand(client *c) {
         server.dirty++;
     }
 
-    long long next_us = variance_us - ttl_us;
-    if (next_us > -emission_interval_us) {
-        remaining = next_us / emission_interval_us;
+    /* TOKENS cost above burst capacity can never succeed at these parameters;
+     * retry_after stays -1. Do not derive remaining/reset_after from ttl_us in
+     * that case or the reply would imply immediate capacity. */
+    if (diff_us < 0 && increment_us > variance_us) {
+        remaining = 0;
+        reset_after_s = -1;
+    } else {
+        long long next_us = variance_us - ttl_us;
+        if (next_us > -emission_interval_us) {
+            remaining = next_us / emission_interval_us;
+        }
+        reset_after_s = ceil(ttl_us / 1000000.);
     }
-    reset_after_s = ceil(ttl_us / 1000000.);
 
     addReplyArrayLen(c, 5);
     addReply(c, limited ? shared.cone : shared.czero);

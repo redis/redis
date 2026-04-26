@@ -135,6 +135,16 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_equal 3 $avail2
     }
 
+    test {GCRA - TOKENS larger than burst capacity: coherent reply} {
+        r del mykey
+        # At most 6 tokens per request (max_burst 5 means 5+1); TOKENS 10 is denied
+        set result [r gcra mykey 5 1 60 TOKENS 10]
+        assert_equal 1 [lindex $result 0]
+        assert_equal 0 [lindex $result 2]
+        assert_equal -1 [lindex $result 3]
+        assert_equal -1 [lindex $result 4]
+    }
+
     test {GCRA - rate recovery over time} {
         r del mykey
         # max_burst=1, tokens_per_period=1, period=1 (1 token per second)
