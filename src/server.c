@@ -6054,10 +6054,18 @@ void statsUpdateActiveClients(client *c) {
         /* Clear every slot crossed since the last update. Cap at one full
          * window so large time gaps still clear each slot exactly once. */
         long long slots_to_clear = (current_window_ts - active_clients_window_ts) / SLOT_DURATION_MS;
-        if (slots_to_clear > WINDOW_SLOTS) slots_to_clear = WINDOW_SLOTS;
-        int prev_slot = (active_clients_window_ts / SLOT_DURATION_MS) % WINDOW_SLOTS;
-        for (int i = 1; i <= (int)slots_to_clear; i++) {
-            active_clients_window[(prev_slot + i) % WINDOW_SLOTS] = 0;
+        if (slots_to_clear < 0) {
+            /* Wall clock moved backwards: forward slot crossings do not apply,
+             * so stale counts must be discarded entirely. */
+            for (int i = 0; i < WINDOW_SLOTS; i++) {
+                active_clients_window[i] = 0;
+            }
+        } else {
+            if (slots_to_clear > WINDOW_SLOTS) slots_to_clear = WINDOW_SLOTS;
+            int prev_slot = (active_clients_window_ts / SLOT_DURATION_MS) % WINDOW_SLOTS;
+            for (int i = 1; i <= (int)slots_to_clear; i++) {
+                active_clients_window[(prev_slot + i) % WINDOW_SLOTS] = 0;
+            }
         }
         active_clients_window_ts = current_window_ts;
     }
@@ -6075,7 +6083,8 @@ void statsUpdateActiveClients(client *c) {
      * maintenance — otherwise a slot cleared by advancement may still
      * appear "within the window" by exact-timestamp comparison. */
     long long old_slot_boundary = (c->last_ts_when_counted_as_active / SLOT_DURATION_MS) * SLOT_DURATION_MS;
-    if (old_slot_boundary >= active_clients_window_ts - (WINDOW_SLOTS - 1) * SLOT_DURATION_MS) {
+    if (old_slot_boundary >= active_clients_window_ts - (WINDOW_SLOTS - 1) * SLOT_DURATION_MS &&
+        old_slot_boundary <= active_clients_window_ts) {
         int old_slot = (c->last_ts_when_counted_as_active / SLOT_DURATION_MS) % WINDOW_SLOTS;
         active_clients_window[old_slot]--;
     }
