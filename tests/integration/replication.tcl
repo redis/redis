@@ -125,7 +125,7 @@ start_server {tags {"repl external:skip"}} {
             } else {
                 fail "set get get wasn't propagated"
             }
-            assert_match {*calls=3,*} [cmdrstat set $A]
+            assert_match {*calls=4,*} [cmdrstat set $A]
             assert_match {} [cmdrstat getset $A]
         }
 
