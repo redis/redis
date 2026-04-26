@@ -1560,12 +1560,14 @@ start_server {
     }
 
     test {RESTORE rejects stream dump with duplicate consumer PEL IDs (no crash)} {
-        r del mystream _badstream
-        r xadd mystream 1-1 field value1
-        r xadd mystream 2-1 field value2
-        r xgroup create mystream mygroup 0
-        r xreadgroup group mygroup Alice count 2 streams mystream >
-        set dump [r dump mystream]
+        set stream "{dup-pel}mystream"
+        set badstream "{dup-pel}_badstream"
+        r del $stream $badstream
+        r xadd $stream 1-1 field value1
+        r xadd $stream 2-1 field value2
+        r xgroup create $stream mygroup 0
+        r xreadgroup group mygroup Alice count 2 streams $stream >
+        set dump [r dump $stream]
         # streamEncodeID layout: ms and seq as big-endian uint64 (128-bit id).
         set id1 "\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01"
         set id2 "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x01"
@@ -1578,7 +1580,7 @@ start_server {
         set suffix [string range $dump [expr {$off + 33}] end]
         set crafted "${prefix}${id1}${suffix}"
         r debug set-skip-checksum-validation 1
-        catch {r restore _badstream 0 $crafted} err
+        catch {r restore $badstream 0 $crafted} err
         r debug set-skip-checksum-validation 0
         assert_match *Bad*data*format* $err
         assert_equal PONG [r ping]
