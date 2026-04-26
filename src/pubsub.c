@@ -294,7 +294,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
             /* Hash the channel to get the slot */
-             slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
+            slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
         de = kvstoreDictFind(*type.serverPubSubChannels, slot, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
