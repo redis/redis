@@ -287,6 +287,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_CONNECTION (1ULL<<18)
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
+#define ACL_CATEGORY_RATE_LIMIT (1ULL<<21)
 
 /* Key-spec flags *
  * -------------- */
@@ -795,6 +796,11 @@ typedef enum {
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
+#define NOTIFY_RATE_LIMIT (1<<18)      /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
+#define NOTIFY_SUBKEYSPACE (1<<19)       /* S, subkey-level keyspace notification */
+#define NOTIFY_SUBKEYEVENT (1<<20)       /* T, subkey-level keyevent notification */
+#define NOTIFY_SUBKEYSPACEITEM (1<<21)   /* I, subkey-level notification per item: channel=key\nsubkey */
+#define NOTIFY_SUBKEYSPACEEVENT (1<<22)  /* V, subkey-level notification: channel=event|key */
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
 
 /* Using the following macro you can run code inside serverCron() with the
@@ -859,7 +865,25 @@ typedef enum {
  * encoding version. */
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
-#define OBJ_TYPE_MAX 7  /* Maximum number of object types */
+#define OBJ_GCRA 7    /* GCRA object. */
+#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+
+/* NOTE: adding a new object requires changes in the following places:
+ * - rdb.c - save/load (also bump RDB_VERSION if needed)
+ * - aof.c - rewrite
+ * - db.c - obj_type_name, copyCommand
+ * - debug.c - xorObjectDigest, serverLogObjectDebugInfo
+ * - defrag.c - defragKey
+ * - module.c - RM_KeyType (and add the new keytype to redismodule.h)
+ * - object.c - object(create/free/dismiss/allocSize/Length)
+ * - tests/support/util.tcl:generate_fuzzy_traffic_on_key - add command(s) for the new object type to the `commands` dict.
+ *
+ * If the new object type requires new command group make sure to update the following:
+ * - src/commands/command-docs.json - update the group:oneOf map with the new group
+ * - utils/generate-command-code.py - add the new group to GROUPS and COMMAND_GROUP_STR arrays
+ * - src/acl.c - add the new group to ACLDefaultCommandCategories array
+ * - src/server.h - add the new group to redisCommandGroup enum
+ * - if needed add new KSN type related to the group - search for NOTIFY_* and REDISMODULE_NOTIFY_* defines. */
 
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
@@ -2775,6 +2799,7 @@ typedef enum {
     COMMAND_GROUP_STREAM,
     COMMAND_GROUP_BITMAP,
     COMMAND_GROUP_MODULE,
+    COMMAND_GROUP_RATE_LIMIT,
 } redisCommandGroup;
 
 typedef void redisCommandProc(client *c);
@@ -3008,6 +3033,7 @@ typedef struct {
 extern struct redisServer server;
 extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
+extern dictType objectKeyNoValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
 extern dictType BenchmarkDictType;
@@ -3068,7 +3094,7 @@ size_t moduleCount(void);
 void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
-void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 void firePostExecutionUnitJobs(void);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
@@ -3096,6 +3122,7 @@ void moduleDefragEnd(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 int moduleHasSubscribersForKeyspaceEvent(int type);
+int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type);
 
 /* pcmd */
 void initPendingCommand(pendingCommand *pcmd);
@@ -3365,7 +3392,6 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen);
 void resetReplicationBuffer(void);
-void feedReplicationBuffer(char *buf, size_t len);
 void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
@@ -3603,6 +3629,9 @@ int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
+/* gcra related */
+robj *gcraDup(robj *o);
+
 /* Core functions */
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
 void updatePeakMemory(void);
@@ -3687,6 +3716,8 @@ void activeDefragFreeRaw(void *ptr);
 robj *activeDefragStringOb(robj* ob);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
+void dismissDictBucketsMemory(dict *d);
+void dismissKvstoreBucketsMemory(kvstore *kvs);
 void dismissMemoryInChild(void);
 int clientsCronRunClient(client *c);
 
@@ -3829,8 +3860,10 @@ dict *getClientPubSubShardChannels(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void notifyKeyspaceEventWithSubkeys(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
+int isSubkeyNotifyEnabled(int type);
 
 /* As part of KSN the module should not attempt to modify the key. Nevertheless,
  * RediSearch does it in some specific flows and modifies key metadata which in
@@ -4473,6 +4506,7 @@ void resetCommand(client *c);
 void failoverCommand(client *c);
 void digestCommand(client *c);
 void gcraCommand(client *c);
+void gcraSetValueCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

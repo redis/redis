@@ -1741,7 +1741,7 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
              * just moved to another node. The modules needs to know that these
              * keys are no longer available locally, so just send the keyspace
              * notification to the modules, but not to clients. */
-            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id, NULL, 0);
         }
         exitExecutionUnit();
         postExecutionUnitOperations();

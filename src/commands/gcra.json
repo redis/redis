@@ -2,7 +2,7 @@
     "GCRA": {
         "summary": "Rate limit via GCRA (Generic Cell Rate Algorithm).",
         "complexity": "O(1)",
-        "group": "string",
+        "group": "rate_limit",
         "since": "8.8.0",
         "arity": -5,
         "function": "gcraCommand",
@@ -12,7 +12,7 @@
             "FAST"
         ],
         "acl_categories": [
-            "STRING"
+            "RATE_LIMIT"
         ],
         "key_specs": [
             {

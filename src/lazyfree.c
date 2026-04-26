@@ -332,7 +332,7 @@ void emptyDbAsync(redisDb *db) {
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-    db->stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+    db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
     emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL);
 }

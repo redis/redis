@@ -121,7 +121,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r auth k} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -137,15 +137,15 @@ start_server {tags {"info" "external:skip"}} {
             catch {r exec} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat set]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat exec]
             assert_equal [s total_error_replies] 1
 
             # MULTI/EXEC command errors should still be pinpointed to him
             catch {r exec} e
             assert_match {ERR EXEC without MULTI} $e
-            assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat exec]
             assert_match {*count=2*} [errorstat ERR]
             assert_equal [s total_error_replies] 2
         }
@@ -174,7 +174,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r evalsha NotValidShaSUM 0} e
             assert_match {NOSCRIPT*} $e
             assert_match {*count=1*} [errorstat NOSCRIPT]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat evalsha]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat evalsha]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOSCRIPT]
@@ -188,7 +188,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r XGROUP CREATECONSUMER mystream mygroup consumer} e
             assert_match {NOGROUP*} $e
             assert_match {*count=1*} [errorstat NOGROUP]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat xgroup\\|createconsumer]
             r config resetstat
             assert_match {} [errorstat NOGROUP]
         }
@@ -217,9 +217,9 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*count=1*} [errorstat EXECABORT]
             assert_equal [s total_error_replies] 2
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat multi]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat multi]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat exec]
             assert_equal [s total_error_replies] 2
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -232,11 +232,11 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set k} e
             assert_match {ERR wrong number of arguments for 'set' command} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             # ensure that after a rejected command, valid ones are counted properly
             r set k1 v1
             r set k2 v2
-            assert_match {calls=2,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {calls=2,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
         }
 
@@ -248,7 +248,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set a b} e
             assert_match {OOM*} $e
             assert_match {*count=1*} [errorstat OOM]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat OOM]
@@ -264,7 +264,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set a b} e
             assert_match {NOPERM*} $e
             assert_match {*count=1*} [errorstat NOPERM]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOPERM]
@@ -283,7 +283,7 @@ start_server {tags {"info" "external:skip"}} {
             r client unblock $rd_id error
             assert_error {UNBLOCKED*} {$rd read}
             assert_match {*count=1*} [errorstat UNBLOCKED]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat blpop]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat blpop]
             assert_equal [s total_error_replies] 1
             $rd close
         }
