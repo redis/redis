@@ -1560,31 +1560,20 @@ start_server {
     }
 
     test {RESTORE rejects stream dump with duplicate consumer PEL IDs (no crash)} {
-        set stream "{dup-pel}mystream"
         set badstream "{dup-pel}_badstream"
-        r del $stream $badstream
-        r xadd $stream 1-1 field value1
-        r xadd $stream 2-1 field value2
-        r xgroup create $stream mygroup 0
-        r xreadgroup group mygroup Alice count 2 streams $stream >
-        set dump [r dump $stream]
-        # streamEncodeID layout: ms and seq as big-endian uint64 (128-bit id).
-        set id1 "\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01"
-        set id2 "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x01"
-        set marker "\x02$id1$id2"
-        set alice [string first Alice $dump]
-        assert {$alice >= 0}
-        set off [string first $marker $dump $alice]
-        assert {$off >= 0}
-        set prefix [string range $dump 0 [expr {$off + 16}]]
-        set suffix [string range $dump [expr {$off + 33}] end]
-        set crafted "${prefix}${id1}${suffix}"
-        r debug set-skip-checksum-validation 1
+        r del $badstream
+        # Corrupted DUMP payload: same logical stream as
+        #   XADD 1-1 / 2-1, XGROUP CREATE, XREADGROUP ... Alice COUNT 2
+        # but the consumer-local PEL repeats the same stream ID twice, which
+        # rdbLoadObject rejects ("Duplicated consumer PEL entry").
+        # Regenerate if RDB stream encoding changes: take a fresh DUMP, locate
+        # the consumer PEL pair (\x02 + two streamEncodeID blobs after "Alice"),
+        # replace the second ID with a copy of the first, set CRC64 footer to 0.
+        set crafted "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x36\x36\x00\x00\x00\x0F\x00\x02\x01\x00\x01\x01\x01\x85\x66\x69\x65\x6C\x64\x06\x00\x01\x02\x01\x00\x01\x00\x01\x86\x76\x61\x6C\x75\x65\x31\x07\x04\x01\x02\x01\x01\x01\x00\x01\x86\x76\x61\x6C\x75\x65\x32\x07\x04\x01\xFF\x02\x02\x01\x01\x01\x00\x00\x02\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x02\x01\x02\x02\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\xA7\x74\x82\xCF\x9D\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x01\xA7\x74\x82\xCF\x9D\x01\x00\x00\x01\x01\x05\x41\x6C\x69\x63\x65\xA7\x74\x82\xCF\x9D\x01\x00\x00\xA7\x74\x82\xCF\x9D\x01\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0E\x0E\x00\x00\x00\x00\x00\x00\x00\x00\x00"
         catch {r restore $badstream 0 $crafted} err
-        r debug set-skip-checksum-validation 0
         assert_match *Bad*data*format* $err
         assert_equal PONG [r ping]
-    } {} {needs:debug}
+    }
 
     start_server {tags {"external:skip"}} {
         set master [srv -1 client]
