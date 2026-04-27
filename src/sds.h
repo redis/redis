@@ -20,6 +20,7 @@ extern const char *SDS_NOINIT;
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <limits.h>
 #include "redisassert.h"
