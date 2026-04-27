@@ -215,10 +215,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
         for (int j = c->argc - 1; j >= 3; j--) {
             char *a = c->argv[j]->ptr;
             /* Skip GET which may be repeated multiple times. */
-            if (j >= 3 &&
-                (a[0] == 'g' || a[0] == 'G') &&
+            if ((a[0] == 'g' || a[0] == 'G') &&
                 (a[1] == 'e' || a[1] == 'E') &&
-                (a[2] == 't' || a[2] == 'T') && a[3] == '\0') {
+                (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
+            {
                 rewriteClientCommandArgument(c, j, NULL);
             }
         }
