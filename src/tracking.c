@@ -39,12 +39,15 @@ typedef struct bcastState {
                        prefix. */
 } bcastState;
 
-/* Remove the tracking state from the client 'c'. Note that there is not much
- * to do for us here, if not to decrement the counter of the clients in
- * tracking mode, because we just store the ID of the client in the tracking
- * table, so we'll remove the ID reference in a lazy way. Otherwise when a
- * client with many entries in the table is removed, it would cost a lot of
- * time to do the cleanup. */
+/* Remove the tracking state from the client 'c'.
+ *
+ * For BCAST mode, the client is immediately removed from its per-user
+ * vector in every prefix it subscribes to, and empty user/prefix entries
+ * are freed.
+ *
+ * For normal (non-BCAST) tracking, the client's ID references in the
+ * tracking table are removed lazily to avoid expensive cleanup when a
+ * client with many cached keys disconnects. */
 void disableTracking(client *c) {
     /* If this client is in broadcasting mode, we need to unsubscribe it
      * from all the prefixes it is registered to. */
