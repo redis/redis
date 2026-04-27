@@ -42,20 +42,6 @@ char sdsReqType(size_t string_size) {
 #endif
 }
 
-static inline size_t sdsTypeMaxSize(char type) {
-    if (type == SDS_TYPE_5)
-        return (1<<5) - 1;
-    if (type == SDS_TYPE_8)
-        return (1<<8) - 1;
-    if (type == SDS_TYPE_16)
-        return (1<<16) - 1;
-#if (LONG_MAX == LLONG_MAX)
-    if (type == SDS_TYPE_32)
-        return (1ll<<32) - 1;
-#endif
-    return -1; /* this is equivalent to the max SDS_TYPE_64 or SDS_TYPE_32 */
-}
-
 /* 
  * Adjusts the SDS type if the allocated buffer size exceeds the maximum size 
  * addressable by the current type.
@@ -113,76 +99,6 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
 
     adjustTypeIfNeeded(&type, &hdrlen, bufsize);
     return sdsnewplacement(sh, bufsize, type, init, initlen);
-}
-
-/* Initializes an SDS within pre-allocated buffer. Like, placement new in C++. 
- * 
- * Parameters:
- * - `buf`    : A pre-allocated buffer for the SDS.
- * - `bufsize`: Total size of the buffer (>= `sdsReqSize(initlen, type)`). Can use 
- *              a larger `bufsize` than required, but usable size won't be greater 
- *              than `sdsTypeMaxSize(type)`. 
- * - `type`   : The SDS type. Can assist `sdsReqType(length)` to compute the type.
- * - `init`   : Initial string to copy, or `SDS_NOINIT` to skip initialization.
- * - `initlen`: Length of the initial string.
- * 
- * Returns:
- * - A pointer to the SDS inside `buf`. 
- */
-sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size_t initlen) {
-    assert(bufsize >= sdsReqSize(initlen, type));
-    int hdrlen = sdsHdrSize(type);
-    size_t usable = bufsize - hdrlen - 1;
-    sds s = buf + hdrlen;
-    unsigned char *fp = ((unsigned char *)s) - 1; /* flags pointer. */
-
-    switch(type) {
-        case SDS_TYPE_5: {
-            *fp = type | (initlen << SDS_TYPE_BITS);
-            break;
-        }
-        case SDS_TYPE_8: {
-            SDS_HDR_VAR(8,s);
-            sh->len = initlen;
-            debugAssert(usable <= sdsTypeMaxSize(type));
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-        case SDS_TYPE_16: {
-            SDS_HDR_VAR(16,s);
-            sh->len = initlen;
-            debugAssert(usable <= sdsTypeMaxSize(type));
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-        case SDS_TYPE_32: {
-            SDS_HDR_VAR(32,s);
-            sh->len = initlen;
-            debugAssert(usable <= sdsTypeMaxSize(type));
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-        case SDS_TYPE_64: {
-            SDS_HDR_VAR(64,s);
-            sh->len = initlen;
-            debugAssert(usable <= sdsTypeMaxSize(type));
-            sh->alloc = usable;
-            *fp = type;
-            break;
-        }
-    }
-    if (init == SDS_NOINIT)
-        init = NULL;
-    else if (!init)
-        memset(s, 0, initlen);
-    else if (initlen) 
-        memcpy(s, init, initlen);
-
-    s[initlen] = '\0';
-    return s;
 }
 
 sds sdsnewlen(const void *init, size_t initlen) {

@@ -3286,7 +3286,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
                 (pcmd->argv)[(pcmd->argc)++] =
-                    createStringObjectInline(c->querybuf+c->qb_pos,c->bulklen);
+                    createStringObject(c->querybuf+c->qb_pos,c->bulklen);
                 pcmd->argv_len_sum += c->bulklen;
                 c->all_argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
