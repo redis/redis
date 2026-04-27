@@ -3345,14 +3345,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 nack->cgroup_ref_node = streamLinkCGroupToEntry(s, cgroup, rawid);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream PEL NACK loading failed.");
-                    streamFreeNACK(s, nack);
+                    if (nack != NULL) streamFreeNACK(s, nack);
                     decrRefCount(o);
                     return NULL;
                 }
                 if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
-                    streamFreeNACK(s, nack);
+                    if (nack != NULL) streamFreeNACK(s, nack);
                     decrRefCount(o);
                     return NULL;
                 }
@@ -3447,7 +3447,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
-                        streamFreeNACK(s, nack);
+                        if (nack != NULL) streamFreeNACK(s, nack);
                         decrRefCount(o);
                         return NULL;
                     }
