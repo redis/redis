@@ -69,14 +69,15 @@ ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap) {
              * SO_ERROR) that is causing epoll to raise EPOLLERR in a
              * level-triggered fashion.  Returning 0 here without consuming
              * that error would make epoll_wait fire again immediately,
-             * busy-looping the event loop at ~100% CPU (see
-             * redis/redis#9956).  Peek at SO_ERROR so the caller can tear
-             * the dead connection down. */
+             * busy-looping the event loop at ~100% CPU (see redis/redis#9956).
+             * Peek at SO_ERROR so the caller can tear the dead connection down. */
             int so_error = 0;
             socklen_t errlen = sizeof(so_error);
-            if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &so_error, &errlen) == 0 &&
-                so_error != 0)
-            {
+            if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &so_error, &errlen) == -1) {
+                __redisSetError(c, REDIS_ERR_IO, strerror(errno));
+                return -1;
+            }
+            if (so_error != 0) {
                 errno = so_error;
                 __redisSetError(c, REDIS_ERR_IO, strerror(errno));
                 return -1;
