@@ -1129,9 +1129,15 @@ int updateClientMemUsageAndBucket(client *c) {
         return 0;
     }
 
-    /* Unshared reply bytes are solely owned by this client, so they
-     * must be included in the client's memory usage for eviction. */
-    updateClientUnsharedReplyBytes(c);
+    /* Include unshared reply bytes in the client's memory usage for eviction.
+     * Walking the reply buffer is costly, so skip the scan when its outcome
+     * cannot affect bucket placement: since 0 <= unshared <= shared, if both
+     * endpoints map to the same bucket the cached value is reused. */
+    if (c->reply_bytes_shared > 0) {
+        size_t base_mem = c->last_memory_usage - c->reply_bytes_unshared;
+        if (getMemUsageBucket(base_mem) != getMemUsageBucket(base_mem + c->reply_bytes_shared))
+            updateClientUnsharedReplyBytes(c);
+    }
 
     /* Update client memory usage. */
     updateClientMemoryUsage(c);
