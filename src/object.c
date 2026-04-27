@@ -218,7 +218,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
  *    | robj (16) | key-hdr-size (1) | sdshdr8 "myvalue" \0  (11) | 
  *    +-----------+------------------+----------------------------+
  */
-robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
+static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
     
@@ -326,6 +326,20 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
     
     decrRefCount(val);
     return kv;
+}
+
+/* Create a string object with EMBSTR encoding if it is smaller than
+ * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
+ * used.
+ *
+ * The current limit of 44 is chosen so that the biggest string object
+ * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
+#define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
+robj *createStringObject(const char *ptr, size_t len) {
+    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
+        return createEmbeddedStringObject(ptr,len);
+    else
+        return createRawStringObject(ptr,len);
 }
 
 /* Same as CreateRawStringObject, can return NULL if allocation fails */
