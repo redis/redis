@@ -70,14 +70,8 @@ start_cluster 1 1 {tags {external:skip cluster}} {
     test {Shard pubsub: CLIENT KILL subscriber inside MULTI/EXEC (cross-slot)} {
         # SET fixes the transaction client's slot to keyk's slot; the subscriber must
         # use a shard channel in a different slot so a wrong-slot lookup would fail.
-        set keyk k
-        set channel ch0
-        for {set i 0} {$i < 200} {incr i} {
-            set channel "ch$i"
-            if {[R 0 cluster keyslot $channel] != [R 0 cluster keyslot $keyk]} {
-                break
-            }
-        }
+        set keyk "{06S}k"
+        set channel "{Qi}ch"
         assert {[R 0 cluster keyslot $channel] != [R 0 cluster keyslot $keyk]}
 
         set rd_sub [redis_deferring_client]
