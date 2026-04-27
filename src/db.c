@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "vector.h"
 #include "cluster.h"
 #include "atomicvar.h"
 #include "latency.h"
@@ -1631,7 +1632,7 @@ void keysCommand(client *c) {
 
 /* Data used by the dict scan callback. */
 typedef struct {
-    list *keys;   /* elements that collect from dict */
+    vec *keys;    /* elements collected from dict */
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
@@ -1663,7 +1664,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     Entry *hashEntry = NULL;
     scanData *data = (scanData *)privdata;
-    list *keys = data->keys;
+    vec *keys = data->keys;
     robj *o = data->o;
     sds val = NULL;
     void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
@@ -1733,8 +1734,8 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, key);
-    if (val && !data->no_values) listAddNodeTail(keys, val);
+    vecPush(keys, key);
+    if (val && !data->no_values) vecPush(keys, val);
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
@@ -1808,7 +1809,6 @@ static int scanShouldSkipDict(dict *d, int didx) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     int i, j;
-    listNode *node;
     long count = 10;
     sds pat = NULL;
     sds typename = NULL;
@@ -1893,18 +1893,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         ht = zs->dict;
     }
 
-    list *keys = listCreate();
-    /* Set a free callback for the contents of the collected keys list.
-     * For the main keyspace dict, and when we scan a key that's dict encoded
-     * (we have 'ht'), we don't need to define free method because the strings
-     * in the list are just a shallow copy from the pointer in the dictEntry.
-     * When scanning a key with other encodings (e.g. listpack), we need to
-     * free the temporary strings we add to that list.
-     * The exception to the above is ZSET, where we do allocate temporary
-     * strings even when scanning a dict. */
-    if (o && (!ht || o->type == OBJ_ZSET)) {
-        listSetFreeMethod(keys, sdsfreegeneric);
-    }
+    vec keys;
+    void *keys_stack[256];
+    vecInit(&keys, keys_stack, 256);
+    /* Hash on dict only has pointers to dict entries; other paths allocate
+     * temporary sds that must be released. */
+    if (o && (!ht || o->type == OBJ_ZSET))
+        vecSetFreeMethod(&keys, sdsfreegeneric);
 
     /* For main dictionary scan or data structure using hashtable. */
     if (!o || ht) {
@@ -1912,7 +1907,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = count*10;
+        long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
 
         /* We pass scanData which have three pointers to the callback:
          * 1. data.keys: the list to which it will add new elements;
@@ -1928,7 +1923,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * 6. data.no_values: to control whether values will be returned or
          * only keys are returned. */
         scanData data = {
-            .keys = keys,
+            .keys = &keys,
             .o = o,
             .type = type,
             .pattern = use_pattern ? pat : NULL,
@@ -1955,7 +1950,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     } else if (o->type == OBJ_SET) {
         unsigned long array_reply_len = 0;
         void *replylen = NULL;
-        listRelease(keys);
+        vecRelease(&keys);
         char *str;
         char buf[LONG_STR_SIZE];
         size_t len;
@@ -2001,7 +1996,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned long array_reply_len = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
-        listRelease(keys);
+        vecRelease(&keys);
 
         /* Reply to the client. */
         addReplyArrayLen(c, 2);
@@ -2052,7 +2047,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
 
-        listRelease(keys);
+        vecRelease(&keys);
         /* Reply to the client. */
         addReplyArrayLen(c, 2);
         /* Cursor is always 0 given we iterate over all set */
@@ -2098,14 +2093,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    addReplyArrayLen(c, listLength(keys));
-    while ((node = listFirst(keys)) != NULL) {
-        void *key = listNodeValue(node);
+    addReplyArrayLen(c, vecSize(&keys));
+    for (size_t i = 0; i < vecSize(&keys); i++) {
+        sds key = vecGet(&keys, i);
         addReplyBulkCBuffer(c, key, sdslen(key));
-        listDelNode(keys, node);
     }
 
-    listRelease(keys);
+    vecRelease(&keys);
 }
 
 /* The SCAN command completely relies on scanGenericCommand. */
