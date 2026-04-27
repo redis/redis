@@ -689,10 +689,11 @@ static void trackingBcastSendInvalidationsForPrefixes(rax *prefixes) {
     raxStop(&ri);
 }
 
-/* Move client 'c' from its current user bucket to the bucket for
- * 'new_user' in every bcastState the client subscribes to.
- * Must be called BEFORE c->user is updated. */
-static void trackingBcastMoveClient(client *c, user *new_user) {
+/* Move client 'c' from its old user bucket (keyed by 'old_user') to
+ * the bucket for c->user in every bcastState the client subscribes to.
+ * Must be called AFTER c->user is updated. */
+static void trackingBcastMoveClient(client *c, user *old_user) {
+    user *new_user = c->user;
     raxIterator ri;
     raxStart(&ri,c->client_tracking_prefixes);
     raxSeek(&ri,"^",NULL,0);
@@ -705,14 +706,14 @@ static void trackingBcastMoveClient(client *c, user *new_user) {
         /* Remove from old user bucket. */
         rax *from_clients;
         found = raxFind(bs->clients,
-                        (unsigned char*)&c->user,sizeof(c->user),
+                        (unsigned char*)&old_user,sizeof(old_user),
                         (void**)&from_clients);
         serverAssert(found);
         raxRemove(from_clients,(unsigned char*)&c,sizeof(c),NULL);
         if (raxSize(from_clients) == 0) {
             raxFree(from_clients);
             raxRemove(bs->clients,
-                      (unsigned char*)&c->user,sizeof(c->user),NULL);
+                      (unsigned char*)&old_user,sizeof(old_user),NULL);
         }
 
         /* Insert into new user bucket. */
@@ -732,17 +733,17 @@ static void trackingBcastMoveClient(client *c, user *new_user) {
     raxStop(&ri);
 }
 
-/* Prepare a BCAST tracking client for a user change: flush all pending
+/* Handle a BCAST tracking client after a user change: flush all pending
  * invalidation messages for its prefixes (so every subscriber receives
- * them under the current ACL identity), then move the client to the
- * bucket for 'new_user'.
- * Must be called BEFORE c->user is updated. */
-void trackingBroadcastPostUserSwitch(client *c, user *new_user) {
+ * them under the previous ACL identity), then move the client from the
+ * 'old_user' bucket to the bucket for c->user.
+ * Must be called AFTER c->user is updated. */
+void trackingBroadcastPostUserSwitch(client *c, user *old_user) {
     if (!(c->flags & CLIENT_TRACKING_BCAST)) return;
-    if (c->user == new_user) return;
+    if (c->user == old_user) return;
 
     trackingBcastSendInvalidationsForPrefixes(c->client_tracking_prefixes);
-    trackingBcastMoveClient(c, new_user);
+    trackingBcastMoveClient(c, old_user);
 }
 
 /* This function will run the prefixes of clients in BCAST mode and

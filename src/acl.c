@@ -1496,10 +1496,8 @@ void addAuthErrReply(client *c, robj *err) {
  * The return value is AUTH_OK on success (valid username / password pair) & AUTH_ERR otherwise. */
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
-        user *new_user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
-        trackingBroadcastPostUserSwitch(c, new_user);
         c->authenticated = 1;
-        c->user = new_user;
+        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -1516,10 +1514,14 @@ int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
  * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
  */
 int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
+    user *old_user = c->user;
     int result = checkModuleAuthentication(c, username, password, err);
     /* If authentication was not handled by any Module, attempt normal password based auth. */
     if (result == AUTH_NOT_HANDLED) {
         result = checkPasswordBasedAuth(c, username, password);
+    }
+    if (result == AUTH_OK) {
+        trackingBroadcastPostUserSwitch(c, old_user);
     }
     return result;
 }
@@ -2483,8 +2485,8 @@ sds ACLLoadFromFile(const char *filename) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            trackingBroadcastPostUserSwitch(c,new);
             c->user = new;
+            trackingBroadcastPostUserSwitch(c, original);
         }
 
         if (user_channels)
