@@ -71,7 +71,7 @@ start_server {tags {"cli"}} {
         set _ [format_output [read_cli $fd]]
     }
 
-    proc read_cli_until {fd regex {timeout_ms 5000}} {
+    proc read_cli_until {fd regex {timeout_ms 2000}} {
         set ret ""
         set deadline [expr {[clock milliseconds] + $timeout_ms}]
 
@@ -209,14 +209,19 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
-        puts $fd "\x12" ;# CTRL+R
-
         set now [clock seconds]
-        puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
+
+        puts -nonewline $fd "\x12" ;# CTRL+R
+        flush $fd
+        set result [read_cli_until $fd {\(reverse-i-search\):}]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
-        set result2 [run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}]
+        puts -nonewline $fd "\x12" ;# CTRL+R
+        flush $fd
+
+        puts -nonewline $fd "keys \"$now\"\x0D"
+        flush $fd
+        set result2 [format_output [read_cli_until $fd {.*(empty array).*}]]
         assert_equal 1 [regexp {.*(empty array).*} $result2]
     }
 
