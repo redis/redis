@@ -9,6 +9,7 @@
  */
 
 #include "server.h"
+#include "vector.h"
 
 /* The tracking table is constituted by a radix tree of keys, each pointing
  * to a radix tree of client IDs, used to track the clients that may have
@@ -57,17 +58,18 @@ void disableTracking(client *c) {
             serverAssert(found);
             bcastState *bs = result;
 
-            /* Find the user bucket and remove this client from it. */
-            rax *user_clients;
+            /* Find the user vector and swap-remove this client from it. */
+            vec *user_clients;
             found = raxFind(bs->clients,
                             (unsigned char*)&c->user, sizeof(c->user),
                             (void**)&user_clients);
             serverAssert(found);
-            raxRemove(user_clients,(unsigned char*)&c,sizeof(c),NULL);
-            if (raxSize(user_clients) == 0) {
-                raxFree(user_clients);
+            vecSwapRemove(user_clients, c);
+            if (vecSize(user_clients) == 0) {
+                vecRelease(user_clients);
+                zfree(user_clients);
                 raxRemove(bs->clients,
-                          (unsigned char*)&c->user,sizeof(c->user),NULL);
+                          (unsigned char*)&c->user, sizeof(c->user), NULL);
             }
 
             /* Was it the last client? Remove the prefix from the
@@ -161,19 +163,21 @@ static void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
         bs = result;
     }
 
-    /* Find or create the per-user client set. */
-    rax *user_clients;
+    /* Find or create the per-user client vector. */
+    vec *user_clients;
     if (!raxFind(bs->clients,
-                 (unsigned char*)&c->user,sizeof(c->user),
+                 (unsigned char*)&c->user, sizeof(c->user),
                  (void**)&user_clients))
     {
-        user_clients = raxNew();
+        user_clients = zmalloc(sizeof(vec));
+        vecInit(user_clients, NULL, 0);
         raxInsert(bs->clients,
-                  (unsigned char*)&c->user,sizeof(c->user),
-                  user_clients,NULL);
+                  (unsigned char*)&c->user, sizeof(c->user),
+                  user_clients, NULL);
     }
 
-    if (raxTryInsert(user_clients,(unsigned char*)&c,sizeof(c),NULL,NULL)) {
+    if (vecFindIndexOf(user_clients, c) < 0) {
+        vecPush(user_clients, c);
         if (c->client_tracking_prefixes == NULL)
             c->client_tracking_prefixes = raxNew();
         raxInsert(c->client_tracking_prefixes,
@@ -592,7 +596,7 @@ sds trackingBuildBroadcastReply(user *u, client *c, rax *keys) {
     uint64_t count = 0;
 
     raxStart(&ri, keys);
-    raxSeek(&ri, "^",NULL,0);
+    raxSeek(&ri, "^", NULL, 0);
     while(raxNext(&ri)) {
         if (c && ri.data == c) continue;
         if (u && ACLUserCheckKeyPerm(u, (const char*)ri.key, ri.key_len,
@@ -616,7 +620,7 @@ sds trackingBuildBroadcastReply(user *u, client *c, rax *keys) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         if (c && ri.data == c) continue;
-        if (u && ACLUserCheckKeyPerm(u,(const char*)ri.key,ri.key_len,
+        if (u && ACLUserCheckKeyPerm(u, (const char*)ri.key, ri.key_len,
                                      ACL_READ_PERMISSION) != ACL_OK) continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
         proto = sdscatlen(proto,"$",1);
@@ -635,21 +639,18 @@ sds trackingBuildBroadcastReply(user *u, client *c, rax *keys) {
 static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
     if (raxSize(bs->keys) == 0) return;
 
-    raxIterator ri, ri2;
-    raxStart(&ri,bs->clients);
-    raxSeek(&ri,"^",NULL,0);
+    raxIterator ri;
+    raxStart(&ri, bs->clients);
+    raxSeek(&ri, "^", NULL, 0);
     while(raxNext(&ri)) {
         user *u;
-        memcpy(&u,ri.key,sizeof(u));
-        rax *user_clients = ri.data;
+        memcpy(&u, ri.key, sizeof(u));
+        vec *user_clients = ri.data;
 
         sds proto = trackingBuildBroadcastReply(u, NULL, bs->keys);
 
-        raxStart(&ri2,user_clients);
-        raxSeek(&ri2,"^",NULL,0);
-        while(raxNext(&ri2)) {
-            client *c;
-            memcpy(&c,ri2.key,sizeof(c));
+        for (size_t j = 0; j < vecSize(user_clients); j++) {
+            client *c = vecGet(user_clients, j);
 
             if (c->flags & CLIENT_TRACKING_NOLOOP) {
                 sds adhoc = trackingBuildBroadcastReply(u, c, bs->keys);
@@ -663,7 +664,6 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
 
             sendTrackingMessage(c, proto, sdslen(proto), 1);
         }
-        raxStop(&ri2);
 
         sdsfree(proto);
     }
@@ -678,11 +678,11 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
  * This triggers the full broadcast cycle for each matching prefix. */
 static void trackingBcastSendInvalidationsForPrefixes(rax *prefixes) {
     raxIterator ri;
-    raxStart(&ri,prefixes);
-    raxSeek(&ri,"^",NULL,0);
+    raxStart(&ri, prefixes);
+    raxSeek(&ri, "^", NULL, 0);
     while(raxNext(&ri)) {
         void *result;
-        int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+        int found = raxFind(PrefixTable, ri.key, ri.key_len, &result);
         serverAssert(found);
         trackingBcastInvalidationsForPrefix(result);
     }
@@ -695,40 +695,41 @@ static void trackingBcastSendInvalidationsForPrefixes(rax *prefixes) {
 static void trackingBcastMoveClient(client *c, user *old_user) {
     user *new_user = c->user;
     raxIterator ri;
-    raxStart(&ri,c->client_tracking_prefixes);
-    raxSeek(&ri,"^",NULL,0);
+    raxStart(&ri, c->client_tracking_prefixes);
+    raxSeek(&ri, "^", NULL, 0);
     while(raxNext(&ri)) {
         void *result;
-        int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+        int found = raxFind(PrefixTable, ri.key, ri.key_len, &result);
         serverAssert(found);
         bcastState *bs = result;
 
-        /* Remove from old user bucket. */
-        rax *from_clients;
+        /* Swap-remove from old user vector. */
+        vec *from_clients;
         found = raxFind(bs->clients,
-                        (unsigned char*)&old_user,sizeof(old_user),
+                        (unsigned char*)&old_user, sizeof(old_user),
                         (void**)&from_clients);
         serverAssert(found);
-        raxRemove(from_clients,(unsigned char*)&c,sizeof(c),NULL);
-        if (raxSize(from_clients) == 0) {
-            raxFree(from_clients);
+        vecSwapRemove(from_clients, c);
+        if (vecSize(from_clients) == 0) {
+            vecRelease(from_clients);
+            zfree(from_clients);
             raxRemove(bs->clients,
-                      (unsigned char*)&old_user,sizeof(old_user),NULL);
+                      (unsigned char*)&old_user, sizeof(old_user), NULL);
         }
 
-        /* Insert into new user bucket. */
-        rax *to_clients;
+        /* Insert into new user vector. */
+        vec *to_clients;
         if (!raxFind(bs->clients,
-                     (unsigned char*)&new_user,sizeof(new_user),
+                     (unsigned char*)&new_user, sizeof(new_user),
                      (void**)&to_clients))
         {
-            to_clients = raxNew();
+            to_clients = zmalloc(sizeof(vec));
+            vecInit(to_clients, NULL, 0);
             raxInsert(bs->clients,
-                      (unsigned char*)&new_user,sizeof(new_user),
-                      to_clients,NULL);
+                      (unsigned char*)&new_user, sizeof(new_user),
+                      to_clients, NULL);
         }
-        raxTryInsert(to_clients,
-                     (unsigned char*)&c,sizeof(c),NULL,NULL);
+        vecPush(to_clients, c);
     }
     raxStop(&ri);
 }

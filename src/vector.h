@@ -2,6 +2,7 @@
 #define REDIS_VECTOR_H
 
 #include <stddef.h>
+#include <sys/types.h>
 
 /*
  * Simple append-only vector (dynamic array) of void * elements.
@@ -95,6 +96,13 @@ void vecReserve(vec *v, size_t mincap);
 
 /* Append one element, growing storage as needed. */
 void vecPush(vec *v, void *value);
+
+/* Return the index of the first occurrence of 'elem', or -1 if not found. */
+ssize_t vecFindIndexOf(const vec *v, void *elem);
+
+/* Remove the first occurrence of 'elem' by swapping with the last element.
+ * Returns 1 if found and removed, 0 if not found. */
+int vecSwapRemove(vec *v, void *elem);
 
 #ifdef REDIS_TEST
 int vectorTest(int argc, char **argv, int flags);
