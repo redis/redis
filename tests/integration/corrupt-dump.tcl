@@ -315,24 +315,19 @@ test {corrupt payload: stream with duplicate consumers} {
     }
 }
 
-test {RESTORE rejects stream dump with duplicate consumer PEL IDs (no crash)} {
-        set badstream "{dup-pel}_badstream"
-        r del $badstream
+test {corrupt payload: stream with duplicate consumer PEL IDs} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         # Fixed RESTORE blob (RDB stream type + trailing RDB version + CRC64).
-        # It matches a stream built with two entries, one group, XREADGROUP so
-        # Alice owns two distinct pending IDs, then the consumer-local PEL is
-        # altered so the same 128-bit stream ID appears twice. Loader hits
-        # raxTryInsert on the consumer PEL and fails with "Duplicated consumer
-        # PEL entry" (RESTORE surfaces that as ERR Bad data format).
-        # Last eight bytes are zero CRC so verifyDumpPayload accepts the shell
-        # without DEBUG. If stream on-disk encoding changes, rebuild from that
-        # scenario, apply the same semantic corruption, and replace the
-        # following literal.
+        # Same logical stream as two entries, one group, XREADGROUP so Alice
+        # owns two distinct pending IDs, then the consumer-local PEL lists the
+        # same 128-bit ID twice. Loader fails (Duplicated consumer PEL entry);
+        # RESTORE returns ERR Bad data format. Zero CRC footer needs no DEBUG.
         set crafted "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x36\x36\x00\x00\x00\x0F\x00\x02\x01\x00\x01\x01\x01\x85\x66\x69\x65\x6C\x64\x06\x00\x01\x02\x01\x00\x01\x00\x01\x86\x76\x61\x6C\x75\x65\x31\x07\x04\x01\x02\x01\x01\x01\x00\x01\x86\x76\x61\x6C\x75\x65\x32\x07\x04\x01\xFF\x02\x02\x01\x01\x01\x00\x00\x02\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x02\x01\x02\x02\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\xA7\x74\x82\xCF\x9D\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x01\xA7\x74\x82\xCF\x9D\x01\x00\x00\x01\x01\x05\x41\x6C\x69\x63\x65\xA7\x74\x82\xCF\x9D\x01\x00\x00\xA7\x74\x82\xCF\x9D\x01\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0E\x0E\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-        catch {r restore $badstream 0 $crafted} err
+        catch {r restore key 0 $crafted} err
         assert_match "*Bad data format*" $err
-        assert_equal PONG [r ping]
+        r ping
     }
+}
 
 test {corrupt payload: hash ziplist with duplicate records} {
     # when we do perform full sanitization, we expect duplicate records to fail the restore
