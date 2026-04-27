@@ -11,7 +11,7 @@
 #include "server.h"
 
 /* IO threads. */
-static IOThread IOThreads[IO_THREADS_MAX_NUM];
+IOThread IOThreads[IO_THREADS_MAX_NUM];
 
 /* For main thread */
 static list *mainThreadPendingClientsToIOThreads[IO_THREADS_MAX_NUM]; /* Clients to IO threads */
@@ -172,7 +172,7 @@ void keepClientInMainThread(client *c) {
     if (c->tid == IOTHREAD_MAIN_THREAD_ID) return;
     serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
     /* IO thread no longer manage it. */
-    io_thread_stats[c->tid].clients_num--;
+    server.io_threads_clients_num[c->tid]--;
     /* Unbind connection of client from io thread event loop. */
     unbindClientFromIOThreadEventLoop(c);
     /* Update the client's data in case it was just fetched from IO thread */
@@ -186,7 +186,7 @@ void keepClientInMainThread(client *c) {
     freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
     tryUnlinkClientFromPendingRefReply(c, 0);
     /* Main thread starts to manage it. */
-    io_thread_stats[c->tid].clients_num++;
+    server.io_threads_clients_num[c->tid]++;
 }
 
 /* If the client is managed by IO thread, we should fetch it from IO thread
@@ -286,16 +286,16 @@ void assignClientToIOThread(client *c) {
     int min_id = 0;
     int min = INT_MAX;
     for (int i = 1; i < server.io_threads_num; i++) {
-        if (io_thread_stats[i].clients_num < min) {
-            min = io_thread_stats[i].clients_num;
+        if (server.io_threads_clients_num[i] < min) {
+            min = server.io_threads_clients_num[i];
             min_id = i;
         }
     }
 
     /* Assign the client to the IO thread. */
-    io_thread_stats[c->tid].clients_num--;
+    server.io_threads_clients_num[c->tid]--;
     c->tid = min_id;
-    io_thread_stats[min_id].clients_num++;
+    server.io_threads_clients_num[min_id]++;
 
     /* The client running in IO thread needs to have deferred objects array. */
     c->deferred_objects = zmalloc(sizeof(deferredObject) * CLIENT_MAX_DEFERRED_OBJECTS);

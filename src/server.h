@@ -80,7 +80,7 @@ struct RedisModuleKeyOptCtx {
     int from_dbid, to_dbid;                /* The dbid of the key being processed, -1 when unknown.
                                               In most cases, only 'from_dbid' is valid, but in callbacks such
                                               as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
-}; 
+};
 
 #define REDISMODULE_CORE 1
 
@@ -223,17 +223,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Max number of IO threads */
 #define IO_THREADS_MAX_NUM 128
-
-/* Per-IO-thread stats, cache-line padded to prevent false sharing.
- * Stat counters are updated by their respective IO thread;
- * clients_num is updated by the main thread but infrequently. */
-typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
-    redisAtomic long long io_reads_processed;  /* Number of read events processed */
-    redisAtomic long long io_writes_processed; /* Number of write events processed */
-    int clients_num;                           /* Number of clients assigned */
-} IOThreadStats;
-
-extern IOThreadStats io_thread_stats[IO_THREADS_MAX_NUM];
 
 /* To make IO threads and main thread run in parallel, we will transfer clients
  * between them if the number of clients in the pending list reaches this value. */
@@ -1076,7 +1065,7 @@ struct RedisModuleIO {
 /* Initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
 static inline void moduleInitIOContext(RedisModuleIO *io, ModuleEntityId *entity,
-                                       rio *rioptr, struct redisObject *keyptr, int db) 
+                                       rio *rioptr, struct redisObject *keyptr, int db)
 {
     io->rio = rioptr;
     io->entity = entity;
@@ -1276,7 +1265,7 @@ typedef struct rdbLoadingCtx {
 typedef struct pendingCommand pendingCommand;
 typedef struct multiState {
     pendingCommand **commands;     /* Array of pointers to MULTI commands */
-    int executing_cmd;      /* The index of the currently executed transaction 
+    int executing_cmd;      /* The index of the currently executed transaction
                                command (index in commands field) */
     int count;              /* Total number of MULTI commands */
     int cmd_flags;          /* The accumulated command flags OR-ed together.
@@ -1451,7 +1440,7 @@ typedef struct {
  * IO threads to avoid blocking the main event loop. */
 typedef struct deferredObject {
     int type;    /* Pointer to the object to be freed */
-    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */ 
+    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */
 } deferredObject;
 
 #define SHOULD_CLUSTER_COMPATIBILITY_SAMPLE() \
@@ -1688,7 +1677,11 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
+    redisAtomic long long io_reads_processed;   /* Number of read events processed */
+    redisAtomic long long io_writes_processed;  /* Number of write events processed */
 } IOThread;
+
+extern IOThread IOThreads[IO_THREADS_MAX_NUM];
 
 /* Context for streaming replDataBuf to database */
 typedef struct replDataBufToDbCtx {
@@ -2082,6 +2075,7 @@ struct redisServer {
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int io_threads_num;         /* Number of IO threads to use. */
+    int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     pendingCommandPool cmd_pool; /* Shared pool for reusing pendingCommand,
