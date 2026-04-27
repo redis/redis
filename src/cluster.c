@@ -303,7 +303,7 @@ void restoreCommand(client *c) {
     if (kvtype == OBJ_HASH) {
         uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
+            subexpiryAdd(c->db, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
     if (kvtype == OBJ_STREAM)

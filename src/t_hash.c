@@ -160,6 +160,17 @@ static inline int isDictWithMetaHFE(dict *d) {
     return d->type == &entryHashDictTypeWithHFE;
 }
 
+/* Does the hash carry the HFE schema (i.e. an embedded ExpireMeta that can be
+ * safely read via hashGetExpireMeta)? Only LISTPACK_EX and HT-with-HFE dict
+ * type qualify. The subexpires* helpers in db.c use this internally; direct
+ * estoreAdd/Remove against db->subexpires must NOT be called from anywhere
+ * other than those wrappers. */
+int hashTypeHasHFEMeta(robj *o) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) return 1;
+    if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE((dict *)o->ptr)) return 1;
+    return 0;
+}
+
 /*-----------------------------------------------------------------------------
  * setex* - Set field's expiration
  *
@@ -1270,12 +1281,12 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
     int slot = getKeySlot(ex->key->ptr);
     if (ex->minExpire != EB_EXPIRE_TIME_INVALID) {
         if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-            estoreUpdate(ex->db->subexpires, slot, ex->hashObj, newMinExpire);
+            subexpiryUpdate(ex->db, slot, ex->hashObj, newMinExpire);
         else
-            estoreRemove(ex->db->subexpires, slot, ex->hashObj);
+            subexpiryRemove(ex->db, slot, ex->hashObj);
     } else {
         if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(ex->db->subexpires, slot, ex->hashObj, newMinExpire);
+            subexpiryAdd(ex->db, slot, ex->hashObj, newMinExpire);
     }
 }
 
@@ -1702,7 +1713,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         if (db && lpt->meta.trash != 1) {
             minExpire = hashTypeGetMinExpire(o, 0);
             slot = getKeySlot(kvobjGetKey(o));
-            estoreRemove(db->subexpires, slot, o);
+            subexpiryRemove(db, slot, o);
         }
 
         dict = dictCreate(&entryHashDictTypeWithHFE);
@@ -1739,7 +1750,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         o->ptr = dict;
 
         if (minExpire != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(db->subexpires, slot, o, minExpire);
+            subexpiryAdd(db, slot, o, minExpire);
     } else {
         serverPanic("Unknown hash encoding: %d", enc);
     }
@@ -1946,7 +1957,7 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
 
         if (updateSubexpires) {
             slot = getKeySlot(keystr);
-            estoreRemove(db->subexpires, slot, o);
+            subexpiryRemove(db, slot, o);
         }
 
         if (hashTypeLength(o, 0) == 0) {
@@ -1956,7 +1967,7 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
             deleted = 1;
         } else {
             if ((updateSubexpires) && (info.nextExpireTime != EB_EXPIRE_TIME_INVALID))
-                estoreAdd(db->subexpires, slot, o, info.nextExpireTime);
+                subexpiryAdd(db, slot, o, info.nextExpireTime);
         }
 
         keyModified(NULL, db, key, deleted ? NULL : o, 1);
@@ -2842,7 +2853,7 @@ void hgetdelCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     /* is it last HFE */
     if (!delete_key && hfe && (hashTypeIsFieldsWithExpire(o) == 0))
-        estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+        subexpiryRemove(c->db, getKeySlot(c->argv[1]->ptr), o);
     
     keyModified(c, c->db, c->argv[1], o, 1);
 
@@ -3091,7 +3102,7 @@ void hdelCommand(client *c) {
         } else {
             /* is it last HFE */
             if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0))
-                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+                subexpiryRemove(c->db, getKeySlot(c->argv[1]->ptr), o);
         }
 
         /* Signal key modification */
