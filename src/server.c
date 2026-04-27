@@ -3116,9 +3116,7 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
-    for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
-        server.io_threads_clients_num[j] = 0;
-    }
+    memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
     atomicSetWithSync(server.running, 0);
     server.accum_call_count_since_ustime = 0;
     server.monotonic_us_when_ustime = 0;
