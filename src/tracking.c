@@ -125,7 +125,7 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
                     "Prefixes for a single client must not overlap.",
                     (unsigned char *)prefixes[i]->ptr,
                     (unsigned char *)prefixes[j]->ptr);
-                return i;
+                return 0;
             }
         }
     }
