@@ -1820,8 +1820,11 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
     client *slave = connGetPrivateData(conn);
     slave->repl_last_partial_write = 0;
     server.rdb_pipe_numconns_writing--;
-    /* if there are no more writes for now for this conn, or write error: */
-    if (server.rdb_pipe_numconns_writing == 0) {
+    /* If rdb pipe reads were paused because all replicas were blocked,
+     * resume reads as soon as one replica drains enough and becomes writable. */
+    if (server.rdb_pipe_read != -1 &&
+        !(aeGetFileEvents(server.el, server.rdb_pipe_read) & AE_READABLE))
+    {
         if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, rdbPipeReadHandler,NULL) == AE_ERR) {
             serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
         }
@@ -1831,11 +1834,12 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
 /* Called in diskless master during transfer of data from the rdb pipe, when
  * the replica becomes writable again. */
 void rdbPipeWriteHandler(struct connection *conn) {
-    serverAssert(server.rdb_pipe_bufflen>0);
     client *slave = connGetPrivateData(conn);
+    serverAssert(slave->repldbpipe != NULL);
+    serverAssert(slave->repldboff < (off_t)sdslen(slave->repldbpipe));
     ssize_t nwritten;
-    if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
-                              server.rdb_pipe_bufflen - slave->repldboff)) == -1)
+    if ((nwritten = connWrite(conn, slave->repldbpipe + slave->repldboff,
+                              sdslen(slave->repldbpipe) - slave->repldboff)) == -1)
     {
         if (connGetState(conn) == CONN_STATE_CONNECTED)
             return; /* equivalent to EAGAIN */
@@ -1846,11 +1850,14 @@ void rdbPipeWriteHandler(struct connection *conn) {
     } else {
         slave->repldboff += nwritten;
         atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-        if (slave->repldboff < server.rdb_pipe_bufflen) {
+        if (slave->repldboff < (off_t)sdslen(slave->repldbpipe)) {
             slave->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
         }
     }
+    sdsfree(slave->repldbpipe);
+    slave->repldbpipe = NULL;
+    slave->repldboff = 0;
     rdbPipeWriteHandlerConnRemoved(conn);
 }
 
@@ -1862,7 +1869,6 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
     int i;
     if (!server.rdb_pipe_buff)
         server.rdb_pipe_buff = zmalloc(PROTO_IOBUF_LEN);
-    serverAssert(server.rdb_pipe_numconns_writing==0);
 
     while (1) {
         server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
@@ -1903,6 +1909,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         }
 
         int stillAlive = 0;
+        int numBlocked = 0;
         for (i=0; i < server.rdb_pipe_numconns; i++)
         {
             ssize_t nwritten;
@@ -1911,6 +1918,13 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 continue;
 
             client *slave = connGetPrivateData(conn);
+            if (slave->repldbpipe) {
+                slave->repldbpipe = sdscatlen(slave->repldbpipe, server.rdb_pipe_buff, server.rdb_pipe_bufflen);
+                numBlocked++;
+                stillAlive++;
+                continue;
+            }
+
             if ((nwritten = connWrite(conn, server.rdb_pipe_buff, server.rdb_pipe_bufflen)) == -1) {
                 if (connGetState(conn) != CONN_STATE_CONNECTED) {
                     serverLog(LL_WARNING,"Diskless rdb transfer, write error sending DB to replica: %s",
@@ -1920,19 +1934,22 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                     continue;
                 }
                 /* An error and still in connected state, is equivalent to EAGAIN */
-                slave->repldboff = 0;
+                nwritten = 0;
             } else {
-                /* Note: when use diskless replication, 'repldboff' is the offset
-                 * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
-                slave->repldboff = nwritten;
                 atomicIncr(server.stat_net_repl_output_bytes, nwritten);
             }
             /* If we were unable to write all the data to one of the replicas,
-             * setup write handler (and disable pipe read handler, below) */
+             * queue the unsent bytes for this replica and continue with others. */
             if (nwritten != server.rdb_pipe_bufflen) {
+                slave->repldbpipe = sdsnewlen(server.rdb_pipe_buff + nwritten,
+                                              server.rdb_pipe_bufflen - nwritten);
+                slave->repldboff = 0;
                 slave->repl_last_partial_write = server.unixtime;
-                server.rdb_pipe_numconns_writing++;
-                connSetWriteHandler(conn, rdbPipeWriteHandler);
+                numBlocked++;
+                if (!connHasWriteHandler(conn)) {
+                    server.rdb_pipe_numconns_writing++;
+                    connSetWriteHandler(conn, rdbPipeWriteHandler);
+                }
             }
             stillAlive++;
         }
@@ -1944,8 +1961,9 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             killRDBChild();
             break;
         }
-        /* Remove the pipe read handler if at least one write handler was set. */
-        else if (server.rdb_pipe_numconns_writing) {
+        /* Pause pipe reads only when all replicas are backpressured.
+         * In mixed-speed scenarios, keep serving fast replicas. */
+        else if (numBlocked == stillAlive) {
             aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
             break;
         }

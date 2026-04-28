@@ -1527,6 +1527,7 @@ typedef struct client {
     int repldbfd;           /* Replication DB file descriptor. */
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
+    sds repldbpipe;         /* Pending RDB pipe bytes for diskless replication. */
     sds replpreamble;       /* Replication DB preamble. */
     long long read_reploff; /* Read replication offset if this is a master. */
     long long io_read_reploff; /* Copy of read_reploff but only used when

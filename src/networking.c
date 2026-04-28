@@ -205,6 +205,7 @@ client *createClient(connection *conn) {
     c->io_repl_ack_time = 0;
     c->repl_aof_off = 0;
     c->repl_last_partial_write = 0;
+    c->repldbpipe = NULL;
     c->slave_listening_port = 0;
     c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
@@ -2236,6 +2237,7 @@ void freeClient(client *c) {
     sdsfree(c->peerid);
     sdsfree(c->sockname);
     sdsfree(c->slave_addr);
+    sdsfree(c->repldbpipe);
     sdsfree(c->node_id);
     zfree(c);
 }
