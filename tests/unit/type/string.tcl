@@ -635,6 +635,14 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {{} bar}
 
+    test {Extended SET GET option accepts repeated GET tokens} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar baz}
+
     test {Extended SET GET option with XX} {
         r del foo
         r set foo bar

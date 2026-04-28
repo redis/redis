@@ -9661,7 +9661,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
                 if (prev)
                     prev->next = r->next;
                 else
-                    clusterReceivers[type]->next = r->next;
+                    clusterReceivers[type] = r->next; /* Update the head */
                 zfree(r);
             }
             return;
@@ -10480,11 +10480,11 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
  * Returns NULL if user is NULL or the user has no name.
  * The returned string must be freed by the caller with RedisModule_FreeString()
  * or by enabling automatic memory management on a context. */
- RedisModuleString *RM_GetUserUsername(const RedisModuleUser *user) {
+ RedisModuleString *RM_GetUserUsername(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     if(user == NULL || user->user == NULL || user->user->name == NULL) 
         return NULL;
     
-    return RM_CreateString(NULL, user->user->name, sdslen(user->user->name));
+    return RM_CreateString(ctx, user->user->name, sdslen(user->user->name));
 }
 
 /* Sets the permissions of a user created through the redis module

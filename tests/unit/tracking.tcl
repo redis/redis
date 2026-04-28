@@ -413,6 +413,18 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $r CLIENT TRACKING OFF
     }
 
+    test {BCAST prefix self-overlap past first index reports error without enabling} {
+        # When any of the provided BCAST prefixes overlap with each other,
+        # CLIENT TRACKING ON must reply with a single error and leave tracking
+        # disabled, regardless of the position of the overlapping prefix in
+        # the argument list.
+        r CLIENT TRACKING OFF
+        catch {r CLIENT TRACKING ON BCAST PREFIX BAZ PREFIX FOOBAR PREFIX FOO} output
+        assert_match {ERR Prefix 'FOOBAR' overlaps with another provided prefix 'FOO'*} $output
+        # Tracking must not have been enabled after the overlap error.
+        assert_match {*flags off*} [r CLIENT TRACKINGINFO]
+    }
+
     test {hdel deliver invalidate message after response in the same connection} {
         r CLIENT TRACKING off
         r HELLO 3

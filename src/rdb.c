@@ -3431,6 +3431,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                     streamNACK *nack = result;
 
+                    /* If the NACK already has a consumer assigned, the
+                     * payload is corrupt — each global PEL entry must be
+                     * claimed by exactly one consumer. */
+                    if (nack->consumer != NULL) {
+                        rdbReportCorruptRDB("Stream consumer PEL entry already has a consumer assigned");
+                        decrRefCount(o);
+                        return NULL;
+                    }
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */

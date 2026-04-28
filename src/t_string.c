@@ -212,21 +212,16 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
 
     /* Propagate without the GET argument (Isn't needed if we had expire since in that case we completely re-written the command argv) */
     if ((flags & OBJ_SET_GET) && !expire) {
-        int argc = 0;
-        int j;
-        robj **argv = zmalloc((c->argc-1)*sizeof(robj*));
-        for (j=0; j < c->argc; j++) {
+        for (int j = c->argc - 1; j >= 3; j--) {
             char *a = c->argv[j]->ptr;
             /* Skip GET which may be repeated multiple times. */
-            if (j >= 3 &&
-                (a[0] == 'g' || a[0] == 'G') &&
+            if ((a[0] == 'g' || a[0] == 'G') &&
                 (a[1] == 'e' || a[1] == 'E') &&
                 (a[2] == 't' || a[2] == 'T') && a[3] == '\0')
-                continue;
-            argv[argc++] = c->argv[j];
-            incrRefCount(c->argv[j]);
+            {
+                rewriteClientCommandArgument(c, j, NULL);
+            }
         }
-        replaceClientCommandVector(c, argc, argv);
     }
 }
 
