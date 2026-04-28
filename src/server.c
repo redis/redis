@@ -1134,7 +1134,7 @@ int updateClientMemUsageAndBucket(client *c) {
      * cannot affect bucket placement: since 0 <= unshared <= shared, if both
      * endpoints map to the same bucket the cached value is reused. */
     if (c->reply_bytes_shared > 0) {
-        size_t lower_bound = c->last_memory_usage - c->reply_bytes_unshared;
+        size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
         size_t upper_bound = lower_bound + c->reply_bytes_shared;
         if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
             updateClientUnsharedReplyBytes(c);
