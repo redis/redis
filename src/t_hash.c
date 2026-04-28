@@ -3081,47 +3081,51 @@ void genericHgetallCommand(client *c, int flags) {
         dictIterator di;
         dictInitSafeIterator(&di, d);
         Entry *batch_entry[HGETALL_BATCH];
+        sds batch_val[HGETALL_BATCH];
 
-        int batch_count;
         while (1) {
-            /* Phase 1: collect batch of entries from dict iterator,
-             * skipping expired fields (unless allow_access_expired),
-             * and prefetching Entry structs. */
-            batch_count = 0;
+            /* Phase 1: pull a batch of entries from the dict iterator and
+             * prefetch their Entry structs. Pure pointer-fetch — we don't
+             * dereference Entry here so the prefetch is effective. */
+            int batch_count = 0;
             while (batch_count < HGETALL_BATCH) {
                 dictEntry *de = dictNext(&di);
                 if (!de) break;
                 Entry *e = dictGetKey(de);
-                if (skip_expired) {
-                    uint64_t expire_time = entryGetExpiry(e);
-                    if (expire_time != EB_EXPIRE_TIME_INVALID && (mstime_t)expire_time < commandTimeSnapshot())
-                        continue;
-                }
                 batch_entry[batch_count++] = e;
                 redis_prefetch_read(e);
             }
             if (batch_count == 0) break;
 
-            /* Phase 2: Entry structs are now warm — prefetch value SDS.
-             * For entries with pointer-based values (Type 3), this
-             * dereferences the value pointer and prefetches the
-             * separately allocated value data. Skip if only keys. */
-            if (flags & OBJ_HASH_VALUE) {
-                for (int i = 0; i < batch_count; i++) {
-                    sds val = entryGetValue(batch_entry[i]);
+            /* Phase 2: Entry structs are warm — check expiry, extract value,
+             * and prefetch the value SDS. Expired entries are dropped from
+             * the batch by compacting in place. */
+            int valid_count = 0;
+            for (int i = 0; i < batch_count; i++) {
+                Entry *e = batch_entry[i];
+                if (skip_expired) {
+                    uint64_t expire_time = entryGetExpiry(e);
+                    if (expire_time != EB_EXPIRE_TIME_INVALID && (mstime_t)expire_time < commandTimeSnapshot())
+                        continue;
+                }
+                batch_entry[valid_count] = e;
+                if (flags & OBJ_HASH_VALUE) {
+                    sds val = entryGetValue(e);
+                    batch_val[valid_count] = val;
                     redis_prefetch_read(val);
                 }
+                valid_count++;
             }
 
-            /* Phase 3: process batch — field + value data is cache-warm. */
-            for (int i = 0; i < batch_count; i++) {
+            /* Phase 3: emit replies — field + value data is cache-warm. */
+            for (int i = 0; i < valid_count; i++) {
                 if (flags & OBJ_HASH_KEY) {
                     sds field = entryGetField(batch_entry[i]);
                     addReplyBulkCBuffer(c, field, sdslen(field));
                     count++;
                 }
                 if (flags & OBJ_HASH_VALUE) {
-                    sds val = entryGetValue(batch_entry[i]);
+                    sds val = batch_val[i];
                     addReplyBulkCBuffer(c, val, sdslen(val));
                     count++;
                 }
