@@ -621,6 +621,24 @@ dictType setDictType = {
     .dictMetadataBytes = setDictMetadataBytes,
 };
 
+/* dbDictType prefetch callbacks --------------------------------------------
+ * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1).
+ * The state machine in memory_prefetch.c calls these hooks to:
+ *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
+ *    the entry holds an out-of-line pointer; embedded kvobjs are already
+ *    in cache from the entry prefetch).
+ *  - Bring kv->ptr into L1 for RAW strings, since addReplyBulk reads it
+ *    immediately after the lookup.
+ */
+static void *dbDictPrefetchEntryKey(const dictEntry *de) {
+    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
+}
+
+static void *dbDictPrefetchEntryValue(const dictEntry *de) {
+    kvobj *kv = dictGetKey(de);
+    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
+}
+
 /* Db->dict, keys are of type kvobj, unification of key and value */
 dictType dbDictType = {
     dictSdsHash,            /* hash function */
@@ -633,6 +651,8 @@ dictType dbDictType = {
     .no_value = 1,          /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,      /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,    /* get key from stored-key */
+    .prefetchEntryKey = dbDictPrefetchEntryKey,
+    .prefetchEntryValue = dbDictPrefetchEntryValue,
 };
 
 /* Db->expires */
@@ -647,6 +667,7 @@ dictType dbExpiresDictType = {
     .no_value = 1,              /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,          /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,   /* get key from stored-key */
+    .prefetchEntryKey = dbDictPrefetchEntryKey,
 };
 
 /* Command table. sds string -> command struct pointer. */

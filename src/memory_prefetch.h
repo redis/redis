@@ -20,10 +20,6 @@
 struct client;
 struct dict;
 
-/* Callback returning a pointer to prefetch for a kv object's value data,
- * or NULL if nothing needs prefetching. */
-typedef void *(*PrefetchGetValueDataFunc)(const void *val);
-
 /* Cross-command batch prefetching (I/O-thread path) */
 void prefetchCommandsBatchInit(void);
 int determinePrefetchCount(int len);
@@ -32,12 +28,10 @@ void resetCommandsBatch(void);
 void prefetchCommands(void);
 
 /* Intra-command prefetch: prefetch dict lookup data for an array of keys.
- * Reuses the same state machine as the cross-command path.
+ * Reuses the same state machine as the cross-command path. The dict's
+ * dictType drives any key/value payload prefetching via the
+ * prefetchEntryKey / prefetchEntryValue callbacks.
  * Callers should keep nkeys bounded (e.g. <= 16-32) per call. */
-void dictPrefetchKeys(struct dict **dicts, void **keys, size_t nkeys,
-                      PrefetchGetValueDataFunc get_val_data);
-
-/* Default value-data callback for string kv objects (OBJ_STRING / OBJ_ENCODING_RAW). */
-void *prefetchGetObjectValuePtr(const void *val);
+void dictPrefetchKeys(struct dict **dicts, void **keys, size_t nkeys);
 
 #endif /* MEMORY_PREFETCH_H */

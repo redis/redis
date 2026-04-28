@@ -771,7 +771,7 @@ void mgetCommand(client *c) {
                 keys[k]  = c->argv[j + k]->ptr;
                 dicts[k] = d;
             }
-            dictPrefetchKeys(dicts, keys, n, NULL);
+            dictPrefetchKeys(dicts, keys, n);
         }
 
         /* Sequential lookups + replies — hot in cache. */
