@@ -946,12 +946,12 @@ void increxCommand(client *c) {
     if (args.flags & OBJ_INCREX_BYFLOAT) {
         long double value, oldvalue, incr, lb = -LDBL_MAX, ub = LDBL_MAX;
 
-        if (getLongDoubleFromObjectOrReply(c,args.increment,&incr,NULL) != C_OK)
+        if (getLongDoubleFromObjectOrReply(c, args.increment, &incr, NULL) != C_OK)
             return;
 
-        if ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c,args.lower_bound,&lb,NULL) != C_OK)
+        if ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
             return;
-        if ((args.flags & OBJ_INCREX_UBOUND) && getLongDoubleFromObjectOrReply(c,args.upper_bound,&ub,NULL) != C_OK)
+        if ((args.flags & OBJ_INCREX_UBOUND) && getLongDoubleFromObjectOrReply(c, args.upper_bound, &ub, NULL) != C_OK)
             return;
         if (lb > ub) {
             addReplyError(c,"LBOUND can't be greater than UBOUND");
@@ -959,8 +959,8 @@ void increxCommand(client *c) {
         }
 
         o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-        if (checkType(c,o,OBJ_STRING)) return;
-        if (getLongDoubleFromObjectOrReply(c,o,&value, NULL) != C_OK) {
+        if (checkType(c, o, OBJ_STRING)) return;
+        if (getLongDoubleFromObjectOrReply(c, o, &value, NULL) != C_OK) {
             return;
         }
 
@@ -975,22 +975,28 @@ void increxCommand(client *c) {
         } else if (value > ub) {
             value = ub;
         }
-        result = createStringObjectFromLongDouble(value,1);
+        result = createStringObjectFromLongDouble(value, 1);
         actual_increment = createStringObjectFromLongDouble(value - oldvalue, 1);
     } else {
         long long value, oldvalue, incr = 1, lb = LLONG_MIN, ub = LLONG_MAX;
-        if (((args.flags & OBJ_INCREX_BYINT) && getLongLongFromObjectOrReply(c, args.increment, &incr, NULL) != C_OK) ||
-            ((args.flags & OBJ_INCREX_LBOUND) && getLongLongFromObjectOrReply(c,args.lower_bound,&lb,NULL) != C_OK) ||
-            ((args.flags & OBJ_INCREX_UBOUND) && getLongLongFromObjectOrReply(c,args.upper_bound,&ub,NULL) != C_OK))
-          return;
+        if ((args.flags & OBJ_INCREX_BYINT) &&
+            getLongLongFromObjectOrReply(c, args.increment, &incr, NULL) != C_OK)
+            return;
+
+        if ((args.flags & OBJ_INCREX_LBOUND) &&
+            getLongLongFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
+            return;
+        if ((args.flags & OBJ_INCREX_UBOUND) &&
+            getLongLongFromObjectOrReply(c, args.upper_bound, &ub, NULL) != C_OK)
+            return;
         if (lb > ub) {
             addReplyError(c,"LBOUND can't be greater than UBOUND");
             return;
         }
 
         o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-        if (checkType(c,o,OBJ_STRING)) return;
-        if (getLongLongFromObjectOrReply(c,o,&value, NULL) != C_OK) {
+        if (checkType(c, o, OBJ_STRING)) return;
+        if (getLongLongFromObjectOrReply(c, o, &value, NULL) != C_OK) {
             return;
         }
 
@@ -1019,7 +1025,7 @@ void increxCommand(client *c) {
             int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
             serverAssert(deleted);
             robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
-            rewriteClientCommandVector(c,2,aux,c->argv[1]);
+            rewriteClientCommandVector(c, 2, aux, c->argv[1]);
             keyModified(c, c->db, c->argv[1], NULL, 1);
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
             server.dirty++;
@@ -1059,20 +1065,19 @@ void increxCommand(client *c) {
      *          A new ttl will be set from expiration options.
      *          Propagated as: SET <key> <result> PXAT <timestamp>
      */
-     if (args.flags & OBJ_PERSIST) {
-        if (removeExpire(c->db, c->argv[1])) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
-        }
+    if (args.flags & OBJ_PERSIST) {
+        if (removeExpire(c->db, c->argv[1]))
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], result);
-     } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
+    } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
         result = setExpire(c, c->db, c->argv[1], milliseconds);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
         rewriteClientCommandVector(c, 5, shared.set, c->argv[1], result, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
-     } else {
+    } else {
         rewriteClientCommandVector(c, 4, shared.set, c->argv[1], result, shared.keepttl);
-     }
+    }
 }
 
 void appendCommand(client *c) {
