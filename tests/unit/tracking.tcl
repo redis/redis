@@ -915,19 +915,27 @@ start_server {tags {"tracking network logreqres:skip"}} {
         # Read invalidation messages: there are two prefixes, but only
         # public: should have data for shareduser.
         after 100
+        # $rd_sg is synchronous, so modified keys are already recorded
+        # on the server by the time we send PING. BCAST invalidations
+        # are flushed in beforeSleep before PONG, so they precede it
+        # on the wire. Drain all push messages until we hit the PONG.
         $c1 PING
-        set c1_resp [$c1 read]
-        if {[lindex $c1_resp 0] eq "invalidate"} {
-            set c1_keys [lindex $c1_resp 1]
-            # Read the PONG
-            $c1 read
+        while 1 {
+            set resp [$c1 read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend c1_keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
         }
         $c2 PING
-        set c2_resp [$c2 read]
-        if {[lindex $c2_resp 0] eq "invalidate"} {
-            set c2_keys [lindex $c2_resp 1]
-            # Read the PONG
-            $c2 read
+        while 1 {
+            set resp [$c2 read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend c2_keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
         }
 
         assert_equal [lsort $c1_keys] [list public:a{t}]
@@ -963,6 +971,10 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $rd_sg SET b:1{t} val1
 
         # Under usr_a, only a:* is visible.
+        # $rd_sg is synchronous, so modified keys are already recorded
+        # on the server by the time we send PING. BCAST invalidations
+        # are flushed in beforeSleep before PONG, so they precede it
+        # on the wire. Drain all push messages until we hit the PONG.
         after 100
         $tc PING
         set keys {}
