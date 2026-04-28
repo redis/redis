@@ -80,7 +80,7 @@ struct RedisModuleKeyOptCtx {
     int from_dbid, to_dbid;                /* The dbid of the key being processed, -1 when unknown.
                                               In most cases, only 'from_dbid' is valid, but in callbacks such
                                               as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
-};
+}; 
 
 #define REDISMODULE_CORE 1
 
@@ -1065,7 +1065,7 @@ struct RedisModuleIO {
 /* Initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
 static inline void moduleInitIOContext(RedisModuleIO *io, ModuleEntityId *entity,
-                                       rio *rioptr, struct redisObject *keyptr, int db)
+                                       rio *rioptr, struct redisObject *keyptr, int db) 
 {
     io->rio = rioptr;
     io->entity = entity;
@@ -1265,7 +1265,7 @@ typedef struct rdbLoadingCtx {
 typedef struct pendingCommand pendingCommand;
 typedef struct multiState {
     pendingCommand **commands;     /* Array of pointers to MULTI commands */
-    int executing_cmd;      /* The index of the currently executed transaction
+    int executing_cmd;      /* The index of the currently executed transaction 
                                command (index in commands field) */
     int count;              /* Total number of MULTI commands */
     int cmd_flags;          /* The accumulated command flags OR-ed together.
@@ -1440,7 +1440,7 @@ typedef struct {
  * IO threads to avoid blocking the main event loop. */
 typedef struct deferredObject {
     int type;    /* Pointer to the object to be freed */
-    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */
+    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */ 
 } deferredObject;
 
 #define SHOULD_CLUSTER_COMPATIBILITY_SAMPLE() \
