@@ -788,6 +788,43 @@ void mgetCommand(client *c) {
     #undef MGET_LIGHT_PREFETCH_MAX
 }
 
+/* Prefetch dict buckets for a batch of MSET keys. Each key at argv[start],
+ * argv[start+2], ... argv[start+2*(count-1)] gets its dict bucket prefetched
+ * into L1 cache. This hides the memory latency of scattered dict lookups when
+ * processing multiple keys in a single MSET/MSETNX command.
+ *
+ * The prefetch is advisory — correctness does not depend on it. If a rehash
+ * occurs mid-batch (triggered by a prior setKey), the prefetched bucket may
+ * be stale, but the subsequent lookupKeyWrite/setKey will re-derive the
+ * correct bucket. */
+static void msetPrefetchBatch(dict *d, robj **argv, int start, int count) {
+    for (int k = 0; k < count; k++) {
+        sds key = argv[start + k * 2]->ptr;
+        uint64_t hash = dictGetHash(d, key);
+        dictEntry **bucket = &d->ht_table[0][hash & DICTHT_SIZE_MASK(d->ht_size_exp[0])];
+        redis_prefetch_read(bucket);
+        if (dictIsRehashing(d)) {
+            dictEntry **bucket2 = &d->ht_table[1][hash & DICTHT_SIZE_MASK(d->ht_size_exp[1])];
+            redis_prefetch_read(bucket2);
+        }
+    }
+}
+
+#define MSET_BATCH_SIZE 16
+
+/* Prefetch dict buckets for the next batch if the slot dict is non-empty.
+ *
+ * The slot dict must be re-fetched each batch: in cluster mode, server.db[].keys
+ * is created with KVSTORE_FREE_EMPTY_DICTS, so a prior batch's setKey →
+ * expireIfNeeded may have emptied the slot and freed the dict, with
+ * dbAddByLink creating a new one. A cached dict* from before the batch would
+ * be a dangling pointer. */
+static inline void msetMaybePrefetchBatch(client *c, int slot, int start, int batch) {
+    dict *d = kvstoreGetDict(c->db->keys, slot);
+    if (d != NULL && dictSize(d) > 0)
+        msetPrefetchBatch(d, c->argv, start, batch);
+}
+
 void msetGenericCommand(client *c, int nx) {
     int j;
 
@@ -796,27 +833,51 @@ void msetGenericCommand(client *c, int nx) {
         return;
     }
 
+    int numkeys = (c->argc - 1) / 2;
+
+    /* Use batched prefetch when there are multiple keys. Single-key MSET gets
+     * no benefit from warming, so we skip the prefetch call entirely for it.
+     * The slot dict is re-fetched inside msetMaybePrefetchBatch for every
+     * batch (see comment there). In cluster mode, MSET keys are guaranteed to
+     * hash to the same slot by getNodeByQuery's CROSSSLOT check. */
+    int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
+    int use_prefetch = (numkeys > 1);
+
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
      * set anything if at least one key already exists. */
     if (nx) {
-        for (j = 1; j < c->argc; j += 2) {
-            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
-                addReply(c, shared.czero);
-                return;
+        for (j = 1; j < c->argc; j += 2 * MSET_BATCH_SIZE) {
+            int remaining = (c->argc - j + 1) / 2;
+            int batch = remaining < MSET_BATCH_SIZE ? remaining : MSET_BATCH_SIZE;
+            if (use_prefetch)
+                msetMaybePrefetchBatch(c, slot, j, batch);
+            for (int k = 0; k < batch; k++) {
+                if (lookupKeyWrite(c->db, c->argv[j + k * 2]) != NULL) {
+                    addReply(c, shared.czero);
+                    return;
+                }
             }
         }
     }
 
-    for (j = 1; j < c->argc; j += 2) {
-        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        /* if 'NX', no need set flags SETKEY_DOESNT_EXIST. Already verified earlier! */
-        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , 0 /*flags*/);
-        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
-        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
+    for (j = 1; j < c->argc; j += 2 * MSET_BATCH_SIZE) {
+        int remaining = (c->argc - j + 1) / 2;
+        int batch = remaining < MSET_BATCH_SIZE ? remaining : MSET_BATCH_SIZE;
+        if (use_prefetch)
+            msetMaybePrefetchBatch(c, slot, j, batch);
+        for (int k = 0; k < batch; k++) {
+            int ki = j + k * 2;
+            c->argv[ki + 1] = tryObjectEncoding(c->argv[ki + 1]);
+            setKey(c, c->db, c->argv[ki], &(c->argv[ki + 1]), 0);
+            incrRefCount(c->argv[ki + 1]);
+            notifyKeyspaceEvent(NOTIFY_STRING, "set", c->argv[ki], c->db->id);
+        }
     }
-    server.dirty += (c->argc-1)/2;
+    server.dirty += numkeys;
     addReply(c, nx ? shared.cone : shared.ok);
 }
+
+#undef MSET_BATCH_SIZE
 
 void msetCommand(client *c) {
     msetGenericCommand(c,0);
