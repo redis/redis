@@ -4245,19 +4245,33 @@ static int clientMatchesFlagFilter(client *cl, sds flag_filter) {
     return 1;
 }
 
-/* Match a client against an IP-only prefix filter. The filter is the IP
- * portion (without port) of the peer address, e.g. "127.0.0.1" or "::1".
- * For IPv6 the peer id is wrapped in brackets, which we strip first.
+/* Match a client against an IP-only filter. The filter is the IP portion
+ * (without port) of the peer address, e.g. "127.0.0.1" or "fe80::1". The
+ * peer id is formatted as "ip:port" (IPv4) or "[ip]:port" (IPv6); the
+ * filter must match the *full* IP, not a prefix of it, otherwise IPv6
+ * addresses can be matched by a substring (e.g. "fe80" would match
+ * "[fe80::1]:6379"). Unix-socket peers report port=0 and are excluded.
  * Returns 1 on match, 0 otherwise. */
 static int clientMatchesIpFilter(client *cl, sds ip) {
     const char *peerid = getClientPeerId(cl);
     if (!peerid) return 0;
-    if (peerid[0] == '[') peerid++;             /* Strip leading '[' for IPv6. */
+    int bracketed = 0;
+    if (peerid[0] == '[') {
+        bracketed = 1;
+        peerid++;
+    }
     size_t len = sdslen(ip);
     if (strncmp(peerid, ip, len) != 0) return 0;
     peerid += len;
-    if (peerid[0] == ']') peerid++;             /* Skip trailing ']' for IPv6. */
-    if (peerid[0] != ':') return 0;             /* Must be a full IP, then ':'. */
+    /* The IP portion must be terminated correctly: by ']' for an IPv6
+     * peer wrapped in brackets, or directly by ':' otherwise. This
+     * rejects partial matches like filter "fe80" against peer
+     * "[fe80::1]:6379". */
+    if (bracketed) {
+        if (peerid[0] != ']') return 0;
+        peerid++;
+    }
+    if (peerid[0] != ':') return 0;
     peerid++;
     if (peerid[0] == '0') return 0;             /* Disallow port=0 (Unix sockets). */
     return 1;
@@ -4351,7 +4365,13 @@ static int parseClientFiltersOrReply(client *c, int index, clientFilter *filter)
         if (!strcasecmp(opt, "id") || !strcasecmp(opt, "not-id")) {
             int negate = !strcasecmp(opt, "not-id");
             intset **dst = negate ? &filter->not_ids : &filter->ids;
-            if (*dst == NULL) *dst = intsetNew();
+            /* The intset is allocated lazily so we can detect (and reject)
+             * an ID/NOT-ID token that is not followed by at least one valid
+             * client id. Without this guard, an empty intset would match
+             * zero clients and silently mask the typo. */
+            int created_here = (*dst == NULL);
+            int collected = 0;
+            if (created_here) *dst = intsetNew();
             index++; /* Consume token; gather as many ids as available. */
             while (index < c->argc) {
                 long long id;
@@ -4364,7 +4384,21 @@ static int parseClientFiltersOrReply(client *c, int index, clientFilter *filter)
                 }
                 uint8_t added;
                 *dst = intsetAdd(*dst, id, &added);
+                collected++;
                 index++;
+            }
+            if (collected == 0) {
+                /* Nothing was added; restore the previous (NULL) state for
+                 * an intset we created in this call so freeClientFilter()
+                 * does not see a leftover empty set. */
+                if (created_here) {
+                    zfree(*dst);
+                    *dst = NULL;
+                }
+                addReplyErrorFormat(c,
+                    "%sID requires at least one client-id",
+                    negate ? "NOT-" : "");
+                return C_ERR;
             }
         } else if (!strcasecmp(opt, "maxage") && moreargs) {
             long long maxage;

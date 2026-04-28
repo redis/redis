@@ -156,6 +156,17 @@ start_server {tags {"introspection"}} {
             assert_match "*addr=$peer_ip:*" $out
             set out2 [r client list not-ip $peer_ip]
             assert_no_match "*addr=$peer_ip:*" $out2
+
+            # The IP filter must match the *full* IP, not a prefix
+            # (regression: Cursor Bugbot reported this for IPv6 in the
+            # form "[fe80::1]:6379" matching filter "fe80"). Drop the
+            # final character of the peer IP and assert the filter no
+            # longer matches it.
+            if {[string length $peer_ip] > 1} {
+                set partial [string range $peer_ip 0 end-1]
+                set out3 [r client list ip $partial]
+                assert_no_match "*addr=$peer_ip:*" $out3
+            }
         }
     }
 
@@ -333,10 +344,13 @@ start_server {tags {"introspection"}} {
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
 
-        # 'id' now accepts multiple values, so a non-numeric token after ID
-        # is treated as the start of the next filter and yields a syntax
-        # error rather than a value-validation error.
-        assert_error "ERR syntax error*" {r client kill id str}
+        # 'id' now accepts multiple values; a non-numeric token directly
+        # after ID means no ids were collected, so we error explicitly
+        # instead of silently matching zero clients.
+        assert_error "ERR ID requires at least one client-id" {r client kill id str}
+        # When at least one valid id was consumed, a trailing non-numeric
+        # token is treated as the start of the next filter and yields a
+        # syntax error.
         assert_error "ERR syntax error*" {r client kill id 10 wrong_arg}
 
         assert_error "ERR *greater than 0*" {r client kill id -1}
@@ -368,6 +382,15 @@ start_server {tags {"introspection"}} {
         assert_error "ERR DB is not an integer*" {r client kill db str}
         assert_error "ERR DB number should be between*" {r client kill db -1}
         assert_error "ERR NOT-DB number should be between*" {r client kill not-db 99999}
+
+        # ID / NOT-ID without any numeric value must error rather than
+        # silently match no clients (regression: Cursor Bugbot).
+        # Note: "CLIENT KILL ID" (argc==3) hits the legacy <addr> form
+        # and yields "No such client", so it doesn't exercise this path.
+        assert_error "ERR ID requires at least one client-id" {r client kill id type normal}
+        assert_error "ERR NOT-ID requires at least one client-id" {r client kill not-id type normal}
+        assert_error "ERR ID requires at least one client-id" {r client list id type normal}
+        assert_error "ERR NOT-ID requires at least one client-id" {r client list not-id type normal}
     }
 
     test {CLIENT KILL maxAGE will kill old clients} {
