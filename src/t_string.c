@@ -966,14 +966,29 @@ void increxCommand(client *c) {
 
         oldvalue = value;
         value += incr;
-        if (isnan(value) || isinf(value)) {
-            addReplyError(c,"increment would produce NaN or Infinity");
+        if (isnan(value)) {
+            addReplyError(c, "increment would produce NaN");
             return;
         }
-        if (value < lb) {
-            value = lb;
+        if (isinf(value)) {
+            /* The addition overflows long double. If the user did not specify a bound
+             * on the overflow direction, return an error. Otherwise, saturate so the
+             * subsequent clamp drops the value to the bound. */
+            int bound_flag = (incr >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
+            if (!(args.flags & bound_flag)) {
+                addReplyError(c, "increment would produce Infinity");
+                return;
+            }
+            value = (incr >= 0) ? LDBL_MAX : -LDBL_MAX;
+        }
+        if ((oldvalue > ub && value > ub) || (oldvalue < lb && value < lb)) {
+            /* The existing value is already outside the range and the result is on the
+             * same side: keep it unchanged so the increment doesn't drag it to a bound. */
+            value = oldvalue;
         } else if (value > ub) {
             value = ub;
+        } else if (value < lb) {
+            value = lb;
         }
         result = createStringObjectFromLongDouble(value, 1);
         increment = createStringObjectFromLongDouble(value - oldvalue, 1);

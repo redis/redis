@@ -87,9 +87,24 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT -100 LBOUND -5.5] {roundFloat $v}] {-5.5 -5.5}
     }
 
-    test {INCREX - BYFLOAT rejects NaN / Infinity result} {
+    test {INCREX - BYFLOAT positive infinity returns an error} {
         r set mykey 0
-        assert_error "*would produce NaN or Infinity*" {r increx mykey BYFLOAT +inf}
+        assert_error "*would produce Infinity*" {r increx mykey BYFLOAT +inf}
+    }
+
+    test {INCREX - BYFLOAT positive infinity saturates to UBOUND when explicitly specified} {
+        r set mykey 0
+        assert_equal [lmap v [r increx mykey BYFLOAT +inf UBOUND 1000] {roundFloat $v}] {1000 1000}
+    }
+
+    test {INCREX - BYFLOAT negative infinity returns an error} {
+        r set mykey 0
+        assert_error "*would produce Infinity*" {r increx mykey BYFLOAT -inf}
+    }
+
+    test {INCREX - BYFLOAT negative infinity saturates to LBOUND when explicitly specified} {
+        r set mykey 0
+        assert_equal [lmap v [r increx mykey BYFLOAT -inf LBOUND -1000] {roundFloat $v}] {-1000 -1000}
     }
 
     # ---------------------------------------------------------------------
