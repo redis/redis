@@ -908,6 +908,9 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
     foreach all_drop {no slow fast all timeout} {
         test "diskless $all_drop replicas drop during rdb pipe" {
+            # Reset config that the timeout subcase may change, so a failing
+            # subcase does not leave the next one with an aggressive timeout.
+            $master config set repl-timeout 60
             set replicas {}
             set replicas_alive {}
             # start one replica that will read the rdb fast, and one that will be slow
@@ -1021,7 +1024,11 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                             wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                         }]} {
                             wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
-                            wait_for_log_messages -2 {"*Connection with replica * lost.*"} $loglines 1 1
+                            wait_for_condition 100 100 {
+                                [s -2 connected_slaves] == 1
+                            } else {
+                                fail "master did not drop killed slow replica in time (connected_slaves=[s -2 connected_slaves])"
+                            }
                         }
                     }
                     if {$all_drop == "timeout"} {
