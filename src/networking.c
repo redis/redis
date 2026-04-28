@@ -22,10 +22,57 @@
 #include "cluster_asm.h"
 #include "memory_prefetch.h"
 #include "connection.h"
+#include "intset.h" /* For CLIENT LIST/KILL ID and NOT-ID filters. */
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
+
+/* Filtering criteria used by CLIENT LIST and CLIENT KILL. Each field
+ * represents a single filter; an "unset" sentinel is documented inline.
+ * A NULL/zero/-1 field means "no filter applied for this attribute". */
+typedef struct {
+    /* Set of client IDs to filter. NULL means no ID filter. */
+    intset *ids;
+    intset *not_ids;
+    /* Maximum age (seconds): connections younger than this are excluded.
+     * 0 means no age filter. */
+    long long max_age;
+    /* Peer/local address filters in "ip:port" form. NULL means unset. */
+    char *addr;
+    char *not_addr;
+    char *laddr;
+    char *not_laddr;
+    /* ACL user filter. NULL means unset. */
+    user *user;
+    user *not_user;
+    /* Client type (see getClientTypeByName). -1 means unset. */
+    int type;
+    int not_type;
+    /* If 1, skip the calling client itself (CLIENT KILL default). */
+    int skipme;
+    /* Client name filter. NULL means unset. */
+    char *name;
+    char *not_name;
+    /* Idle time (seconds): connections idle for at least this many
+     * seconds match. 0 means no idle filter. */
+    long long idle;
+    /* Comma-less concatenated flag chars (e.g. "Sb" for replica + blocked).
+     * NULL means no flags filter. */
+    sds flags;
+    sds not_flags;
+    /* Library name / version filter (CLIENT SETINFO LIB-NAME / LIB-VER). */
+    robj *lib_name;
+    robj *not_lib_name;
+    robj *lib_ver;
+    robj *not_lib_ver;
+    /* Logical DB index. -1 means unset. */
+    int db_number;
+    int not_db_number;
+    /* Peer IP prefix filter (without port). NULL means unset. */
+    sds ip;
+    sds not_ip;
+} clientFilter;
 
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
@@ -37,6 +84,13 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
 static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+static int parseClientFiltersOrReply(client *c, int index, clientFilter *filter);
+static int clientMatchesFilter(client *cl, clientFilter *filter);
+static int clientMatchesFlagFilter(client *cl, sds flag_filter);
+static int clientMatchesIpFilter(client *cl, sds ip);
+static int validateClientFlagFilter(sds flag_filter);
+static sds getAllFilteredClientsInfoString(clientFilter *filter);
+static void freeClientFilter(clientFilter *filter);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
@@ -4068,6 +4122,395 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
+/* Build a CLIENT LIST formatted reply containing only clients that match
+ * the provided filter. Returns a freshly allocated sds. */
+static sds getAllFilteredClientsInfoString(clientFilter *filter) {
+    listNode *ln;
+    listIter li;
+    client *cl;
+    sds o = sdsempty();
+
+    /* Same IO-thread quiescing as getAllClientsInfoString(). */
+    int allpaused = 0;
+    if (server.io_threads_num > 1 && !isCrashing() &&
+        pthread_equal(server.main_thread_id, pthread_self()))
+    {
+        allpaused = 1;
+        pauseAllIOThreads();
+    }
+
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        cl = listNodeValue(ln);
+        if (!clientMatchesFilter(cl, filter)) continue;
+        o = catClientInfoString(o, cl);
+        o = sdscatlen(o, "\n", 1);
+    }
+
+    if (allpaused) resumeAllIOThreads();
+    return o;
+}
+
+/* Validate a CLIENT LIST/KILL FLAGS filter string. Each character must be
+ * one of the flag chars produced by catClientInfoString(). Returns C_OK on
+ * success, C_ERR otherwise. */
+static int validateClientFlagFilter(sds flag_filter) {
+    for (size_t i = 0; i < sdslen(flag_filter); i++) {
+        switch (flag_filter[i]) {
+        case 'O': /* replica in MONITOR mode */
+        case 'g': /* replica receiving an ASM migration */
+        case 'S': /* replica connected to this instance */
+        case 'M': /* primary connection */
+        case 'o': /* primary that is the source of an ASM import */
+        case 'P': /* Pub/Sub subscriber */
+        case 'x': /* in MULTI/EXEC */
+        case 'b': /* blocked */
+        case 't': /* keys tracking enabled */
+        case 'R': /* tracking target redirection broken */
+        case 'B': /* tracking broadcast mode */
+        case 'd': /* dirty CAS */
+        case 'c': /* close after reply */
+        case 'u': /* unblocked */
+        case 'A': /* close ASAP */
+        case 'U': /* connected via Unix domain socket */
+        case 'r': /* readonly cluster client */
+        case 'e': /* excluded from client eviction */
+        case 'T': /* no-touch (don't update LRU/LFU) */
+        case 'C': /* replication RDB channel */
+        case 'I': /* internal client */
+        case 'N': /* no flags set */
+            break;
+        default:
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+/* Match a client against a FLAGS / NOT-FLAGS filter string. Returns 1 if
+ * every flag in the filter is set on the client, 0 otherwise. The flag
+ * chars correspond to those emitted by catClientInfoString(). */
+static int clientMatchesFlagFilter(client *cl, sds flag_filter) {
+    /* Bit-set of all client-state flags reported by catClientInfoString. */
+    const uint64_t all_state_flags =
+        CLIENT_SLAVE | CLIENT_MASTER | CLIENT_PUBSUB | CLIENT_MULTI |
+        CLIENT_BLOCKED | CLIENT_TRACKING | CLIENT_TRACKING_BROKEN_REDIR |
+        CLIENT_TRACKING_BCAST | CLIENT_DIRTY_CAS |
+        CLIENT_CLOSE_AFTER_REPLY | CLIENT_UNBLOCKED | CLIENT_CLOSE_ASAP |
+        CLIENT_UNIX_SOCKET | CLIENT_READONLY | CLIENT_NO_EVICT |
+        CLIENT_NO_TOUCH | CLIENT_REPL_RDB_CHANNEL | CLIENT_INTERNAL |
+        CLIENT_MONITOR | CLIENT_ASM_MIGRATING | CLIENT_ASM_IMPORTING;
+
+    for (size_t i = 0; i < sdslen(flag_filter); i++) {
+        switch (flag_filter[i]) {
+        case 'O':
+            if (!(cl->flags & CLIENT_SLAVE) || !(cl->flags & CLIENT_MONITOR)) return 0;
+            break;
+        case 'g':
+            if (!(cl->flags & CLIENT_SLAVE) || !(cl->flags & CLIENT_ASM_MIGRATING)) return 0;
+            break;
+        case 'S':
+            if (!(cl->flags & CLIENT_SLAVE) ||
+                (cl->flags & (CLIENT_MONITOR|CLIENT_ASM_MIGRATING))) return 0;
+            break;
+        case 'M':
+            if (!(cl->flags & CLIENT_MASTER) || (cl->flags & CLIENT_ASM_IMPORTING)) return 0;
+            break;
+        case 'o':
+            if (!(cl->flags & CLIENT_MASTER) || !(cl->flags & CLIENT_ASM_IMPORTING)) return 0;
+            break;
+        case 'P': if (!(cl->flags & CLIENT_PUBSUB)) return 0; break;
+        case 'x': if (!(cl->flags & CLIENT_MULTI)) return 0; break;
+        case 'b': if (!(cl->flags & CLIENT_BLOCKED)) return 0; break;
+        case 't': if (!(cl->flags & CLIENT_TRACKING)) return 0; break;
+        case 'R': if (!(cl->flags & CLIENT_TRACKING_BROKEN_REDIR)) return 0; break;
+        case 'B': if (!(cl->flags & CLIENT_TRACKING_BCAST)) return 0; break;
+        case 'd': if (!(cl->flags & CLIENT_DIRTY_CAS)) return 0; break;
+        case 'c': if (!(cl->flags & CLIENT_CLOSE_AFTER_REPLY)) return 0; break;
+        case 'u': if (!(cl->flags & CLIENT_UNBLOCKED)) return 0; break;
+        case 'A': if (!(cl->flags & CLIENT_CLOSE_ASAP)) return 0; break;
+        case 'U': if (!(cl->flags & CLIENT_UNIX_SOCKET)) return 0; break;
+        case 'r': if (!(cl->flags & CLIENT_READONLY)) return 0; break;
+        case 'e': if (!(cl->flags & CLIENT_NO_EVICT)) return 0; break;
+        case 'T': if (!(cl->flags & CLIENT_NO_TOUCH)) return 0; break;
+        case 'C': if (!(cl->flags & CLIENT_REPL_RDB_CHANNEL)) return 0; break;
+        case 'I': if (!(cl->flags & CLIENT_INTERNAL)) return 0; break;
+        case 'N': /* No flags set: matches when all reportable flags are off. */
+            if (cl->flags & all_state_flags) return 0;
+            break;
+        default:
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Match a client against an IP-only prefix filter. The filter is the IP
+ * portion (without port) of the peer address, e.g. "127.0.0.1" or "::1".
+ * For IPv6 the peer id is wrapped in brackets, which we strip first.
+ * Returns 1 on match, 0 otherwise. */
+static int clientMatchesIpFilter(client *cl, sds ip) {
+    const char *peerid = getClientPeerId(cl);
+    if (!peerid) return 0;
+    if (peerid[0] == '[') peerid++;             /* Strip leading '[' for IPv6. */
+    size_t len = sdslen(ip);
+    if (strncmp(peerid, ip, len) != 0) return 0;
+    peerid += len;
+    if (peerid[0] == ']') peerid++;             /* Skip trailing ']' for IPv6. */
+    if (peerid[0] != ':') return 0;             /* Must be a full IP, then ':'. */
+    peerid++;
+    if (peerid[0] == '0') return 0;             /* Disallow port=0 (Unix sockets). */
+    return 1;
+}
+
+/* Apply all filter conditions and return 1 if `cl` matches every active
+ * (positive and negative) field of `filter`, 0 otherwise. Inactive
+ * fields are skipped. */
+static int clientMatchesFilter(client *cl, clientFilter *filter) {
+    /* Positive filters. */
+    if (filter->addr && strcmp(getClientPeerId(cl), filter->addr) != 0) return 0;
+    if (filter->laddr && strcmp(getClientSockname(cl), filter->laddr) != 0) return 0;
+    if (filter->type != -1 && getClientType(cl) != filter->type) return 0;
+    if (filter->ids && !intsetFind(filter->ids, cl->id)) return 0;
+    if (filter->user && cl->user != filter->user) return 0;
+    if (filter->skipme && cl == server.current_client) return 0;
+    if (filter->max_age != 0 &&
+        (long long)(commandTimeSnapshot() / 1000 - cl->ctime) < filter->max_age) return 0;
+    if (filter->idle != 0 &&
+        (long long)(server.unixtime - cl->lastinteraction) < filter->idle) return 0;
+    if (filter->flags && !clientMatchesFlagFilter(cl, filter->flags)) return 0;
+    if (filter->name) {
+        if (!cl->name || strcmp(cl->name->ptr, filter->name) != 0) return 0;
+    }
+    if (filter->lib_name &&
+        (!cl->lib_name || compareStringObjects(cl->lib_name, filter->lib_name) != 0)) return 0;
+    if (filter->lib_ver &&
+        (!cl->lib_ver || compareStringObjects(cl->lib_ver, filter->lib_ver) != 0)) return 0;
+    if (filter->db_number != -1 && cl->db->id != filter->db_number) return 0;
+    if (filter->ip && !clientMatchesIpFilter(cl, filter->ip)) return 0;
+
+    /* Negative filters: an active NOT-* field excludes any matching client. */
+    if (filter->not_addr && strcmp(getClientPeerId(cl), filter->not_addr) == 0) return 0;
+    if (filter->not_laddr && strcmp(getClientSockname(cl), filter->not_laddr) == 0) return 0;
+    if (filter->not_type != -1 && getClientType(cl) == filter->not_type) return 0;
+    if (filter->not_ids && intsetFind(filter->not_ids, cl->id)) return 0;
+    if (filter->not_user && cl->user == filter->not_user) return 0;
+    if (filter->not_flags && clientMatchesFlagFilter(cl, filter->not_flags)) return 0;
+    if (filter->not_name &&
+        cl->name && strcmp(cl->name->ptr, filter->not_name) == 0) return 0;
+    if (filter->not_lib_name && cl->lib_name &&
+        compareStringObjects(cl->lib_name, filter->not_lib_name) == 0) return 0;
+    if (filter->not_lib_ver && cl->lib_ver &&
+        compareStringObjects(cl->lib_ver, filter->not_lib_ver) == 0) return 0;
+    if (filter->not_db_number != -1 && cl->db->id == filter->not_db_number) return 0;
+    if (filter->not_ip && clientMatchesIpFilter(cl, filter->not_ip)) return 0;
+
+    return 1;
+}
+
+/* Free dynamically-allocated members of a clientFilter populated by
+ * parseClientFiltersOrReply(). Safe to call on a filter with NULL fields. */
+static void freeClientFilter(clientFilter *filter) {
+    if (filter->ids) { zfree(filter->ids); filter->ids = NULL; }
+    if (filter->not_ids) { zfree(filter->not_ids); filter->not_ids = NULL; }
+    if (filter->flags) { sdsfree(filter->flags); filter->flags = NULL; }
+    if (filter->not_flags) { sdsfree(filter->not_flags); filter->not_flags = NULL; }
+    if (filter->ip) { sdsfree(filter->ip); filter->ip = NULL; }
+    if (filter->not_ip) { sdsfree(filter->not_ip); filter->not_ip = NULL; }
+    if (filter->lib_name) { decrRefCount(filter->lib_name); filter->lib_name = NULL; }
+    if (filter->not_lib_name) { decrRefCount(filter->not_lib_name); filter->not_lib_name = NULL; }
+    if (filter->lib_ver) { decrRefCount(filter->lib_ver); filter->lib_ver = NULL; }
+    if (filter->not_lib_ver) { decrRefCount(filter->not_lib_ver); filter->not_lib_ver = NULL; }
+}
+
+/* Parse all CLIENT LIST / CLIENT KILL filter options starting at argv index
+ * `index`. On success returns C_OK and populates `filter`. On error replies
+ * to the client and returns C_ERR; the partially populated filter may then
+ * be cleaned up with freeClientFilter().
+ *
+ * Recognised tokens (each takes one value unless noted):
+ *   ID/NOT-ID <id> [<id> ...]   - multi-value, integer client ids
+ *   MAXAGE <seconds>            - seconds since connect, > 0
+ *   TYPE/NOT-TYPE <type>
+ *   ADDR/NOT-ADDR <ip:port>
+ *   LADDR/NOT-LADDR <ip:port>
+ *   USER/NOT-USER <username>
+ *   SKIPME (YES|NO)
+ *   IDLE <seconds>              - idle time, > 0
+ *   FLAGS/NOT-FLAGS <chars>     - flag chars from CLIENT LIST output
+ *   NAME/NOT-NAME <name>
+ *   LIB-NAME/NOT-LIB-NAME <s>
+ *   LIB-VER/NOT-LIB-VER <s>
+ *   DB/NOT-DB <db-number>
+ *   IP/NOT-IP <ip>              - IP without port */
+static int parseClientFiltersOrReply(client *c, int index, clientFilter *filter) {
+    while (index < c->argc) {
+        char *opt = c->argv[index]->ptr;
+        int moreargs = c->argc > index + 1;
+
+        if (!strcasecmp(opt, "id") || !strcasecmp(opt, "not-id")) {
+            int negate = !strcasecmp(opt, "not-id");
+            intset **dst = negate ? &filter->not_ids : &filter->ids;
+            if (*dst == NULL) *dst = intsetNew();
+            index++; /* Consume token; gather as many ids as available. */
+            while (index < c->argc) {
+                long long id;
+                if (!string2ll(c->argv[index]->ptr, sdslen(c->argv[index]->ptr), &id)) {
+                    break;
+                }
+                if (id < 1) {
+                    addReplyError(c, "client-id should be greater than 0");
+                    return C_ERR;
+                }
+                uint8_t added;
+                *dst = intsetAdd(*dst, id, &added);
+                index++;
+            }
+        } else if (!strcasecmp(opt, "maxage") && moreargs) {
+            long long maxage;
+            if (getLongLongFromObjectOrReply(c, c->argv[index + 1], &maxage,
+                    "maxage is not an integer or out of range") != C_OK)
+                return C_ERR;
+            if (maxage <= 0) {
+                addReplyError(c, "maxage should be greater than 0");
+                return C_ERR;
+            }
+            filter->max_age = maxage;
+            index += 2;
+        } else if (!strcasecmp(opt, "idle") && moreargs) {
+            long long idle;
+            if (getLongLongFromObjectOrReply(c, c->argv[index + 1], &idle,
+                    "idle is not an integer or out of range") != C_OK)
+                return C_ERR;
+            if (idle <= 0) {
+                addReplyError(c, "idle should be greater than 0");
+                return C_ERR;
+            }
+            filter->idle = idle;
+            index += 2;
+        } else if (!strcasecmp(opt, "type") && moreargs) {
+            filter->type = getClientTypeByName(c->argv[index + 1]->ptr);
+            if (filter->type == -1) {
+                addReplyErrorFormat(c, "Unknown client type '%s'",
+                    (char*)c->argv[index + 1]->ptr);
+                return C_ERR;
+            }
+            index += 2;
+        } else if (!strcasecmp(opt, "not-type") && moreargs) {
+            filter->not_type = getClientTypeByName(c->argv[index + 1]->ptr);
+            if (filter->not_type == -1) {
+                addReplyErrorFormat(c, "Unknown client type '%s'",
+                    (char*)c->argv[index + 1]->ptr);
+                return C_ERR;
+            }
+            index += 2;
+        } else if (!strcasecmp(opt, "addr") && moreargs) {
+            filter->addr = c->argv[index + 1]->ptr;
+            index += 2;
+        } else if (!strcasecmp(opt, "not-addr") && moreargs) {
+            filter->not_addr = c->argv[index + 1]->ptr;
+            index += 2;
+        } else if (!strcasecmp(opt, "laddr") && moreargs) {
+            filter->laddr = c->argv[index + 1]->ptr;
+            index += 2;
+        } else if (!strcasecmp(opt, "not-laddr") && moreargs) {
+            filter->not_laddr = c->argv[index + 1]->ptr;
+            index += 2;
+        } else if (!strcasecmp(opt, "user") && moreargs) {
+            filter->user = ACLGetUserByName(c->argv[index + 1]->ptr,
+                                            sdslen(c->argv[index + 1]->ptr));
+            if (filter->user == NULL) {
+                addReplyErrorFormat(c, "No such user '%s'",
+                    (char*)c->argv[index + 1]->ptr);
+                return C_ERR;
+            }
+            index += 2;
+        } else if (!strcasecmp(opt, "not-user") && moreargs) {
+            filter->not_user = ACLGetUserByName(c->argv[index + 1]->ptr,
+                                                sdslen(c->argv[index + 1]->ptr));
+            if (filter->not_user == NULL) {
+                addReplyErrorFormat(c, "No such user '%s'",
+                    (char*)c->argv[index + 1]->ptr);
+                return C_ERR;
+            }
+            index += 2;
+        } else if (!strcasecmp(opt, "skipme") && moreargs) {
+            if (!strcasecmp(c->argv[index + 1]->ptr, "yes")) {
+                filter->skipme = 1;
+            } else if (!strcasecmp(c->argv[index + 1]->ptr, "no")) {
+                filter->skipme = 0;
+            } else {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return C_ERR;
+            }
+            index += 2;
+        } else if ((!strcasecmp(opt, "flags") || !strcasecmp(opt, "not-flags")) && moreargs) {
+            int negate = !strcasecmp(opt, "not-flags");
+            sds *dst = negate ? &filter->not_flags : &filter->flags;
+            if (*dst) { sdsfree(*dst); *dst = NULL; }
+            *dst = sdsnew(c->argv[index + 1]->ptr);
+            if (validateClientFlagFilter(*dst) != C_OK) {
+                addReplyErrorFormat(c,
+                    "Unknown flags found in the %sFLAGS filter: %s",
+                    negate ? "NOT-" : "", *dst);
+                return C_ERR;
+            }
+            index += 2;
+        } else if (!strcasecmp(opt, "name") && moreargs) {
+            filter->name = c->argv[index + 1]->ptr;
+            index += 2;
+        } else if (!strcasecmp(opt, "not-name") && moreargs) {
+            filter->not_name = c->argv[index + 1]->ptr;
+            index += 2;
+        } else if (!strcasecmp(opt, "lib-name") && moreargs) {
+            if (filter->lib_name) decrRefCount(filter->lib_name);
+            filter->lib_name = c->argv[index + 1];
+            incrRefCount(filter->lib_name);
+            index += 2;
+        } else if (!strcasecmp(opt, "not-lib-name") && moreargs) {
+            if (filter->not_lib_name) decrRefCount(filter->not_lib_name);
+            filter->not_lib_name = c->argv[index + 1];
+            incrRefCount(filter->not_lib_name);
+            index += 2;
+        } else if (!strcasecmp(opt, "lib-ver") && moreargs) {
+            if (filter->lib_ver) decrRefCount(filter->lib_ver);
+            filter->lib_ver = c->argv[index + 1];
+            incrRefCount(filter->lib_ver);
+            index += 2;
+        } else if (!strcasecmp(opt, "not-lib-ver") && moreargs) {
+            if (filter->not_lib_ver) decrRefCount(filter->not_lib_ver);
+            filter->not_lib_ver = c->argv[index + 1];
+            incrRefCount(filter->not_lib_ver);
+            index += 2;
+        } else if ((!strcasecmp(opt, "db") || !strcasecmp(opt, "not-db")) && moreargs) {
+            int negate = !strcasecmp(opt, "not-db");
+            long long db_id;
+            if (getLongLongFromObjectOrReply(c, c->argv[index + 1], &db_id,
+                    negate ? "NOT-DB is not an integer or out of range"
+                           : "DB is not an integer or out of range") != C_OK)
+                return C_ERR;
+            if (db_id < 0 || db_id >= server.dbnum) {
+                addReplyErrorFormat(c, "%sDB number should be between 0 and %d",
+                    negate ? "NOT-" : "", server.dbnum - 1);
+                return C_ERR;
+            }
+            if (negate) filter->not_db_number = (int)db_id;
+            else        filter->db_number     = (int)db_id;
+            index += 2;
+        } else if ((!strcasecmp(opt, "ip") || !strcasecmp(opt, "not-ip")) && moreargs) {
+            int negate = !strcasecmp(opt, "not-ip");
+            sds *dst = negate ? &filter->not_ip : &filter->ip;
+            if (*dst) { sdsfree(*dst); *dst = NULL; }
+            *dst = sdsnew(c->argv[index + 1]->ptr);
+            index += 2;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
 /* Check validity of an attribute that's gonna be shown in CLIENT LIST. */
 int validateClientAttr(const char *val) {
     /* Check if the charset is ok. We need to do this otherwise
@@ -4205,25 +4648,44 @@ void clientCommand(client *c) {
 "KILL <ip:port>",
 "    Kill connection made from <ip:port>.",
 "KILL <option> <value> [<option> <value> [...]]",
-"    Kill connections. Options are:",
-"    * ADDR (<ip:port>|<unixsocket>:0)",
-"      Kill connections made from the specified address",
-"    * LADDR (<ip:port>|<unixsocket>:0)",
-"      Kill connections made to specified local address",
-"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
+"    Kill connections matching all the given filters. Options are:",
+"    * ADDR <ip:port> | NOT-ADDR <ip:port>",
+"      Kill connections made from / not made from the specified address.",
+"    * LADDR <ip:port> | NOT-LADDR <ip:port>",
+"      Kill connections made to / not made to the specified local address.",
+"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB) | NOT-TYPE <type>",
 "      Kill connections by type.",
-"    * USER <username>",
+"    * USER <username> | NOT-USER <username>",
 "      Kill connections authenticated by <username>.",
 "    * SKIPME (YES|NO)",
 "      Skip killing current connection (default: yes).",
-"    * ID <client-id>",
+"    * ID <client-id> [<client-id> ...] | NOT-ID <client-id> [...]",
 "      Kill connections by client id.",
 "    * MAXAGE <maxage>",
-"      Kill connections older than the specified age.",
-"LIST [options ...]",
-"    Return information about client connections. Options:",
-"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
-"      Return clients of specified type.",
+"      Kill connections older than the specified age (in seconds).",
+"    * IDLE <seconds>",
+"      Kill connections idle for at least the specified number of seconds.",
+"    * NAME <name> | NOT-NAME <name>",
+"      Kill connections by client name.",
+"    * FLAGS <chars> | NOT-FLAGS <chars>",
+"      Kill connections by client flags (chars from CLIENT LIST output).",
+"    * LIB-NAME <s> | NOT-LIB-NAME <s>",
+"      Kill connections by library name (CLIENT SETINFO LIB-NAME).",
+"    * LIB-VER <s> | NOT-LIB-VER <s>",
+"      Kill connections by library version (CLIENT SETINFO LIB-VER).",
+"    * DB <db> | NOT-DB <db>",
+"      Kill connections selected on the given DB index.",
+"    * IP <ip> | NOT-IP <ip>",
+"      Kill connections by peer IP (no port).",
+"LIST [filter ...]",
+"    Return information about client connections. Accepts the same set of",
+"    filters as CLIENT KILL (combined with logical AND). Examples:",
+"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB) | NOT-TYPE <type>",
+"      Return clients of the specified type.",
+"    * ID <client-id> [<client-id> ...] | NOT-ID <client-id> [...]",
+"      Return information about the specified client(s).",
+"    * IDLE <seconds>",
+"      Return clients idle for at least the specified number of seconds.",
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
@@ -4260,39 +4722,27 @@ NULL
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
-        /* CLIENT LIST */
-        int type = -1;
-        sds o = NULL;
-        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
-            type = getClientTypeByName(c->argv[3]->ptr);
-            if (type == -1) {
-                addReplyErrorFormat(c,"Unknown client type '%s'",
-                    (char*) c->argv[3]->ptr);
-                return;
-            }
-        } else if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr,"id")) {
-            int j;
-            o = sdsempty();
-            for (j = 3; j < c->argc; j++) {
-                long long cid;
-                if (getLongLongFromObjectOrReply(c, c->argv[j], &cid,
-                            "Invalid client ID")) {
-                    sdsfree(o);
-                    return;
-                }
-                client *cl = lookupClientByID(cid);
-                if (cl) {
-                    o = catClientInfoString(o, cl);
-                    o = sdscatlen(o, "\n", 1);
-                }
-            }
-        } else if (c->argc != 2) {
-            addReplyErrorObject(c,shared.syntaxerr);
+        /* CLIENT LIST [filter ...]
+         *
+         * The optional filter accepts any combination of the tokens
+         * documented in parseClientFiltersOrReply(). Multiple filters are
+         * combined with AND. A bare "CLIENT LIST" (no filters) returns
+         * every connected client. */
+        clientFilter filter = {
+            .type = -1, .not_type = -1,
+            .db_number = -1, .not_db_number = -1,
+        };
+        sds o;
+
+        if (c->argc > 2 &&
+            parseClientFiltersOrReply(c, 2, &filter) != C_OK)
+        {
+            freeClientFilter(&filter);
             return;
         }
 
-        if (!o)
-            o = getAllClientsInfoString(type);
+        o = getAllFilteredClientsInfoString(&filter);
+        freeClientFilter(&filter);
         addReplyVerbatim(c,o,sdslen(o),"txt");
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
@@ -4324,97 +4774,37 @@ NULL
             return;
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
-        /* CLIENT KILL <ip:port>
-         * CLIENT KILL <option> [value] ... <option> [value] */
-        char *addr = NULL;
-        char *laddr = NULL;
-        user *user = NULL;
-        int type = -1;
-        uint64_t id = 0;
-        long long max_age = 0;
-        int skipme = 1;
+        /* CLIENT KILL <ip:port>                                  (legacy)
+         * CLIENT KILL <option> [value] ... <option> [value]      (modern) */
+        clientFilter filter = {
+            .type = -1, .not_type = -1,
+            .db_number = -1, .not_db_number = -1,
+            .skipme = 1, /* By default, the killer is spared. */
+        };
         int killed = 0, close_this_client = 0;
+        int legacy_form = 0;
 
         if (c->argc == 3) {
-            /* Old style syntax: CLIENT KILL <addr> */
-            addr = c->argv[2]->ptr;
-            skipme = 0; /* With the old form, you can kill yourself. */
+            /* Legacy form: a single argument is treated as <addr> and the
+             * issuing client is allowed to kill itself. */
+            filter.addr = c->argv[2]->ptr;
+            filter.skipme = 0;
+            legacy_form = 1;
         } else if (c->argc > 3) {
-            int i = 2; /* Next option index. */
-
-            /* New style syntax: parse options. */
-            while(i < c->argc) {
-                int moreargs = c->argc > i+1;
-
-                if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
-                    long tmp;
-
-                    if (getRangeLongFromObjectOrReply(c, c->argv[i+1], 1, LONG_MAX, &tmp,
-                                                      "client-id should be greater than 0") != C_OK)
-                        return;
-                    id = tmp;
-                } else if (!strcasecmp(c->argv[i]->ptr,"maxage") && moreargs) {
-                    long long tmp;
-
-                    if (getLongLongFromObjectOrReply(c, c->argv[i+1], &tmp,
-                                                     "maxage is not an integer or out of range") != C_OK)
-                        return;
-                    if (tmp <= 0) {
-                        addReplyError(c, "maxage should be greater than 0");
-                        return;
-                    }
-
-                    max_age = tmp;
-                } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
-                    type = getClientTypeByName(c->argv[i+1]->ptr);
-                    if (type == -1) {
-                        addReplyErrorFormat(c,"Unknown client type '%s'",
-                            (char*) c->argv[i+1]->ptr);
-                        return;
-                    }
-                } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
-                    addr = c->argv[i+1]->ptr;
-                } else if (!strcasecmp(c->argv[i]->ptr,"laddr") && moreargs) {
-                    laddr = c->argv[i+1]->ptr;
-                } else if (!strcasecmp(c->argv[i]->ptr,"user") && moreargs) {
-                    user = ACLGetUserByName(c->argv[i+1]->ptr,
-                                            sdslen(c->argv[i+1]->ptr));
-                    if (user == NULL) {
-                        addReplyErrorFormat(c,"No such user '%s'",
-                            (char*) c->argv[i+1]->ptr);
-                        return;
-                    }
-                } else if (!strcasecmp(c->argv[i]->ptr,"skipme") && moreargs) {
-                    if (!strcasecmp(c->argv[i+1]->ptr,"yes")) {
-                        skipme = 1;
-                    } else if (!strcasecmp(c->argv[i+1]->ptr,"no")) {
-                        skipme = 0;
-                    } else {
-                        addReplyErrorObject(c,shared.syntaxerr);
-                        return;
-                    }
-                } else {
-                    addReplyErrorObject(c,shared.syntaxerr);
-                    return;
-                }
-                i += 2;
+            if (parseClientFiltersOrReply(c, 2, &filter) != C_OK) {
+                freeClientFilter(&filter);
+                return;
             }
         } else {
-            addReplyErrorObject(c,shared.syntaxerr);
+            addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
 
         /* Iterate clients killing all the matching clients. */
-        listRewind(server.clients,&li);
+        listRewind(server.clients, &li);
         while ((ln = listNext(&li)) != NULL) {
             client *client = listNodeValue(ln);
-            if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
-            if (laddr && strcmp(getClientSockname(client),laddr) != 0) continue;
-            if (type != -1 && getClientType(client) != type) continue;
-            if (id != 0 && client->id != id) continue;
-            if (user && client->user != user) continue;
-            if (c == client && skipme) continue;
-            if (max_age != 0 && (long long)(commandTimeSnapshot() / 1000 - client->ctime) < max_age) continue;
+            if (!clientMatchesFilter(client, &filter)) continue;
 
             /* Kill it. */
             if (c == client) {
@@ -4425,14 +4815,16 @@ NULL
             killed++;
         }
 
-        /* Reply according to old/new format. */
-        if (c->argc == 3) {
+        freeClientFilter(&filter);
+
+        /* Reply according to legacy/modern form. */
+        if (legacy_form) {
             if (killed == 0)
-                addReplyError(c,"No such client");
+                addReplyError(c, "No such client");
             else
-                addReply(c,shared.ok);
+                addReply(c, shared.ok);
         } else {
-            addReplyLongLong(c,killed);
+            addReplyLongLong(c, killed);
         }
 
         /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY

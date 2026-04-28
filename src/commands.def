@@ -1342,6 +1342,7 @@ commandHistory CLIENT_KILL_History[] = {
 {"5.0.0","Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."},
 {"6.2.0","`LADDR` option."},
 {"7.4.0","`MAXAGE` option."},
+{"8.2.0","Added `IDLE`, `NAME`, `FLAGS`, `LIB-NAME`, `LIB-VER`, `DB` and `IP` filters; added `NOT-*` negative variants of every filter."},
 };
 #endif
 
@@ -1370,6 +1371,15 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_skipme_Subargs[] = {
 {MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* CLIENT KILL filter new_format not_client_type argument table */
+struct COMMAND_ARG CLIENT_KILL_filter_new_format_not_client_type_Subargs[] = {
+{MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /* CLIENT KILL filter new_format argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL,0,NULL)},
@@ -1379,12 +1389,30 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
 {MAKE_ARG("skipme",ARG_TYPE_ONEOF,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_KILL_filter_new_format_skipme_Subargs},
 {MAKE_ARG("maxage",ARG_TYPE_INTEGER,-1,"MAXAGE",NULL,"7.4.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("idle",ARG_TYPE_INTEGER,-1,"IDLE",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("name",ARG_TYPE_STRING,-1,"NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("flags",ARG_TYPE_STRING,-1,"FLAGS",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("lib-name",ARG_TYPE_STRING,-1,"LIB-NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("lib-ver",ARG_TYPE_STRING,-1,"LIB-VER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("db",ARG_TYPE_INTEGER,-1,"DB",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("ip",ARG_TYPE_STRING,-1,"IP",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-client-type",ARG_TYPE_ONEOF,-1,"NOT-TYPE",NULL,"8.2.0",CMD_ARG_OPTIONAL,5,NULL),.subargs=CLIENT_KILL_filter_new_format_not_client_type_Subargs},
+{MAKE_ARG("not-client-id",ARG_TYPE_INTEGER,-1,"NOT-ID",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-username",ARG_TYPE_STRING,-1,"NOT-USER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-addr",ARG_TYPE_STRING,-1,"NOT-ADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("not-laddr",ARG_TYPE_STRING,-1,"NOT-LADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("not-name",ARG_TYPE_STRING,-1,"NOT-NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-flags",ARG_TYPE_STRING,-1,"NOT-FLAGS",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-lib-name",ARG_TYPE_STRING,-1,"NOT-LIB-NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-lib-ver",ARG_TYPE_STRING,-1,"NOT-LIB-VER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-db",ARG_TYPE_INTEGER,-1,"NOT-DB",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-ip",ARG_TYPE_STRING,-1,"NOT-IP",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /* CLIENT KILL filter argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_Subargs[] = {
 {MAKE_ARG("old-format",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,"2.8.12"),.display_text="ip:port"},
-{MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,7,NULL),.subargs=CLIENT_KILL_filter_new_format_Subargs},
+{MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,25,NULL),.subargs=CLIENT_KILL_filter_new_format_Subargs},
 };
 
 /* CLIENT KILL argument table */
@@ -1406,6 +1434,7 @@ commandHistory CLIENT_LIST_History[] = {
 {"7.2.0","Added `lib-name` and `lib-ver` fields."},
 {"7.4.0","Added `watch` field."},
 {"8.0.0","Added `io-thread` field."},
+{"8.2.0","Added `USER`, `ADDR`, `LADDR`, `SKIPME`, `MAXAGE`, `IDLE`, `NAME`, `FLAGS`, `LIB-NAME`, `LIB-VER`, `DB` and `IP` filters; added `NOT-*` negative variants of every filter."},
 };
 #endif
 
@@ -1429,10 +1458,47 @@ struct COMMAND_ARG CLIENT_LIST_client_type_Subargs[] = {
 {MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* CLIENT LIST skipme argument table */
+struct COMMAND_ARG CLIENT_LIST_skipme_Subargs[] = {
+{MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLIENT LIST not_client_type argument table */
+struct COMMAND_ARG CLIENT_LIST_not_client_type_Subargs[] = {
+{MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /* CLIENT LIST argument table */
 struct COMMAND_ARG CLIENT_LIST_Args[] = {
 {MAKE_ARG("client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=CLIENT_LIST_client_type_Subargs},
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("skipme",ARG_TYPE_ONEOF,-1,"SKIPME",NULL,"8.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_LIST_skipme_Subargs},
+{MAKE_ARG("maxage",ARG_TYPE_INTEGER,-1,"MAXAGE",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("idle",ARG_TYPE_INTEGER,-1,"IDLE",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("name",ARG_TYPE_STRING,-1,"NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("flags",ARG_TYPE_STRING,-1,"FLAGS",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("lib-name",ARG_TYPE_STRING,-1,"LIB-NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("lib-ver",ARG_TYPE_STRING,-1,"LIB-VER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("db",ARG_TYPE_INTEGER,-1,"DB",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("ip",ARG_TYPE_STRING,-1,"IP",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-client-type",ARG_TYPE_ONEOF,-1,"NOT-TYPE",NULL,"8.2.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=CLIENT_LIST_not_client_type_Subargs},
+{MAKE_ARG("not-client-id",ARG_TYPE_INTEGER,-1,"NOT-ID",NULL,"8.2.0",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("not-username",ARG_TYPE_STRING,-1,"NOT-USER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-addr",ARG_TYPE_STRING,-1,"NOT-ADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("not-laddr",ARG_TYPE_STRING,-1,"NOT-LADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("not-name",ARG_TYPE_STRING,-1,"NOT-NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-flags",ARG_TYPE_STRING,-1,"NOT-FLAGS",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-lib-name",ARG_TYPE_STRING,-1,"NOT-LIB-NAME",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-lib-ver",ARG_TYPE_STRING,-1,"NOT-LIB-VER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-db",ARG_TYPE_INTEGER,-1,"NOT-DB",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-ip",ARG_TYPE_STRING,-1,"NOT-IP",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** CLIENT NO_EVICT ********************/
@@ -1712,8 +1778,8 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,0,CLIENT_HELP_Tips,0,clientCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_HELP_Keyspecs,0,NULL,0)},
 {MAKE_CMD("id","Returns the unique client ID of the connection.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_ID_History,0,CLIENT_ID_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_ID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("info","Returns information about the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_INFO_History,0,CLIENT_INFO_Tips,1,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_INFO_Keyspecs,0,NULL,0)},
-{MAKE_CMD("kill","Terminates open connections.","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,6,CLIENT_KILL_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_KILL_Keyspecs,0,NULL,1),.args=CLIENT_KILL_Args},
-{MAKE_CMD("list","Lists open connections.","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,9,CLIENT_LIST_Tips,1,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_LIST_Keyspecs,0,NULL,2),.args=CLIENT_LIST_Args},
+{MAKE_CMD("kill","Terminates open connections.","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,7,CLIENT_KILL_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_KILL_Keyspecs,0,NULL,1),.args=CLIENT_KILL_Args},
+{MAKE_CMD("list","Lists open connections.","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,10,CLIENT_LIST_Tips,1,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_LIST_Keyspecs,0,NULL,25),.args=CLIENT_LIST_Args},
 {MAKE_CMD("no-evict","Sets the client eviction mode of the connection.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,0,CLIENT_NO_EVICT_Tips,0,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_NO_EVICT_Keyspecs,0,NULL,1),.args=CLIENT_NO_EVICT_Args},
 {MAKE_CMD("no-touch","Controls whether commands sent by the client affect the LRU/LFU of accessed keys.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,0,CLIENT_NO_TOUCH_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,CLIENT_NO_TOUCH_Keyspecs,0,NULL,1),.args=CLIENT_NO_TOUCH_Args},
 {MAKE_CMD("pause","Suspends commands processing.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,1,CLIENT_PAUSE_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_PAUSE_Keyspecs,0,NULL,2),.args=CLIENT_PAUSE_Args},
