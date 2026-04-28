@@ -1015,5 +1015,76 @@ test {corrupt payload: stream with NACK shared between two consumers} {
     }
 }
 
+test {corrupt payload: stream all-tombstone entries with non-zero length} {
+    # Binary-patch a stream dump so the single entry is tombstoned
+    # (STREAM_ITEM_FLAG_DELETED) while s->length remains 1.  The
+    # listpack header is adjusted to match (count=0, deleted=1).
+    # RESTORE accepts this because validation never cross-checks
+    # s->length against live entries.  Any subsequent command that
+    # calls streamLastValidID (XREAD $, XSETID, XREADGROUP >, ...)
+    # triggers a serverPanic.
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r debug set-skip-checksum-validation 1
+
+        r XADD mystream 1-0 k v
+        set dump [r DUMP mystream]
+        r DEL mystream
+
+        # Convert dump to a list of byte values for easier manipulation.
+        set bytes {}
+        foreach ch [split $dump {}] {
+            scan $ch %c val
+            lappend bytes $val
+        }
+
+        # Locate the listpack inside the RDB payload.
+        # Layout: type(1) + rdbLen(1, listpack-count) + rdbString(rax-key)
+        #       + rdbString(listpack-blob) + ...
+        set pos 2
+        set rax_key_len [lindex $bytes $pos]
+        incr pos [expr {1 + $rax_key_len}]
+
+        # Parse rdbLen for the listpack blob size.
+        set lp_len_byte [lindex $bytes $pos]
+        if {$lp_len_byte < 64} {
+            incr pos 1
+        } elseif {$lp_len_byte < 128} {
+            incr pos 2
+        } else {
+            incr pos 5
+        }
+
+        # pos -> start of listpack blob.  Skip 6-byte LP header to reach
+        # the stream-level header (count, deleted, ...).
+        set stream_hdr [expr {$pos + 6}]
+
+        # Patch count: 1 -> 0  (7-bit-uint LP entry, value in byte & 0x7F)
+        set count_pos $stream_hdr
+        assert_equal [expr {[lindex $bytes $count_pos] & 0x7F}] 1
+        lset bytes $count_pos 0
+
+        # Patch deleted: 0 -> 1
+        set deleted_pos [expr {$count_pos + 2}]
+        assert_equal [expr {[lindex $bytes $deleted_pos] & 0x7F}] 0
+        lset bytes $deleted_pos 1
+
+        # Patch entry flags: SAMEFIELDS(2) -> SAMEFIELDS|DELETED(3)
+        # Offset from deleted_pos+2: num-fields(2) + field "k"(3) + zero-term(2)
+        set flags_pos [expr {$deleted_pos + 2 + 2 + 3 + 2}]
+        assert_equal [expr {[lindex $bytes $flags_pos] & 0x7F}] 2
+        lset bytes $flags_pos 3
+
+        # Reconstruct the binary string.
+        set patched ""
+        foreach val $bytes {
+            append patched [format %c $val]
+        }
+
+        catch {r RESTORE mystream 0 $patched REPLACE}
+        catch {r XREAD COUNT 1 STREAMS mystream $}
+        r ping
+    }
+}
+
 } ;# tags
 

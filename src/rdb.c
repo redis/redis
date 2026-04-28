@@ -3162,6 +3162,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
+        uint64_t live_entries = 0;
         while(listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
@@ -3210,6 +3211,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 zfree(lp);
                 return NULL;
             }
+
+            long long lp_live;
+            if (!lpGetIntegerValue(first, &lp_live) || lp_live < 0) {
+                rdbReportCorruptRDB("Stream listpack bad entry count");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
+            live_entries += lp_live;
 
             /* Insert the key in the radix tree. */
             int retval = raxTryInsert(s->rax,
@@ -3260,8 +3271,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
-        if (s->length && !raxSize(s->rax)) {
-            rdbReportCorruptRDB("Stream length inconsistent with rax entries");
+        if (s->length != live_entries) {
+            rdbReportCorruptRDB("Stream length inconsistent with live entries");
             decrRefCount(o);
             return NULL;
         }
