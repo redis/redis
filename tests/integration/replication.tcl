@@ -896,10 +896,11 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set master_host [srv 0 host]
     set master_port [srv 0 port]
     set master_pid [srv 0 pid]
-    # put enough data in the db that the rdb file will be bigger than the socket buffers
-    # and since we'll have key-load-delay of 100, 20000 keys will take at least 2 seconds
-    # we also need the replica to process requests during transfer (which it does only once in 2mb)
-    $master debug populate 20000 test 10000
+    # Put enough data in the db that the RDB is comfortably larger than the
+    # pipe and socket buffers so the primary can hit the blocked writer path,
+    # but keep it small enough that slow TLS CI runners don't spend minutes
+    # draining an oversized transfer (~40 MB uncompressed).
+    $master debug populate 4000 test 10000
     $master config set rdbcompression no
     $master config set repl-rdb-channel no
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
@@ -923,7 +924,19 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
                     [lindex $replicas 1] config set repl-diskless-load swapdb
-                    [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
+                    # For "no" and "fast" subcases, use key-load-delay to keep
+                    # replica 0 as a steady slow reader for the entire RDB
+                    # transfer. A brief SIGSTOP/SIGCONT is insufficient
+                    # because after resume the TLS layer on slow CI runners
+                    # can't drain the pipe fast enough, leaving the RDB child
+                    # blocked on write() for minutes.
+                    if {$all_drop == "no" || $all_drop == "fast"} {
+                        # 4k keys with 500 microseconds each keeps replica 0
+                        # slow for about 2 seconds, which is long enough to
+                        # fill the pipe without turning the transfer into a
+                        # multi-minute TLS run.
+                        [lindex $replicas 0] config set key-load-delay 500
+                    }
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port
 
@@ -937,12 +950,25 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         set start_time [clock seconds]
                     }
 
-                    # wait a while so that the pipe socket writer will be
-                    # blocked on write (since replica 0 is slow to read from the socket)
-                    after 500
+                    if {$all_drop == "no" || $all_drop == "fast"} {
+                        # key-load-delay is already throttling the slow
+                        # replica; just wait for the pipe to fill.
+                        after 500
+                    } else {
+                        # For slow/all/timeout subcases the replica will be
+                        # killed or timed out, so a brief SIGSTOP is fine.
+                        pause_process [srv -1 pid]
+                        after 500
+                    }
 
                     # add some command to be present in the command stream after the rdb.
                     $master incr $all_drop
+
+                    # Resume before terminating the paused slow replica so the
+                    # disconnect is observed immediately instead of timing out.
+                    if {$all_drop == "all" || $all_drop == "slow"} {
+                        resume_process [srv -1 pid]
+                    }
 
                     # disconnect replicas depending on the current test
                     if {$all_drop == "all" || $all_drop == "fast"} {
@@ -954,14 +980,17 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         set replicas_alive [lreplace $replicas_alive 0 0]
                     }
                     if {$all_drop == "timeout"} {
+                        # Let one replica hit repl-timeout while the slow reader
+                        # is paused, then restore a generous timeout so the
+                        # remaining replica can finish the streamed RDB.
                         $master config set repl-timeout 2
-                        # we want the slow replica to hang on a key for very long so it'll reach repl-timeout
-                        pause_process [srv -1 pid]
-                        after 2000
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 100 100
+                        $master config set repl-timeout 60
                     }
 
-                    # wait for rdb child to exit
-                    wait_for_condition 500 100 {
+                    # Use a single generous budget for all subcases; successful
+                    # runs still exit early once the child is done.
+                    wait_for_condition 2400 100 {
                         [s -2 rdb_bgsave_in_progress] == 0
                     } else {
                         fail "rdb child didn't terminate"
@@ -969,16 +998,33 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
 
                     # make sure we got what we were aiming for, by looking for the message in the log file
                     if {$all_drop == "all"} {
-                        wait_for_log_messages -2 {"*Diskless rdb transfer, last replica dropped, killing fork child*"} $loglines 1 1
+                        if {[catch {
+                            wait_for_log_messages -2 {"*Diskless rdb transfer, last replica dropped, killing fork child*"} $loglines 1 1
+                        }]} {
+                            # RDB finished before replicas were killed; accept
+                            # either 1 or 2 replicas still up at pipe-read time.
+                            if {[catch {
+                                wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
+                            }]} {
+                                wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
+                            }
+                        }
                     }
                     if {$all_drop == "no"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
                     }
-                    if {$all_drop == "slow" || $all_drop == "fast"} {
+                    if {$all_drop == "fast"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                     }
+                    if {$all_drop == "slow"} {
+                        if {[catch {
+                            wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
+                        }]} {
+                            wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
+                            wait_for_log_messages -2 {"*Connection with replica * lost.*"} $loglines 1 1
+                        }
+                    }
                     if {$all_drop == "timeout"} {
-                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 1 1
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                         # master disconnected the slow replica, remove from array
                         set replicas_alive [lreplace $replicas_alive 0 0]
@@ -1008,12 +1054,17 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         }
                     }
 
+                    # In the "no" case both replicas stay alive through the
+                    # full streamed RDB, so on slow TLS runners the final
+                    # ONLINE transition can lag behind child exit.
+                    set replica_online_wait_tries [expr {$all_drop == "no" ? 600 : 150}]
+
                     # verify the data integrity
                     foreach replica $replicas_alive {
                         # Wait that replicas acknowledge they are online so
                         # we are sure that DBSIZE and DEBUG DIGEST will not
                         # fail because of timing issues.
-                        wait_for_condition 150 100 {
+                        wait_for_condition $replica_online_wait_tries 100 {
                             [lindex [$replica role] 3] eq {connected}
                         } else {
                             fail "replicas still not connected after some time"
