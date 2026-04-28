@@ -385,6 +385,9 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 /* Check for __builtin_add_overflow() */
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
 #if __has_builtin(__builtin_add_overflow) || (defined(__GNUC__) && __GNUC__ >= 5)
 #define add_overflow_ll(a, b, res) __builtin_add_overflow((a), (b), (res))
 #else
