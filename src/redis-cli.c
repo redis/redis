@@ -464,15 +464,17 @@ static void cliLegacyIntegrateHelp(void) {
         freeReplyObject(reply);
         return;
     }
-
-    /* Scan the array reported by COMMAND and fill only the entries that
-     * don't already match what we have. */
+ 
     for (size_t j = 0; j < reply->elements; j++) {
         redisReply *entry = reply->element[j];
+        
+       
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
-            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
+            entry->element[3]->type != REDIS_REPLY_INTEGER) break; 
+
+        
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -499,7 +501,7 @@ static void cliLegacyIntegrateHelp(void) {
         new->docs.numargs = 0;
         new->docs.params = sdsempty();
         int args = llabs(entry->element[1]->integer);
-        args--; /* Remove the command name itself. */
+        args--; 
         if (entry->element[3]->integer == 1) {
             new->docs.params = sdscat(new->docs.params,"key ");
             args--;
@@ -511,6 +513,7 @@ static void cliLegacyIntegrateHelp(void) {
         new->docs.since = "Not known";
         new->docs.group = "generic";
     }
+    
     freeReplyObject(reply);
 }
 
