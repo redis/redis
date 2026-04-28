@@ -1073,22 +1073,25 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         }
                     }
 
-                    # Wait for master to see all surviving replicas as online
-                    # before checking data integrity. Master-side state=online
-                    # is a tighter guarantee than replica-side master_link_status
-                    # and avoids per-replica round-trips that can race with the
-                    # replica's own state transitions on slow TLS runners.
-                    set num_alive [llength $replicas_alive]
-                    if {$num_alive > 0} {
-                        wait_for_condition 600 100 {
-                            [regexp -all {state=online,} [$master info replication]] == $num_alive
-                        } else {
-                            fail "expected $num_alive online replicas, master sees [regexp -all {state=online,} [$master info replication]] (connected_slaves=[s -2 connected_slaves])"
-                        }
-                    }
+                    # In the "no" case both replicas stay alive through the
+                    # full streamed RDB, so on slow TLS runners the final
+                    # ONLINE transition can lag behind child exit.
+                    set replica_online_wait_tries [expr {$all_drop == "no" ? 600 : 150}]
 
                     # verify the data integrity
                     foreach replica $replicas_alive {
+                        # Wait that replicas acknowledge they are online (i.e.
+                        # finished loading the RDB) before issuing DBSIZE /
+                        # DEBUG DIGEST. Master-side state=online is not enough
+                        # here: under repl-diskless-load swapdb the replica is
+                        # still in LOADING for some time after master marked
+                        # it online, and DBSIZE would then reply with LOADING.
+                        wait_for_condition $replica_online_wait_tries 100 {
+                            [lindex [$replica role] 3] eq {connected}
+                        } else {
+                            fail "replicas still not connected after some time"
+                        }
+
                         # Make sure that replicas and master have same
                         # number of keys
                         wait_for_condition 50 100 {
