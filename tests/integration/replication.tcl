@@ -908,9 +908,6 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
     foreach all_drop {no slow fast all timeout} {
         test "diskless $all_drop replicas drop during rdb pipe" {
-            # Reset config that the timeout subcase may change, so a failing
-            # subcase does not leave the next one with an aggressive timeout.
-            $master config set repl-timeout 60
             set replicas {}
             set replicas_alive {}
             # start one replica that will read the rdb fast, and one that will be slow
