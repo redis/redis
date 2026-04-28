@@ -1382,7 +1382,7 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_not_client_type_Subargs[] = {
 
 /* CLIENT KILL filter new_format argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
-{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("client-type",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5,NULL),.subargs=CLIENT_KILL_filter_new_format_client_type_Subargs},
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
@@ -1397,7 +1397,7 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("db",ARG_TYPE_INTEGER,-1,"DB",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("ip",ARG_TYPE_STRING,-1,"IP",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("not-client-type",ARG_TYPE_ONEOF,-1,"NOT-TYPE",NULL,"8.2.0",CMD_ARG_OPTIONAL,5,NULL),.subargs=CLIENT_KILL_filter_new_format_not_client_type_Subargs},
-{MAKE_ARG("not-client-id",ARG_TYPE_INTEGER,-1,"NOT-ID",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("not-client-id",ARG_TYPE_INTEGER,-1,"NOT-ID",NULL,"8.2.0",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {MAKE_ARG("not-username",ARG_TYPE_STRING,-1,"NOT-USER",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("not-addr",ARG_TYPE_STRING,-1,"NOT-ADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
 {MAKE_ARG("not-laddr",ARG_TYPE_STRING,-1,"NOT-LADDR",NULL,"8.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},

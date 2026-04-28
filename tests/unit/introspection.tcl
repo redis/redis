@@ -33,6 +33,34 @@ start_server {tags {"introspection"}} {
         assert_match "id=$myid * cmd=client|list *" [lindex $cl 0]
     }
 
+    test {CLIENT LIST ID fast-path preserves order and duplicates} {
+        # Spawn an extra client so we have at least two ids to play with.
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+        set my_id [r client id]
+
+        # Order is preserved: requesting [rd_id, my_id] must produce the
+        # rd_id line before the my_id line.
+        set ordered [r client list id $rd_id $my_id]
+        set lines [split [string trim $ordered] "\r\n"]
+        assert_equal 2 [llength $lines]
+        assert_match "id=$rd_id *" [lindex $lines 0]
+        assert_match "id=$my_id *" [lindex $lines 1]
+
+        # Duplicates: requesting [my_id, my_id] must emit two lines.
+        set dup_lines [split [string trim [r client list id $my_id $my_id]] "\r\n"]
+        assert_equal 2 [llength $dup_lines]
+
+        # Unknown ids are silently dropped.
+        set mixed [r client list id $my_id 999999999]
+        set mixed_lines [split [string trim $mixed] "\r\n"]
+        assert_equal 1 [llength $mixed_lines]
+        assert_match "*id=$my_id *" $mixed
+
+        $rd close
+    }
+
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {

@@ -4207,7 +4207,11 @@ static int clientMatchesFlagFilter(client *cl, sds flag_filter) {
             if (!(cl->flags & CLIENT_SLAVE) || !(cl->flags & CLIENT_MONITOR)) return 0;
             break;
         case 'g':
-            if (!(cl->flags & CLIENT_SLAVE) || !(cl->flags & CLIENT_ASM_MIGRATING)) return 0;
+            /* catClientInfoString emits 'g' only for SLAVE && !MONITOR &&
+             * ASM_MIGRATING (the MONITOR case wins and emits 'O'). */
+            if (!(cl->flags & CLIENT_SLAVE) ||
+                (cl->flags & CLIENT_MONITOR) ||
+                !(cl->flags & CLIENT_ASM_MIGRATING)) return 0;
             break;
         case 'S':
             if (!(cl->flags & CLIENT_SLAVE) ||
@@ -4762,6 +4766,43 @@ NULL
          * documented in parseClientFiltersOrReply(). Multiple filters are
          * combined with AND. A bare "CLIENT LIST" (no filters) returns
          * every connected client. */
+
+        /* Fast path: 'CLIENT LIST ID <id> [<id> ...]' with no other
+         * tokens. We keep the pre-8.2 O(K) radix-tree lookup, the
+         * preallocation hint, and the per-arg ordering (and duplicates)
+         * of the original implementation. Mixed forms like
+         * "ID 1 NAME foo" or "TYPE normal" fall through to the generic
+         * filter path below. */
+        if (c->argc >= 4 && !strcasecmp(c->argv[2]->ptr,"id")) {
+            int j;
+            int all_ids = 1;
+            for (j = 3; j < c->argc; j++) {
+                long long cid;
+                if (!string2ll(c->argv[j]->ptr, sdslen(c->argv[j]->ptr), &cid) ||
+                    cid < 1)
+                {
+                    all_ids = 0;
+                    break;
+                }
+            }
+            if (all_ids) {
+                sds o = sdsnewlen(SDS_NOINIT, 200 * (c->argc - 3));
+                sdsclear(o);
+                for (j = 3; j < c->argc; j++) {
+                    long long cid;
+                    string2ll(c->argv[j]->ptr, sdslen(c->argv[j]->ptr), &cid);
+                    client *cl = lookupClientByID(cid);
+                    if (cl) {
+                        o = catClientInfoString(o, cl);
+                        o = sdscatlen(o, "\n", 1);
+                    }
+                }
+                addReplyVerbatim(c, o, sdslen(o), "txt");
+                sdsfree(o);
+                return;
+            }
+        }
+
         clientFilter filter = {
             .type = -1, .not_type = -1,
             .db_number = -1, .not_db_number = -1,

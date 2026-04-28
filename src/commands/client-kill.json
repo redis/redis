@@ -68,6 +68,7 @@
                                 "name": "client-id",
                                 "type": "integer",
                                 "optional": true,
+                                "multiple": true,
                                 "since": "2.8.12"
                             },
                             {
@@ -240,6 +241,7 @@
                                 "name": "not-client-id",
                                 "type": "integer",
                                 "optional": true,
+                                "multiple": true,
                                 "since": "8.2.0"
                             },
                             {
