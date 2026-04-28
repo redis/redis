@@ -1015,6 +1015,69 @@ test {corrupt payload: stream with NACK shared between two consumers} {
     }
 }
 
+test {corrupt payload: stream listpack with wrong deleted count in header} {
+    # Corrupt only the entry flags: add STREAM_ITEM_FLAG_DELETED to the
+    # live entry without touching the listpack header.  The header still
+    # says deleted=0 while the entry actually has the DELETED flag, so
+    # actual_deleted (1) != deleted_count (0).  Crucially, count stays 1
+    # which matches s->length, so the rdb.c live_entries check is not
+    # involved — only the t_stream.c cross-check catches this.
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+
+        r XADD mystream 1-0 k v
+        set dump [r DUMP mystream]
+        r DEL mystream
+
+        set bytes {}
+        foreach ch [split $dump {}] {
+            scan $ch %c val
+            lappend bytes $val
+        }
+
+        # Locate the listpack inside the RDB payload.
+        set pos 2
+        set rax_key_len [lindex $bytes $pos]
+        incr pos [expr {1 + $rax_key_len}]
+
+        set lp_len_byte [lindex $bytes $pos]
+        if {$lp_len_byte < 64} {
+            incr pos 1
+        } elseif {$lp_len_byte < 128} {
+            incr pos 2
+        } else {
+            incr pos 5
+        }
+
+        # pos -> start of listpack blob.  Skip 6-byte LP header.
+        set stream_hdr [expr {$pos + 6}]
+
+        # Verify header: count=1, deleted=0 — leave them untouched.
+        set count_pos $stream_hdr
+        assert_equal [expr {[lindex $bytes $count_pos] & 0x7F}] 1
+        set deleted_pos [expr {$count_pos + 2}]
+        assert_equal [expr {[lindex $bytes $deleted_pos] & 0x7F}] 0
+
+        # Patch entry flags: SAMEFIELDS(2) -> SAMEFIELDS|DELETED(3).
+        # Offset from deleted_pos+2: num-fields(2) + field "k"(3) + zero-term(2)
+        set flags_pos [expr {$deleted_pos + 2 + 2 + 3 + 2}]
+        assert_equal [expr {[lindex $bytes $flags_pos] & 0x7F}] 2
+        lset bytes $flags_pos 3
+
+        set patched ""
+        foreach val $bytes {
+            append patched [format %c $val]
+        }
+
+        catch {r RESTORE mystream 0 $patched REPLACE} err
+        # s->length is 1 but the only entry is tombstoned.
+        # XREAD $  calls streamLastValidID which hits serverPanic.
+        catch {r XREAD COUNT 1 STREAMS mystream $}
+        r ping
+    }
+}
+
 test {corrupt payload: stream all-tombstone entries with non-zero length} {
     # Binary-patch a stream dump so the single entry is tombstoned
     # (STREAM_ITEM_FLAG_DELETED) while s->length remains 1.  The
