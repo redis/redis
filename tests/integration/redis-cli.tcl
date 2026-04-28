@@ -91,11 +91,6 @@ start_server {tags {"cli"}} {
         fail "Timed out waiting for pattern '$regex' in redis-cli output: $ret"
     }
 
-    proc run_command_until {fd cmd regex {timeout_ms 2000}} {
-        write_cli $fd $cmd
-        set _ [format_output [read_cli_until $fd $regex $timeout_ms]]
-    }
-
     proc test_interactive_cli_with_prompt {name code} {
         set ::env(FAKETTY_WITH_PROMPT) 1
         test_interactive_cli $name $code
