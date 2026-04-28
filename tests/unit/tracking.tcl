@@ -945,11 +945,11 @@ start_server {tags {"tracking network logreqres:skip"}} {
     test {BCAST re-AUTH re-buckets correctly with ACL filtering} {
         clean_all
 
-        r ACL SETUSER userA on >passA ~a:* +@all
-        r ACL SETUSER userB on >passB ~b:* +@all
+        r ACL SETUSER usr_a on >passA ~a:* +@all
+        r ACL SETUSER usr_b on >passB ~b:* +@all
 
         set tc [redis_deferring_client]
-        $tc AUTH userA passA
+        $tc AUTH usr_a passA
         $tc read
 
         $tc HELLO 3
@@ -962,7 +962,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $rd_sg SET a:1{t} val1
         $rd_sg SET b:1{t} val1
 
-        # Under userA, only a:* is visible.
+        # Under usr_a, only a:* is visible.
         after 100
         $tc PING
         set keys {}
@@ -976,8 +976,8 @@ start_server {tags {"tracking network logreqres:skip"}} {
         }
         assert_equal $keys [list a:1{t}]
 
-        # Re-AUTH as userB.
-        $tc AUTH userB passB
+        # Re-AUTH as usr_b.
+        $tc AUTH usr_b passB
         $tc read
 
         # Write again.
@@ -1000,8 +1000,8 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $tc CLIENT TRACKING off
         $tc read
         $tc close
-        r ACL DELUSER userA
-        r ACL DELUSER userB
+        r ACL DELUSER usr_a
+        r ACL DELUSER usr_b
     }
 
     $rd_redirection close
