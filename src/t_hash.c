@@ -3074,7 +3074,7 @@ void genericHgetallCommand(client *c, int flags) {
      * value SDS data, then emit replies while the data is cache-warm.
      * This hides the latency of pointer chasing through scattered
      * heap allocations (dictEntry → Entry → value SDS). */
-    #define HGETALL_BATCH 16
+#define HGETALL_BATCH 16
     if (o->encoding == OBJ_ENCODING_HT) {
         int skip_expired = !server.allow_access_expired;
         dict *d = o->ptr;
@@ -3088,23 +3088,17 @@ void genericHgetallCommand(client *c, int flags) {
              * skipping expired fields (unless allow_access_expired),
              * and prefetching Entry structs. */
             batch_count = 0;
-            for (int i = 0; i < HGETALL_BATCH; i++) {
-                dictEntry *de;
-                Entry *e;
-                while ((de = dictNext(&di)) != NULL) {
-                    e = dictGetKey(de);
-                    if (skip_expired) {
-                        uint64_t expire_time = entryGetExpiry(e);
-                        if (expire_time != EB_EXPIRE_TIME_INVALID &&
-                            (mstime_t)expire_time < commandTimeSnapshot())
-                            continue;
-                    }
-                    break;
-                }
+            while (batch_count < HGETALL_BATCH) {
+                dictEntry *de = dictNext(&di);
                 if (!de) break;
-                batch_entry[batch_count] = e;
+                Entry *e = dictGetKey(de);
+                if (skip_expired) {
+                    uint64_t expire_time = entryGetExpiry(e);
+                    if (expire_time != EB_EXPIRE_TIME_INVALID && (mstime_t)expire_time < commandTimeSnapshot())
+                        continue;
+                }
+                batch_entry[batch_count++] = e;
                 redis_prefetch_read(e);
-                batch_count++;
             }
             if (batch_count == 0) break;
 
