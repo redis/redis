@@ -908,6 +908,9 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
     foreach all_drop {no slow fast all timeout} {
         test "diskless $all_drop replicas drop during rdb pipe" {
+            # Defensively restore master config that prior subcases may have changed,
+            # so a failure in one subcase does not cascade into the next.
+            $master config set repl-timeout 60
             set replicas {}
             set replicas_alive {}
             # start one replica that will read the rdb fast, and one that will be slow
@@ -950,15 +953,12 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         set start_time [clock seconds]
                     }
 
-                    if {$all_drop == "no" || $all_drop == "fast"} {
-                        # key-load-delay is already throttling the slow
-                        # replica; just wait for the pipe to fill.
-                        after 500
-                    } else {
-                        # For slow/all/timeout subcases the replica will be
-                        # killed or timed out, so a brief SIGSTOP is fine.
+                    # The previous wait_for_log_messages on "Loading DB in memory"
+                    # already proves the RDB is in flight; no extra timed sleep
+                    # is needed. For slow/all/timeout we additionally pause the
+                    # slow reader so its socket buffer can no longer drain.
+                    if {$all_drop == "slow" || $all_drop == "all" || $all_drop == "timeout"} {
                         pause_process [srv -1 pid]
-                        after 500
                     }
 
                     # add some command to be present in the command stream after the rdb.
@@ -971,26 +971,41 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     }
 
                     # disconnect replicas depending on the current test
+                    set expected_connected_slaves 2
                     if {$all_drop == "all" || $all_drop == "fast"} {
                         exec kill [srv 0 pid]
                         set replicas_alive [lreplace $replicas_alive 1 1]
+                        incr expected_connected_slaves -1
                     }
                     if {$all_drop == "all" || $all_drop == "slow"} {
                         exec kill [srv -1 pid]
                         set replicas_alive [lreplace $replicas_alive 0 0]
+                        incr expected_connected_slaves -1
                     }
                     if {$all_drop == "timeout"} {
                         # Let one replica hit repl-timeout while the slow reader
                         # is paused, then restore a generous timeout so the
                         # remaining replica can finish the streamed RDB.
                         $master config set repl-timeout 2
-                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 100 100
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 30 100
                         $master config set repl-timeout 60
+                        incr expected_connected_slaves -1
                     }
 
-                    # Use a single generous budget for all subcases; successful
-                    # runs still exit early once the child is done.
-                    wait_for_condition 2400 100 {
+                    # First wait for the master to actually register the dropped
+                    # replicas. This localizes failures (kill-not-noticed vs.
+                    # rdb-child-not-exiting) and lets us use a tighter budget
+                    # for the rdb_bgsave_in_progress check below.
+                    if {$all_drop != "no"} {
+                        wait_for_condition 600 100 {
+                            [s -2 connected_slaves] == $expected_connected_slaves
+                        } else {
+                            fail "master did not register replica drop in time (connected_slaves=[s -2 connected_slaves], expected $expected_connected_slaves)"
+                        }
+                    }
+
+                    # wait for rdb child to exit
+                    wait_for_condition 600 100 {
                         [s -2 rdb_bgsave_in_progress] == 0
                     } else {
                         fail "rdb child didn't terminate"
