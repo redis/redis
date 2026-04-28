@@ -995,17 +995,13 @@ void increxCommand(client *c) {
         }
 
         oldvalue = value;
-        if (incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) {
+        if (__builtin_add_overflow(oldvalue, incr, &value)) {
+            addReplyError(c,"increment or decrement would overflow");
+            return;
+        } else if (value < lb) {
             value = lb;
-        } else if (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue)) {
+        } else if (value > ub) {
             value = ub;
-        } else {
-            value += incr;
-            if (value < lb) {
-                value = lb;
-            } else if (value > ub) {
-                value = ub;
-            }
         }
         result = createStringObjectFromLongLongForValue(value);
         actual_increment = createStringObjectFromLongLongForValue(value - oldvalue);

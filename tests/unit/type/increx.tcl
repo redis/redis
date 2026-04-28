@@ -41,16 +41,16 @@ start_server {tags {"increx"}} {
         assert_equal [r increx mykey BYINT 1 LBOUND 0 UBOUND 10] {6 1}
     }
 
-    test {INCREX - BYINT positive overflow is capped at UBOUND instead of erroring} {
+    test {INCREX - BYINT positive overflow returns an error} {
         # LLONG_MAX = 9223372036854775807
         r set mykey 9223372036854775800
-        assert_equal [r increx mykey BYINT 9223372036854775800] {9223372036854775807 7}
+        assert_error {ERR increment or decrement would overflow*} {r increx mykey BYINT 9223372036854775800}
     }
 
-    test {INCREX - BYINT negative overflow is floored at LBOUND instead of erroring} {
+    test {INCREX - BYINT negative overflow returns an error} {
         # LLONG_MIN = -9223372036854775808
         r set mykey -9223372036854775800
-        assert_equal [r increx mykey BYINT -9223372036854775800] {-9223372036854775808 -8}
+        assert_error {ERR increment or decrement would overflow} {r increx mykey BYINT -9223372036854775800}
     }
 
     # ---------------------------------------------------------------------
