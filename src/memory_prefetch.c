@@ -251,16 +251,24 @@ static inline void ctxPrefetchEntryKey(DictPrefetchCtx *ctx, KeyPrefetchInfo *in
 
 /* Compare the entry's stored key against the lookup key. On match, ask
  * the dictType to prefetch the value-side payload (if any) and mark the
- * key done. On mismatch, walk to the next entry in the chain. */
+ * key done. On mismatch, walk to the next entry in the chain.
+ *
+ * The entry's stored key may be in a different shape than the lookup key
+ * (e.g. dbDictType stores a kvobj but keyCompare wants the sds). When that
+ * is the case the dict provides keyFromStoredKey to convert; otherwise the
+ * stored key IS already in comparable form. This mirrors what
+ * dictFindLinkInternal does. */
 static inline void ctxPrefetchEntryValue(DictPrefetchCtx *ctx, KeyPrefetchInfo *info) {
     size_t i = ctx->cur_idx;
+    dictType *type = ctx->dicts[i]->type;
+    const void *stored_key = dictGetKey(info->current_entry);
+    const void *cmp_key = type->keyFromStoredKey ? type->keyFromStoredKey(stored_key) : stored_key;
 
     /* 1. If this is the last element, we assume a hit and don't compare the keys
      * 2. The stored entry matches the lookup key. */
     if ((!dictGetNext(info->current_entry) && !dictIsRehashing(ctx->dicts[i])) ||
-        dictCompareKeys(ctx->dicts[i], ctx->keys[i], dictGetKey(info->current_entry)))
+        dictCompareKeys(ctx->dicts[i], ctx->keys[i], cmp_key))
     {
-        dictType *type = ctx->dicts[i]->type;
         if (type->prefetchEntryValue) {
             void *p = type->prefetchEntryValue(info->current_entry);
             if (p) ctxPrefetchAndAdvance(ctx, p);
