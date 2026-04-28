@@ -1016,7 +1016,7 @@ void increxCommand(client *c) {
         }
 
         oldvalue = value;
-        if (__builtin_add_overflow(oldvalue, incr, &value)) {
+        if (add_overflow_ll(oldvalue, incr, &value)) {
             /* The addition overflows long long. If the user did not specify a bound
              * on the overflow direction, behave like INCRBY and return an error.
              * Otherwise, saturate so the subsequent clamp drops the value to the bound. */
