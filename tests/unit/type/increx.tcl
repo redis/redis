@@ -73,11 +73,9 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT -100 LBOUND -5.5] {roundFloat $v}] {-5.5 -5.5}
     }
 
-    if {!$::valgrind} {
-        test {INCREX - BYFLOAT rejects NaN / Infinity result} {
-            r set mykey 0
-            assert_error "*would produce NaN or Infinity*" {r increx mykey BYFLOAT +inf}
-        }
+    test {INCREX - BYFLOAT rejects NaN / Infinity result} {
+        r set mykey 0
+        assert_error "*would produce NaN or Infinity*" {r increx mykey BYFLOAT +inf}
     }
 
     # ---------------------------------------------------------------------

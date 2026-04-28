@@ -3,6 +3,7 @@
         "summary": "Increments the numeric value of a key by a number and sets its expiration time. Uses 0 as initial value if the key doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
+        "since": "8.8.0",
         "arity": -2,
         "function": "increxCommand",
         "command_flags": [

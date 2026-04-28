@@ -943,12 +943,15 @@ void increxCommand(client *c) {
     dictEntryLink link;
     kvobj *o = NULL;
     robj *result = NULL, *actual_increment = NULL;
-    int hasExpiry = 0;
     if (args.flags & OBJ_INCREX_BYFLOAT) {
         long double value, oldvalue, incr, lb = -LDBL_MAX, ub = LDBL_MAX;
-        if (getLongDoubleFromObjectOrReply(c,args.increment,&incr,NULL) != C_OK ||
-            ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c,args.lower_bound,&lb,NULL) != C_OK) ||
-            ((args.flags & OBJ_INCREX_UBOUND) && getLongDoubleFromObjectOrReply(c,args.upper_bound,&ub,NULL) != C_OK))
+
+        if (getLongDoubleFromObjectOrReply(c,args.increment,&incr,NULL) != C_OK)
+            return;
+
+        if ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c,args.lower_bound,&lb,NULL) != C_OK)
+            return;
+        if ((args.flags & OBJ_INCREX_UBOUND) && getLongDoubleFromObjectOrReply(c,args.upper_bound,&ub,NULL) != C_OK)
             return;
         if (lb > ub) {
             addReplyError(c,"LBOUND can't be greater than UBOUND");
@@ -1013,9 +1016,9 @@ void increxCommand(client *c) {
     addReplyBulk(c, actual_increment);
     decrRefCount(actual_increment);
 
-    hasExpiry = o && (kvobjGetExpire(o) != -1);
+    int has_expiry = o && (kvobjGetExpire(o) != -1);
     /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
-    if (!((args.flags & OBJ_INCREX_ENX) && hasExpiry) && args.expire && checkAlreadyExpired(milliseconds)) {
+    if (!((args.flags & OBJ_INCREX_ENX) && has_expiry) && args.expire && checkAlreadyExpired(milliseconds)) {
         if (o) {
             int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
             serverAssert(deleted);
@@ -1065,7 +1068,7 @@ void increxCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
         }
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], result);
-     } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !hasExpiry)) {
+     } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
         result = setExpire(c, c->db, c->argv[1], milliseconds);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
