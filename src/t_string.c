@@ -942,7 +942,7 @@ void increxCommand(client *c) {
 
     dictEntryLink link;
     kvobj *o = NULL;
-    robj *result = NULL, *actual_increment = NULL;
+    robj *result = NULL, *increment = NULL;
     if (args.flags & OBJ_INCREX_BYFLOAT) {
         long double value, oldvalue, incr, lb = -LDBL_MAX, ub = LDBL_MAX;
 
@@ -976,7 +976,7 @@ void increxCommand(client *c) {
             value = ub;
         }
         result = createStringObjectFromLongDouble(value, 1);
-        actual_increment = createStringObjectFromLongDouble(value - oldvalue, 1);
+        increment = createStringObjectFromLongDouble(value - oldvalue, 1);
     } else {
         long long value, oldvalue, incr = 1, lb = LLONG_MIN, ub = LLONG_MAX;
         if ((args.flags & OBJ_INCREX_BYINT) &&
@@ -1022,13 +1022,13 @@ void increxCommand(client *c) {
             value = lb;
         }
         result = createStringObjectFromLongLongForValue(value);
-        actual_increment = createStringObjectFromLongLongForValue(value - oldvalue);
+        increment = createStringObjectFromLongLongForValue(value - oldvalue);
     }
 
     addReplyArrayLen(c, 2);
     addReplyBulk(c, result);
-    addReplyBulk(c, actual_increment);
-    decrRefCount(actual_increment);
+    addReplyBulk(c, increment);
+    decrRefCount(increment);
 
     int has_expiry = o && (kvobjGetExpire(o) != -1);
     /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
