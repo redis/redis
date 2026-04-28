@@ -899,8 +899,8 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     # Put enough data in the db that the RDB is comfortably larger than the
     # pipe and socket buffers so the primary can hit the blocked writer path,
     # but keep it small enough that slow TLS CI runners don't spend minutes
-    # draining an oversized transfer (~40 MB uncompressed).
-    $master debug populate 4000 test 10000
+    # draining an oversized transfer (~20 MB uncompressed).
+    $master debug populate 2000 test 10000
     $master config set rdbcompression no
     $master config set repl-rdb-channel no
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
@@ -934,11 +934,11 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     # can't drain the pipe fast enough, leaving the RDB child
                     # blocked on write() for minutes.
                     if {$all_drop == "no" || $all_drop == "fast"} {
-                        # 4k keys with 500 microseconds each keeps replica 0
-                        # slow for about 2 seconds, which is long enough to
-                        # fill the pipe without turning the transfer into a
-                        # multi-minute TLS run.
-                        [lindex $replicas 0] config set key-load-delay 500
+                        # 2k keys with 1ms each keeps replica 0 slow for
+                        # ~2 seconds, long enough to fill the pipe but small
+                        # enough that the full transfer stays cheap on slow
+                        # TLS CI runners.
+                        [lindex $replicas 0] config set key-load-delay 1000
                     }
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port
@@ -1069,22 +1069,22 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         }
                     }
 
-                    # In the "no" case both replicas stay alive through the
-                    # full streamed RDB, so on slow TLS runners the final
-                    # ONLINE transition can lag behind child exit.
-                    set replica_online_wait_tries [expr {$all_drop == "no" ? 600 : 150}]
+                    # Wait for master to see all surviving replicas as online
+                    # before checking data integrity. Master-side state=online
+                    # is a tighter guarantee than replica-side master_link_status
+                    # and avoids per-replica round-trips that can race with the
+                    # replica's own state transitions on slow TLS runners.
+                    set num_alive [llength $replicas_alive]
+                    if {$num_alive > 0} {
+                        wait_for_condition 600 100 {
+                            [regexp -all {state=online,} [$master info replication]] == $num_alive
+                        } else {
+                            fail "expected $num_alive online replicas, master sees [regexp -all {state=online,} [$master info replication]] (connected_slaves=[s -2 connected_slaves])"
+                        }
+                    }
 
                     # verify the data integrity
                     foreach replica $replicas_alive {
-                        # Wait that replicas acknowledge they are online so
-                        # we are sure that DBSIZE and DEBUG DIGEST will not
-                        # fail because of timing issues.
-                        wait_for_condition $replica_online_wait_tries 100 {
-                            [lindex [$replica role] 3] eq {connected}
-                        } else {
-                            fail "replicas still not connected after some time"
-                        }
-
                         # Make sure that replicas and master have same
                         # number of keys
                         wait_for_condition 50 100 {
