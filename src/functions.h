@@ -111,6 +111,7 @@ dict* functionsLibGet(void);
 size_t functionsLibCtxFunctionsLen(functionsLibCtx *functions_ctx);
 functionsLibCtx* functionsLibCtxGetCurrent(void);
 functionsLibCtx* functionsLibCtxCreate(void);
+functionsLibCtx* functionsLibCtxReplaceCurrent(functionsLibCtx *lib_ctx);
 void functionsLibCtxClearCurrent(int async);
 void functionsLibCtxFree(functionsLibCtx *lib_ctx);
 void functionsLibCtxClear(functionsLibCtx *lib_ctx);

@@ -1,6 +1,18 @@
 # This unit has the potential to create huge .reqres files, causing log-req-res-validator.py to run for a very long time...
 # Since this unit doesn't do anything worth validating, reply_schema-wise, we decided to skip it
 start_server {tags {"aofrw external:skip logreqres:skip"} overrides {save {}}} {
+    test {DEBUG LOADAOF failure preserves the current dataset} {
+        r set keepme value
+
+        assert_error {ERR Error trying to load the AOF files, check server logs.} {
+            r debug loadaof
+        }
+
+        assert_equal 1 [r exists keepme]
+        assert_equal {value} [r get keepme]
+        assert_equal 1 [r dbsize]
+    }
+
     # Enable the AOF
     r config set appendonly yes
     r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.

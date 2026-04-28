@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "functions.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
@@ -633,13 +634,47 @@ NULL
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        redisDb *old_db = server.db, *temp_db = NULL;
+        aofManifest *old_am = server.aof_manifest;
+        functionsLibCtx *temp_functions_lib_ctx = NULL, *old_functions_lib_ctx = NULL;
+        long long old_dirty = server.dirty;
+
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
-        emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
+
+        temp_db = initTempDb();
+        temp_functions_lib_ctx = functionsLibCtxCreate();
         protectClient(c);
-        if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+
+        server.db = temp_db;
+        old_functions_lib_ctx = functionsLibCtxReplaceCurrent(temp_functions_lib_ctx);
+        server.aof_manifest = NULL;
         aofLoadManifestFromDisk();
-        aofDelHistoryFiles();
+
         int ret = loadAppendOnlyFiles(server.aof_manifest);
+
+        server.db = old_db;
+        if (ret == AOF_OK || ret == AOF_EMPTY) {
+            swapMainDbWithTempDb(temp_db);
+            discardTempDb(temp_db);
+            temp_db = NULL;
+            temp_functions_lib_ctx = NULL; /* Kept as the current functions ctx. */
+            functionsLibCtxFree(old_functions_lib_ctx);
+            old_functions_lib_ctx = NULL;
+            if (old_am) aofManifestFree(old_am);
+            old_am = NULL;
+            aofDelHistoryFiles();
+        } else {
+            temp_functions_lib_ctx = functionsLibCtxReplaceCurrent(old_functions_lib_ctx);
+            old_functions_lib_ctx = NULL;
+            functionsLibCtxFree(temp_functions_lib_ctx);
+            temp_functions_lib_ctx = NULL;
+            discardTempDb(temp_db);
+            temp_db = NULL;
+            if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+            server.aof_manifest = old_am;
+            old_am = NULL;
+            server.dirty = old_dirty;
+        }
         unprotectClient(c);
         if (ret != AOF_OK && ret != AOF_EMPTY) {
             addReplyError(c, "Error trying to load the AOF files, check server logs.");

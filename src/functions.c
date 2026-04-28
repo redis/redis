@@ -208,6 +208,14 @@ void functionsLibCtxSwapWithCurrent(functionsLibCtx *new_lib_ctx) {
     curr_functions_lib_ctx = new_lib_ctx;
 }
 
+/* Replace the current functions ctx without freeing the old one.
+ * Returns the previous current ctx. */
+functionsLibCtx* functionsLibCtxReplaceCurrent(functionsLibCtx *new_lib_ctx) {
+    functionsLibCtx *old_lib_ctx = curr_functions_lib_ctx;
+    curr_functions_lib_ctx = new_lib_ctx;
+    return old_lib_ctx;
+}
+
 /* return the current functions ctx */
 functionsLibCtx* functionsLibCtxGetCurrent(void) {
     return curr_functions_lib_ctx;

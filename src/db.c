@@ -1068,7 +1068,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     return removed;
 }
 
-/* Initialize temporary db on replica for use during diskless replication. */
+/* Initialize a temporary DB array for out-of-place loading. */
 redisDb *initTempDb(void) {
     int slot_count_bits = 0;
     int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
@@ -1084,7 +1084,14 @@ redisDb *initTempDb(void) {
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
+        tempDb[i].expires_cursor = 0;
+        tempDb[i].blocking_keys = dictCreate(&keylistDictType);
+        tempDb[i].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
+        tempDb[i].stream_claim_pending_keys = dictCreate(&objectKeyPointerValueDictType);
         tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
+        tempDb[i].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+        tempDb[i].watched_keys = dictCreate(&keylistDictType);
+        tempDb[i].avg_ttl = 0;
     }
 
     return tempDb;
@@ -1102,7 +1109,12 @@ void discardTempDb(redisDb *tempDb) {
         estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
+        dictRelease(tempDb[i].blocking_keys);
+        dictRelease(tempDb[i].blocking_keys_unblock_on_nokey);
+        dictRelease(tempDb[i].stream_claim_pending_keys);
         dictRelease(tempDb[i].stream_idmp_keys);
+        dictRelease(tempDb[i].ready_keys);
+        dictRelease(tempDb[i].watched_keys);
     }
 
     zfree(tempDb);
