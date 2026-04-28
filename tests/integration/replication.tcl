@@ -987,7 +987,11 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         # is paused, then restore a generous timeout so the
                         # remaining replica can finish the streamed RDB.
                         $master config set repl-timeout 2
-                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 30 100
+                        # repl-timeout=2 needs ~2s of inactivity plus a cron
+                        # tick and log flush; keep a generous budget so slow
+                        # TLS CI runners don't trip on timing. Successful
+                        # runs return early once the line is logged.
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 100 100
                         $master config set repl-timeout 60
                         incr expected_connected_slaves -1
                     }
