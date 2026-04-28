@@ -3452,7 +3452,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
-                        if (nack != NULL) streamFreeNACK(s, nack);
+                        streamFreeNACK(s, nack);
                         decrRefCount(o);
                         return NULL;
                     }
