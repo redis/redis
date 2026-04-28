@@ -1137,6 +1137,9 @@ int updateClientMemUsageAndBucket(client *c) {
         size_t base_mem = c->last_memory_usage - c->reply_bytes_unshared;
         if (getMemUsageBucket(base_mem) != getMemUsageBucket(base_mem + c->reply_bytes_shared))
             updateClientUnsharedReplyBytes(c);
+    } else {
+        /* No shared bytes: clear any stale cached unshared. */
+        c->reply_bytes_unshared = 0;
     }
 
     /* Update client memory usage. */
