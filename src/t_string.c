@@ -70,12 +70,6 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_SET_IFNE (1<<10)       /* Set if value does not equal match value */
 #define OBJ_SET_IFDEQ (1<<11)      /* Set if current digest equals match digest */
 #define OBJ_SET_IFDNE (1<<12)      /* Set if current digest does not equal match digest */
-#define OBJ_INCREX_BYFLOAT (1<<13) /* Set if float-point increment is given */
-#define OBJ_INCREX_BYINT (1<<14)   /* Set if integer increment is given */
-#define OBJ_INCREX_LBOUND (1<<15)  /* Set if lower bound of increx result is given */
-#define OBJ_INCREX_UBOUND (1<<16)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_ENX (1<<17)     /* Set expiration only when the key has no expiry */
-#define OBJ_INCREX_STRICT (1<<18)  /* Set strict mode: fail the operation instead of clamping to bound */
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
@@ -929,6 +923,14 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,2,new);
     rewriteClientCommandArgument(c,3,shared.keepttl);
 }
+
+/* INCREX option flags. */
+#define OBJ_INCREX_BYFLOAT (1<<0) /* Set if float-point increment is given */
+#define OBJ_INCREX_BYINT   (1<<1) /* Set if integer increment is given */
+#define OBJ_INCREX_LBOUND  (1<<2) /* Set if lower bound of increx result is given */
+#define OBJ_INCREX_UBOUND  (1<<3) /* Set if upper bound of increx result is given */
+#define OBJ_INCREX_ENX     (1<<4) /* Set expiration only when the key has no expiry */
+#define OBJ_INCREX_STRICT  (1<<5) /* Set strict mode: fail the operation instead of clamping to bound */
 
 /* INCREX argument structure */
 typedef struct {
