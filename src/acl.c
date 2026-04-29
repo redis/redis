@@ -1497,7 +1497,7 @@ void addAuthErrReply(client *c, robj *err) {
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
-        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)));
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -1514,14 +1514,10 @@ int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
  * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
  */
 int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
-    user *old_user = c->user;
     int result = checkModuleAuthentication(c, username, password, err);
     /* If authentication was not handled by any Module, attempt normal password based auth. */
     if (result == AUTH_NOT_HANDLED) {
         result = checkPasswordBasedAuth(c, username, password);
-    }
-    if (result == AUTH_OK) {
-        trackingBroadcastPostUserSwitch(c, old_user);
     }
     return result;
 }
@@ -2485,8 +2481,7 @@ sds ACLLoadFromFile(const char *filename) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            c->user = new;
-            trackingBroadcastPostUserSwitch(c, original);
+            clientSetUser(c, new);
         }
 
         if (user_channels)
@@ -3246,7 +3241,7 @@ static void internalAuth(client *c) {
         c->authenticated = 1;
         /* Set the user to the unrestricted user, if it is not already set (default). */
         if (c->user != NULL) {
-            c->user = NULL;
+            clientSetUser(c, NULL);
             moduleNotifyUserChanged(c);
         }
         addReply(c, shared.ok);
