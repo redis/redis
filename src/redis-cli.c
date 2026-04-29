@@ -1655,6 +1655,11 @@ static int cliSwitchProto(void) {
         } else if (config.resp3 == 2) {
             result = REDIS_OK;
         }
+        /* Stay on RESP2: the connection never switched protocols. Setting
+         * current_resp3 = 1 below would later crash assertions that expect
+         * RESP3 reply shapes (e.g. REDIS_REPLY_MAP in getDatabases()). */
+        freeReplyObject(reply);
+        return result;
     }
 
     /* Retrieve server version string for later use. */
