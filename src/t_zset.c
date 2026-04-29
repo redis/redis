@@ -2065,6 +2065,7 @@ void zaddGenericCommand(client *c, int flags) {
             addReplyError(c,nanerr);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
+            updateKeysizesHist(c->db, OBJ_ZSET, llen, llen+added);
             goto cleanup;
         }
         if (retflags & ZADD_OUT_ADDED) added++;

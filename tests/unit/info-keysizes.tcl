@@ -419,6 +419,20 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c} {db0_ZSET:2=1}
         run_cmd_verify_hist {$server ZMPOP 1 z1 MIN} {db0_ZSET:2=1}
         run_cmd_verify_hist {$server ZMPOP 1 z1 MAX COUNT 2} {}
+
+        # When ZADD with INCR flag fails (score becomes NaN), the histogram
+        # is NOT updated, causing desync. Only happens with INCR flag since
+        # it's the only ZADD path that can return error (return 0).
+        run_cmd_verify_hist {$server FLUSHALL} {}
+
+        # Create a ZSET with one element with +inf score
+        run_cmd_verify_hist {$server ZADD z1 +inf member} {db0_ZSET:1=1}
+
+        # Try ZADD with INCR that produces NaN
+        catch {$server ZADD z1 INCR -inf member}
+
+        # The set should still have 1 element, histogram should be consistent
+        run_cmd_verify_hist {$server ZPOPMIN z1} {}
         
     } {} {cluster:skip}    
     
