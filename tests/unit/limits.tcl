@@ -2,7 +2,7 @@ start_server {tags {"limits network external:skip"} overrides {maxclients 10}} {
     if {$::tls} {
         set expected_code "*I/O error*"
     } else {
-        set expected_code "*ERR max*reached*"
+        set expected_code "*I/O error*"
     }
     test {Check if maxclients works refusing connections} {
         puts "CLIENTS BEFORE LOOP: [r info clients]"

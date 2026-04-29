@@ -1,9 +1,15 @@
 #!/bin/sh
+# Most tests assume running from the project root
+cd "C:/Users/samue/repos/redis"
+export REDIS_BIN_DIR="C:/Users/samue/repos/redis/bin/Release"
+# Most tests assume running from the project root
+cd "C:/Users/samue/repos/redis"
+export REDIS_BIN_DIR="C:/Users/samue/repos/redis/bin/Release"
 TCL_VERSIONS="8.5 8.6 8.7 9.0"
 TCLSH=""
 
 for VERSION in $TCL_VERSIONS; do
-	TCL=`which tclsh$VERSION 2>/dev/null` && TCLSH=$TCL
+	TCL=`which tclsh 2>/dev/null` && TCLSH=$TCL
 done
 
 if [ -z $TCLSH ]

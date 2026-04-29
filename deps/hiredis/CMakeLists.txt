@@ -34,7 +34,7 @@ SET(hiredis_sources
     hiredis.c
     net.c
     read.c
-    sds.c
+    "${CMAKE_BINARY_DIR}/patched/deps/hiredis/sds.c"
     sockcompat.c)
 
 SET(hiredis_sources ${hiredis_sources})
@@ -43,6 +43,7 @@ IF(WIN32)
     ADD_DEFINITIONS(-D_CRT_SECURE_NO_WARNINGS -DWIN32_LEAN_AND_MEAN)
 ENDIF()
 
+include_directories(BEFORE "${CMAKE_BINARY_DIR}/patched/deps/hiredis")
 ADD_LIBRARY(hiredis ${hiredis_sources})
 ADD_LIBRARY(hiredis::hiredis ALIAS hiredis)
 set(hiredis_export_name hiredis CACHE STRING "Name of the exported target")

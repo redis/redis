@@ -15,8 +15,9 @@ list(APPEND SERVER_LIBS "hdr_histogram")
 list(APPEND SERVER_LIBS "ffc")
 list(APPEND SERVER_LIBS "lualib")
 list(APPEND SERVER_LIBS "xxhash")
-redis_build_and_install_bin(redis-server "${REDIS_SERVER_SRCS}" "${REDIS_SERVER_LDFLAGS}" "${SERVER_LIBS}"
+redis_build_and_install_bin(redis-server "${REDIS_SERVER_SRCS}" "${REDIS_SERVER_LDFLAGS}" "${SERVER_LIBS}"      
                              "redis-server")
+target_compile_definitions(redis-server PRIVATE REDIS_TEST)
 add_dependencies(redis-server generate_commands_def)
 add_dependencies(redis-server generate_fmtargs_h)
 add_dependencies(redis-server release_header)
