@@ -929,6 +929,12 @@ void incrbyfloatCommand(client *c) {
  * Note: When the result is clamped by LBOUND/UBOUND, the expiration is still updated normally.
  */
 void increxCommand(client *c) {
+    dictEntryLink link;
+    kvobj *o = NULL;
+    robj *new = NULL;
+    long long value_ll, oldvalue_ll, incr_ll = 1;
+    long double value_ld, oldvalue_ld, incr_ld = 1;
+
     extendedStringArgs args;
     if (parseExtendedStringArgumentsOrReply(c, 2, &args, COMMAND_INCREX) != C_OK) {
         return;
@@ -949,13 +955,9 @@ void increxCommand(client *c) {
         return;
     }
 
-    dictEntryLink link;
-    kvobj *o = NULL;
-    robj *result = NULL, *increment = NULL;
     if (args.flags & OBJ_INCREX_BYFLOAT) {
-        long double value, oldvalue, incr, lb = -LDBL_MAX, ub = LDBL_MAX;
-
-        if (getLongDoubleFromObjectOrReply(c, args.increment, &incr, NULL) != C_OK)
+        long double lb = -LDBL_MAX, ub = LDBL_MAX;
+        if (getLongDoubleFromObjectOrReply(c, args.increment, &incr_ld, NULL) != C_OK)
             return;
 
         if ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
@@ -969,53 +971,48 @@ void increxCommand(client *c) {
 
         o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
         if (checkType(c, o, OBJ_STRING)) return;
-        if (getLongDoubleFromObjectOrReply(c, o, &value, NULL) != C_OK) {
+        if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK) {
             return;
         }
 
-        oldvalue = value;
-        value += incr;
-        if (isnan(value)) {
+        oldvalue_ld = value_ld;
+        value_ld += incr_ld;
+        if (isnan(value_ld)) {
             addReplyError(c, "increment would produce NaN");
             return;
         }
-        if (isinf(value)) {
+        if (isinf(value_ld)) {
             /* The addition overflows long double. If the user did not specify a bound
              * on the overflow direction, return an error. Otherwise, saturate so the
              * subsequent clamp drops the value to the bound. */
-            int bound_flag = (incr >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
+            int bound_flag = (incr_ld >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
             if (!(args.flags & bound_flag)) {
                 addReplyError(c, "increment would produce Infinity");
                 return;
             }
             if (strict_mode) {
-                value = oldvalue;
+                value_ld = oldvalue_ld;
             } else {
-                value = (incr >= 0) ? LDBL_MAX : -LDBL_MAX;
+                value_ld = (incr_ld >= 0) ? LDBL_MAX : -LDBL_MAX;
             }
         }
-        if ((oldvalue > ub && value > ub) || (oldvalue < lb && value < lb)) {
+        if ((oldvalue_ld > ub && value_ld > ub) || (oldvalue_ld < lb && value_ld < lb)) {
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
-            value = oldvalue;
-        } else if (value > ub) {
-            value = strict_mode ? oldvalue : ub;
-        } else if (value < lb) {
-            value = strict_mode ? oldvalue : lb;
+            value_ld = oldvalue_ld;
+        } else if (value_ld > ub) {
+            value_ld = strict_mode ? oldvalue_ld : ub;
+        } else if (value_ld < lb) {
+            value_ld = strict_mode ? oldvalue_ld : lb;
         }
-        result = createStringObjectFromLongDouble(value, 1);
-        increment = createStringObjectFromLongDouble(value - oldvalue, 1);
     } else {
-        long long value, oldvalue, incr = 1, lb = LLONG_MIN, ub = LLONG_MAX;
-        if ((args.flags & OBJ_INCREX_BYINT) &&
-            getLongLongFromObjectOrReply(c, args.increment, &incr, NULL) != C_OK)
+        long long lb = LLONG_MIN, ub = LLONG_MAX;
+        if ((args.flags & OBJ_INCREX_BYINT) && getLongLongFromObjectOrReply(c, args.increment, &incr_ll, NULL) != C_OK)
             return;
 
-        if ((args.flags & OBJ_INCREX_LBOUND) &&
-            getLongLongFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
+        if ((args.flags & OBJ_INCREX_LBOUND) && getLongLongFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
             return;
-        if ((args.flags & OBJ_INCREX_UBOUND) &&
-            getLongLongFromObjectOrReply(c, args.upper_bound, &ub, NULL) != C_OK)
+        if ((args.flags & OBJ_INCREX_UBOUND) && getLongLongFromObjectOrReply(c, args.upper_bound, &ub, NULL) != C_OK)
             return;
         if (lb > ub) {
             addReplyError(c,"LBOUND can't be greater than UBOUND");
@@ -1024,43 +1021,44 @@ void increxCommand(client *c) {
 
         o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
         if (checkType(c, o, OBJ_STRING)) return;
-        if (getLongLongFromObjectOrReply(c, o, &value, NULL) != C_OK) {
+        if (getLongLongFromObjectOrReply(c, o, &value_ll, NULL) != C_OK)
             return;
-        }
 
-        oldvalue = value;
-        if (add_overflow_ll(oldvalue, incr, &value)) {
+        oldvalue_ll = value_ll;
+        if (add_overflow_ll(oldvalue_ll, incr_ll, &value_ll)) {
             /* The addition overflows long long. If the user did not specify a bound
              * on the overflow direction, behave like INCRBY and return an error.
              * Otherwise, saturate so the subsequent clamp drops the value to the bound. */
-            int bound_flag = (incr >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
+            int bound_flag = (incr_ll >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
             if (!(args.flags & bound_flag)) {
                 addReplyError(c, "increment or decrement would overflow");
                 return;
             }
             if (strict_mode) {
-                value = oldvalue;
+                value_ll = oldvalue_ll;
             } else {
-                value = (incr >= 0) ? LLONG_MAX : LLONG_MIN;
+                value_ll = (incr_ll >= 0) ? LLONG_MAX : LLONG_MIN;
             }
         }
-        if ((oldvalue > ub && value > ub) || (oldvalue < lb && value < lb)) {
+        if ((oldvalue_ll > ub && value_ll > ub) || (oldvalue_ll < lb && value_ll < lb)) {
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
-            value = oldvalue;
-        } else if (value > ub) {
-            value = strict_mode ? oldvalue : ub;
-        } else if (value < lb) {
-            value = strict_mode ? oldvalue : lb;
+            value_ll = oldvalue_ll;
+        } else if (value_ll > ub) {
+            value_ll = strict_mode ? oldvalue_ll : ub;
+        } else if (value_ll < lb) {
+            value_ll = strict_mode ? oldvalue_ll : lb;
         }
-        result = createStringObjectFromLongLongForValue(value);
-        increment = createStringObjectFromLongLongForValue(value - oldvalue);
     }
 
     addReplyArrayLen(c, 2);
-    addReplyBulk(c, result);
-    addReplyBulk(c, increment);
-    decrRefCount(increment);
+    if (args.flags & OBJ_INCREX_BYFLOAT) {
+        addReplyHumanLongDouble(c, value_ld);
+        addReplyHumanLongDouble(c, value_ld - oldvalue_ld);
+    } else {
+        addReplyLongLong(c, value_ll);
+        addReplyLongLong(c, value_ll - oldvalue_ll);
+    }
 
     int has_expiry = o && (kvobjGetExpire(o) != -1);
     /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
@@ -1074,16 +1072,29 @@ void increxCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
             server.dirty++;
         }
-        decrRefCount(result);
         server.stat_expiredkeys++;
         return;
     }
 
-    if (o)
-        dbReplaceValueWithLink(c->db, c->argv[1], &result, link);
-    else
-        dbAddByLink(c->db, c->argv[1], &result, &link);
-    keyModified(c, c->db, c->argv[1], result, 1);
+    if (!(args.flags & OBJ_INCREX_BYFLOAT) && o && o->refcount == 1 &&
+        o->encoding == OBJ_ENCODING_INT && value_ll >= LONG_MIN && value_ll <= LONG_MAX)
+    {
+        new = o;
+        o->ptr = (void*)((long)value_ll);
+        updateKeysizesHist(c->db, OBJ_STRING,
+                           (int64_t) sdigits10(oldvalue_ll),
+                           (int64_t) sdigits10(value_ll));
+    } else {
+        if (args.flags & OBJ_INCREX_BYFLOAT)
+            new = createStringObjectFromLongDouble(value_ld, 1);
+        else
+            new = createStringObjectFromLongLongForValue(value_ll);
+        if (o)
+            dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
+        else
+            dbAddByLink(c->db, c->argv[1], &new, &link);
+    }
+    keyModified(c, c->db, c->argv[1], new, 1);
     notifyKeyspaceEvent(NOTIFY_STRING, args.flags & OBJ_INCREX_BYFLOAT ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
     server.dirty++;
 
@@ -1112,15 +1123,15 @@ void increxCommand(client *c) {
     if (args.flags & OBJ_PERSIST) {
         if (removeExpire(c->db, c->argv[1]))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
-        rewriteClientCommandVector(c, 3, shared.set, c->argv[1], result);
+        rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
     } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
-        result = setExpire(c, c->db, c->argv[1], milliseconds);
+        new = setExpire(c, c->db, c->argv[1], milliseconds);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c, 5, shared.set, c->argv[1], result, shared.pxat, milliseconds_obj);
+        rewriteClientCommandVector(c, 5, shared.set, c->argv[1], new, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
     } else {
-        rewriteClientCommandVector(c, 4, shared.set, c->argv[1], result, shared.keepttl);
+        rewriteClientCommandVector(c, 4, shared.set, c->argv[1], new, shared.keepttl);
     }
 }
 
