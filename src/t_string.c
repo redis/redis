@@ -276,12 +276,9 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
     return C_OK;
 }
 
-#define COMMAND_GET 1
-#define COMMAND_SET 2
-#define COMMAND_MSETEX 4
-#define COMMAND_INCREX 8
-
-#define COMMAND_ALL (COMMAND_GET | COMMAND_SET | COMMAND_MSETEX | COMMAND_INCREX)
+#define COMMAND_GET 0
+#define COMMAND_SET 1
+#define COMMAND_MSETEX 2
 
 /* Extended string command arguments structure */
 typedef struct {
@@ -290,76 +287,24 @@ typedef struct {
     int expire_pos;  /* Position of EX/PX flag for replication rewriting */
     robj *expire;
     robj *match_value; /* For IFEQ/IFNE/IFDEQ/IFDNE conditions */
-    robj *increment;   /* Only for INCREX increment arg */
-    robj *lower_bound; /* Only for INCREX lbound arg */
-    robj *upper_bound; /* Only for INCREX ubound arg */
 } extendedStringArgs;
-
-typedef struct {
-    const char* name;          /* arg name, case-insensitive */
-    int flag;                  /* OBJ_* flag */
-    int allowed_cmds;          /* allowed command types */
-    int conflict_flags;        /* other OBJ_* flags this arg conflict with */
-    int unit;                  /* unit for ex/exat/px/pxat */
-    int needs_next;            /* whether this arg consumes next token */
-    size_t next_field_offset;  /* field in extendedStringArgs to store the next token into */
-} argDescriptor;
-
-/* We can have either none or exactly one of these conditionals as they are
- * mutually exclusive. We'll make sure to check if none of the other flags
- * are already set if we are going to set one of them. This is done via the
- * check:
- *
- * if (opt == OBJ_SET_XXX && !(*flags & (cond_mut_excl & ~OBJ_SET_XXX)))
- *
- * A bit ugly - but concise.
- */
-#define COND_MUT_EXCL (OBJ_SET_NX|OBJ_SET_XX|OBJ_SET_IFEQ|OBJ_SET_IFNE|OBJ_SET_IFDEQ|OBJ_SET_IFDNE)
-#define CONFLICT_TTL (OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT|OBJ_PERSIST|OBJ_KEEPTTL)
-
-static const argDescriptor argTable[] = {
-    /* name     flag                allowed_cmds                conflict_flags                unit               needs_next next_field_offset*/
-    {"NX",      OBJ_SET_NX,         COMMAND_SET|COMMAND_MSETEX, OBJ_SET_XX,                   0,                 0,         0},
-    {"XX",      OBJ_SET_XX,         COMMAND_SET|COMMAND_MSETEX, OBJ_SET_NX,                   0,                 0,         0},
-    {"EX",      OBJ_EX,             COMMAND_ALL,                CONFLICT_TTL&~OBJ_EX,         UNIT_SECONDS,      1,         offsetof(extendedStringArgs, expire)},
-    {"PX",      OBJ_PX,             COMMAND_ALL,                CONFLICT_TTL&~OBJ_PX,         UNIT_MILLISECONDS, 1,         offsetof(extendedStringArgs, expire)},
-    {"KEEPTTL", OBJ_KEEPTTL,        COMMAND_SET|COMMAND_MSETEX, CONFLICT_TTL&~OBJ_KEEPTTL,    0,                 0,         0},
-    {"GET",     OBJ_SET_GET,        COMMAND_SET,                0,                            0,                 0,         0},
-    {"EXAT",    OBJ_EXAT,           COMMAND_ALL,                CONFLICT_TTL&~OBJ_EXAT,       UNIT_SECONDS,      1,         offsetof(extendedStringArgs, expire)},
-    {"PXAT",    OBJ_PXAT,           COMMAND_ALL,                CONFLICT_TTL&~OBJ_PXAT,       UNIT_MILLISECONDS, 1,         offsetof(extendedStringArgs, expire)},
-    {"PERSIST", OBJ_PERSIST,        COMMAND_GET|COMMAND_INCREX, (CONFLICT_TTL|OBJ_INCREX_ENX)&~OBJ_PERSIST, 0,   0,         0},
-    {"IFEQ",    OBJ_SET_IFEQ,       COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFEQ,  0,                 1,         offsetof(extendedStringArgs, match_value)},
-    {"IFNE",    OBJ_SET_IFNE,       COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFNE,  0,                 1,         offsetof(extendedStringArgs, match_value)},
-    {"IFDEQ",   OBJ_SET_IFDEQ,      COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFDEQ, 0,                 1,         offsetof(extendedStringArgs, match_value)},
-    {"IFDNE",   OBJ_SET_IFDNE,      COMMAND_SET,                COND_MUT_EXCL&~OBJ_SET_IFDNE, 0,                 1,         offsetof(extendedStringArgs, match_value)},
-    {"BYFLOAT", OBJ_INCREX_BYFLOAT, COMMAND_INCREX,             OBJ_INCREX_BYINT,             0,                 1,         offsetof(extendedStringArgs, increment)},
-    {"BYINT",   OBJ_INCREX_BYINT,   COMMAND_INCREX,             OBJ_INCREX_BYFLOAT,           0,                 1,         offsetof(extendedStringArgs, increment)},
-    {"LBOUND",  OBJ_INCREX_LBOUND,  COMMAND_INCREX,             0,                            0,                 1,         offsetof(extendedStringArgs, lower_bound)},
-    {"UBOUND",  OBJ_INCREX_UBOUND,  COMMAND_INCREX,             0,                            0,                 1,         offsetof(extendedStringArgs, upper_bound)},
-    {"ENX",     OBJ_INCREX_ENX,     COMMAND_INCREX,             OBJ_PERSIST,                  0,                 0,         0},
-    {"STRICT",  OBJ_INCREX_STRICT,  COMMAND_INCREX,             0,                            0,                 0,         0},
-};
-#define ARG_TABLE_SIZE (sizeof(argTable)/sizeof(argDescriptor))
 
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
- * string arguments used in SET, GET, INCREX and MSETEX commands.
+ * string arguments used in SET, GET and MSETEX commands.
  *
+ * Get specific commands - PERSIST/DEL
  * Set specific commands - XX/NX/GET/IFEQ/IFNE/IFDEQ/IFDNE
- * Increx specific commands - BYFLOAT/BYINT/LBOUND/UBOUND/ENX/STRICT
- * Common commands - EX/EXAT/PX/PXAT/KEEPTTL/PERSIST
+ * Common commands - EX/EXAT/PX/PXAT/KEEPTTL
  *
  * Function takes pointers to client, start_pos for where to begin parsing, extendedStringArgs
- * structure to populate, and command_type which can be COMMAND_GET, COMMAND_SET, COMMAND_INCREX, or COMMAND_MSETEX.
+ * structure to populate, and command_type which can be COMMAND_GET, COMMAND_SET, or COMMAND_MSETEX.
  *
  * If there are any syntax violations C_ERR is returned else C_OK is returned.
  *
  * The args structure is updated upon parsing the arguments. Unit and expire are updated if there are any
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  * match_value is updated if any of IFEQ/IFNE/IFDEQ/IFDNE is set.
- * increment is updated if any of BYFLOAT/BYINT is set.
- * lower_bound is updated if LBOUND is set.
- * upper_bound is updated if UBOUND is set.
  */
 int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedStringArgs *args, int command_type) {
     /* Initialize arguments to defaults */
@@ -367,29 +312,123 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
     args->expire_pos = -1;
     args->unit = UNIT_SECONDS;
 
-    for (int j = start_pos; j < c->argc; j++) {
+    int j = start_pos;
+   /* We can have either none or exactly one of these conditionals as they are
+     * mutually exclusive. We'll make sure to check if none of the other flags
+     * are already set if we are going to set one of them. This is done via the
+     * check:
+     *
+     * if (opt == OBJ_SET_XXX && !(*flags & (cond_mut_excl & ~OBJ_SET_XXX)))
+     *
+     * A bit ugly - but concise.
+     */
+    int cond_mut_excl = OBJ_SET_NX | OBJ_SET_XX | OBJ_SET_IFEQ | OBJ_SET_IFNE |
+                        OBJ_SET_IFDEQ | OBJ_SET_IFDNE;
+    for (; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
-        int matched = 0;
 
-        for (size_t i = 0; i < ARG_TABLE_SIZE; i++) {
-            if (!strcasecmp(opt, argTable[i].name) && (command_type & argTable[i].allowed_cmds) &&
-                !(args->flags & argTable[i].conflict_flags) &&
-                (!argTable[i].needs_next || next)) {
-                args->flags |= argTable[i].flag;
-                if (argTable[i].flag & (OBJ_EX | OBJ_PX))
-                    args->expire_pos = j;
-                if (argTable[i].unit)
-                    args->unit = argTable[i].unit;
-                if (argTable[i].needs_next) {
-                    *(robj **)((char*)args + argTable[i].next_field_offset) = next;
-                    j++;
-                }
-                matched = 1;
-            }
-        }
-
-        if (!matched) {
+        if ((opt[0] == 'n' || opt[0] == 'N') &&
+            (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+            !(args->flags & OBJ_SET_XX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
+        {
+            args->flags |= OBJ_SET_NX;
+        } else if ((opt[0] == 'x' || opt[0] == 'X') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(args->flags & OBJ_SET_NX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
+        {
+            args->flags |= OBJ_SET_XX;
+        } else if ((opt[0] == 'g' || opt[0] == 'G') &&
+                   (opt[1] == 'e' || opt[1] == 'E') &&
+                   (opt[2] == 't' || opt[2] == 'T') && opt[3] == '\0' &&
+                   (command_type == COMMAND_SET))
+        {
+            args->flags |= OBJ_SET_GET;
+        } else if (!strcasecmp(opt, "KEEPTTL") && !(args->flags & OBJ_PERSIST) &&
+            !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+            !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
+            (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
+        {
+            args->flags |= OBJ_KEEPTTL;
+        } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
+               !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+               !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
+               !(args->flags & OBJ_KEEPTTL))
+        {
+            args->flags |= OBJ_PERSIST;
+        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EXAT) && !(args->flags & OBJ_PX) &&
+                   !(args->flags & OBJ_PXAT) && next)
+        {
+            args->flags |= OBJ_EX;
+            args->expire = next;
+            args->expire_pos = j;
+            j++;
+        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+                   !(args->flags & OBJ_PXAT) && next)
+        {
+            args->flags |= OBJ_PX;
+            args->unit = UNIT_MILLISECONDS;
+            args->expire = next;
+            args->expire_pos = j;
+            j++;
+        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
+                   (opt[1] == 'x' || opt[1] == 'X') &&
+                   (opt[2] == 'a' || opt[2] == 'A') &&
+                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_PX) &&
+                   !(args->flags & OBJ_PXAT) && next)
+        {
+            args->flags |= OBJ_EXAT;
+            args->expire = next;
+            j++;
+        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
+                   (opt[1] == 'x' || opt[1] == 'X') &&
+                   (opt[2] == 'a' || opt[2] == 'A') &&
+                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+                   !(args->flags & OBJ_PX) && next)
+        {
+            args->flags |= OBJ_PXAT;
+            args->unit = UNIT_MILLISECONDS;
+            args->expire = next;
+            j++;
+        } else if (!strcasecmp(opt, "ifeq") && next &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFEQ)) &&
+                   (command_type == COMMAND_SET))
+        {
+            args->flags |= OBJ_SET_IFEQ;
+            args->match_value = next;
+            j++;
+        } else if (!strcasecmp(opt, "ifne") && next &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFNE)) &&
+                   (command_type == COMMAND_SET))
+        {
+            args->flags |= OBJ_SET_IFNE;
+            args->match_value = next;
+            j++;
+        } else if (!strcasecmp(opt, "ifdeq") && next &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDEQ)) &&
+                   (command_type == COMMAND_SET))
+        {
+            args->flags |= OBJ_SET_IFDEQ;
+            args->match_value = next;
+            j++;
+        } else if (!strcasecmp(opt, "ifdne") && next &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDNE)) &&
+                   (command_type == COMMAND_SET))
+        {
+            args->flags |= OBJ_SET_IFDNE;
+            args->match_value = next;
+            j++;
+        } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return C_ERR;
         }
@@ -891,6 +930,110 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,3,shared.keepttl);
 }
 
+/* INCREX argument structure */
+typedef struct {
+    int flags;
+    int unit;
+    robj *expire;
+    robj *increment;
+    robj *lower_bound;
+    robj *upper_bound;
+} incrExArgs;
+
+/*
+ * The parseIncrExArgumentsOrReply() function performs validation for INCREX command
+ * arguments.
+ *
+ * Increment options:  BYINT/BYFLOAT (mutually exclusive)
+ * Bound options:      LBOUND/UBOUND
+ * Expiration options: EX/PX/EXAT/PXAT/PERSIST (mutually exclusive)
+ * Misc options:       ENX (conflicts with PERSIST), STRICT
+ *
+ * If there are any syntax violations C_ERR is returned else C_OK is returned.
+ *
+ * The args structure is updated upon parsing the arguments. Unit and expire are
+ * updated if any of EX/EXAT/PX/PXAT is set; unit becomes millisecond for PX/PXAT.
+ * increment is set if BYINT/BYFLOAT is given.
+ * lower_bound/upper_bound are set if LBOUND/UBOUND is given.
+ */
+int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
+    memset(args, 0, sizeof(*args));
+    args->unit = UNIT_SECONDS;
+
+    for (int j = start_pos; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
+
+        if (!strcasecmp(opt, "BYINT") && next &&
+            !(args->flags & OBJ_INCREX_BYFLOAT))
+        {
+            args->flags |= OBJ_INCREX_BYINT;
+            args->increment = next;
+            j++;
+        } else if (!strcasecmp(opt, "BYFLOAT") && next &&
+                   !(args->flags & OBJ_INCREX_BYINT))
+        {
+            args->flags |= OBJ_INCREX_BYFLOAT;
+            args->increment = next;
+            j++;
+        } else if (!strcasecmp(opt, "LBOUND") && next) {
+            args->flags |= OBJ_INCREX_LBOUND;
+            args->lower_bound = next;
+            j++;
+        } else if (!strcasecmp(opt, "UBOUND") && next) {
+            args->flags |= OBJ_INCREX_UBOUND;
+            args->upper_bound = next;
+            j++;
+        } else if (!strcasecmp(opt, "STRICT")) {
+            args->flags |= OBJ_INCREX_STRICT;
+        } else if (!strcasecmp(opt, "ENX") && !(args->flags & OBJ_PERSIST)) {
+            args->flags |= OBJ_INCREX_ENX;
+        } else if (!strcasecmp(opt, "PERSIST") &&
+                   !(args->flags & (OBJ_INCREX_ENX|OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT)))
+        {
+            args->flags |= OBJ_PERSIST;
+        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(args->flags & (OBJ_PERSIST|OBJ_PX|OBJ_EXAT|OBJ_PXAT)) && next)
+        {
+            args->flags |= OBJ_EX;
+            args->expire = next;
+            j++;
+        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
+                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
+                   !(args->flags & (OBJ_PERSIST|OBJ_EX|OBJ_EXAT|OBJ_PXAT)) && next)
+        {
+            args->flags |= OBJ_PX;
+            args->unit = UNIT_MILLISECONDS;
+            args->expire = next;
+            j++;
+        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
+                   (opt[1] == 'x' || opt[1] == 'X') &&
+                   (opt[2] == 'a' || opt[2] == 'A') &&
+                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
+                   !(args->flags & (OBJ_PERSIST|OBJ_EX|OBJ_PX|OBJ_PXAT)) && next)
+        {
+            args->flags |= OBJ_EXAT;
+            args->expire = next;
+            j++;
+        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
+                   (opt[1] == 'x' || opt[1] == 'X') &&
+                   (opt[2] == 'a' || opt[2] == 'A') &&
+                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
+                   !(args->flags & (OBJ_PERSIST|OBJ_EX|OBJ_PX|OBJ_EXAT)) && next)
+        {
+            args->flags |= OBJ_PXAT;
+            args->unit = UNIT_MILLISECONDS;
+            args->expire = next;
+            j++;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
 /*
  * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [STRICT]
  *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
@@ -935,8 +1078,8 @@ void increxCommand(client *c) {
     long long value_ll, oldvalue_ll = 0, incr_ll = 1;
     long double value_ld, oldvalue_ld = 0, incr_ld = 0;
 
-    extendedStringArgs args;
-    if (parseExtendedStringArgumentsOrReply(c, 2, &args, COMMAND_INCREX) != C_OK) {
+    incrExArgs args;
+    if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK) {
         return;
     }
     if ((args.flags & OBJ_INCREX_ENX) && !(args.flags & (OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT))) {
