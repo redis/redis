@@ -1,8 +1,21 @@
 
 SUBDIRS = redisjson redistimeseries redisbloom redisearch
 
+# Modules built with link-time optimization. Add a module here once its build
+# system has been verified to honor LTO=1.
+LTO_MODULES = redisearch
+
+# Default RediSearch to LTO=1.
+LTO ?= 1
+
 define submake
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $(1); done
+	for dir in $(SUBDIRS); do \
+		case " $(LTO_MODULES) " in \
+			*" $$dir "*) extra='LTO=$(LTO)' ;; \
+			*)           extra= ;; \
+		esac; \
+		$(MAKE) -C $$dir $(1) $$extra; \
+	done
 endef
 
 all: prepare_source
