@@ -120,6 +120,187 @@ start_server {tags {"increx"}} {
     }
 
     # ---------------------------------------------------------------------
+    # Strict behavior
+    # ---------------------------------------------------------------------
+
+    test {INCREX - STRICT BYINT rejects increment exceeding UBOUND} {
+        r set mykey 10
+        # Without STRICT: value would be clamped to 15
+        assert_equal [r increx mykey BYINT 10 UBOUND 15] {15 5}
+        # With STRICT: value exceeds UBOUND, so the update is rejected
+        r set mykey 10
+        assert_equal [r increx mykey BYINT 10 UBOUND 15 STRICT] {10 0}
+        # Verify the key value is unchanged
+        assert_equal [r get mykey] 10
+    }
+
+    test {INCREX - STRICT BYINT rejects decrement exceeding LBOUND} {
+        r set mykey 10
+        # Without STRICT: value would be clamped to 5
+        assert_equal [r increx mykey BYINT -10 LBOUND 5] {5 -5}
+        # With STRICT: value exceeds LBOUND, so the update is rejected
+        r set mykey 10
+        assert_equal [r increx mykey BYINT -10 LBOUND 5 STRICT] {10 0}
+        assert_equal [r get mykey] 10
+    }
+
+    test {INCREX - STRICT BYINT allows increment within bounds} {
+        r set mykey 10
+        # Increment stays within bounds -> STRICT does not interfere
+        assert_equal [r increx mykey BYINT 3 UBOUND 20 STRICT] {13 3}
+        assert_equal [r get mykey] 13
+    }
+
+    test {INCREX - STRICT BYINT allows decrement within bounds} {
+        r set mykey 10
+        assert_equal [r increx mykey BYINT -3 LBOUND 0 STRICT] {7 -3}
+        assert_equal [r get mykey] 7
+    }
+
+    test {INCREX - STRICT BYINT with both LBOUND and UBOUND} {
+        r set mykey 5
+        # Within range -> allowed
+        assert_equal [r increx mykey BYINT 2 LBOUND 0 UBOUND 10 STRICT] {7 2}
+        # Exceeds UBOUND -> rejected
+        assert_equal [r increx mykey BYINT 10 LBOUND 0 UBOUND 10 STRICT] {7 0}
+        # Exceeds LBOUND -> rejected
+        assert_equal [r increx mykey BYINT -20 LBOUND 0 UBOUND 10 STRICT] {7 0}
+        assert_equal [r get mykey] 7
+    }
+
+    test {INCREX - STRICT BYINT at exact bound value is accepted} {
+        r set mykey 5
+        # Increment that lands exactly on UBOUND -> allowed
+        assert_equal [r increx mykey BYINT 5 UBOUND 10 STRICT] {10 5}
+        # Decrement that lands exactly on LBOUND -> allowed
+        assert_equal [r increx mykey BYINT -10 LBOUND 0 STRICT] {0 -10}
+    }
+
+    test {INCREX - STRICT BYFLOAT rejects increment exceeding UBOUND} {
+        r set mykey 10.0
+        # Without STRICT: clamped to 15.5
+        assert_equal [lmap v [r increx mykey BYFLOAT 10.0 UBOUND 15.5] {roundFloat $v}] {15.5 5.5}
+        # With STRICT: rejected, reverts to old value
+        r set mykey 10.0
+        assert_equal [lmap v [r increx mykey BYFLOAT 10.0 UBOUND 15.5 STRICT] {roundFloat $v}] {10 0}
+    }
+
+    test {INCREX - STRICT BYFLOAT rejects decrement exceeding LBOUND} {
+        r set mykey 10.0
+        # Without STRICT: clamped to 5.5
+        assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 5.5] {roundFloat $v}] {5.5 -4.5}
+        # With STRICT: rejected
+        r set mykey 10.0
+        assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 5.5 STRICT] {roundFloat $v}] {10 0}
+    }
+
+    test {INCREX - STRICT BYFLOAT allows increment within bounds} {
+        r set mykey 1.5
+        assert_equal [lmap v [r increx mykey BYFLOAT 0.25 UBOUND 10.0 STRICT] {roundFloat $v}] {1.75 0.25}
+    }
+
+    test {INCREX - STRICT BYFLOAT with both LBOUND and UBOUND} {
+        r set mykey 5.0
+        # Within range -> allowed
+        assert_equal [lmap v [r increx mykey BYFLOAT 1.5 LBOUND 0 UBOUND 10 STRICT] {roundFloat $v}] {6.5 1.5}
+        # Exceeds UBOUND -> rejected
+        assert_equal [lmap v [r increx mykey BYFLOAT 10 LBOUND 0 UBOUND 10 STRICT] {roundFloat $v}] {6.5 0}
+        # Exceeds LBOUND -> rejected
+        assert_equal [lmap v [r increx mykey BYFLOAT -20 LBOUND 0 UBOUND 10 STRICT] {roundFloat $v}] {6.5 0}
+    }
+
+    test {INCREX - STRICT BYFLOAT at exact bound value is accepted} {
+        r set mykey 5.0
+        assert_equal [lmap v [r increx mykey BYFLOAT 5.0 UBOUND 10.0 STRICT] {roundFloat $v}] {10 5}
+        assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 0 STRICT] {roundFloat $v}] {0 -10}
+    }
+
+    test {INCREX - STRICT BYINT positive overflow with UBOUND rejects instead of saturating} {
+        # LLONG_MAX = 9223372036854775807
+        r set mykey 9223372036854775800
+        # Without STRICT: overflow saturates then clamps to UBOUND
+        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807] {9223372036854775807 7}
+        # With STRICT: overflow exceeds bound, so reject
+        r set mykey 9223372036854775800
+        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807 STRICT] {9223372036854775800 0}
+        assert_equal [r get mykey] 9223372036854775800
+    }
+
+    test {INCREX - STRICT BYINT negative overflow with LBOUND rejects instead of saturating} {
+        # LLONG_MIN = -9223372036854775808
+        r set mykey -9223372036854775800
+        # Without STRICT: overflow saturates then clamps to LBOUND
+        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808] {-9223372036854775808 -8}
+        # With STRICT: overflow exceeds bound, so reject
+        r set mykey -9223372036854775800
+        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808 STRICT] {-9223372036854775800 0}
+        assert_equal [r get mykey] -9223372036854775800
+    }
+
+    test {INCREX - STRICT BYFLOAT positive infinity with UBOUND rejects instead of saturating} {
+        r set mykey 0
+        # Without STRICT: +inf saturates then clamps to UBOUND
+        assert_equal [lmap v [r increx mykey BYFLOAT +inf UBOUND 1000] {roundFloat $v}] {1000 1000}
+        # With STRICT: +inf would exceed UBOUND, so reject
+        r set mykey 0
+        assert_equal [lmap v [r increx mykey BYFLOAT +inf UBOUND 1000 STRICT] {roundFloat $v}] {0 0}
+        assert_equal [r get mykey] 0
+    }
+
+    test {INCREX - STRICT BYFLOAT negative infinity with LBOUND rejects instead of saturating} {
+        r set mykey 0
+        # Without STRICT: -inf saturates then clamps to LBOUND
+        assert_equal [lmap v [r increx mykey BYFLOAT -inf LBOUND -1000] {roundFloat $v}] {-1000 -1000}
+        # With STRICT: -inf would exceed LBOUND, so reject
+        r set mykey 0
+        assert_equal [lmap v [r increx mykey BYFLOAT -inf LBOUND -1000 STRICT] {roundFloat $v}] {0 0}
+        assert_equal [r get mykey] 0
+    }
+
+    test {INCREX - STRICT on new key (created from zero)} {
+        r del mykey
+        # Increment from 0 stays within UBOUND -> allowed
+        assert_equal [r increx mykey BYINT 5 UBOUND 10 STRICT] {5 5}
+        r del mykey
+        # Increment from 0 exceeds UBOUND -> rejected, key still created at 0
+        assert_equal [r increx mykey BYINT 15 UBOUND 10 STRICT] {0 0}
+        assert_equal [r get mykey] 0
+    }
+
+    test {INCREX - STRICT on new key with BYFLOAT (created from zero)} {
+        r del mykey
+        # Increment from 0 stays within UBOUND -> allowed
+        assert_equal [lmap v [r increx mykey BYFLOAT 5.5 UBOUND 10 STRICT] {roundFloat $v}] {5.5 5.5}
+        r del mykey
+        # Increment from 0 exceeds UBOUND -> rejected, key created at 0
+        assert_equal [lmap v [r increx mykey BYFLOAT 15.5 UBOUND 10 STRICT] {roundFloat $v}] {0 0}
+    }
+
+    test {INCREX - STRICT without any bound is a syntax error} {
+        r set mykey 10
+        assert_error "*syntax error*" {r increx mykey BYINT 1 STRICT}
+        assert_error "*syntax error*" {r increx mykey BYFLOAT 1.0 STRICT}
+        assert_error "*syntax error*" {r increx mykey STRICT}
+    }
+
+    test {INCREX - STRICT combined with expiration options} {
+        r del mykey
+        r set mykey 10
+        # STRICT rejection should still preserve TTL behavior
+        r increx mykey BYINT 100 UBOUND 15 STRICT EX 100
+        # Value should be unchanged (rejected by STRICT)
+        assert_equal [r get mykey] 10
+        # TTL should still be set even though value was not changed
+        assert_morethan [r ttl mykey] 0
+
+        r del mykey
+        r set mykey 10
+        # STRICT allows within bounds with EX
+        assert_equal [r increx mykey BYINT 3 UBOUND 20 STRICT EX 200] {13 3}
+        assert_morethan [r ttl mykey] 0
+    }
+
+    # ---------------------------------------------------------------------
     # Argument parsing / syntax validation
     # ---------------------------------------------------------------------
 
