@@ -700,20 +700,8 @@ void mgetCommand(client *c) {
         return;
     }
 
-    /* Determine the dict for the first key's slot (MGET requires all keys
-     * in the same slot in cluster mode). */
+    /* MGET requires all keys in the same slot in cluster mode. */
     int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
-    dict *d = kvstoreGetDict(c->db->keys, slot);
-
-    /* If the dict is empty, reply NULLs but still call lookupKeyRead for
-     * side-effects (touch, stats, notifications). */
-    if (!d || dictSize(d) == 0) {
-        for (int j = 1; j < c->argc; j++) {
-            lookupKeyRead(c->db, c->argv[j]);
-            addReplyNull(c);
-        }
-        return;
-    }
 
     /* Skip intra-command prefetching when the cross-command batch path
      * already prefetched our keys (fully or partially).  Two conditions:
@@ -750,6 +738,24 @@ void mgetCommand(client *c) {
         int batch_end = j + MGET_BATCH;
         if (batch_end > c->argc) batch_end = c->argc;
         int n = batch_end - j;
+
+        /* Re-fetch the slot dict per batch.  In cluster mode db->keys is
+         * created with KVSTORE_FREE_EMPTY_DICTS, so the previous batch's
+         * lookupKeyRead -> expireIfNeeded path can empty the slot and free
+         * the dict.  A cached pointer would then dangle.  Cost: one extra
+         * kvstoreGetDict call per 16 keys.  If the dict is empty (or NULL)
+         * we just emit NULLs for this batch; lookupKeyRead is still called
+         * to preserve touch / stats / notification side-effects. */
+        dict *d = kvstoreGetDict(c->db->keys, slot);
+
+        if (!d || dictSize(d) == 0) {
+            for (int k = 0; k < n; k++) {
+                lookupKeyRead(c->db, c->argv[j + k]);
+                addReplyNull(c);
+            }
+            j = batch_end;
+            continue;
+        }
 
         /* For small batches, use a lightweight bucket-only prefetch instead
          * of the full state machine.  The state machine's per-key overhead

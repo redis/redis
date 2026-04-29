@@ -145,9 +145,13 @@ typedef struct dictType {
      *   key payload behind the entry is warm before keyCompare runs), or
      *   NULL if nothing extra is needed (e.g. the key is co-located with
      *   the entry).
-     * prefetchEntryValue: called only after a key match. Returns an
-     *   address to prefetch for the value-side payload the caller will
-     *   read next, or NULL if no extra prefetch is useful. */
+     * prefetchEntryValue: called when the entry is the *presumed* match
+     *   for the lookup key — either keyCompare returned equal, or the
+     *   state machine took the "last entry in chain, not rehashing"
+     *   shortcut and is betting on a hit without comparing. Callbacks
+     *   must therefore not assume the key has been verified equal; the
+     *   prefetch is advisory. Returns an address to prefetch for the
+     *   value-side payload, or NULL. */
     void *(*prefetchEntryKey)(const dictEntry *de);
     void *(*prefetchEntryValue)(const dictEntry *de);
 } dictType;

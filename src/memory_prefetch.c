@@ -455,8 +455,14 @@ void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys) {
                               * callers like mgetCommand simply skip prefetch
                               * and proceed with a direct lookup. */
 
-    /* Stack-allocate per-key state — callers should keep nkeys bounded
-     * (typically ≤ 16–32) to avoid excessive stack usage.
+    /* Bound nkeys to a small constant — KeyPrefetchInfo is stack-allocated
+     * below and must not be sized off an attacker-controlled value (e.g.
+     * an argc-derived count from a multi-key command).  In-tree callers
+     * batch in groups of 16 (MGET_BATCH); the cap is set comfortably
+     * above that and below the smallest typical -fstack-usage budget. */
+    serverAssert(nkeys <= DICT_PREFETCH_KEYS_MAX);
+
+    /* Stack-allocate per-key state.
      * Zero-initialize so that keys marked PREFETCH_DONE by ctxInit
      * (null/empty dict) don't carry indeterminate field values. */
     KeyPrefetchInfo pf_info[nkeys];
