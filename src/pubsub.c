@@ -253,9 +253,13 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     dictEntryLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
     if (link == NULL) { /* Not yet subscribed to this channel */
         retval = 1;
-        /* Add the client to the channel -> list of clients hash table */
+        /* Add the client to the channel -> list of clients hash table.
+         * Compute the slot from the channel directly: server.current_client
+         * may carry a cached slot for a different key (e.g. while executing
+         * a queued command inside EXEC), and shard pubsub channels live in
+         * the slot of the channel name, not the executing command's key. */
         if (server.cluster_enabled && type.shard) {
-            slot = getKeySlot(channel->ptr);
+            slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
 
         de = kvstoreDictAddRaw(*type.serverPubSubChannels, slot, channel, &existing);
@@ -291,9 +295,13 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
                             we have in the hash tables. Protect it... */
     if (dictDelete(type.clientPubSubChannels(c),channel) == DICT_OK) {
         retval = 1;
-        /* Remove the client from the channel -> clients list hash table */
+        /* Remove the client from the channel -> clients list hash table.
+         * Compute the slot from the channel directly: server.current_client
+         * may carry a cached slot for a different key (e.g. when freeClient()
+         * fires while another client is in the middle of EXEC), and shard
+         * pubsub channels live in the slot of the channel name. */
         if (server.cluster_enabled && type.shard) {
-            slot = getKeySlot(channel->ptr);
+            slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
         de = kvstoreDictFind(*type.serverPubSubChannels, slot, channel);
         serverAssertWithInfo(c,NULL,de != NULL);

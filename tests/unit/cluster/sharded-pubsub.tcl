@@ -64,4 +64,40 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         catch {[$replica EXEC]} err
         assert_match {EXECABORT*} $err
     }
+
+    test "CLIENT KILL of SSUBSCRIBE'd client inside EXEC of different-slot command does not crash" {
+        # Regression for #15085: pubsubUnsubscribeChannel() previously called
+        # getKeySlot(channel->ptr), which returns the executing client's cached
+        # slot when CLIENT_EXECUTING_COMMAND is set. During EXEC of a SET on a
+        # different-slot key, freeClient() of the SSUBSCRIBE'd client looked up
+        # the shard channel in the wrong slot bucket and asserted.
+        set chan "channel0"
+        set chan_slot [$primary CLUSTER KEYSLOT $chan]
+        # Pick a key whose slot differs from the channel's slot.
+        set other_key "k"
+        set other_slot [$primary CLUSTER KEYSLOT $other_key]
+        if {$chan_slot == $other_slot} {
+            set other_key "k2"
+            set other_slot [$primary CLUSTER KEYSLOT $other_key]
+        }
+        assert {$chan_slot != $other_slot}
+
+        set subscriber [redis_deferring_client 0]
+        $subscriber CLIENT ID
+        set sub_id [$subscriber read]
+        $subscriber SSUBSCRIBE $chan
+        $subscriber read ;# consume the ssubscribe ack
+
+        $primary MULTI
+        $primary SET $other_key v
+        $primary CLIENT KILL ID $sub_id
+        # Without the fix the server aborts here on a wrong-bucket assertion.
+        $primary EXEC
+
+        # Server must still be alive and serving traffic.
+        assert_equal "PONG" [$primary PING]
+        assert_equal 0 [$primary SPUBLISH $chan ignored]
+
+        catch {$subscriber close}
+    }
 }
