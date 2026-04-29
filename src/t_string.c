@@ -925,12 +925,17 @@ void incrbyfloatCommand(client *c) {
 }
 
 /* INCREX option flags. */
-#define OBJ_INCREX_BYFLOAT (1<<0) /* Set if float-point increment is given */
-#define OBJ_INCREX_BYINT   (1<<1) /* Set if integer increment is given */
-#define OBJ_INCREX_LBOUND  (1<<2) /* Set if lower bound of increx result is given */
-#define OBJ_INCREX_UBOUND  (1<<3) /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_ENX     (1<<4) /* Set expiration only when the key has no expiry */
-#define OBJ_INCREX_STRICT  (1<<5) /* Set strict mode: fail the operation instead of clamping to bound */
+#define OBJ_INCREX_BYFLOAT (1<<0)  /* Set if float-point increment is given */
+#define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
+#define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
+#define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
+#define OBJ_INCREX_ENX     (1<<4)  /* Set expiration only when the key has no expiry */
+#define OBJ_INCREX_STRICT  (1<<5)  /* Set strict mode: fail the operation instead of clamping to bound */
+#define OBJ_INCREX_PERSIST (1<<6)  /* Set if we need to remove the ttl */
+#define OBJ_INCREX_EX      (1<<7)  /* Set if time in seconds is given */
+#define OBJ_INCREX_PX      (1<<8)  /* Set if time in ms is given */
+#define OBJ_INCREX_EXAT    (1<<9)  /* Set if timestamp in second is given */
+#define OBJ_INCREX_PXAT    (1<<10) /* Set if timestamp in ms is given */
 
 /* INCREX argument structure */
 typedef struct {
@@ -966,14 +971,12 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
-        if (!strcasecmp(opt, "BYINT") && next &&
-            !(args->flags & OBJ_INCREX_BYFLOAT))
+        if (!strcasecmp(opt, "BYINT") && next && !(args->flags & OBJ_INCREX_BYFLOAT))
         {
             args->flags |= OBJ_INCREX_BYINT;
             args->increment = next;
             j++;
-        } else if (!strcasecmp(opt, "BYFLOAT") && next &&
-                   !(args->flags & OBJ_INCREX_BYINT))
+        } else if (!strcasecmp(opt, "BYFLOAT") && next && !(args->flags & OBJ_INCREX_BYINT))
         {
             args->flags |= OBJ_INCREX_BYFLOAT;
             args->increment = next;
@@ -988,24 +991,24 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
             j++;
         } else if (!strcasecmp(opt, "STRICT")) {
             args->flags |= OBJ_INCREX_STRICT;
-        } else if (!strcasecmp(opt, "ENX") && !(args->flags & OBJ_PERSIST)) {
+        } else if (!strcasecmp(opt, "ENX") && !(args->flags & OBJ_INCREX_PERSIST)) {
             args->flags |= OBJ_INCREX_ENX;
         } else if (!strcasecmp(opt, "PERSIST") &&
-                   !(args->flags & (OBJ_INCREX_ENX|OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT)))
+                   !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT)))
         {
-            args->flags |= OBJ_PERSIST;
+            args->flags |= OBJ_INCREX_PERSIST;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & (OBJ_PERSIST|OBJ_PX|OBJ_EXAT|OBJ_PXAT)) && next)
+                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT)) && next)
         {
-            args->flags |= OBJ_EX;
+            args->flags |= OBJ_INCREX_EX;
             args->expire = next;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & (OBJ_PERSIST|OBJ_EX|OBJ_EXAT|OBJ_PXAT)) && next)
+                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_EX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT)) && next)
         {
-            args->flags |= OBJ_PX;
+            args->flags |= OBJ_INCREX_PX;
             args->unit = UNIT_MILLISECONDS;
             args->expire = next;
             j++;
@@ -1013,18 +1016,18 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
                    (opt[1] == 'x' || opt[1] == 'X') &&
                    (opt[2] == 'a' || opt[2] == 'A') &&
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & (OBJ_PERSIST|OBJ_EX|OBJ_PX|OBJ_PXAT)) && next)
+                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_PXAT)) && next)
         {
-            args->flags |= OBJ_EXAT;
+            args->flags |= OBJ_INCREX_EXAT;
             args->expire = next;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') &&
                    (opt[2] == 'a' || opt[2] == 'A') &&
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & (OBJ_PERSIST|OBJ_EX|OBJ_PX|OBJ_EXAT)) && next)
+                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT)) && next)
         {
-            args->flags |= OBJ_PXAT;
+            args->flags |= OBJ_INCREX_PXAT;
             args->unit = UNIT_MILLISECONDS;
             args->expire = next;
             j++;
@@ -1084,7 +1087,7 @@ void increxCommand(client *c) {
     if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK) {
         return;
     }
-    if ((args.flags & OBJ_INCREX_ENX) && !(args.flags & (OBJ_EX|OBJ_PX|OBJ_EXAT|OBJ_PXAT))) {
+    if ((args.flags & OBJ_INCREX_ENX) && !(args.flags & (OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT))) {
         /* ENX flag set without expiration */
         addReplyErrorObject(c,shared.syntaxerr);
         return;
@@ -1096,7 +1099,11 @@ void increxCommand(client *c) {
     }
     int strict_mode = args.flags & OBJ_INCREX_STRICT;
     long long milliseconds = 0;
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
+    /* Translate INCREX-private TTL flags into the OBJ_EX/OBJ_PX bit that
+     * getExpireMillisecondsOrReply() expects (only used to decide whether
+     * the value is relative and needs commandTimeSnapshot() added). */
+    int ttl_flags = (args.flags & (OBJ_INCREX_EX|OBJ_INCREX_PX)) ? OBJ_EX : 0;
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, ttl_flags, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -1263,7 +1270,7 @@ void increxCommand(client *c) {
      *          A new ttl will be set from expiration options.
      *          Propagated as: SET <key> <result> PXAT <timestamp>
      */
-    if (args.flags & OBJ_PERSIST) {
+    if (args.flags & OBJ_INCREX_PERSIST) {
         if (removeExpire(c->db, c->argv[1]))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
