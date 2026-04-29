@@ -74,6 +74,12 @@
                 ]
             },
             {
+                "name": "strict",
+                "type": "pure-token",
+                "token": "STRICT",
+                "optional": true
+            },
+            {
                 "name": "lowerbound",
                 "token": "LBOUND",
                 "type": "double",

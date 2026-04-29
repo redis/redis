@@ -75,6 +75,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_INCREX_LBOUND (1<<15)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND (1<<16)  /* Set if upper bound of increx result is given */
 #define OBJ_INCREX_ENX (1<<17)     /* Set expiration only when the key has no expiry */
+#define OBJ_INCREX_STRICT (1<<18)  /* Set strict mode: fail the operation instead of clamping to bound */
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
@@ -336,6 +337,7 @@ static const argDescriptor argTable[] = {
     {"LBOUND",  OBJ_INCREX_LBOUND,  COMMAND_INCREX,             0,                            0,                 1,         offsetof(extendedStringArgs, lower_bound)},
     {"UBOUND",  OBJ_INCREX_UBOUND,  COMMAND_INCREX,             0,                            0,                 1,         offsetof(extendedStringArgs, upper_bound)},
     {"ENX",     OBJ_INCREX_ENX,     COMMAND_INCREX,             OBJ_PERSIST,                  0,                 0,         0},
+    {"STRICT",  OBJ_INCREX_STRICT,  COMMAND_INCREX,             0,                            0,                 0,         0},
 };
 #define ARG_TABLE_SIZE (sizeof(argTable)/sizeof(argDescriptor))
 
@@ -344,7 +346,7 @@ static const argDescriptor argTable[] = {
  * string arguments used in SET, GET, INCREX and MSETEX commands.
  *
  * Set specific commands - XX/NX/GET/IFEQ/IFNE/IFDEQ/IFDNE
- * Increx specific commands - BYFLOAT/BYINT/LBOUND/UBOUND/ENX
+ * Increx specific commands - BYFLOAT/BYINT/LBOUND/UBOUND/ENX/STRICT
  * Common commands - EX/EXAT/PX/PXAT/KEEPTTL/PERSIST
  *
  * Function takes pointers to client, start_pos for where to begin parsing, extendedStringArgs
@@ -890,7 +892,7 @@ void incrbyfloatCommand(client *c) {
 }
 
 /*
- * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound]
+ * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [STRICT]
  *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
  *
  * Increments the numeric value of a key and optionally updates its expiration time.
@@ -905,6 +907,7 @@ void incrbyfloatCommand(client *c) {
  * LBOUND and UBOUND optionally clamp the result to a range.
  * If the result exceeds the range, it is capped at UBOUND or floored at LBOUND.
  * When omitted, the limits default to the min/max of 'long long' (for BYINT) or 'long double' (for BYFLOAT).
+ * If STRICT provided, the increment will be rejected instead of clamping when out of bound.
  *
  * Expiration options:
  * At most one of the following may be specified:
@@ -935,6 +938,12 @@ void increxCommand(client *c) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
+    if ((args.flags & OBJ_INCREX_STRICT) && !(args.flags & (OBJ_INCREX_LBOUND|OBJ_INCREX_UBOUND))) {
+        /* STRICT flag set without bound */
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+    int strict_mode = args.flags & OBJ_INCREX_STRICT;
     long long milliseconds = 0;
     if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
         return;
@@ -979,16 +988,20 @@ void increxCommand(client *c) {
                 addReplyError(c, "increment would produce Infinity");
                 return;
             }
-            value = (incr >= 0) ? LDBL_MAX : -LDBL_MAX;
+            if (strict_mode) {
+                value = oldvalue;
+            } else {
+                value = (incr >= 0) ? LDBL_MAX : -LDBL_MAX;
+            }
         }
         if ((oldvalue > ub && value > ub) || (oldvalue < lb && value < lb)) {
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
             value = oldvalue;
         } else if (value > ub) {
-            value = ub;
+            value = strict_mode ? oldvalue : ub;
         } else if (value < lb) {
-            value = lb;
+            value = strict_mode ? oldvalue : lb;
         }
         result = createStringObjectFromLongDouble(value, 1);
         increment = createStringObjectFromLongDouble(value - oldvalue, 1);
@@ -1025,16 +1038,20 @@ void increxCommand(client *c) {
                 addReplyError(c, "increment or decrement would overflow");
                 return;
             }
-            value = (incr >= 0) ? LLONG_MAX : LLONG_MIN;
+            if (strict_mode) {
+                value = oldvalue;
+            } else {
+                value = (incr >= 0) ? LLONG_MAX : LLONG_MIN;
+            }
         }
         if ((oldvalue > ub && value > ub) || (oldvalue < lb && value < lb)) {
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
             value = oldvalue;
         } else if (value > ub) {
-            value = ub;
+            value = strict_mode ? oldvalue : ub;
         } else if (value < lb) {
-            value = lb;
+            value = strict_mode ? oldvalue : lb;
         }
         result = createStringObjectFromLongLongForValue(value);
         increment = createStringObjectFromLongLongForValue(value - oldvalue);
