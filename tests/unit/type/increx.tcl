@@ -67,6 +67,18 @@ start_server {tags {"increx"}} {
         assert_equal [r get mykey] -9223372036854775808
     }
 
+    test {INCREX - result within [LONG_MIN, LONG_MAX] keeps int encoding} {
+        r del mykey
+        r increx mykey
+        assert_encoding int mykey
+        r set mykey 2000000000
+        r increx mykey BYINT 100
+        assert_encoding int mykey
+        r set mykey -2000000000
+        r increx mykey BYINT -100
+        assert_encoding int mykey
+    }
+
     # ---------------------------------------------------------------------
     # BYFLOAT behavior
     # ---------------------------------------------------------------------
