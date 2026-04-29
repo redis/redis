@@ -3163,6 +3163,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
 
         uint64_t live_entries = 0;
+        unsigned char *head_lp = NULL, *tail_lp = NULL;
+        streamID head_master = {0,0}, tail_master = {0,0};
         while(listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
@@ -3213,7 +3215,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             long long lp_live;
-            if (!lpGetIntegerValue(first, &lp_live) || lp_live < 0) {
+            if (!lpGetIntegerValue(first, &lp_live) || lp_live <= 0) {
                 rdbReportCorruptRDB("Stream listpack bad entry count");
                 sdsfree(nodekey);
                 decrRefCount(o);
@@ -3221,6 +3223,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
             live_entries += lp_live;
+
+            /* Save order is rax-key ascending, so first/last iterations
+             * are the head/tail nodes. Capture for post-trailer ID checks. */
+            if (head_lp == NULL) {
+                streamDecodeID(nodekey, &head_master);
+                head_lp = lp;
+            }
+            streamDecodeID(nodekey, &tail_master);
+            tail_lp = lp;
 
             /* Insert the key in the radix tree. */
             int retval = raxTryInsert(s->rax,
@@ -3261,8 +3272,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             s->entries_added = s->length;
 
             /* Since the rax is already loaded, we can find the first entry's
-             * ID. */
-            streamGetEdgeID(s,1,1,&s->first_id);
+             * ID. For an empty rax, streamGetEdgeID would return
+             * {UINT64_MAX,UINT64_MAX}; normalize to {0,0} so that the
+             * post-trailer validation sees the same first_id shape that the
+             * runtime maintains for empty streams. */
+            if (raxSize(s->rax)) {
+                streamGetEdgeID(s,1,1,&s->first_id);
+            } else {
+                s->first_id.ms = 0;
+                s->first_id.seq = 0;
+            }
         }
 
         if (rioGetReadError(rdb)) {
@@ -3273,6 +3292,60 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
         if (s->length != live_entries) {
             rdbReportCorruptRDB("Stream length inconsistent with live entries");
+            decrRefCount(o);
+            return NULL;
+        }
+
+        /* Cross-check declared IDs against actual rax content. */
+        if (head_lp == NULL) {
+            /* Empty rax: runtime resets first_id to {0,0} when length
+             * hits zero. */
+            if (s->first_id.ms != 0 || s->first_id.seq != 0) {
+                rdbReportCorruptRDB("Stream first_id non-zero in empty stream");
+                decrRefCount(o);
+                return NULL;
+            }
+        } else if (deep_integrity_validation) {
+            /* lpGetEdgeStreamID walks the listpack, so only run after
+             * deep integrity validation has confirmed it's well-formed. */
+            streamID rax_first_entry, rax_last_entry;
+            if (!lpGetEdgeStreamID(head_lp, 1, &head_master, &rax_first_entry) ||
+                !lpGetEdgeStreamID(tail_lp, 0, &tail_master, &rax_last_entry))
+            {
+                rdbReportCorruptRDB("Stream edge entries unreadable");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* last_id must equal the last physical entry: XDEL never
+             * lowers it and the tail listpack is never trimmed. */
+            if (streamCompareID(&rax_last_entry, &s->last_id) != 0) {
+                rdbReportCorruptRDB("Stream last_id inconsistent with content");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* first_id skips leading tombstones, so it must lie within
+             * [rax_first_entry, last_id]. */
+            if (s->length &&
+                (streamCompareID(&s->first_id, &rax_first_entry) < 0 ||
+                 streamCompareID(&s->first_id, &s->last_id) > 0))
+            {
+                rdbReportCorruptRDB("Stream first_id out of range");
+                decrRefCount(o);
+                return NULL;
+            }
+        }
+
+        /* Tombstones exist only at IDs that were XADD'd, and entries_added
+         * is monotonic. */
+        if (streamCompareID(&s->max_deleted_entry_id, &s->last_id) > 0) {
+            rdbReportCorruptRDB("Stream max_deleted_entry_id beyond last_id");
+            decrRefCount(o);
+            return NULL;
+        }
+        if (s->entries_added < s->length) {
+            rdbReportCorruptRDB("Stream entries_added smaller than length");
             decrRefCount(o);
             return NULL;
         }
