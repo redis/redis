@@ -932,8 +932,8 @@ void increxCommand(client *c) {
     dictEntryLink link;
     kvobj *o = NULL;
     robj *new = NULL;
-    long long value_ll, oldvalue_ll, incr_ll = 1;
-    long double value_ld, oldvalue_ld, incr_ld = 1;
+    long long value_ll, oldvalue_ll = 0, incr_ll = 1;
+    long double value_ld, oldvalue_ld = 0, incr_ld = 0;
 
     extendedStringArgs args;
     if (parseExtendedStringArgumentsOrReply(c, 2, &args, COMMAND_INCREX) != C_OK) {
@@ -1081,9 +1081,7 @@ void increxCommand(client *c) {
     {
         new = o;
         o->ptr = (void*)((long)value_ll);
-        updateKeysizesHist(c->db, OBJ_STRING,
-                           (int64_t) sdigits10(oldvalue_ll),
-                           (int64_t) sdigits10(value_ll));
+        updateKeysizesHist(c->db, OBJ_STRING, (int64_t)sdigits10(oldvalue_ll), (int64_t)sdigits10(value_ll));
     } else {
         if (args.flags & OBJ_INCREX_BYFLOAT)
             new = createStringObjectFromLongDouble(value_ld, 1);
