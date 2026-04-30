@@ -995,6 +995,10 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
         } else if (!strcasecmp(opt, "BYFLOAT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
             if (getLongDoubleFromObjectOrReply(c, next, &args->incr_ld, NULL) != C_OK)
                 return C_ERR;
+            if (isinf(args->incr_ld)) {
+                addReplyError(c, "BYFLOAT increment cannot be Infinity");
+                return C_ERR;
+            }
             args->flags |= OBJ_INCREX_BYFLOAT;
             j++;
         } else if (!strcasecmp(opt, "LBOUND") && next && !(args->flags & OBJ_INCREX_LBOUND)) {
@@ -1154,9 +1158,10 @@ void increxCommand(client *c) {
             return;
         }
 
-        /* Reject if the value or increment is already Infinity. */
-        if (isinf(value_ld) || isinf(args.incr_ld)) {
-            addReplyError(c, "value or increment would produce Infinity");
+        /* Reject if the existing value is already Infinity (the increment is
+         * checked at parse time in parseIncrExArgumentsOrReply). */
+        if (isinf(value_ld)) {
+            addReplyError(c, "value cannot be Infinity");
             return;
         }
 
