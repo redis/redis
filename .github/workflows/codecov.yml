@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   code-coverage:
+    if: ${{ github.repository == 'redis/redis' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -28,4 +29,4 @@ jobs:
         files: ./src/redis.info
         disable_search: true
         fail_ci_if_error: true
-        
+
