@@ -1092,8 +1092,7 @@ void increxCommand(client *c) {
         return;
     }
     if ((args.flags & OBJ_INCREX_STRICT) && !(args.flags & (OBJ_INCREX_LBOUND|OBJ_INCREX_UBOUND))) {
-        /* STRICT flag set without bound */
-        addReplyErrorObject(c,shared.syntaxerr);
+        addReplyError(c, "STRICT flag requires LBOUND or UBOUND");
         return;
     }
     int strict_mode = args.flags & OBJ_INCREX_STRICT;
