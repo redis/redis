@@ -1088,8 +1088,7 @@ void increxCommand(client *c) {
         return;
     }
     if ((args.flags & OBJ_INCREX_ENX) && !(args.flags & (OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT))) {
-        /* ENX flag set without expiration */
-        addReplyErrorObject(c,shared.syntaxerr);
+        addReplyError(c, "ENX flag requires an expiration");
         return;
     }
     if ((args.flags & OBJ_INCREX_STRICT) && !(args.flags & (OBJ_INCREX_LBOUND|OBJ_INCREX_UBOUND))) {
