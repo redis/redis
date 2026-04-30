@@ -1124,13 +1124,13 @@ void increxCommand(client *c) {
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK) {
             return;
         }
+        if (isnan(value_ld) || isinf(value_ld) || isnan(incr_ld) || isinf(incr_ld)) {
+            addReplyError(c, "value or increment would produce NaN or Infinity");
+            return;
+        }
 
         oldvalue_ld = value_ld;
         value_ld += incr_ld;
-        if (isnan(value_ld)) {
-            addReplyError(c, "increment would produce NaN");
-            return;
-        }
         if (isinf(value_ld)) {
             /* The addition overflows long double. If the user did not specify a bound
              * on the overflow direction, return an error. Otherwise, saturate so the

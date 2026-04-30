@@ -99,24 +99,20 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT -100 LBOUND -5.5] {roundFloat $v}] {-5.5 -5.5}
     }
 
-    test {INCREX - BYFLOAT positive infinity returns an error} {
+    test {INCREX - BYFLOAT inf/-inf increment is rejected} {
         r set mykey 0
-        assert_error "*would produce Infinity*" {r increx mykey BYFLOAT +inf}
+        assert_error "value or increment would produce NaN or Infinity*" {r increx mykey BYFLOAT +inf}
+        assert_error "value or increment would produce NaN or Infinity*" {r increx mykey BYFLOAT -inf}
     }
 
-    test {INCREX - BYFLOAT positive infinity saturates to UBOUND when explicitly specified} {
-        r set mykey 0
-        assert_equal [lmap v [r increx mykey BYFLOAT +inf UBOUND 1000] {roundFloat $v}] {1000 1000}
-    }
+    test {INCREX - BYFLOAT existing inf/-inf value is rejected} {
+        r set mykey inf
+        assert_error "*NaN or Infinity*" {r increx mykey BYFLOAT 1}
+        assert_equal [r get mykey] inf
 
-    test {INCREX - BYFLOAT negative infinity returns an error} {
-        r set mykey 0
-        assert_error "*would produce Infinity*" {r increx mykey BYFLOAT -inf}
-    }
-
-    test {INCREX - BYFLOAT negative infinity saturates to LBOUND when explicitly specified} {
-        r set mykey 0
-        assert_equal [lmap v [r increx mykey BYFLOAT -inf LBOUND -1000] {roundFloat $v}] {-1000 -1000}
+        r set mykey -inf
+        assert_error "*NaN or Infinity*" {r increx mykey BYFLOAT 0 LBOUND -100}
+        assert_equal [r get mykey] -inf
     }
 
     # ---------------------------------------------------------------------
@@ -235,26 +231,6 @@ start_server {tags {"increx"}} {
         r set mykey -9223372036854775800
         assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808 STRICT] {-9223372036854775800 0}
         assert_equal [r get mykey] -9223372036854775800
-    }
-
-    test {INCREX - STRICT BYFLOAT positive infinity with UBOUND rejects instead of saturating} {
-        r set mykey 0
-        # Without STRICT: +inf saturates then clamps to UBOUND
-        assert_equal [lmap v [r increx mykey BYFLOAT +inf UBOUND 1000] {roundFloat $v}] {1000 1000}
-        # With STRICT: +inf would exceed UBOUND, so reject
-        r set mykey 0
-        assert_equal [lmap v [r increx mykey BYFLOAT +inf UBOUND 1000 STRICT] {roundFloat $v}] {0 0}
-        assert_equal [r get mykey] 0
-    }
-
-    test {INCREX - STRICT BYFLOAT negative infinity with LBOUND rejects instead of saturating} {
-        r set mykey 0
-        # Without STRICT: -inf saturates then clamps to LBOUND
-        assert_equal [lmap v [r increx mykey BYFLOAT -inf LBOUND -1000] {roundFloat $v}] {-1000 -1000}
-        # With STRICT: -inf would exceed LBOUND, so reject
-        r set mykey 0
-        assert_equal [lmap v [r increx mykey BYFLOAT -inf LBOUND -1000 STRICT] {roundFloat $v}] {0 0}
-        assert_equal [r get mykey] 0
     }
 
     test {INCREX - STRICT on new key (created from zero)} {
