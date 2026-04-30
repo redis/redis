@@ -101,17 +101,17 @@ start_server {tags {"increx"}} {
 
     test {INCREX - BYFLOAT inf/-inf increment is rejected} {
         r set mykey 0
-        assert_error "value or increment would produce NaN or Infinity*" {r increx mykey BYFLOAT +inf}
-        assert_error "value or increment would produce NaN or Infinity*" {r increx mykey BYFLOAT -inf}
+        assert_error "*value or increment would produce Infinity*" {r increx mykey BYFLOAT +inf}
+        assert_error "*value or increment would produce Infinity*" {r increx mykey BYFLOAT -inf}
     }
 
     test {INCREX - BYFLOAT existing inf/-inf value is rejected} {
         r set mykey inf
-        assert_error "*NaN or Infinity*" {r increx mykey BYFLOAT 1}
+        assert_error "*value or increment would produce Infinity*" {r increx mykey BYFLOAT 1}
         assert_equal [r get mykey] inf
 
         r set mykey -inf
-        assert_error "*NaN or Infinity*" {r increx mykey BYFLOAT 0 LBOUND -100}
+        assert_error "*value or increment would produce Infinity*" {r increx mykey BYFLOAT 0 LBOUND -100}
         assert_equal [r get mykey] -inf
     }
 

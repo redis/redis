@@ -1124,8 +1124,10 @@ void increxCommand(client *c) {
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK) {
             return;
         }
-        if (isnan(value_ld) || isinf(value_ld) || isnan(incr_ld) || isinf(incr_ld)) {
-            addReplyError(c, "value or increment would produce NaN or Infinity");
+
+        /* Reject if the value or increment is already Infinity. */
+        if (isinf(value_ld) || isinf(incr_ld)) {
+            addReplyError(c, "value or increment would produce Infinity");
             return;
         }
 
