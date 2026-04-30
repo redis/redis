@@ -929,13 +929,14 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
 #define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_ENX     (1<<4)  /* Set expiration only when the key has no expiry */
-#define OBJ_INCREX_STRICT  (1<<5)  /* Set strict mode: fail the operation instead of clamping to bound */
-#define OBJ_INCREX_PERSIST (1<<6)  /* Set if we need to remove the ttl */
-#define OBJ_INCREX_EX      (1<<7)  /* Set if time in seconds is given */
-#define OBJ_INCREX_PX      (1<<8)  /* Set if time in ms is given */
-#define OBJ_INCREX_EXAT    (1<<9)  /* Set if timestamp in second is given */
-#define OBJ_INCREX_PXAT    (1<<10) /* Set if timestamp in ms is given */
+#define OBJ_INCREX_ONBOUND_FAIL  (1<<4)  /* ONBOUND policy is FAIL: reject the operation when the result is out of bounds (default) */
+#define OBJ_INCREX_ONBOUND_CLAMP (1<<5)  /* ONBOUND policy is CLAMP: clamp the result to LBOUND/UBOUND/type limits instead of failing */
+#define OBJ_INCREX_ENX     (1<<6)  /* Set expiration only when the key has no expiry */
+#define OBJ_INCREX_PERSIST (1<<7)  /* Set if we need to remove the ttl */
+#define OBJ_INCREX_EX      (1<<8)  /* Set if time in seconds is given */
+#define OBJ_INCREX_PX      (1<<9)  /* Set if time in ms is given */
+#define OBJ_INCREX_EXAT    (1<<10) /* Set if timestamp in second is given */
+#define OBJ_INCREX_PXAT    (1<<11) /* Set if timestamp in ms is given */
 
 /* INCREX argument structure */
 typedef struct {
@@ -950,23 +951,8 @@ typedef struct {
     long double lb_ld;     /* BYFLOAT lower bound (defaults to -LDBL_MAX). */
 } incrExArgs;
 
-/*
- * The parseIncrExArgumentsOrReply() function performs validation for INCREX command
- * arguments.
- *
- * Increment options:  BYINT/BYFLOAT (mutually exclusive)
- * Bound options:      LBOUND/UBOUND
- * Expiration options: EX/PX/EXAT/PXAT/PERSIST (mutually exclusive)
- * Misc options:       ENX (conflicts with PERSIST), STRICT
- *
- * If there are any syntax violations C_ERR is returned else C_OK is returned.
- *
- * The args structure is updated upon parsing the arguments. Unit and expire_ms
- * are set if any of EX/EXAT/PX/PXAT is given; unit becomes millisecond for PX/PXAT.
- * incr_ll/incr_ld are parsed if BYINT/BYFLOAT is given (incr_ll defaults to 1).
- * lb_ll/ub_ll (or lb_ld/ub_ld for BYFLOAT) are parsed if LBOUND/UBOUND is given,
- * defaulting to the min/max of the corresponding type otherwise.
- */
+/* The parseIncrExArgumentsOrReply() function performs validation for INCREX command.
+ * If there are any syntax violations C_ERR is returned else C_OK is returned. */
 int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
     memset(args, 0, sizeof(*args));
     args->unit = UNIT_SECONDS;
@@ -1009,8 +995,18 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
             args->flags |= OBJ_INCREX_UBOUND;
             upper_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "STRICT") && !(args->flags & OBJ_INCREX_STRICT)) {
-            args->flags |= OBJ_INCREX_STRICT;
+        } else if (!strcasecmp(opt, "ONBOUND") && next &&
+                   !(args->flags & (OBJ_INCREX_ONBOUND_FAIL|OBJ_INCREX_ONBOUND_CLAMP)))
+        {
+            if (!strcasecmp(next->ptr, "FAIL")) {
+                args->flags |= OBJ_INCREX_ONBOUND_FAIL;
+            } else if (!strcasecmp(next->ptr, "CLAMP")) {
+                args->flags |= OBJ_INCREX_ONBOUND_CLAMP;
+            } else {
+                addReplyError(c, "ONBOUND policy must be FAIL or CLAMP");
+                return C_ERR;
+            }
+            j++;
         } else if (!strcasecmp(opt, "ENX") && !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_PERSIST))) {
             args->flags |= OBJ_INCREX_ENX;
         } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
@@ -1061,12 +1057,6 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
         return C_ERR;
     }
 
-    /* STRICT only makes sense with at least one bound. */
-    if ((args->flags & OBJ_INCREX_STRICT) && !(args->flags & (OBJ_INCREX_LBOUND|OBJ_INCREX_UBOUND))) {
-        addReplyError(c, "STRICT flag requires LBOUND or UBOUND");
-        return C_ERR;
-    }
-
     /* Resolve LBOUND/UBOUND values now that BYINT/BYFLOAT is known. */
     if (args->flags & OBJ_INCREX_BYFLOAT) {
         if (lower_bound && getLongDoubleFromObjectOrReply(c, lower_bound, &args->lb_ld, NULL) != C_OK)
@@ -1100,7 +1090,7 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
 }
 
 /*
- * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [STRICT]
+ * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [ONBOUND FAIL | ONBOUND CLAMP]
  *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
  *
  * Increments the numeric value of a key and optionally updates its expiration time.
@@ -1112,10 +1102,14 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
  * - BYFLOAT: Increment by a float (like INCRBYFLOAT). Returns an error if the result is NaN or Infinity.
  *
  * Range options:
- * LBOUND and UBOUND optionally clamp the result to a range.
- * If the result exceeds the range, it is capped at UBOUND or floored at LBOUND.
- * When omitted, the limits default to the min/max of 'long long' (for BYINT) or 'long double' (for BYFLOAT).
- * If STRICT provided, the increment will be rejected instead of clamping when out of bound.
+ * LBOUND and UBOUND optionally restrict the result to a range. The behavior
+ * when the result would land outside that range (or, with no explicit bound,
+ * would overflow the type limits) is controlled by ONBOUND:
+ * - ONBOUND FAIL  (default): the operation is rejected with an error,
+ *                 matching the semantics of INCRBY/INCRBYFLOAT.
+ * - ONBOUND CLAMP: the result is silently capped at UBOUND / floored at LBOUND
+ *                 (or saturated to the type limits when no explicit bound is
+ *                 given) instead of producing an error.
  *
  * Expiration options:
  * At most one of the following may be specified:
@@ -1147,7 +1141,7 @@ void increxCommand(client *c) {
     if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK) {
         return;
     }
-    int strict_mode = args.flags & OBJ_INCREX_STRICT;
+    int clamp_mode = args.flags & OBJ_INCREX_ONBOUND_CLAMP;
 
     if (args.flags & OBJ_INCREX_BYFLOAT) {
         long double lb = args.lb_ld, ub = args.ub_ld;
@@ -1168,36 +1162,35 @@ void increxCommand(client *c) {
         oldvalue_ld = value_ld;
         value_ld += args.incr_ld;
         if (isinf(value_ld)) {
-            /* The addition overflows long double. If the user did not specify a bound
-             * on the overflow direction, return an error. Otherwise, saturate so the
-             * subsequent clamp drops the value to the bound. */
-            int bound_flag = (args.incr_ld >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
-            if (!(args.flags & bound_flag)) {
+            /* The addition overflows long double. By default this is reported
+             * as an error (consistent with INCRBYFLOAT). Under CLAMP, clamp
+             * to LDBL_MAX/-LDBL_MAX so the subsequent clamp drops the value to
+             * an explicit bound when one is specified. */
+            if (!clamp_mode) {
                 addReplyError(c, "increment would produce Infinity");
                 return;
             }
-            if (strict_mode) {
-                value_ld = oldvalue_ld;
-            } else {
-                value_ld = (args.incr_ld >= 0) ? LDBL_MAX : -LDBL_MAX;
-            }
+            value_ld = (args.incr_ld >= 0) ? LDBL_MAX : -LDBL_MAX;
         }
         if ((oldvalue_ld > ub && value_ld > ub) || (oldvalue_ld < lb && value_ld < lb)) {
             /* For a non-existent key the existing value defaulted to 0; if that 0 is
              * already out of range and the increment can't bring it back, the operation
              * cannot produce a valid value, so refuse to create the key. */
             if (!o) {
-                addReplyError(c, "cannot create key with out-of-bounds value");
+                addReplyError(c, "value is out of bounds");
                 return;
             }
 
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
             value_ld = oldvalue_ld;
-        } else if (value_ld > ub) {
-            value_ld = strict_mode ? oldvalue_ld : ub;
-        } else if (value_ld < lb) {
-            value_ld = strict_mode ? oldvalue_ld : lb;
+        } else if (value_ld > ub || value_ld < lb) {
+            if (!clamp_mode) {
+                addReplyError(c, "value is out of bounds");
+                return;
+            }
+
+            value_ld = value_ld > ub ? ub : lb;
         }
     } else {
         long long lb = args.lb_ll, ub = args.ub_ll;
@@ -1212,33 +1205,31 @@ void increxCommand(client *c) {
             /* The addition overflows long long. If the user did not specify a bound
              * on the overflow direction, behave like INCRBY and return an error.
              * Otherwise, saturate so the subsequent clamp drops the value to the bound. */
-            int bound_flag = (args.incr_ll >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
-            if (!(args.flags & bound_flag)) {
+            if (!clamp_mode) {
                 addReplyError(c, "increment or decrement would overflow");
                 return;
             }
-            if (strict_mode) {
-                value_ll = oldvalue_ll;
-            } else {
-                value_ll = (args.incr_ll >= 0) ? LLONG_MAX : LLONG_MIN;
-            }
+            value_ll = (args.incr_ll >= 0) ? LLONG_MAX : LLONG_MIN;
         }
         if ((oldvalue_ll > ub && value_ll > ub) || (oldvalue_ll < lb && value_ll < lb)) {
             /* For a non-existent key the existing value defaulted to 0; if that 0 is
              * already out of range and the increment can't bring it back, the operation
              * cannot produce a valid value, so refuse to create the key. */
             if (!o) {
-                addReplyError(c, "cannot create key with out-of-bounds value");
+                addReplyError(c, "value is out of bounds");
                 return;
             }
 
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
             value_ll = oldvalue_ll;
-        } else if (value_ll > ub) {
-            value_ll = strict_mode ? oldvalue_ll : ub;
-        } else if (value_ll < lb) {
-            value_ll = strict_mode ? oldvalue_ll : lb;
+        } else if (value_ll > ub || value_ll < lb) {
+            if (!clamp_mode) {
+                addReplyError(c, "value is out of bounds");
+                return;
+            }
+
+            value_ll = value_ll > ub ? ub : lb;
         }
     }
 

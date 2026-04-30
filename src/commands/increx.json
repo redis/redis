@@ -74,10 +74,22 @@
                 ]
             },
             {
-                "name": "strict",
-                "type": "pure-token",
-                "token": "STRICT",
-                "optional": true
+                "token": "ONBOUND",
+                "name": "onbound",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "fail",
+                        "type": "pure-token",
+                        "token": "FAIL"
+                    },
+                    {
+                        "name": "clamp",
+                        "type": "pure-token",
+                        "token": "CLAMP"
+                    }
+                ]
             },
             {
                 "name": "lowerbound",
