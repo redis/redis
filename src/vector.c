@@ -108,16 +108,22 @@ ssize_t vecFindIndexOf(const vec *v, void *elem) {
     return -1;
 }
 
+/* Remove the element at 'index' by swapping with the last element.
+ * Does not invoke the free callback. Requires index < vecSize(v). */
+void vecSwapRemoveAt(vec *v, size_t index) {
+    assert(index < v->size);
+    v->data[index] = v->data[--v->size];
+}
+
 /* Remove the first occurrence of 'elem' by swapping with the last element.
- * Returns 1 if found and removed, 0 if not found. */
+ * Does not invoke the free callback. Returns 1 if found and removed, 0 if not found. */
 int vecSwapRemove(vec *v, void *elem) {
-    for (size_t i = 0; i < v->size; i++) {
-        if (v->data[i] == elem) {
-            v->data[i] = v->data[--v->size];
-            return 1;
-        }
+    ssize_t index = vecFindIndexOf(v, elem);
+    if (index < 0) {
+        return 0;
     }
-    return 0;
+    vecSwapRemoveAt(v, index);
+    return 1;
 }
 
 #ifdef REDIS_TEST
@@ -256,6 +262,33 @@ int vectorTest(int argc, char **argv, int flags)
               vecFindIndexOf(&v, &three) == 2);
     test_cond("vecFindIndexOf() returns -1 for missing element",
               vecFindIndexOf(&v, &four) == -1);
+    vecRelease(&v);
+
+    /* vecSwapRemoveAt tests */
+    vecInit(&v, NULL, 0);
+    vecPush(&v, &one);
+    vecPush(&v, &two);
+    vecPush(&v, &three);
+    vecSwapRemoveAt(&v, 1);
+    test_cond("vecSwapRemoveAt() removes middle element and swaps with last",
+              vecSize(&v) == 2 &&
+              vecGet(&v, 0) == &one && vecGet(&v, 1) == &three);
+    vecSwapRemoveAt(&v, 1);
+    test_cond("vecSwapRemoveAt() removes last element",
+              vecSize(&v) == 1 && vecGet(&v, 0) == &one);
+    vecSwapRemoveAt(&v, 0);
+    test_cond("vecSwapRemoveAt() removes sole element",
+              vecSize(&v) == 0);
+    vecRelease(&v);
+
+    vecInit(&v, NULL, 0);
+    vecPush(&v, &one);
+    vecPush(&v, &two);
+    vecPush(&v, &three);
+    vecSwapRemoveAt(&v, 0);
+    test_cond("vecSwapRemoveAt() removes first element and swaps with last",
+              vecSize(&v) == 2 &&
+              vecGet(&v, 0) == &three && vecGet(&v, 1) == &two);
     vecRelease(&v);
 
     /* vecSwapRemove tests */
