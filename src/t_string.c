@@ -1178,6 +1178,14 @@ void increxCommand(client *c) {
             }
         }
         if ((oldvalue_ld > ub && value_ld > ub) || (oldvalue_ld < lb && value_ld < lb)) {
+            /* For a non-existent key the existing value defaulted to 0; if that 0 is
+             * already out of range and the increment can't bring it back, the operation
+             * cannot produce a valid value, so refuse to create the key. */
+            if (!o) {
+                addReplyError(c, "cannot create key with out-of-bounds value");
+                return;
+            }
+
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
             value_ld = oldvalue_ld;
@@ -1211,6 +1219,14 @@ void increxCommand(client *c) {
             }
         }
         if ((oldvalue_ll > ub && value_ll > ub) || (oldvalue_ll < lb && value_ll < lb)) {
+            /* For a non-existent key the existing value defaulted to 0; if that 0 is
+             * already out of range and the increment can't bring it back, the operation
+             * cannot produce a valid value, so refuse to create the key. */
+            if (!o) {
+                addReplyError(c, "cannot create key with out-of-bounds value");
+                return;
+            }
+
             /* The existing value is already outside the range and the result is on the
              * same side: keep it unchanged so the increment doesn't drag it to a bound. */
             value_ll = oldvalue_ll;

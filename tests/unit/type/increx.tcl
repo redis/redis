@@ -116,6 +116,24 @@ start_server {tags {"increx"}} {
     }
 
     # ---------------------------------------------------------------------
+    # Non-existent key whose default 0 is already outside [LBOUND, UBOUND]
+    # and the increment cannot bring it back into range -> refuse to create.
+    # ---------------------------------------------------------------------
+
+    test {INCREX - BYINT on non-existent key refuses to create when result stays below LBOUND} {
+        r del mykey
+        assert_error "*cannot create key with out-of-bounds value*" {r increx mykey BYINT 5 LBOUND 10}
+        assert_equal [r exists mykey] 0
+    }
+
+    test {INCREX - BYFLOAT on non-existent key refuses to create when result stays above UBOUND} {
+        r del mykey
+        assert_error "*cannot create key with out-of-bounds value*" {r increx mykey BYFLOAT -0.5 UBOUND -1.5}
+        assert_equal [r exists mykey] 0
+    }
+
+
+    # ---------------------------------------------------------------------
     # Strict behavior
     # ---------------------------------------------------------------------
 
