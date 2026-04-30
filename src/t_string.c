@@ -939,12 +939,15 @@ void incrbyfloatCommand(client *c) {
 
 /* INCREX argument structure */
 typedef struct {
-    int flags;
-    int unit;
-    robj *expire;
-    robj *increment;
-    robj *lower_bound;
-    robj *upper_bound;
+    int flags;             /* OBJ_INCREX_* bits set during parsing. */
+    int unit;              /* UNIT_SECONDS or UNIT_MILLISECONDS for EX/PX/EXAT/PXAT. */
+    long long expire_ms;   /* Absolute expire timestamp in ms (0 if no expiration given). */
+    long long incr_ll;     /* BYINT increment value (defaults to 1). */
+    long long ub_ll;       /* BYINT upper bound (defaults to LLONG_MAX). */
+    long long lb_ll;       /* BYINT lower bound (defaults to LLONG_MIN). */
+    long double incr_ld;   /* BYFLOAT increment value (defaults to 0). */
+    long double ub_ld;     /* BYFLOAT upper bound (defaults to LDBL_MAX). */
+    long double lb_ld;     /* BYFLOAT lower bound (defaults to -LDBL_MAX). */
 } incrExArgs;
 
 /*
@@ -958,83 +961,136 @@ typedef struct {
  *
  * If there are any syntax violations C_ERR is returned else C_OK is returned.
  *
- * The args structure is updated upon parsing the arguments. Unit and expire are
- * updated if any of EX/EXAT/PX/PXAT is set; unit becomes millisecond for PX/PXAT.
- * increment is set if BYINT/BYFLOAT is given.
- * lower_bound/upper_bound are set if LBOUND/UBOUND is given.
+ * The args structure is updated upon parsing the arguments. Unit and expire_ms
+ * are set if any of EX/EXAT/PX/PXAT is given; unit becomes millisecond for PX/PXAT.
+ * incr_ll/incr_ld are parsed if BYINT/BYFLOAT is given (incr_ll defaults to 1).
+ * lb_ll/ub_ll (or lb_ld/ub_ld for BYFLOAT) are parsed if LBOUND/UBOUND is given,
+ * defaulting to the min/max of the corresponding type otherwise.
  */
 int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
     memset(args, 0, sizeof(*args));
     args->unit = UNIT_SECONDS;
+    args->incr_ll = 1;
+    args->lb_ll = LLONG_MIN;
+    args->ub_ll = LLONG_MAX;
+    args->lb_ld = -LDBL_MAX;
+    args->ub_ld = LDBL_MAX;
+
+    /* LBOUND/UBOUND values are parsed after the loop because their target type
+     * depends on whether BYINT or BYFLOAT was given, which may appear later. */
+    robj *lower_bound = NULL, *upper_bound = NULL, *expire = NULL;
+
+    /* Mask of all mutually-exclusive expiration-related flags. */
+    const int expire_flags = OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT|OBJ_INCREX_PERSIST;
 
     for (int j = start_pos; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
-        if (!strcasecmp(opt, "BYINT") && next && !(args->flags & OBJ_INCREX_BYFLOAT))
-        {
+        if (!strcasecmp(opt, "BYINT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
+            if (getLongLongFromObjectOrReply(c, next, &args->incr_ll, NULL) != C_OK)
+                return C_ERR;
             args->flags |= OBJ_INCREX_BYINT;
-            args->increment = next;
             j++;
-        } else if (!strcasecmp(opt, "BYFLOAT") && next && !(args->flags & OBJ_INCREX_BYINT))
-        {
+        } else if (!strcasecmp(opt, "BYFLOAT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
+            if (getLongDoubleFromObjectOrReply(c, next, &args->incr_ld, NULL) != C_OK)
+                return C_ERR;
             args->flags |= OBJ_INCREX_BYFLOAT;
-            args->increment = next;
             j++;
-        } else if (!strcasecmp(opt, "LBOUND") && next) {
+        } else if (!strcasecmp(opt, "LBOUND") && next && !(args->flags & OBJ_INCREX_LBOUND)) {
             args->flags |= OBJ_INCREX_LBOUND;
-            args->lower_bound = next;
+            lower_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "UBOUND") && next) {
+        } else if (!strcasecmp(opt, "UBOUND") && next && !(args->flags & OBJ_INCREX_UBOUND)) {
             args->flags |= OBJ_INCREX_UBOUND;
-            args->upper_bound = next;
+            upper_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "STRICT")) {
+        } else if (!strcasecmp(opt, "STRICT") && !(args->flags & OBJ_INCREX_STRICT)) {
             args->flags |= OBJ_INCREX_STRICT;
-        } else if (!strcasecmp(opt, "ENX") && !(args->flags & OBJ_INCREX_PERSIST)) {
+        } else if (!strcasecmp(opt, "ENX") && !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_PERSIST))) {
             args->flags |= OBJ_INCREX_ENX;
-        } else if (!strcasecmp(opt, "PERSIST") &&
-                   !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT)))
-        {
+        } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
             args->flags |= OBJ_INCREX_PERSIST;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT)) && next)
+                   !(args->flags & expire_flags) && next)
         {
             args->flags |= OBJ_INCREX_EX;
-            args->expire = next;
+            expire = next;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_EX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT)) && next)
+                   !(args->flags & expire_flags) && next)
         {
             args->flags |= OBJ_INCREX_PX;
             args->unit = UNIT_MILLISECONDS;
-            args->expire = next;
+            expire = next;
             j++;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') &&
                    (opt[2] == 'a' || opt[2] == 'A') &&
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_PXAT)) && next)
+                   !(args->flags & expire_flags) && next)
         {
             args->flags |= OBJ_INCREX_EXAT;
-            args->expire = next;
+            expire = next;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') &&
                    (opt[2] == 'a' || opt[2] == 'A') &&
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & (OBJ_INCREX_PERSIST|OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT)) && next)
+                   !(args->flags & expire_flags) && next)
         {
             args->flags |= OBJ_INCREX_PXAT;
             args->unit = UNIT_MILLISECONDS;
-            args->expire = next;
+            expire = next;
             j++;
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return C_ERR;
         }
+    }
+
+    /* ENX requires an expiration option. */
+    if ((args->flags & OBJ_INCREX_ENX) && !(args->flags & expire_flags)) {
+        addReplyError(c, "ENX flag requires an expiration");
+        return C_ERR;
+    }
+
+    /* STRICT only makes sense with at least one bound. */
+    if ((args->flags & OBJ_INCREX_STRICT) && !(args->flags & (OBJ_INCREX_LBOUND|OBJ_INCREX_UBOUND))) {
+        addReplyError(c, "STRICT flag requires LBOUND or UBOUND");
+        return C_ERR;
+    }
+
+    /* Resolve LBOUND/UBOUND values now that BYINT/BYFLOAT is known. */
+    if (args->flags & OBJ_INCREX_BYFLOAT) {
+        if (lower_bound && getLongDoubleFromObjectOrReply(c, lower_bound, &args->lb_ld, NULL) != C_OK)
+            return C_ERR;
+        if (upper_bound && getLongDoubleFromObjectOrReply(c, upper_bound, &args->ub_ld, NULL) != C_OK)
+            return C_ERR;
+        if (args->lb_ld > args->ub_ld) {
+            addReplyError(c, "LBOUND can't be greater than UBOUND");
+            return C_ERR;
+        }
+    } else {
+        if (lower_bound && getLongLongFromObjectOrReply(c, lower_bound, &args->lb_ll, NULL) != C_OK)
+            return C_ERR;
+        if (upper_bound && getLongLongFromObjectOrReply(c, upper_bound, &args->ub_ll, NULL) != C_OK)
+            return C_ERR;
+        if (args->lb_ll > args->ub_ll) {
+            addReplyError(c, "LBOUND can't be greater than UBOUND");
+            return C_ERR;
+        }
+    }
+
+    /* Translate INCREX-private TTL flags into the OBJ_EX/OBJ_PX bit that
+     * getExpireMillisecondsOrReply() expects (only used to decide whether
+     * the value is relative and needs commandTimeSnapshot() added). */
+    if (expire) {
+        int ttl_flags = (args->flags & (OBJ_INCREX_EX|OBJ_INCREX_PX)) ? OBJ_EX : 0;
+        if (getExpireMillisecondsOrReply(c, expire, ttl_flags, args->unit, &args->expire_ms) != C_OK)
+            return C_ERR;
     }
     return C_OK;
 }
@@ -1080,44 +1136,17 @@ void increxCommand(client *c) {
     dictEntryLink link;
     kvobj *o = NULL;
     robj *new = NULL;
-    long long value_ll, oldvalue_ll = 0, incr_ll = 1;
-    long double value_ld, oldvalue_ld = 0, incr_ld = 0;
+    long long value_ll, oldvalue_ll = 0;
+    long double value_ld, oldvalue_ld = 0;
 
     incrExArgs args;
     if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK) {
         return;
     }
-    if ((args.flags & OBJ_INCREX_ENX) && !(args.flags & (OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT))) {
-        addReplyError(c, "ENX flag requires an expiration");
-        return;
-    }
-    if ((args.flags & OBJ_INCREX_STRICT) && !(args.flags & (OBJ_INCREX_LBOUND|OBJ_INCREX_UBOUND))) {
-        addReplyError(c, "STRICT flag requires LBOUND or UBOUND");
-        return;
-    }
     int strict_mode = args.flags & OBJ_INCREX_STRICT;
-    long long milliseconds = 0;
-    /* Translate INCREX-private TTL flags into the OBJ_EX/OBJ_PX bit that
-     * getExpireMillisecondsOrReply() expects (only used to decide whether
-     * the value is relative and needs commandTimeSnapshot() added). */
-    int ttl_flags = (args.flags & (OBJ_INCREX_EX|OBJ_INCREX_PX)) ? OBJ_EX : 0;
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, ttl_flags, args.unit, &milliseconds) != C_OK) {
-        return;
-    }
 
     if (args.flags & OBJ_INCREX_BYFLOAT) {
-        long double lb = -LDBL_MAX, ub = LDBL_MAX;
-        if (getLongDoubleFromObjectOrReply(c, args.increment, &incr_ld, NULL) != C_OK)
-            return;
-
-        if ((args.flags & OBJ_INCREX_LBOUND) && getLongDoubleFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
-            return;
-        if ((args.flags & OBJ_INCREX_UBOUND) && getLongDoubleFromObjectOrReply(c, args.upper_bound, &ub, NULL) != C_OK)
-            return;
-        if (lb > ub) {
-            addReplyError(c,"LBOUND can't be greater than UBOUND");
-            return;
-        }
+        long double lb = args.lb_ld, ub = args.ub_ld;
 
         o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
         if (checkType(c, o, OBJ_STRING)) return;
@@ -1126,18 +1155,18 @@ void increxCommand(client *c) {
         }
 
         /* Reject if the value or increment is already Infinity. */
-        if (isinf(value_ld) || isinf(incr_ld)) {
+        if (isinf(value_ld) || isinf(args.incr_ld)) {
             addReplyError(c, "value or increment would produce Infinity");
             return;
         }
 
         oldvalue_ld = value_ld;
-        value_ld += incr_ld;
+        value_ld += args.incr_ld;
         if (isinf(value_ld)) {
             /* The addition overflows long double. If the user did not specify a bound
              * on the overflow direction, return an error. Otherwise, saturate so the
              * subsequent clamp drops the value to the bound. */
-            int bound_flag = (incr_ld >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
+            int bound_flag = (args.incr_ld >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
             if (!(args.flags & bound_flag)) {
                 addReplyError(c, "increment would produce Infinity");
                 return;
@@ -1145,7 +1174,7 @@ void increxCommand(client *c) {
             if (strict_mode) {
                 value_ld = oldvalue_ld;
             } else {
-                value_ld = (incr_ld >= 0) ? LDBL_MAX : -LDBL_MAX;
+                value_ld = (args.incr_ld >= 0) ? LDBL_MAX : -LDBL_MAX;
             }
         }
         if ((oldvalue_ld > ub && value_ld > ub) || (oldvalue_ld < lb && value_ld < lb)) {
@@ -1158,18 +1187,7 @@ void increxCommand(client *c) {
             value_ld = strict_mode ? oldvalue_ld : lb;
         }
     } else {
-        long long lb = LLONG_MIN, ub = LLONG_MAX;
-        if ((args.flags & OBJ_INCREX_BYINT) && getLongLongFromObjectOrReply(c, args.increment, &incr_ll, NULL) != C_OK)
-            return;
-
-        if ((args.flags & OBJ_INCREX_LBOUND) && getLongLongFromObjectOrReply(c, args.lower_bound, &lb, NULL) != C_OK)
-            return;
-        if ((args.flags & OBJ_INCREX_UBOUND) && getLongLongFromObjectOrReply(c, args.upper_bound, &ub, NULL) != C_OK)
-            return;
-        if (lb > ub) {
-            addReplyError(c,"LBOUND can't be greater than UBOUND");
-            return;
-        }
+        long long lb = args.lb_ll, ub = args.ub_ll;
 
         o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
         if (checkType(c, o, OBJ_STRING)) return;
@@ -1177,11 +1195,11 @@ void increxCommand(client *c) {
             return;
 
         oldvalue_ll = value_ll;
-        if (add_overflow_ll(oldvalue_ll, incr_ll, &value_ll)) {
+        if (add_overflow_ll(oldvalue_ll, args.incr_ll, &value_ll)) {
             /* The addition overflows long long. If the user did not specify a bound
              * on the overflow direction, behave like INCRBY and return an error.
              * Otherwise, saturate so the subsequent clamp drops the value to the bound. */
-            int bound_flag = (incr_ll >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
+            int bound_flag = (args.incr_ll >= 0) ? OBJ_INCREX_UBOUND : OBJ_INCREX_LBOUND;
             if (!(args.flags & bound_flag)) {
                 addReplyError(c, "increment or decrement would overflow");
                 return;
@@ -1189,7 +1207,7 @@ void increxCommand(client *c) {
             if (strict_mode) {
                 value_ll = oldvalue_ll;
             } else {
-                value_ll = (incr_ll >= 0) ? LLONG_MAX : LLONG_MIN;
+                value_ll = (args.incr_ll >= 0) ? LLONG_MAX : LLONG_MIN;
             }
         }
         if ((oldvalue_ll > ub && value_ll > ub) || (oldvalue_ll < lb && value_ll < lb)) {
@@ -1214,7 +1232,7 @@ void increxCommand(client *c) {
 
     int has_expiry = o && (kvobjGetExpire(o) != -1);
     /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
-    if (!((args.flags & OBJ_INCREX_ENX) && has_expiry) && args.expire && checkAlreadyExpired(milliseconds)) {
+    if (!((args.flags & OBJ_INCREX_ENX) && has_expiry) && args.expire_ms && checkAlreadyExpired(args.expire_ms)) {
         if (o) {
             int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
             serverAssert(deleted);
@@ -1274,10 +1292,10 @@ void increxCommand(client *c) {
         if (removeExpire(c->db, c->argv[1]))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
-    } else if (args.expire && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
-        new = setExpire(c, c->db, c->argv[1], milliseconds);
+    } else if (args.expire_ms && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
+        new = setExpire(c, c->db, c->argv[1], args.expire_ms);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
-        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        robj *milliseconds_obj = createStringObjectFromLongLong(args.expire_ms);
         rewriteClientCommandVector(c, 5, shared.set, c->argv[1], new, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
     } else {

@@ -285,19 +285,16 @@ start_server {tags {"increx"}} {
     }
 
     test {INCREX - unknown argument} {
-        r del mykey
         assert_error "*syntax error*" {r increx mykey FOO}
         assert_error "*syntax error*" {r increx mykey BYINT 1 FOO}
     }
 
     test {INCREX - BYINT and BYFLOAT are mutually exclusive} {
-        r del mykey
         assert_error "*syntax error*" {r increx mykey BYINT 1 BYFLOAT 1.5}
         assert_error "*syntax error*" {r increx mykey BYFLOAT 1.5 BYINT 1}
     }
 
     test {INCREX - multiple expiration flags are mutually exclusive} {
-        r del mykey
         assert_error "*syntax error*" {r increx mykey BYINT 1 EX 10 PX 5000}
         assert_error "*syntax error*" {r increx mykey BYINT 1 EX 10 EXAT 9999999999}
         assert_error "*syntax error*" {r increx mykey BYINT 1 PX 5000 PXAT 9999999999000}
@@ -306,40 +303,47 @@ start_server {tags {"increx"}} {
     }
 
     test {INCREX - PERSIST and ENX are mutually exclusive} {
-        r del mykey
         assert_error "*syntax error*" {r increx mykey BYINT 1 PERSIST ENX}
         assert_error "*syntax error*" {r increx mykey BYINT 1 ENX PERSIST}
     }
 
+    test {INCREX - duplicate options are rejected} {
+        assert_error "*syntax error*" {r increx mykey BYINT 1 BYINT 2}
+        assert_error "*syntax error*" {r increx mykey BYFLOAT 1.0 BYFLOAT 2.0}
+        assert_error "*syntax error*" {r increx mykey LBOUND 0 LBOUND 1}
+        assert_error "*syntax error*" {r increx mykey UBOUND 9 UBOUND 8}
+        assert_error "*syntax error*" {r increx mykey STRICT STRICT LBOUND 0}
+        assert_error "*syntax error*" {r increx mykey ENX ENX EX 10}
+        assert_error "*syntax error*" {r increx mykey PERSIST PERSIST}
+        assert_error "*syntax error*" {r increx mykey EX 10 EX 20}
+        assert_error "*syntax error*" {r increx mykey PX 10 PX 20}
+        assert_error "*syntax error*" {r increx mykey EXAT 9999999999 EXAT 9999999998}
+        assert_error "*syntax error*" {r increx mykey PXAT 9999999999000 PXAT 9999999998000}
+    }
+
     test {INCREX - ENX without expiration is an error} {
-        r del mykey
         assert_error "*ENX flag requires an expiration*" {r increx mykey BYINT 1 ENX}
         assert_error "*ENX flag requires an expiration*" {r increx mykey ENX}
     }
 
     test {INCREX - BYINT requires a valid integer value} {
-        r del mykey
         assert_error "*value is not an integer*" {r increx mykey BYINT abc}
         assert_error "*value is not an integer*" {r increx mykey BYINT 1.5}
     }
 
     test {INCREX - BYFLOAT requires a valid float value} {
-        r del mykey
         assert_error "*value is not a valid float*" {r increx mykey BYFLOAT abc}
     }
 
     test {INCREX - LBOUND > UBOUND should be rejected (integer)} {
-        r del mykey
         assert_error "*LBOUND can't be greater than UBOUND*" {r increx mykey BYINT 1 LBOUND 10 UBOUND 5}
     }
 
     test {INCREX - LBOUND > UBOUND should be rejected (float)} {
-        r del mykey
         assert_error "*LBOUND can't be greater than UBOUND*" {r increx mykey BYFLOAT 0.5 LBOUND 10.5 UBOUND 1.5}
     }
 
     test {INCREX - EX/PX non-positive value is rejected} {
-        r del mykey
         assert_error "*invalid expire time*" {r increx mykey BYINT 1 EX 0}
         assert_error "*invalid expire time*" {r increx mykey BYINT 1 PX 0}
         assert_error "*invalid expire time*" {r increx mykey BYINT 1 EX -1}
