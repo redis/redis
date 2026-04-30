@@ -460,8 +460,8 @@ const char *preMonitorCfgName[] = {
 
 /* Returns 1 if the string contains control characters (0x00-0x1F or 0x7F),
  * which must be rejected to prevent config injection via newlines/etc. */
-int sentinelStringContainsControlChars(const char *s, size_t len) {
-    for (size_t i = 0; i < len; i++) {
+int sentinelStringContainsControlChars(sds s) {
+    for (size_t i = 0; i < sdslen(s); i++) {
         unsigned char c = (unsigned char)s[i];
         if (c < 0x20 || c == 0x7F) return 1;
     }
@@ -3263,10 +3263,8 @@ void sentinelConfigSetCommand(client *c) {
             if (!(!strcasecmp(val->ptr, "debug") || !strcasecmp(val->ptr, "verbose") ||
                 !strcasecmp(val->ptr, "notice") || !strcasecmp(val->ptr, "warning") ||
                 !strcasecmp(val->ptr, "nothing"))) goto badfmt;
-        } else if (!strcasecmp(option, "sentinel-user") ||
-                   !strcasecmp(option, "sentinel-pass") ||
-                   !strcasecmp(option, "announce-ip")) {
-            if (sentinelStringContainsControlChars(val->ptr,sdslen(val->ptr))) {
+        } else if (!strcasecmp(option, "announce-ip")) {
+            if (sentinelStringContainsControlChars(val->ptr)) {
                 addReplyErrorFormat(c, "'%s' must not contain control characters", option);
                 goto exit;
             }
@@ -4077,7 +4075,7 @@ NULL
             return;
         }
 
-        if (sentinelStringContainsControlChars(c->argv[2]->ptr,sdslen(c->argv[2]->ptr))) {
+        if (sentinelStringContainsControlChars(c->argv[2]->ptr)) {
             addReplyError(c, "Master name must not contain control characters");
             return;
         }
@@ -4425,7 +4423,7 @@ void sentinelSetCommand(client *c) {
                 goto seterr;
             }
 
-            if (sentinelStringContainsControlChars(value,sdslen(value))) {
+            if (sentinelStringContainsControlChars(value)) {
                 addReplyError(c,
                     "notification-script must not contain control characters");
                 goto seterr;
@@ -4450,7 +4448,7 @@ void sentinelSetCommand(client *c) {
                 goto seterr;
             }
 
-            if (sentinelStringContainsControlChars(value,sdslen(value))) {
+            if (sentinelStringContainsControlChars(value)) {
                 addReplyError(c,
                     "client-reconfig-script must not contain control characters");
                 goto seterr;
@@ -4468,11 +4466,6 @@ void sentinelSetCommand(client *c) {
         } else if (!strcasecmp(option,"auth-pass") && moreargs > 0) {
             /* auth-pass <password> */
             char *value = c->argv[++j]->ptr;
-            if (sentinelStringContainsControlChars(value,sdslen(value))) {
-                addReplyError(c,
-                    "auth-pass must not contain control characters");
-                goto seterr;
-            }
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
             dropInstanceConnections(ri);
@@ -4481,11 +4474,6 @@ void sentinelSetCommand(client *c) {
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
             /* auth-user <username> */
             char *value = c->argv[++j]->ptr;
-            if (sentinelStringContainsControlChars(value,sdslen(value))) {
-                addReplyError(c,
-                    "auth-user must not contain control characters");
-                goto seterr;
-            }
             sdsfree(ri->auth_user);
             ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
             dropInstanceConnections(ri);
@@ -4509,8 +4497,8 @@ void sentinelSetCommand(client *c) {
                 goto badfmt;
             }
 
-            if (sentinelStringContainsControlChars(oldname,sdslen(oldname)) ||
-                sentinelStringContainsControlChars(newname,sdslen(newname))) {
+            if (sentinelStringContainsControlChars(oldname) ||
+                sentinelStringContainsControlChars(newname)) {
                 addReplyError(c,
                     "rename-command arguments must not contain control characters");
                 goto seterr;

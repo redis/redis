@@ -1,8 +1,10 @@
-# Test that control characters are rejected in string config values
-# and that string values are safely quoted when persisted to disk.
+# Test that control characters are rejected where appropriate, and that
+# string values are safely quoted when persisted to disk.
 #
-# This prevents config injection attacks where newlines in values like
-# auth-pass could inject arbitrary sentinel directives into the config file.
+# Config injection is prevented by sentinelSdscatConfigArg(), which escapes
+# values containing special characters at persistence time. Fields like
+# notification-script, rename-command, master name, and announce-ip also
+# reject control characters at input time as an additional safeguard.
 
 source "../tests/includes/init-tests.tcl"
 
@@ -62,27 +64,6 @@ proc append_to_sentinel_config {sid lines} {
 # Section 1: Control character rejection in SENTINEL SET
 # --------------------------------------------------------------------------
 
-test "SENTINEL SET auth-pass rejects control characters" {
-    assert_error "*must not contain control characters*" {
-        S 0 SENTINEL SET mymaster auth-pass "x\nsentinel notification-script mymaster /tmp/evil.sh"
-    }
-    assert_error "*must not contain control characters*" {
-        S 0 SENTINEL SET mymaster auth-pass "pass\rword"
-    }
-    assert_error "*must not contain control characters*" {
-        S 0 SENTINEL SET mymaster auth-pass "pass\x00word"
-    }
-}
-
-test "SENTINEL SET auth-user rejects control characters" {
-    assert_error "*must not contain control characters*" {
-        S 0 SENTINEL SET mymaster auth-user "user\nname"
-    }
-    assert_error "*must not contain control characters*" {
-        S 0 SENTINEL SET mymaster auth-user "user\rname"
-    }
-}
-
 test "SENTINEL SET notification-script rejects control characters" {
     assert_error "*must not contain control characters*" {
         S 0 SENTINEL SET mymaster notification-script "/tmp/ok\n/tmp/evil.sh"
@@ -122,16 +103,6 @@ test "SENTINEL MONITOR rejects master name with control characters" {
 # Section 3: Control character rejection in SENTINEL CONFIG SET
 # --------------------------------------------------------------------------
 
-test "SENTINEL CONFIG SET sentinel-pass rejects control characters" {
-    catch {S 0 SENTINEL CONFIG SET sentinel-pass "pass\nword"} e
-    assert_match "*must not contain control characters*" $e
-}
-
-test "SENTINEL CONFIG SET sentinel-user rejects control characters" {
-    catch {S 0 SENTINEL CONFIG SET sentinel-user "user\nname"} e
-    assert_match "*must not contain control characters*" $e
-}
-
 test "SENTINEL CONFIG SET announce-ip rejects control characters" {
     catch {S 0 SENTINEL CONFIG SET announce-ip "1.2.3.4\nevil-directive"} e
     assert_match "*must not contain control characters*" $e
@@ -142,15 +113,41 @@ test "SENTINEL CONFIG SET announce-ip rejects control characters" {
 # --------------------------------------------------------------------------
 
 test "Newline injection in auth-pass does not pollute config file" {
-    # First verify the injection attempt is rejected
-    assert_error "*must not contain control characters*" {
-        S 0 SENTINEL SET mymaster auth-pass "x\nsentinel notification-script mymaster /tmp/evil.sh"
-    }
-
-    # Flush config and verify no injected directives appear
+    # Auth-pass accepts control characters, but sentinelSdscatConfigArg
+    # escapes them at persistence time, preventing config injection.
+    S 0 SENTINEL SET mymaster auth-pass "x\nsentinel notification-script mymaster /tmp/evil.sh"
     S 0 SENTINEL FLUSHCONFIG
     set content [read_sentinel_config 0]
     assert {[count_config_lines $content "sentinel notification-script mymaster /tmp/evil.sh"] == 0}
+    assert_config_contains 0 {sentinel auth-pass mymaster "x\nsentinel notification-script mymaster /tmp/evil.sh"}
+    S 0 SENTINEL SET mymaster auth-pass ""
+}
+
+test "Newline injection in auth-user does not pollute config file" {
+    S 0 SENTINEL SET mymaster auth-user "x\nsentinel notification-script mymaster /tmp/evil.sh"
+    S 0 SENTINEL FLUSHCONFIG
+    set content [read_sentinel_config 0]
+    assert {[count_config_lines $content "sentinel notification-script mymaster /tmp/evil.sh"] == 0}
+    assert_config_contains 0 {sentinel auth-user mymaster "x\nsentinel notification-script mymaster /tmp/evil.sh"}
+    S 0 SENTINEL SET mymaster auth-user ""
+}
+
+test "Newline injection in sentinel-pass does not pollute config file" {
+    S 0 SENTINEL CONFIG SET sentinel-pass "x\nsentinel notification-script mymaster /tmp/evil.sh"
+    S 0 SENTINEL FLUSHCONFIG
+    set content [read_sentinel_config 0]
+    assert {[count_config_lines $content "sentinel notification-script mymaster /tmp/evil.sh"] == 0}
+    assert_config_contains 0 {sentinel sentinel-pass "x\nsentinel notification-script mymaster /tmp/evil.sh"}
+    S 0 SENTINEL CONFIG SET sentinel-pass ""
+}
+
+test "Newline injection in sentinel-user does not pollute config file" {
+    S 0 SENTINEL CONFIG SET sentinel-user "x\nsentinel notification-script mymaster /tmp/evil.sh"
+    S 0 SENTINEL FLUSHCONFIG
+    set content [read_sentinel_config 0]
+    assert {[count_config_lines $content "sentinel notification-script mymaster /tmp/evil.sh"] == 0}
+    assert_config_contains 0 {sentinel sentinel-user "x\nsentinel notification-script mymaster /tmp/evil.sh"}
+    S 0 SENTINEL CONFIG SET sentinel-user ""
 }
 
 # --------------------------------------------------------------------------
