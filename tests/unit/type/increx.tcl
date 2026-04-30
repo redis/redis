@@ -276,11 +276,11 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT 15.5 UBOUND 10 STRICT] {roundFloat $v}] {0 0}
     }
 
-    test {INCREX - STRICT without any bound is a syntax error} {
+    test {INCREX - STRICT without any bound is an error} {
         r set mykey 10
-        assert_error "*syntax error*" {r increx mykey BYINT 1 STRICT}
-        assert_error "*syntax error*" {r increx mykey BYFLOAT 1.0 STRICT}
-        assert_error "*syntax error*" {r increx mykey STRICT}
+        assert_error "*STRICT flag requires LBOUND or UBOUND*" {r increx mykey BYINT 1 STRICT}
+        assert_error "*STRICT flag requires LBOUND or UBOUND*" {r increx mykey BYFLOAT 1.0 STRICT}
+        assert_error "*STRICT flag requires LBOUND or UBOUND*" {r increx mykey STRICT}
     }
 
     test {INCREX - STRICT combined with expiration options} {
@@ -335,10 +335,10 @@ start_server {tags {"increx"}} {
         assert_error "*syntax error*" {r increx mykey BYINT 1 ENX PERSIST}
     }
 
-    test {INCREX - ENX without expiration is a syntax error} {
+    test {INCREX - ENX without expiration is an error} {
         r del mykey
-        assert_error "*syntax error*" {r increx mykey BYINT 1 ENX}
-        assert_error "*syntax error*" {r increx mykey ENX}
+        assert_error "*ENX flag requires an expiration*" {r increx mykey BYINT 1 ENX}
+        assert_error "*ENX flag requires an expiration*" {r increx mykey ENX}
     }
 
     test {INCREX - BYINT requires a valid integer value} {
