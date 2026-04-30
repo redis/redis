@@ -265,6 +265,15 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
 #define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
 
+/* CPU capability flags exposed via RedisModule_GetCpuCapabilities().
+ * These are independent of context flags and use a separate namespace. */
+#define REDISMODULE_CPU_CAP_SVE2     (1ULL << 0)  /* ARM64 SVE2 - Scalable Vector Extension 2 */
+#define REDISMODULE_CPU_CAP_SVE      (1ULL << 1)  /* ARM64 SVE - Scalable Vector Extension */
+#define REDISMODULE_CPU_CAP_NEON     (1ULL << 2)  /* ARM64 NEON - Advanced SIMD */
+#define REDISMODULE_CPU_CAP_AVX2     (1ULL << 3)  /* x86 AVX2 */
+#define REDISMODULE_CPU_CAP_AVX512F  (1ULL << 4)  /* x86 AVX-512 Foundation */
+#define REDISMODULE_CPU_CAP_POPCNT   (1ULL << 5)  /* x86 POPCNT instruction */
+
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
 
 /* A special pointer that we can use between the core and the module to signal
@@ -1489,6 +1498,7 @@ REDISMODULE_API RedisModuleKeyMetaClassId (*RedisModule_CreateKeyMetaClass)(Redi
 REDISMODULE_API int (*RedisModule_ReleaseKeyMetaClass)(RedisModuleKeyMetaClassId id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t metadata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t *metadata) REDISMODULE_ATTR;
+REDISMODULE_API uint64_t (*RedisModule_GetCpuCapabilities)(void) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1894,6 +1904,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 
     REDISMODULE_GET_API(SetKeyMeta);
     REDISMODULE_GET_API(GetKeyMeta);
+    REDISMODULE_GET_API(GetCpuCapabilities);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

@@ -520,7 +520,17 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 int moduleVerifyResourceName(const char *name);
 
 /* --------------------------------------------------------------------------
- * ## Heap allocation raw functions
+ * ## CPU Capabilities API
+ * -------------------------------------------------------------------------- */
+
+/* Return a bitmask of CPU capability flags (REDISMODULE_CPU_CAP_*).
+ * This allows modules to check for hardware features like SVE2 or AVX2 at runtime. */
+uint64_t RM_GetCpuCapabilities(void) {
+    return server.cpu_caps;
+}
+
+/* --------------------------------------------------------------------------
+  * ## Heap allocation raw functions
  *
  * Memory allocated with these functions are taken into account by Redis key
  * eviction algorithms and are reported in Redis memory usage information.
@@ -15740,4 +15750,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ConfigSetBool);
     REGISTER_API(ConfigSetEnum);
     REGISTER_API(ConfigSetNumeric);
+    REGISTER_API(GetCpuCapabilities);
 }

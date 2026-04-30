@@ -92,6 +92,7 @@ struct RedisModuleKeyOptCtx {
 #include "endianconv.h"
 #include "crc64.h"
 #include "keymeta.h"
+#include "cpu_cap.h"
 
 struct hdr_histogram;
 
@@ -2000,6 +2001,7 @@ struct redisServer {
     int thp_enabled;                 /* If true, THP is enabled. */
     size_t page_size;                /* The page size of OS. */
     redisAtomic int running;    /* Running if true, IO threads can send clients without notification */
+    uint64_t cpu_caps;              /* CPU capability flags exposed to modules via RedisModule_GetCpuCapabilities() */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that

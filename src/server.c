@@ -32,6 +32,7 @@
 #include "fwtree.h"
 #include "estore.h"
 #include "chk.h"
+#include "cpu_cap.h"
 #include "fast_float_strtod.h"
 
 #include <time.h>
@@ -2913,6 +2914,9 @@ void makeThreadKillable(void) {
 
 void initServer(void) {
     int j;
+
+    /* Detect CPU capabilities once at startup and cache for modules */
+    server.cpu_caps = getCpuCapabilities();
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
