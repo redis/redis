@@ -927,13 +927,11 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
                     [lindex $replicas 1] config set repl-diskless-load swapdb
-                    # For "no" and "fast" subcases, use key-load-delay to keep
+                    # For non-timeout subcases, use key-load-delay to keep
                     # replica 0 as a steady slow reader for the entire RDB
-                    # transfer. A brief SIGSTOP/SIGCONT is insufficient
-                    # because after resume the TLS layer on slow CI runners
-                    # can't drain the pipe fast enough, leaving the RDB child
-                    # blocked on write() for minutes.
-                    if {$all_drop == "no" || $all_drop == "fast"} {
+                    # transfer. This keeps the expected diskless pipe code
+                    # paths covered without accepting alternate log outcomes.
+                    if {$all_drop != "timeout"} {
                         # 4k keys with 500 microseconds each keeps replica 0
                         # slow for about 2 seconds, which is long enough to
                         # fill the pipe without turning the transfer into a
@@ -953,25 +951,19 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         set start_time [clock seconds]
                     }
 
-                    if {$all_drop == "no" || $all_drop == "fast"} {
+                    if {$all_drop != "timeout"} {
                         # key-load-delay is already throttling the slow
                         # replica; just wait for the pipe to fill.
                         after 500
                     } else {
-                        # For slow/all/timeout subcases the replica will be
-                        # killed or timed out, so a brief SIGSTOP is fine.
+                        # For the timeout subcase, stop the slow reader so it
+                        # reaches repl-timeout during full sync.
                         pause_process [srv -1 pid]
                         after 500
                     }
 
                     # add some command to be present in the command stream after the rdb.
                     $master incr $all_drop
-
-                    # Resume before terminating the paused slow replica so the
-                    # disconnect is observed immediately instead of timing out.
-                    if {$all_drop == "all" || $all_drop == "slow"} {
-                        resume_process [srv -1 pid]
-                    }
 
                     # disconnect replicas depending on the current test
                     if {$all_drop == "all" || $all_drop == "fast"} {
@@ -1001,35 +993,13 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
 
                     # make sure we got what we were aiming for, by looking for the message in the log file
                     if {$all_drop == "all"} {
-                        if {[catch {
-                            wait_for_log_messages -2 {"*Diskless rdb transfer, last replica dropped, killing fork child*"} $loglines 1 1
-                        }]} {
-                            # RDB finished before replicas were killed; accept
-                            # either 1 or 2 replicas still up at pipe-read time.
-                            if {[catch {
-                                wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
-                            }]} {
-                                wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
-                            }
-                        }
+                        wait_for_log_messages -2 {"*Diskless rdb transfer, last replica dropped, killing fork child*"} $loglines 1 1
                     }
                     if {$all_drop == "no"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
                     }
-                    if {$all_drop == "fast"} {
+                    if {$all_drop == "slow" || $all_drop == "fast"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
-                    }
-                    if {$all_drop == "slow"} {
-                        if {[catch {
-                            wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
-                        }]} {
-                            wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 2 replicas still up*"} $loglines 1 1
-                            wait_for_condition 100 100 {
-                                [s -2 connected_slaves] == 1
-                            } else {
-                                fail "master did not drop killed slow replica in time (connected_slaves=[s -2 connected_slaves])"
-                            }
-                        }
                     }
                     if {$all_drop == "timeout"} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
