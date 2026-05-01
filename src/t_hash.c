@@ -2529,6 +2529,15 @@ void hsetexCommand(client *c) {
 
         server.dirty += field_count;
 
+        /* Account field writes before setExpireByLink(). First-time key expiry may
+         * realloc kvobj and call updateSlotAllocSize inside setExpireByLink; refresh
+         * oldsize afterward so out: does not double-count (memory_tracking_enabled). */
+        if (server.memory_tracking_enabled) {
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize,
+                                kvobjAllocSize(o));
+            oldsize = kvobjAllocSize(o);
+        }
+
         if (key_numeric_expire) {
             o = setExpireByLink(c, c->db, c->argv[1]->ptr, expire_time, link);
             server.dirty++;
@@ -2540,6 +2549,8 @@ void hsetexCommand(client *c) {
                 rewriteClientCommandArgument(c, expire_time_pos, expire);
                 decrRefCount(expire);
             }
+            if (server.memory_tracking_enabled)
+                oldsize = kvobjAllocSize(o);
         }
 
         addReplyLongLong(c, 1);
