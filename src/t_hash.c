@@ -2436,15 +2436,8 @@ void hsetexCommand(client *c) {
         return;
 
     key_numeric_expire = flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT);
-    if ((flags & HFE_KEY) && key_numeric_expire && checkAlreadyExpired(expire_time)) {
-        if (o) {
-            dbDelete(c->db, c->argv[1]);
-            robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
-            rewriteClientCommandVector(c, 2, aux, c->argv[1]);
-            keyModified(c, c->db, c->argv[1], NULL, 1);
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-            server.dirty++;
-        }
+    /* KEY + past numeric expiry + missing key: same as SET — no key created, no fields. */
+    if ((flags & HFE_KEY) && key_numeric_expire && checkAlreadyExpired(expire_time) && !o) {
         server.stat_expiredkeys++;
         addReplyLongLong(c, 1);
         return;
@@ -2505,6 +2498,24 @@ void hsetexCommand(client *c) {
             goto out;
         }
     }
+
+    /* KEY + past numeric expiry on existing key: only after FNX/FXX accept (bot review). */
+    if ((flags & HFE_KEY) && key_numeric_expire && checkAlreadyExpired(expire_time)) {
+        dbDelete(c->db, c->argv[1]);
+        robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c, 2, aux, c->argv[1]);
+        keyModified(c, c->db, c->argv[1], NULL, 1);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        server.dirty++;
+        server.stat_expiredkeys++;
+        vecRelease(vexpired);
+        vecRelease(vset);
+        vecRelease(vdeleted);
+        vecRelease(vupdated);
+        addReplyLongLong(c, 1);
+        return;
+    }
+
     hashTypeTryConversion(c->db, o,c->argv, first_field_pos, c->argc - 1);
 
     /* Key-level TTL: apply EX/PX/EXAT/PXAT/KEEPTTL to the hash key (not fields). */

@@ -1381,6 +1381,20 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r exists myhash] 0
         }
 
+        test "HSETEX KEY - past expiry respects FXX no-op ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+            assert_equal [r hsetex myhash FXX KEY EXAT [expr {[clock seconds] - 1}] FIELDS 1 f2 v2] 0
+            assert_equal [r exists myhash] 1
+            assert_equal [r hget myhash f1] "v1"
+        }
+
+        test "HSETEX KEY - past expiry on missing key with FNX ($type)" {
+            r del myhash
+            assert_equal [r hsetex myhash FNX KEY EXAT [expr {[clock seconds] - 1}] FIELDS 1 f1 v1] 1
+            assert_equal [r exists myhash] 0
+        }
+
         test "HSETEX KEY - FNX sets new hash with key TTL ($type)" {
             r del myhash
             assert_equal [r hsetex myhash FNX KEY EX 100 FIELDS 1 f1 v1] 1
