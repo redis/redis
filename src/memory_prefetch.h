@@ -20,7 +20,7 @@
 struct client;
 struct dict;
 
-/* Cross-command batch prefetching (I/O-thread path) */
+/* Cross-command batch prefetching */
 void prefetchCommandsBatchInit(void);
 int determinePrefetchCount(int len);
 int addCommandToBatch(struct client *c);
