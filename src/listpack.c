@@ -2643,6 +2643,32 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
+    TEST("Backlen encode/decode at width boundaries") {
+        /* Body lengths where backlen widens; maxima per width must use the
+         * minimum byte count and round-trip (lpEncodeBacklen vs
+         * lpEncodeBacklenBytes and lpDecodeBacklen). */
+        const uint64_t cases[] = {
+            128ULL,
+            16382ULL,
+            16383ULL,
+            16384ULL,
+            2097150ULL,
+            2097151ULL,
+            2097152ULL,
+            268435454ULL,
+            268435455ULL,
+            268435456ULL,
+        };
+        unsigned char enc[LP_MAX_BACKLEN_SIZE];
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+            uint64_t L = cases[i];
+            unsigned long n = lpEncodeBacklen(NULL, L);
+            assert(n == lpEncodeBacklenBytes(L));
+            assert(lpEncodeBacklen(enc, L) == n);
+            assert(lpDecodeBacklen(enc + n - 1) == L);
+        }
+    }
+
     TEST("Create long list and check indices") {
         lp = lpNew(0);
         char buf[32];
