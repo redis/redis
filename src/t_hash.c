@@ -2232,6 +2232,7 @@ static int parseExpireTime(client *c, robj *o, int unit, long long basetime,
 #define HFE_KEEPTTL  (1<<5) /* Do not discard field ttl on set op */
 #define HFE_FXX      (1<<6) /* Set fields if all the fields already exist */
 #define HFE_FNX      (1<<7) /* Set fields if none of the fields exist */
+#define HFE_KEY      (1<<8) /* EX/PX/EXAT/PXAT/KEEPTTL apply to the hash key, not fields */
 
 /* Command types for unified hash argument parser */
 #define HASH_CMD_HGETEX 0
@@ -2240,8 +2241,9 @@ static int parseExpireTime(client *c, robj *o, int unit, long long basetime,
 /* Parse hash field expiration command arguments for both HGETEX and HSETEX.
  * HGETEX <key> [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|PERSIST]
  *              FIELDS <numfields> field [field ...]
- * HSETEX <key> [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]
- *              [FXX|FNX] FIELDS <numfields> field value [field value ...]
+ * HSETEX <key> [FXX|FNX] [KEY] [EX seconds|PX milliseconds|EXAT unix-time-seconds|
+ *              PXAT unix-time-milliseconds|KEEPTTL] FIELDS <numfields> field value [...]
+ *              Without KEY, expiration options apply to hash fields (HFE).
  */
 static int parseHashFieldExpireArgs(client *c, int *flags,
                                     long long *expire_time, int *expire_time_pos,
@@ -2357,6 +2359,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FNX;
+        } else if (command_type == HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "KEY")) {
+            if (*flags & HFE_KEY) {
+                addReplyError(c, "KEY specified multiple times");
+                return C_ERR;
+            }
+            *flags |= HFE_KEY;
         } else {
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
@@ -2367,6 +2375,14 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
     if (*first_field_pos == -1) {
         addReplyError(c, "missing FIELDS argument");
         return C_ERR;
+    }
+
+    if (*flags & HFE_KEY) {
+        if (!(*flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT | HFE_KEEPTTL))) {
+            addReplyError(c,
+                "KEY requires one of EX, PX, EXAT, PXAT or KEEPTTL to be specified");
+            return C_ERR;
+        }
     }
 
     return C_OK;
@@ -2391,8 +2407,11 @@ err_expiration:
  *
  * HSETEX key
  *  [FNX | FXX]
+ *  [KEY]
  *  [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
  *  FIELDS <numfields> field value [field value...]
+ *
+ * Without KEY, expiration options apply to hash fields. With KEY, they apply to the Redis key.
  *
  * Reply:
  *   Integer reply: 0 if no fields were set (due to FXX/FNX args)
@@ -2406,6 +2425,7 @@ void hsetexCommand(client *c) {
     HashTypeSetEx setex;
     dictEntryLink link;
     size_t oldsize = 0;
+    int key_numeric_expire = 0;
 
     if (parseHashFieldExpireArgs(c, &flags, &expire_time, &expire_time_pos,
                                  &first_field_pos, &field_count, HASH_CMD_HSETEX) != C_OK)
@@ -2414,6 +2434,21 @@ void hsetexCommand(client *c) {
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c, o, OBJ_HASH))
         return;
+
+    key_numeric_expire = flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT);
+    if ((flags & HFE_KEY) && key_numeric_expire && checkAlreadyExpired(expire_time)) {
+        if (o) {
+            dbDelete(c->db, c->argv[1]);
+            robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
+            rewriteClientCommandVector(c, 2, aux, c->argv[1]);
+            keyModified(c, c->db, c->argv[1], NULL, 1);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+            server.dirty++;
+        }
+        server.stat_expiredkeys++;
+        addReplyLongLong(c, 1);
+        return;
+    }
 
     if (!o) {
         if (flags & HFE_FXX) {
@@ -2472,7 +2507,35 @@ void hsetexCommand(client *c) {
     }
     hashTypeTryConversion(c->db, o,c->argv, first_field_pos, c->argc - 1);
 
-    /* Check if we will set the expiration time. */
+    /* Key-level TTL: apply EX/PX/EXAT/PXAT/KEEPTTL to the hash key (not fields). */
+    if (flags & HFE_KEY) {
+        for (int i = 0; i < field_count; i++) {
+            sds field = c->argv[first_field_pos + (i * 2)]->ptr;
+            sds value = c->argv[first_field_pos + (i * 2) + 1]->ptr;
+            hashTypeSet(c->db, o, field, value, HASH_SET_COPY);
+            vecPush(vset, c->argv[first_field_pos + (i * 2)]);
+        }
+
+        server.dirty += field_count;
+
+        if (key_numeric_expire) {
+            o = setExpireByLink(c, c->db, c->argv[1]->ptr, expire_time, link);
+            server.dirty++;
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
+            if (!(flags & HFE_PXAT)) {
+                /* Propagate as HSETEX ... KEY PXAT <ms> ... */
+                rewriteClientCommandArgument(c, expire_time_pos - 1, shared.pxat);
+                robj *expire = createStringObjectFromLongLong(expire_time);
+                rewriteClientCommandArgument(c, expire_time_pos, expire);
+                decrRefCount(expire);
+            }
+        }
+
+        addReplyLongLong(c, 1);
+        goto out;
+    }
+
+    /* Hash field expiration (HFE): optional per-field TTL. */
     set_expiry = flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT);
     if (set_expiry)
         hashTypeSetExInit(c->argv[1], o, c, c->db, 0, &setex);
