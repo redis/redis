@@ -1245,6 +1245,9 @@ static int fetchClusterConfiguration(void) {
             fprintf(stderr,
                     "WARNING: Master node %s:%d has no slots, skipping...\n",
                     node->ip, node->port);
+            /* Non-myself entries are fresh allocations not yet transferred
+             * to config.cluster_nodes; firstNode is owned by the caller. */
+            if (node != firstNode) freeClusterNode(node);
             continue;
         }
         if (!addClusterNode(node)) {
