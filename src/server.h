@@ -574,12 +574,15 @@ typedef enum {
                                          * we are waiting rdbchannel connection to start delivery.*/
 #define SLAVE_STATE_SEND_BULK_AND_STREAM 12 /* Main channel of a replica which uses rdb channel replication.
                                              * Sending RDB file and replication stream in parallel. */
+#define SLAVE_STATE_WAIT_BGREWRITE_START 13 /* Waiting for BG AOF snapshot for full sync. */
+#define SLAVE_STATE_WAIT_BGREWRITE_END 14   /* Snapshot generation in progress (AOF). */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE             0
 #define SLAVE_CAPA_EOF              (1<<0) /* Can parse the RDB EOF streaming format. */
 #define SLAVE_CAPA_PSYNC2           (1<<1) /* Supports PSYNC2 protocol. */
 #define SLAVE_CAPA_RDB_CHANNEL_REPL (1<<2) /* Supports rdb channel replication during full sync */
+#define SLAVE_CAPA_FULLSYNC_AOF     (1<<3) /* Supports full sync using AOF command stream */
 
 /* Slave requirements. NO_COMPRESS and NO_CHECKSUM are hints rather than strict
  * requirements - the replica can handle compressed/checksummed RDB either way,
@@ -645,6 +648,16 @@ typedef enum {
 #define REPL_DISKLESS_LOAD_WHEN_DB_EMPTY 1
 #define REPL_DISKLESS_LOAD_SWAPDB 2
 #define REPL_DISKLESS_LOAD_ALWAYS 3
+
+/* Replication fullsync snapshot format (master offers / replica requests). */
+#define REPL_FULLSYNC_RDB 0
+#define REPL_FULLSYNC_AOF 1
+
+/* Snapshot payload type during replica sync (after PSYNC / on wire). */
+typedef enum {
+    REPL_SNAPSHOT_RDB = 0,
+    REPL_SNAPSHOT_AOF = 1
+} repl_snapshot_type;
 
 /* TLS Client Authentication */
 #define TLS_CLIENT_AUTH_NO 0
@@ -2339,6 +2352,8 @@ struct redisServer {
                                          * delay (start sooner if they all connect). */
     int repl_rdb_channel;           /* Config used to determine if the replica should
                                      * use rdb channel replication for full syncs. */
+    int repl_fullsync_format;       /* REPL_FULLSYNC_RDB or REPL_FULLSYNC_AOF (master). */
+    char *fullsync_aof_filename;    /* Basename for on-disk fullsync AOF snapshot file. */
     int repl_debug_pause;           /* Debug config to force the main process to pause. */
     size_t repl_buffer_mem;         /* The memory of replication buffer. */
     list *repl_buffer_blocks;       /* Replication buffers blocks list
@@ -2359,6 +2374,11 @@ struct redisServer {
     uint64_t repl_num_master_disconnection; /* Number of master connection was disconnected */
     uint64_t repl_main_ch_client_id; /* Main channel client id received in +RDBCHANNELSYNC reply. */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
+    long long repl_stream_offset; /* Replication offset carried with AOF fullsync. */
+    repl_snapshot_type repl_transfer_format; /* Snapshot wire format during replica sync. */
+    int repl_stream_dbid;          /* Stream DB id from master (+FULLRESYNC ... AOF). */
+    int repl_replica_stream_dbid;  /* Replica-side stream DB id for AOF fullsync. */
+    int aof_rewrite_for_replication; /* AOF rewrite child is serving replication fullsync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
     connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
@@ -3406,7 +3426,7 @@ void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
 long long getPsyncInitialOffset(void);
-int replicationSetupSlaveForFullResync(client *slave, long long offset);
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int fullsync_aof);
 void changeReplicationId(void);
 void clearReplicationId2(void);
 void createReplicationBacklog(void);
@@ -3461,14 +3481,14 @@ int bg_unlink(const char *filename);
 void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
-int rewriteAppendOnlyFileBackground(void);
+int rewriteAppendOnlyFileBackground(int for_replication, int req);
 int loadAppendOnlyFiles(aofManifest *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void startAppendOnlyWithRetry(void);
 void applyAppendOnlyConfig(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
-void killAppendOnlyChild(void);
+void killAppendOnlyChild(int async);
 void aofLoadManifestFromDisk(void);
 void aofOpenIfNeededOnServerStart(void);
 void aofManifestFree(aofManifest *am);

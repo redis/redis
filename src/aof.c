@@ -27,7 +27,7 @@ off_t getAppendOnlyFileSize(sds filename, int *status);
 off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status);
 int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
-int rewriteAppendOnlyFile(char *filename);
+int rewriteAppendOnlyFile(char *filename, int req);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
 void aof_background_fsync_and_close(int fd);
@@ -743,7 +743,7 @@ void aofOpenIfNeededOnServerStart(void) {
     if (!server.aof_manifest->base_aof_info && !incr_aof_len) {
         sds base_name = getNewBaseFileNameAndMarkPreAsHistory(server.aof_manifest);
         sds base_filepath = makePath(server.aof_dirname, base_name);
-        if (rewriteAppendOnlyFile(base_filepath) != C_OK) {
+        if (rewriteAppendOnlyFile(base_filepath, SLAVE_REQ_NONE) != C_OK) {
             exit(1);
         }
         sdsfree(base_filepath);
@@ -989,20 +989,24 @@ void aof_background_fsync_and_close(int fd) {
     bioCreateCloseAofJob(fd, server.master_repl_offset, 1);
 }
 
-/* Kills an AOFRW child process if exists */
-void killAppendOnlyChild(void) {
+/* Kills an AOFRW child process if exists. If async is true, skip waitpid and
+ * cleanup; checkChildrenDone will finish after the child exits. */
+void killAppendOnlyChild(int async) {
     int statloc;
     /* No AOFRW child? return. */
     if (server.child_type != CHILD_TYPE_AOF) return;
     /* Kill AOFRW child, wait for child exit. */
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.child_pid);
-    if (kill(server.child_pid,SIGUSR1) != -1) {
-        while(waitpid(-1, &statloc, 0) != server.child_pid);
+    int ret = kill(server.child_pid,SIGUSR1);
+    if (!async) {
+        if (ret != -1) {
+            while(waitpid(-1, &statloc, 0) != server.child_pid);
+        }
+        aofRemoveTempFile(server.child_pid);
+        resetChildState();
+        server.aof_rewrite_time_start = -1;
     }
-    aofRemoveTempFile(server.child_pid);
-    resetChildState();
-    server.aof_rewrite_time_start = -1;
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -1026,7 +1030,7 @@ void stopAppendOnly(void) {
     server.aof_last_incr_fsync_offset = 0;
     server.fsynced_reploff = -1;
     atomicSet(server.fsynced_reploff_pending, 0);
-    killAppendOnlyChild();
+    killAppendOnlyChild(0);
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
 }
@@ -1049,10 +1053,10 @@ int startAppendOnly(void) {
          * accumulating the AOF buffer. */
         if (server.child_type == CHILD_TYPE_AOF) {
             serverLog(LL_NOTICE,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
-            killAppendOnlyChild();
+            killAppendOnlyChild(0);
         }
 
-        if (rewriteAppendOnlyFileBackground() == C_ERR) {
+        if (rewriteAppendOnlyFileBackground(0, SLAVE_REQ_NONE) == C_ERR) {
             server.aof_state = AOF_OFF;
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
             return C_ERR;
@@ -2557,7 +2561,7 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
     return C_OK;
 }
 
-int rewriteAppendOnlyFileRio(rio *aof) {
+int rewriteAppendOnlyFileRio(rio *aof, int req) {
     dictEntry *de;
     int j;
     long key_count = 0;
@@ -2572,7 +2576,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         sdsfree(ts);
     }
 
-    if (rewriteFunctions(aof) == 0) goto werr;
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS) && rewriteFunctions(aof) == 0) goto werr;
+
+    if (req & SLAVE_REQ_RDB_EXCLUDE_DATA) return C_OK;
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
@@ -2661,7 +2667,7 @@ werr:
  * log Redis uses variadic commands when possible, such as RPUSH, SADD
  * and ZADD. However at max AOF_REWRITE_ITEMS_PER_CMD items per time
  * are inserted using a single command. */
-int rewriteAppendOnlyFile(char *filename) {
+int rewriteAppendOnlyFile(char *filename, int req) {
     rio aof;
     FILE *fp = NULL;
     char tmpfile[256];
@@ -2686,12 +2692,12 @@ int rewriteAppendOnlyFile(char *filename) {
 
     if (server.aof_use_rdb_preamble) {
         int error;
-        if (rdbSaveRio(SLAVE_REQ_NONE,&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
+        if (rdbSaveRio(req,&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
             goto werr;
         }
     } else {
-        if (rewriteAppendOnlyFileRio(&aof) == C_ERR) goto werr;
+        if (rewriteAppendOnlyFileRio(&aof, req) == C_ERR) goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
@@ -2741,7 +2747,7 @@ werr:
  *    4d) persist AOF manifest file
  *    4e) Delete the history files use bio
  */
-int rewriteAppendOnlyFileBackground(void) {
+int rewriteAppendOnlyFileBackground(int for_replication, int req) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
@@ -2785,7 +2791,8 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetProcTitle("redis-aof-rewrite");
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
-        if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
+        if (for_replication) server.aof_use_rdb_preamble = 0;
+        if (rewriteAppendOnlyFile(tmpfile, req) == C_OK) {
             serverLog(LL_NOTICE,
                 "Successfully created the temporary AOF base file %s", tmpfile);
             sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
@@ -2806,6 +2813,7 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
+        server.aof_rewrite_for_replication = for_replication;
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -2820,7 +2828,7 @@ void bgrewriteaofCommand(client *c) {
          * so that it can be executed immediately. */
         server.stat_aofrw_consecutive_failures = 0;
         addReplyStatus(c,"Background append only file rewriting scheduled");
-    } else if (rewriteAppendOnlyFileBackground() == C_OK) {
+    } else if (rewriteAppendOnlyFileBackground(0, SLAVE_REQ_NONE) == C_OK) {
         addReplyStatus(c,"Background append only file rewriting started");
     } else {
         addReplyError(c,"Can't execute an AOF background rewriting. "
@@ -3046,6 +3054,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     }
 
 cleanup:
+    server.aof_rewrite_for_replication = 0;
     aofRemoveTempFile(server.child_pid);
     /* Clear AOF buffer and delete temp incr aof for next rewrite. */
     if (server.aof_state == AOF_WAIT_REWRITE) {

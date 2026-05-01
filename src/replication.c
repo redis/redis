@@ -923,10 +923,11 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
-int replicationSetupSlaveForFullResync(client *slave, long long offset) {
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int fullsync_aof) {
     char buf[128];
     int buflen;
 
+    UNUSED(fullsync_aof);
     slave->psync_initial_offset = offset;
     slave->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
     /* We are going to accumulate the incremental changes for this
@@ -1176,7 +1177,7 @@ int startBgsaveForReplication(int mincapa, int req) {
                 /* Check slave has the exact requirements */
                 if (slave->slave_req != req)
                     continue;
-                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset(), 0);
             }
         }
     }
@@ -1363,7 +1364,7 @@ void syncCommand(client *c) {
              * We don't copy buffer if clients don't want. */
             if (!(c->flags & CLIENT_REPL_RDBONLY))
                 copyReplicaOutputBuffer(c,slave);
-            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
+            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset, 0);
             serverLog(LL_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
             /* No way, we need to wait for the next BGSAVE in order to
