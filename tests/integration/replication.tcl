@@ -1033,7 +1033,7 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                             assert {$master_utime < 70}
                             assert {$master_stime < 70}
                         }
-                        if {!$::no_latency && ($all_drop == "none" || $all_drop == "fast")} {
+                        if {!$::no_latency && ($all_drop == "no" || $all_drop == "fast")} {
                             assert {$master_utime < 15}
                             assert {$master_stime < 15}
                         }
