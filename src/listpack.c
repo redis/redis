@@ -3133,6 +3133,12 @@ int listpackTest(int argc, char *argv[], int flags) {
     TEST("Test lpFindInteger") {
         long long lget;
         unsigned int slen;
+        unsigned char *q;
+
+        lp = lpNew(0);
+        assert(lpFirst(lp) == NULL);
+        assert(lpFindInteger(lp, NULL, 0, 0) == NULL);
+        lpFree(lp);
 
         lp = lpNew(0);
         lp = lpAppendInteger(lp, 42);
@@ -3145,15 +3151,78 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpFindInteger(lp, p, 99, 0) == NULL);
         lpFree(lp);
 
-        /* String "100" must not match integer 100 encoded as int. */
         lp = lpNew(0);
-        lp = lpAppend(lp, (unsigned char*)"100", 3);
+        lp = lpAppend(lp, (unsigned char*)"100x", 4);
         lp = lpAppendInteger(lp, 100);
         p = lpFirst(lp);
         assert(lpGetValue(p, &slen, &lget) != NULL);
-        assert(slen == 3);
+        assert(slen == 4);
+        verifyEntry(p, (unsigned char*)"100x", 4);
+        q = lpFindInteger(lp, p, 100, 0);
+        assert(q == lpNext(lp, p));
+        assert(lpGetIntegerValue(q, &lget) && lget == 100);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"42x", 3);
+        lp = lpAppend(lp, (unsigned char*)"-7y", 3);
+        p = lpFirst(lp);
+
+        /* Ensure they are stored as strings */
+        assert(lpGetValue(p, &slen, &lget) != NULL);
+        assert(lpGetValue(lpNext(lp, p), &slen, &lget) != NULL);
+
+        /* lpFindInteger should NOT match */
+        assert(lpFindInteger(lp, p, 42, 0) == NULL);
+        assert(lpFindInteger(lp, p, -7, 0) == NULL);
+
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppendInteger(lp, 127);
+        lp = lpAppendInteger(lp, 32767);
+        lp = lpAppendInteger(lp, 2147483647);
+        p = lpFirst(lp);
+        assert(lpGetIntegerValue(p, &lget) && lget == 127);
+        q = lpFindInteger(lp, NULL, 32767, 0);
+        assert(q != NULL);
+        assert(lpGetIntegerValue(q, &lget) && lget == 32767);
+        assert(lpFindInteger(lp, NULL, 9223372036854775807LL, 0) == NULL);
+        q = lpLast(lp);
+        assert(lpGetIntegerValue(q, &lget) && lget == 2147483647);
+        assert(lpFindInteger(lp, q, 2147483647, 0) == q);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppendInteger(lp, 1);
+        lp = lpAppendInteger(lp, 2);
+        p = lpFirst(lp);
+        assert(lpFindInteger(lp, p, 1, 0) == p);
+        assert(lpFindInteger(lp, p, 2, 1) == NULL);
+        p = lpNext(lp, p);
+        assert(lpFindInteger(lp, p, 2, 0) == p);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"100", 3);  // becomes integer
+        p = lpFirst(lp);
+
+        /* Ensure it's stored as integer */
+        assert(lpGetIntegerValue(p, &lget) && lget == 100);
+
+        /* lpFindInteger SHOULD find it */
+        assert(lpFindInteger(lp, p, 100, 0) == p);
+
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"100x", 4);  // string
+        lp = lpAppend(lp, (unsigned char*)"100", 3);   // integer
+        p = lpFirst(lp);
+
+        /* First is string → skip */
         assert(lpFindInteger(lp, p, 100, 0) == lpNext(lp, p));
-        assert(lpGetIntegerValue(lpNext(lp, p), &lget) && lget == 100);
+
         lpFree(lp);
     }
 
