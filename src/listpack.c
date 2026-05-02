@@ -896,6 +896,10 @@ struct lpFindArg {
     int64_t vll;
 };
 
+struct lpFindIntArg {
+    int64_t vll;
+};
+
 /* Comparator function to find item */
 static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
                             void *user, unsigned char *s, long long slen) {
@@ -933,6 +937,19 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
     return 1;
 }
 
+/* Comparator function to find Integer */
+static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p, 
+                                   void *user, unsigned char *value, long long vll) {
+    (void) lp;
+    (void) p;
+    struct lpFindIntArg *arg = user;
+
+    if (value == NULL) {
+        if(vll == arg->vll) return 0;
+    }
+    return 1;
+}
+
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
@@ -943,6 +960,17 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
         .slen = slen
     };
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
+}
+
+/* Find pointer to the entry (Integer) equal to the specified entry (Integer).
+ * Skip 'skip' entries between every comparison. Return NULL when the Integer entry could not be found. */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
+                             int64_t vll, unsigned int skip)
+{
+    struct lpFindIntArg arg = {
+        .vll = vll
+    };
+    return lpFindCbInternal(lp, p, &arg, lpFindIntegerCmp, skip);
 }
 
 /* Insert, delete or replace the specified string element 'elestr' of length
@@ -3099,6 +3127,33 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpFind(lp, lpFirst(lp), (unsigned char*)"abc", 3, 0) == NULL);
         verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"hello", 5, 0), (unsigned char*)"hello", 5);
         verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"1024", 4, 0), (unsigned char*)"1024", 4);
+        lpFree(lp);
+    }
+
+    TEST("Test lpFindInteger") {
+        long long lget;
+        unsigned int slen;
+
+        lp = lpNew(0);
+        lp = lpAppendInteger(lp, 42);
+        lp = lpAppend(lp, (unsigned char*)"x", 1);
+        lp = lpAppendInteger(lp, -7);
+        p = lpFirst(lp);
+        assert(lpFindInteger(lp, NULL, 42, 0) == p);
+        assert(lpGetIntegerValue(p, &lget) && lget == 42);
+        assert(lpFindInteger(lp, p, -7, 0) == lpNext(lp, lpNext(lp, p)));
+        assert(lpFindInteger(lp, p, 99, 0) == NULL);
+        lpFree(lp);
+
+        /* String "100" must not match integer 100 encoded as int. */
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"100", 3);
+        lp = lpAppendInteger(lp, 100);
+        p = lpFirst(lp);
+        assert(lpGetValue(p, &slen, &lget) != NULL);
+        assert(slen == 3);
+        assert(lpFindInteger(lp, p, 100, 0) == lpNext(lp, p));
+        assert(lpGetIntegerValue(lpNext(lp, p), &lget) && lget == 100);
         lpFree(lp);
     }
 
