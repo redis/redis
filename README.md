@@ -937,3 +937,5 @@ By contributing code to the Redis project in any form, including sending a pull 
 ## Redis Trademarks
 
 The purpose of a trademark is to identify the goods and services of a person or company without causing confusion. As the registered owner of its name and logo, Redis accepts certain limited uses of its trademarks, but it has requirements that must be followed as described in its Trademark Guidelines available at: https://redis.io/legal/trademark-policy/.
+
+<!-- minor doc format -->
