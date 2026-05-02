@@ -181,6 +181,20 @@ foreach type {single multiple single_multiple} {
         assert_equal [lsort [r smembers s]] [lsort [r smembers d]]
     }
 
+    test {SADD integer deduplication in listpack} {
+        set oi [lindex [r config get set-max-intset-entries] 1]
+        set err [catch {
+            r config set set-max-intset-entries 0
+            r del s
+            r sadd s 1 2 3 marker
+            assert_encoding listpack s
+            assert_equal 0 [r sadd s 2]
+            assert_equal 4 [r scard s]
+        } e]
+        r config set set-max-intset-entries $oi
+        if {$err} {error $e}
+    }
+
     test {SINTERSTORE listpack sets overlap on compact integer members} {
         set oi [lindex [r config get set-max-intset-entries] 1]
         set err [catch {
