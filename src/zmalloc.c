@@ -123,7 +123,7 @@ static inline void init_my_thread_index(void) {
             my_thread_index = idx;
         } else {
             /* Overflow threads share the shared pool entries (atomic RMW). */
-            my_thread_index = DEDICATED_ENTRIES + ((idx - DEDICATED_ENTRIES) & SHARED_ENTRIES_MASK);
+            my_thread_index = DEDICATED_ENTRIES + (idx & SHARED_ENTRIES_MASK);
         }
     }
 }
@@ -133,7 +133,7 @@ static inline long long update_used_memory_entry(used_memory_entry *entry, long 
 
     if (my_thread_index < DEDICATED_ENTRIES) {
         /* Dedicated slot: single writer, plain load+store (no lock prefix). */
-        atomicAddSingleWriter(entry->used_memory, bytes_delta, thread_used);
+        atomicIncrGetSingleWriter(entry->used_memory, bytes_delta, thread_used);
     } else {
         /* Shared pool slots: multiple writers, atomic RMW required. */
         atomicIncrGet(entry->used_memory, thread_used, bytes_delta);

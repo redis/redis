@@ -184,7 +184,7 @@
 
 #endif
 
-/* atomicAddSingleWriter(var, delta, newvalue_var)
+/* atomicIncrGetSingleWriter(var, delta, newvalue_var)
  *
  * Adds `delta` to `var` and writes the resulting value to `newvalue_var`.
  * Same end result as atomicIncrGet() but implemented as load+add+store instead
@@ -196,7 +196,7 @@
  * thread). Concurrent writers cause silent lost updates. Readers on other
  * threads using atomicGet are fine: they will observe either the pre or
  * post update value. */
-#define atomicAddSingleWriter(var, delta, newvalue_var) do { \
+#define atomicIncrGetSingleWriter(var, delta, newvalue_var) do { \
     atomicGet((var), (newvalue_var)); \
     (newvalue_var) += (delta); \
     atomicSet((var), (newvalue_var)); \

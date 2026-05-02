@@ -637,7 +637,7 @@ void decrRefCount(robj *o) {
     if (--(o->refcount) == 0) {
         /* Fast path for embedded strings: no inner allocation to free, and we
          * can compute the alloc size to hint jemalloc for a faster deallocation. */
-        if (likely(o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_EMBSTR && !o->iskvobj)) {
+        if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_EMBSTR && !o->iskvobj) {
             serverAssert(sdsType(o->ptr) == SDS_TYPE_8); /* embstr always type_8 */
             zfree_with_size(o, sizeof(robj) + sdsAllocSize(o->ptr));
             return;
