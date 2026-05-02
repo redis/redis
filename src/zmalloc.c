@@ -86,10 +86,10 @@ void je_free_with_usize(void *ptr, size_t *usize);
  * arena which reduces performance.
  *
  *   lg_tcache_nslots_mul:3       default slot count log2 multiplier: 1 (2x) → 3 (8x).
- *   tcache_nslots_small_max:700  per-bin hard cap 200 -> 700.
+ *   tcache_nslots_small_max:1000 per-bin hard cap 200 -> 1000.
  */
 const char *je_malloc_conf =
-    "lg_tcache_nslots_mul:3,tcache_nslots_small_max:700";
+    "lg_tcache_nslots_mul:3,tcache_nslots_small_max:1000";
 #endif
 
 /* Per-thread memory accounting slots. The first DEDICATED_ENTRIES threads
