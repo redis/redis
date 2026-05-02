@@ -911,6 +911,7 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
             # Reset config that the timeout subcase may change, so a failing
             # subcase does not leave the next one with an aggressive timeout.
             $master config set repl-timeout 60
+            $master config set rdb-key-save-delay 0
             set replicas {}
             set replicas_alive {}
             # start one replica that will read the rdb fast, and one that will be slow
@@ -927,6 +928,13 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
                     [lindex $replicas 1] config set repl-diskless-load swapdb
+                    if {$all_drop == "all"} {
+                        # Keep the RDB child generating data long enough for
+                        # both replicas to be killed before the pipe reaches
+                        # EOF, so this subcase still covers the last-replica
+                        # drop path instead of racing with normal completion.
+                        $master config set rdb-key-save-delay 1000
+                    }
                     # For non-timeout subcases, use key-load-delay to keep
                     # replica 0 as a steady slow reader for the entire RDB
                     # transfer. This keeps the expected diskless pipe code
