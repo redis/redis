@@ -44,8 +44,8 @@ list(APPEND MODULES_LIST "")
 
 foreach (MODULE_NAME ${MODULES_LIST})
     message(STATUS "Building test module: ${MODULE_NAME}")
-    add_library(${MODULE_NAME} SHARED "${CMAKE_SOURCE_DIR}/tests/modules/${MODULE_NAME}.c")
-    target_include_directories(${MODULE_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src")
+    add_library(${MODULE_NAME} SHARED "../tests/modules/${MODULE_NAME}.c")
+    target_include_directories(${MODULE_NAME} PRIVATE "${REDIS_ROOT}/src")
     if (LINUX AND NOT APPLE)
         # set the std to gnu11 here, to allow crash.c to get compiled
         target_compile_options(${MODULE_NAME} PRIVATE "-std=gnu11")

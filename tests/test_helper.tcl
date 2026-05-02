@@ -1,5 +1,3 @@
-set override_file [file join [file dirname [info script]] exec_override.tcl]
-if {[file exists $override_file]} { source $override_file } elseif {[file exists [file join [file dirname [info script]] .. exec_override.tcl]]} { source [file join [file dirname [info script]] .. exec_override.tcl] }
 # Redis test suite.
 #
 # Copyright (C) 2014-Present, Redis Ltd.
@@ -269,7 +267,10 @@ proc run_solo {name code} {
 }
 
 proc cleanup {} {
-    if {!$::quiet} {puts -nonewline "Cleanup: skipped... "}
+    if {!$::quiet} {puts -nonewline "Cleanup: may take some time... "}
+    flush stdout
+    catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
+    catch {exec rm -rf {*}[glob tests/tmp/server.*]}
     if {!$::quiet} {puts "OK"}
 }
 
@@ -395,11 +396,10 @@ proc read_from_test_client fd {
             gets stdin
         }
     } elseif {$status eq {exception}} {
-        set err "\[[colorstr red $status]\]: $data"
-        puts $err
-        lappend ::failed_tests $err
-        set ::active_clients_task($fd) "(EXCEPTION) $data"
-        signal_idle_client $fd
+        puts "\[[colorstr red $status]\]: $data"
+        kill_clients
+        force_kill_all_servers
+        exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
     } elseif {$status eq {server-spawning}} {
@@ -530,24 +530,13 @@ proc test_client_main server_port {
         set bytes [gets $::test_server_fd]
         set payload [encoding convertfrom utf-8 [read $::test_server_fd $bytes]]
         foreach {cmd data} $payload break
-        if {[catch {
-            if {$cmd eq {run}} {
-                execute_test_file $data
-            } elseif {$cmd eq {run_code}} {
-                foreach {name filename code} $data break
-                execute_test_code $name $filename $code
-            } else {
-                error "Unknown test client command: $cmd"
-            }
-        } err]} {
-            set estr "Executing test client: $err.\n$::errorInfo"
-            catch {send_data_packet $::test_server_fd exception $estr}
-            if {$cmd eq {run}} {
-                catch {send_data_packet $::test_server_fd done $data}
-            } elseif {$cmd eq {run_code}} {
-                catch {send_data_packet $::test_server_fd done [lindex $data 0]}
-            }
-            exit 1
+        if {$cmd eq {run}} {
+            execute_test_file $data
+        } elseif {$cmd eq {run_code}} {
+            foreach {name filename code} $data break
+            execute_test_code $name $filename $code
+        } else {
+            error "Unknown test client command: $cmd"
         }
     }
 }

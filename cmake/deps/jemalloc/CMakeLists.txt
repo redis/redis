@@ -2,7 +2,7 @@ project(jemalloc)
 
 # Build jemalloc using configure && make install
 set(JEMALLOC_INSTALL_DIR ${CMAKE_BINARY_DIR}/jemalloc-build)
-set(JEMALLOC_SRC_DIR ${CMAKE_CURRENT_LIST_DIR})
+set(JEMALLOC_SRC_DIR ${REDIS_ROOT}/deps/jemalloc)
 if (NOT EXISTS ${JEMALLOC_INSTALL_DIR}/lib/libjemalloc.a)
     message(STATUS "Building jemalloc (custom build)")
     message(STATUS "JEMALLOC_SRC_DIR = ${JEMALLOC_SRC_DIR}")

@@ -115,10 +115,10 @@ start_server {tags {"auth_binary_password external:skip"}} {
 
                 # Test replica with the correct masterauth
                 $slave config set masterauth "abc\x00def"
-                wait_for_condition 200 100 {
+                wait_for_condition 50 100 {
                     [s 0 master_link_status] eq {up}
                 } else {
-                    fail "Can't turn the instance into a replica (status: [s 0 master_link_status])"
+                    fail "Can't turn the instance into a replica"
                 }
             }
         }

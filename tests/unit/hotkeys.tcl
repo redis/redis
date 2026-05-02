@@ -374,7 +374,7 @@ start_server {tags {external:skip "hotkeys"}} {
             # hot_keys list
             set num_returned_cpu [llength $returned_cpu_keys]
             assert_lessthan_equal $num_returned_cpu 10
-            assert {$num_returned_cpu >= 0}
+            assert_morethan $num_returned_cpu 0
 
             set res 0
             foreach key $returned_cpu_keys {

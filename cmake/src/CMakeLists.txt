@@ -1,5 +1,5 @@
-include_directories(BEFORE "${CMAKE_SOURCE_DIR}/deps/lua/src")
-include_directories(BEFORE "${CMAKE_SOURCE_DIR}/deps/xxhash")
+include_directories(BEFORE "../deps/lua/src")
+include_directories(BEFORE "../deps/xxhash")
 project(redis-server)
 
 set(INSTALL_BIN_PATH ${CMAKE_INSTALL_PREFIX}/bin)
@@ -27,7 +27,7 @@ if (BUILD_LUA)
     
     add_dependencies(redis-server lualib)
     target_compile_definitions(redis-server PRIVATE LUA_ENABLED)
-    target_include_directories(redis-server PUBLIC "${CMAKE_SOURCE_DIR}/deps/lua/src" "${CMAKE_SOURCE_DIR}/deps/xxhash")
+    target_include_directories(redis-server PUBLIC "../deps/lua/src" "../deps/xxhash")
     if (UNIX AND NOT APPLE)
         target_compile_definitions(redis-server PRIVATE LUA_LIB=hilualib.so)
         target_link_options(redis-server PRIVATE -Wl,--disable-new-dtags)
@@ -120,7 +120,7 @@ endif()
 endif ()
 
 # Friendly hint like the Makefile one
-file(RELATIVE_PATH _CMAKE_DIR_RELATIVE_PATH "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
+file(RELATIVE_PATH _CMAKE_DIR_RELATIVE_PATH "${REDIS_ROOT}" "${CMAKE_BINARY_DIR}")
 add_custom_target(hint ALL
     DEPENDS redis-server redis-cli 
     COMMAND ${CMAKE_COMMAND} -E echo ""

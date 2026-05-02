@@ -1,5 +1,3 @@
-set override_file [file join [file dirname [info script]] exec_override.tcl]
-if {[file exists $override_file]} { source $override_file } elseif {[file exists [file join [file dirname [info script]] .. exec_override.tcl]]} { source [file join [file dirname [info script]] .. exec_override.tcl] }
 # Sentinel test suite.
 #
 # Copyright (C) 2014-Present, Redis Ltd.

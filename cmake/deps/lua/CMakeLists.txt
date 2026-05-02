@@ -2,7 +2,7 @@ project(lualib)
 
 include(CheckFunctionExists)
 
-set(LUA_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/src")
+set(LUA_SRC_DIR "${REDIS_ROOT}/deps/lua/src")
 set(LUA_SRCS
     ${LUA_SRC_DIR}/fpconv.c
     ${LUA_SRC_DIR}/lbaselib.c

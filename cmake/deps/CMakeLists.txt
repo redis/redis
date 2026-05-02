@@ -26,8 +26,8 @@ if (USE_RDMA) # Module or no module
     endif()
 endif ()
 # Let hiredis use sds and dict provided by redis.
-set(DICT_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/src)
-set(SDS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/src)
+set(DICT_INCLUDE_DIR ${REDIS_ROOT}/src)
+set(SDS_INCLUDE_DIR ${REDIS_ROOT}/src)
 
 add_subdirectory(hiredis)
 add_subdirectory(linenoise)

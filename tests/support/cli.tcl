@@ -13,8 +13,7 @@ proc rediscli_tls_config {testsdir} {
 
 # Returns command line for executing redis-cli
 proc rediscli {host port {opts {}}} {
-    if {[info exists ::env(REDIS_BIN_DIR)]} { set binpath [list $::env(REDIS_BIN_DIR)/redis-cli.exe] } else { set binpath [list src/redis-cli] }
-    set cmd [list {*}$binpath -h $host -p $port]
+    set cmd [list src/redis-cli -h $host -p $port]
     lappend cmd {*}[rediscli_tls_config "tests"]
     lappend cmd {*}$opts
     return $cmd
@@ -22,14 +21,13 @@ proc rediscli {host port {opts {}}} {
 
 # Returns command line for executing redis-cli with a unix socket address
 proc rediscli_unixsocket {unixsocket {opts {}}} {
-    if {[info exists ::env(REDIS_BIN_DIR)]} { set binpath [list $::env(REDIS_BIN_DIR)/redis-cli.exe] } else { set binpath [list src/redis-cli] }
-    return [list {*}$binpath -s $unixsocket {*}$opts]
+    return [list src/redis-cli -s $unixsocket {*}$opts]
 }
 
 # Run redis-cli with specified args on the server of specified level.
 # Returns output broken down into individual lines.
 proc rediscli_exec {level args} {
-    set cmd [rediscli [srv $level host] [srv $level port] $args]
+    set cmd [rediscli_unixsocket [srv $level unixsocket] $args]
     set fd [open "|$cmd" "r"]
     set ret [lrange [split [read $fd] "\n"] 0 end-1]
     close $fd

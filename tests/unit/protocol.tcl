@@ -89,7 +89,6 @@ start_server {tags {"protocol network"}} {
                 }]} {
                     set retval [gets $s]
                     close $s
-                    if {$retval eq ""} { set retval "-Protocol error" }
                     break
                 } else {
                     set elapsed [expr {[clock seconds]-$test_start}]

@@ -21,26 +21,9 @@
  * in the number is put in *ENDPTR.  */
 extern "C" double fast_float_strtod(const char *nptr, char **endptr) {
   double result = 0.0;
-  
-  // Handle infinities
-  if (nptr != NULL) {
-      if (_stricmp(nptr, "inf") == 0 || _stricmp(nptr, "+inf") == 0 || _stricmp(nptr, "infinity") == 0 || _stricmp(nptr, "+infinity") == 0) {
-          if (endptr) *endptr = (char *)(nptr + strlen(nptr));
-          return INFINITY;
-      }
-      if (_stricmp(nptr, "-inf") == 0 || _stricmp(nptr, "-infinity") == 0) {
-          if (endptr) *endptr = (char *)(nptr + strlen(nptr));
-          return -INFINITY;
-      }
-      if (_stricmp(nptr, "nan") == 0 || _stricmp(nptr, "+nan") == 0 || _stricmp(nptr, "-nan") == 0) {
-          if (endptr) *endptr = (char *)(nptr + strlen(nptr));
-          return NAN;
-      }
-  }
-
   auto answer = fast_float::from_chars(nptr, nptr + strlen(nptr), result);
   if (answer.ec != std::errc()) {
-    errno = EINVAL;  // Fallback to EINVAL for other errors
+    errno = EINVAL;  // Fallback to  for other errors
   }
   if (endptr != NULL) {
     *endptr = (char *)answer.ptr;

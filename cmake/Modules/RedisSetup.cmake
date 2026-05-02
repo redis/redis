@@ -300,17 +300,17 @@ if (BUILD_SANITIZER)
     endif ()
 endif ()
 
-include_directories("${CMAKE_SOURCE_DIR}/deps/hiredis")
-include_directories("${CMAKE_SOURCE_DIR}/deps/lua/src")
-include_directories("${CMAKE_SOURCE_DIR}/deps/linenoise")
-include_directories("${CMAKE_SOURCE_DIR}/deps/hdr_histogram")
-include_directories("${CMAKE_SOURCE_DIR}/deps/fpconv")
+include_directories("${REDIS_ROOT}/deps/hiredis")
+include_directories("${REDIS_ROOT}/deps/lua/src")
+include_directories("${REDIS_ROOT}/deps/linenoise")
+include_directories("${REDIS_ROOT}/deps/hdr_histogram")
+include_directories("${REDIS_ROOT}/deps/fpconv")
 
 add_subdirectory("${CMAKE_SOURCE_DIR}/deps")
 
 # Update linker flags for the allocator
 if (USE_JEMALLOC)
-    include_directories("${CMAKE_SOURCE_DIR}/deps/jemalloc/include")
+    include_directories("${REDIS_ROOT}/deps/jemalloc/include")
 endif ()
 
 # Common compiler flags
@@ -335,25 +335,25 @@ if (PYTHON_EXE)
     message(STATUS "Found python3: ${PYTHON_EXE}")
     # Rule for generating commands.def file from json files
     message(STATUS "Adding target generate_commands_def")
-    file(GLOB COMMAND_FILES_JSON "${CMAKE_SOURCE_DIR}/src/commands/*.json")
+    file(GLOB COMMAND_FILES_JSON "${REDIS_ROOT}/src/commands/*.json")
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/commands_def_generated
         DEPENDS ${COMMAND_FILES_JSON}
-        COMMAND ${PYTHON_EXE} ${CMAKE_SOURCE_DIR}/utils/generate-command-code.py
+        COMMAND ${PYTHON_EXE} ${REDIS_ROOT}/utils/generate-command-code.py
         COMMAND touch ${CMAKE_BINARY_DIR}/commands_def_generated
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/src")
+        WORKING_DIRECTORY "${REDIS_ROOT}/src")
     add_custom_target(generate_commands_def DEPENDS ${CMAKE_BINARY_DIR}/commands_def_generated)
 
     # Rule for generating fmtargs.h
     message(STATUS "Adding target generate_fmtargs_h")
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/fmtargs_generated
-        DEPENDS ${CMAKE_SOURCE_DIR}/utils/generate-fmtargs.py
+        DEPENDS ${REDIS_ROOT}/utils/generate-fmtargs.py
         COMMAND sed '/Everything/,$$d' fmtargs.h > fmtargs.h.tmp
-        COMMAND ${PYTHON_EXE} ${CMAKE_SOURCE_DIR}/utils/generate-fmtargs.py >> fmtargs.h.tmp
+        COMMAND ${PYTHON_EXE} ${REDIS_ROOT}/utils/generate-fmtargs.py >> fmtargs.h.tmp
         COMMAND mv fmtargs.h.tmp fmtargs.h
         COMMAND touch ${CMAKE_BINARY_DIR}/fmtargs_generated
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/src")
+        WORKING_DIRECTORY "${REDIS_ROOT}/src")
     add_custom_target(generate_fmtargs_h DEPENDS ${CMAKE_BINARY_DIR}/fmtargs_generated)
 else ()
     # Fake targets
@@ -368,8 +368,8 @@ else()
     # Generate release.h file (always)
     add_custom_target(
         release_header
-        COMMAND sh -c '${CMAKE_SOURCE_DIR}/src/mkreleasehdr.sh'
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/src")
+        COMMAND sh -c '${REDIS_ROOT}/src/mkreleasehdr.sh'
+        WORKING_DIRECTORY "${REDIS_ROOT}/src")
 endif()
 
 # -------------------------------------------------
@@ -398,4 +398,4 @@ unset(BUILD_TLS_BUILTIN CACHE)
 
 
 
-include_directories("${CMAKE_SOURCE_DIR}/deps/xxhash")
+include_directories("${REDIS_ROOT}/deps/xxhash")
