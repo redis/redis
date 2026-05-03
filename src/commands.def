@@ -8948,6 +8948,39 @@ struct COMMAND_ARG SUNIONSTORE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** BZMOVE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BZMOVE history */
+#define BZMOVE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BZMOVE tips */
+#define BZMOVE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BZMOVE key specs */
+keySpec BZMOVE_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BZMOVE where argument table */
+struct COMMAND_ARG BZMOVE_where_Subargs[] = {
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BZMOVE argument table */
+struct COMMAND_ARG BZMOVE_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BZMOVE_where_Subargs},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** BZMPOP ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -9341,6 +9374,64 @@ struct COMMAND_ARG ZLEXCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** ZMOVE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ZMOVE history */
+#define ZMOVE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ZMOVE tips */
+#define ZMOVE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ZMOVE key specs */
+keySpec ZMOVE_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ZMOVE where argument table */
+struct COMMAND_ARG ZMOVE_where_Subargs[] = {
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ZMOVE argument table */
+struct COMMAND_ARG ZMOVE_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ZMOVE_where_Subargs},
+};
+
+/********** ZMOVEMEMBER ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ZMOVEMEMBER history */
+#define ZMOVEMEMBER_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ZMOVEMEMBER tips */
+#define ZMOVEMEMBER_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ZMOVEMEMBER key specs */
+keySpec ZMOVEMEMBER_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ZMOVEMEMBER argument table */
+struct COMMAND_ARG ZMOVEMEMBER_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** ZMPOP ********************/
@@ -12020,6 +12111,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("sunion","Returns the union of multiple sets.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNION_History,0,SUNION_Tips,1,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SUNION_Keyspecs,1,NULL,1),.args=SUNION_Args},
 {MAKE_CMD("sunionstore","Stores the union of multiple sets in a key.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNIONSTORE_History,0,SUNIONSTORE_Tips,0,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SUNIONSTORE_Keyspecs,2,NULL,2),.args=SUNIONSTORE_Args},
 /* sorted_set */
+{MAKE_CMD("bzmove","Returns a highest- or lowest-scoring member after moving it from one sorted set to another. Blocks until a member is available otherwise. Deletes the source sorted set if the last member was moved.","O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.","8.8.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZMOVE_History,0,BZMOVE_Tips,0,bzmoveCommand,5,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZMOVE_Keyspecs,2,NULL,4),.args=BZMOVE_Args},
 {MAKE_CMD("bzmpop","Removes and returns a member by score from one or more sorted sets. Blocks until a member is available otherwise. Deletes the sorted set if the last element was popped.","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZMPOP_History,0,BZMPOP_Tips,0,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZMPOP_Keyspecs,1,blmpopGetKeys,5),.args=BZMPOP_Args},
 {MAKE_CMD("bzpopmax","Removes and returns the member with the highest score from one or more sorted sets. Blocks until a member available otherwise.  Deletes the sorted set if the last element was popped.","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,1,BZPOPMAX_Tips,0,bzpopmaxCommand,-3,CMD_WRITE|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZPOPMAX_Keyspecs,1,NULL,2),.args=BZPOPMAX_Args},
 {MAKE_CMD("bzpopmin","Removes and returns the member with the lowest score from one or more sorted sets. Blocks until a member is available otherwise. Deletes the sorted set if the last element was popped.","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,1,BZPOPMIN_Tips,0,bzpopminCommand,-3,CMD_WRITE|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZPOPMIN_Keyspecs,1,NULL,2),.args=BZPOPMIN_Args},
@@ -12033,6 +12125,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("zintercard","Returns the number of members of the intersect of multiple sorted sets.","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTERCARD_History,0,ZINTERCARD_Tips,0,zinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,ZINTERCARD_Keyspecs,1,zunionInterDiffGetKeys,3),.args=ZINTERCARD_Args},
 {MAKE_CMD("zinterstore","Stores the intersect of multiple sorted sets in a key.","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZINTERSTORE_History,1,ZINTERSTORE_Tips,0,zinterstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZINTERSTORE_Keyspecs,2,zunionInterDiffStoreGetKeys,5),.args=ZINTERSTORE_Args},
 {MAKE_CMD("zlexcount","Returns the number of members in a sorted set within a lexicographical range.","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_History,0,ZLEXCOUNT_Tips,0,zlexcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZLEXCOUNT_Keyspecs,1,NULL,3),.args=ZLEXCOUNT_Args},
+{MAKE_CMD("zmove","Returns a highest- or lowest-scoring member after moving it from one sorted set to another. Deletes the source sorted set if the last member was moved.","O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.","8.8.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZMOVE_History,0,ZMOVE_Tips,0,zmoveCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZMOVE_Keyspecs,2,NULL,3),.args=ZMOVE_Args},
+{MAKE_CMD("zmovemember","Returns a member and its score after moving the member from one sorted set to another. Deletes the source sorted set if the last member was moved.","O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.","8.8.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZMOVEMEMBER_History,0,ZMOVEMEMBER_Tips,0,zmovememberCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,ZMOVEMEMBER_Keyspecs,2,NULL,3),.args=ZMOVEMEMBER_Args},
 {MAKE_CMD("zmpop","Returns the highest- or lowest-scoring members from one or more sorted sets after removing them. Deletes the sorted set if the last member was popped.","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZMPOP_History,0,ZMPOP_Tips,0,zmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_SORTEDSET,ZMPOP_Keyspecs,1,zmpopGetKeys,4),.args=ZMPOP_Args},
 {MAKE_CMD("zmscore","Returns the score of one or more members in a sorted set.","O(N) where N is the number of members being requested.","6.2.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZMSCORE_History,0,ZMSCORE_Tips,0,zmscoreCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZMSCORE_Keyspecs,1,NULL,2),.args=ZMSCORE_Args},
 {MAKE_CMD("zpopmax","Returns the highest-scoring members from a sorted set after removing them. Deletes the sorted set if the last member was popped.","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,ZPOPMAX_History,0,ZPOPMAX_Tips,0,zpopmaxCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,ZPOPMAX_Keyspecs,1,NULL,2),.args=ZPOPMAX_Args},

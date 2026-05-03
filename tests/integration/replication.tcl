@@ -186,6 +186,33 @@ start_server {tags {"repl external:skip"}} {
             }
         }
 
+        foreach position {min max} {
+            test "BZMOVE $position replication, when blocking against empty zset" {
+                r del z1 z2
+                $A config resetstat
+                set rd [redis_deferring_client]
+                $rd bzmove z1 z2 $position 5
+                $rd flush
+                wait_for_blocked_client
+                r zadd z1 0 a
+                wait_for_ofs_sync $B $A
+                assert_equal [$A debug digest] [$B debug digest]
+                assert_match {*calls=1,*} [cmdrstat zmove $A]
+                assert_equal [$rd read] {a 0}
+                $rd close
+            }
+
+            test "BZMOVE $position replication, zset exists" {
+                r del z1
+                $A config resetstat
+                r zadd z1 -1 a 0 b 1 c 2 d
+                r bzmove z1 z2 $position 5
+                wait_for_ofs_sync $B $A
+                assert_equal [$A debug digest] [$B debug digest]
+                assert_match {*calls=1,*} [cmdrstat zmove $A]
+            }
+        }
+
         test {BLPOP followed by role change, issue #2473} {
             set rd [redis_deferring_client]
             $rd blpop foo 0 ; # Block while B is a master
