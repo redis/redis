@@ -274,6 +274,21 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             mt->digest(&md,mv->value);
             xorDigest(digest,md.x,sizeof(md.x));
         }
+    } else if (o->type == OBJ_ARRAY) {
+        redisArray *ar = o->ptr;
+        uint64_t len = arLen(ar);
+        for (uint64_t idx = 0; idx < len; idx++) {
+            void *v = arGet(ar, idx);
+            if (arIsEmpty(v)) {
+                /* For empty slots, contribute "(null)" */
+                mixDigest(digest, "(null)", 6);
+            } else {
+                char vbuf[AR_INLINE_BUFSIZE];
+                size_t vlen;
+                const char *data = arDecode(v, vbuf, sizeof(vbuf), &vlen);
+                mixDigest(digest, data, vlen);
+            }
+        }
     } else {
         serverPanic("Unknown object type");
     }

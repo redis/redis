@@ -16,6 +16,20 @@ DEPS_CFLAGS := $(CFLAGS)
 DEPS_LDFLAGS := $(LDFLAGS)
 CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
 
+# Make sure the dependencies honor SANITIZER as well. Otherwise top-level
+# sanitized Redis builds can end up linking unsanitized vendored libraries.
+ifeq ($(SANITIZER),address)
+	DEPS_CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+	DEPS_LDFLAGS+=-fsanitize=address
+else
+ifeq ($(SANITIZER),undefined)
+	DEPS_CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+	DEPS_LDFLAGS+=-fsanitize=undefined
+else
+ifeq ($(SANITIZER),thread)
+	DEPS_CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+	DEPS_LDFLAGS+=-fsanitize=thread
+else
 # MSan looks for errors related to uninitialized memory.
 # Make sure to build the dependencies with MSan as it needs all the code to be instrumented.
 # A library could be used to initialize memory but if it's not build with --fsanitize=memory then
@@ -26,6 +40,9 @@ ifeq (clang, $(CLANG))
 	DEPS_LDFLAGS+=-fsanitize=memory
 else
     $(error "MemorySanitizer needs to be compiled and linked with clang. Please use CC=clang")
+endif
+endif
+endif
 endif
 endif
 
@@ -59,6 +76,7 @@ distclean:
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
 	-(cd fpconv && $(MAKE) clean) > /dev/null || true
+	-(cd tre && $(MAKE) clean) > /dev/null || true
 	-(cd xxhash && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
@@ -93,6 +111,13 @@ fpconv: .make-prerequisites
 	cd fpconv && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
 .PHONY: fpconv
+
+tre: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd tre && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
+
+.PHONY: tre
+
 
 XXHASH_CFLAGS = -fPIC $(DEPS_CFLAGS)
 xxhash: .make-prerequisites
