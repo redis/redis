@@ -60,6 +60,19 @@ proc append_to_sentinel_config {sid lines} {
     close $fp
 }
 
+# Helper: create an executable script with spaces in its path.
+# Returns the full path. Caller should "file delete -force" the directory.
+proc create_script_with_spaces {sid} {
+    set script_dir [file join [pwd] "sentinel_${sid}" "script dir"]
+    file mkdir $script_dir
+    set script_path [file join $script_dir "my script.sh"]
+    set fp [open $script_path w]
+    puts $fp "#!/bin/sh"
+    close $fp
+    file attributes $script_path -permissions 0755
+    return $script_path
+}
+
 # --------------------------------------------------------------------------
 # Section 1: Control character rejection in SENTINEL SET
 # --------------------------------------------------------------------------
@@ -176,6 +189,38 @@ test "auth-user with spaces persists correctly through restart" {
     S 0 SENTINEL SET mymaster auth-user ""
 }
 
+test "notification-script with spaces persists correctly through restart" {
+    set script_path [create_script_with_spaces 0]
+    S 0 SENTINEL SET mymaster notification-script $script_path
+    S 0 SENTINEL FLUSHCONFIG
+    set content [read_sentinel_config 0]
+    # The path must be quoted since it contains spaces.
+    assert {[string first "notification-script" $content] >= 0}
+    restart_sentinel_and_wait 0
+    set info [S 0 SENTINEL MASTER mymaster]
+    set idx [lsearch $info "notification-script"]
+    assert {$idx >= 0}
+    assert_equal [lindex $info [expr {$idx+1}]] $script_path
+    S 0 SENTINEL SET mymaster notification-script ""
+    file delete -force [file dirname $script_path]
+}
+
+test "client-reconfig-script with spaces persists correctly through restart" {
+    set script_path [create_script_with_spaces 0]
+    S 0 SENTINEL SET mymaster client-reconfig-script $script_path
+    S 0 SENTINEL FLUSHCONFIG
+    set content [read_sentinel_config 0]
+    # The path must be quoted since it contains spaces.
+    assert {[string first "client-reconfig-script" $content] >= 0}
+    restart_sentinel_and_wait 0
+    set info [S 0 SENTINEL MASTER mymaster]
+    set idx [lsearch $info "client-reconfig-script"]
+    assert {$idx >= 0}
+    assert_equal [lindex $info [expr {$idx+1}]] $script_path
+    S 0 SENTINEL SET mymaster client-reconfig-script ""
+    file delete -force [file dirname $script_path]
+}
+
 test "rename-command persists unquoted through restart" {
     S 0 SENTINEL SET mymaster rename-command CONFIG CONF_RENAMED
     set expected {sentinel rename-command mymaster CONFIG CONF_RENAMED}
@@ -227,6 +272,17 @@ test "Old unquoted config format for sentinel-pass loads correctly" {
     S 0 SENTINEL CONFIG SET sentinel-pass ""
 }
 
+test "Old unquoted config format for sentinel-user loads correctly" {
+    kill_instance sentinel 0
+    append_to_sentinel_config 0 {
+        "sentinel sentinel-user oldsentineluser"
+    }
+    start_sentinel_and_wait 0
+    set result [S 0 SENTINEL CONFIG GET sentinel-user]
+    assert_equal [lindex $result 1] "oldsentineluser"
+    S 0 SENTINEL CONFIG SET sentinel-user ""
+}
+
 # --------------------------------------------------------------------------
 # Section 7: Values with special characters survive config round-trip
 # --------------------------------------------------------------------------
@@ -241,4 +297,16 @@ test "sentinel-pass with special characters persists correctly through restart" 
     set result [S 0 SENTINEL CONFIG GET sentinel-pass]
     assert_equal [lindex $result 1] $test_pass
     S 0 SENTINEL CONFIG SET sentinel-pass ""
+}
+
+test "sentinel-user with special characters persists correctly through restart" {
+    set test_user {sentinel user name}
+    S 0 SENTINEL CONFIG SET sentinel-user $test_user
+    set expected {sentinel sentinel-user "sentinel user name"}
+    S 0 SENTINEL FLUSHCONFIG
+    assert_config_contains 0 $expected
+    restart_sentinel_and_wait 0
+    set result [S 0 SENTINEL CONFIG GET sentinel-user]
+    assert_equal [lindex $result 1] $test_user
+    S 0 SENTINEL CONFIG SET sentinel-user ""
 }
