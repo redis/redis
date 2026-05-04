@@ -13,6 +13,22 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 6.2.22    Released Tue 5 May 2026 10:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There is a security fix in the release.
+
+### Security fixes
+
+- (CVE-2026-25243) Invalid memory access in `RESTORE` may lead to Remote Code Execution
+
+### Bug fixes
+
+- `SUBSCRIBE`, `PSUBSCRIBE`, `SSUBSCRIBE`: crash on OOM (RED-167788)
+- `SCRIPT DEBUG`: potential crash on scripts (RED-175507)
+
+
+================================================================================
 Redis 6.2.21    Released Sun 2 Nov 2025 10:00:00 IST
 ================================================================================
 
