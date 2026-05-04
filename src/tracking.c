@@ -67,7 +67,8 @@ void disableTracking(client *c) {
                             (unsigned char*)&c->user, sizeof(c->user),
                             (void**)&user_clients);
             serverAssert(found);
-            vecSwapRemove(user_clients, c);
+            int removed = vecSwapRemove(user_clients, c);
+            serverAssert(removed);
             if (vecSize(user_clients) == 0) {
                 vecRelease(user_clients);
                 zfree(user_clients);
@@ -712,7 +713,8 @@ static void trackingBcastMoveClient(client *c, user *old_user) {
                         (unsigned char*)&old_user, sizeof(old_user),
                         (void**)&from_clients);
         serverAssert(found);
-        vecSwapRemove(from_clients, c);
+        int removed = vecSwapRemove(from_clients, c);
+        serverAssert(removed);
         if (vecSize(from_clients) == 0) {
             vecRelease(from_clients);
             zfree(from_clients);
