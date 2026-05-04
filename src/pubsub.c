@@ -90,6 +90,25 @@ pubsubtype pubSubShardType = {
  * message. However if the caller sets 'msg' as NULL, it will be able
  * to send a special message (for instance an Array type) by using the
  * addReply*() API family. */
+void initClientPubSubData(client *c) {
+    if (c->pubsub_data) return;
+    c->pubsub_data = zcalloc(sizeof(ClientPubSubData));
+    c->pubsub_data->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_data->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_data->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+}
+
+void freeClientPubSubData(client *c) {
+    if (!c->pubsub_data) return;
+    dictRelease(c->pubsub_data->pubsub_channels);
+    dictRelease(c->pubsub_data->pubsub_patterns);
+    dictRelease(c->pubsub_data->pubsubshard_channels);
+    if (c->pubsub_data->client_tracking_prefixes)
+        raxFree(c->pubsub_data->client_tracking_prefixes);
+    zfree(c->pubsub_data);
+    c->pubsub_data = NULL;
+}
+
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk) {
     uint64_t old_flags = c->flags;
     c->flags |= CLIENT_PUSHING;
@@ -204,20 +223,22 @@ int serverPubsubShardSubscriptionCount(void) {
 
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
-    return dictSize(c->pubsub_channels) + dictSize(c->pubsub_patterns);
+    if (!c->pubsub_data) return 0;
+    return dictSize(c->pubsub_data->pubsub_channels) + dictSize(c->pubsub_data->pubsub_patterns);
 }
 
 /* Return the number of shard level channels a client is subscribed to. */
 int clientShardSubscriptionsCount(client *c) {
-    return dictSize(c->pubsubshard_channels);
+    if (!c->pubsub_data) return 0;
+    return dictSize(c->pubsub_data->pubsubshard_channels);
 }
 
 dict* getClientPubSubChannels(client *c) {
-    return c->pubsub_channels;
+    return c->pubsub_data ? c->pubsub_data->pubsub_channels : NULL;
 }
 
 dict* getClientPubSubShardChannels(client *c) {
-    return c->pubsubshard_channels;
+    return c->pubsub_data ? c->pubsub_data->pubsubshard_channels : NULL;
 }
 
 /* Return the number of pubsub + pubsub shard level channels
@@ -335,7 +356,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         dictInitIterator(&iter, clients);
         while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
-            int retval = dictDelete(c->pubsubshard_channels, channel);
+            int retval = dictDelete(c->pubsub_data->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
             addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
             /* If the client has no other pubsub subscription,
@@ -356,7 +377,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
     dict *clients;
     int retval = 0;
 
-    if (dictAdd(c->pubsub_patterns, pattern, NULL) == DICT_OK) {
+    if (dictAdd(c->pubsub_data->pubsub_patterns, pattern, NULL) == DICT_OK) {
         retval = 1;
         incrRefCount(pattern);
         /* Add the client to the pattern -> list of clients hash table */
@@ -383,7 +404,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
-    if (dictDelete(c->pubsub_patterns, pattern) == DICT_OK) {
+    if (dictDelete(c->pubsub_data->pubsub_patterns, pattern) == DICT_OK) {
         retval = 1;
         /* Remove the client from the pattern -> clients list hash table */
         de = dictFind(server.pubsub_patterns,pattern);
@@ -446,11 +467,11 @@ int pubsubUnsubscribeShardAllChannels(client *c, int notify) {
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     int count = 0;
 
-    if (dictSize(c->pubsub_patterns) > 0) {
+    if (c->pubsub_data && dictSize(c->pubsub_data->pubsub_patterns) > 0) {
         dictIterator di;
         dictEntry *de;
 
-        dictInitSafeIterator(&di, c->pubsub_patterns);
+        dictInitSafeIterator(&di, c->pubsub_data->pubsub_patterns);
         while ((de = dictNext(&di)) != NULL) {
             robj *pattern = dictGetKey(de);
             count += pubsubUnsubscribePattern(c, pattern, notify);
@@ -552,6 +573,7 @@ void subscribeCommand(client *c) {
         addReplyError(c, "SUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
     }
+    initClientPubSubData(c);
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j],pubSubType);
     markClientAsPubSub(c);
@@ -587,6 +609,7 @@ void psubscribeCommand(client *c) {
         return;
     }
 
+    initClientPubSubData(c);
     for (j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
     markClientAsPubSub(c);
@@ -734,6 +757,7 @@ void ssubscribeCommand(client *c) {
         return;
     }
 
+    initClientPubSubData(c);
     for (int j = 1; j < c->argc; j++) {
         pubsubSubscribeChannel(c, c->argv[j], pubSubShardType);
     }
@@ -755,12 +779,13 @@ void sunsubscribeCommand(client *c) {
 }
 
 size_t pubsubMemOverhead(client *c) {
+    if (!c->pubsub_data) return 0;
     /* PubSub patterns */
-    size_t mem = dictMemUsage(c->pubsub_patterns);
+    size_t mem = dictMemUsage(c->pubsub_data->pubsub_patterns);
     /* Global PubSub channels */
-    mem += dictMemUsage(c->pubsub_channels);
+    mem += dictMemUsage(c->pubsub_data->pubsub_channels);
     /* Sharded PubSub channels */
-    mem += dictMemUsage(c->pubsubshard_channels);
+    mem += dictMemUsage(c->pubsub_data->pubsubshard_channels);
     return mem;
 }
 

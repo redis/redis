@@ -1698,7 +1698,7 @@ void asmSlotSnapshotAndStreamStart(struct asmTask *task) {
         shutdown(task->rdb_channel_client->conn->fd, SHUT_RDWR);
         return;
     }
-    task->main_channel_client->replstate = SLAVE_STATE_SEND_BULK_AND_STREAM;
+    task->main_channel_client->repl_data->replstate = SLAVE_STATE_SEND_BULK_AND_STREAM;
 
     task->state = ASM_SEND_BULK_AND_STREAM;
     task->rdb_channel_state = ASM_RDBCHANNEL_TRANSFER;
@@ -2022,7 +2022,7 @@ void clusterSyncSlotsCommand(client *c) {
          * by the client output buffer settings for replicas. The replstate has
          * no real significance, just to prevent it from going online. */
         c->flags |= (CLIENT_SLAVE | CLIENT_ASM_MIGRATING);
-        c->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
+        c->repl_data->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
         if (server.repl_disable_tcp_nodelay)
             connDisableTcpNoDelay(c->conn);  /* Non-critical if it fails. */
         listAddNodeTail(server.slaves, c);
@@ -2081,10 +2081,10 @@ void clusterSyncSlotsCommand(client *c) {
 
         /* Mark the client as a slave to generate slots snapshot */
         c->flags |= (CLIENT_SLAVE | CLIENT_REPL_RDB_CHANNEL | CLIENT_REPL_RDBONLY | CLIENT_ASM_MIGRATING);
-        c->slave_capa |= SLAVE_CAPA_EOF;
-        c->slave_req |= (SLAVE_REQ_SLOTS_SNAPSHOT | SLAVE_REQ_RDB_CHANNEL);
-        c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
-        c->repldbfd = -1;
+        c->repl_data->slave_capa |= SLAVE_CAPA_EOF;
+        c->repl_data->slave_req |= (SLAVE_REQ_SLOTS_SNAPSHOT | SLAVE_REQ_RDB_CHANNEL);
+        c->repl_data->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+        c->repl_data->repldbfd = -1;
         if (server.repl_disable_tcp_nodelay)
             connDisableTcpNoDelay(c->conn); /* Non-critical if it fails. */
         listAddNodeTail(server.slaves, c);
@@ -2101,7 +2101,7 @@ void clusterSyncSlotsCommand(client *c) {
         if (c->tid != IOTHREAD_MAIN_THREAD_ID) keepClientInMainThread(c);
 
         if (!hasActiveChildProcess()) {
-            startBgsaveForReplication(c->slave_capa, c->slave_req);
+            startBgsaveForReplication(c->repl_data->slave_capa, c->repl_data->slave_req);
         } else {
             serverLog(LL_NOTICE, "BGSAVE for slots snapshot sync delayed");
         }
@@ -3056,7 +3056,7 @@ static void propagateTrimSlots(slotRangeArray *slots) {
 void asmUnblockMasterAfterTrim(void) {
     if (server.master &&
         server.master->flags & CLIENT_BLOCKED &&
-        server.master->bstate.btype == BLOCKED_POSTPONE_TRIM)
+        server.master->bstate->btype == BLOCKED_POSTPONE_TRIM)
     {
         unblockClient(server.master, 1);
         serverLog(LL_NOTICE, "Unblocking master client after active trim is completed");

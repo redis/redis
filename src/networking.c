@@ -156,12 +156,7 @@ client *createClient(connection *conn) {
     c->buf_peak_last_reset_time = server.unixtime;
     c->buf_encoded = 0;
     c->last_header = NULL;
-    c->ref_repl_buf_node = NULL;
-    c->ref_block_pos = 0;
-    c->io_curr_repl_node = NULL;
-    c->io_curr_block_pos = 0;
-    c->io_bound_repl_node = NULL;
-    c->io_bound_block_pos = 0;
+    c->repl_data = NULL;
     c->qb_pos = 0;
     c->querybuf = NULL;
     c->querybuf_peak = 0;
@@ -195,51 +190,26 @@ client *createClient(connection *conn) {
     c->duration = 0;
     c->user = DefaultUser; /* Set a safe default value: clientSetDefaultAuth reads c->user. */
     clientSetDefaultAuth(c);
-    c->replstate = REPL_STATE_NONE;
-    c->repl_start_cmd_stream_on_ack = 0;
-    c->reploff = 0;
-    c->reploff_next = 0;
-    c->read_reploff = 0;
-    c->io_read_reploff = 0;
-    c->repl_applied = 0;
-    c->repl_ack_off = 0;
-    c->repl_ack_time = 0;
-    c->io_repl_ack_time = 0;
-    c->repl_aof_off = 0;
-    c->repl_last_partial_write = 0;
-    c->slave_listening_port = 0;
-    c->slave_addr = NULL;
-    c->slave_capa = SLAVE_CAPA_NONE;
-    c->slave_req = SLAVE_REQ_NONE;
-    c->main_ch_client_id = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
-    initClientBlockingState(c);
     c->woff = 0;
+    c->bstate = NULL;
     c->watched_keys = listCreate();
-    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
-    c->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
-    c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_data = NULL;
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
     c->io_thread_client_list_node = NULL;
     c->postponed_list_node = NULL;
-    c->client_tracking_redirection = 0;
-    c->client_tracking_prefixes = NULL;
     c->io_last_client_cron = 0;
     c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
-    c->module_blocked_client = NULL;
-    c->module_auth_ctx = NULL;
-    c->auth_callback = NULL;
-    c->auth_callback_privdata = NULL;
-    c->auth_module = NULL;
+    c->module_data = NULL;
     listInitNode(&c->clients_pending_write_node, c);
     listInitNode(&c->pending_ref_reply_node, c);
     c->mem_usage_bucket = NULL;
@@ -247,7 +217,7 @@ client *createClient(connection *conn) {
     c->net_input_bytes_curr_cmd = 0;
     c->net_output_bytes_curr_cmd = 0;
     if (conn) linkClient(c);
-    initClientMultiState(c);
+    c->mstate = NULL;
     c->net_input_bytes = 0;
     c->net_output_bytes = 0;
     c->commands_processed = 0;
@@ -290,9 +260,9 @@ void putClientInPendingWriteQueue(client *c) {
      * if not already done and, for slaves, if the slave can actually receive
      * writes at this stage. */
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
-        (c->replstate == REPL_STATE_NONE ||
-         c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM ||
-         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_start_cmd_stream_on_ack)))
+        (!c->repl_data ||
+         c->repl_data->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM ||
+         (c->repl_data->replstate == SLAVE_STATE_ONLINE && !c->repl_data->repl_start_cmd_stream_on_ack)))
     {
         /* Here instead of installing the write handler, we just flag the
          * client and put it into a list of clients that have something
@@ -1528,10 +1498,10 @@ void copyReplicaOutputBuffer(client *dst, client *src) {
     serverAssert(src->bufpos == 0 && listLength(src->reply) == 0); 
     serverAssert(src->running_tid == IOTHREAD_MAIN_THREAD_ID &&
                  dst->running_tid == IOTHREAD_MAIN_THREAD_ID);
-    if (src->ref_repl_buf_node == NULL) return;
-    dst->ref_repl_buf_node = src->ref_repl_buf_node;
-    dst->ref_block_pos = src->ref_block_pos;
-    ((replBufBlock *)listNodeValue(dst->ref_repl_buf_node))->refcount++;
+    if (src->repl_data->ref_repl_buf_node == NULL) return;
+    dst->repl_data->ref_repl_buf_node = src->repl_data->ref_repl_buf_node;
+    dst->repl_data->ref_block_pos = src->repl_data->ref_block_pos;
+    ((replBufBlock *)listNodeValue(dst->repl_data->ref_repl_buf_node))->refcount++;
 }
 
 static inline int _clientHasPendingRepliesNonSlave(client *c) {
@@ -1542,18 +1512,18 @@ static inline int _clientHasPendingRepliesSlave(client *c) {
     /* Replicas use global shared replication buffer instead of
      * private output buffer. */
     serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
-    if (c->ref_repl_buf_node == NULL) return 0;
+    if (c->repl_data->ref_repl_buf_node == NULL) return 0;
 
     /* If the last replication buffer block content is totally sent,
      * we have nothing to send. */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
         listNode *ln = listLast(server.repl_buffer_blocks);
         replBufBlock *tail = listNodeValue(ln);
-        if (ln == c->ref_repl_buf_node &&
-            c->ref_block_pos == tail->used) return 0;
+        if (ln == c->repl_data->ref_repl_buf_node &&
+            c->repl_data->ref_block_pos == tail->used) return 0;
     } else {
-        if (c->io_bound_repl_node == c->io_curr_repl_node &&
-            c->io_bound_block_pos == c->io_curr_block_pos) return 0;
+        if (c->repl_data->io_bound_repl_node == c->repl_data->io_curr_repl_node &&
+            c->repl_data->io_bound_block_pos == c->repl_data->io_curr_block_pos) return 0;
     }
     return 1;
 }
@@ -1866,7 +1836,7 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
         if (slave != except_me &&
-            slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+            slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
         {
             return 1;
         }
@@ -1898,7 +1868,7 @@ void unlinkClient(client *c) {
         /* Check if this is a replica waiting for diskless replication (rdb pipe),
          * in which case it needs to be cleaned from that list */
         if (c->flags & CLIENT_SLAVE &&
-            c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            c->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
             server.rdb_pipe_conns)
         {
             int i;
@@ -2060,10 +2030,12 @@ void clearClientConnectionState(client *c) {
     moduleNotifyUserChanged(c);
     discardTransaction(c);
 
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-    unmarkClientAsPubSub(c);
+    if (c->pubsub_data) {
+        pubsubUnsubscribeAllChannels(c,0);
+        pubsubUnsubscribeShardAllChannels(c, 0);
+        pubsubUnsubscribeAllPatterns(c,0);
+        unmarkClientAsPubSub(c);
+    }
 
     if (c->name) {
         decrRefCount(c->name);
@@ -2193,8 +2165,8 @@ void freeClient(client *c) {
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
 
-    /* Free the RedisModuleBlockedClient held onto for reprocessing if not already freed. */
-    zfree(c->module_blocked_client);
+    /* Free module data (including RedisModuleBlockedClient held onto for reprocessing). */
+    freeClientModuleData(c);
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. Note that we need to do this here, because later
@@ -2238,20 +2210,20 @@ void freeClient(client *c) {
     /* If there is any in-flight command, we don't record their duration. */
     c->duration = 0;
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
-    dictRelease(c->bstate.keys);
+    freeClientBlockingState(c);
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-    unmarkClientAsPubSub(c);
-    dictRelease(c->pubsub_channels);
-    dictRelease(c->pubsub_patterns);
-    dictRelease(c->pubsubshard_channels);
+    if (c->pubsub_data) {
+        pubsubUnsubscribeAllChannels(c,0);
+        pubsubUnsubscribeShardAllChannels(c, 0);
+        pubsubUnsubscribeAllPatterns(c,0);
+        unmarkClientAsPubSub(c);
+    }
+    freeClientPubSubData(c);
 
     /* Free data structures. */
     releaseAllBufReferences(c); /* Release all references to string objects in encoded buffers before freeing */
@@ -2299,16 +2271,18 @@ void freeClient(client *c) {
          * should not remove directly since that means RDB is important for users
          * to keep data safe and we may delay configured 'save' for full sync. */
         if (server.saveparamslen == 0 &&
-            c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            c->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
             server.child_type == CHILD_TYPE_RDB &&
             server.rdb_child_type == RDB_CHILD_TYPE_DISK &&
             anyOtherSlaveWaitRdb(c) == 0)
         {
             killRDBChild();
         }
-        if (c->replstate == SLAVE_STATE_SEND_BULK) {
-            if (c->repldbfd != -1) close(c->repldbfd);
-            if (c->replpreamble) sdsfree(c->replpreamble);
+        if (c->repl_data->replstate == SLAVE_STATE_SEND_BULK) {
+            if (c->repl_data->repldbfd != -1) close(c->repl_data->repldbfd);
+            c->repl_data->repldbfd = -1;
+            if (c->repl_data->replpreamble) sdsfree(c->repl_data->replpreamble);
+            c->repl_data->replpreamble = NULL;
         }
         list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
@@ -2321,7 +2295,7 @@ void freeClient(client *c) {
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
         /* Fire the replica change modules event. */
-        if (c->replstate == SLAVE_STATE_ONLINE)
+        if (c->repl_data->replstate == SLAVE_STATE_ONLINE)
             moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
@@ -2345,7 +2319,7 @@ void freeClient(client *c) {
     serverAssert(c->all_argv_len_sum == 0);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
-    sdsfree(c->slave_addr);
+    freeClientReplicationData(c);
     sdsfree(c->node_id);
     zfree(c);
 }
@@ -2738,40 +2712,40 @@ static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
     serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
 
     if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-        replBufBlock *o = listNodeValue(c->io_curr_repl_node);
+        replBufBlock *o = listNodeValue(c->repl_data->io_curr_repl_node);
         /* The IO thread must not send data beyond the bound position. */
-        size_t pos = c->io_curr_repl_node == c->io_bound_repl_node ?
-                     c->io_bound_block_pos : o->used;
-        if (pos > c->io_curr_block_pos) {
-            *nwritten = connWrite(c->conn, o->buf+c->io_curr_block_pos,
-                                  pos-c->io_curr_block_pos);
+        size_t pos = c->repl_data->io_curr_repl_node == c->repl_data->io_bound_repl_node ?
+                     c->repl_data->io_bound_block_pos : o->used;
+        if (pos > c->repl_data->io_curr_block_pos) {
+            *nwritten = connWrite(c->conn, o->buf+c->repl_data->io_curr_block_pos,
+                                  pos-c->repl_data->io_curr_block_pos);
             if (*nwritten <= 0) return C_ERR;
-            c->io_curr_block_pos += *nwritten;
+            c->repl_data->io_curr_block_pos += *nwritten;
         }
         /* If we fully sent the object and there are more nodes to send, go to the next one. */
-        if (c->io_curr_block_pos == pos && c->io_curr_repl_node != c->io_bound_repl_node) {
-            c->io_curr_repl_node = listNextNode(c->io_curr_repl_node);
-            c->io_curr_block_pos = 0;
+        if (c->repl_data->io_curr_block_pos == pos && c->repl_data->io_curr_repl_node != c->repl_data->io_bound_repl_node) {
+            c->repl_data->io_curr_repl_node = listNextNode(c->repl_data->io_curr_repl_node);
+            c->repl_data->io_curr_block_pos = 0;
         }
         return C_OK;
     }
 
-    replBufBlock *o = listNodeValue(c->ref_repl_buf_node);
-    serverAssert(o->used >= c->ref_block_pos);
+    replBufBlock *o = listNodeValue(c->repl_data->ref_repl_buf_node);
+    serverAssert(o->used >= c->repl_data->ref_block_pos);
     /* Send current block if it is not fully sent. */
-    if (o->used > c->ref_block_pos) {
-        *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
-                                o->used-c->ref_block_pos);
+    if (o->used > c->repl_data->ref_block_pos) {
+        *nwritten = connWrite(c->conn, o->buf+c->repl_data->ref_block_pos,
+                                o->used-c->repl_data->ref_block_pos);
         if (*nwritten <= 0) return C_ERR;
-        c->ref_block_pos += *nwritten;
+        c->repl_data->ref_block_pos += *nwritten;
     }
     /* If we fully sent the object on head, go to the next one. */
-    listNode *next = listNextNode(c->ref_repl_buf_node);
-    if (next && c->ref_block_pos == o->used) {
+    listNode *next = listNextNode(c->repl_data->ref_repl_buf_node);
+    if (next && c->repl_data->ref_block_pos == o->used) {
         o->refcount--;
         ((replBufBlock *)(listNodeValue(next)))->refcount++;
-        c->ref_repl_buf_node = next;
-        c->ref_block_pos = 0;
+        c->repl_data->ref_repl_buf_node = next;
+        c->repl_data->ref_block_pos = 0;
         incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
     return C_OK;
@@ -3098,15 +3072,15 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
      * RDB file. */
     if (querylen == 0 && clientTypeIsSlave(c)) {
         if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
-            c->repl_ack_time = server.unixtime;
+            c->repl_data->repl_ack_time = server.unixtime;
         else
             /* If this is a replica client running in an IO thread we cache the
              * last ack time in a different member variable in order to avoid
              * contention with main thread. f.e see refreshGoodSlavesCount()
-             * Note c->repl_ack_time will still be updated in
-             * updateClientDataFromIOThread with the value of c->io_repl_ack_time
+             * Note c->repl_data->repl_ack_time will still be updated in
+             * updateClientDataFromIOThread with the value of c->repl_data->io_repl_ack_time
              * when the client moves from IO to main thread. */
-            c->io_repl_ack_time = server.unixtime;
+            c->repl_data->io_repl_ack_time = server.unixtime;
     }
 
     /* Masters should never send us inline protocol to run actual
@@ -3456,11 +3430,11 @@ void commandProcessed(client *c) {
 
     prepareForNextCommand(c, 1);
 
-    long long prev_offset = c->reploff;
+    long long prev_offset = c->repl_data->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
         /* Update the applied replication offset of our master. */
-        serverAssert(c->reploff_next > 0);
-        c->reploff = c->reploff_next;
+        serverAssert(c->repl_data->reploff_next > 0);
+        c->repl_data->reploff = c->repl_data->reploff_next;
     }
 
     /* If the client is a master we need to compute the difference
@@ -3470,10 +3444,10 @@ void commandProcessed(client *c) {
      * part of the replication stream, will be propagated to the
      * sub-replicas and to the replication backlog. */
     if (c->flags & CLIENT_MASTER) {
-        long long applied = c->reploff - prev_offset;
+        long long applied = c->repl_data->reploff - prev_offset;
         if (applied) {
-            replicationFeedStreamFromMasterStream(c->querybuf+c->repl_applied,applied);
-            c->repl_applied += applied;
+            replicationFeedStreamFromMasterStream(c->querybuf+c->repl_data->repl_applied,applied);
+            c->repl_data->repl_applied += applied;
 
             /* Update the atomic slot migration task's applied bytes. */
             if (c->flags & CLIENT_ASM_IMPORTING)
@@ -3714,10 +3688,14 @@ int processInputBuffer(client *c) {
             if (unlikely(pcmd->read_error || (pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)))
                 break;
 
-            if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
-                pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-            else
-                pcmd->reploff = c->io_read_reploff - sdslen(c->querybuf) + c->qb_pos;
+            if (c->flags & CLIENT_MASTER) {
+                if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+                    pcmd->reploff = c->repl_data->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+                else
+                    pcmd->reploff = c->repl_data->io_read_reploff - sdslen(c->querybuf) + c->qb_pos;
+            } else {
+                pcmd->reploff = 0;
+            }
 
             preprocessCommand(c, pcmd);
             pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
@@ -3743,7 +3721,7 @@ int processInputBuffer(client *c) {
         c->argv = curcmd->argv;
         c->argv_len = curcmd->argv_len;
         c->net_input_bytes_curr_cmd += curcmd->input_bytes;
-        c->reploff_next = curcmd->reploff;
+        if (c->flags & CLIENT_MASTER) c->repl_data->reploff_next = curcmd->reploff;
         c->slot = curcmd->slot;
         c->lookedcmd = curcmd->cmd;
         c->read_error = curcmd->read_error;
@@ -3808,11 +3786,11 @@ int processInputBuffer(client *c) {
          * In these scenarios, qb_pos points to the part of the current command
          * or the beginning of next command, and the current command is not applied yet,
          * so the repl_applied is not equal to qb_pos. */
-        if (c->repl_applied) {
-            sdsrange(c->querybuf,c->repl_applied,-1);
-            serverAssert(c->qb_pos >= (size_t)c->repl_applied);
-            c->qb_pos -= c->repl_applied;
-            c->repl_applied = 0;
+        if ((c->flags & CLIENT_MASTER) && c->repl_data->repl_applied) {
+            sdsrange(c->querybuf,c->repl_data->repl_applied,-1);
+            serverAssert(c->qb_pos >= (size_t)c->repl_data->repl_applied);
+            c->qb_pos -= c->repl_data->repl_applied;
+            c->repl_data->repl_applied = 0;
         }
     } else if (c->qb_pos) {
         /* Trim to pos */
@@ -3943,10 +3921,10 @@ void readQueryFromClient(connection *conn) {
 
     if (c->flags & CLIENT_MASTER) {
         if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
-            c->read_reploff += nread;
+            c->repl_data->read_reploff += nread;
         } else {
             /* Same comment as for c->io_lastinteraction */
-            c->io_read_reploff += nread;
+            c->repl_data->io_read_reploff += nread;
         }
         atomicIncr(server.stat_net_repl_input_bytes, nread);
     } else {
@@ -3959,8 +3937,8 @@ void readQueryFromClient(connection *conn) {
          * so they are also considered a part of the query buffer in a broader sense.
          *
          * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
-        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len ||
-         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024 && authRequired(c))))
+        ((c->mstate ? c->mstate->argv_len_sums : 0) + sdslen(c->querybuf) > server.client_max_querybuf_len ||
+         ((c->mstate ? c->mstate->argv_len_sums : 0) + sdslen(c->querybuf) > 1024*1024 && authRequired(c))))
     {
         c->read_error = CLIENT_READ_REACHED_MAX_QUERYBUF;
         freeClientAsync(c);
@@ -4107,9 +4085,9 @@ sds catClientInfoString(sds s, client *client) {
     size_t total_mem = getClientMemoryUsage(client);
 
     size_t used_blocks_of_repl_buf = 0;
-    if (client->ref_repl_buf_node) {
+    if (client->repl_data && client->repl_data->ref_repl_buf_node) {
         replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
-        replBufBlock *cur = listNodeValue(client->ref_repl_buf_node);
+        replBufBlock *cur = listNodeValue(client->repl_data->ref_repl_buf_node);
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
@@ -4123,15 +4101,15 @@ sds catClientInfoString(sds s, client *client) {
         " idle=%I", (long long)(server.unixtime - client->lastinteraction),
         " flags=%s", flags,
         " db=%i", client->db->id,
-        " sub=%i", (int) dictSize(client->pubsub_channels),
-        " psub=%i", (int) dictSize(client->pubsub_patterns),
-        " ssub=%i", (int) dictSize(client->pubsubshard_channels),
-        " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " sub=%i", client->pubsub_data ? (int) dictSize(client->pubsub_data->pubsub_channels) : 0,
+        " psub=%i", client->pubsub_data ? (int) dictSize(client->pubsub_data->pubsub_patterns) : 0,
+        " ssub=%i", client->pubsub_data ? (int) dictSize(client->pubsub_data->pubsubshard_channels) : 0,
+        " multi=%i", (client->flags & CLIENT_MULTI && client->mstate) ? client->mstate->count : -1,
         " watch=%i", (int) listLength(client->watched_keys),
         " qbuf=%U", client->querybuf ? (unsigned long long) sdslen(client->querybuf) : 0,
         " qbuf-free=%U", client->querybuf ? (unsigned long long) sdsavail(client->querybuf) : 0,
         " argv-mem=%U", (unsigned long long) client->all_argv_len_sum,
-        " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
+        " multi-mem=%U", client->mstate ? (unsigned long long) client->mstate->argv_len_sums : 0,
         " rbs=%U", (unsigned long long) client->buf_usable_size,
         " rbp=%U", (unsigned long long) client->buf_peak,
         " obl=%U", (unsigned long long) client->bufpos,
@@ -4143,7 +4121,7 @@ sds catClientInfoString(sds s, client *client) {
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
         " user=%s", client->user ? client->user->name : "(superuser)",
-        " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        " redir=%I", (client->flags & CLIENT_TRACKING && client->pubsub_data) ? (long long) client->pubsub_data->client_tracking_redirection : -1,
         " resp=%i", client->resp,
         " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
         " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "",
@@ -4786,7 +4764,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"getredir") && c->argc == 2) {
         /* CLIENT GETREDIR */
         if (c->flags & CLIENT_TRACKING) {
-            addReplyLongLong(c,c->client_tracking_redirection);
+            addReplyLongLong(c,c->pubsub_data ? c->pubsub_data->client_tracking_redirection : 0);
         } else {
             addReplyLongLong(c,-1);
         }
@@ -4832,17 +4810,17 @@ NULL
         /* Redirect */
         addReplyBulkCString(c,"redirect");
         if (c->flags & CLIENT_TRACKING) {
-            addReplyLongLong(c,c->client_tracking_redirection);
+            addReplyLongLong(c,c->pubsub_data ? c->pubsub_data->client_tracking_redirection : 0);
         } else {
             addReplyLongLong(c,-1);
         }
 
         /* Prefixes */
         addReplyBulkCString(c,"prefixes");
-        if (c->client_tracking_prefixes) {
-            addReplyArrayLen(c,raxSize(c->client_tracking_prefixes));
+        if (c->pubsub_data && c->pubsub_data->client_tracking_prefixes) {
+            addReplyArrayLen(c,raxSize(c->pubsub_data->client_tracking_prefixes));
             raxIterator ri;
-            raxStart(&ri,c->client_tracking_prefixes);
+            raxStart(&ri,c->pubsub_data->client_tracking_prefixes);
             raxSeek(&ri,"^",NULL,0);
             while(raxNext(&ri)) {
                 addReplyBulkCBuffer(c,ri.key,ri.key_len);
@@ -5051,7 +5029,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
      * to update, so we skip that code. */
     pendingCommand *pcmd = NULL;
     int is_mstate = 0;
-    if (c->mstate.executing_cmd < 0) {
+    if (!(c->flags & CLIENT_MULTI) || c->mstate->executing_cmd < 0) {
         is_mstate = 0;
         if (c->pending_cmds.ready_len > 0) {
             pcmd = c->pending_cmds.head;
@@ -5059,8 +5037,8 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
         }
     } else {
         is_mstate = 1;
-        serverAssert(c->mstate.executing_cmd < c->mstate.count);
-        pcmd = c->mstate.commands[c->mstate.executing_cmd];
+        serverAssert(c->mstate->executing_cmd < c->mstate->count);
+        pcmd = c->mstate->commands[c->mstate->executing_cmd];
     }
 
     if (pcmd) {
@@ -5173,9 +5151,9 @@ static size_t getClientOutputBufferAllocSize(client *c) {
         size_t repl_buf_size = 0;
         size_t repl_node_num = 0;
         size_t repl_node_size = sizeof(listNode) + sizeof(replBufBlock);
-        if (c->ref_repl_buf_node) {
+        if (c->repl_data && c->repl_data->ref_repl_buf_node) {
             replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
-            replBufBlock *cur = listNodeValue(c->ref_repl_buf_node);
+            replBufBlock *cur = listNodeValue(c->repl_data->ref_repl_buf_node);
             repl_buf_size = last->repl_offset + last->size - cur->repl_offset;
             repl_node_num = last->id - cur->id + 1;
         }
@@ -5232,8 +5210,8 @@ size_t getClientMemoryUsage(client *c) {
     mem += pubsubMemOverhead(c);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
-    if (c->client_tracking_prefixes)
-        mem += c->client_tracking_prefixes->numnodes * (sizeof(raxNode) * sizeof(raxNode*));
+    if (c->pubsub_data && c->pubsub_data->client_tracking_prefixes)
+        mem += c->pubsub_data->client_tracking_prefixes->numnodes * (sizeof(raxNode) * sizeof(raxNode*));
 
     return mem;
 }
@@ -5423,10 +5401,10 @@ void flushSlavesOutputBuffers(void) {
          *
          * 3. Obviously if the slave is not ONLINE.
          */
-        if ((slave->replstate == SLAVE_STATE_ONLINE || slave->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) &&
+        if ((slave->repl_data->replstate == SLAVE_STATE_ONLINE || slave->repl_data->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) &&
             !(slave->flags & CLIENT_CLOSE_ASAP) &&
             can_receive_writes &&
-            !slave->repl_start_cmd_stream_on_ack &&
+            !slave->repl_data->repl_start_cmd_stream_on_ack &&
             clientHasPendingReplies(slave))
         {
             writeToClient(slave,0);

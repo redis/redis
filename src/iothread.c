@@ -52,28 +52,28 @@ void updateClientDataFromIOThread(client *c) {
     serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID &&
                  c->running_tid == IOTHREAD_MAIN_THREAD_ID);
 
-    if (c->io_repl_ack_time > c->repl_ack_time) {
+    if (c->repl_data->io_repl_ack_time > c->repl_data->repl_ack_time) {
         serverAssert(c->flags & CLIENT_SLAVE);
-        c->repl_ack_time = c->io_repl_ack_time;
+        c->repl_data->repl_ack_time = c->repl_data->io_repl_ack_time;
     }
     if (c->io_lastinteraction > c->lastinteraction) {
         serverAssert(c->flags & CLIENT_MASTER);
         c->lastinteraction = c->io_lastinteraction;
     }
-    if (c->io_read_reploff > c->read_reploff) {
+    if (c->repl_data->io_read_reploff > c->repl_data->read_reploff) {
         serverAssert(c->flags & CLIENT_MASTER);
-        c->read_reploff = c->io_read_reploff;
+        c->repl_data->read_reploff = c->repl_data->io_read_reploff;
     }
 
     /* Update replication buffer referenced node if IO thread has sent some data. */
-    if (c->flags & CLIENT_SLAVE && c->ref_repl_buf_node != NULL &&
-        (c->io_curr_repl_node != c->ref_repl_buf_node ||
-         c->io_curr_block_pos != c->ref_block_pos))
+    if (c->flags & CLIENT_SLAVE && c->repl_data->ref_repl_buf_node != NULL &&
+        (c->repl_data->io_curr_repl_node != c->repl_data->ref_repl_buf_node ||
+         c->repl_data->io_curr_block_pos != c->repl_data->ref_block_pos))
     {
-        ((replBufBlock*)listNodeValue(c->ref_repl_buf_node))->refcount--;
-        ((replBufBlock*)listNodeValue(c->io_curr_repl_node))->refcount++;
-        c->ref_block_pos = c->io_curr_block_pos;
-        c->ref_repl_buf_node = c->io_curr_repl_node;
+        ((replBufBlock*)listNodeValue(c->repl_data->ref_repl_buf_node))->refcount--;
+        ((replBufBlock*)listNodeValue(c->repl_data->io_curr_repl_node))->refcount++;
+        c->repl_data->ref_block_pos = c->repl_data->io_curr_block_pos;
+        c->repl_data->ref_repl_buf_node = c->repl_data->io_curr_repl_node;
         incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
 }
@@ -136,16 +136,16 @@ void enqueuePendingClienstToIOThreads(client *c) {
         listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
     }
     if (c->flags & CLIENT_SLAVE) {
-        serverAssert(c->ref_repl_buf_node != NULL);
+        serverAssert(c->repl_data->ref_repl_buf_node != NULL);
 
-        c->io_repl_ack_time = c->repl_ack_time;
-        c->io_curr_repl_node = c->ref_repl_buf_node;
-        c->io_curr_block_pos = c->ref_block_pos;
-        c->io_bound_repl_node = listLast(server.repl_buffer_blocks);
-        c->io_bound_block_pos = ((replBufBlock*)listNodeValue(c->io_bound_repl_node))->used;
+        c->repl_data->io_repl_ack_time = c->repl_data->repl_ack_time;
+        c->repl_data->io_curr_repl_node = c->repl_data->ref_repl_buf_node;
+        c->repl_data->io_curr_block_pos = c->repl_data->ref_block_pos;
+        c->repl_data->io_bound_repl_node = listLast(server.repl_buffer_blocks);
+        c->repl_data->io_bound_block_pos = ((replBufBlock*)listNodeValue(c->repl_data->io_bound_repl_node))->used;
     }
     if (c->flags & CLIENT_MASTER) {
-        c->io_read_reploff = c->read_reploff;
+        c->repl_data->io_read_reploff = c->repl_data->read_reploff;
         c->io_lastinteraction = c->lastinteraction;
     }
 
@@ -265,10 +265,10 @@ int isClientMustHandledByMainThread(client *c) {
      * to prevent race conditions with main thread when it feeds the replication
      * buffer. */
     if (c->flags & CLIENT_SLAVE &&
-        (c->replstate == SLAVE_STATE_ONLINE ||
-         c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) &&
-        c->repl_start_cmd_stream_on_ack == 0 &&
-        c->ref_repl_buf_node != NULL)
+        (c->repl_data->replstate == SLAVE_STATE_ONLINE ||
+         c->repl_data->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) &&
+        c->repl_data->repl_start_cmd_stream_on_ack == 0 &&
+        c->repl_data->ref_repl_buf_node != NULL)
     {
         return 0;
     }

@@ -277,7 +277,7 @@ void restoreCommand(client *c) {
 
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.
-     *   link  == NULL  -> an expired key might still be physically present and 
+     *   link  == NULL  -> an expired key might still be physically present and
      *                     must be deleted. */
     int deleted = 0;
     if (replace && (oldval || !link)) {
@@ -1234,7 +1234,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         /* If CLIENT_MULTI flag is not set EXEC is just going to return an
          * error. */
         if (!(c->flags & CLIENT_MULTI)) return myself;
-        ms = &c->mstate;
+        ms = c->mstate;
     } else {
         /* In order to have a single codepath create a fake Multi State
          * structure if the client is not in MULTI/EXEC state, this way
@@ -1434,7 +1434,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * node is a slave and the request is about a hash slot our master
      * is serving, we can reply without redirection. */
     int is_write_command = (cmd_flags & CMD_WRITE) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
+                           (c->cmd->proc == execCommand && (c->mstate->cmd_flags & CMD_WRITE));
     if (((c->flags & CLIENT_READONLY) || pubsubshard_included) &&
         !is_write_command &&
         clusterNodeIsSlave(myself) &&
@@ -1509,11 +1509,11 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
 int clusterRedirectBlockedClientIfNeeded(client *c) {
     clusterNode *myself = getMyClusterNode();
     if (c->flags & CLIENT_BLOCKED &&
-        (c->bstate.btype == BLOCKED_LIST ||
-         c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
-         c->bstate.btype == BLOCKED_ZSET ||
-         c->bstate.btype == BLOCKED_STREAM ||
-         c->bstate.btype == BLOCKED_MODULE))
+        (c->bstate->btype == BLOCKED_LIST ||
+         c->bstate->btype == BLOCKED_LIST_NONEMPTY ||
+         c->bstate->btype == BLOCKED_ZSET ||
+         c->bstate->btype == BLOCKED_STREAM ||
+         c->bstate->btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator di;
@@ -1529,11 +1529,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 
         /* If the client is blocked on module, but not on a specific key,
          * don't unblock it (except for the CLUSTER_FAIL case above). */
-        if (c->bstate.btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
+        if (c->bstate->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
             return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
-        dictInitIterator(&di, c->bstate.keys);
+        dictInitIterator(&di, c->bstate->keys);
         if ((de = dictNext(&di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
@@ -2150,13 +2150,13 @@ slotRangeArray *clusterGetNodeSlotRanges(clusterNode *node) {
  *
  * Usage: SFLUSH <start-slot> <end slot> [<start-slot> <end slot>]* [SYNC|ASYNC]
  *
- * Redis will flush the slots that belong to this node and reply with the flushed 
+ * Redis will flush the slots that belong to this node and reply with the flushed
  * slot ranges. If no slot is flushed, an empty array will be returned.
- * 
+ *
  * e.g. Node owns slot 100-200, user issues SFLUSH 50 150
  * Redis will flush slot 100-150 and reply with [100,150]
- * 
- * If possible, SFLUSH SYNC will be run as blocking ASYNC as an 
+ *
+ * If possible, SFLUSH SYNC will be run as blocking ASYNC as an
  * optimization.
  */
 void sflushCommand(client *c) {
@@ -2212,7 +2212,7 @@ void sflushCommand(client *c) {
         return;
     }
     slotRangeArrayFree(slots);
-    
+
     /* takes ownership of myslots */
     asmTrimCtx *trim_ctx = asmTrimCtxCreate(myslots, server.db[0].keys);
 

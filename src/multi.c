@@ -14,21 +14,20 @@
 
 /* Client state initialization for MULTI/EXEC */
 void initClientMultiState(client *c) {
-    c->mstate.commands = NULL;
-    c->mstate.count = 0;
-    c->mstate.cmd_flags = 0;
-    c->mstate.cmd_inv_flags = 0;
-    c->mstate.argv_len_sums = 0;
-    c->mstate.alloc_count = 0;
-    c->mstate.executing_cmd = -1;
+    if (c->mstate) return;
+    c->mstate = zcalloc(sizeof(multiState));
+    c->mstate->executing_cmd = -1;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
 void freeClientMultiState(client *c) {
-    for (int i = 0; i < c->mstate.count; i++) {
-        freePendingCommand(c, c->mstate.commands[i]);
+    if (!c->mstate) return;
+    for (int i = 0; i < c->mstate->count; i++) {
+        freePendingCommand(c, c->mstate->commands[i]);
     }
-    zfree(c->mstate.commands);
+    zfree(c->mstate->commands);
+    zfree(c->mstate);
+    c->mstate = NULL;
 }
 
 /* Add a new command into the MULTI commands queue */
@@ -39,15 +38,16 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
      * aborted. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
-    if (c->mstate.count == 0) {
+    if (!c->mstate) initClientMultiState(c);
+    if (c->mstate->count == 0) {
         /* If a client is using multi/exec, assuming it is used to execute at least
          * two commands. Hence, creating by default size of 2. */
-        c->mstate.commands = zmalloc(sizeof(pendingCommand*)*2);
-        c->mstate.alloc_count = 2;
+        c->mstate->commands = zmalloc(sizeof(pendingCommand*)*2);
+        c->mstate->alloc_count = 2;
     }
-    if (c->mstate.count == c->mstate.alloc_count) {
-        c->mstate.alloc_count = c->mstate.alloc_count < INT_MAX/2 ? c->mstate.alloc_count*2 : INT_MAX;
-        c->mstate.commands = zrealloc(c->mstate.commands, sizeof(pendingCommand*)*(c->mstate.alloc_count));
+    if (c->mstate->count == c->mstate->alloc_count) {
+        c->mstate->alloc_count = c->mstate->alloc_count < INT_MAX/2 ? c->mstate->alloc_count*2 : INT_MAX;
+        c->mstate->commands = zrealloc(c->mstate->commands, sizeof(pendingCommand*)*(c->mstate->alloc_count));
     }
 
     /* Move the pending command into the multi-state.
@@ -55,13 +55,13 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
      * later, but set the value to NULL to indicate it has been moved out and should not be freed. */
     pendingCommand *pcmd = popPendingCommandFromHead(&c->pending_cmds);
     c->current_pending_cmd = NULL;
-    pendingCommand **mc = c->mstate.commands + c->mstate.count;
+    pendingCommand **mc = c->mstate->commands + c->mstate->count;
     *mc = pcmd;
 
-    c->mstate.count++;
-    c->mstate.cmd_flags |= cmd_flags;
-    c->mstate.cmd_inv_flags |= ~cmd_flags;
-    c->mstate.argv_len_sums += (*mc)->argv_len_sum;
+    c->mstate->count++;
+    c->mstate->cmd_flags |= cmd_flags;
+    c->mstate->cmd_inv_flags |= ~cmd_flags;
+    c->mstate->argv_len_sums += (*mc)->argv_len_sum;
     c->all_argv_len_sum -= (*mc)->argv_len_sum;
 
     (*mc)->argv_len_sum = 0; /* This is no longer tracked through all_argv_len_sum, so we don't want */
@@ -93,6 +93,7 @@ void multiCommand(client *c) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
+    if (!c->mstate) initClientMultiState(c);
     c->flags |= CLIENT_MULTI;
 
     addReply(c,shared.ok);
@@ -177,17 +178,17 @@ void execCommand(client *c) {
      * Otherwise, we get inconsistencies and all_argv_len_sum doesn't go back to exactly 0 when the client is finished */
     orig_all_argv_len_sum = c->all_argv_len_sum;
 
-    c->all_argv_len_sum = c->mstate.argv_len_sums;
+    c->all_argv_len_sum = c->mstate->argv_len_sums;
 
     /* Skip ACL check for the AOF client while server loading. */
     int skip_acl_check = server.loading && c->id == CLIENT_ID_AOF;
 
-    addReplyArrayLen(c,c->mstate.count);
-    for (j = 0; j < c->mstate.count; j++) {
-        c->argc = c->mstate.commands[j]->argc;
-        c->argv = c->mstate.commands[j]->argv;
-        c->argv_len = c->mstate.commands[j]->argv_len;
-        c->cmd = c->realcmd = c->mstate.commands[j]->cmd;
+    addReplyArrayLen(c,c->mstate->count);
+    for (j = 0; j < c->mstate->count; j++) {
+        c->argc = c->mstate->commands[j]->argc;
+        c->argv = c->mstate->commands[j]->argv;
+        c->argv_len = c->mstate->commands[j]->argv_len;
+        c->cmd = c->realcmd = c->mstate->commands[j]->cmd;
 
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
@@ -220,7 +221,7 @@ void execCommand(client *c) {
                 "This command is no longer allowed for the "
                 "following reason: %s", reason);
         } else {
-            c->mstate.executing_cmd = j;
+            c->mstate->executing_cmd = j;
             if (c->id == CLIENT_ID_AOF)
                 call(c,CMD_CALL_NONE);
             else
@@ -237,10 +238,10 @@ void execCommand(client *c) {
         }
 
         /* Commands may alter argc/argv, restore mstate. */
-        c->mstate.commands[j]->argc = c->argc;
-        c->mstate.commands[j]->argv = c->argv;
-        c->mstate.commands[j]->argv_len = c->argv_len;
-        c->mstate.commands[j]->cmd = c->cmd;
+        c->mstate->commands[j]->argc = c->argc;
+        c->mstate->commands[j]->argv = c->argv;
+        c->mstate->commands[j]->argv_len = c->argv_len;
+        c->mstate->commands[j]->cmd = c->cmd;
     }
 
     // restore old DENY_BLOCKING value
@@ -507,11 +508,13 @@ void unwatchCommand(client *c) {
 }
 
 size_t multiStateMemOverhead(client *c) {
-    size_t mem = c->mstate.argv_len_sums;
-    /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
-    mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    /* Add watched keys overhead. Note: this doesn't take into account the watched keys themselves,
+     * because they aren't managed per-client. */
+    size_t mem = listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    if (!c->mstate) return mem;
+    mem += c->mstate->argv_len_sums;
     /* Reserved memory for queued multi commands. */
-    mem += c->mstate.alloc_count * sizeof(pendingCommand*);
-    mem += c->mstate.count * sizeof(pendingCommand);
+    mem += c->mstate->alloc_count * sizeof(pendingCommand*);
+    mem += c->mstate->count * sizeof(pendingCommand);
     return mem;
 }

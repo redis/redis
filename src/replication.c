@@ -59,6 +59,23 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
+void initClientReplicationData(client *c) {
+    if (c->repl_data) return;
+    c->repl_data = zcalloc(sizeof(ClientReplicationData));
+    c->repl_data->repldbfd = -1;
+    c->repl_data->slave_capa = SLAVE_CAPA_NONE;
+    c->repl_data->slave_req = SLAVE_REQ_NONE;
+}
+
+void freeClientReplicationData(client *c) {
+    if (!c->repl_data) return;
+    if (c->repl_data->repldbfd != -1) close(c->repl_data->repldbfd);
+    if (c->repl_data->replpreamble) sdsfree(c->repl_data->replpreamble);
+    if (c->repl_data->slave_addr) sdsfree(c->repl_data->slave_addr);
+    zfree(c->repl_data);
+    c->repl_data = NULL;
+}
+
 
 /* A reference to diskless loading rio to abort it asynchronously. It's needed
  * for rdbchannel replication. While loading from rdbchannel connection, we may
@@ -73,8 +90,8 @@ static rio *disklessLoadingRio = NULL;
  * channel slave with that. */
 int replicationCheckHasMainChannel(client *replica) {
     if (!(replica->flags & CLIENT_REPL_RDB_CHANNEL) ||
-        !replica->main_ch_client_id ||
-        lookupClientByID(replica->main_ch_client_id) == NULL)
+        !replica->repl_data->main_ch_client_id ||
+        lookupClientByID(replica->repl_data->main_ch_client_id) == NULL)
     {
         return 0;
     }
@@ -196,12 +213,12 @@ char *replicationGetSlaveName(client *c) {
 
     ip[0] = '\0';
     buf[0] = '\0';
-    if (c->slave_addr ||
+    if (c->repl_data->slave_addr ||
         connAddrPeerName(c->conn,ip,sizeof(ip),NULL) != -1)
     {
-        char *addr = c->slave_addr ? c->slave_addr : ip;
-        if (c->slave_listening_port)
-            formatAddr(buf,sizeof(buf),addr,c->slave_listening_port);
+        char *addr = c->repl_data->slave_addr ? c->repl_data->slave_addr : ip;
+        if (c->repl_data->slave_listening_port)
+            formatAddr(buf,sizeof(buf),addr,c->repl_data->slave_listening_port);
         else
             snprintf(buf,sizeof(buf),"%s:<unknown-replica-port>",addr);
     } else {
@@ -333,8 +350,8 @@ int canFeedReplicaReplBuffer(client *replica) {
         replica->flags & CLIENT_ASM_MIGRATING) return 0;
 
     /* Don't feed replicas that are still waiting for BGSAVE to start. */
-    if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
-        replica->replstate == SLAVE_STATE_WAIT_RDB_CHANNEL) return 0;
+    if (replica->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
+        replica->repl_data->replstate == SLAVE_STATE_WAIT_RDB_CHANNEL) return 0;
 
     /* Don't feed replicas that are going to be closed ASAP. */
     if (replica->flags & CLIENT_CLOSE_ASAP) return 0;
@@ -439,16 +456,17 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
 /* Free replication buffer blocks that are referenced by this client. */
 void freeReplicaReferencedReplBuffer(client *replica) {
     serverAssert(replica->running_tid == IOTHREAD_MAIN_THREAD_ID);
+    if (!replica->repl_data) return;
 
-    if (replica->ref_repl_buf_node != NULL) {
+    if (replica->repl_data->ref_repl_buf_node != NULL) {
         /* Decrease the start buffer node reference count. */
-        replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
+        replBufBlock *o = listNodeValue(replica->repl_data->ref_repl_buf_node);
         serverAssert(o->refcount > 0);
         o->refcount--;
         incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
-    replica->ref_repl_buf_node = NULL;
-    replica->ref_block_pos = 0;
+    replica->repl_data->ref_repl_buf_node = NULL;
+    replica->repl_data->ref_block_pos = 0;
 }
 
 /* Batched write API for the global replication backlog, optimized for minimal
@@ -584,9 +602,9 @@ static void replBufWriterEnd(replBufWriter *wr) {
         if (!canFeedReplicaReplBuffer(slave)) continue;
 
         /* Update shared replication buffer start position. */
-        if (slave->ref_repl_buf_node == NULL) {
-            slave->ref_repl_buf_node = wr->start_node;
-            slave->ref_block_pos = wr->start_pos;
+        if (slave->repl_data->ref_repl_buf_node == NULL) {
+            slave->repl_data->ref_repl_buf_node = wr->start_node;
+            slave->repl_data->ref_block_pos = wr->start_pos;
             /* Only increase the start block reference count. */
             ((replBufBlock *)listNodeValue(wr->start_node))->refcount++;
         }
@@ -893,8 +911,8 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
     /* Setting output buffer of the replica. */
     replBufBlock *o = listNodeValue(node);
     o->refcount++;
-    c->ref_repl_buf_node = node;
-    c->ref_block_pos = offset - o->repl_offset;
+    c->repl_data->ref_repl_buf_node = node;
+    c->repl_data->ref_block_pos = offset - o->repl_offset;
 
     return server.repl_backlog->histlen - skip;
 }
@@ -927,8 +945,8 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     char buf[128];
     int buflen;
 
-    slave->psync_initial_offset = offset;
-    slave->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
+    slave->repl_data->psync_initial_offset = offset;
+    slave->repl_data->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
     /* We are going to accumulate the incremental changes for this
      * slave as well. Set slaveseldb to -1 in order to force to re-emit
      * a SELECT statement in the replication stream. */
@@ -936,7 +954,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
 
     /* Slots snapshot. */
     if (slave->flags & CLIENT_REPL_RDB_CHANNEL &&
-        slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
+        slave->repl_data->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
     {
         /* Start to deliver the commands stream on migrating slots. */
         asmSlotSnapshotAndStreamStart(slave->task);
@@ -956,10 +974,10 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
             /* This slave is rdbchannel. Find its associated main channel and
              * change its state so we can deliver replication stream from now
              * on, in parallel to rdb. */
-            uint64_t id = slave->main_ch_client_id;
+            uint64_t id = slave->repl_data->main_ch_client_id;
             client *c = lookupClientByID(id);
-            if (c && c->replstate == SLAVE_STATE_WAIT_RDB_CHANNEL) {
-                c->replstate = SLAVE_STATE_SEND_BULK_AND_STREAM;
+            if (c && c->repl_data->replstate == SLAVE_STATE_WAIT_RDB_CHANNEL) {
+                c->repl_data->replstate = SLAVE_STATE_SEND_BULK_AND_STREAM;
                 serverLog(LL_NOTICE, "Starting to deliver RDB and replication stream to replica: %s",
                           replicationGetSlaveName(c));
             } else {
@@ -1039,15 +1057,16 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 1) Set client state to make it a slave.
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
+    initClientReplicationData(c);
     c->flags |= CLIENT_SLAVE;
-    c->replstate = SLAVE_STATE_ONLINE;
-    c->repl_ack_time = server.unixtime;
-    c->repl_start_cmd_stream_on_ack = 0;
+    c->repl_data->replstate = SLAVE_STATE_ONLINE;
+    c->repl_data->repl_ack_time = server.unixtime;
+    c->repl_data->repl_start_cmd_stream_on_ack = 0;
     listAddNodeTail(server.slaves,c);
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
      * empty so this write will never fail actually. */
-    if (c->slave_capa & SLAVE_CAPA_PSYNC2) {
+    if (c->repl_data->slave_capa & SLAVE_CAPA_PSYNC2) {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE %s\r\n", server.replid);
     } else {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
@@ -1153,8 +1172,8 @@ int startBgsaveForReplication(int mincapa, int req) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
-                slave->replstate = REPL_STATE_NONE;
+            if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+                slave->repl_data->replstate = REPL_STATE_NONE;
                 slave->flags &= ~CLIENT_SLAVE;
                 listDelNode(server.slaves,ln);
                 addReplyError(slave,
@@ -1172,9 +1191,9 @@ int startBgsaveForReplication(int mincapa, int req) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 /* Check slave has the exact requirements */
-                if (slave->slave_req != req)
+                if (slave->repl_data->slave_req != req)
                     continue;
                 replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
             }
@@ -1242,7 +1261,7 @@ void syncCommand(client *c) {
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
      * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
      * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
-    if (c->slave_req & SLAVE_REQ_RDB_MASK && !(c->slave_capa & SLAVE_CAPA_EOF)) {
+    if (c->repl_data->slave_req & SLAVE_REQ_RDB_MASK && !(c->repl_data->slave_capa & SLAVE_CAPA_EOF)) {
         addReplyError(c,"Filtered replica requires EOF capability");
         return;
     }
@@ -1278,16 +1297,17 @@ void syncCommand(client *c) {
              * resync on purpose when they are not able to partially
              * resync. */
             if (master_replid[0] != '?') server.stat_sync_partial_err++;
-            if (c->slave_capa & SLAVE_CAPA_RDB_CHANNEL_REPL) {
+            if (c->repl_data->slave_capa & SLAVE_CAPA_RDB_CHANNEL_REPL) {
                 int len;
                 char buf[128];
                 /* Replica is capable of rdbchannel replication. This is
                  * replica's main channel. Let replica know full sync is needed.
                  * Replica will open another connection (rdbchannel). Once rdb
                  * delivery starts, we'll stream repl data to the main channel.*/
+                initClientReplicationData(c);
                 c->flags |= CLIENT_SLAVE;
-                c->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
-                c->repl_ack_time = server.unixtime;
+                c->repl_data->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
+                c->repl_data->repl_ack_time = server.unixtime;
                 listAddNodeTail(server.slaves, c);
                 createReplicationBacklogIfNeeded();
 
@@ -1317,10 +1337,11 @@ void syncCommand(client *c) {
 
     /* Setup the slave as one waiting for BGSAVE to start. The following code
      * paths will change the state if we handle the slave differently. */
-    c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+    initClientReplicationData(c);
+    c->repl_data->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
     if (server.repl_disable_tcp_nodelay)
         connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
-    c->repldbfd = -1;
+    c->repl_data->repldbfd = -1;
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
@@ -1348,7 +1369,7 @@ void syncCommand(client *c) {
             slave = ln->value;
             /* If the client needs a buffer of commands, we can't use
              * a replica without replication buffer. */
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
                 (!(slave->flags & CLIENT_REPL_RDBONLY) ||
                  (c->flags & CLIENT_REPL_RDBONLY)))
                 break;
@@ -1356,14 +1377,14 @@ void syncCommand(client *c) {
         /* To attach this slave, we check that it has at least all the
          * capabilities of the slave that triggered the current BGSAVE
          * and its exact requirements. */
-        if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa) &&
-            c->slave_req == slave->slave_req) {
+        if (ln && ((c->repl_data->slave_capa & slave->repl_data->slave_capa) == slave->repl_data->slave_capa) &&
+            c->repl_data->slave_req == slave->repl_data->slave_req) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer.
              * We don't copy buffer if clients don't want. */
             if (!(c->flags & CLIENT_REPL_RDBONLY))
                 copyReplicaOutputBuffer(c,slave);
-            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
+            replicationSetupSlaveForFullResync(c,slave->repl_data->psync_initial_offset);
             serverLog(LL_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
             /* No way, we need to wait for the next BGSAVE in order to
@@ -1382,7 +1403,7 @@ void syncCommand(client *c) {
 
     /* CASE 3: There is no BGSAVE is in progress. */
     } else {
-        if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
+        if (server.repl_diskless_sync && (c->repl_data->slave_capa & SLAVE_CAPA_EOF) &&
             server.repl_diskless_sync_delay)
         {
             /* Diskless replication RDB child is created inside
@@ -1393,7 +1414,7 @@ void syncCommand(client *c) {
             /* We don't have a BGSAVE in progress, let's start one. Diskless
              * or disk-based mode is determined by replica's capacity. */
             if (!hasActiveChildProcess()) {
-                startBgsaveForReplication(c->slave_capa, c->slave_req);
+                startBgsaveForReplication(c->repl_data->slave_capa, c->repl_data->slave_req);
             } else {
                 serverLog(LL_NOTICE,
                     "No BGSAVE in progress, but another BG operation is active. "
@@ -1453,6 +1474,10 @@ void replconfCommand(client *c) {
         return;
     }
 
+    /* Ensure repl_data is allocated; REPLCONF is sent by a connecting
+     * replica before SYNC, so repl_data may not exist yet. */
+    initClientReplicationData(c);
+
     /* Process every option-value pair. */
     for (j = 1; j < c->argc; j+=2) {
         if (!strcasecmp(c->argv[j]->ptr,"listening-port")) {
@@ -1461,12 +1486,12 @@ void replconfCommand(client *c) {
             if ((getLongFromObjectOrReply(c,c->argv[j+1],
                     &port,NULL) != C_OK))
                 return;
-            c->slave_listening_port = port;
+            c->repl_data->slave_listening_port = port;
         } else if (!strcasecmp(c->argv[j]->ptr,"ip-address")) {
             sds addr = c->argv[j+1]->ptr;
             if (sdslen(addr) < NET_HOST_STR_LEN) {
-                if (c->slave_addr) sdsfree(c->slave_addr);
-                c->slave_addr = sdsdup(addr);
+                if (c->repl_data->slave_addr) sdsfree(c->repl_data->slave_addr);
+                c->repl_data->slave_addr = sdsdup(addr);
             } else {
                 addReplyErrorFormat(c,"REPLCONF ip-address provided by "
                     "replica instance is too long: %zd bytes", sdslen(addr));
@@ -1475,12 +1500,12 @@ void replconfCommand(client *c) {
         } else if (!strcasecmp(c->argv[j]->ptr,"capa")) {
             /* Ignore capabilities not understood by this master. */
             if (!strcasecmp(c->argv[j+1]->ptr,"eof"))
-                c->slave_capa |= SLAVE_CAPA_EOF;
+                c->repl_data->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
-                c->slave_capa |= SLAVE_CAPA_PSYNC2;
+                c->repl_data->slave_capa |= SLAVE_CAPA_PSYNC2;
             else if (!strcasecmp(c->argv[j+1]->ptr,"rdb-channel-repl") && server.repl_rdb_channel &&
                      server.repl_diskless_sync) {
-                c->slave_capa |= SLAVE_CAPA_RDB_CHANNEL_REPL;
+                c->repl_data->slave_capa |= SLAVE_CAPA_RDB_CHANNEL_REPL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
@@ -1491,15 +1516,15 @@ void replconfCommand(client *c) {
             if (!(c->flags & CLIENT_SLAVE)) return;
             if ((getLongLongFromObject(c->argv[j+1], &offset) != C_OK))
                 return;
-            if (offset > c->repl_ack_off)
-                c->repl_ack_off = offset;
+            if (offset > c->repl_data->repl_ack_off)
+                c->repl_data->repl_ack_off = offset;
             if (c->argc > j+3 && !strcasecmp(c->argv[j+2]->ptr,"fack")) {
                 if ((getLongLongFromObject(c->argv[j+3], &offset) != C_OK))
                     return;
-                if (offset > c->repl_aof_off)
-                    c->repl_aof_off = offset;
+                if (offset > c->repl_data->repl_aof_off)
+                    c->repl_data->repl_aof_off = offset;
             }
-            c->repl_ack_time = server.unixtime;
+            c->repl_data->repl_ack_time = server.unixtime;
             /* If this was a diskless replication, we need to really put
              * the slave online when the first ACK is received (which
              * confirms slave is online and ready to get more data). This
@@ -1508,15 +1533,15 @@ void replconfCommand(client *c) {
              * There's a chance the ACK got to us before we detected that the
              * bgsave is done (since that depends on cron ticks), so run a
              * quick check first (instead of waiting for the next ACK. */
-            if (server.child_type == CHILD_TYPE_RDB && c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+            if (server.child_type == CHILD_TYPE_RDB && c->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
                 checkChildrenDone();
-            if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
+            if (c->repl_data->repl_start_cmd_stream_on_ack && c->repl_data->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
             /* If state is send_bulk_and_stream, it means this is the main
              * channel of the slave in rdbchannel replication. Normally, slave
              * will be put online after rdb fork is completed. There is chance
              * that 'ack' might be received before we detect bgsave is done. */
-            if (c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM)
+            if (c->repl_data->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM)
                 replicaPutOnline(c);
             /* Note: this command does not reply anything! */
             return;
@@ -1537,10 +1562,10 @@ void replconfCommand(client *c) {
                 /* If replicas ask for RDB only, We can apply the background
                  * RDB transfer optimization based on the configurations. */
                 if (server.repl_rdb_channel && server.repl_diskless_sync)
-                    c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
+                    c->repl_data->slave_req |= SLAVE_REQ_RDB_CHANNEL;
             } else {
                 c->flags &= ~CLIENT_REPL_RDBONLY;
-                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
+                c->repl_data->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr,"rdb-filter-only")) {
             /* REPLCONFG RDB-FILTER-ONLY is used to define "include" filters
@@ -1557,11 +1582,11 @@ void replconfCommand(client *c) {
                 return;
             }
             /* By default filter out all parts of the rdb */
-            c->slave_req |= SLAVE_REQ_RDB_EXCLUDE_DATA;
-            c->slave_req |= SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS;
+            c->repl_data->slave_req |= SLAVE_REQ_RDB_EXCLUDE_DATA;
+            c->repl_data->slave_req |= SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS;
             for (i = 0; i < filter_count; i++) {
                 if (!strcasecmp(filters[i], "functions"))
-                    c->slave_req &= ~SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS;
+                    c->repl_data->slave_req &= ~SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS;
                 else {
                     addReplyErrorFormat(c, "Unsupported rdb-filter-only option: %s", (char*)filters[i]);
                     sdsfreesplitres(filters, filter_count);
@@ -1587,33 +1612,33 @@ void replconfCommand(client *c) {
             if (getLongLongFromObjectOrReply(c, c->argv[j + 1], &client_id, NULL) != C_OK)
                 return;
             main_ch = lookupClientByID(client_id);
-            if (!main_ch || main_ch->replstate != SLAVE_STATE_WAIT_RDB_CHANNEL) {
+            if (!main_ch || main_ch->repl_data->replstate != SLAVE_STATE_WAIT_RDB_CHANNEL) {
                 addReplyErrorFormat(c, "Unrecognized RDB client id: %lld", client_id);
                 return;
             }
-            c->main_ch_client_id = (uint64_t)client_id;
+            c->repl_data->main_ch_client_id = (uint64_t)client_id;
             /* Inherit the rdb-no-compress and rdb-no-checksum request from the main channel. */
-            if (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
-                c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
-            if (main_ch->slave_req & SLAVE_REQ_RDB_NO_CHECKSUM)
-                c->slave_req |= SLAVE_REQ_RDB_NO_CHECKSUM;
+            if (main_ch->repl_data->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
+                c->repl_data->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+            if (main_ch->repl_data->slave_req & SLAVE_REQ_RDB_NO_CHECKSUM)
+                c->repl_data->slave_req |= SLAVE_REQ_RDB_NO_CHECKSUM;
         } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-compress")) {
             long rdb_no_compress = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 0, 1, &rdb_no_compress, NULL) != C_OK)
                 return;
             if (rdb_no_compress == 1) {
-                c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+                c->repl_data->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
             } else {
-                c->slave_req &= ~SLAVE_REQ_RDB_NO_COMPRESS;
+                c->repl_data->slave_req &= ~SLAVE_REQ_RDB_NO_COMPRESS;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-checksum")) {
             long rdb_no_checksum = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 0, 1, &rdb_no_checksum, NULL) != C_OK)
                 return;
             if (rdb_no_checksum == 1) {
-                c->slave_req |= SLAVE_REQ_RDB_NO_CHECKSUM;
+                c->repl_data->slave_req |= SLAVE_REQ_RDB_NO_CHECKSUM;
             } else {
-                c->slave_req &= ~SLAVE_REQ_RDB_NO_CHECKSUM;
+                c->repl_data->slave_req &= ~SLAVE_REQ_RDB_NO_CHECKSUM;
             }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
@@ -1636,7 +1661,7 @@ void replconfCommand(client *c) {
  * */
 int replicaPutOnline(client *slave) {
     if (slave->flags & CLIENT_REPL_RDBONLY) {
-        slave->replstate = SLAVE_STATE_RDB_TRANSMITTED;
+        slave->repl_data->replstate = SLAVE_STATE_RDB_TRANSMITTED;
         /* The client asked for RDB only so we should close it ASAP */
         serverLog(LL_NOTICE,
                   "RDB transfer completed, rdb only replica (%s) should be disconnected asap",
@@ -1647,8 +1672,8 @@ int replicaPutOnline(client *slave) {
     /* Don't put migration destination client online. */
     if (slave->flags & CLIENT_ASM_MIGRATING) return 0;
 
-    slave->replstate = SLAVE_STATE_ONLINE;
-    slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
+    slave->repl_data->replstate = SLAVE_STATE_ONLINE;
+    slave->repl_data->repl_ack_time = server.unixtime; /* Prevent false timeout. */
 
     refreshGoodSlavesCount();
     /* Fire the replica change modules event. */
@@ -1673,7 +1698,7 @@ int replicaPutOnline(client *slave) {
  *    won't get mixed with the RDB stream. */
 void replicaStartCommandStream(client *slave) {
     serverAssert(!(slave->flags & CLIENT_REPL_RDBONLY));
-    slave->repl_start_cmd_stream_on_ack = 0;
+    slave->repl_data->repl_start_cmd_stream_on_ack = 0;
 
     putClientInPendingWriteQueue(slave);
 }
@@ -1704,9 +1729,9 @@ void removeRDBUsedToSyncReplicas(void) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             slave = ln->value;
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
-                slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END ||
-                slave->replstate == SLAVE_STATE_SEND_BULK)
+            if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
+                slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END ||
+                slave->repl_data->replstate == SLAVE_STATE_SEND_BULK)
             {
                 delrdb = 0;
                 break; /* No need to check the other replicas. */
@@ -1734,18 +1759,18 @@ void closeRepldbfd(client *myself) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-        if (slave != myself && slave->replstate == SLAVE_STATE_SEND_BULK) {
+        if (slave != myself && slave->repl_data->replstate == SLAVE_STATE_SEND_BULK) {
             reclaim = 0;
             break;
         }
     }
 
     if (reclaim) {
-        bioCreateCloseJob(myself->repldbfd, 0, 1);
+        bioCreateCloseJob(myself->repl_data->repldbfd, 0, 1);
     } else {
-        close(myself->repldbfd);
+        close(myself->repl_data->repldbfd);
     }
-    myself->repldbfd = -1;
+    myself->repl_data->repldbfd = -1;
 }
 
 void sendBulkToSlave(connection *conn) {
@@ -1756,8 +1781,8 @@ void sendBulkToSlave(connection *conn) {
     /* Before sending the RDB file, we send the preamble as configured by the
      * replication process. Currently the preamble is just the bulk count of
      * the file in the form "$<length>\r\n". */
-    if (slave->replpreamble) {
-        nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
+    if (slave->repl_data->replpreamble) {
+        nwritten = connWrite(conn,slave->repl_data->replpreamble,sdslen(slave->repl_data->replpreamble));
         if (nwritten == -1) {
             serverLog(LL_WARNING,
                 "Write error sending RDB preamble to replica: %s",
@@ -1766,10 +1791,10 @@ void sendBulkToSlave(connection *conn) {
             return;
         }
         atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-        sdsrange(slave->replpreamble,nwritten,-1);
-        if (sdslen(slave->replpreamble) == 0) {
-            sdsfree(slave->replpreamble);
-            slave->replpreamble = NULL;
+        sdsrange(slave->repl_data->replpreamble,nwritten,-1);
+        if (sdslen(slave->repl_data->replpreamble) == 0) {
+            sdsfree(slave->repl_data->replpreamble);
+            slave->repl_data->replpreamble = NULL;
             /* fall through sending data. */
         } else {
             return;
@@ -1777,13 +1802,13 @@ void sendBulkToSlave(connection *conn) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
-    if (lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1) {
+    if (lseek(slave->repl_data->repldbfd,slave->repl_data->repldboff,SEEK_SET) == -1) {
 	serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
-	    (long long)slave->repldboff, replicationGetSlaveName(slave), strerror(errno));
+	    (long long)slave->repl_data->repldboff, replicationGetSlaveName(slave), strerror(errno));
 	freeClient(slave);
 	return;
     }
-    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+    buflen = read(slave->repl_data->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
             (buflen == 0) ? "premature EOF" : strerror(errno));
@@ -1798,9 +1823,9 @@ void sendBulkToSlave(connection *conn) {
         }
         return;
     }
-    slave->repldboff += nwritten;
+    slave->repl_data->repldboff += nwritten;
     atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-    if (slave->repldboff == slave->repldbsize) {
+    if (slave->repl_data->repldboff == slave->repl_data->repldbsize) {
         closeRepldbfd(slave);
         connSetWriteHandler(slave->conn,NULL);
         if (!replicaPutOnline(slave)) {
@@ -1818,7 +1843,7 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
         return;
     connSetWriteHandler(conn, NULL);
     client *slave = connGetPrivateData(conn);
-    slave->repl_last_partial_write = 0;
+    slave->repl_data->repl_last_partial_write = 0;
     server.rdb_pipe_numconns_writing--;
     /* if there are no more writes for now for this conn, or write error: */
     if (server.rdb_pipe_numconns_writing == 0) {
@@ -1834,8 +1859,8 @@ void rdbPipeWriteHandler(struct connection *conn) {
     serverAssert(server.rdb_pipe_bufflen>0);
     client *slave = connGetPrivateData(conn);
     ssize_t nwritten;
-    if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
-                              server.rdb_pipe_bufflen - slave->repldboff)) == -1)
+    if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repl_data->repldboff,
+                              server.rdb_pipe_bufflen - slave->repl_data->repldboff)) == -1)
     {
         if (connGetState(conn) == CONN_STATE_CONNECTED)
             return; /* equivalent to EAGAIN */
@@ -1844,10 +1869,10 @@ void rdbPipeWriteHandler(struct connection *conn) {
         freeClient(slave);
         return;
     } else {
-        slave->repldboff += nwritten;
+        slave->repl_data->repldboff += nwritten;
         atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-        if (slave->repldboff < server.rdb_pipe_bufflen) {
-            slave->repl_last_partial_write = server.unixtime;
+        if (slave->repl_data->repldboff < server.rdb_pipe_bufflen) {
+            slave->repl_data->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
         }
     }
@@ -1920,17 +1945,17 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                     continue;
                 }
                 /* An error and still in connected state, is equivalent to EAGAIN */
-                slave->repldboff = 0;
+                slave->repl_data->repldboff = 0;
             } else {
                 /* Note: when use diskless replication, 'repldboff' is the offset
                  * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
-                slave->repldboff = nwritten;
+                slave->repl_data->repldboff = nwritten;
                 atomicIncr(server.stat_net_repl_output_bytes, nwritten);
             }
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
             if (nwritten != server.rdb_pipe_bufflen) {
-                slave->repl_last_partial_write = server.unixtime;
+                slave->repl_data->repl_last_partial_write = server.unixtime;
                 server.rdb_pipe_numconns_writing++;
                 connSetWriteHandler(conn, rdbPipeWriteHandler);
             }
@@ -1972,7 +1997,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         /* We can get here via freeClient()->killRDBChild()->checkChildrenDone(). skip disconnected slaves. */
         if (!slave->conn) continue;
 
-        if (slave->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) {
+        if (slave->repl_data->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) {
             /* This is the main channel of the slave that received the RDB.
              * Put it online if RDB delivery is successful. */
             if (bgsaveerr == C_OK) {
@@ -1983,7 +2008,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             } else {
                 freeClientAsync(slave);
             }
-        } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+        } else if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
@@ -2002,7 +2027,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * the slave online. */
             if (type == RDB_CHILD_TYPE_SOCKET) {
                 /* Slots snapshot */
-                if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT) {
+                if (slave->repl_data->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT) {
                     serverLog(LL_NOTICE, "Streamed slots snapshot transfer succeeded");
                     freeClientAsync(slave);
                     continue;
@@ -2040,19 +2065,19 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     freeClientAsync(slave);
                     continue;
                 }
-                slave->repl_start_cmd_stream_on_ack = 1;
+                slave->repl_data->repl_start_cmd_stream_on_ack = 1;
             } else {
-                if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
-                    redis_fstat(slave->repldbfd,&buf) == -1) {
+                if ((slave->repl_data->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
+                    redis_fstat(slave->repl_data->repldbfd,&buf) == -1) {
                     freeClientAsync(slave);
                     serverLog(LL_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
                     continue;
                 }
-                slave->repldboff = 0;
-                slave->repldbsize = buf.st_size;
-                slave->replstate = SLAVE_STATE_SEND_BULK;
-                slave->replpreamble = sdscatprintf(sdsempty(),"$%lld\r\n",
-                    (unsigned long long) slave->repldbsize);
+                slave->repl_data->repldboff = 0;
+                slave->repl_data->repldbsize = buf.st_size;
+                slave->repl_data->replstate = SLAVE_STATE_SEND_BULK;
+                slave->repl_data->replpreamble = sdscatprintf(sdsempty(),"$%lld\r\n",
+                    (unsigned long long) slave->repl_data->repldbsize);
 
                 connSetWriteHandler(slave->conn,NULL);
                 if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
@@ -2181,20 +2206,21 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
      * to pass the execution to a background thread and unblock after the
      * execution is done. This is the reason why we allow blocking the replication
      * connection. */
+    initClientReplicationData(server.master);
     server.master->flags |= CLIENT_MASTER;
 
     /* Allocate a private query buffer for the master client instead of using the reusable query buffer.
      * This is done because the master's query buffer data needs to be preserved for my sub-replicas to use. */
     server.master->querybuf = sdsempty();
     server.master->authenticated = 1;
-    server.master->reploff = server.master_initial_offset;
-    server.master->read_reploff = server.master->reploff;
+    server.master->repl_data->reploff = server.master_initial_offset;
+    server.master->repl_data->read_reploff = server.master->repl_data->reploff;
     server.master->user = NULL; /* This client can do everything. */
-    memcpy(server.master->replid, server.master_replid,
+    memcpy(server.master->repl_data->replid, server.master_replid,
         sizeof(server.master_replid));
     /* If master offset is set to -1, this master is old and is not
      * PSYNC capable, so we flag it accordingly. */
-    if (server.master->reploff == -1)
+    if (server.master->repl_data->reploff == -1)
         server.master->flags |= CLIENT_PRE_PSYNC;
     if (dbid != -1) selectDb(server.master,dbid);
 }
@@ -2689,8 +2715,8 @@ void readSyncBulkPayload(connection *conn) {
     /* After a full resynchronization we use the replication ID and
      * offset of the master. The secondary ID / offset are cleared since
      * we are starting a new history. */
-    memcpy(server.replid,server.master->replid,sizeof(server.replid));
-    server.master_repl_offset = server.master->reploff;
+    memcpy(server.replid,server.master->repl_data->replid,sizeof(server.replid));
+    server.master_repl_offset = server.master->repl_data->reploff;
     clearReplicationId2();
 
     /* Let's create the replication backlog if needed. Slaves need to
@@ -2892,8 +2918,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         server.master_initial_offset = -1;
 
         if (server.cached_master) {
-            psync_replid = server.cached_master->replid;
-            snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->reploff+1);
+            psync_replid = server.cached_master->repl_data->replid;
+            snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->repl_data->reploff+1);
             serverLog(LL_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_replid, psync_offset);
         } else {
             serverLog(LL_NOTICE,"Partial resynchronization not possible (no cached master)");
@@ -3006,19 +3032,19 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             memcpy(new,start,CONFIG_RUN_ID_SIZE);
             new[CONFIG_RUN_ID_SIZE] = '\0';
 
-            if (strcmp(new,server.cached_master->replid)) {
+            if (strcmp(new,server.cached_master->repl_data->replid)) {
                 /* Master ID changed. */
                 serverLog(LL_NOTICE,"Master replication ID changed to %s",new);
 
                 /* Set the old ID as our ID2, up to the current offset+1. */
-                memcpy(server.replid2,server.cached_master->replid,
+                memcpy(server.replid2,server.cached_master->repl_data->replid,
                     sizeof(server.replid2));
                 server.second_replid_offset = server.master_repl_offset+1;
 
                 /* Update the cached master ID and our own primary ID to the
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
-                memcpy(server.cached_master->replid,new,sizeof(server.replid));
+                memcpy(server.cached_master->repl_data->replid,new,sizeof(server.replid));
 
                 /* Disconnect all the sub-slaves: they need to be notified. */
                 disconnectSlaves();
@@ -4136,7 +4162,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         while (processed < o->used) {
             size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
             c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
-            c->read_reploff += (long long int) bytes;
+            c->repl_data->read_reploff += (long long int) bytes;
             c->lastinteraction = server.unixtime;
 
             /* We don't expect error return value but just in case. */
@@ -4430,18 +4456,18 @@ void roleCommand(client *c) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
-            char ip[NET_IP_STR_LEN], *slaveaddr = slave->slave_addr;
+            char ip[NET_IP_STR_LEN], *slaveaddr = slave->repl_data->slave_addr;
 
             if (!slaveaddr) {
                 if (connAddrPeerName(slave->conn,ip,sizeof(ip),NULL) == -1)
                     continue;
                 slaveaddr = ip;
             }
-            if (slave->replstate != SLAVE_STATE_ONLINE) continue;
+            if (slave->repl_data->replstate != SLAVE_STATE_ONLINE) continue;
             addReplyArrayLen(c,3);
             addReplyBulkCString(c,slaveaddr);
-            addReplyBulkLongLong(c,slave->slave_listening_port);
-            addReplyBulkLongLong(c,slave->repl_ack_off);
+            addReplyBulkLongLong(c,slave->repl_data->slave_listening_port);
+            addReplyBulkLongLong(c,slave->repl_data->repl_ack_off);
             slaves++;
         }
         setDeferredArrayLen(c,mbcount,slaves);
@@ -4465,7 +4491,7 @@ void roleCommand(client *c) {
             }
         }
         addReplyBulkCString(c,slavestate);
-        addReplyLongLong(c,server.master ? server.master->reploff : -1);
+        addReplyLongLong(c,server.master ? server.master->repl_data->reploff : -1);
     }
 }
 
@@ -4481,7 +4507,7 @@ void replicationSendAck(void) {
         addReplyArrayLen(c,send_fack ? 5 : 3);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
-        addReplyBulkLongLong(c,c->reploff);
+        addReplyBulkLongLong(c,c->repl_data->reploff);
         if (send_fack) {
             addReplyBulkCString(c,"FACK");
             addReplyBulkLongLong(c,server.fsynced_reploff);
@@ -4527,9 +4553,9 @@ void replicationCacheMaster(client *c) {
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
     server.master->qb_pos = 0;
-    server.master->repl_applied = 0;
-    server.master->read_reploff = server.master->reploff;
-    server.master->reploff_next = 0;
+    server.master->repl_data->repl_applied = 0;
+    server.master->repl_data->read_reploff = server.master->repl_data->reploff;
+    server.master->repl_data->reploff_next = 0;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
     c->sentlen = 0;
@@ -4574,7 +4600,7 @@ void replicationCacheMasterUsingMyself(void) {
         "to synthesize a cached master: I may be able to synchronize with "
         "the new master with just a partial transfer.");
 
-    /* This will be used to populate the field server.master->reploff
+    /* This will be used to populate the field server.master->repl_data->reploff
      * by replicationCreateMasterClient(). We'll later set the created
      * master as server.cached_master, so the replica will use such
      * offset for PSYNC. */
@@ -4585,7 +4611,7 @@ void replicationCacheMasterUsingMyself(void) {
     replicationCreateMasterClient(NULL,-1);
 
     /* Use our own ID / offset. */
-    memcpy(server.master->replid, server.replid, sizeof(server.replid));
+    memcpy(server.master->repl_data->replid, server.replid, sizeof(server.replid));
 
     /* Set as cached master. */
     unlinkClient(server.master);
@@ -4665,9 +4691,9 @@ void refreshGoodSlavesCount(void) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-        time_t lag = server.unixtime - slave->repl_ack_time;
+        time_t lag = server.unixtime - slave->repl_data->repl_ack_time;
 
-        if (slave->replstate == SLAVE_STATE_ONLINE &&
+        if (slave->repl_data->replstate == SLAVE_STATE_ONLINE &&
             lag <= server.repl_min_slaves_max_lag) good++;
     }
     server.repl_good_slaves_count = good;
@@ -4726,8 +4752,8 @@ int replicationCountAcksByOffset(long long offset) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        if (slave->replstate != SLAVE_STATE_ONLINE) continue;
-        if (slave->repl_ack_off >= offset) count++;
+        if (slave->repl_data->replstate != SLAVE_STATE_ONLINE) continue;
+        if (slave->repl_data->repl_ack_off >= offset) count++;
     }
     return count;
 }
@@ -4743,8 +4769,8 @@ int replicationCountAOFAcksByOffset(long long offset) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        if (slave->replstate != SLAVE_STATE_ONLINE) continue;
-        if (slave->repl_aof_off >= offset) count++;
+        if (slave->repl_data->replstate != SLAVE_STATE_ONLINE) continue;
+        if (slave->repl_data->repl_aof_off >= offset) count++;
     }
     return count;
 }
@@ -4768,7 +4794,7 @@ void waitCommand(client *c) {
         != C_OK) return;
 
     /* First try without blocking at all. */
-    ackreplicas = replicationCountAcksByOffset(c->woff);
+    ackreplicas = replicationCountAcksByOffset(offset);
     if (ackreplicas >= numreplicas || c->flags & CLIENT_DENY_BLOCKING) {
         addReplyLongLong(c,ackreplicas);
         return;
@@ -4788,6 +4814,7 @@ void waitCommand(client *c) {
 void waitaofCommand(client *c) {
     mstime_t timeout;
     long numreplicas, numlocal, ackreplicas, acklocal;
+    long long woff = c->woff;
 
     /* Argument parsing. */
     if (getRangeLongFromObjectOrReply(c,c->argv[1],0,1,&numlocal,NULL) != C_OK)
@@ -4807,8 +4834,8 @@ void waitaofCommand(client *c) {
     }
 
     /* First try without blocking at all. */
-    ackreplicas = replicationCountAOFAcksByOffset(c->woff);
-    acklocal = server.fsynced_reploff >= c->woff;
+    ackreplicas = replicationCountAOFAcksByOffset(woff);
+    acklocal = server.fsynced_reploff >= woff;
     if ((ackreplicas >= numreplicas && acklocal >= numlocal) || c->flags & CLIENT_DENY_BLOCKING) {
         addReplyArrayLen(c,2);
         addReplyLongLong(c,acklocal);
@@ -4818,7 +4845,7 @@ void waitaofCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    blockForAofFsync(c,timeout,c->woff,numlocal,numreplicas);
+    blockForAofFsync(c,timeout,woff,numlocal,numreplicas);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -4853,9 +4880,9 @@ void processClientsWaitingReplicas(void) {
         int numreplicas = 0;
 
         client *c = ln->value;
-        int is_wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
+        int is_wait_aof = c->bstate->btype == BLOCKED_WAITAOF;
 
-        if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
+        if (is_wait_aof && c->bstate->numlocal && !server.aof_enabled) {
             addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
             unblockClient(c, 1);
             continue;
@@ -4866,35 +4893,35 @@ void processClientsWaitingReplicas(void) {
          * may be unblocked without calling replicationCountAcksByOffset()
          * or calling replicationCountAOFAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (!is_wait_aof && last_offset && last_offset >= c->bstate.reploffset &&
-                           last_numreplicas >= c->bstate.numreplicas)
+        if (!is_wait_aof && last_offset && last_offset >= c->bstate->reploffset &&
+                           last_numreplicas >= c->bstate->numreplicas)
         {
             numreplicas = last_numreplicas;
-        } else if (is_wait_aof && last_aof_offset && last_aof_offset >= c->bstate.reploffset &&
-                    last_aof_numreplicas >= c->bstate.numreplicas)
+        } else if (is_wait_aof && last_aof_offset && last_aof_offset >= c->bstate->reploffset &&
+                    last_aof_numreplicas >= c->bstate->numreplicas)
         {
             numreplicas = last_aof_numreplicas;
         } else {
             numreplicas = is_wait_aof ?
-                replicationCountAOFAcksByOffset(c->bstate.reploffset) :
-                replicationCountAcksByOffset(c->bstate.reploffset);
+                replicationCountAOFAcksByOffset(c->bstate->reploffset) :
+                replicationCountAcksByOffset(c->bstate->reploffset);
 
             /* Check if the number of replicas is satisfied. */
-            if (numreplicas < c->bstate.numreplicas) continue;
+            if (numreplicas < c->bstate->numreplicas) continue;
 
             if (is_wait_aof) {
-                last_aof_offset = c->bstate.reploffset;
+                last_aof_offset = c->bstate->reploffset;
                 last_aof_numreplicas = numreplicas;
             } else {
-                last_offset = c->bstate.reploffset;
+                last_offset = c->bstate->reploffset;
                 last_numreplicas = numreplicas;
             }
         }
 
         /* Check if the local constraint of WAITAOF is served */
         if (is_wait_aof) {
-            numlocal = server.fsynced_reploff >= c->bstate.reploffset;
-            if (numlocal < c->bstate.numlocal) continue;
+            numlocal = server.fsynced_reploff >= c->bstate->reploffset;
+            if (numlocal < c->bstate->numlocal) continue;
         }
 
         /* Reply before unblocking, because unblock client calls reqresAppendResponse */
@@ -4918,9 +4945,9 @@ long long replicationGetSlaveOffset(void) {
 
     if (server.masterhost != NULL) {
         if (server.master) {
-            offset = server.master->reploff;
+            offset = server.master->repl_data->reploff;
         } else if (server.cached_master) {
-            offset = server.cached_master->reploff;
+            offset = server.cached_master->repl_data->reploff;
         }
     }
     /* offset may be -1 when the master does not support it at all, however
@@ -5017,8 +5044,8 @@ void replicationCron(void) {
         client *slave = ln->value;
 
         int is_presync =
-            (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
-            (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
+            (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
              server.rdb_child_type != RDB_CHILD_TYPE_SOCKET));
 
         if (is_presync && !(slave->flags & CLIENT_CLOSE_ASAP)) {
@@ -5035,10 +5062,10 @@ void replicationCron(void) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
 
-            if (slave->replstate == SLAVE_STATE_ONLINE) {
+            if (slave->repl_data->replstate == SLAVE_STATE_ONLINE) {
                 if (slave->flags & CLIENT_PRE_PSYNC)
                     continue;
-                if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout) {
+                if ((server.unixtime - slave->repl_data->repl_ack_time) > server.repl_timeout) {
                     serverLog(LL_WARNING, "Disconnecting timedout replica (streaming sync): %s",
                           replicationGetSlaveName(slave));
                     freeClient(slave);
@@ -5048,9 +5075,9 @@ void replicationCron(void) {
             /* We consider disconnecting only diskless replicas because disk-based replicas aren't fed
              * by the fork child so if a disk-based replica is stuck it doesn't prevent the fork child
              * from terminating. */
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END && server.rdb_child_type == RDB_CHILD_TYPE_SOCKET) {
-                if (slave->repl_last_partial_write != 0 &&
-                    (server.unixtime - slave->repl_last_partial_write) > server.repl_timeout)
+            if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END && server.rdb_child_type == RDB_CHILD_TYPE_SOCKET) {
+                if (slave->repl_data->repl_last_partial_write != 0 &&
+                    (server.unixtime - slave->repl_data->repl_last_partial_write) > server.repl_timeout)
                 {
                     serverLog(LL_WARNING, "Disconnecting timedout replica (full sync): %s",
                           replicationGetSlaveName(slave));
@@ -5137,22 +5164,22 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            if (slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 if (first) {
                     /* Get first slave's requirements */
-                    req = slave->slave_req;
-                } else if (req != slave->slave_req) {
+                    req = slave->repl_data->slave_req;
+                } else if (req != slave->repl_data->slave_req) {
                     /* Skip slaves that don't match */
                     continue;
                 }
                 idle = server.unixtime - slave->lastinteraction;
                 /* If the slave requests a slots snapshot, we should start BGSAVE
                  * immediately since it can't share the RDB with other slaves. */
-                if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
+                if (slave->repl_data->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
                     idle = server.repl_diskless_sync_delay; /* Threshold for BGSAVE */
                 if (idle > max_idle) max_idle = idle;
                 slaves_waiting++;
-                mincapa = first ? slave->slave_capa : (mincapa & slave->slave_capa);
+                mincapa = first ? slave->repl_data->slave_capa : (mincapa & slave->repl_data->slave_capa);
                 first = 0;
             }
         }
@@ -5195,7 +5222,7 @@ static client *findReplica(char *host, int port) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         replica = ln->value;
-        char ip[NET_IP_STR_LEN], *replicaip = replica->slave_addr;
+        char ip[NET_IP_STR_LEN], *replicaip = replica->repl_data->slave_addr;
 
         if (!replicaip) {
             if (connAddrPeerName(replica->conn, ip, sizeof(ip), NULL) == -1)
@@ -5204,7 +5231,7 @@ static client *findReplica(char *host, int port) {
         }
 
         if (!strcasecmp(host, replicaip) &&
-                (port == replica->slave_listening_port))
+                (port == replica->repl_data->slave_listening_port))
             return replica;
     }
 
@@ -5357,7 +5384,7 @@ void failoverCommand(client *c) {
         }
 
         /* Check if requested replica is online */
-        if (replica->replstate != SLAVE_STATE_ONLINE) {
+        if (replica->repl_data->replstate != SLAVE_STATE_ONLINE) {
             addReplyError(c,"FAILOVER target replica is not online.");
             return;
         }
@@ -5427,8 +5454,8 @@ void updateFailoverStatus(void) {
         /* Find any replica that has matched our repl_offset */
         while((ln = listNext(&li))) {
             replica = ln->value;
-            if (replica->repl_ack_off == server.master_repl_offset) {
-                char ip[NET_IP_STR_LEN], *replicaaddr = replica->slave_addr;
+            if (replica->repl_data->repl_ack_off == server.master_repl_offset) {
+                char ip[NET_IP_STR_LEN], *replicaaddr = replica->repl_data->slave_addr;
 
                 if (!replicaaddr) {
                     if (connAddrPeerName(replica->conn,ip,sizeof(ip),NULL) == -1)
@@ -5438,14 +5465,14 @@ void updateFailoverStatus(void) {
 
                 /* We are now failing over to this specific node */
                 server.target_replica_host = zstrdup(replicaaddr);
-                server.target_replica_port = replica->slave_listening_port;
+                server.target_replica_port = replica->repl_data->slave_listening_port;
                 break;
             }
         }
     }
 
     /* We've found a replica that is caught up */
-    if (replica && (replica->repl_ack_off == server.master_repl_offset)) {
+    if (replica && (replica->repl_data->repl_ack_off == server.master_repl_offset)) {
         server.failover_state = FAILOVER_IN_PROGRESS;
         serverLog(LL_NOTICE,
                 "Failover target %s:%d is synced, failing over.",
