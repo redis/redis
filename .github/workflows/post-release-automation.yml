@@ -48,24 +48,65 @@ jobs:
           echo "  RELEASE_TAG: ${{ steps.release-info.outputs.tag_name }}"
           echo "  RELEASE_TYPE: ${{ steps.release-info.outputs.release_type }}"
       
-      - name: Create tarball
+      - name: Install Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Clone module sources
+        run: |
+          echo "Cloning module sources for ${RELEASE_TAG}..."
+          ./utils/modules/update-modules.sh --skip-deps
+
+      - name: Create tarball (core only)
         id: create-tarball
         run: |
-          echo "Creating tarball for version ${RELEASE_TAG}..."
-          # TODO: Implement tarball creation using utils/releasetools/01_create_tarball.sh
-          # ./utils/releasetools/01_create_tarball.sh ${RELEASE_TAG}
+          echo "Creating core tarball for ${RELEASE_TAG}..."
+          ./utils/releasetools/01_create_tarball.sh "${RELEASE_TAG}"
+          TARBALL_PATH="/tmp/redis-${RELEASE_TAG}.tar.gz"
+          if [ ! -f "${TARBALL_PATH}" ]; then
+            echo "Error: Core tarball not found at ${TARBALL_PATH}"
+            exit 1
+          fi
+          echo "tarball_path=${TARBALL_PATH}" >> $GITHUB_OUTPUT
+          echo "✓ Core tarball created: ${TARBALL_PATH}"
 
-          # Placeholder: Verify tarball was created
-          # TARBALL_PATH="/tmp/redis-${RELEASE_TAG}.tar.gz"
-          # if [ ! -f "${TARBALL_PATH}" ]; then
-          #   echo "Error: Tarball not found at ${TARBALL_PATH}"
-          #   exit 1
-          # fi
-          # echo "tarball_path=${TARBALL_PATH}" >> $GITHUB_OUTPUT
+      - name: Create tarball (with modules)
+        id: create-tarball-modules
+        run: |
+          echo "Creating tarball with modules for ${RELEASE_TAG}..."
+          ./utils/releasetools/01_create_tarball.sh "${RELEASE_TAG}" --with-modules
+          CORE_TARBALL="/tmp/redis-${RELEASE_TAG}.tar.gz"
+          MODULES_TARBALL="/tmp/redis-${RELEASE_TAG}-with-modules.tar.gz"
+          mv "${CORE_TARBALL}" "${MODULES_TARBALL}"
+          if [ ! -f "${MODULES_TARBALL}" ]; then
+            echo "Error: Modules tarball not found at ${MODULES_TARBALL}"
+            exit 1
+          fi
+          echo "tarball_path=${MODULES_TARBALL}" >> $GITHUB_OUTPUT
+          echo "✓ Modules tarball created: ${MODULES_TARBALL}"
 
-          echo "✓ Tarball creation step (placeholder)"
+      - name: Restore core tarball
+        run: |
+          # Re-create the core tarball (it was overwritten by --with-modules)
+          ./utils/releasetools/01_create_tarball.sh "${RELEASE_TAG}"
 
-      - name: Upload tarball
+      - name: Upload tarballs to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CORE_TARBALL="/tmp/redis-${RELEASE_TAG}.tar.gz"
+          MODULES_TARBALL="/tmp/redis-${RELEASE_TAG}-with-modules.tar.gz"
+
+          echo "Uploading tarballs to release ${RELEASE_TAG}..."
+          gh release upload "${RELEASE_TAG}" \
+            "${CORE_TARBALL}#Redis ${RELEASE_TAG} source (core)" \
+            "${MODULES_TARBALL}#Redis ${RELEASE_TAG} source (with modules)" \
+            --clobber
+
+          echo "✓ Tarballs uploaded to release"
+
+      - name: Upload tarball to download server
         id: upload-tarball
         run: |
           echo "Uploading tarball for version ${RELEASE_TAG}..."
@@ -129,7 +170,8 @@ jobs:
           echo "- **Release Type:** ${{ steps.release-info.outputs.release_type }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Steps Status" >> $GITHUB_STEP_SUMMARY
-          echo "- Create tarball: ${{ steps.create-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Create tarball (core): ${{ steps.create-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Create tarball (with modules): ${{ steps.create-tarball-modules.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Upload tarball: ${{ steps.upload-tarball.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Test release: ${{ steps.test-release.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Update hashes: ${{ steps.update-hashes.outcome }}" >> $GITHUB_STEP_SUMMARY
