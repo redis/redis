@@ -13,6 +13,25 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.4.9    Released Tue 5 May 2026 16:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+- (CVE-2026-23479) Use-After-Free in unblock client flow may lead to Remote Code Execution.
+- (CVE-2026-25243) Invalid memory access in `RESTORE` may lead to Remote Code Execution
+- (CVE-2026-23631) Lua Use-After-Free may lead to remote code execution
+
+### Bug fixes
+
+- `SUBSCRIBE`, `PSUBSCRIBE`, `SSUBSCRIBE`: crash on OOM (RED-167788)
+- `CONFIG SET`: some settings allow invalid characters (RED-167787)
+- `SCRIPT DEBUG`: potential crash on scripts (RED-175507)
+
+
+================================================================================
 Redis 7.4.8    Released Mon 23 Feb 2026 10:00:00 IST
 ================================================================================
 
