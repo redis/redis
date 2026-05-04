@@ -21,6 +21,55 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.4.3    Released Tue 5 May 2026 16:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+- (CVE-2026-23479) Use-After-Free in unblock client flow may lead to Remote Code Execution.
+- (CVE-2026-25243) Invalid memory access in `RESTORE` may lead to Remote Code Execution
+- (CVE-2026-23631) Lua Use-After-Free may lead to remote code execution
+- (CVE-2026-25588) Invalid memory access in `RESTORE` may lead to Remote Code Execution (Time Series)
+- (CVE-2026-25589) Invalid memory access in `RESTORE` may lead to Remote Code Execution (Probabilistic)
+
+### Bug fixes
+
+- `SUBSCRIBE`, `PSUBSCRIBE`, `SSUBSCRIBE`: crash on OOM (RED-167788)
+- `CONFIG SET`: some settings allow invalid characters (RED-167787)
+- `SCRIPT DEBUG`: potential crash on scripts (RED-175507)
+- `VADD`: crash or buffer overflow on large `REDUCE` value (RED-170921)
+- `VSET`: crash on huge allocations (MOD-12678)
+- Potential crash on disconnections and TLS failures (Time Series) (MOD-14850)
+- #Q8744 Crash when many keys receive expirations under heavy TTL activity (MOD-14500)
+- #Q8849 HNSW vector index memory growth under high-churn workloads until shard restart (MOD-13761)
+- #Q8258 `FT.HYBRID` `VSIM RANGE` + `FILTER` incorrectly returns zero results (MOD-13885)
+- #Q9183 `FT.PROFILE HYBRID` returns an empty reply (MOD-14778)
+- #Q9048 `FT.PROFILE` output is inconsistent when a profiled value is missing (MOD-10560)
+- #Q8792 `FT.EXPLAIN` does not lock, causing a race with concurrent index changes (MOD-14461)
+- #Q8384 Crash when indexing negative zero (-0.0) (MOD-13904)
+- #Q8596 `FILTER` returns inconsistent results with multiple indexes sharing field aliases (MOD-14063)
+- #Q8661 `FILTER` behavior depends on property order in the expression (MOD-14065)
+- #Q8598 Filter expressions are evaluated for indexes that do not match the document type (MOD-14064)
+- #Q8597 Documents are inconsistently included or excluded depending on the indexing path taken (MOD-13948)
+- #Q8595 `RENAME` notification handler loads the wrong key, causing stale index entries after a rename (MOD-14062)
+- #Q9011 `PERSIST` and `HPERSIST` notifications are not reflected in index expiration tracking (MOD-14800)
+- #Q9080 `FT.SPELLCHECK` treats `PARAMS` placeholders as literal terms instead of resolving them (MOD-10596)
+- #Q8461 GC out-of-memory on replica shards leaves the replica in an inconsistent state (MOD-14066)
+- #Q9091 Race condition in `FT.HYBRID` causes intermittent failures under concurrent hybrid query load (MOD-14732)
+- #Q9161 Coordinator deadlock under mixed `FT.SEARCH` and `FT.AGGREGATE` load (MOD-14268)
+- #Q9165 Crash on `FT.SEARCH` when topology validation fails (for example, some nodes unreachable) (MOD-14475)
+- #Q8394 `FT.SEARCH` fails with "Query requires unavailable slots" after shard restart or failover (MOD-13828)
+- #Q8452 `FT.INFO`-style output no longer reports zero-index summary data when no indices exist (MOD-14080)
+- #Q9077 `FT.CREATE` now rejects schema definitions with invalid option combinations at creation time (MOD-14655)
+
+### Metrics
+
+- #Q8210, #Q8231 `FT.PROFILE`: added queue time tracking (MOD-13602)
+
+
+================================================================================
 Redis 8.4.2    Released Mon 23 Feb 2026 10:00:00 IST
 ================================================================================
 
