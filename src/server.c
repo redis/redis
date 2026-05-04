@@ -667,7 +667,6 @@ dictType dbExpiresDictType = {
     .no_value = 1,              /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,          /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,   /* get key from stored-key */
-    .prefetchEntryKey = dbDictPrefetchEntryKey,
 };
 
 /* Command table. sds string -> command struct pointer. */

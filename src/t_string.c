@@ -688,18 +688,6 @@ void mgetCommand(client *c) {
 
     addReplyArrayLen(c, numkeys);
 
-    /* For a single key (or zero), just do the plain lookup. */
-    if (numkeys <= 1) {
-        if (numkeys == 1) {
-            kvobj *o = lookupKeyRead(c->db, c->argv[1]);
-            if (o == NULL || o->type != OBJ_STRING)
-                addReplyNull(c);
-            else
-                addReplyBulk(c, o);
-        }
-        return;
-    }
-
     /* MGET requires all keys in the same slot in cluster mode. */
     int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
 
@@ -794,31 +782,14 @@ void mgetCommand(client *c) {
     #undef MGET_LIGHT_PREFETCH_MAX
 }
 
-/* Prefetch dict buckets for a batch of MSET keys. Each key at argv[start],
- * argv[start+2], ... argv[start+2*(count-1)] gets its dict bucket prefetched
- * into L1 cache. This hides the memory latency of scattered dict lookups when
- * processing multiple keys in a single MSET/MSETNX command.
- *
- * The prefetch is advisory — correctness does not depend on it. If a rehash
- * occurs mid-batch (triggered by a prior setKey), the prefetched bucket may
- * be stale, but the subsequent lookupKeyWrite/setKey will re-derive the
- * correct bucket. */
-static void msetPrefetchBatch(dict *d, robj **argv, int start, int count) {
-    for (int k = 0; k < count; k++) {
-        sds key = argv[start + k * 2]->ptr;
-        uint64_t hash = dictGetHash(d, key);
-        dictEntry **bucket = &d->ht_table[0][hash & DICTHT_SIZE_MASK(d->ht_size_exp[0])];
-        redis_prefetch_read(bucket);
-        if (dictIsRehashing(d)) {
-            dictEntry **bucket2 = &d->ht_table[1][hash & DICTHT_SIZE_MASK(d->ht_size_exp[1])];
-            redis_prefetch_read(bucket2);
-        }
-    }
-}
-
 #define MSET_BATCH_SIZE 16
 
-/* Prefetch dict buckets for the next batch if the slot dict is non-empty.
+/* Prefetch the next MSET batch via the shared dictPrefetchKeys path so that
+ * not just the bucket but also the existing entry's key and value (when the
+ * key already exists) get warmed via dbDictType's prefetchEntryKey /
+ * prefetchEntryValue callbacks. The old value matters here because setKey ->
+ * dbReplaceValue calls updateKeysizesHist with the old length, which reads
+ * the previous kvobj payload.
  *
  * The slot dict must be re-fetched each batch: in cluster mode, server.db[].keys
  * is created with KVSTORE_FREE_EMPTY_DICTS, so a prior batch's setKey →
@@ -827,8 +798,15 @@ static void msetPrefetchBatch(dict *d, robj **argv, int start, int count) {
  * be a dangling pointer. */
 static inline void msetMaybePrefetchBatch(client *c, int slot, int start, int batch) {
     dict *d = kvstoreGetDict(c->db->keys, slot);
-    if (d != NULL && dictSize(d) > 0)
-        msetPrefetchBatch(d, c->argv, start, batch);
+    if (d == NULL || dictSize(d) == 0)
+        return;
+    void *keys[MSET_BATCH_SIZE];
+    dict *dicts[MSET_BATCH_SIZE];
+    for (int k = 0; k < batch; k++) {
+        keys[k]  = c->argv[start + k * 2]->ptr;
+        dicts[k] = d;
+    }
+    dictPrefetchKeys(dicts, keys, batch);
 }
 
 void msetGenericCommand(client *c, int nx) {
