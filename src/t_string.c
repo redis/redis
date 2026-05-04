@@ -1276,6 +1276,7 @@ void increxCommand(client *c) {
     }
     keyModified(c, c->db, c->argv[1], new, 1);
     notifyKeyspaceEvent(NOTIFY_STRING, args.flags & OBJ_INCREX_BYFLOAT ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
+    KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 
     /*
@@ -1301,12 +1302,15 @@ void increxCommand(client *c) {
      *          Propagated as: SET <key> <result> PXAT <timestamp>
      */
     if (args.flags & OBJ_INCREX_PERSIST) {
-        if (removeExpire(c->db, c->argv[1]))
+        if (removeExpire(c->db, c->argv[1])) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
+            KSN_INVALIDATE_KVOBJ(o);
+        }
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
     } else if (args.expire_ms && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
         new = setExpire(c, c->db, c->argv[1], args.expire_ms);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
+        KSN_INVALIDATE_KVOBJ(o);
         robj *milliseconds_obj = createStringObjectFromLongLong(args.expire_ms);
         rewriteClientCommandVector(c, 5, shared.set, c->argv[1], new, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
