@@ -718,24 +718,50 @@ void mgetCommand(client *c) {
         return;
     }
 
-    /* Process keys in batches, prefetching dict buckets before lookups. */
+    /* Single prefetch path: always go through dictPrefetchKeys (the same
+     * shared API the cross-command batch prefetcher uses). For small
+     * requests we issue one call covering all keys; for larger requests
+     * we batch in MGET_BATCH chunks. The previous bucket-only fast path
+     * for n <= 10 was redundant — dictPrefetchKeys early-returns at
+     * nkeys <= 1 and its FSM overhead is tiny relative to the lookup
+     * itself for 2-10 keys (validated 2026-05-04: mget-100B-2keys flat). */
     #define MGET_BATCH 16
-    #define MGET_LIGHT_PREFETCH_MAX 10
+
+    /* Small request: prefetch all keys in one shot and fall through to the
+     * sequential lookup. Bounded by 2 * MGET_BATCH < DICT_PREFETCH_KEYS_MAX (64). */
+    if (numkeys < 2 * MGET_BATCH) {
+        dict *d = kvstoreGetDict(c->db->keys, slot);
+        if (d != NULL && dictSize(d) > 0) {
+            void *keys[2 * MGET_BATCH];
+            dict *dicts[2 * MGET_BATCH];
+            for (int k = 0; k < numkeys; k++) {
+                keys[k]  = c->argv[k + 1]->ptr;
+                dicts[k] = d;
+            }
+            dictPrefetchKeys(dicts, keys, numkeys);
+        }
+        for (int j = 1; j < c->argc; j++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+            if (o == NULL || o->type != OBJ_STRING)
+                addReplyNull(c);
+            else
+                addReplyBulk(c, o);
+        }
+        return;
+    }
+
+    /* Larger request: batch in MGET_BATCH chunks. The slot dict must be
+     * re-fetched per batch — in cluster mode db->keys is created with
+     * KVSTORE_FREE_EMPTY_DICTS, so a prior batch's lookupKeyRead ->
+     * expireIfNeeded path can empty the slot and free the dict, leaving
+     * a cached pointer dangling. */
     int j = 1;
     while (j < c->argc) {
         int batch_end = j + MGET_BATCH;
         if (batch_end > c->argc) batch_end = c->argc;
         int n = batch_end - j;
 
-        /* Re-fetch the slot dict per batch.  In cluster mode db->keys is
-         * created with KVSTORE_FREE_EMPTY_DICTS, so the previous batch's
-         * lookupKeyRead -> expireIfNeeded path can empty the slot and free
-         * the dict.  A cached pointer would then dangle.  Cost: one extra
-         * kvstoreGetDict call per 16 keys.  If the dict is empty (or NULL)
-         * we just emit NULLs for this batch; lookupKeyRead is still called
-         * to preserve touch / stats / notification side-effects. */
         dict *d = kvstoreGetDict(c->db->keys, slot);
-
         if (!d || dictSize(d) == 0) {
             for (int k = 0; k < n; k++) {
                 lookupKeyRead(c->db, c->argv[j + k]);
@@ -745,28 +771,13 @@ void mgetCommand(client *c) {
             continue;
         }
 
-        /* For small batches, use a lightweight bucket-only prefetch instead
-         * of the full state machine.  The state machine's per-key overhead
-         * (ctxNextInfo scan, function dispatch, 4 states per key) exceeds
-         * the prefetch benefit when keys are few and the working set fits
-         * in L3.  A single-pass bucket prefetch gives the CPU enough lead
-         * time to warm the hash chain heads without the iteration cost. */
-        if (n <= MGET_LIGHT_PREFETCH_MAX) {
-            int ht_idx = 0;
-            for (int k = 0; k < n; k++) {
-                uint64_t hash = dictGetHash(d, c->argv[j + k]->ptr);
-                uint64_t idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[ht_idx]);
-                redis_prefetch_read(&d->ht_table[ht_idx][idx]);
-            }
-        } else {
-            void *keys[MGET_BATCH];
-            dict  *dicts[MGET_BATCH];
-            for (int k = 0; k < n; k++) {
-                keys[k]  = c->argv[j + k]->ptr;
-                dicts[k] = d;
-            }
-            dictPrefetchKeys(dicts, keys, n);
+        void *keys[MGET_BATCH];
+        dict *dicts[MGET_BATCH];
+        for (int k = 0; k < n; k++) {
+            keys[k]  = c->argv[j + k]->ptr;
+            dicts[k] = d;
         }
+        dictPrefetchKeys(dicts, keys, n);
 
         /* Sequential lookups + replies — hot in cache. */
         for (int k = 0; k < n; k++) {
@@ -779,7 +790,6 @@ void mgetCommand(client *c) {
         j = batch_end;
     }
     #undef MGET_BATCH
-    #undef MGET_LIGHT_PREFETCH_MAX
 }
 
 #define MSET_BATCH_SIZE 16
