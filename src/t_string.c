@@ -682,6 +682,31 @@ void getrangeCommand(client *c) {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }
 }
+/* Batch size for intra-command key prefetching. */
+#define PREFETCH_BATCH_SIZE 16
+
+/* Pick the next prefetch batch starting at argv[start] and warm it via
+ * dictPrefetchKeys. 'stride' is 1 for keys-only args (MGET) or 2 for
+ * key/value pairs (MSET). Returns the chosen batch size in items. */
+static int prefetchKeysBatch(client *c, int slot, int start, int stride) {
+    int batch = (c->argc - start) / stride;
+
+    /* If at least two full batches remain, take one; otherwise fall
+     * through with batch = remaining keys, doing them in one go. */
+    if (batch >= PREFETCH_BATCH_SIZE*2) batch = PREFETCH_BATCH_SIZE;
+
+    dict *d = kvstoreGetDict(c->db->keys, slot);
+    if (d != NULL && dictSize(d) > 0) {
+        void *keys[PREFETCH_BATCH_SIZE*2];
+        dict *dicts[PREFETCH_BATCH_SIZE*2];
+        for (int k = 0; k < batch; k++) {
+            keys[k]  = c->argv[start + k * stride]->ptr;
+            dicts[k] = d;
+        }
+        dictPrefetchKeys(dicts, keys, batch);
+    }
+    return batch;
+}
 
 void mgetCommand(client *c) {
     int numkeys = c->argc - 1;
@@ -691,137 +716,31 @@ void mgetCommand(client *c) {
     /* MGET requires all keys in the same slot in cluster mode. */
     int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
 
-    /* Skip intra-command prefetching when the cross-command batch path
-     * already prefetched our keys (fully or partially).  Two conditions:
-     * 1. PENDING_CMD_KEYS_PREFETCHED: all keys fit in the batch — skip.
-     * 2. Pipeline active (ready_len > 1) AND batch prefetching is enabled:
-     *    batch ran with multiple commands, partially warming the hash table.
-     *    Running both prefetch paths causes cache-bandwidth contention and
-     *    -9.6% regression on x86 with pipeline-10.  The partial warmup is
-     *    sufficient.
-     * We must also verify that batch prefetching is enabled
-     * (prefetch_batch_max_size > 0), otherwise no cross-command prefetching
-     * occurred and the intra-command path is the only prefetch opportunity. */
+    /* Decide whether to prefetch within this command. Skip if disabled by
+     * config (prefetch_batch_max_size == 0), or if the cross-command batch
+     * path already warmed our keys — running both paths would just contend
+     * for cache bandwidth. */
     int already_prefetched = c->current_pending_cmd &&
-        ((c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED) ||
-         (c->pending_cmds.ready_len > 1 && server.prefetch_batch_max_size > 0));
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+    int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
 
-    if (already_prefetched) {
-        /* Keys are already warm in cache — plain sequential lookups. */
-        for (int j = 1; j < c->argc; j++) {
-            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-            if (o == NULL || o->type != OBJ_STRING)
-                addReplyNull(c);
-            else
-                addReplyBulk(c, o);
-        }
-        return;
-    }
-
-    /* Single prefetch path: always go through dictPrefetchKeys (the same
-     * shared API the cross-command batch prefetcher uses). For small
-     * requests we issue one call covering all keys; for larger requests
-     * we batch in MGET_BATCH chunks. The previous bucket-only fast path
-     * for n <= 10 was redundant — dictPrefetchKeys early-returns at
-     * nkeys <= 1 and its FSM overhead is tiny relative to the lookup
-     * itself for 2-10 keys (validated 2026-05-04: mget-100B-2keys flat). */
-    #define MGET_BATCH 16
-
-    /* Small request: prefetch all keys in one shot and fall through to the
-     * sequential lookup. Bounded by 2 * MGET_BATCH < DICT_PREFETCH_KEYS_MAX (64). */
-    if (numkeys < 2 * MGET_BATCH) {
-        dict *d = kvstoreGetDict(c->db->keys, slot);
-        if (d != NULL && dictSize(d) > 0) {
-            void *keys[2 * MGET_BATCH];
-            dict *dicts[2 * MGET_BATCH];
-            for (int k = 0; k < numkeys; k++) {
-                keys[k]  = c->argv[k + 1]->ptr;
-                dicts[k] = d;
-            }
-            dictPrefetchKeys(dicts, keys, numkeys);
-        }
-        for (int j = 1; j < c->argc; j++) {
-            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-            if (o == NULL || o->type != OBJ_STRING)
-                addReplyNull(c);
-            else
-                addReplyBulk(c, o);
-        }
-        return;
-    }
-
-    /* Larger request: batch in MGET_BATCH chunks. The slot dict must be
-     * re-fetched per batch — in cluster mode db->keys is created with
-     * KVSTORE_FREE_EMPTY_DICTS, so a prior batch's lookupKeyRead ->
-     * expireIfNeeded path can empty the slot and free the dict, leaving
-     * a cached pointer dangling. */
     int j = 1;
     while (j < c->argc) {
-        int batch_end = j + MGET_BATCH;
-        if (batch_end > c->argc) batch_end = c->argc;
-        int n = batch_end - j;
+        /* If prefetching, take one batch; otherwise take all items. */
+        int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 1) : c->argc - j;
 
-        dict *d = kvstoreGetDict(c->db->keys, slot);
-        if (!d || dictSize(d) == 0) {
-            for (int k = 0; k < n; k++) {
-                lookupKeyRead(c->db, c->argv[j + k]);
-                addReplyNull(c);
-            }
-            j = batch_end;
-            continue;
-        }
-
-        void *keys[MGET_BATCH];
-        dict *dicts[MGET_BATCH];
-        for (int k = 0; k < n; k++) {
-            keys[k]  = c->argv[j + k]->ptr;
-            dicts[k] = d;
-        }
-        dictPrefetchKeys(dicts, keys, n);
-
-        /* Sequential lookups + replies — hot in cache. */
-        for (int k = 0; k < n; k++) {
+        for (int k = 0; k < batch; k++) {
             kvobj *o = lookupKeyRead(c->db, c->argv[j + k]);
             if (o == NULL || o->type != OBJ_STRING)
                 addReplyNull(c);
             else
                 addReplyBulk(c, o);
         }
-        j = batch_end;
+        j += batch;
     }
-    #undef MGET_BATCH
-}
-
-#define MSET_BATCH_SIZE 16
-
-/* Prefetch the next MSET batch via the shared dictPrefetchKeys path so that
- * not just the bucket but also the existing entry's key and value (when the
- * key already exists) get warmed via dbDictType's prefetchEntryKey /
- * prefetchEntryValue callbacks. The old value matters here because setKey ->
- * dbReplaceValue calls updateKeysizesHist with the old length, which reads
- * the previous kvobj payload.
- *
- * The slot dict must be re-fetched each batch: in cluster mode, server.db[].keys
- * is created with KVSTORE_FREE_EMPTY_DICTS, so a prior batch's setKey →
- * expireIfNeeded may have emptied the slot and freed the dict, with
- * dbAddByLink creating a new one. A cached dict* from before the batch would
- * be a dangling pointer. */
-static inline void msetMaybePrefetchBatch(client *c, int slot, int start, int batch) {
-    dict *d = kvstoreGetDict(c->db->keys, slot);
-    if (d == NULL || dictSize(d) == 0)
-        return;
-    void *keys[MSET_BATCH_SIZE];
-    dict *dicts[MSET_BATCH_SIZE];
-    for (int k = 0; k < batch; k++) {
-        keys[k]  = c->argv[start + k * 2]->ptr;
-        dicts[k] = d;
-    }
-    dictPrefetchKeys(dicts, keys, batch);
 }
 
 void msetGenericCommand(client *c, int nx) {
-    int j;
-
     if ((c->argc % 2) == 0) {
         addReplyErrorArity(c);
         return;
@@ -829,49 +748,49 @@ void msetGenericCommand(client *c, int nx) {
 
     int numkeys = (c->argc - 1) / 2;
 
-    /* Use batched prefetch when there are multiple keys. Single-key MSET gets
-     * no benefit from warming, so we skip the prefetch call entirely for it.
-     * The slot dict is re-fetched inside msetMaybePrefetchBatch for every
-     * batch (see comment there). In cluster mode, MSET keys are guaranteed to
-     * hash to the same slot by getNodeByQuery's CROSSSLOT check. */
+    /* Same gating as mgetCommand, see comment there. */
     int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
-    int use_prefetch = (numkeys > 1);
+    int already_prefetched = c->current_pending_cmd &&
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+    int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
 
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
      * set anything if at least one key already exists. */
     if (nx) {
-        for (j = 1; j < c->argc; j += 2 * MSET_BATCH_SIZE) {
-            int remaining = (c->argc - j + 1) / 2;
-            int batch = remaining < MSET_BATCH_SIZE ? remaining : MSET_BATCH_SIZE;
-            if (use_prefetch)
-                msetMaybePrefetchBatch(c, slot, j, batch);
+        int j = 1;
+        while (j < c->argc) {
+            /* If prefetching, take one batch; otherwise take all items. */
+            int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 2)
+                                    : (c->argc - j) / 2;
             for (int k = 0; k < batch; k++) {
                 if (lookupKeyWrite(c->db, c->argv[j + k * 2]) != NULL) {
                     addReply(c, shared.czero);
                     return;
                 }
             }
+            j += batch * 2;
         }
     }
 
-    for (j = 1; j < c->argc; j += 2 * MSET_BATCH_SIZE) {
-        int remaining = (c->argc - j + 1) / 2;
-        int batch = remaining < MSET_BATCH_SIZE ? remaining : MSET_BATCH_SIZE;
-        if (use_prefetch)
-            msetMaybePrefetchBatch(c, slot, j, batch);
+    /* If nx is set, the NX loop above already prefetched. */
+    do_prefetch = do_prefetch && !nx;
+
+    int j = 1;
+    while (j < c->argc) {
+        int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 2)
+                                : (c->argc - j) / 2;
         for (int k = 0; k < batch; k++) {
-            int ki = j + k * 2;
-            c->argv[ki + 1] = tryObjectEncoding(c->argv[ki + 1]);
-            setKey(c, c->db, c->argv[ki], &(c->argv[ki + 1]), 0);
-            incrRefCount(c->argv[ki + 1]);
-            notifyKeyspaceEvent(NOTIFY_STRING, "set", c->argv[ki], c->db->id);
+            int i = j + k * 2;
+            c->argv[i + 1] = tryObjectEncoding(c->argv[i + 1]);
+            setKey(c, c->db, c->argv[i], &(c->argv[i + 1]), 0);
+            incrRefCount(c->argv[i + 1]);
+            notifyKeyspaceEvent(NOTIFY_STRING, "set", c->argv[i], c->db->id);
         }
+        j += batch * 2;
     }
     server.dirty += numkeys;
     addReply(c, nx ? shared.cone : shared.ok);
 }
-
-#undef MSET_BATCH_SIZE
 
 void msetCommand(client *c) {
     msetGenericCommand(c,0);

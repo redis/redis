@@ -32,9 +32,9 @@ void prefetchCommands(void);
  * dictType drives any key/value payload prefetching via the
  * prefetchEntryKey / prefetchEntryValue callbacks.
  *
- * nkeys must be <= DICT_PREFETCH_KEYS_MAX (the function asserts this).
+ * nkeys must be <= DICT_PREFETCH_MAX_SIZE (the function asserts this).
  * Callers should batch larger inputs into chunks of this size or smaller. */
-#define DICT_PREFETCH_KEYS_MAX 64
+#define DICT_PREFETCH_MAX_SIZE 64
 void dictPrefetchKeys(struct dict **dicts, void **keys, size_t nkeys);
 
 #endif /* MEMORY_PREFETCH_H */

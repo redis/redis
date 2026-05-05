@@ -307,12 +307,12 @@ void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys) {
      * fall through to a direct lookup. */
     if (nkeys <= 1) return;
 
-    /* Cap nkeys so the stack array below stays within typical
-     * -fstack-usage budgets, even when the count comes from argc. */
-    serverAssert(nkeys <= DICT_PREFETCH_KEYS_MAX);
+    /* Guard the fixed-size stack array below; callers must batch larger
+     * inputs into chunks of DICT_PREFETCH_MAX_SIZE or smaller. */
+    serverAssert(nkeys <= DICT_PREFETCH_MAX_SIZE);
     server.stat_total_prefetch_batches++;
 
-    dictPrefetchLookup lookups[nkeys];
+    dictPrefetchLookup lookups[DICT_PREFETCH_MAX_SIZE];
     dictPrefetcher p = { .lookups = lookups, .max_keys = nkeys };
     dictPrefetcherReset(&p, dicts, keys, nkeys);
     dictPrefetcherRun(&p);
@@ -510,17 +510,13 @@ int addCommandToBatch(client *c) {
 
         serverAssert(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID);
         dict *cmd_dict = kvstoreGetDict(c->db->keys, pcmd->slot > 0 ? pcmd->slot : 0);
-        size_t start_key_count = batch->key_count;
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = pcmd->argv[pcmd->keys_result.keys[i].pos];
             batch->keys_dicts[batch->key_count] = cmd_dict;
             batch->key_count++;
-        }
-        /* Mark the command as prefetched only if ALL of its keys were
-         * added to the batch. If the batch ran out of space mid-command,
-         * the remaining keys were not prefetched and the intra-command
-         * path (e.g. dictPrefetchKeys in mgetCommand) must handle them. */
-        if (batch->key_count - start_key_count == (size_t)pcmd->keys_result.numkeys) {
+            /* Mark the command as prefetched so the intra-command prefetch
+             * path skips it. Even on a partial batch, running both paths
+             * would just contend for cache bandwidth. */
             pcmd->flags |= PENDING_CMD_KEYS_PREFETCHED;
         }
         pcmd = pcmd->next;
