@@ -226,11 +226,21 @@ proc restore_server_configs {saved_configs} {
     }
 }
 
+# Forward a per-test result to the test server in JUnit-friendly form.
+# Result is one of: pass, fail, skip. elapsed_ms may be 0 for skips.
+# No-op when --junitxml was not requested.
+proc emit_junit {name file result message elapsed_ms} {
+    if {$::junitxml eq ""} return
+    send_data_packet $::test_server_fd junit \
+        [list $name $file $result $message] $elapsed_ms
+}
+
 proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
     if {[search_pattern_list $name $::skiptests]} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
+        emit_junit $name $::curfile skip "" 0
         return
     }
     if {$::verbose > 1} {
@@ -240,6 +250,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
     if {[llength $::only_tests] > 0 && ![search_pattern_list $name $::only_tests]} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
+        emit_junit $name $::curfile skip "" 0
         return
     }
 
@@ -247,6 +258,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
     if {![tags_acceptable $tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore "$name: $err"
+        emit_junit $name $::curfile skip $err 0
         return
     }
 
@@ -311,6 +323,8 @@ proc test {name code {okpattern undefined} {tags {}}} {
             incr ::num_failed
             set failed true
             send_data_packet $::test_server_fd err [join $details "\n"]
+            emit_junit $name $::curfile fail [join $details "\n"] \
+                [expr {[clock milliseconds]-$test_start_time}]
 
             if {$::stop_on_failure} {
                 puts "Test error (last server port:[srv port], log:[srv stdout]), press enter to teardown the test."
@@ -333,6 +347,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
             incr ::num_passed
             set elapsed [expr {[clock milliseconds]-$test_start_time}]
             send_data_packet $::test_server_fd ok $name $elapsed
+            emit_junit $name $::curfile pass "" $elapsed
         } else {
             set msg "Expected '$okpattern' to equal or match '$retval'"
             lappend details $msg
@@ -341,6 +356,8 @@ proc test {name code {okpattern undefined} {tags {}}} {
             incr ::num_failed
             set failed true
             send_data_packet $::test_server_fd err [join $details "\n"]
+            emit_junit $name $::curfile fail [join $details "\n"] \
+                [expr {[clock milliseconds]-$test_start_time}]
         }
     }
 

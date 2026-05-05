@@ -15,7 +15,21 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --verbose --tags -slow --dump-logs
+        ./runtest --verbose --tags -slow --dump-logs --junitxml tests/results/junit.xml
+    - name: Upload JUnit report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-test-ubuntu-latest
+        path: tests/results/junit.xml
+    - name: Publish test results
+      if: always()
+      uses: mikepenz/action-junit-report@v4
+      with:
+        report_paths: tests/results/junit.xml
+        check_name: Test Results (ubuntu-latest)
+        fail_on_failure: false
+        require_tests: true
     - name: validate commands.def up to date
       run: |
         touch src/commands/ping.json
