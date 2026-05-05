@@ -115,17 +115,6 @@ void vecSwapRemoveAt(vec *v, size_t index) {
     v->data[index] = v->data[--v->size];
 }
 
-/* Remove the first occurrence of 'elem' by swapping with the last element.
- * Does not invoke the free callback. Returns 1 if found and removed, 0 if not found. */
-int vecSwapRemove(vec *v, void *elem) {
-    ssize_t index = vecFindIndexOf(v, elem);
-    if (index < 0) {
-        return 0;
-    }
-    vecSwapRemoveAt(v, index);
-    return 1;
-}
-
 #ifdef REDIS_TEST
 
 #include <stdio.h>
@@ -289,26 +278,6 @@ int vectorTest(int argc, char **argv, int flags)
     test_cond("vecSwapRemoveAt() removes first element and swaps with last",
               vecSize(&v) == 2 &&
               vecGet(&v, 0) == &three && vecGet(&v, 1) == &two);
-    vecRelease(&v);
-
-    /* vecSwapRemove tests */
-    vecInit(&v, NULL, 0);
-    vecPush(&v, &one);
-    vecPush(&v, &two);
-    vecPush(&v, &three);
-    test_cond("vecSwapRemove() removes middle element and swaps with last",
-              vecSwapRemove(&v, &two) == 1 &&
-              vecSize(&v) == 2 &&
-              vecGet(&v, 0) == &one && vecGet(&v, 1) == &three);
-    test_cond("vecSwapRemove() returns 0 for missing element",
-              vecSwapRemove(&v, &four) == 0 && vecSize(&v) == 2);
-    test_cond("vecSwapRemove() removes last element without swap",
-              vecSwapRemove(&v, &three) == 1 &&
-              vecSize(&v) == 1 && vecGet(&v, 0) == &one);
-    test_cond("vecSwapRemove() removes sole element",
-              vecSwapRemove(&v, &one) == 1 && vecSize(&v) == 0);
-    test_cond("vecSwapRemove() returns 0 on empty vector",
-              vecSwapRemove(&v, &one) == 0);
     vecRelease(&v);
 
     return 0;

@@ -104,10 +104,6 @@ ssize_t vecFindIndexOf(const vec *v, void *elem);
  * Does not invoke the free callback. Requires index < vecSize(v). */
 void vecSwapRemoveAt(vec *v, size_t index);
 
-/* Remove the first occurrence of 'elem' by swapping with the last element.
- * Does not invoke the free callback. Returns 1 if found and removed, 0 if not found. */
-int vecSwapRemove(vec *v, void *elem);
-
 #ifdef REDIS_TEST
 int vectorTest(int argc, char **argv, int flags);
 #endif
