@@ -13,9 +13,14 @@ jobs:
       # build with TLS just for compilation coverage
       run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: test
+      # NOTE: --single unit/other --force-failure --only "Failing test" is a
+      # TEMPORARY DEMO ONLY, to surface the JUnit failure-annotation experience
+      # in this draft PR. --single keeps the run scoped to a single file so
+      # moduleapi suites (whose .so modules are not built in this job) are not
+      # exercised. This block MUST be reverted before merge.
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --verbose --tags -slow --dump-logs --junitxml tests/results/junit.xml
+        ./runtest --verbose --dump-logs --junitxml tests/results/junit.xml --single unit/other --force-failure --only "Failing test"
     - name: Upload JUnit report
       if: always()
       uses: actions/upload-artifact@v4
