@@ -1,6 +1,4 @@
 start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
-    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
     test {CONFIG SET client-output-buffer-limit} {
         set oldval [lindex [r config get client-output-buffer-limit] 1]
 
@@ -236,5 +234,83 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         catch {r keys *} e
         assert_match "*I/O error*" $e
         reconnect
+    }
+
+    test "zero-copy referenced reply bytes are reflected in memory stats" {
+        r flushdb
+        r config set client-output-buffer-limit {normal 0 0 0}
+        # Use a value large enough to trigger copy avoidance
+        set val_size 100000
+        r set bigkey [string repeat v $val_size]
+
+        # Use MULTI/EXEC so all observers see the zero-copy ref before it is sent.
+        r client setname refmem_test
+        r multi
+        r get bigkey      ;# adds zero-copy ref to output buffer
+        r client list     ;# per-client omem / omem-shared / omem-unshared / tot-mem
+        r info memory     ;# global mem_clients_normal_shared / mem_clients_normal_unshared
+        r memory stats    ;# clients.normal.shared and clients.normal.unshared
+        set res [r exec]
+        
+        # omem-shared tracks total shared reply bytes, key is still alive so omem-unshared must be 0.
+        set clients [split [string trim [lindex $res 1]] "\r\n"]
+        set c [lsearch -inline $clients *name=refmem_test*]
+        regexp {omem-shared=([0-9]+)} $c - omem_shared
+        regexp {omem-unshared=([0-9]+)} $c - omem_unshared
+        assert {$omem_shared >= $val_size}
+        assert_equal 0 $omem_unshared
+
+        # mem_clients_normal_shared is incremented at write time, before the reply is sent
+        set info_mem [lindex $res 2]
+        assert {[getInfoProperty $info_mem mem_clients_normal_shared] >= $val_size}
+        assert_equal 0 [getInfoProperty $info_mem mem_clients_normal_unshared]
+
+        # MEMORY STATS exposes the same shared bytes; normal.unshared is 0 since the key is still in keyspace
+        set mem_stats [lindex $res 3]
+        assert {[dict get $mem_stats clients.normal.shared] >= $val_size}
+        assert_equal 0 [dict get $mem_stats clients.normal.unshared] ;# key still in keyspace
+
+        # After the reply is fully sent, the global counter must return to 0
+        wait_for_condition 50 10 {
+            [s mem_clients_normal_shared] == 0
+        } else {
+            fail "mem_clients_normal_shared did not return to 0 after reply was sent"
+        }
+    }
+
+    test "shared reply bytes are tracked as unshared after the key is deleted" {
+        r flushdb
+        r config set client-output-buffer-limit {normal 0 0 0}
+
+        set rr [redis_deferring_client]
+        $rr client setname test_client
+        $rr flush
+
+        # Repeatedly SET/GET/DEL a big key on a deferred client and poll CLIENT LIST
+        # until omem-unshared on test_client reflects the referenced bytes.
+        set val_size 100000
+        set deadline [expr {[clock milliseconds] + 5000}]
+        while {true} {
+            r set k [string repeat v $val_size]
+            $rr get k
+            $rr del k
+            $rr flush
+            after 10
+
+            set clients [split [r client list] "\r\n"]
+            set c [lsearch -inline $clients *name=test_client*]
+            regexp {omem-shared=([0-9]+)} $c - omem_shared
+            regexp {omem-unshared=([0-9]+)} $c - omem_unshared
+            if {$omem_unshared >= $val_size} {
+                assert_morethan_equal $omem_shared $omem_unshared
+                break
+            }
+
+            if {[clock milliseconds] > $deadline} {
+                fail "timed out waiting for omem-unshared to reflect unshared bytes"
+            }
+        }
+
+        $rr close
     }
 }
