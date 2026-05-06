@@ -1011,36 +1011,20 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
             args->flags |= OBJ_INCREX_ENX;
         } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
             args->flags |= OBJ_INCREX_PERSIST;
-        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
-                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & expire_flags) && next)
-        {
+        } else if (!strcasecmp(opt, "EX") && !(args->flags & expire_flags) && next) {
             args->flags |= OBJ_INCREX_EX;
             expire = next;
             j++;
-        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
-                   (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & expire_flags) && next)
-        {
+        } else if (!strcasecmp(opt, "PX") && !(args->flags & expire_flags) && next) {
             args->flags |= OBJ_INCREX_PX;
             args->unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
-        } else if ((opt[0] == 'e' || opt[0] == 'E') &&
-                   (opt[1] == 'x' || opt[1] == 'X') &&
-                   (opt[2] == 'a' || opt[2] == 'A') &&
-                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & expire_flags) && next)
-        {
+        } else if (!strcasecmp(opt, "EXAT") && !(args->flags & expire_flags) && next) {
             args->flags |= OBJ_INCREX_EXAT;
             expire = next;
             j++;
-        } else if ((opt[0] == 'p' || opt[0] == 'P') &&
-                   (opt[1] == 'x' || opt[1] == 'X') &&
-                   (opt[2] == 'a' || opt[2] == 'A') &&
-                   (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(args->flags & expire_flags) && next)
-        {
+        } else if (!strcasecmp(opt, "PXAT") && !(args->flags & expire_flags) && next) {
             args->flags |= OBJ_INCREX_PXAT;
             args->unit = UNIT_MILLISECONDS;
             expire = next;
