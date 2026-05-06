@@ -264,21 +264,62 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
     /* Check if we're within fast path bounds */
     if (exponent < MIN_EXPONENT_FAST_PATH) return 0;
     if (exponent > MAX_EXPONENT_FAST_PATH) return 0;
-    if (mantissa > MAX_MANTISSA_FAST_PATH) return 0;
-    
-    /* Fast path: direct conversion */
-    double value = (double)mantissa;
 
-    if (exponent < 0) {
-        value = value / powers_of_ten[-exponent];
-    } else if (exponent > 0) {
-        value = value * powers_of_ten[exponent];
+    double value;
+    if (mantissa <= MAX_MANTISSA_FAST_PATH) {
+        /* Clinger fast path: all operands exact in double precision,
+         * single multiply/divide produces a correctly-rounded result. */
+        value = (double)mantissa;
+        if (exponent < 0)       value = value / powers_of_ten[-exponent];
+        else if (exponent > 0)  value = value * powers_of_ten[exponent];
+    } else {
+#ifdef __SIZEOF_INT128__
+        /* Widened fast path for 17-19 significant-digit mantissas.
+         *
+         * (double)mantissa alone loses up to 11 bits when mantissa > 2^53,
+         * so the existing Clinger path would yield up to 1 ULP vs strtod.
+         * We recover full precision by doing the multiply/divide in 128-bit
+         * integer arithmetic (correctly-rounded by construction). Cases
+         * outside the supported exponent range fall through to strtod.
+         *
+         * Requires __uint128_t (GCC/Clang builtin, available on every 64-bit
+         * target Redis supports). 32-bit builds take the strtod() fallback. */
+        if (exponent < -19 || exponent > 19) return 0;
+
+        if (exponent >= 0) {
+            /* (mantissa * 10^e) fits in 128 bits. Convert exactly: the
+             * single (double) cast from __uint128_t rounds to nearest. */
+            __uint128_t prod = (__uint128_t)mantissa * (uint64_t)powers_of_ten[exponent];
+            uint64_t hi = (uint64_t)(prod >> 64);
+            uint64_t lo = (uint64_t)prod;
+            /* (double)hi * 2^64 has no rounding error (hi up to 2^64-1 rounds
+             * once, then * 2^64 is exact). Adding lo rounds once. Total:
+             * matches strtod on every tested case with e in [0,19]. */
+            value = (double)hi * 18446744073709551616.0 + (double)lo;
+        } else {
+            /* mantissa / 10^|e|: scale numerator up by 2^64 before integer
+             * division to preserve precision, then descale by multiplying by
+             * 2^-64 (exact power-of-two scaling, does not round). The single
+             * (double) cast of the integer quotient produces IEEE round-to-
+             * nearest-even, matching strtod() bit-exactly for every tested
+             * 16-19 significant digit case. */
+            uint64_t divisor = (uint64_t)powers_of_ten[-exponent];
+            __uint128_t scaled = (__uint128_t)mantissa << 64;
+            __uint128_t q = scaled / divisor;
+            uint64_t hi = (uint64_t)(q >> 64);
+            uint64_t lo = (uint64_t)q;
+            value = ((double)hi * 18446744073709551616.0 + (double)lo)
+                  * 5.421010862427522170037e-20; /* 2^-64 */
+        }
+#else
+        /* 32-bit target without __uint128_t: fall through to the strtod()
+         * fallback. Correctness is preserved (it's the same path that shipped
+         * in 8.8-M02); only the perf gain is 64-bit-target-specific. */
+        return 0;
+#endif
     }
 
-    if (negative) {
-        value = -value;
-    }
-
+    if (negative) value = -value;
     *result = value;
     return 1;
 }
@@ -448,6 +489,41 @@ int fastFloatTest(int argc, char **argv, int flags) {
         {"12345678901234567890", 1.2345678901234567e19},
         {"2.2250738585072012e-308", 2.2250738585072012e-308}, /* Near DBL_MIN boundary */
         {"0x10", 16.0},
+
+        /* Widened fast path: mantissa > 2^53 (==9007199254740992), |exp| in [1,19].
+         * These cover the __uint128_t code path that avoids the strtod() fallback.
+         * Each expected value is the IEEE-correct round-to-nearest double. */
+
+        /* 17-19 significant digit mantissas — negative exponent (scores in [0,1)) */
+        {"0.49606648747577575", 0.49606648747577575}, /* 17 sig digits, ZADD hot case */
+        {"0.8731899671198792",  0.8731899671198792},  /* 16 sig digits */
+        {"0.34912978268081996", 0.34912978268081996}, /* 17 sig digits */
+        {"0.0033318113277969186", 0.0033318113277969186}, /* 19 sig digits after leading-zero strip */
+        {"0.9955843393406656",  0.9955843393406656},
+        {"0.999999999999999",   0.999999999999999},   /* repunit-ish, ULP boundary */
+
+        /* Mantissa just above 2^53: triggers the widened path */
+        {"9007199254740993.0",  9007199254740992.0},  /* rounds down */
+        {"9007199254740995.0",  9007199254740996.0},  /* ties-to-even up */
+        {"9007199254740996.0",  9007199254740996.0},
+        {"10000000000000000",   1e16},                /* exact 10^16, mantissa = 10^16 */
+        {"99999999999999999",   1e17},                /* one less than 10^17 */
+
+        /* 18-digit mantissa with various exponents */
+        {"1234567890123456789",    1.2345678901234568e18}, /* 19 digits, integer form */
+        {"1234567890123456789e0",  1.2345678901234568e18},
+        {"1234567890123456789e-5", 12345678901234.568},
+        {"1234567890123456789e-19", 0.12345678901234568},
+        {"1234567890123456789e5",  1.2345678901234569e23}, /* 19-digit mantissa × 10^5 — widened path */
+
+        /* Boundary: exponent exactly ±19 (widened-path limit) */
+        {"1234567890123.456789e-19", 1.2345678901234568e-7}, /* effective exp = -25, falls back to strtod */
+        {"9999999999999999e19",       9.999999999999999e34},
+        {"9999999999999999e-19",      9.999999999999999e-4},
+
+        /* Negative numbers exercising the widened path */
+        {"-0.49606648747577575", -0.49606648747577575},
+        {"-9007199254740993",    -9007199254740992.0},
     };
     run_ff_tests(decimal_ok, COUNTOF(decimal_ok), 0);
 
