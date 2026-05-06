@@ -1214,8 +1214,8 @@ void increxCommand(client *c) {
         }
     }
 
-    addReplyArrayLen(c, 2);
     if (args.flags & OBJ_INCREX_BYFLOAT) {
+        addReplyArrayLen(c, 2);
         addReplyHumanLongDouble(c, value_ld);
         addReplyHumanLongDouble(c, value_ld - oldvalue_ld);
     } else {
@@ -1228,6 +1228,7 @@ void increxCommand(client *c) {
             return;
         }
 
+        addReplyArrayLen(c, 2);
         addReplyLongLong(c, value_ll);
         addReplyLongLong(c, delta);
     }
