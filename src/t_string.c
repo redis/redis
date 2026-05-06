@@ -1283,6 +1283,11 @@ void increxCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
     if (expire_notify)
         notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
+
+    /* A KSN handler may reallocate the kvobj and replace it in the dict. The local
+     * pointers `o`/`new` may then point to a stale object and must not be dereferenced;
+     * null them out. The object is not freed though if rewriteClientCommandVector()
+     * above incremented its refcount, so c->argv keeps it alive for command propagation. */
     KSN_INVALIDATE_KVOBJ(o);
     KSN_INVALIDATE_KVOBJ(new);
 }
