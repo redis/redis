@@ -4223,7 +4223,8 @@ static sds getAllFilteredClientsInfoString(clientFilter *filter) {
     listNode *ln;
     listIter li;
     client *cl;
-    sds o = sdsempty();
+    sds o = sdsnewlen(SDS_NOINIT,200*listLength(server.clients));
+    sdsclear(o);
 
     /* Same IO-thread quiescing as getAllClientsInfoString(). */
     int allpaused = 0;
