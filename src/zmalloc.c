@@ -93,12 +93,12 @@ const char *je_malloc_conf =
 #endif
 
 /* Per-thread memory accounting slots. The first DEDICATED_ENTRIES threads
- * (typically the main thread plus the worker threads) each get a private
- * slot and can use the cheap single-writer atomic operation (plain load+store). 
+ * (typically the main thread plus io threads) each get a private slot and can
+ * use the cheap single-writer atomic operation (plain load+store). 
  * Threads beyond that share a pool hashed by thread index and pay the cost of
  * a full atomic RMW. */
-#define DEDICATED_ENTRIES 16
-#define SHARED_ENTRIES 16 /* Must be a power of 2 for modulo */
+#define DEDICATED_ENTRIES 8
+#define SHARED_ENTRIES 8 /* Must be a power of 2 for modulo */
 #define SHARED_ENTRIES_MASK (SHARED_ENTRIES - 1)
 #define MAX_ENTRIES (DEDICATED_ENTRIES + SHARED_ENTRIES)
 #define PEAK_CHECK_THRESHOLD (1024 * 100) /* 100KB */
@@ -125,6 +125,43 @@ static inline void init_my_thread_index(void) {
             /* Overflow threads share the shared pool entries (atomic RMW). */
             my_thread_index = DEDICATED_ENTRIES + (idx & SHARED_ENTRIES_MASK);
         }
+    }
+}
+
+/* Pre-advance the thread index counter so reserved threads that call
+ * zmalloc_register_reserved_thread() can claim dedicated used_memory accounting 
+ * slots. Must be called once by main() before any other thread can allocate via 
+ * zmalloc(), otherwise background threads could auto-register into the 
+ * dedicated range. See DEDICATED_ENTRIES comment for details. */
+void zmalloc_reserve_thread_slots(int n) {
+    assert(n >= 1);
+    
+    size_t cur;
+    atomicGet(num_active_threads, cur);
+    assert((my_thread_index == -1 && cur == 0) ||
+           (my_thread_index == 0  && cur == 1));
+
+    if (my_thread_index == -1) my_thread_index = 0; /* claim entry 0 for main thread */
+    atomicSet(num_active_threads, (size_t)n);
+}
+
+/* A reserved thread, e.g. an IO thread, calls this once at startup, before its
+ * first allocation. Claims the next dedicated slot via a private atomic counter,
+ * falls back to the shared pool if all dedicated slots have been taken. */
+void zmalloc_register_reserved_thread(void) {
+    assert(my_thread_index == -1);
+    static redisAtomic int reserved_slot_counter = 1; /* Slot 0 is reserved for main thread. */
+    
+    int slot;
+    atomicGetIncr(reserved_slot_counter, slot, 1);
+    if (slot < DEDICATED_ENTRIES) {
+        size_t reserved;
+        atomicGet(num_active_threads, reserved);
+        assert((size_t)slot < reserved);
+
+        my_thread_index = slot;
+    } else {
+        my_thread_index = DEDICATED_ENTRIES + (slot & SHARED_ENTRIES_MASK);
     }
 }
 

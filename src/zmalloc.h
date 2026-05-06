@@ -114,6 +114,8 @@ void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usa
 __attribute__((malloc)) char *zstrdup(const char *s);
 __attribute__((malloc)) char *zstrdup_usable(const char *s, size_t *usable);
 size_t zmalloc_used_memory(void);
+void zmalloc_reserve_thread_slots(int n);
+void zmalloc_register_reserved_thread(void);
 size_t zmalloc_get_peak_memory(void);
 time_t zmalloc_get_peak_memory_time(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
