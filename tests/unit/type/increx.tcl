@@ -715,4 +715,46 @@ start_server {tags {"increx"}} {
         }
         close_replication_stream $repl
     }
+
+    test {INCREX - keyspace notifications fire expected events in order} {
+        r flushall
+        r config set notify-keyspace-events KEA
+        set rd [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd __keyevent@*__:*]
+
+        # BYINT -> "incrby"
+        r increx k BYINT 5
+        assert_match "*__keyevent*incrby*k*" [$rd read]
+
+        # BYFLOAT -> "incrbyfloat"
+        r increx k BYFLOAT 0.5
+        assert_match "*__keyevent*incrbyfloat*k*" [$rd read]
+
+        # PERSIST on key with TTL -> "incrby" then "persist"
+        r set k 10 EX 100
+        assert_match "*set*"    [$rd read]
+        assert_match "*expire*" [$rd read]
+        r increx k BYINT 1 PERSIST
+        assert_match "*__keyevent*incrby*k*"  [$rd read]
+        assert_match "*__keyevent*persist*k*" [$rd read]
+
+        # EX -> "incrby" then "expire"
+        r increx k BYINT 1 EX 100
+        assert_match "*__keyevent*incrby*k*" [$rd read]
+        assert_match "*__keyevent*expire*k*" [$rd read]
+
+        # ENX on key with TTL: only "incrby", no "expire" (probe with DEL).
+        r increx k BYINT 1 EX 200 ENX
+        assert_match "*__keyevent*incrby*k*" [$rd read]
+        r del k
+        assert_match "*__keyevent*del*k*" [$rd read]
+
+        # Past EXAT: early-return branch, only "del".
+        r set k 10
+        assert_match "*set*" [$rd read]
+        r increx k BYINT 1 EXAT 1
+        assert_match "*__keyevent*del*k*" [$rd read]
+
+        $rd close
+    }
 }

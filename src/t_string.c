@@ -1253,8 +1253,6 @@ void increxCommand(client *c) {
             dbAddByLink(c->db, c->argv[1], &new, &link);
     }
     keyModified(c, c->db, c->argv[1], new, 1);
-    notifyKeyspaceEvent(NOTIFY_STRING, args.flags & OBJ_INCREX_BYFLOAT ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
-    KSN_INVALIDATE_KVOBJ(o);
     server.dirty++;
 
     /*
@@ -1279,22 +1277,27 @@ void increxCommand(client *c) {
      *          A new ttl will be set from expiration options.
      *          Propagated as: SET <key> <result> PXAT <timestamp>
      */
+    int persist_notify = 0, expire_notify = 0;
     if (args.flags & OBJ_INCREX_PERSIST) {
-        if (removeExpire(c->db, c->argv[1])) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
-            KSN_INVALIDATE_KVOBJ(o);
-        }
+        persist_notify = removeExpire(c->db, c->argv[1]);
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
     } else if (args.expire_ms && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
         new = setExpire(c, c->db, c->argv[1], args.expire_ms);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
-        KSN_INVALIDATE_KVOBJ(o);
+        expire_notify = 1;
         robj *milliseconds_obj = createStringObjectFromLongLong(args.expire_ms);
         rewriteClientCommandVector(c, 5, shared.set, c->argv[1], new, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
     } else {
         rewriteClientCommandVector(c, 4, shared.set, c->argv[1], new, shared.keepttl);
     }
+
+    notifyKeyspaceEvent(NOTIFY_STRING, args.flags & OBJ_INCREX_BYFLOAT ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
+    if (persist_notify)
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
+    if (expire_notify)
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
+    KSN_INVALIDATE_KVOBJ(o);
+    KSN_INVALIDATE_KVOBJ(new);
 }
 
 void appendCommand(client *c) {
