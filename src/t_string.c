@@ -72,7 +72,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_SET_IFDNE (1<<12)      /* Set if current digest does not equal match digest */
 
 /* Forward declaration */
-static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int relative_ttl, int unit, long long *milliseconds);
 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
  *
@@ -89,8 +89,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
     int setkey_flags = 0;
+    int relative_ttl = (flags & (OBJ_EX|OBJ_PX)) != 0;
 
-    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+    if (expire && getExpireMillisecondsOrReply(c, expire, relative_ttl, unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -232,18 +233,18 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
 }
 
 /*
- * Extract the `expire` argument of a given GET/SET command as an absolute timestamp in milliseconds.
+ * Extract the `expire` argument of a given command as an absolute timestamp in milliseconds.
  *
  * "client" is the client that sent the `expire` argument.
  * "expire" is the `expire` argument to be extracted.
- * "flags" represents the behavior of the command (e.g. PX or EX).
+ * "relative" is non-zero when the value is a relative TTL (EX/PX).
  * "unit" is the original unit of the given `expire` argument (e.g. UNIT_SECONDS).
  * "milliseconds" is output argument.
  *
  * If return C_OK, "milliseconds" output argument will be set to the resulting absolute timestamp.
  * If return C_ERR, an error reply has been added to the given client.
  */
-static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds) {
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int relative_ttl, int unit, long long *milliseconds) {
     int ret = getLongLongFromObjectOrReply(c, expire, milliseconds, NULL);
     if (ret != C_OK) {
         return ret;
@@ -257,7 +258,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
-    if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+    if (relative_ttl) {
         *milliseconds += commandTimeSnapshot();
     }
 
@@ -516,7 +517,8 @@ void getexCommand(client *c) {
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
+    int relative = (args.flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, relative, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -768,7 +770,8 @@ void msetexCommand(client *c) {
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
+    int relative_ttl = (args.flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, relative_ttl, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -1035,12 +1038,6 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
         }
     }
 
-    /* ENX requires an expiration option. */
-    if ((args->flags & OBJ_INCREX_ENX) && !(args->flags & expire_flags)) {
-        addReplyError(c, "ENX flag requires an expiration");
-        return C_ERR;
-    }
-
     /* Resolve LBOUND/UBOUND values now that BYINT/BYFLOAT is known. */
     if (args->flags & OBJ_INCREX_BYFLOAT) {
         if (lower_bound && getLongDoubleFromObjectOrReply(c, lower_bound, &args->lb_ld, NULL) != C_OK)
@@ -1062,12 +1059,15 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
         }
     }
 
-    /* Translate INCREX-private TTL flags into the OBJ_EX/OBJ_PX bit that
-     * getExpireMillisecondsOrReply() expects (only used to decide whether
-     * the value is relative and needs commandTimeSnapshot() added). */
+    /* ENX requires an expiration option. */
+    if ((args->flags & OBJ_INCREX_ENX) && !(args->flags & expire_flags)) {
+        addReplyError(c, "ENX flag requires an expiration");
+        return C_ERR;
+    }
+
     if (expire) {
-        int ttl_flags = (args->flags & (OBJ_INCREX_EX|OBJ_INCREX_PX)) ? OBJ_EX : 0;
-        if (getExpireMillisecondsOrReply(c, expire, ttl_flags, args->unit, &args->expire_ms) != C_OK)
+        int relative_ttl = (args->flags & (OBJ_INCREX_EX|OBJ_INCREX_PX)) != 0;
+        if (getExpireMillisecondsOrReply(c, expire, relative_ttl, args->unit, &args->expire_ms) != C_OK)
             return C_ERR;
     }
     return C_OK;
