@@ -978,12 +978,14 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         if (!strcasecmp(opt, "BYINT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
-            if (getLongLongFromObjectOrReply(c, next, &args->incr_ll, NULL) != C_OK)
+            if (getLongLongFromObjectOrReply(
+                    c, next, &args->incr_ll, "Increment is not an integer or out of range") != C_OK)
                 return C_ERR;
             args->flags |= OBJ_INCREX_BYINT;
             j++;
         } else if (!strcasecmp(opt, "BYFLOAT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
-            if (getLongDoubleFromObjectOrReply(c, next, &args->incr_ld, NULL) != C_OK)
+            if (getLongDoubleFromObjectOrReply(
+                    c, next, &args->incr_ld, "Increment is not a valid float") != C_OK)
                 return C_ERR;
             if (isinf(args->incr_ld)) {
                 addReplyError(c, "BYFLOAT increment cannot be Infinity");
@@ -1041,18 +1043,22 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
 
     /* Resolve LBOUND/UBOUND values now that BYINT/BYFLOAT is known. */
     if (args->flags & OBJ_INCREX_BYFLOAT) {
-        if (lower_bound && getLongDoubleFromObjectOrReply(c, lower_bound, &args->lb_ld, NULL) != C_OK)
+        if (lower_bound && getLongDoubleFromObjectOrReply(
+                c, lower_bound, &args->lb_ld, "LBOUND is not a valid float") != C_OK)
             return C_ERR;
-        if (upper_bound && getLongDoubleFromObjectOrReply(c, upper_bound, &args->ub_ld, NULL) != C_OK)
+        if (upper_bound && getLongDoubleFromObjectOrReply(
+                c, upper_bound, &args->ub_ld, "UBOUND is not a valid float") != C_OK)
             return C_ERR;
         if (args->lb_ld > args->ub_ld) {
             addReplyError(c, "LBOUND can't be greater than UBOUND");
             return C_ERR;
         }
     } else {
-        if (lower_bound && getLongLongFromObjectOrReply(c, lower_bound, &args->lb_ll, NULL) != C_OK)
+        if (lower_bound && getLongLongFromObjectOrReply(
+                c, lower_bound, &args->lb_ll, "LBOUND is not an integer or out of range") != C_OK)
             return C_ERR;
-        if (upper_bound && getLongLongFromObjectOrReply(c, upper_bound, &args->ub_ll, NULL) != C_OK)
+        if (upper_bound && getLongLongFromObjectOrReply(
+                c, upper_bound, &args->ub_ll, "UBOUND is not an integer or out of range") != C_OK)
             return C_ERR;
         if (args->lb_ll > args->ub_ll) {
             addReplyError(c, "LBOUND can't be greater than UBOUND");
