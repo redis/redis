@@ -384,12 +384,12 @@ start_server {tags {"increx"}} {
     }
 
     test {INCREX - BYINT requires a valid integer value} {
-        assert_error "*value is not an integer*" {r increx mykey BYINT abc}
-        assert_error "*value is not an integer*" {r increx mykey BYINT 1.5}
+        assert_error "*Increment is not an integer*" {r increx mykey BYINT abc}
+        assert_error "*Increment is not an integer*" {r increx mykey BYINT 1.5}
     }
 
     test {INCREX - BYFLOAT requires a valid float value} {
-        assert_error "*value is not a valid float*" {r increx mykey BYFLOAT abc}
+        assert_error "*Increment is not a valid float*" {r increx mykey BYFLOAT abc}
     }
 
     test {INCREX - LBOUND > UBOUND should be rejected (integer)} {
