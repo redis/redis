@@ -89,7 +89,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
     int setkey_flags = 0;
-    int relative_ttl = (flags & (OBJ_EX|OBJ_PX)) != 0;
+    int relative_ttl = (flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
 
     if (expire && getExpireMillisecondsOrReply(c, expire, relative_ttl, unit, &milliseconds) != C_OK) {
         return;
@@ -237,7 +237,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
  *
  * "client" is the client that sent the `expire` argument.
  * "expire" is the `expire` argument to be extracted.
- * "relative" is non-zero when the value is a relative TTL (EX/PX).
+ * "relative_ttl" is true when the value is a relative TTL (EX/PX),
+ *                false when it is an absolute timestamp (EXAT/PXAT).
  * "unit" is the original unit of the given `expire` argument (e.g. UNIT_SECONDS).
  * "milliseconds" is output argument.
  *
