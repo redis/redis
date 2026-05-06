@@ -393,8 +393,6 @@ start_server {tags {"info" "external:skip"}} {
         }
 
         test {stats: client input and output buffer limit disconnections} {
-            r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
             r config resetstat
             set info [r info stats]
             assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {0}

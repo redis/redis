@@ -536,7 +536,7 @@ size_t asmGetImportInputBufferSize(void) {
     return 0;
 }
 
-size_t asmGetMigrateOutputBufferSize(void) {
+size_t asmGetMigrateOutputMemoryUsage(void) {
     if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
