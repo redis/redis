@@ -128,6 +128,44 @@ start_server {tags {"increx"}} {
     }
 
     # ---------------------------------------------------------------------
+    # Existing key whose value is already outside [LBOUND, UBOUND] is treated
+    # the same as an in-range value pushed outside by the increment: ONBOUND
+    # FAIL errors out and ONBOUND CLAMP caps/floors the result.
+    # ---------------------------------------------------------------------
+
+    test {INCREX - BYFLOAT existing value already outside bounds} {
+        # Above UBOUND, same-side increment: FAIL errors, CLAMP caps to UBOUND.
+        r set mykey 50.5
+        assert_error "*out of bounds*" {r increx mykey BYFLOAT 5.5 UBOUND 30}
+        assert_equal [roundFloat [r get mykey]] 50.5
+        assert_equal [lmap v [r increx mykey BYFLOAT 5.5 UBOUND 30 ONBOUND CLAMP] {roundFloat $v}] {30 -20.5}
+
+        # Below LBOUND, same-side decrement: CLAMP floors to LBOUND.
+        r set mykey -50.5
+        assert_equal [lmap v [r increx mykey BYFLOAT -5.5 LBOUND -30 ONBOUND CLAMP] {roundFloat $v}] {-30 20.5}
+
+        # Increment that brings the out-of-range value back inside is applied normally.
+        r set mykey 50
+        assert_equal [lmap v [r increx mykey BYFLOAT -25 UBOUND 30] {roundFloat $v}] {25 -25}
+    }
+
+    test {INCREX - BYINT existing value already outside bounds} {
+        # Above UBOUND, same-side increment: FAIL errors, CLAMP caps to UBOUND.
+        r set mykey 50
+        assert_error "*out of bounds*" {r increx mykey BYINT 5 UBOUND 30}
+        assert_equal [r get mykey] 50
+        assert_equal [r increx mykey BYINT 5 UBOUND 30 ONBOUND CLAMP] {30 -20}
+
+        # Below LBOUND, same-side decrement: CLAMP floors to LBOUND.
+        r set mykey -50
+        assert_equal [r increx mykey BYINT -5 LBOUND -30 ONBOUND CLAMP] {-30 20}
+
+        # Increment that brings the out-of-range value back inside is applied normally.
+        r set mykey 50
+        assert_equal [r increx mykey BYINT -25 UBOUND 30] {25 -25}
+    }
+
+    # ---------------------------------------------------------------------
     # Out-of-range behavior: ONBOUND FAIL (the default) errors out (like
     # INCRBY); ONBOUND CLAMP caps/floors the result silently.
     # ---------------------------------------------------------------------
