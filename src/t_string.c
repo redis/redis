@@ -1134,23 +1134,22 @@ int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
  * Note: When the result is clamped by LBOUND/UBOUND, the expiration is still updated normally.
  */
 void increxCommand(client *c) {
-    dictEntryLink link;
     kvobj *o = NULL;
     robj *new = NULL;
+    dictEntryLink link;
     long long value_ll, oldvalue_ll = 0;
     long double value_ld, oldvalue_ld = 0;
 
     incrExArgs args;
-    if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK) {
+    if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK)
         return;
-    }
-    int clamp_mode = args.flags & OBJ_INCREX_ONBOUND_CLAMP;
 
+    o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (checkType(c, o, OBJ_STRING)) return;
+
+    int clamp_mode = args.flags & OBJ_INCREX_ONBOUND_CLAMP;
     if (args.flags & OBJ_INCREX_BYFLOAT) {
         long double lb = args.lb_ld, ub = args.ub_ld;
-
-        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-        if (checkType(c, o, OBJ_STRING)) return;
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK) {
             return;
         }
@@ -1186,9 +1185,6 @@ void increxCommand(client *c) {
         }
     } else {
         long long lb = args.lb_ll, ub = args.ub_ll;
-
-        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-        if (checkType(c, o, OBJ_STRING)) return;
         if (getLongLongFromObjectOrReply(c, o, &value_ll, NULL) != C_OK)
             return;
 
