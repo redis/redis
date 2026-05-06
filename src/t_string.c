@@ -1219,8 +1219,17 @@ void increxCommand(client *c) {
         addReplyHumanLongDouble(c, value_ld);
         addReplyHumanLongDouble(c, value_ld - oldvalue_ld);
     } else {
+        long long delta = 0;
+        if (sub_overflow_ll(value_ll, oldvalue_ll, &delta)) {
+            /* The applied delta cannot be represented as a long long. This can
+            * only happen under ONBOUND CLAMP when the clamped result and the
+            * prior value sit at opposite ends of the type range. */
+            addReplyError(c, "applied increment would overflow");
+            return;
+        }
+
         addReplyLongLong(c, value_ll);
-        addReplyLongLong(c, value_ll - oldvalue_ll);
+        addReplyLongLong(c, delta);
     }
 
     int has_expiry = o && (kvobjGetExpire(o) != -1);

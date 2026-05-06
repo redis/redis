@@ -69,6 +69,15 @@ start_server {tags {"increx"}} {
         assert_equal [r get mykey] -9223372036854775808
     }
 
+    test {INCREX - BYINT CLAMP rejects when applied delta would overflow long long} {
+        # The clamped result lands at LLONG_MIN while the prior value is positive,
+        # so the reported delta would not fit in a long long.
+        r set mykey 9223372036854775800
+        assert_error "*applied increment would overflow*" {
+            r increx mykey BYINT 1 ONBOUND CLAMP UBOUND -9223372036854775808
+        }
+    }
+
     test {INCREX - result within [LONG_MIN, LONG_MAX] keeps int encoding} {
         r del mykey
         r increx mykey
