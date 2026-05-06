@@ -74,8 +74,8 @@
                 ]
             },
             {
-                "token": "ONBOUND",
                 "name": "onbound",
+                "token": "ONBOUND",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [
@@ -94,13 +94,15 @@
             {
                 "name": "lowerbound",
                 "token": "LBOUND",
-                "type": "double",
+                "type": "string",
+                "summary": "Integer when used with BYINT, floating-point when used with BYFLOAT.",
                 "optional": true
             },
             {
                 "name": "upperbound",
                 "token": "UBOUND",
-                "type": "double",
+                "type": "string",
+                "summary": "Integer when used with BYINT, floating-point when used with BYFLOAT.",
                 "optional": true
             },
             {
