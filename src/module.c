@@ -679,7 +679,7 @@ void moduleReleaseTempClient(client *c) {
     }
     clearClientConnectionState(c);
     listEmpty(c->reply);
-    c->reply_bytes = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->duration = 0;
     resetClient(c, -1);
     serverAssert(c->all_argv_len_sum == 0);
@@ -10480,11 +10480,11 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
  * Returns NULL if user is NULL or the user has no name.
  * The returned string must be freed by the caller with RedisModule_FreeString()
  * or by enabling automatic memory management on a context. */
- RedisModuleString *RM_GetUserUsername(const RedisModuleUser *user) {
+ RedisModuleString *RM_GetUserUsername(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     if(user == NULL || user->user == NULL || user->user->name == NULL) 
         return NULL;
     
-    return RM_CreateString(NULL, user->user->name, sdslen(user->user->name));
+    return RM_CreateString(ctx, user->user->name, sdslen(user->user->name));
 }
 
 /* Sets the permissions of a user created through the redis module

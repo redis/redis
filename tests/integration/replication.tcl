@@ -119,7 +119,13 @@ start_server {tags {"repl external:skip"}} {
             } else {
                 fail "set get wasn't propagated"
             }
-            assert_match {*calls=3,*} [cmdrstat set $A]
+            assert_equal [r set test qaz get get] vaz
+            wait_for_condition 500 10 {
+                [$A get test] eq "qaz"
+            } else {
+                fail "set get get wasn't propagated"
+            }
+            assert_match {*calls=4,*} [cmdrstat set $A]
             assert_match {} [cmdrstat getset $A]
         }
 

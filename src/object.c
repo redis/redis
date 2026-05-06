@@ -1394,6 +1394,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->repl_backlog;
     mem_total += mh->clients_slaves;
 
+    /* Compute shared/unshared reply memory. */
+    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
+
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * updateClientMemoryUsage(). */
@@ -1424,7 +1427,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     /* Cluster atomic slot migration buffers. */
     mh->asm_import_input_buffer = asmGetImportInputBufferSize();
-    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputMemoryUsage();
     mem_total += mh->asm_import_input_buffer;
     mem_total += mh->asm_migrate_output_buffer;
 
@@ -1749,7 +1752,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,33+mh->num_dbs);
+        addReplyMapLen(c,35+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1771,6 +1774,12 @@ NULL
 
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
+
+        addReplyBulkCString(c,"clients.normal.shared");
+        addReplyLongLong(c,mh->clients_normal_shared);
+
+        addReplyBulkCString(c,"clients.normal.unshared");
+        addReplyLongLong(c,mh->clients_normal_unshared);
 
         addReplyBulkCString(c,"cluster.links");
         addReplyLongLong(c,mh->cluster_links);
