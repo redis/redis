@@ -1255,28 +1255,12 @@ void increxCommand(client *c) {
     keyModified(c, c->db, c->argv[1], new, 1);
     server.dirty++;
 
-    /*
-     * Always replicate INCREX as a SET command with the final value
-     * in order to make sure that differences in float precision or formatting
-     * will not create differences in replicas or after an AOF restart.
-     *
-     * (a) If no expiration option is provided:
-     *     The key's ttl is preserved.
-     *     Propagated as: SET <key> <result> KEEPTTL
-     *
-     * (b) If PERSIST is provided:
-     *     The key's ttl is removed.
-     *     Propagated as: SET <key> <result>
-     *
-     * (c) If an expiration option is provided:
-     *     (c1) If ENX is specified AND the key already has an expiration:
-     *          The key's ttl remains unchanged.
-     *          Propagated as: SET <key> <result> KEEPTTL
-     *
-     *     (c2) If ENX is not specified, OR the key doesn't have a expiration:
-     *          A new ttl will be set from expiration options.
-     *          Propagated as: SET <key> <result> PXAT <timestamp>
-     */
+    /* Replicate INCREX as SET with the final value to avoid float precision
+     * or formatting drift across replicas / AOF restart. The TTL clause is:
+     *   PERSIST          -> SET <key> <result>
+     *   sets a new TTL   -> SET <key> <result> PXAT <timestamp>
+     *   otherwise        -> SET <key> <result> KEEPTTL  (no expire option,
+     *                       or ENX hit on a key that already has a TTL) */
     int persist_notify = 0, expire_notify = 0;
     if (args.flags & OBJ_INCREX_PERSIST) {
         persist_notify = removeExpire(c->db, c->argv[1]);
