@@ -518,8 +518,8 @@ void getexCommand(client *c) {
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    int relative = (args.flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, relative, args.unit, &milliseconds) != C_OK) {
+    int relative_ttl = (args.flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, relative_ttl, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
