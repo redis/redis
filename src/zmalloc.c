@@ -148,7 +148,7 @@ void zmalloc_reserve_thread_slots(int n) {
 /* A reserved thread, e.g. an IO thread, calls this once at startup, before its
  * first allocation. Claims the next dedicated slot via a private atomic counter,
  * falls back to the shared pool if all dedicated slots have been taken. */
-void zmalloc_register_reserved_thread(void) {
+void zmalloc_register_reserved_slot(void) {
     assert(my_thread_index == -1);
     static redisAtomic int reserved_slot_counter = 1; /* Slot 0 is reserved for main thread. */
     
