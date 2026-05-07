@@ -1147,12 +1147,12 @@ void increxCommand(client *c) {
     o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c, o, OBJ_STRING)) return;
 
+    int byfloat = args.flags & OBJ_INCREX_BYFLOAT;
     int clamp_mode = args.flags & OBJ_INCREX_ONBOUND_CLAMP;
-    if (args.flags & OBJ_INCREX_BYFLOAT) {
+    if (byfloat) {
         long double lb = args.lb_ld, ub = args.ub_ld;
-        if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK) {
+        if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK)
             return;
-        }
 
         /* Reject if the existing value is already Infinity (the increment is
          * checked at parse time in parseIncrExArgumentsOrReply). */
@@ -1183,6 +1183,10 @@ void increxCommand(client *c) {
 
             value_ld = value_ld > ub ? ub : lb;
         }
+
+        addReplyArrayLen(c, 2);
+        addReplyHumanLongDouble(c, value_ld);
+        addReplyHumanLongDouble(c, value_ld - oldvalue_ld);
     } else {
         long long lb = args.lb_ll, ub = args.ub_ll;
         if (getLongLongFromObjectOrReply(c, o, &value_ll, NULL) != C_OK)
@@ -1208,13 +1212,7 @@ void increxCommand(client *c) {
 
             value_ll = value_ll > ub ? ub : lb;
         }
-    }
 
-    if (args.flags & OBJ_INCREX_BYFLOAT) {
-        addReplyArrayLen(c, 2);
-        addReplyHumanLongDouble(c, value_ld);
-        addReplyHumanLongDouble(c, value_ld - oldvalue_ld);
-    } else {
         long long delta = 0;
         if (sub_overflow_ll(value_ll, oldvalue_ll, &delta)) {
             /* The applied delta cannot be represented as a long long. This can
@@ -1229,9 +1227,10 @@ void increxCommand(client *c) {
         addReplyLongLong(c, delta);
     }
 
-    int has_expiry = o && (kvobjGetExpire(o) != -1);
     /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
-    if (!((args.flags & OBJ_INCREX_ENX) && has_expiry) && args.expire_ms && checkAlreadyExpired(args.expire_ms)) {
+    int has_expiry = o && (kvobjGetExpire(o) != -1);
+    int set_new_expire = args.expire_ms && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry);
+    if (set_new_expire && checkAlreadyExpired(args.expire_ms)) {
         if (o) {
             int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
             serverAssert(deleted);
@@ -1245,14 +1244,14 @@ void increxCommand(client *c) {
         return;
     }
 
-    if (!(args.flags & OBJ_INCREX_BYFLOAT) && o && o->refcount == 1 &&
-        o->encoding == OBJ_ENCODING_INT && value_ll >= LONG_MIN && value_ll <= LONG_MAX)
+    if (!byfloat && o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
+        value_ll >= LONG_MIN && value_ll <= LONG_MAX)
     {
         new = o;
         o->ptr = (void*)((long)value_ll);
         updateKeysizesHist(c->db, OBJ_STRING, (int64_t)sdigits10(oldvalue_ll), (int64_t)sdigits10(value_ll));
     } else {
-        if (args.flags & OBJ_INCREX_BYFLOAT)
+        if (byfloat)
             new = createStringObjectFromLongDouble(value_ld, 1);
         else
             new = createStringObjectFromLongLongForValue(value_ll);
@@ -1274,7 +1273,7 @@ void increxCommand(client *c) {
     if (args.flags & OBJ_INCREX_PERSIST) {
         persist_notify = removeExpire(c->db, c->argv[1]);
         rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
-    } else if (args.expire_ms && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry)) {
+    } else if (set_new_expire) {
         new = setExpire(c, c->db, c->argv[1], args.expire_ms);
         expire_notify = 1;
         robj *milliseconds_obj = createStringObjectFromLongLong(args.expire_ms);
@@ -1284,7 +1283,7 @@ void increxCommand(client *c) {
         rewriteClientCommandVector(c, 4, shared.set, c->argv[1], new, shared.keepttl);
     }
 
-    notifyKeyspaceEvent(NOTIFY_STRING, args.flags & OBJ_INCREX_BYFLOAT ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING, byfloat ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
     if (persist_notify)
         notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
     if (expire_notify)
