@@ -377,38 +377,4 @@ void setcpuaffinity(const char *cpulist);
 #endif
 #endif
 
-/* Check for AArch64 (ARM v8) specific optimizations */
-#if defined(__aarch64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || defined(__clang__))
-#if defined(__has_attribute) && __has_attribute(target)
-#define HAVE_AARCH64_NEON
-#endif
-#endif
-
-/* Check for __builtin_add_overflow() */
-#ifndef __has_builtin
-#define __has_builtin(x) 0
-#endif
-#if __has_builtin(__builtin_add_overflow) || (defined(__GNUC__) && __GNUC__ >= 5)
-#define add_overflow_ll(a, b, res) __builtin_add_overflow((a), (b), (res))
-#define sub_overflow_ll(a, b, res) __builtin_sub_overflow((a), (b), (res))
-#else
-#include <limits.h>
-static inline int add_overflow_ll(long long a, long long b, long long *res) {
-    if ((b > 0 && a > LLONG_MAX - b) || (b < 0 && a < LLONG_MIN - b)) {
-        *res = (long long)((unsigned long long)a + (unsigned long long)b);
-        return 1;
-    }
-    *res = a + b;
-    return 0;
-}
-static inline int sub_overflow_ll(long long a, long long b, long long *res) {
-    if ((b < 0 && a > LLONG_MAX + b) || (b > 0 && a < LLONG_MIN + b)) {
-        *res = (long long)((unsigned long long)a - (unsigned long long)b);
-        return 1;
-    }
-    *res = a - b;
-    return 0;
-}
-#endif
-
 #endif
