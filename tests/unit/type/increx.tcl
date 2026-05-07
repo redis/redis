@@ -425,14 +425,12 @@ start_server {tags {"increx"}} {
         assert_error "WRONGTYPE*" {r increx mylist}
         assert_error "WRONGTYPE*" {r increx mylist BYINT 1}
         assert_error "WRONGTYPE*" {r increx mylist BYFLOAT 1.5}
-        r del mylist
     }
 
     test {INCREX - WRONGTYPE when BYFLOAT applied to non-numeric string} {
         r set mykey "hello"
         assert_error "*value is not a valid float*" {r increx mykey BYFLOAT 1.5}
         assert_error "*value is not an integer*" {r increx mykey BYINT 1}
-        r del mykey
     }
 
     # ---------------------------------------------------------------------
