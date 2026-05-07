@@ -11399,7 +11399,7 @@ struct COMMAND_ARG INCREX_expiration_Subargs[] = {
 struct COMMAND_ARG INCREX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=INCREX_increment_Subargs},
-{MAKE_ARG("onbound",ARG_TYPE_ONEOF,-1,"ONBOUND",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=INCREX_onbound_Subargs},
+{MAKE_ARG("onbound",ARG_TYPE_ONEOF,-1,"ONBOUND","Out-of-bounds policy; defaults to FAIL. Missing LBOUND/UBOUND default to the type limits (LLONG_MIN/LLONG_MAX for BYINT, -LDBL_MAX/LDBL_MAX for BYFLOAT).",NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=INCREX_onbound_Subargs},
 {MAKE_ARG("lowerbound",ARG_TYPE_STRING,-1,"LBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("upperbound",ARG_TYPE_STRING,-1,"UBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=INCREX_expiration_Subargs},

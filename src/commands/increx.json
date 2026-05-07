@@ -78,6 +78,7 @@
                 "token": "ONBOUND",
                 "type": "oneof",
                 "optional": true,
+                "summary": "Out-of-bounds policy; defaults to FAIL. Missing LBOUND/UBOUND default to the type limits (LLONG_MIN/LLONG_MAX for BYINT, -LDBL_MAX/LDBL_MAX for BYFLOAT).",
                 "arguments": [
                     {
                         "name": "fail",
