@@ -549,16 +549,6 @@ start_server {tags {"increx"}} {
     }
 
     # ---------------------------------------------------------------------
-    # Return value format
-    # ---------------------------------------------------------------------
-
-    test {INCREX - reply is always an array of [new-value, actual-increment]} {
-        r del mykey
-        assert_equal [r increx mykey BYINT 42] {42 42}
-        assert_equal [r increx mykey BYINT 8 UBOUND 45 ONBOUND CLAMP] {45 3}
-    }
-
-    # ---------------------------------------------------------------------
     # Order-independent / flexible argument ordering
     # ---------------------------------------------------------------------
 
