@@ -142,7 +142,8 @@
                 "name": "enx",
                 "type": "pure-token",
                 "token": "ENX",
-                "optional": true
+                "optional": true,
+                "summary": "Only set the expiration if the key currently has no TTL. Requires one of EX/PX/EXAT/PXAT; cannot be combined with PERSIST."
             }
         ]
     }
