@@ -957,7 +957,7 @@ typedef struct {
 
 /* The parseIncrExArgumentsOrReply() function performs validation for INCREX command.
  * If there are any syntax violations C_ERR is returned else C_OK is returned. */
-int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
+static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
     memset(args, 0, sizeof(*args));
     args->unit = UNIT_SECONDS;
     args->incr_ll = 1;
