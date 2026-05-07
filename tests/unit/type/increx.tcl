@@ -107,19 +107,22 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT -100 LBOUND -5.5 ONBOUND CLAMP] {roundFloat $v}] {-5.5 -5.5}
     }
 
-    test {INCREX - BYFLOAT rejects inf/-inf increment and existing inf/-inf value} {
-        # Increment is +inf/-inf -> rejected at parse time.
-        r set mykey 0
-        assert_error "*BYFLOAT increment cannot be Infinity*" {r increx mykey BYFLOAT +inf}
-        assert_error "*BYFLOAT increment cannot be Infinity*" {r increx mykey BYFLOAT -inf}
+    # On some platforms strtold("+inf") with valgrind returns a non-inf result
+    if {!$::valgrind} {
+        test {INCREX - BYFLOAT rejects inf/-inf increment and existing inf/-inf value} {
+            # Increment is +inf/-inf -> rejected at parse time.
+            r set mykey 0
+            assert_error "*BYFLOAT increment cannot be Infinity*" {r increx mykey BYFLOAT +inf}
+            assert_error "*BYFLOAT increment cannot be Infinity*" {r increx mykey BYFLOAT -inf}
 
-        # Existing stored value is inf/-inf -> rejected at execution time.
-        r set mykey inf
-        assert_error "*value cannot be Infinity*" {r increx mykey BYFLOAT 1}
-        assert_equal [r get mykey] inf
-        r set mykey -inf
-        assert_error "*value cannot be Infinity*" {r increx mykey BYFLOAT 0 LBOUND -100}
-        assert_equal [r get mykey] -inf
+            # Existing stored value is inf/-inf -> rejected at execution time.
+            r set mykey inf
+            assert_error "*value cannot be Infinity*" {r increx mykey BYFLOAT 1}
+            assert_equal [r get mykey] inf
+            r set mykey -inf
+            assert_error "*value cannot be Infinity*" {r increx mykey BYFLOAT 0 LBOUND -100}
+            assert_equal [r get mykey] -inf
+        }
     }
 
     # ---------------------------------------------------------------------
