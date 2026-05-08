@@ -3835,10 +3835,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                if (sdslen(str) > AR_SMALLSTR_MAXLEN) {
+                size_t len = sdslen(str);
+                if (len > AR_SMALLSTR_MAXLEN) {
                     sdsfree(str);
                     decrRefCount(o);
-                    rdbReportCorruptRDB("Invalid small string length %zu in array", sdslen(str));
+                    rdbReportCorruptRDB("Invalid small string length %zu in array", len);
                     return NULL;
                 }
                 v = arValueFromRdbSmallStr(str, sdslen(str));
