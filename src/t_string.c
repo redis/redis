@@ -1187,8 +1187,8 @@ void increxCommand(client *c) {
         long double delta = value_ld - oldvalue_ld;
         if (isinf(delta)) {
             /* The applied delta cannot be represented as a valid long double. This can
-            * only happen under ONBOUND CLAMP when the clamped result and the
-            * prior value sit at opposite ends of the type range. */
+             * only happen under ONBOUND CLAMP when the clamped result and the
+             * prior value sit at opposite ends of the type range. */
             addReplyError(c, "applied increment would be Infinity");
             return;
         }
@@ -1225,8 +1225,8 @@ void increxCommand(client *c) {
         long long delta = 0;
         if (sub_overflow_ll(value_ll, oldvalue_ll, &delta)) {
             /* The applied delta cannot be represented as a long long. This can
-            * only happen under ONBOUND CLAMP when the clamped result and the
-            * prior value sit at opposite ends of the type range. */
+             * only happen under ONBOUND CLAMP when the clamped result and the
+             * prior value sit at opposite ends of the type range. */
             addReplyError(c, "applied increment would overflow");
             return;
         }
