@@ -1184,9 +1184,18 @@ void increxCommand(client *c) {
             value_ld = value_ld > ub ? ub : lb;
         }
 
+        long double delta = value_ld - oldvalue_ld;
+        if (isinf(delta)) {
+            /* The applied delta cannot be represented as a valid long double. This can
+            * only happen under ONBOUND CLAMP when the clamped result and the
+            * prior value sit at opposite ends of the type range. */
+            addReplyError(c, "applied increment would be Infinity");
+            return;
+        }
+
         addReplyArrayLen(c, 2);
         addReplyHumanLongDouble(c, value_ld);
-        addReplyHumanLongDouble(c, value_ld - oldvalue_ld);
+        addReplyHumanLongDouble(c, delta);
     } else {
         long long lb = args.lb_ll, ub = args.ub_ll;
         if (getLongLongFromObjectOrReply(c, o, &value_ll, NULL) != C_OK)
