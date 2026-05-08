@@ -44,7 +44,6 @@
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
-#include <ctype.h>
 
 #define ZSL_OFFSET_MAX_ELE  UINT16_MAX
 #define ZSL_OFFSET_NO_ELE   UINT16_MAX
@@ -712,7 +711,6 @@ zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
 
 /* Populate the rangespec according to the objects min and max. */
 static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
-    char *eptr;
     spec->minex = spec->maxex = 0;
 
     /* Parse the min-max interval. If one of the values is prefixed
@@ -725,9 +723,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         char *ptr = min->ptr;
         size_t len = sdslen(min->ptr);
         if (*ptr == '(') { ptr++; len--; spec->minex = 1; }
-        if (len == 0 || isspace((unsigned char)*ptr)) return C_ERR;
-        spec->min = fast_float_strtod(ptr,len,&eptr);
-        if ((size_t)(eptr-ptr) != len || isnan(spec->min)) return C_ERR;
+        if (!string2d(ptr, len, &spec->min)) return C_ERR;
     }
     if (max->encoding == OBJ_ENCODING_INT) {
         spec->max = (long)max->ptr;
@@ -735,9 +731,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         char *ptr = max->ptr;
         size_t len = sdslen(max->ptr);
         if (*ptr == '(') { ptr++; len--; spec->maxex = 1; }
-        if (len == 0 || isspace((unsigned char)*ptr)) return C_ERR;
-        spec->max = fast_float_strtod(ptr,len,&eptr);
-        if ((size_t)(eptr-ptr) != len || isnan(spec->max)) return C_ERR;
+        if (!string2d(ptr, len, &spec->max)) return C_ERR;
     }
 
     return C_OK;
