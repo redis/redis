@@ -1019,6 +1019,11 @@ int arGrepCompileRegexesOrReply(client *c, arGrepPlan *plan) {
         arGrepPredicate *pred = &plan->preds[i];
         if (pred->type != ARGREP_PRED_RE) continue;
 
+        if (sdslen(pred->pattern) == 0) {
+            addReplyError(c, "regular expression is empty");
+            return C_ERR;
+        }
+
         int cflags = REG_EXTENDED | REG_NOSUB | REG_USEBYTES;
         if (plan->nocase) cflags |= REG_ICASE;
 

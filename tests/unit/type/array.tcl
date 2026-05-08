@@ -335,6 +335,7 @@ start_server {
         assert_equal {0} [r argrep myarray - + RE $re2048]
         assert_error {*maximum is 2048 bytes*} {r argrep myarray - + RE $re2049}
         assert_error {*backreferences are not supported*} {r argrep myarray - + RE {(a)\1}}
+        assert_error {*regular expression is empty*} {r argrep myarray - + RE {}}
     }
 
     test {ARGREP LIMIT stops after enough matches} {
