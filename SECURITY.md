@@ -23,10 +23,20 @@ unless this is not possible or feasible with a reasonable effort.
 
 ## Reporting a Vulnerability
 
-If you believe you've discovered a serious vulnerability, please contact the
-Redis core team at redis@redis.io. We will evaluate your report and if
-necessary issue a fix and an advisory. If the issue was previously undisclosed,
-we'll also mention your name in the credits.
+If you believe you have found a security vulnerability, to ensure proper review 
+and assessment, we kindly ask vulnerability reports be submitted through
+our [Redis Vulnerability Disclosure Program.](https://redis.io/redis-responsible-vulnerability-disclosure/)
+
+We have found this path to be beneficial for both researchers and us for 
+a number of reasons. Including, offering fast response times to researchers and 
+opportunities for us to invite those with exceptional reports into closed paid 
+engagements.  
+
+For those averse to using our chosen platform, we will also accept reports directly
+via GitHub's "Report a Vulnerability".  
+
+To contact the security team directly with questions use: [security@redis.com](mailto:security@redis.com)
+
 
 ## Responsible Disclosure
 

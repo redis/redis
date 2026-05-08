@@ -2,6 +2,9 @@
  *
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
+ * 
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
  *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
@@ -550,6 +553,21 @@ void zfree_usable(void *ptr, size_t *usable) {
     free(realptr);
 #endif
     if (usable) *usable = oldsize;
+}
+
+/* Free with a size hint to skip the emap lookup in jemalloc's free path.
+ * jemalloc's sdallocx() accepts any size that rounds to the correct size class
+ * (i.e. both requested and usable sizes work), but 'size' must be the usable
+ * size to keep zmalloc used_memory accounting accurate. */
+void zfree_with_size(void *ptr, size_t size) {
+    if (ptr == NULL) return;
+#ifdef USE_JEMALLOC
+    update_zmalloc_stat_free(size);
+    je_sdallocx(ptr, size, 0);
+#else
+    UNUSED(size);
+    zfree(ptr);
+#endif
 }
 
 char *zstrdup_usable(const char *s, size_t *usable) {
