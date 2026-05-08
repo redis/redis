@@ -761,10 +761,9 @@ void msetGenericCommand(client *c, int nx) {
     /* Same gating as mgetCommand, see comment there. */
     int slot = 0;
     if (server.cluster_enabled) {
-        slot = (c->current_pending_cmd &&
-                c->current_pending_cmd->slot != INVALID_CLUSTER_SLOT)
-            ? c->current_pending_cmd->slot
-            : getKeySlot(c->argv[1]->ptr);
+        pendingCommand *pcmd = c->current_pending_cmd;
+        slot = (pcmd && pcmd->slot != INVALID_CLUSTER_SLOT) ?
+                pcmd->slot : getKeySlot(c->argv[1]->ptr);
     }
     int already_prefetched = c->current_pending_cmd &&
         (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
