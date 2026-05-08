@@ -23,9 +23,7 @@ start_server {
 
     test {ARGET validates index even on non-existing key} {
         r del myarray
-        set cli [file normalize ./src/redis-cli]
-        set err [exec $cli -p [srv port] arget myarray not-an-index 2>@1]
-        assert_match {*invalid array index*} $err
+        assert_error {*invalid array index*} {r arget myarray not-an-index}
     }
 
     test {ARSET/ARGET with integer values} {
