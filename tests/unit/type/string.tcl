@@ -275,7 +275,7 @@ start_server {tags {"string"}} {
 
     test {MSET overwrites expired keys across batch boundary} {
         # Regression test for dict-pointer staleness across batches
-        # (see src/t_string.c:msetMaybePrefetchBatch). When lookupKeyWrite in
+        # (see src/t_string.c:prefetchKeysBatch). When lookupKeyWrite in
         # batch 1 expires a pre-existing key, under cluster mode the slot
         # dict may be freed (KVSTORE_FREE_EMPTY_DICTS) and recreated
         # mid-command; msetGenericCommand must re-fetch the slot dict per

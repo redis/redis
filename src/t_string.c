@@ -682,6 +682,7 @@ void getrangeCommand(client *c) {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }
 }
+
 /* Batch size for intra-command key prefetching. */
 #define PREFETCH_BATCH_SIZE 16
 
