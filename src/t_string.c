@@ -8,6 +8,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include "xxhash.h"
 #include <math.h> /* isnan(), isinf() */
 
@@ -714,8 +715,16 @@ void mgetCommand(client *c) {
 
     addReplyArrayLen(c, numkeys);
 
-    /* MGET requires all keys in the same slot in cluster mode. */
-    int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
+    /* MGET requires all keys in the same slot in cluster mode. Reuse the
+     * slot already computed by the cross-command batching path when
+     * available, otherwise fall back to recomputing from argv[1]. */
+    int slot = 0;
+    if (server.cluster_enabled) {
+        slot = (c->current_pending_cmd &&
+                c->current_pending_cmd->slot != INVALID_CLUSTER_SLOT)
+            ? c->current_pending_cmd->slot
+            : getKeySlot(c->argv[1]->ptr);
+    }
 
     /* Decide whether to prefetch within this command. Skip if disabled by
      * config (prefetch_batch_max_size == 0), or if the cross-command batch
@@ -750,7 +759,13 @@ void msetGenericCommand(client *c, int nx) {
     int numkeys = (c->argc - 1) / 2;
 
     /* Same gating as mgetCommand, see comment there. */
-    int slot = server.cluster_enabled ? getKeySlot(c->argv[1]->ptr) : 0;
+    int slot = 0;
+    if (server.cluster_enabled) {
+        slot = (c->current_pending_cmd &&
+                c->current_pending_cmd->slot != INVALID_CLUSTER_SLOT)
+            ? c->current_pending_cmd->slot
+            : getKeySlot(c->argv[1]->ptr);
+    }
     int already_prefetched = c->current_pending_cmd &&
         (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
     int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
