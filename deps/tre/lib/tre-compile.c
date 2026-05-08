@@ -1877,7 +1877,7 @@ tre_compute_npfl(tre_mem_t mem, tre_stack_t *stack, tre_ast_node_t *tree,
 		if (status != REG_OK)
 		  return status;
 		/* Allocate arrays for the tags and parameters. */
-		tags = xmalloc(sizeof(int) * (num_tags + 1));
+		tags = xmalloc(sizeof(*tags) * (num_tags + 1));
 		if (!tags)
 		  return REG_ESPACE;
 		tags[0] = -1;
@@ -2317,8 +2317,8 @@ tre_compile(regex_t *preg, const tre_char_t *regex, size_t n, int cflags)
 	  memset(tag_directions, -1,
 		 sizeof(*tag_directions) * (tnfa->num_tags + 1));
 	}
-      tnfa->minimal_tags = xcalloc((unsigned)tnfa->num_tags * 2 + 1,
-				   sizeof(tnfa->minimal_tags));
+      tnfa->minimal_tags = xcalloc(tnfa->num_tags * 2 + 1,
+				   sizeof(*tnfa->minimal_tags));
       if (tnfa->minimal_tags == NULL)
 	ERROR_EXIT(REG_ESPACE);
 
