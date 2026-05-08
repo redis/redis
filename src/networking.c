@@ -1167,7 +1167,7 @@ void addReplyUnsignedLongLong(client *c, uint64_t v) {
     if (v <= (uint64_t)LLONG_MAX) {
         addReplyLongLong(c, (long long)v);
     } else {
-        char buf[24];
+        char buf[LONG_STR_SIZE];
         int len = ull2string(buf, sizeof(buf), v);
         addReplyBigNum(c, buf, len);
     }
