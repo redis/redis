@@ -720,10 +720,9 @@ void mgetCommand(client *c) {
      * available, otherwise fall back to recomputing from argv[1]. */
     int slot = 0;
     if (server.cluster_enabled) {
-        slot = (c->current_pending_cmd &&
-                c->current_pending_cmd->slot != INVALID_CLUSTER_SLOT)
-            ? c->current_pending_cmd->slot
-            : getKeySlot(c->argv[1]->ptr);
+        pendingCommand *pcmd = c->current_pending_cmd;
+        slot = (pcmd && pcmd->slot != INVALID_CLUSTER_SLOT) ?
+                pcmd->slot : getKeySlot(c->argv[1]->ptr);
     }
 
     /* Decide whether to prefetch within this command. Skip if disabled by
