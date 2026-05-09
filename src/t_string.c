@@ -1289,8 +1289,6 @@ void increxCommand(client *c) {
         else
             dbAddByLink(c->db, c->argv[1], &new, &link);
     }
-    keyModified(c, c->db, c->argv[1], new, 1);
-    server.dirty++;
 
     /* Replicate INCREX as SET with the final value to avoid float precision
      * or formatting drift across replicas / AOF restart. The TTL clause is:
@@ -1311,6 +1309,9 @@ void increxCommand(client *c) {
     } else {
         rewriteClientCommandVector(c, 4, shared.set, c->argv[1], new, shared.keepttl);
     }
+
+    keyModified(c, c->db, c->argv[1], new, 1);
+    server.dirty++;
 
     notifyKeyspaceEvent(NOTIFY_STRING, byfloat ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
     if (persist_notify)
