@@ -2661,11 +2661,11 @@ int listpackTest(int argc, char *argv[], int flags) {
         };
         unsigned char enc[LP_MAX_BACKLEN_SIZE];
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-            uint64_t L = cases[i];
-            unsigned long n = lpEncodeBacklen(NULL, L);
-            assert(n == lpEncodeBacklenBytes(L));
-            assert(lpEncodeBacklen(enc, L) == n);
-            assert(lpDecodeBacklen(enc + n - 1) == L);
+            uint64_t enclen = cases[i];
+            unsigned long n = lpEncodeBacklen(NULL, enclen);
+            assert(n == lpEncodeBacklenBytes(enclen));
+            assert(lpEncodeBacklen(enc, enclen) == n);
+            assert(lpDecodeBacklen(enc + n - 1) == enclen);
         }
     }
 
