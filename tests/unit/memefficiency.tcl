@@ -83,8 +83,6 @@ run_solo {defrag} {
     # note: Disabling lookahead because it changes the number and order of allocations which interferes with defrag and causes tests to fail
     r config set lookahead 1
 
-    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
             r config set hz 100

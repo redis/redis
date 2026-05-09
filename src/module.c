@@ -679,7 +679,7 @@ void moduleReleaseTempClient(client *c) {
     }
     clearClientConnectionState(c);
     listEmpty(c->reply);
-    c->reply_bytes = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->duration = 0;
     resetClient(c, -1);
     serverAssert(c->all_argv_len_sum == 0);
