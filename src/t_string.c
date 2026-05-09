@@ -1093,7 +1093,7 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
 }
 
 /*
- * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [ONBOUND FAIL | ONBOUND CLAMP]
+ * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [ONBOUND <FAIL | CLAMP>]
  *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
  *
  * Increments the numeric value of a key and optionally updates its expiration time.
