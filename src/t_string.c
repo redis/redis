@@ -933,7 +933,7 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
 #define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_OVERFLOW_FAIL   (1<<4) /* Reject the operation when the result is out of bounds (default) */
+#define OBJ_INCREX_OVERFLOW_FAIL   (1<<4) /* Return an error when the result is out of bounds (default) */
 #define OBJ_INCREX_OVERFLOW_SAT    (1<<5) /* Saturate the result to LBOUND/UBOUND/type limits instead of failing */
 #define OBJ_INCREX_OVERFLOW_REJECT (1<<6) /* Leave the key unchanged and reply [current_value, 0] when the result is out of bounds */
 #define OBJ_INCREX_ENX     (1<<7)  /* Set expiration only when the key has no expiry */
