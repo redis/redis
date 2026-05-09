@@ -933,8 +933,8 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
 #define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_ONBOUND_FAIL  (1<<4)  /* ONBOUND policy is FAIL: reject the operation when the result is out of bounds (default) */
-#define OBJ_INCREX_ONBOUND_CLAMP (1<<5)  /* ONBOUND policy is CLAMP: clamp the result to LBOUND/UBOUND/type limits instead of failing */
+#define OBJ_INCREX_OVERFLOW_FAIL (1<<4)  /* Reject the operation when the result is out of bounds (default) */
+#define OBJ_INCREX_OVERFLOW_SAT  (1<<5)  /* Saturate the result to LBOUND/UBOUND/type limits instead of failing */
 #define OBJ_INCREX_ENX     (1<<6)  /* Set expiration only when the key has no expiry */
 #define OBJ_INCREX_PERSIST (1<<7)  /* Set if we need to remove the ttl */
 #define OBJ_INCREX_EX      (1<<8)  /* Set if time in seconds is given */
@@ -1005,15 +1005,15 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
             args->flags |= OBJ_INCREX_UBOUND;
             upper_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "ONBOUND") && next &&
-                   !(args->flags & (OBJ_INCREX_ONBOUND_FAIL|OBJ_INCREX_ONBOUND_CLAMP)))
+        } else if (!strcasecmp(opt, "OVERFLOW") && next &&
+                   !(args->flags & (OBJ_INCREX_OVERFLOW_FAIL|OBJ_INCREX_OVERFLOW_SAT)))
         {
             if (!strcasecmp(next->ptr, "FAIL")) {
-                args->flags |= OBJ_INCREX_ONBOUND_FAIL;
-            } else if (!strcasecmp(next->ptr, "CLAMP")) {
-                args->flags |= OBJ_INCREX_ONBOUND_CLAMP;
+                args->flags |= OBJ_INCREX_OVERFLOW_FAIL;
+            } else if (!strcasecmp(next->ptr, "SAT")) {
+                args->flags |= OBJ_INCREX_OVERFLOW_SAT;
             } else {
-                addReplyError(c, "ONBOUND policy must be FAIL or CLAMP");
+                addReplyError(c, "OVERFLOW policy must be FAIL or SAT");
                 return C_ERR;
             }
             j++;
@@ -1093,7 +1093,7 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
 }
 
 /*
- * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [ONBOUND <FAIL | CLAMP>]
+ * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound] [UBOUND upperbound] [OVERFLOW <FAIL | SAT>]
  *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
  *
  * Increments the numeric value of a key and optionally updates its expiration time.
@@ -1107,10 +1107,10 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
  * Range options:
  * LBOUND and UBOUND optionally restrict the result to a range. The behavior
  * when the result would land outside that range (or, with no explicit bound,
- * would overflow the type limits) is controlled by ONBOUND:
- * - ONBOUND FAIL  (default): the operation is rejected with an error,
+ * would overflow the type limits) is controlled by OVERFLOW:
+ * - OVERFLOW FAIL (default): the operation is rejected with an error,
  *                 matching the semantics of INCRBY/INCRBYFLOAT.
- * - ONBOUND CLAMP: the result is silently capped at UBOUND / floored at LBOUND
+ * - OVERFLOW SAT:  the result is silently capped at UBOUND / floored at LBOUND
  *                 (or saturated to the type limits when no explicit bound is
  *                 given) instead of producing an error.
  *
@@ -1131,7 +1131,7 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
  *   1. The new value of the key after the increment.
  *   2. The actual increment applied.
  *
- * Note: When the result is clamped by LBOUND/UBOUND, the expiration is still updated normally.
+ * Note: When the result is saturated by LBOUND/UBOUND, the expiration is still updated normally.
  */
 void increxCommand(client *c) {
     kvobj *o = NULL;
@@ -1148,7 +1148,7 @@ void increxCommand(client *c) {
     if (checkType(c, o, OBJ_STRING)) return;
 
     int byfloat = args.flags & OBJ_INCREX_BYFLOAT;
-    int clamp_mode = args.flags & OBJ_INCREX_ONBOUND_CLAMP;
+    int sat_mode = args.flags & OBJ_INCREX_OVERFLOW_SAT;
     if (byfloat) {
         long double lb = args.lb_ld, ub = args.ub_ld;
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK)
@@ -1165,10 +1165,10 @@ void increxCommand(client *c) {
         value_ld += args.incr_ld;
         if (isinf(value_ld)) {
             /* The addition overflows long double. By default this is reported
-             * as an error (consistent with INCRBYFLOAT). Under CLAMP, clamp
-             * to LDBL_MAX/-LDBL_MAX so the subsequent clamp drops the value to
-             * an explicit bound when one is specified. */
-            if (!clamp_mode) {
+             * as an error (consistent with INCRBYFLOAT). Under SAT, saturate
+             * to LDBL_MAX/-LDBL_MAX so the subsequent saturation drops the value
+             * to an explicit bound when one is specified. */
+            if (!sat_mode) {
                 addReplyError(c, "increment would produce Infinity");
                 return;
             }
@@ -1176,7 +1176,7 @@ void increxCommand(client *c) {
         }
 
         if (value_ld > ub || value_ld < lb) {
-            if (!clamp_mode) {
+            if (!sat_mode) {
                 addReplyError(c, "value is out of bounds");
                 return;
             }
@@ -1187,7 +1187,7 @@ void increxCommand(client *c) {
         long double delta = value_ld - oldvalue_ld;
         if (isinf(delta)) {
             /* The applied delta cannot be represented as a valid long double. This can
-             * only happen under ONBOUND CLAMP when the clamped result and the
+             * only happen under OVERFLOW SAT when the saturated result and the
              * prior value sit at opposite ends of the type range. */
             addReplyError(c, "applied increment would be Infinity");
             return;
@@ -1205,8 +1205,8 @@ void increxCommand(client *c) {
         if (add_overflow_ll(oldvalue_ll, args.incr_ll, &value_ll)) {
             /* The addition overflows long long. If the user did not specify a bound
              * on the overflow direction, behave like INCRBY and return an error.
-             * Otherwise, saturate so the subsequent clamp drops the value to the bound. */
-            if (!clamp_mode) {
+             * Otherwise, saturate so the subsequent saturation drops the value to the bound. */
+            if (!sat_mode) {
                 addReplyError(c, "increment or decrement would overflow");
                 return;
             }
@@ -1214,7 +1214,7 @@ void increxCommand(client *c) {
         }
 
         if (value_ll > ub || value_ll < lb) {
-            if (!clamp_mode) {
+            if (!sat_mode) {
                 addReplyError(c, "value is out of bounds");
                 return;
             }
@@ -1225,7 +1225,7 @@ void increxCommand(client *c) {
         long long delta = 0;
         if (sub_overflow_ll(value_ll, oldvalue_ll, &delta)) {
             /* The applied delta cannot be represented as a long long. This can
-             * only happen under ONBOUND CLAMP when the clamped result and the
+             * only happen under OVERFLOW SAT when the saturated result and the
              * prior value sit at opposite ends of the type range. */
             addReplyError(c, "applied increment would overflow");
             return;
