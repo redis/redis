@@ -187,15 +187,12 @@ start_server {tags {"cli"}} {
         set now [clock seconds]
 
         puts -nonewline $fd "\x12" ;# CTRL+R
-        flush $fd
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts -nonewline $fd "\x12" ;# CTRL+R
-        flush $fd
 
         puts -nonewline $fd "keys \"$now\"\x0D"
-        flush $fd
         set result2 [format_output [read_cli $fd]]
         assert_equal 1 [regexp {.*(empty array).*} $result2]
     }
