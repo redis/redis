@@ -346,7 +346,7 @@ void ardelrangeCommand(client *c) {
     /* Process each range using the generalized arDeleteRange */
     for (int i = 2; i < c->argc; i += 2) {
         uint64_t start = 0, end = 0;
-        getArrayIndexFromObject(c->argv[i], &start, 0); // Already validated
+        getArrayIndexFromObject(c->argv[i], &start, 0); /* Already validated */
         getArrayIndexFromObject(c->argv[i + 1], &end, 0);
 
         uint64_t lo = (start <= end) ? start : end;
@@ -558,20 +558,20 @@ static void arScanIterInit(redisArray *ar, uint64_t start, uint64_t end,
     it->hi_slice = it->hi / it->slice_size;
     it->slot_index = AR_SCAN_ITER_SLOT_UNSET;
 
-    // No intersection between the range and the array span.
+    /* No intersection between the range and the array span. */
     if (it->lo_slice > ar->dir_highest_used) {
         it->done = 1;
         it->top_done = 1;
         return;
     }
 
-    // Clip the high end to the actual array span.
+    /* Clip the high end to the actual array span. */
     if (it->hi_slice > ar->dir_highest_used) {
         it->hi_slice = ar->dir_highest_used;
         it->hi = arMakeIdx(it->hi_slice, it->slice_size - 1, it->slice_size);
     }
 
-    // Clipping made the range empty?
+    /* Clipping made the range empty? */
     if (it->lo_slice > it->hi_slice) {
         it->done = 1;
         it->top_done = 1;
@@ -581,7 +581,7 @@ static void arScanIterInit(redisArray *ar, uint64_t start, uint64_t end,
     if (ar->superdir) {
         int found;
 
-        // Start from the first superdir block that can intersect the range.
+        /* Start from the first superdir block that can intersect the range. */
         uint64_t block_id = (it->reverse ? it->hi_slice : it->lo_slice) /
                             AR_SUPER_BLOCK_SLOTS;
         uint32_t pos = arSuperDirFind(ar, block_id, &found);
@@ -589,13 +589,13 @@ static void arScanIterInit(redisArray *ar, uint64_t start, uint64_t end,
         if (it->reverse) it->sdir_index = found ? (int32_t)pos : (int32_t)pos - 1;
         else it->sdir_index = (int32_t)pos;
 
-        // No superdir block intersects the clipped range.
+        /* No superdir block intersects the clipped range. */
         if (it->sdir_index < 0 || it->sdir_index >= (int32_t)ar->sdir_len) {
             it->done = 1;
             it->top_done = 1;
         }
     } else {
-        // Flat directory iteration starts directly from the first in-range slice.
+        /* Flat directory iteration starts directly from the first in-range slice. */
         it->slice_id = it->reverse ? it->hi_slice : it->lo_slice;
     }
 }
@@ -624,7 +624,7 @@ static ALWAYS_INLINE int arScanIterPrepareSlice(arScanIter *it,
         if (off_lo < win_lo) off_lo = win_lo;
         if (off_hi > win_hi) off_hi = win_hi;
 
-        // No intersection between the range and the dense window.
+        /* No intersection between the range and the dense window. */
         if (off_lo > off_hi) return 0;
 
         it->dense = 1;
@@ -643,19 +643,19 @@ static ALWAYS_INLINE int arScanIterPrepareSlice(arScanIter *it,
         it->sparse_values = s->layout.sparse.values;
         it->sparse_count = (int32_t)s->count;
         if (it->reverse) {
-            // Start from the last sparse entry that can still be in range.
+            /* Start from the last sparse entry that can still be in range. */
             pos = arSparseFindPos(s, (uint16_t)off_hi, &found);
             it->sparse_pos = found ? (int32_t)pos : (int32_t)pos - 1;
 
-            // No sparse entry falls inside the requested offsets.
+            /* No sparse entry falls inside the requested offsets. */
             if (it->sparse_pos < 0 || offsets[it->sparse_pos] < off_lo)
                 return 0;
         } else {
-            // Start from the first sparse entry that can still be in range.
+            /* Start from the first sparse entry that can still be in range. */
             pos = arSparseFindPos(s, (uint16_t)off_lo, &found);
             it->sparse_pos = (int32_t)pos;
 
-            // No sparse entry falls inside the requested offsets.
+            /* No sparse entry falls inside the requested offsets. */
             if (it->sparse_pos >= (int32_t)s->count ||
                 offsets[it->sparse_pos] > off_hi) return 0;
         }
@@ -676,7 +676,7 @@ static ALWAYS_INLINE int arScanIterLoadNextSlice(arScanIter *it) {
 
     if (ar->superdir) {
         while (!it->top_done) {
-            // No more superdir blocks to inspect.
+            /* No more superdir blocks to inspect. */
             if (it->sdir_index < 0 || it->sdir_index >= (int32_t)ar->sdir_len) {
                 it->top_done = 1;
                 break;
@@ -690,13 +690,13 @@ static ALWAYS_INLINE int arScanIterLoadNextSlice(arScanIter *it) {
             int32_t block_slot_hi = (block_end > it->hi_slice) ?
                 (int32_t)(it->hi_slice - block_base) : AR_SUPER_BLOCK_SLOTS - 1;
 
-            // This block starts after the requested range.
+            /* This block starts after the requested range. */
             if (block_base > it->hi_slice) {
                 it->top_done = 1;
                 break;
             }
 
-            // This block ends before the requested range.
+            /* This block ends before the requested range. */
             if (block_end < it->lo_slice) {
                 if (it->reverse) it->top_done = 1;
                 else it->sdir_index++;
@@ -718,7 +718,7 @@ static ALWAYS_INLINE int arScanIterLoadNextSlice(arScanIter *it) {
                         return 1;
                 }
 
-                // This block had no more matching slices, move to the previous block.
+                /* This block had no more matching slices, move to the previous block. */
                 it->sdir_index--;
                 it->slot_index = AR_SCAN_ITER_SLOT_UNSET;
             } else {
@@ -734,7 +734,7 @@ static ALWAYS_INLINE int arScanIterLoadNextSlice(arScanIter *it) {
                         return 1;
                 }
 
-                // This block had no more matching slices, move to the next block.
+                /* This block had no more matching slices, move to the next block. */
                 it->sdir_index++;
                 it->slot_index = AR_SCAN_ITER_SLOT_UNSET;
             }
@@ -744,7 +744,7 @@ static ALWAYS_INLINE int arScanIterLoadNextSlice(arScanIter *it) {
             uint64_t slice_id = it->slice_id;
             arSlice *s = ar->dir[slice_id];
 
-            // Advance the top-level cursor before possibly returning this slice.
+            /* Advance the top-level cursor before possibly returning this slice. */
             if (it->reverse) {
                 if (slice_id == it->lo_slice) it->top_done = 1;
                 else it->slice_id = slice_id - 1;
@@ -765,12 +765,12 @@ static ALWAYS_INLINE int arScanIterLoadNextSlice(arScanIter *it) {
 static ALWAYS_INLINE int arScanIterNext(arScanIter *it,
                                         uint64_t *idx, void **value)
 {
-    // The iterator was already fully consumed.
+    /* The iterator was already fully consumed. */
     if (it->done) return 0;
 
     while (1) {
         if (it->slice_ready) {
-            // Drain the current slice before asking for another one.
+            /* Drain the current slice before asking for another one. */
             if (it->dense) {
                 while ((it->step > 0 && it->dense_item_pos <= it->dense_item_end) ||
                        (it->step < 0 && it->dense_item_pos >= it->dense_item_end)) {
@@ -779,7 +779,7 @@ static ALWAYS_INLINE int arScanIterNext(arScanIter *it,
                     it->dense_off += it->step;
                     it->dense_item_pos += it->step;
 
-                    // Dense windows may contain holes.
+                    /* Dense windows may contain holes. */
                     if (arIsEmpty(v)) continue;
 
                     if (idx) *idx = it->slice_base + off;
@@ -791,7 +791,7 @@ static ALWAYS_INLINE int arScanIterNext(arScanIter *it,
                     int32_t pos = it->sparse_pos;
                     uint32_t off = it->sparse_offsets[pos];
 
-                    // Sparse entries are sorted, so leaving the window ends this slice.
+                    /* Sparse entries are sorted, so leaving the window ends this slice. */
                     if (off < it->off_lo || off > it->off_hi) break;
 
                     it->sparse_pos += it->step;
@@ -801,12 +801,12 @@ static ALWAYS_INLINE int arScanIterNext(arScanIter *it,
                 }
             }
 
-            // The current slice has no more in-range populated elements.
+            /* The current slice has no more in-range populated elements. */
             it->slice = NULL;
             it->slice_ready = 0;
         }
 
-        // No more in-range slices are available.
+        /* No more in-range slices are available. */
         if (!arScanIterLoadNextSlice(it)) {
             it->done = 1;
             return 0;
@@ -903,23 +903,23 @@ void arscanCommand(client *c) {
 #define ARGREP_BOUND_END   3
 
 typedef struct {
-    int type;               // EXACT, MATCH, GLOB, or RE.
-    sds pattern;            // Pattern argument exactly as given by the user.
-    regex_t regex;          // Compiled regex for RE predicates.
-    int regex_compiled;     // Whether regex must be freed.
+    int type;               /* EXACT, MATCH, GLOB, or RE. */
+    sds pattern;            /* Pattern argument exactly as given by the user. */
+    regex_t regex;          /* Compiled regex for RE predicates. */
+    int regex_compiled;     /* Whether regex must be freed. */
 } arGrepPredicate;
 
 typedef struct {
-    int type;               // Numeric index, logical start, or logical end.
-    uint64_t index;         // Used only for numeric bounds.
+    int type;               /* Numeric index, logical start, or logical end. */
+    uint64_t index;         /* Used only for numeric bounds. */
 } arGrepBound;
 
 typedef struct {
-    arGrepPredicate *preds; // All predicates to apply to each element.
-    int num_preds;          // Number of predicates stored in preds[].
-    int combine;            // OR by default, AND if requested.
-    int withvalues;         // Reply with [idx value ...] instead of [idx ...].
-    int nocase;             // Apply case-insensitive matching globally.
+    arGrepPredicate *preds; /* All predicates to apply to each element. */
+    int num_preds;          /* Number of predicates stored in preds[]. */
+    int combine;            /* OR by default, AND if requested. */
+    int withvalues;         /* Reply with [idx value ...] instead of [idx ...]. */
+    int nocase;             /* Apply case-insensitive matching globally. */
 } arGrepPlan;
 
 /* Lowercase only ASCII letters. This keeps MATCH/EXACT deterministic and
@@ -1268,15 +1268,15 @@ void argrepCommand(client *c) {
 
 /* Accumulator state for AROP */
 typedef struct {
-    int op;                    // Selected AROP operation.
-    sds match_val;             // MATCH target string.
-    long double sum_acc;       // Running SUM accumulator.
-    long double minmax_acc;    // Running MIN or MAX accumulator.
-    int64_t bitwise_acc;       // Running AND/OR/XOR accumulator.
-    long long match_count;     // Number of MATCH hits.
-    long long used_count;      // Number of non-empty elements seen.
-    int has_numeric;           // Saw at least one numeric value.
-    int has_int;               // Saw at least one bitwise-usable integer.
+    int op;                    /* Selected AROP operation. */
+    sds match_val;             /* MATCH target string. */
+    long double sum_acc;       /* Running SUM accumulator. */
+    long double minmax_acc;    /* Running MIN or MAX accumulator. */
+    int64_t bitwise_acc;       /* Running AND/OR/XOR accumulator. */
+    long long match_count;     /* Number of MATCH hits. */
+    long long used_count;      /* Number of non-empty elements seen. */
+    int has_numeric;           /* Saw at least one numeric value. */
+    int has_int;               /* Saw at least one bitwise-usable integer. */
 } arOpAcc;
 
 /* Process a single value for AROP aggregation, aggregating it
@@ -1623,9 +1623,9 @@ static redisArray *arRingRework(redisArray *ar, uint64_t old_span,
 
     while (retained_count < keep_span) {
         void *v = arGet(ar, src_idx);
-        if (v == NULL) break; // This makes any mix of ARSET/SEEK/RING calls
-                              // always bound to populatede items, not logical
-                              // array span.
+        if (v == NULL) break; /* This makes any mix of ARSET/SEEK/RING calls
+                               * always bound to populatede items, not logical
+                               * array span. */
 
         retained_count++;
         src_idx = (src_idx == 0) ? old_span - 1 : src_idx - 1;
