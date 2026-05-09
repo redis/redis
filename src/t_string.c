@@ -1193,7 +1193,7 @@ void increxCommand(client *c) {
 
             /* SAT: clamp the result. */
             if (overflow)
-                value_ld = (args.incr_ld >= 0) ? LDBL_MAX : -LDBL_MAX;
+                value_ld = (args.incr_ld >= 0) ? ub : lb;
             else
                 value_ld = value_ld > ub ? ub : lb;
         }
@@ -1237,7 +1237,7 @@ void increxCommand(client *c) {
 
             /* SAT: clamp the result. */
             if (overflow)
-                value_ll = (args.incr_ll >= 0) ? LLONG_MAX : LLONG_MIN;
+                value_ll = (args.incr_ll >= 0) ? ub : lb;
             else
                 value_ll = value_ll > ub ? ub : lb;
         }
