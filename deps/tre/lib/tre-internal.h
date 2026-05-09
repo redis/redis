@@ -303,11 +303,6 @@ tre_tnfa_run_parallel(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
 		      int *match_end_ofs);
 
 reg_errcode_t
-tre_tnfa_run_parallel(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
-		      tre_str_type_t type, int *match_tags, int eflags,
-		      int *match_end_ofs);
-
-reg_errcode_t
 tre_tnfa_run_backtrack(const tre_tnfa_t *tnfa, const void *string, ssize_t len,
 		       tre_str_type_t type, int *match_tags, int eflags,
 		       int *match_end_ofs);
