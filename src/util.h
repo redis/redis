@@ -91,6 +91,12 @@ static inline int log2ceil(size_t x) {
 #endif
 }
 
+/* Return the smallest power of 2 >= count (e.g. 5 -> 8, 8 -> 8). */
+static inline int nearestNextPowerOf2(unsigned int count) {
+    if (count <= 1) return 1;
+    return 1 << (32 - __builtin_clz(count-1));
+}
+
 #ifndef static_assert
 #define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]
 #endif

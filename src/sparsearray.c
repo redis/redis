@@ -107,20 +107,6 @@ static inline uint32_t arSliceMaxIdx(arSlice *s) {
     }
 }
 
-/* Round up to next power of two. We size dirs/slices this way to get
- * amortized O(1) growth. Uses the standard "fill lower bits" trick. */
-static uint32_t nextPowerOfTwo(uint32_t n) {
-    if (n == 0) return 1;
-    n--;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    return n + 1; /* All bits set, +1, will just turn on a single bit
-                   * that is our power of two. */
-}
-
 /* ----------------------------------------------------------------------------
  * arString type
  * -------------------------------------------------------------------------- */
@@ -352,7 +338,7 @@ arSlice *arSliceDenseGrowLeft(redisArray *ar, arSlice *s, uint32_t rel_idx, uint
     uint32_t need = old_end - rel_idx;
 
     /* Find next power of two that fits */
-    uint32_t new_winsize = nextPowerOfTwo(need);
+    uint32_t new_winsize = nearestNextPowerOf2(need);
     if (new_winsize < AR_SLICE_MIN_ALLOC) new_winsize = AR_SLICE_MIN_ALLOC;
     if (new_winsize > slice_size) new_winsize = slice_size;
 
@@ -427,7 +413,7 @@ arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
     uint32_t max_off = offsets[s->count - 1];
     uint32_t need = max_off - min_off + 1;
 
-    uint32_t winsize = nextPowerOfTwo(need);
+    uint32_t winsize = nearestNextPowerOf2(need);
     if (winsize < AR_SLICE_MIN_ALLOC) winsize = AR_SLICE_MIN_ALLOC;
 
     uint32_t offset = min_off;
