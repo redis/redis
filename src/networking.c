@@ -37,6 +37,7 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
 static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+static size_t getClientOutputBufferLogicalSize(client *c);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
@@ -212,7 +213,7 @@ client *createClient(connection *conn) {
     c->main_ch_client_id = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
-    c->reply_bytes = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -367,7 +368,7 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
-static int tryAddPayload(char *buf, size_t *used, size_t size, uint8_t type, const void *payload, size_t len) {
+static int tryAddPayload(client *c, char *buf, size_t *used, size_t size, uint8_t type, const void *payload, size_t len) {
     if (*used + sizeof(payloadHeader) + len > size) return 0;
 
     /* Start a new payload chunk */
@@ -376,6 +377,13 @@ static int tryAddPayload(char *buf, size_t *used, size_t size, uint8_t type, con
     header->payload_len = len;
     memcpy((char *)header + sizeof(payloadHeader), payload, len);
     *used += sizeof(payloadHeader) + len;
+
+    /* Track referenced reply bytes for copy avoidance. */
+    if (type == BULK_STR_REF) {
+        const bulkStrRef *str_ref = (const bulkStrRef *)payload;
+        c->reply_bytes_shared += sdslen(str_ref->obj->ptr);
+    }
+
     return 1;
 }
 
@@ -395,8 +403,11 @@ static void _addReplyPayloadToList(client *c, list *reply_list, const char *payl
     if (tail) {
         if (unlikely(tail->buf_encoded)) {
             /* Try to add to encoded buffer */
-            if (tryAddPayload(tail->buf, &tail->used, tail->size, payload_type, (void *)payload, len)) {
-                len = 0;
+            if (tryAddPayload(c, tail->buf, &tail->used, tail->size, payload_type, (void *)payload, len)) {
+                /* For BULK_STR_REF payloads, tryAddPayload updates shared reply bytes
+                 * which accounts for referenced strings. */
+                if (encoded) closeClientOnOutputBufferLimitReached(c, 1);
+                return;
             }
         } else if (!encoded) {
             /* Both tail and new payload are non-encoded, can append directly */
@@ -424,7 +435,7 @@ static void _addReplyPayloadToList(client *c, list *reply_list, const char *payl
         tail->used = 0;
         tail->buf_encoded = encoded;
         if (tail->buf_encoded) {
-            serverAssert(tryAddPayload(tail->buf, &tail->used, tail->size, payload_type, (void *)payload, len));
+            serverAssert(tryAddPayload(c, tail->buf, &tail->used, tail->size, payload_type, (void *)payload, len));
         } else {
             tail->used = len;
             memcpy(tail->buf, payload, len);
@@ -456,7 +467,7 @@ static size_t _addReplyPayloadToBuffer(client *c, const void *payload, size_t le
     size_t available = c->buf_usable_size - c->bufpos;
     size_t reply_len = min(available, len);
     if (c->buf_encoded) {
-        if (!tryAddPayload(c->buf, &c->bufpos, c->buf_usable_size, payload_type, payload, len))
+        if (!tryAddPayload(c, c->buf, &c->bufpos, c->buf_usable_size, payload_type, payload, len))
             return 0;
         reply_len = len;
     } else {
@@ -472,18 +483,27 @@ static size_t _addReplyPayloadToBuffer(client *c, const void *payload, size_t le
 /* Adds bulk string reference (i.e. pointer to object and pointer to string itself) to static buffer
  * Returns non-zero value if succeeded to add */
 static size_t _addBulkStrRefToBuffer(client *c, const void *payload, size_t len) {
+    size_t result;
     if (!c->buf_encoded) {
         /* If buffer is plain and not empty then can't add bulk string reference to it */
         if (c->bufpos) return 0;
         c->buf_encoded = 1; /* Set c->buf to encoded mode to allow bulk string reference to be stored in it */
-        size_t result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+        result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
         if (!result) {
             /* Failed to add bulk string reference to buffer, need to revert to plain mode. */
             c->buf_encoded = 0;
+            return 0;
         }
-        return result;
+    } else {
+        result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+        if (!result) return 0;
     }
-    return _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+
+    /* Even though the bulk string is stored by reference and the underlying
+     * memory is shared, we still account this shared memory towards this
+     * client's output buffer usage, so we need to check the output buffer limits. */
+    closeClientOnOutputBufferLimitReached(c, 1);
+    return result;
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
@@ -1457,6 +1477,7 @@ void AddReplyFromClient(client *dst, client *src) {
     /* Concatenate the reply list into the dest */
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
+    serverAssert(src->reply_bytes_shared == 0); /* It is non-normal client, never has references. */
     dst->reply_bytes += src->reply_bytes;
     src->reply_bytes = 0;
     src->bufpos = 0;
@@ -1926,6 +1947,72 @@ void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     }
 }
 
+/* Count bytes in an encoded buffer where the client holds the last remaining
+ * reference to the underlying string object (refcount == 1), meaning the key
+ * has been deleted from the keyspace and only this client buffer keeps the
+ * memory alive.
+ *
+ * Note: when multiple clients share a reference to the same object,
+ * the object's refcount stays above 1 even after the key is deleted. In that
+ * case none of those clients will be counted here, so the shared memory is
+ * under-reported until all but one client has consumed its copy. */
+static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
+    size_t total = 0;
+    char *ptr = buf;
+    while (ptr < buf + bufpos) {
+        payloadHeader *header = (payloadHeader *)ptr;
+        ptr += sizeof(payloadHeader);
+        if (header->payload_type == BULK_STR_REF) {
+            bulkStrRef *str_ref = (bulkStrRef *)ptr;
+            if (str_ref->obj != NULL && str_ref->obj->refcount == 1)
+                total += sdslen(str_ref->obj->ptr);
+        }
+        ptr += header->payload_len;
+    }
+    return total;
+}
+
+/* Update the client's unshared reply memory (solely owned). */
+void updateClientUnsharedReplyBytes(client *c) {
+    c->reply_bytes_unshared = 0;
+
+    /* No shared memory means no unshared memory either. */
+    if (c->reply_bytes_shared == 0) return;
+
+    /* Scan the static output buffer. */
+    if (c->buf_encoded)
+        c->reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
+
+    /* Scan each block in the reply list. */
+    listIter reply_li;
+    listNode *reply_ln;
+    listRewind(c->reply, &reply_li);
+    while ((reply_ln = listNext(&reply_li))) {
+        clientReplyBlock *block = listNodeValue(reply_ln);
+        if (block == NULL) continue; /* deferred-length placeholder */
+        if (block->buf_encoded)
+            c->reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
+    }
+}
+
+/* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
+ * has been deleted and the client buffer is the sole holder. */
+void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
+    listNode *ln;
+    listIter li;
+    listRewind(server.clients_with_pending_ref_reply, &li);
+    while ((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+
+        /* Total shared reply bytes (logical size, shared with keyspace). */
+        *shared_mem += c->reply_bytes_shared;
+
+        /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
+        updateClientUnsharedReplyBytes(c);
+        *unshared_mem += c->reply_bytes_unshared;
+    }
+}
+
 /* Clear the client state to resemble a newly connected client. */
 void clearClientConnectionState(client *c) {
     listNode *ln;
@@ -2020,6 +2107,7 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             bulkStrRef *str_ref = (bulkStrRef *)ptr;
             /* Only release if not already released. */
             if (str_ref->obj != NULL) {
+                c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
                 if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
                 else
@@ -2436,6 +2524,7 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
                 return head;
             }
             *remaining -= (writen_len - *sentlen);
+            c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
             } else {
@@ -2594,7 +2683,7 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten) {
         /* If there are no longer objects in the list, we expect
          * the count of reply bytes to be exactly zero. */
         if (listLength(c->reply) == 0)
-            serverAssert(c->reply_bytes == 0);
+            serverAssert(c->reply_bytes == 0 && c->reply_bytes_shared == 0);
     } else if (c->bufpos > 0) {
         /* For encoded buffers, we need to use writev to handle bulk string references */
         if (c->buf_encoded) {
@@ -3985,8 +4074,12 @@ sds catClientInfoString(sds s, client *client) {
     }
     *p = '\0';
 
+    /* Refresh the cached unshared reply bytes before computing memory stats below. */
+    updateClientUnsharedReplyBytes(client);
+
     /* Compute the total memory consumed by this client. */
-    size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
+    size_t obufmem = getClientOutputBufferLogicalSize(client);
+    size_t total_mem = getClientMemoryUsage(client);
 
     size_t used_blocks_of_repl_buf = 0;
     if (client->ref_repl_buf_node) {
@@ -4018,8 +4111,10 @@ sds catClientInfoString(sds s, client *client) {
         " rbp=%U", (unsigned long long) client->buf_peak,
         " obl=%U", (unsigned long long) client->bufpos,
         " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
-        " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        " tot-mem=%U", (unsigned long long) total_mem,
+        " omem=%U", (unsigned long long) obufmem, /* logical output buffer memory (includes shared memory; excludes client->buf so static clients show 0) */
+        " omem-shared=%U", (unsigned long long) client->reply_bytes_shared, /* shared memory (not solely owned by this client) */
+        " omem-unshared=%U", (unsigned long long) client->reply_bytes_unshared, /* unshared memory (solely owned by this client) */
+        " tot-mem=%U", (unsigned long long) total_mem, /* actual memory usage (includes unshared memory, excludes shared memory) */
         " events=%s", events,
         " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
         " user=%s", client->user ? client->user->name : "(superuser)",
@@ -5043,11 +5138,12 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
 
 /* This function returns the number of bytes that Redis is
  * using to store the reply still not read by the client.
+ * It does NOT include any referenced bytes (neither shared nor unshared).
  *
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
-size_t getClientOutputBufferMemoryUsage(client *c) {
+static size_t getClientOutputBufferAllocSize(client *c) {
     if (unlikely(clientTypeIsSlave(c))) {
         size_t repl_buf_size = 0;
         size_t repl_node_num = 0;
@@ -5065,22 +5161,38 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
     }
 }
 
-size_t getNormalClientPendingReplyBytes(client *c) {
-    serverAssert(!clientTypeIsSlave(c));
-    if (listLength(c->reply) == 0) return c->bufpos;
-
-    clientReplyBlock *block = listNodeValue(listLast(c->reply));
-    return (c->reply_bytes - block->size + block->used) + c->bufpos;
+/* Returns the logical output buffer size for limit enforcement.
+ * This includes all shared memory (shared with the keyspace), ensuring that
+ * a client requesting huge amounts of data via copy-avoidance is still
+ * subject to output buffer limits. */
+static size_t getClientOutputBufferLogicalSize(client *c) {
+    size_t mem = getClientOutputBufferAllocSize(c);
+    if (!clientTypeIsSlave(c))
+        mem += c->reply_bytes_shared;
+    return mem;
 }
 
-/* Returns the total client's memory usage.
- * Optionally, if output_buffer_mem_usage is not NULL, it fills it with
- * the client output buffer memory usage portion of the total. */
-size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
+/* Returns the actual memory used to store the reply not yet read by the client.
+ * This includes unshared memory (solely owned by this client), which would be
+ * freed when the client disconnects. */
+size_t getClientOutputBufferMemoryUsage(client *c) {
+    size_t mem = getClientOutputBufferAllocSize(c);
+    mem += c->reply_bytes_unshared;
+    return mem;
+}
+
+size_t getNormalClientPendingReplyBytes(client *c) {
+    serverAssert(!clientTypeIsSlave(c));
+    if (listLength(c->reply) == 0) return c->bufpos + c->reply_bytes_shared;
+
+    clientReplyBlock *block = listNodeValue(listLast(c->reply));
+    return (c->reply_bytes + c->reply_bytes_shared - block->size + block->used) + c->bufpos;
+}
+
+/* Returns the total client's memory usage. */
+size_t getClientMemoryUsage(client *c) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
 
-    if (output_buffer_mem_usage != NULL)
-        *output_buffer_mem_usage = mem;
     mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
     mem += c->buf_usable_size;
@@ -5158,7 +5270,7 @@ char *getClientTypeName(int class) {
  *               Otherwise zero is returned. */
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
-    unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+    unsigned long used_mem = getClientOutputBufferLogicalSize(c);
 
     /* For unauthenticated clients the output buffer is limited to prevent
      * them from abusing it by not reading the replies */
@@ -5222,10 +5334,10 @@ int checkClientOutputBufferLimits(client *c) {
  * Returns 1 if client was (flagged) closed. */
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
-    serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
+    serverAssert(c->reply_bytes < SIZE_MAX-(1024*64)); /* actual memory only, logical memory may exceed SIZE_MAX */
     /* Note that c->reply_bytes is irrelevant for replica clients
      * (they use the global repl buffers). */
-    if ((c->reply_bytes == 0 && !clientTypeIsSlave(c)) ||
+    if ((c->reply_bytes == 0 && c->reply_bytes_shared == 0 && !clientTypeIsSlave(c)) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);

@@ -36,15 +36,15 @@ start_server {tags {"modules external:skip"}} {
         r acl setuser foo >pwd on ~* &* +@all
         assert_equal {OK} [r AUTH foo allow]
         assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
         assert_error {*WRONGPASS*} {r AUTH foo nomatch}
-        assert_match {*calls=3,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
+        assert_match {*calls=3,*,rejected_calls=0,failed_calls=2*} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]
         # Test for No Pass user
         r acl setuser foo on ~* &* +@all nopass
         assert_equal {OK} [r AUTH foo allow]
         assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
-        assert_match {*calls=6,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
+        assert_match {*calls=6,*,rejected_calls=0,failed_calls=3*} [cmdstat auth]
         assert_equal {OK} [r AUTH foo nomatch]
 
         # Validate that the Module added an ACL Log entry.
@@ -67,13 +67,13 @@ start_server {tags {"modules external:skip"}} {
         assert_equal $hello3_response [r HELLO 3 AUTH foo allow]
         # Validate denying AUTH for the HELLO cmd
         assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo deny}
-        assert_match {*calls=5,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=1*} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch}
-        assert_match {*calls=6,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
+        assert_match {*calls=6,*,rejected_calls=0,failed_calls=2*} [cmdstat hello]
         assert_error {*Auth denied by Misc Module*} {r HELLO 3 AUTH foo deny}
-        assert_match {*calls=7,*,rejected_calls=0,failed_calls=3} [cmdstat hello]
+        assert_match {*calls=7,*,rejected_calls=0,failed_calls=3*} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 3 AUTH foo nomatch}
-        assert_match {*calls=8,*,rejected_calls=0,failed_calls=4} [cmdstat hello]
+        assert_match {*calls=8,*,rejected_calls=0,failed_calls=4*} [cmdstat hello]
 
         # Validate that the Module added an ACL Log entry.
         set entry [lindex [r ACL LOG] 1]
@@ -97,10 +97,10 @@ start_server {tags {"modules external:skip"}} {
         r client setname client0
         assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo deny setname client1}
         assert {[r client getname] eq {client0}}
-        assert_match {*calls=3,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
+        assert_match {*calls=3,*,rejected_calls=0,failed_calls=1*} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch setname client2}
         assert {[r client getname] eq {client0}}
-        assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
+        assert_match {*calls=4,*,rejected_calls=0,failed_calls=2*} [cmdstat hello]
     }
 
     test {test blocking module AUTH} {
@@ -109,15 +109,15 @@ start_server {tags {"modules external:skip"}} {
         r acl setuser foo >pwd on ~* &* +@all
         assert_equal {OK} [r AUTH foo block_allow]
         assert_error {*Auth denied by Misc Module*} {r AUTH foo block_deny}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
         assert_error {*WRONGPASS*} {r AUTH foo nomatch}
-        assert_match {*calls=3,*,rejected_calls=0,failed_calls=2} [cmdstat auth]
+        assert_match {*calls=3,*,rejected_calls=0,failed_calls=2*} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]
         # Test for No Pass user
         r acl setuser foo on ~* &* +@all nopass
         assert_equal {OK} [r AUTH foo block_allow]
         assert_error {*Auth denied by Misc Module*} {r AUTH foo block_deny}
-        assert_match {*calls=6,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
+        assert_match {*calls=6,*,rejected_calls=0,failed_calls=3*} [cmdstat auth]
         assert_equal {OK} [r AUTH foo nomatch]
         # Validate that every Blocking AUTH command took at least 500000 usec.
         set stats [cmdstat auth]
@@ -144,13 +144,13 @@ start_server {tags {"modules external:skip"}} {
         assert_equal $hello3_response [r HELLO 3 AUTH foo block_allow]
         # validate denying AUTH for the HELLO cmd
         assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo block_deny}
-        assert_match {*calls=5,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=1*} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch}
-        assert_match {*calls=6,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
+        assert_match {*calls=6,*,rejected_calls=0,failed_calls=2*} [cmdstat hello]
         assert_error {*Auth denied by Misc Module*} {r HELLO 3 AUTH foo block_deny}
-        assert_match {*calls=7,*,rejected_calls=0,failed_calls=3} [cmdstat hello]
+        assert_match {*calls=7,*,rejected_calls=0,failed_calls=3*} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 3 AUTH foo nomatch}
-        assert_match {*calls=8,*,rejected_calls=0,failed_calls=4} [cmdstat hello]
+        assert_match {*calls=8,*,rejected_calls=0,failed_calls=4*} [cmdstat hello]
         # Validate that every HELLO AUTH command took at least 500000 usec.
         set stats [cmdstat hello]
         regexp "usec_per_call=(\[0-9]{1,})\.*," $stats all usec_per_call
@@ -178,10 +178,10 @@ start_server {tags {"modules external:skip"}} {
         r client setname client0
         assert_error {*Auth denied by Misc Module*} {r HELLO 2 AUTH foo block_deny setname client1}
         assert {[r client getname] eq {client0}}
-        assert_match {*calls=3,*,rejected_calls=0,failed_calls=1} [cmdstat hello]
+        assert_match {*calls=3,*,rejected_calls=0,failed_calls=1*} [cmdstat hello]
         assert_error {*WRONGPASS*} {r HELLO 2 AUTH foo nomatch setname client2}
         assert {[r client getname] eq {client0}}
-        assert_match {*calls=4,*,rejected_calls=0,failed_calls=2} [cmdstat hello]
+        assert_match {*calls=4,*,rejected_calls=0,failed_calls=2*} [cmdstat hello]
         # Validate that every HELLO AUTH SETNAME command took at least 500000 usec.
         set stats [cmdstat hello]
         regexp "usec_per_call=(\[0-9]{1,})\.*," $stats all usec_per_call
@@ -205,7 +205,7 @@ start_server {tags {"modules external:skip"}} {
 
         # Case 2 - Non Blocking Deny
         assert_error {*Auth denied by Misc Module*} {r AUTH foo deny}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
 
         r config resetstat
 
@@ -214,7 +214,7 @@ start_server {tags {"modules external:skip"}} {
 
         # Case 4 - Blocking Deny
         assert_error {*Auth denied by Misc Module*} {r AUTH foo block_deny}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
 
         # Validate that every Blocking AUTH command took at least 500000 usec.
         set stats [cmdstat auth]
@@ -228,13 +228,13 @@ start_server {tags {"modules external:skip"}} {
 
         # Case 6 - Non Blocking Deny via the second module.
         assert_error {*Auth denied by Misc Module*} {r AUTH foo deny_two}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
 
         r config resetstat
 
         # Case 7 - All four auth callbacks "Skip" by not explicitly allowing or denying.
         assert_error {*WRONGPASS*} {r AUTH foo nomatch}
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
         assert_equal {OK} [r AUTH foo pwd]
 
         # Because we had to attempt all 4 callbacks, validate that the AUTH command took at least
@@ -283,7 +283,7 @@ start_server {tags {"modules external:skip"}} {
         r multi
         r AUTH foo block_allow
         assert_error {*ERR Blocking module command called from transaction*} {r exec}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
     }
 
     test {Disabling Redis User during blocking module auth} {
@@ -300,7 +300,7 @@ start_server {tags {"modules external:skip"}} {
         wait_for_blocked_clients_count 0 500 10
         $rd flush
         assert_error {*WRONGPASS*} { $rd read }
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
     }
 
     test {Killing a client in the middle of blocking module auth} {
@@ -354,7 +354,7 @@ start_server {tags {"modules external:skip"}} {
         $rd flush
         assert_equal [$rd read] "OK"
         set stats [cmdstat auth]
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} $stats
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} $stats
 
         # Validate that even the new blocking module auth cb which was registered in the middle of
         # blocking module auth is attempted - making it take twice the duration (2x 500000 us).
@@ -387,7 +387,7 @@ start_server {tags {"modules external:skip"}} {
         wait_for_blocked_clients_count 0 500 10
         $rd flush
         assert_equal [$rd read] "OK"
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat auth]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat auth]
 
         # Validate that unloading the moduleauthtwo module does not unregister module auth cbs of
         # of the testacl module. Module based auth should succeed.
@@ -400,6 +400,6 @@ start_server {tags {"modules external:skip"}} {
         assert_error {*WRONGPASS*} {r AUTH foo block_allow}
         assert_error {*WRONGPASS*} {r AUTH foo allow_two}
         assert_error {*WRONGPASS*} {r AUTH foo allow}
-        assert_match {*calls=5,*,rejected_calls=0,failed_calls=3} [cmdstat auth]
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=3*} [cmdstat auth]
     }
 }
