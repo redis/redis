@@ -46,7 +46,7 @@ jobs:
       size_warning: ${{ steps.size.outputs.size_warning }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ env.TAG_NAME }}
           fetch-depth: 0
