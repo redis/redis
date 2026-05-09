@@ -241,7 +241,8 @@ jobs:
     - name: make
       run: |
         apt-get update && apt-get install -y make gcc
-        make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
+        # Also enables jemalloc's sized deallocation checks to catch sdallocx()/zfree_with_size() misuse.
+        make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3' JEMALLOC_CONFIGURE_OPTS='--enable-opt-size-checks'
     - name: testprep
       run: sudo apt-get install -y tcl8.6 tclx procps
     - name: test

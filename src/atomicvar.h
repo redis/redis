@@ -183,4 +183,23 @@
 #error "Unable to determine atomic operations for your platform"
 
 #endif
+
+/* atomicIncrGetSingleWriter(var, delta, newvalue_var)
+ *
+ * Adds `delta` to `var` and writes the resulting value to `newvalue_var`.
+ * Same end result as atomicIncrGet() but implemented as load+add+store instead
+ * of an atomic read-modify-write. This avoids the `lock` prefix on x86
+ * (~20-40 cycles vs ~2-3 for plain load+store).
+ *
+ * SAFETY: the caller MUST guarantee that no other thread ever writes to `var`
+ * (no atomicIncr, no atomicSet, no other call to this macro from a different
+ * thread). Concurrent writers cause silent lost updates. Readers on other
+ * threads using atomicGet are fine: they will observe either the pre or
+ * post update value. */
+#define atomicIncrGetSingleWriter(var, delta, newvalue_var) do { \
+    atomicGet((var), (newvalue_var)); \
+    (newvalue_var) += (delta); \
+    atomicSet((var), (newvalue_var)); \
+} while(0)
+
 #endif /* __ATOMIC_VAR_H */

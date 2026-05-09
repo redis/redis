@@ -3187,6 +3187,73 @@ void genericHgetallCommand(client *c, int flags) {
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(o);
+
+    /* Fast path: batched prefetch for hashtable-encoded HGETALL.
+     * Collect a batch of dict entries, prefetch their Entry structs and
+     * value SDS data, then emit replies while the data is cache-warm.
+     * This hides the latency of pointer chasing through scattered
+     * heap allocations (dictEntry → Entry → value SDS). */
+#define HGETALL_BATCH 16
+    if (o->encoding == OBJ_ENCODING_HT) {
+        int skip_expired = !server.allow_access_expired;
+        dict *d = o->ptr;
+        dictIterator di;
+        dictInitSafeIterator(&di, d);
+        Entry *batch_entry[HGETALL_BATCH];
+        sds batch_val[HGETALL_BATCH];
+
+        while (1) {
+            /* Phase 1: pull a batch of entries from the dict iterator and
+             * prefetch their Entry structs. Pure pointer-fetch — we don't
+             * dereference Entry here so the prefetch is effective. */
+            int batch_count = 0;
+            while (batch_count < HGETALL_BATCH) {
+                dictEntry *de = dictNext(&di);
+                if (!de) break;
+                Entry *e = dictGetKey(de);
+                batch_entry[batch_count++] = e;
+                redis_prefetch_read(e);
+            }
+            if (batch_count == 0) break;
+
+            /* Phase 2: Entry structs are warm — check expiry, extract value,
+             * and prefetch the value SDS. Expired entries are dropped from
+             * the batch by compacting in place. */
+            int valid_count = 0;
+            for (int i = 0; i < batch_count; i++) {
+                Entry *e = batch_entry[i];
+                if (skip_expired) {
+                    uint64_t expire_time = entryGetExpiry(e);
+                    if (expire_time != EB_EXPIRE_TIME_INVALID && (mstime_t)expire_time < commandTimeSnapshot())
+                        continue;
+                }
+                batch_entry[valid_count] = e;
+                if (flags & OBJ_HASH_VALUE) {
+                    sds val = entryGetValue(e);
+                    batch_val[valid_count] = val;
+                    redis_prefetch_read(val);
+                }
+                valid_count++;
+            }
+
+            /* Phase 3: emit replies — field + value data is cache-warm. */
+            for (int i = 0; i < valid_count; i++) {
+                if (flags & OBJ_HASH_KEY) {
+                    sds field = entryGetField(batch_entry[i]);
+                    addReplyBulkCBuffer(c, field, sdslen(field));
+                    count++;
+                }
+                if (flags & OBJ_HASH_VALUE) {
+                    sds val = batch_val[i];
+                    addReplyBulkCBuffer(c, val, sdslen(val));
+                    count++;
+                }
+            }
+        }
+        dictResetIterator(&di);
+        goto done;
+    }
+
     hashTypeInitIterator(&hi, o);
 
     while (hashTypeNext(&hi, 1 /*skipExpiredFields*/) != C_ERR) {
@@ -3201,6 +3268,8 @@ void genericHgetallCommand(client *c, int flags) {
     }
 
     hashTypeResetIterator(&hi);
+
+done:
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
