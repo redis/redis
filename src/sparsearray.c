@@ -47,14 +47,28 @@
  * answer. When ar is NULL (e.g. during arFree) tracking is skipped.
  * -------------------------------------------------------------------------- */
 
-static inline void arTrackAlloc(redisArray *ar, void *ptr) {
-    if (ar) ar->alloc_size += zmalloc_size(ptr);
+static inline void *arAllocAndTrack(redisArray *ar, size_t size) {
+    size_t usable;
+    void *ptr = zmalloc_usable(size, &usable);
+    if (ar) ar->alloc_size += usable;
+    return ptr;
 }
-static inline void arTrackFree(redisArray *ar, void *ptr) {
-    if (ar) ar->alloc_size -= zmalloc_size(ptr);
+static inline void *arCallocAndTrack(redisArray *ar, size_t size) {
+    size_t usable;
+    void *ptr = zcalloc_usable(size, &usable);
+    if (ar) ar->alloc_size += usable;
+    return ptr;
 }
-static inline void arTrackRealloc(redisArray *ar, size_t old_size, void *ptr) {
-    if (ar) ar->alloc_size += zmalloc_size(ptr) - old_size;
+static inline void arFreeAndTrack(redisArray *ar, void *ptr) {
+    size_t usable;
+    zfree_usable(ptr, &usable);
+    if (ar) ar->alloc_size -= usable;
+}
+static inline void *arReallocAndTrack(redisArray *ar, void *ptr, size_t size) {
+    size_t usable, old_usable;
+    void *newptr = zrealloc_usable(ptr, size, &usable, &old_usable);
+    if (ar) ar->alloc_size += usable - old_usable;
+    return newptr;
 }
 
 /* Track a tagged value entering/leaving the array (arString bookkeeping). */
@@ -213,8 +227,7 @@ arSlice *arSliceDenseNew(redisArray *ar, uint32_t rel_idx, uint32_t slice_size) 
         offset = slice_size - winsize;
     }
 
-    arSlice *s = zmalloc(arDenseAllocSize(winsize));
-    arTrackAlloc(ar, s);
+    arSlice *s = arAllocAndTrack(ar, arDenseAllocSize(winsize));
     s->encoding = AR_SLICE_DENSE;
     s->count = 0;
     s->layout.dense.offset = offset;
@@ -242,8 +255,7 @@ void arSparseSetupPointers(arSlice *s) {
 /* Create a new sparse slice */
 arSlice *arSliceSparseNew(redisArray *ar) {
     uint32_t cap = (ArraySparseKMax < 4) ? ArraySparseKMax : 4;
-    arSlice *s = zmalloc(arSparseAllocSize(cap));
-    arTrackAlloc(ar, s);
+    arSlice *s = arAllocAndTrack(ar, arSparseAllocSize(cap));
     s->encoding = AR_SLICE_SPARSE;
     s->count = 0;
     s->layout.sparse.cap = cap;
@@ -269,8 +281,7 @@ void arSliceFree(redisArray *ar, arSlice *s) {
             arFreePtr(values[i]);
         }
     }
-    arTrackFree(ar, s);
-    zfree(s);
+    arFreeAndTrack(ar, s);
 }
 
 /* Grow dense slice to accommodate rel_idx (right growth) */
@@ -295,9 +306,7 @@ arSlice *arSliceDenseGrowRight(redisArray *ar, arSlice *s, uint32_t rel_idx, uin
      * the dense allocation without relocating existing items ourselves. */
     if (new_offset == s->layout.dense.offset) {
         uint32_t old_winsize = s->layout.dense.winsize;
-        size_t old_size = zmalloc_size(s);
-        arSlice *ns = zrealloc(s, arDenseAllocSize(new_winsize));
-        arTrackRealloc(ar, old_size, ns);
+        arSlice *ns = arReallocAndTrack(ar, s, arDenseAllocSize(new_winsize));
         ns->layout.dense.winsize = new_winsize;
         ns->layout.dense.items = (void **)(ns + 1);
 
@@ -308,8 +317,7 @@ arSlice *arSliceDenseGrowRight(redisArray *ar, arSlice *s, uint32_t rel_idx, uin
     }
 
     /* Data copy path: offset moved, so we allocate a new slice and copy. */
-    arSlice *ns = zmalloc(arDenseAllocSize(new_winsize));
-    arTrackAlloc(ar, ns);
+    arSlice *ns = arAllocAndTrack(ar, arDenseAllocSize(new_winsize));
     ns->encoding = AR_SLICE_DENSE;
     ns->count = s->count;
     ns->layout.dense.offset = new_offset;
@@ -324,8 +332,7 @@ arSlice *arSliceDenseGrowRight(redisArray *ar, arSlice *s, uint32_t rel_idx, uin
     serverAssert(shift + s->layout.dense.winsize <= new_winsize);
     memcpy(ns->layout.dense.items + shift, s->layout.dense.items, s->layout.dense.winsize * sizeof(void *));
 
-    arTrackFree(ar, s);
-    zfree(s);
+    arFreeAndTrack(ar, s);
     return ns;
 }
 
@@ -348,8 +355,7 @@ arSlice *arSliceDenseGrowLeft(redisArray *ar, arSlice *s, uint32_t rel_idx, uint
     if (new_offset < 0) new_offset = 0;
     if (new_winsize == slice_size) new_offset = 0;
 
-    arSlice *ns = zmalloc(arDenseAllocSize(new_winsize));
-    arTrackAlloc(ar, ns);
+    arSlice *ns = arAllocAndTrack(ar, arDenseAllocSize(new_winsize));
     ns->encoding = AR_SLICE_DENSE;
     ns->count = s->count;
     ns->layout.dense.offset = (uint32_t)new_offset;
@@ -363,8 +369,7 @@ arSlice *arSliceDenseGrowLeft(redisArray *ar, arSlice *s, uint32_t rel_idx, uint
     serverAssert(shift + s->layout.dense.winsize <= new_winsize);
     memcpy(ns->layout.dense.items + shift, s->layout.dense.items, s->layout.dense.winsize * sizeof(void *));
 
-    arTrackFree(ar, s);
-    zfree(s);
+    arFreeAndTrack(ar, s);
     return ns;
 }
 
@@ -401,8 +406,7 @@ uint32_t arSparseFindPos(arSlice *s, uint16_t rel_idx, int *found) {
 /* Promote sparse slice to dense. */
 arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
     if (s->count == 0) {
-        arTrackFree(ar, s);
-        zfree(s);
+        arFreeAndTrack(ar, s);
         return arSliceDenseNew(ar, 0, slice_size);
     }
 
@@ -425,8 +429,7 @@ arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
         offset = slice_size - winsize;
     }
 
-    arSlice *d = zmalloc(arDenseAllocSize(winsize));
-    arTrackAlloc(ar, d);
+    arSlice *d = arAllocAndTrack(ar, arDenseAllocSize(winsize));
     d->encoding = AR_SLICE_DENSE;
     d->count = s->count;
     d->layout.dense.offset = offset;
@@ -443,8 +446,7 @@ arSlice *arSparsePromote(redisArray *ar, arSlice *s, uint32_t slice_size) {
         d->layout.dense.items[offsets[i] - offset] = values[i];
     }
 
-    arTrackFree(ar, s);
-    zfree(s);
+    arFreeAndTrack(ar, s);
     return d;
 }
 
@@ -468,8 +470,7 @@ arSlice *arDenseMaybeDemote(redisArray *ar, arSlice *d) {
     if (dense_bytes < sparse_bytes * 5 / 4) return d;
 
     /* Demote it. */
-    arSlice *s = zmalloc(arSparseAllocSize(ArraySparseKMin));
-    arTrackAlloc(ar, s);
+    arSlice *s = arAllocAndTrack(ar, arSparseAllocSize(ArraySparseKMin));
     s->encoding = AR_SLICE_SPARSE;
     s->count = 0;
     s->layout.sparse.cap = ArraySparseKMin;
@@ -486,8 +487,7 @@ arSlice *arDenseMaybeDemote(redisArray *ar, arSlice *d) {
         }
     }
 
-    arTrackFree(ar, d);
-    zfree(d);
+    arFreeAndTrack(ar, d);
     return s;
 }
 
@@ -584,9 +584,7 @@ arSlice **arSuperDirEnsureSlot(redisArray *ar, uint64_t slice_id) {
         if (ar->sdir_len >= ar->sdir_cap) {
             /* Grow superdir array */
             uint32_t new_cap = ar->sdir_cap ? ar->sdir_cap * 2 : 4;
-            size_t old_size = ar->superdir ? zmalloc_size(ar->superdir) : 0;
-            ar->superdir = zrealloc(ar->superdir, new_cap * sizeof(arSDirEntry));
-            arTrackRealloc(ar, old_size, ar->superdir);
+            ar->superdir = arReallocAndTrack(ar, ar->superdir, new_cap * sizeof(arSDirEntry));
             ar->sdir_cap = new_cap;
         }
 
@@ -599,8 +597,7 @@ arSlice **arSuperDirEnsureSlot(redisArray *ar, uint64_t slice_id) {
         /* Initialize new entry */
         ar->superdir[pos].block_id = block_id;
         ar->superdir[pos].count = 0;
-        ar->superdir[pos].slots = zcalloc(AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
-        arTrackAlloc(ar, ar->superdir[pos].slots);
+        ar->superdir[pos].slots = arCallocAndTrack(ar, AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
         ar->sdir_len++;
     }
 
@@ -622,8 +619,7 @@ arSDirEntry *arSuperDirGetEntry(redisArray *ar, uint64_t slice_id) {
  * Frees the slice-pointer table, compacts remaining entries (keeping order by
  * block_id), and decrements ar->sdir_len. */
 void arSuperDirRemoveBlock(redisArray *ar, uint32_t pos) {
-    arTrackFree(ar, ar->superdir[pos].slots);
-    zfree(ar->superdir[pos].slots);
+    arFreeAndTrack(ar, ar->superdir[pos].slots);
     if (pos < ar->sdir_len - 1) {
         memmove(ar->superdir + pos, ar->superdir + pos + 1,
                 (ar->sdir_len - pos - 1) * sizeof(arSDirEntry));
@@ -636,14 +632,12 @@ void arSuperDirRemoveBlock(redisArray *ar, uint32_t pos) {
 void arPromoteToSuperDir(redisArray *ar) {
     ar->sdir_cap = 4;
     ar->sdir_len = 0;
-    ar->superdir = zmalloc(ar->sdir_cap * sizeof(arSDirEntry));
-    arTrackAlloc(ar, ar->superdir);
+    ar->superdir = arAllocAndTrack(ar, ar->sdir_cap * sizeof(arSDirEntry));
 
     /* Copy existing flat dir content into block 0 */
     if (ar->dir_alloc > 0) {
         ar->superdir[0].block_id = 0;
-        ar->superdir[0].slots = zcalloc(AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
-        arTrackAlloc(ar, ar->superdir[0].slots);
+        ar->superdir[0].slots = arCallocAndTrack(ar, AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
         ar->superdir[0].count = 0;
         ar->sdir_len = 1;
 
@@ -655,8 +649,7 @@ void arPromoteToSuperDir(redisArray *ar) {
     }
 
     /* Free old flat directory */
-    if (ar->dir) arTrackFree(ar, ar->dir);
-    zfree(ar->dir);
+    if (ar->dir) arFreeAndTrack(ar, ar->dir);
     ar->dir = NULL;
     ar->dir_alloc = 0;
 }
@@ -687,9 +680,7 @@ void arDirGrow(redisArray *ar, uint64_t slice_id) {
         new_alloc <<= 1;
     }
 
-    size_t old_size = ar->dir ? zmalloc_size(ar->dir) : 0;
-    arSlice **new_dir = zrealloc(ar->dir, new_alloc * sizeof(arSlice *));
-    arTrackRealloc(ar, old_size, new_dir);
+    arSlice **new_dir = arReallocAndTrack(ar, ar->dir, new_alloc * sizeof(arSlice *));
 
     /* Zero-fill new slots */
     memset(new_dir + ar->dir_alloc, 0, (new_alloc - ar->dir_alloc) * sizeof(arSlice *));
@@ -711,9 +702,7 @@ void arDirMaybeShrink(redisArray *ar) {
     while (new_alloc <= ar->dir_highest_used) new_alloc <<= 1;
     if (new_alloc >= ar->dir_alloc) return;
 
-    size_t old_size = zmalloc_size(ar->dir);
-    ar->dir = zrealloc(ar->dir, new_alloc * sizeof(arSlice *));
-    arTrackRealloc(ar, old_size, ar->dir);
+    ar->dir = arReallocAndTrack(ar, ar->dir, new_alloc * sizeof(arSlice *));
     ar->dir_alloc = new_alloc;
 }
 
@@ -1120,8 +1109,7 @@ void arFree(redisArray *ar) {
 arSlice *arSliceDup(redisArray *dup_ar, arSlice *s) {
     if (s->encoding == AR_SLICE_DENSE) {
         size_t sz = arDenseAllocSize(s->layout.dense.winsize);
-        arSlice *nd = zmalloc(sz);
-        arTrackAlloc(dup_ar, nd);
+        arSlice *nd = arAllocAndTrack(dup_ar, sz);
         memcpy(nd, s, sizeof(arSlice));
         nd->layout.dense.items = (void **)(nd + 1);
         memcpy(nd->layout.dense.items, s->layout.dense.items,
@@ -1137,8 +1125,7 @@ arSlice *arSliceDup(redisArray *dup_ar, arSlice *s) {
         return nd;
     } else {
         size_t sz = arSparseAllocSize(s->layout.sparse.cap);
-        arSlice *nsp = zmalloc(sz);
-        arTrackAlloc(dup_ar, nsp);
+        arSlice *nsp = arAllocAndTrack(dup_ar, sz);
         memcpy(nsp, s, sizeof(arSlice));
         arSparseSetupPointers(nsp);
         memcpy(nsp->layout.sparse.offsets, s->layout.sparse.offsets,
@@ -1174,8 +1161,7 @@ redisArray *arDup(redisArray *ar) {
     if (ar->superdir) {
         /* Superdir mode */
         dup->dir = NULL;
-        dup->superdir = zmalloc(ar->sdir_cap * sizeof(arSDirEntry));
-        arTrackAlloc(dup, dup->superdir);
+        dup->superdir = arAllocAndTrack(dup, ar->sdir_cap * sizeof(arSDirEntry));
 
         for (uint32_t i = 0; i < ar->sdir_len; i++) {
             arSDirEntry *src = ar->superdir + i;
@@ -1183,8 +1169,7 @@ redisArray *arDup(redisArray *ar) {
 
             dst->block_id = src->block_id;
             dst->count = src->count;
-            dst->slots = zcalloc(AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
-            arTrackAlloc(dup, dst->slots);
+            dst->slots = arCallocAndTrack(dup, AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
 
             for (uint32_t j = 0; j < AR_SUPER_BLOCK_SLOTS; j++) {
                 if (src->slots[j]) {
@@ -1195,8 +1180,7 @@ redisArray *arDup(redisArray *ar) {
     } else if (ar->dir_alloc > 0) {
         /* Flat mode */
         dup->superdir = NULL;
-        dup->dir = zmalloc(ar->dir_alloc * sizeof(arSlice *));
-        arTrackAlloc(dup, dup->dir);
+        dup->dir = arAllocAndTrack(dup, ar->dir_alloc * sizeof(arSlice *));
         memset(dup->dir, 0, ar->dir_alloc * sizeof(arSlice *));
 
         for (uint64_t i = 0; i < ar->dir_alloc; i++) {
@@ -1329,8 +1313,7 @@ void arSet(redisArray *ar, uint64_t idx, void *v) {
                      * point in growing more than kmax, so we clamp to kmax. */
                     uint32_t new_cap = s->layout.sparse.cap * 2;
                     if (new_cap > ArraySparseKMax) new_cap = ArraySparseKMax;
-                    arSlice *ns = zmalloc(arSparseAllocSize(new_cap));
-                    arTrackAlloc(ar, ns);
+                    arSlice *ns = arAllocAndTrack(ar, arSparseAllocSize(new_cap));
                     ns->encoding = AR_SLICE_SPARSE;
                     ns->count = s->count;
                     ns->layout.sparse.cap = new_cap;
@@ -1344,8 +1327,7 @@ void arSet(redisArray *ar, uint64_t idx, void *v) {
                     memcpy(new_offsets,old_offsets,s->count * sizeof(uint16_t));
                     memcpy(new_values,old_values,s->count * sizeof(void *));
 
-                    arTrackFree(ar, s);
-                    zfree(s);
+                    arFreeAndTrack(ar, s);
                     s = ns;
                     arSetSlice(ar, slice_id, s);
                     offsets = new_offsets;
