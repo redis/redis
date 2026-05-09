@@ -184,13 +184,12 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
-        set now [clock seconds]
+        puts -nonewline $fd "\x12" ;# CTRL+R
 
+        set now [clock seconds]
         puts -nonewline $fd "\x12" ;# CTRL+R
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
-
-        puts -nonewline $fd "\x12" ;# CTRL+R
 
         puts -nonewline $fd "keys \"$now\"\x0D"
         set result2 [format_output [read_cli $fd]]
