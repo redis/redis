@@ -89,6 +89,11 @@
                         "name": "sat",
                         "type": "pure-token",
                         "token": "SAT"
+                    },
+                    {
+                        "name": "reject",
+                        "type": "pure-token",
+                        "token": "REJECT"
                     }
                 ]
             },
