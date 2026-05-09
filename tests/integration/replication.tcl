@@ -1894,7 +1894,6 @@ foreach type {script function} {
                 $master config set repl-diskless-sync-delay 0
                 # Set small client output buffer limit to trigger fullsync quickly
                 $master config set client-output-buffer-limit "replica 1k 1k 0"
-                $replica config set repl-diskless-load yes
                 $replica config set busy-reply-threshold 1 ;# script timeout in 1 ms
 
                 # Load function
