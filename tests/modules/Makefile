@@ -86,7 +86,8 @@ TEST_MODULES = \
     configaccess.so \
     test_keymeta.so \
     keymeta_notify.so \
-    atomicslotmigration.so
+    atomicslotmigration.so \
+    hash_null.so
 
 .PHONY: all
 
