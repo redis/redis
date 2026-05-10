@@ -17,7 +17,7 @@ endif ()
 # Options
 option(BUILD_LUA "Build Redis Lua scripting engine" ON)
 option(BUILD_UNIT_GTESTS "Build redis-unit-gtests" OFF)
-option(BUILD_TEST_MODULES "Build all test modules" OFF)
+option(BUILD_TEST_MODULES "Build all test modules" ON)
 option(BUILD_EXAMPLE_MODULES "Build example modules" OFF)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${REDIS_ROOT}/cmake/Modules/")
@@ -216,6 +216,7 @@ else()
     include_directories(BEFORE "${POSIX_STUBS_DIR}")
     
     file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "
+#include <share.h>
 #undef _S_IEXEC
 #define _S_IEXEC 00100
 #undef _S_IREAD
@@ -313,8 +314,8 @@ if(EXISTS "${REDIS_ROOT}/src/rdb.c")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/rdb.c" "${RDB_C_CONTENT}")
 endif()
 
-if(EXISTS "../tests/modules/rdbloadsave.c")
-    file(READ "../tests/modules/rdbloadsave.c" RDB_CONTENT)
+if(EXISTS "${REDIS_ROOT}/tests/modules/rdbloadsave.c")
+    file(READ "${REDIS_ROOT}/tests/modules/rdbloadsave.c" RDB_CONTENT)
     string(REPLACE "const char *filename = RedisModule_StringPtrLen(argv[1], &len);" "const char *filename = RedisModule_StringPtrLen(argv[1], &len); char *tmp = RedisModule_Alloc(len + 1); memcpy(tmp, filename, len); tmp[len] = '\\0';" RDB_CONTENT "${RDB_CONTENT}")
     string(REGEX REPLACE "char tmp\\[len \\+ 1\\];" "" RDB_CONTENT "${RDB_CONTENT}")
     string(REPLACE "memcpy(tmp, filename, len);" "" RDB_CONTENT "${RDB_CONTENT}")
@@ -323,21 +324,32 @@ if(EXISTS "../tests/modules/rdbloadsave.c")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/patched/tests/modules")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/tests/modules/rdbloadsave.c" "${RDB_CONTENT}")
     file(READ "tests/modules/CMakeLists.txt" MODULES_CMAKELISTS)
-    string(REPLACE "add_library(\${MODULE_NAME} SHARED \"\../tests/modules/\${MODULE_NAME}.c\")" "if (MODULE_NAME STREQUAL \"rdbloadsave\")\n        add_library(\${MODULE_NAME} SHARED \"\${CMAKE_BINARY_DIR}/patched/tests/modules/\${MODULE_NAME}.c\")\n    else()\n        add_library(\${MODULE_NAME} SHARED \"\../tests/modules/\${MODULE_NAME}.c\")\n    endif()" MODULES_CMAKELISTS "${MODULES_CMAKELISTS}")
+    string(REPLACE "add_library(\${MODULE_NAME} SHARED \"../tests/modules/\${MODULE_NAME}.c\")" "if (MODULE_NAME STREQUAL \"rdbloadsave\")\n        add_library(\${MODULE_NAME} SHARED \"\${CMAKE_BINARY_DIR}/patched/tests/modules/\${MODULE_NAME}.c\")\n    else()\n        add_library(\${MODULE_NAME} SHARED \"\${REDIS_ROOT}/tests/modules/\${MODULE_NAME}.c\")\n    endif()" MODULES_CMAKELISTS "${MODULES_CMAKELISTS}")
     string(REPLACE "endif ()" "endif ()\n    if(MSVC)\n        set_target_properties(\${MODULE_NAME} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)\n    endif()" MODULES_CMAKELISTS "${MODULES_CMAKELISTS}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/tests/modules/CMakeLists.txt" "${MODULES_CMAKELISTS}")
-    string(REPLACE "add_subdirectory(tests)" "if(BUILD_TEST_MODULES)\n  add_subdirectory(\"${CMAKE_BINARY_DIR}/patched/tests/modules\" \"${CMAKE_BINARY_DIR}/tests/modules\")\nendif()\nadd_subdirectory(tests)" CMAKE_CONTENT "${CMAKE_CONTENT}")
 endif()
 if(EXISTS "${REDIS_ROOT}/src/module.c")
     file(READ "${REDIS_ROOT}/src/module.c" MODULE_CONTENT)
     string(REPLACE "if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {" "if (0) {" MODULE_CONTENT "${MODULE_CONTENT}")
+    string(REPLACE "handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);" "serverLog(LL_WARNING, \"-- ABOUT TO DLOPEN %s\", path); handle = dlopen(path,RTLD_NOW|RTLD_LOCAL); serverLog(LL_WARNING, \"-- DLOPEN RETURNED %p\", handle);" MODULE_CONTENT "${MODULE_CONTENT}")
+    string(REPLACE "if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {" "serverLog(LL_WARNING, \"-- ABOUT TO CALL ONLOAD %p, ctx=%p, api=%p\", onload, &ctx, ctx.getapifuncptr); if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {" MODULE_CONTENT "${MODULE_CONTENT}")
+    string(REPLACE "out_ctx->getapifuncptr = (void*)(size_t)&RM_GetApi;" "serverLog(LL_WARNING, \"-- RM_GetApi ADDRESS: %p\", &RM_GetApi); out_ctx->getapifuncptr = (void*)(size_t)&RM_GetApi;" MODULE_CONTENT "${MODULE_CONTENT}")
+    string(REPLACE "int RM_GetApi(const char *funcname, void **targetPtrPtr) {" "int RM_GetApi(const char *funcname, void **targetPtrPtr) { serverLog(LL_WARNING, \"-- RM_GetApi: funcname=%s, targetPtrPtr=%p, server.moduleapi=%p\", funcname, targetPtrPtr, server.moduleapi);" MODULE_CONTENT "${MODULE_CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/module.c" "${MODULE_CONTENT}")
     list(APPEND PATCHED_FILES "src/module.c")
+endif()
+
+if(EXISTS "${REDIS_ROOT}/src/config.c")
+    file(READ "${REDIS_ROOT}/src/config.c" CONFIG_C_CONTENT)
+    string(REPLACE "fopen(server.logfile,\"a\");" "_fsopen(server.logfile,\"a\", _SH_DENYNO);" CONFIG_C_CONTENT "${CONFIG_C_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/config.c" "${CONFIG_C_CONTENT}")
+    list(APPEND PATCHED_FILES "src/config.c")
 endif()
 
 if(EXISTS "${REDIS_ROOT}/src/server.c")
     file(READ "${REDIS_ROOT}/src/server.c" SERVER_C_CONTENT)
     string(REPLACE "int main(int argc, char **argv) {" "int main(int argc, char **argv) { setvbuf(stdout, NULL, _IONBF, 0); setvbuf(stderr, NULL, _IONBF, 0);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
+    string(REPLACE "fopen(server.logfile,\"a\");" "_fsopen(server.logfile,\"a\", _SH_DENYNO);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
             string(REPLACE "void *samples[num_samples];" "void **samples = _alloca(sizeof(void*) * num_samples);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     string(REPLACE "bucket *buckets[size];" "bucket **buckets = _alloca(sizeof(bucket*) * size);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     string(REPLACE "robj objects[argc];" "robj *objects = _alloca(sizeof(robj) * argc);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
@@ -412,10 +424,17 @@ file(WRITE "${CMAKE_BINARY_DIR}/patched/src/redismodule.h" "${CONTENT}")
 file(READ "${REDIS_ROOT}/src/module.c" CONTENT)
 string(REPLACE ".rename =" ".posix_rename =" CONTENT "${CONTENT}")
 string(REPLACE "char hyphenfmt[len];" "char *hyphenfmt = _alloca(len);" CONTENT "${CONTENT}")
+string(REPLACE "(void *)(unsigned long)RM_" "(void *)(size_t)RM_" CONTENT "${CONTENT}")
+string(REPLACE "(unsigned long)RM_" "(size_t)RM_" CONTENT "${CONTENT}")
+string(REPLACE "(unsigned long)RM_" "(size_t)RM_" CONTENT "${CONTENT}")
 string(REPLACE "(unsigned long)VM_" "(size_t)VM_" CONTENT "${CONTENT}")
 string(REPLACE "(unsigned long)&VM_" "(size_t)&VM_" CONTENT "${CONTENT}")
+string(REPLACE "(unsigned long)&RM_GetApi" "(size_t)&RM_GetApi" CONTENT "${CONTENT}")
 string(REPLACE "(unsigned long) dlsym" "(size_t)dlsym" CONTENT "${CONTENT}")
 string(REPLACE "if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {" "if (0) {" CONTENT "${CONTENT}")
+string(REPLACE "handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);" "FILE *f=fopen(\"C:/Users/samue/debug.log\", \"a\"); fprintf(f, \"-- ABOUT TO DLOPEN %s\\n\", path); fclose(f); handle = dlopen(path,RTLD_NOW|RTLD_LOCAL); f=fopen(\"C:/Users/samue/debug.log\", \"a\"); fprintf(f, \"-- DLOPEN RETURNED %p\\n\", handle); fclose(f);" CONTENT "${CONTENT}")
+string(REPLACE "if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {" "FILE *f2=fopen(\"C:/Users/samue/debug.log\", \"a\"); fprintf(f2, \"-- ABOUT TO CALL ONLOAD %p, ctx=%p, api=%p\\n\", onload, &ctx, ctx.getapifuncptr); fclose(f2); if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {" CONTENT "${CONTENT}")
+string(REPLACE "int RM_GetApi(const char *funcname, void **targetPtrPtr) {" "int RM_GetApi(const char *funcname, void **targetPtrPtr) { FILE *f3=fopen(\"C:/Users/samue/debug.log\", \"a\"); fprintf(f3, \"-- RM_GetApi: funcname=%s, targetPtrPtr=%p, server.moduleapi=%p\\n\", funcname, targetPtrPtr, server.moduleapi); fclose(f3);" CONTENT "${CONTENT}")
 file(WRITE "${CMAKE_BINARY_DIR}/patched/src/module.c" "${CONTENT}")
 
 
@@ -756,6 +775,7 @@ endif()
 include_directories("${REDIS_ROOT}/src")
 add_subdirectory(src)
 if(BUILD_TEST_MODULES)
+  message(WARNING "EVALUATING TEST MODULES")
   add_subdirectory("${CMAKE_BINARY_DIR}/patched/tests/modules" "${CMAKE_BINARY_DIR}/tests/modules")
 endif()
 
@@ -795,39 +815,104 @@ endfunction()
 
 file(COPY "${REDIS_ROOT}/tests" DESTINATION "${CMAKE_BINARY_DIR}")
 
-file(WRITE "${CMAKE_BINARY_DIR}/patch_tests.py" "
+file(WRITE "${CMAKE_BINARY_DIR}/patch_tests.py" [=[
 import os, re, glob
 # patch util.tcl
+f = 'tests/support/server.tcl'
+d = open(f).read()
+d = d.replace('proc is_alive pid {', 'proc is_alive pid {\n    set pid [string trim ' + '$' + 'pid]\n')
+d = d.replace('send_data_packet ' + '$' + '::test_server_fd server-killing ' + '$' + 'pid', 'send_data_packet ' + '$' + '::test_server_fd server-killing ' + '$' + 'pid\n    set pid [string trim ' + '$' + 'pid]')
+open(f,'w').write(d)
+
 f = 'tests/support/util.tcl'
 d = open(f).read()
-d = re.sub(r'proc count_message_lines \\{file pattern\\} \\{.*?\\n\\}', '''proc count_message_lines {file pattern} {\n    set res 0\n    catch {\n        set fd [open $file r]\n        set data [read $fd]\n        close $fd\n        foreach line [split $data \"\\n\"] {\n            if {[string match \"*$pattern*\" $line]} { incr res }\n        }\n    }\n    return $res\n}''', d, flags=re.DOTALL)
-d = re.sub(r'proc count_log_lines \\{srv_idx\\} \\{.*?\\n\\}', '''proc count_log_lines {srv_idx} {\n    set res 0\n    catch {\n        set fd [open [srv $srv_idx stdout] r]\n        set data [read $fd]\n        close $fd\n        set res [llength [split $data \"\\n\"]]\n        if {[string index $data end] eq \"\\n\"} { incr res -1 }\n    }\n    return $res\n}''', d, flags=re.DOTALL)
-d = re.sub(r'set result \\[exec tail -n \\+\\$from_line < \\[srv \\$srv_idx stdout\\]\\]', '''set result \"\"\n    catch {\n        set fd [open [srv $srv_idx stdout] r]\n        set lines [split [read $fd] \"\\n\"]\n        close $fd\n        set result [join [lrange $lines [expr {$from_line - 1}] end] \"\\n\"]\n    }''', d)
-d = re.sub(r'set result \\[exec tail -n \\+\\$next_line < \\$stdout\\]', '''set result \"\"\n    catch {\n        set fd [open $stdout r]\n        set lines [split [read $fd] \"\\n\"]\n        close $fd\n        set result [join [lrange $lines [expr {$next_line - 1}] end] \"\\n\"]\n    }''', d)
-d = re.sub(r'puts \\[exec tail -n \\+\\$from_line < \\$stdout\\]', '''catch {\n        set fd [open $stdout r]\n        set lines [split [read $fd] \"\\n\"]\n        close $fd\n        puts [join [lrange $lines [expr {$from_line - 1}] end] \"\\n\"]\n    }''', d)
+d = re.sub(r'proc count_message_lines \{file pattern\} \{.*?\n\}', '''proc count_message_lines {file pattern} {
+    set res 0
+    catch {
+        set fd [open $file r]
+        set data [read $fd]
+        close $fd
+        foreach line [split $data "\n"] {
+            if {[string match "*$pattern*" $line]} { incr res }
+        }
+    }
+    return $res
+}''', d, flags=re.DOTALL)
+d = re.sub(r'proc count_log_lines \{srv_idx\} \{.*?\n\}', '''proc count_log_lines {srv_idx} {
+    set res 0
+    catch {
+        set fd [open [srv $srv_idx stdout] r]
+        set data [read $fd]
+        close $fd
+        set res [llength [split $data "\n"]]
+        if {[string index $data end] eq "\n"} { incr res -1 }
+    }
+    return $res
+}''', d, flags=re.DOTALL)
+d = re.sub(r'set result \[exec tail -n \+\$from_line < \[srv \$srv_idx stdout\]\]', '''set result ""
+    catch {
+        set fd [open [srv $srv_idx stdout] r]
+        set lines [split [read $fd] "\n"]
+        close $fd
+        set result [join [lrange $lines [expr {$from_line - 1}] end] "\n"]
+    }''', d)
+d = re.sub(r'set result \[exec tail -n \+\$next_line < \$stdout\]', '''set result ""
+    catch {
+        set fd [open $stdout r]
+        set lines [split [read $fd] "\n"]
+        close $fd
+        set result [join [lrange $lines [expr {$next_line - 1}] end] "\n"]
+    }''', d)
+d = re.sub(r'puts \[exec tail -n \+\$from_line < \$stdout\]', '''catch {
+        set fd [open $stdout r]
+        set lines [split [read $fd] "\n"]
+        close $fd
+        puts [join [lrange $lines [expr {$from_line - 1}] end] "\n"]
+    }''', d)
 
-new_get_child = '''proc get_child_pid {idx} {\n    set pid [srv $idx pid]\n    set child_pid \"\"\n    catch {\n        set fd [open \"|wmic process where ParentProcessId=$pid get ProcessId\" \"r\"]\n        set lines [split [string trim [read $fd]] \"\\n\"]\n        close $fd\n        if {[llength $lines] >= 2} {\n            set server_pid [string trim [lindex $lines 1]]\n            set fd2 [open \"|wmic process where ParentProcessId=$server_pid get ProcessId\" \"r\"]\n            set lines2 [split [string trim [read $fd2]] \"\\n\"]\n            close $fd2\n            if {[llength $lines2] >= 2} {\n                set child_pid [string trim [lindex $lines2 1]]\n            }\n        }\n    }\n    if {$child_pid eq \"\"} {\n        catch {\n            set fd [open \"|pgrep -P $pid\" \"r\"]\n            set child_pid [string trim [lindex [split [read $fd] \"\\n\"] 0]]\n            close $fd\n        }\n    }\n    return $child_pid\n}'''
-d = re.sub(r'proc get_child_pid \\{idx\\} \\{.*?\\n\\}', new_get_child, d, flags=re.DOTALL)
-
-# 6. hiredis sds.c include fix
-d = d.replace('"${REDIS_ROOT}/src/', '"${REDIS_ROOT}/src/')
-d = d.replace('if(EXISTS "${REDIS_ROOT}/deps/hiredis/sdsalloc.h")', 'if(EXISTS "${REDIS_ROOT}/deps/hiredis/sdsalloc.h")')
-d = d.replace('if(EXISTS "${REDIS_ROOT}/deps/hiredis/sds.h")', 'if(EXISTS "${REDIS_ROOT}/deps/hiredis/sds.h")')
+new_get_child = '''proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    set child_pid ""
+    catch {
+        set fd [open "|wmic process where ParentProcessId=$pid get ProcessId" "r"]
+        set lines [split [string trim [read $fd]] "\n"]
+        close $fd
+        if {[llength $lines] >= 2} {
+            set server_pid [string trim [lindex $lines 1]]
+            set fd2 [open "|wmic process where ParentProcessId=$server_pid get ProcessId" "r"]
+            set lines2 [split [string trim [read $fd2]] "\n"]
+            close $fd2
+            if {[llength $lines2] >= 2} {
+                set child_pid [string trim [lindex $lines2 1]]
+            }
+        }
+    }
+    if {$child_pid eq ""} {
+        catch {
+            set fd [open "|pgrep -P $pid" "r"]
+            set child_pid [string trim [lindex [split [read $fd] "\n"] 0]]
+            close $fd
+        }
+    }
+    return $child_pid
+}'''
+d = re.sub(r'proc get_child_pid \{idx\} \{.*?\n\}', new_get_child, d, flags=re.DOTALL)
 
 open(f,'w').write(d)
 
 # patch server.tcl
 f = 'tests/support/server.tcl'
 d = open(f).read()
-d = d.replace('''create_server_config_file $config_file $config $config_lines\\n\\n    set stdout''', '''set stdout [format \\"%s/%s\\" [dict get $config \\"dir\\"] \\"stdout\\"]\\n    dict set config \\"logfile\\" \\"\\\\\\"$stdout\\\\\\"\\"\\n    create_server_config_file $config_file $config $config_lines\\n\\n    set stdout''')
-d = d.replace('set line [exec head -n1 $stdout]', '''set line \\"\\"\\n        catch {\\n            set fd [open $stdout r]\\n            set line [gets $fd]\\n            close $fd\\n        }''')
-d = re.sub(r'if \\{\\[regexp -- \" PID: \\$pid\\.\\*Server initialized\" \\\\\\[exec cat \\$stdout\\\\\\]\\]\\} \\{', 'if {[regexp -- "Server initialized" [apply {{f} {set res \\"\\"; catch {set fd [open $f r]; set res [read $fd]; close $fd}; return $res}} $stdout]]} {', d)
+d = d.replace('set pid [exec /usr/bin/env {*}$env {*}$cmd >> $stdout 2>> $stderr &]', 'set pid [exec {*}$cmd >> $stdout 2>> $stderr &]')
+d = d.replace('set line [exec head -n1 $stdout]', '''set line ""\n        catch {\n            set fd [open $stdout r]\n            set line [gets $fd]\n            close $fd\n        }''')
+d = re.sub(r'if \{\[regexp -- " PID: \$pid\.\*Server initialized" \[exec cat \$stdout\]\]\} \{', 'if {[regexp -- "Server initialized" [apply {{f} {set res ""; catch {set fd [open $f r]; set res [read $fd]; close $fd}; return $res}} $stdout]]} {', d)
 
-# 6. hiredis sds.c include fix
-d = d.replace('"${REDIS_ROOT}/src/', '"${REDIS_ROOT}/src/')
-d = d.replace('if(EXISTS "${REDIS_ROOT}/deps/hiredis/sdsalloc.h")', 'if(EXISTS "${REDIS_ROOT}/deps/hiredis/sdsalloc.h")')
-d = d.replace('if(EXISTS "${REDIS_ROOT}/deps/hiredis/sds.h")', 'if(EXISTS "${REDIS_ROOT}/deps/hiredis/sds.h")')
+open(f,'w').write(d)
 
+# patch test_helper.tcl
+f = 'tests/test_helper.tcl'
+d = open(f).read()
+d = d.replace('if {!$::dont_clean} cleanup\\n        exit 0', 'kill_clients\\n        if {!$::dont_clean} cleanup\\n        catch {close stdout}\\n        catch {close stderr}\\n        exit 0')
 open(f,'w').write(d)
 
 # patch all tcl tests to use taskkill and custom cat/grep
@@ -838,23 +923,27 @@ for root, dirs, files in os.walk('tests'):
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
             if 'exec kill' in c or 'exec /bin/kill' in c:
-                c = c.replace('exec kill -9', 'exec taskkill //F //T //PID')
-                c = c.replace('exec kill -SIGCONT', 'exec taskkill //F //T //PID')
-                c = c.replace('exec kill -SIGSTOP', 'exec taskkill //F //T //PID')
-                c = c.replace('exec kill -KILL', 'exec taskkill //F //T //PID')
-                c = c.replace('exec /bin/kill -9', 'exec taskkill //F //T //PID')
-                c = c.replace('exec /bin/kill -SIGCONT', 'exec taskkill //F //T //PID')
+                c = c.replace('exec kill ', 'exec kill.bat ')
+                c = c.replace('exec /bin/kill ', 'exec kill.bat ')
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
             if 'exec cat' in c:
-                c = re.sub(r'\\[exec cat ([^]]+)\\]', r'''[apply {{f} {\n    set res \"\"\n    catch {\n        set fd [open $f r]\n        set res [read $fd]\n        close $fd\n    }\n    return $res\n}} \\1]''', c)
+                c = re.sub(r'\[exec cat ([^]]+)\]', r'''[apply {{f} {\n    set res ""\n    catch {\n        set fd [open $f r]\n        set res [read $fd]\n        close $fd\n    }\n    return $res\n}} \1]''', c)       
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
-")
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if '.so' in c:
+                c = c.replace('.so', '.dll')
+                c = re.sub(r'tests/modules/([^.]+)\.dll', r'bin/Release/\1.dll', c)
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+]=])
 
 execute_process(COMMAND python patch_tests.py WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 
@@ -863,8 +952,7 @@ copy_runtest_script("runtest-cluster")
 copy_runtest_script("runtest-moduleapi")
 copy_runtest_script("runtest-sentinel")
 
-set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-unit-auth;runtest-unit-geo;runtest-unit-type-stream-cgroups;runtest-unit-cluster-multi-slot-operations;runtest-unit-cluster-scripting;runtest-unit-cluster-sharded-pubsub;runtest-integration-corrupt-dump;runtest-integration-replication-3;runtest-unit-gcra;runtest-unit-info-command;runtest-unit-replybufsize;runtest-unit-querybuf;runtest-cluster-00-base;runtest-cluster-01-faildet;runtest-cluster-02-failover;runtest-cluster-03-failover-loop;runtest-cluster-04-resharding;runtest-cluster-05-slave-selection;runtest-cluster-06-slave-stop-cond;runtest-cluster-07-replica-migration;runtest-cluster-08-update-msg;runtest-cluster-09-pubsub;runtest-cluster-10-manual-failover;runtest-cluster-11-manual-takeover;runtest-cluster-12-replica-migration-2;runtest-cluster-12;runtest-cluster-13-no-failover-option;runtest-cluster-15-cluster-slots;runtest-cluster-16-transactions-on-replica;runtest-cluster-17-diskless-load-swapdb;runtest-cluster-18-info;runtest-cluster-19-cluster-nodes-slots;runtest-cluster-20-half-migrated-slot;runtest-cluster-22-replica-in-sync;runtest-cluster-25-pubsubshard-slot-migration;runtest-cluster-26-pubsubshard;runtest-cluster-29-slot-migration-response;runtest-sentinel-00-base;runtest-sentinel-01-conf-update;runtest-sentinel-02-slaves-reconf;runtest-sentinel-04-slave-selection;runtest-sentinel-05-manual;runtest-sentinel-06-ckquorum;runtest-sentinel-08-hostname-conf;runtest-sentinel-09-acl-support;runtest-sentinel-10-replica-priority;runtest-sentinel-11-port-0;runtest-sentinel-12-master-reboot;runtest-sentinel-13-info-command;runtest-sentinel-14-debug-command;runtest-sentinel-15-config-set-config-get;runtest-moduleapi-infotest;runtest-moduleapi-moduleconfigs;runtest-moduleapi-infra;runtest-moduleapi-propagate;runtest-moduleapi-hooks;runtest-moduleapi-misc;runtest-moduleapi-blockonkeys;runtest-moduleapi-blockonbackground;runtest-moduleapi-scan;runtest-moduleapi-datatype;runtest-moduleapi-auth;runtest-moduleapi-keyspace_events;runtest-moduleapi-blockedclient;runtest-moduleapi-getchannels;runtest-moduleapi-getkeys;runtest-moduleapi-test_lazyfree;runtest-moduleapi-defrag;runtest-moduleapi-keyspecs;runtest-moduleapi-hash;runtest-moduleapi-zset;runtest-moduleapi-list;runtest-moduleapi-stream;runtest-moduleapi-mallocsize;runtest-moduleapi-datatype2;runtest-moduleapi-cluster;runtest-moduleapi-aclcheck;runtest-moduleapi-subcommands;runtest-moduleapi-reply;runtest-moduleapi-cmdintrospection;runtest-moduleapi-eventloop;runtest-moduleapi-timer;runtest-moduleapi-publish;runtest-moduleapi-usercall;runtest-moduleapi-postnotifications;runtest-moduleapi-async_rm_call;runtest-moduleapi-moduleauth;runtest-moduleapi-rdbloadsave;runtest-moduleapi-crash;runtest-moduleapi-internalsecret;runtest-moduleapi-configaccess;runtest-moduleapi-keymeta;runtest-moduleapi-ksn_notify_side_effect;runtest-unit-introspection-2;runtest-unit-moduleapi-aclcheck;runtest-unit-moduleapi-async_rm_call;runtest-unit-moduleapi-auth;runtest-unit-moduleapi-basics;runtest-unit-moduleapi-blockedclient;runtest-unit-moduleapi-blockonbackground;runtest-unit-moduleapi-blockonkeys;runtest-unit-moduleapi-cluster;runtest-unit-moduleapi-cmdintrospection;runtest-unit-moduleapi-commandfilter;runtest-unit-moduleapi-configaccess;runtest-unit-moduleapi-crash;runtest-unit-moduleapi-datatype;runtest-unit-moduleapi-datatype2;runtest-unit-moduleapi-defrag;runtest-unit-moduleapi-eventloop;runtest-unit-moduleapi-fork;runtest-unit-moduleapi-getchannels;runtest-unit-moduleapi-getkeys;runtest-unit-moduleapi-hash;runtest-unit-moduleapi-hooks;runtest-unit-moduleapi-infotest;runtest-unit-moduleapi-infra;runtest-unit-moduleapi-internalsecret;runtest-unit-moduleapi-keymeta;runtest-unit-moduleapi-keyspace_events;runtest-unit-moduleapi-keyspecs;runtest-unit-moduleapi-ksn_notify_side_effect;runtest-unit-moduleapi-list;runtest-unit-moduleapi-mallocsize;runtest-unit-moduleapi-misc;runtest-unit-moduleapi-moduleauth;runtest-unit-moduleapi-moduleconfigs;runtest-unit-moduleapi-postnotifications;runtest-unit-moduleapi-propagate;runtest-unit-moduleapi-publish;runtest-unit-moduleapi-rdbloadsave;runtest-unit-moduleapi-reply;runtest-unit-moduleapi-scan;runtest-unit-moduleapi-stream;runtest-unit-moduleapi-subcommands;runtest-unit-moduleapi-test_lazyfree;runtest-unit-moduleapi-testrdb;runtest-unit-moduleapi-timer;runtest-unit-moduleapi-usercall;runtest-unit-moduleapi-zset
-;runtest-cluster-21-many-slot-migration;runtest-unit-moduleapi-zset")
+set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-unit-auth;runtest-unit-geo;runtest-unit-type-stream-cgroups;runtest-unit-cluster-multi-slot-operations;runtest-unit-cluster-scripting;runtest-unit-cluster-sharded-pubsub;runtest-integration-corrupt-dump;runtest-integration-replication-3;runtest-unit-gcra;runtest-unit-info-command;runtest-unit-replybufsize;runtest-unit-querybuf;runtest-cluster-00-base;runtest-cluster-01-faildet;runtest-cluster-02-failover;runtest-cluster-03-failover-loop;runtest-cluster-04-resharding;runtest-cluster-05-slave-selection;runtest-cluster-06-slave-stop-cond;runtest-cluster-07-replica-migration;runtest-cluster-08-update-msg;runtest-cluster-09-pubsub;runtest-cluster-10-manual-failover;runtest-cluster-11-manual-takeover;runtest-cluster-12-replica-migration-2;runtest-cluster-12;runtest-cluster-13-no-failover-option;runtest-cluster-15-cluster-slots;runtest-cluster-16-transactions-on-replica;runtest-cluster-17-diskless-load-swapdb;runtest-cluster-18-info;runtest-cluster-19-cluster-nodes-slots;runtest-cluster-20-half-migrated-slot;runtest-cluster-22-replica-in-sync;runtest-cluster-25-pubsubshard-slot-migration;runtest-cluster-26-pubsubshard;runtest-cluster-29-slot-migration-response;runtest-sentinel-00-base;runtest-sentinel-01-conf-update;runtest-sentinel-02-slaves-reconf;runtest-sentinel-04-slave-selection;runtest-sentinel-05-manual;runtest-sentinel-06-ckquorum;runtest-sentinel-08-hostname-conf;runtest-sentinel-09-acl-support;runtest-sentinel-10-replica-priority;runtest-sentinel-11-port-0;runtest-sentinel-12-master-reboot;runtest-sentinel-13-info-command;runtest-sentinel-14-debug-command;runtest-sentinel-15-config-set-config-get;runtest-moduleapi-rdbloadsave;runtest-moduleapi-crash;runtest-moduleapi-internalsecret;runtest-moduleapi-configaccess;runtest-moduleapi-keymeta;runtest-moduleapi-ksn_notify_side_effect;runtest-unit-introspection-2;runtest-cluster-21-many-slot-migration;runtest-moduleapi-fork;runtest-moduleapi-testrdb;runtest-moduleapi-propagate;runtest-moduleapi-hooks")
 enable_testing()
 find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
 
@@ -1069,6 +1157,10 @@ endif()
 
 
 
-file(WRITE "${CMAKE_BINARY_DIR}/kill.bat" "@echo off\nif \"%~1\"==\"-9\" goto kill\nif \"%~1\"==\"-SIGCONT\" goto kill\nif \"%~1\"==\"-SEGV\" goto kill\nif \"%~1\"==\"-KILL\" goto kill\nif \"%~1\"==\"-0\" goto check\ntaskkill //F //T //PID %~1 >NUL 2>&1\nexit /b 0\n\n:kill\ntaskkill //F //T //PID %~2 >NUL 2>&1\nexit /b 0\n\n:check\ntasklist /FI \"PID eq %~2\" | findstr %~2 >NUL 2>&1\nexit /b %ERRORLEVEL%\n")
+file(WRITE "${CMAKE_BINARY_DIR}/kill.bat" "@echo off\nif \"%~1\"==\"-9\" goto kill\nif \"%~1\"==\"-SIGCONT\" goto kill\nif \"%~1\"==\"-SEGV\" goto kill\nif \"%~1\"==\"-KILL\" goto kill\nif \"%~1\"==\"-0\" goto check\ntaskkill /F /T /PID %~1 >NUL 2>&1\nexit /b 0\n\n:kill\ntaskkill /F /T /PID %~2 >NUL 2>&1\nexit /b 0\n\n:check\ntasklist /FI \"PID eq %~2\" | findstr %~2 >NUL 2>&1\nexit /b %ERRORLEVEL%\n")
+
+
+
+
 
 

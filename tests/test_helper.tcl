@@ -435,14 +435,14 @@ proc show_clients_state {} {
 
 proc kill_clients {} {
     foreach p $::clients_pids {
-        catch {exec kill $p}
+        catch {exec taskkill /F /T /PID $p}
     }
 }
 
 proc force_kill_all_servers {} {
     foreach p $::active_servers {
         puts "Killing still running Redis server $p"
-        catch {exec kill -9 $p}
+        catch {exec taskkill /F /T /PID $p}
     }
 }
 
@@ -515,7 +515,11 @@ proc the_end {} {
         exit 1
     } else {
         puts "\n[colorstr bold-white {\o/}] [colorstr bold-green {All tests passed without errors!}]\n"
+        kill_clients
+        catch {exec taskkill /F /IM redis-server.exe /T}
         if {!$::dont_clean} cleanup
+        catch {close stdout}
+        catch {close stderr}
         exit 0
     }
 }
