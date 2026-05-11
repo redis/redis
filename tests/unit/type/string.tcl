@@ -256,6 +256,47 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
     } {0 yyy}
 
+    test {MSET spanning multiple prefetch batches (batch size 16)} {
+        # Exercise the batched prefetch loop across the 16-key boundary.
+        # Test sizes chosen to hit: last batch only (16), boundary+1 (17),
+        # two full batches (32), and partial-tail (33, 40).
+        foreach n {16 17 32 33 40} {
+            r flushdb
+            set cmd [list mset]
+            for {set i 0} {$i < $n} {incr i} {
+                lappend cmd "k:${i}{t}" "v:$i"
+            }
+            assert_equal [r {*}$cmd] "OK"
+            for {set i 0} {$i < $n} {incr i} {
+                assert_equal [r get "k:${i}{t}"] "v:$i"
+            }
+        }
+    }
+
+    test {MSET overwrites expired keys across batch boundary} {
+        # Regression test for dict-pointer staleness across batches
+        # (see src/t_string.c:prefetchKeysBatch). When lookupKeyWrite in
+        # batch 1 expires a pre-existing key, under cluster mode the slot
+        # dict may be freed (KVSTORE_FREE_EMPTY_DICTS) and recreated
+        # mid-command; msetGenericCommand must re-fetch the slot dict per
+        # batch. This test exercises the same code path in standalone mode.
+        r flushdb
+        r debug set-active-expire 0
+        for {set i 0} {$i < 8} {incr i} {
+            r set "k:${i}{t}" "old:$i" px 1
+        }
+        after 20
+        set cmd [list mset]
+        for {set i 0} {$i < 20} {incr i} {
+            lappend cmd "k:${i}{t}" "new:$i"
+        }
+        assert_equal [r {*}$cmd] "OK"
+        for {set i 0} {$i < 20} {incr i} {
+            assert_equal [r get "k:${i}{t}"] "new:$i"
+        }
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {MSETEX - all expiration flags} {
         # Test each expiration type separately (EX, PX, EXAT, PXAT)
         set future_sec [expr [clock seconds] + 10]
