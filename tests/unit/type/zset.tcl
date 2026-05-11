@@ -1761,6 +1761,38 @@ start_server {tags {"zset"}} {
             }
         } {} {needs:debug}
 
+        test "ZSCORE 17-19 significant digit mantissas (widened fast path) - $encoding" {
+            # Exercise the widened fast_float_strtod path that handles
+            # mantissas > 2^53 (via __uint128_t arithmetic). ZADD/ZSCORE
+            # must round-trip bit-exactly through the listpack/skiplist
+            # encoding (parse on ingest, parse again on retrieval). Each
+            # input string below parses to a specific IEEE double whose
+            # canonical string representation is itself, so `expr` in Tcl
+            # re-evaluates to the same numeric value.
+            r del zscorewide
+            set widecases {
+                0.49606648747577575
+                0.8731899671198792
+                0.34912978268081996
+                0.0033318113277969186
+                0.9955843393406656
+                -0.8731899671198792
+            }
+            set i 0
+            foreach s $widecases {
+                r zadd zscorewide $s m$i
+                assert_equal [expr $s] [expr [r zscore zscorewide m$i]]
+                incr i
+            }
+            r debug reload
+            assert_encoding $encoding zscorewide
+            set i 0
+            foreach s $widecases {
+                assert_equal [expr $s] [expr [r zscore zscorewide m$i]]
+                incr i
+            }
+        } {} {needs:debug}
+
         test "ZSET sorting stresser - $encoding" {
             set delta 0
             for {set test 0} {$test < 2} {incr test} {

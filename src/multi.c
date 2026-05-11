@@ -504,6 +504,7 @@ size_t multiStateMemOverhead(client *c) {
     /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
     /* Reserved memory for queued multi commands. */
-    mem += c->mstate.alloc_count * sizeof(pendingCommand);
+    mem += c->mstate.alloc_count * sizeof(pendingCommand*);
+    mem += c->mstate.count * sizeof(pendingCommand);
     return mem;
 }

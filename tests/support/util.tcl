@@ -81,7 +81,8 @@ proc sanitizer_errors_from_file {filename} {
 
         # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
         if {[string match {*runtime error*} $line] ||
-            [string match {*Sanitizer*} $line]} {
+            [string match {*Sanitizer*} $line] ||
+            [string match {*<jemalloc>:*size mismatch*} $line]} {
             return $log
         }
     }
@@ -800,7 +801,8 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL XNACK}
     set vset_commands {VADD VREM}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands]
+    set gcra_commands {GCRA}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands gcra $gcra_commands]
 
     set cmds [dict get $commands $type]
     set start_time [clock seconds]

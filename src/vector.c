@@ -33,13 +33,19 @@ void vecInit(vec *v, void **stack, size_t initcap) {
     v->size = 0;
     v->cap = initcap;
     v->stack = stack; /* stack is NULL if not used */
-    
+    v->free = NULL;
+
     /* now init data either stack, heap or NULL */
     v->data = (stack) ? stack : ((initcap > 0) ? zmalloc(initcap * sizeof(void *)) : NULL);
 }
 
-/* Free only heap storage if any */
+/* Release storage. If a free method is set, it is applied to every element
+ * before the backing storage is released. Stack storage is never freed. */
 void vecRelease(vec *v) {
+    if (v->free) {
+        for (size_t i = 0; i < v->size; i++)
+            v->free(v->data[i]);
+    }
     /* if data is not stack-allocated and is not NULL, free it */
     if (v->data && v->data != v->stack)
         zfree(v->data);
@@ -47,6 +53,7 @@ void vecRelease(vec *v) {
     v->cap = 0;
     v->data = NULL;
     v->stack = NULL;
+    v->free = NULL;
 }
 
 /* Reset the logical length to zero while preserving allocated storage. */
@@ -54,20 +61,10 @@ void vecClear(vec *v) {
     v->size = 0;
 }
 
-/* Return the number of elements in the vector. */
-size_t vecSize(const vec *v) {
-    return v->size;
-}
-
 /* Get element at index. index must be < vecSize(v). */
 void *vecGet(const vec *v, size_t index) {
     assert(index < v->size);
     return v->data[index];
-}
-
-/* Return the contiguous backing array. */
-void **vecData(vec *v) {
-    return v->data;
 }
 
 /* Ensure capacity is at least mincap. */
@@ -90,7 +87,7 @@ void vecReserve(vec *v, size_t mincap) {
 
 /* Append one element, growing storage as needed. */
 void vecPush(vec *v, void *value) {
-    if (v->size == v->cap) {
+    if (unlikely(v->size == v->cap)) {
         size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
         vecReserve(v, newcap);
     }
@@ -106,6 +103,12 @@ void vecPush(vec *v, void *value) {
 #include "testhelp.h"
 
 #define UNUSED(x) (void)(x)
+
+static int vecTestFreeCalls = 0;
+static void vecTestFree(void *ptr) {
+    UNUSED(ptr);
+    vecTestFreeCalls++;
+}
 
 int vectorTest(int argc, char **argv, int flags)
 {
@@ -167,6 +170,25 @@ int vectorTest(int argc, char **argv, int flags)
               vecSize(&v) == 2 &&
               vecGet(&v, 0) == &five && vecGet(&v, 1) == &six);
     vecRelease(&v);
+
+    /* vecSetFreeMethod: element free callback is invoked on release. */
+    void *vstack2[2];
+    vecInit(&v, vstack2, 2);
+    vecSetFreeMethod(&v, vecTestFree);
+    vecPush(&v, &one);
+    vecPush(&v, &two);
+    vecPush(&v, &three); /* triggers spill to heap */
+    vecTestFreeCalls = 0;
+    vecRelease(&v);
+    test_cond("vecRelease() invokes free method on each element",
+              vecTestFreeCalls == 3);
+
+    vecInit(&v, NULL, 4);
+    vecSetFreeMethod(&v, vecTestFree);
+    vecTestFreeCalls = 0;
+    vecRelease(&v);
+    test_cond("vecRelease() free method is a no-op on empty vector",
+              vecTestFreeCalls == 0);
 
     return 0;
 }

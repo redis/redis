@@ -13,7 +13,7 @@ jobs:
       release_type: ${{ steps.release-info.outputs.release_type }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Extract and validate release information
         id: release-info
@@ -46,7 +46,7 @@ jobs:
       size_warning: ${{ steps.size.outputs.size_warning }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ env.TAG_NAME }}
           fetch-depth: 0

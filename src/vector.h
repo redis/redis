@@ -60,24 +60,34 @@ typedef struct vec {
     size_t cap;        /* Capacity of the vector. */
     void **data;       /* Heap-allocated storage or refers to stack. */
     void **stack;      /* Optional stack buffer. */
+    void (*free)(void *ptr); /* Optional free method, applied to each
+                              * element on vecRelease. NULL = no-op. */
 } vec;
+
+/* Return the contiguous backing array. */
+static inline void **vecData(const vec *v) { return v->data; }
+
+/* Return the number of elements in the vector. */
+static inline size_t vecSize(const vec *v) { return v->size; }
 
 /* Initialize a vector */
 void vecInit(vec *v, void **stack, size_t initcap);
 
-/* Free only heap storage if any */
+/* Set a free method applied to every element on vecRelease.
+ * Symmetric to listSetFreeMethod for adlist. */
+static inline void vecSetFreeMethod(vec *v, void (*freefn)(void *ptr)) {
+    v->free = freefn;
+}
+
+/* Release storage. If a free method is set, it is applied to every element
+ * before the backing storage is released. Stack storage is never freed. */
 void vecRelease(vec *v);
 
 /* Reset the logical length to zero while preserving allocated storage. */
 void vecClear(vec *v);
 
-size_t vecSize(const vec *v);
-
 /* Requires index < vecSize(v). */
 void *vecGet(const vec *v, size_t index);
-
-/* Return the contiguous backing array. */
-void **vecData(vec *v);
 
 /* Ensure capacity is at least mincap. */
 void vecReserve(vec *v, size_t mincap);
