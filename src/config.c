@@ -2477,7 +2477,7 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
         return 0;
     }
     /* Also accept valid hostnames */
-    return isValidAnnouncedHostname(val, err);
+    return isValidHostnameChars(val, err);
 }
 
 /* Validate specified string is a valid proc-title-template */
