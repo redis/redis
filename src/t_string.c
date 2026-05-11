@@ -8,6 +8,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include "xxhash.h"
 #include <math.h> /* isnan(), isinf() */
 
@@ -683,51 +684,125 @@ void getrangeCommand(client *c) {
     }
 }
 
-void mgetCommand(client *c) {
-    int j;
+/* Batch size for intra-command key prefetching. */
+#define PREFETCH_BATCH_SIZE 16
 
-    addReplyArrayLen(c,c->argc-1);
-    for (j = 1; j < c->argc; j++) {
-        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-        if (o == NULL) {
-            addReplyNull(c);
-        } else {
-            if (o->type != OBJ_STRING) {
-                addReplyNull(c);
-            } else {
-                addReplyBulk(c,o);
-            }
+/* Pick the next prefetch batch starting at argv[start] and warm it via
+ * dictPrefetchKeys. 'stride' is 1 for keys-only args (MGET) or 2 for
+ * key/value pairs (MSET). Returns the chosen batch size in items. */
+static int prefetchKeysBatch(client *c, int slot, int start, int stride) {
+    int batch = (c->argc - start) / stride;
+
+    /* If at least two full batches remain, take one; otherwise fall
+     * through with batch = remaining keys, doing them in one go. */
+    if (batch >= PREFETCH_BATCH_SIZE*2) batch = PREFETCH_BATCH_SIZE;
+
+    dict *d = kvstoreGetDict(c->db->keys, slot);
+    if (d != NULL && dictSize(d) > 0) {
+        void *keys[PREFETCH_BATCH_SIZE*2];
+        dict *dicts[PREFETCH_BATCH_SIZE*2];
+        for (int k = 0; k < batch; k++) {
+            keys[k]  = c->argv[start + k * stride]->ptr;
+            dicts[k] = d;
         }
+        dictPrefetchKeys(dicts, keys, batch);
+    }
+    return batch;
+}
+
+void mgetCommand(client *c) {
+    int numkeys = c->argc - 1;
+
+    addReplyArrayLen(c, numkeys);
+
+    /* MGET requires all keys in the same slot in cluster mode. Reuse the
+     * slot already computed by the cross-command batching path when
+     * available, otherwise fall back to recomputing from argv[1]. */
+    int slot = 0;
+    if (server.cluster_enabled) {
+        pendingCommand *pcmd = c->current_pending_cmd;
+        slot = (pcmd && pcmd->slot != INVALID_CLUSTER_SLOT) ?
+                pcmd->slot : getKeySlot(c->argv[1]->ptr);
+    }
+
+    /* Decide whether to prefetch within this command. Skip if disabled by
+     * config (prefetch_batch_max_size == 0), or if the cross-command batch
+     * path already warmed our keys — running both paths would just contend
+     * for cache bandwidth. */
+    int already_prefetched = c->current_pending_cmd &&
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+    int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
+
+    int j = 1;
+    while (j < c->argc) {
+        /* If prefetching, take one batch; otherwise take all items. */
+        int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 1) : c->argc - j;
+
+        for (int k = 0; k < batch; k++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j + k]);
+            if (o == NULL || o->type != OBJ_STRING)
+                addReplyNull(c);
+            else
+                addReplyBulk(c, o);
+        }
+        j += batch;
     }
 }
 
 void msetGenericCommand(client *c, int nx) {
-    int j;
-
     if ((c->argc % 2) == 0) {
         addReplyErrorArity(c);
         return;
     }
 
+    int numkeys = (c->argc - 1) / 2;
+
+    /* Same gating as mgetCommand, see comment there. */
+    int slot = 0;
+    if (server.cluster_enabled) {
+        pendingCommand *pcmd = c->current_pending_cmd;
+        slot = (pcmd && pcmd->slot != INVALID_CLUSTER_SLOT) ?
+                pcmd->slot : getKeySlot(c->argv[1]->ptr);
+    }
+    int already_prefetched = c->current_pending_cmd &&
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+    int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
+
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
      * set anything if at least one key already exists. */
     if (nx) {
-        for (j = 1; j < c->argc; j += 2) {
-            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
-                addReply(c, shared.czero);
-                return;
+        int j = 1;
+        while (j < c->argc) {
+            /* If prefetching, take one batch; otherwise take all items. */
+            int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 2)
+                                    : (c->argc - j) / 2;
+            for (int k = 0; k < batch; k++) {
+                if (lookupKeyWrite(c->db, c->argv[j + k * 2]) != NULL) {
+                    addReply(c, shared.czero);
+                    return;
+                }
             }
+            j += batch * 2;
         }
     }
 
-    for (j = 1; j < c->argc; j += 2) {
-        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        /* if 'NX', no need set flags SETKEY_DOESNT_EXIST. Already verified earlier! */
-        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , 0 /*flags*/);
-        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
-        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
+    /* If nx is set, the NX loop above already prefetched. */
+    do_prefetch = do_prefetch && !nx;
+
+    int j = 1;
+    while (j < c->argc) {
+        int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 2)
+                                : (c->argc - j) / 2;
+        for (int k = 0; k < batch; k++) {
+            int i = j + k * 2;
+            c->argv[i + 1] = tryObjectEncoding(c->argv[i + 1]);
+            setKey(c, c->db, c->argv[i], &(c->argv[i + 1]), 0);
+            incrRefCount(c->argv[i + 1]);
+            notifyKeyspaceEvent(NOTIFY_STRING, "set", c->argv[i], c->db->id);
+        }
+        j += batch * 2;
     }
-    server.dirty += (c->argc-1)/2;
+    server.dirty += numkeys;
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
