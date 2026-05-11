@@ -2462,12 +2462,21 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
         return 1;
     }
 
-    if (inet_pton(AF_INET, val, buf) != 1 &&
-        inet_pton(AF_INET6, val, buf) != 1) {
-        *err = "Cluster announce IP must be a valid IPv4 or IPv6 address";
-        return 0;
+    /* Accept valid IPv4 or IPv6 */
+    if (inet_pton(AF_INET, val, buf) == 1 ||
+        inet_pton(AF_INET6, val, buf) == 1) {
+        return 1;
     }
-    return 1;
+
+    /* Also accept valid hostnames */
+    const char *hostnameErr = NULL;
+    if (isValidAnnouncedHostname(val, &hostnameErr)) {
+        return 1;
+    }
+
+    /* Use hostname-specific error if available, otherwise generic message */
+    *err = hostnameErr ? hostnameErr : "Cluster announce IP must be a valid IPv4, IPv6 address or hostname";
+    return 0;
 }
 
 /* Validate specified string is a valid proc-title-template */
