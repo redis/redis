@@ -30,7 +30,6 @@
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 char *getClientSockname(client *c);
-static inline int clientTypeIsSlave(client *c);
 static inline int _clientHasPendingRepliesSlave(client *c);
 static inline int _clientHasPendingRepliesNonSlave(client *c);
 static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
@@ -1825,25 +1824,6 @@ void disconnectSlaves(void) {
     }
 }
 
-/* Check if there is any other slave waiting dumping RDB finished expect me.
- * This function is useful to judge current dumping RDB can be used for full
- * synchronization or not. */
-int anyOtherSlaveWaitRdb(client *except_me) {
-    listIter li;
-    listNode *ln;
-
-    listRewind(server.slaves, &li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-        if (slave != except_me &&
-            slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
@@ -2029,13 +2009,7 @@ void clearClientConnectionState(client *c) {
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
     discardTransaction(c);
-
-    if (c->pubsub_data) {
-        pubsubUnsubscribeAllChannels(c,0);
-        pubsubUnsubscribeShardAllChannels(c, 0);
-        pubsubUnsubscribeAllPatterns(c,0);
-        unmarkClientAsPubSub(c);
-    }
+    freeClientPubSubData(c);
 
     if (c->name) {
         decrRefCount(c->name);
@@ -2217,19 +2191,12 @@ void freeClient(client *c) {
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
-    if (c->pubsub_data) {
-        pubsubUnsubscribeAllChannels(c,0);
-        pubsubUnsubscribeShardAllChannels(c, 0);
-        pubsubUnsubscribeAllPatterns(c,0);
-        unmarkClientAsPubSub(c);
-    }
     freeClientPubSubData(c);
 
     /* Free data structures. */
     releaseAllBufReferences(c); /* Release all references to string objects in encoded buffers before freeing */
     listRelease(c->reply);
     zfree(c->buf);
-    freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
     freeClientIODeferredObjects(c, 1);
@@ -2257,53 +2224,10 @@ void freeClient(client *c) {
      */
     unlinkClient(c);
 
+    freeClientReplicationData(c);
+
     freeClientMultiState(c);
     serverAssert(c->pending_cmds.len == 0);
-
-    /* Master/slave cleanup Case 1:
-     * we lost the connection with a slave. */
-    if (c->flags & CLIENT_SLAVE) {
-        /* If there is no any other slave waiting dumping RDB finished, the
-         * current child process need not continue to dump RDB, then we kill it.
-         * So child process won't use more memory, and we also can fork a new
-         * child process asap to dump rdb for next full synchronization or bgsave.
-         * But we also need to check if users enable 'save' RDB, if enable, we
-         * should not remove directly since that means RDB is important for users
-         * to keep data safe and we may delay configured 'save' for full sync. */
-        if (server.saveparamslen == 0 &&
-            c->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
-            server.child_type == CHILD_TYPE_RDB &&
-            server.rdb_child_type == RDB_CHILD_TYPE_DISK &&
-            anyOtherSlaveWaitRdb(c) == 0)
-        {
-            killRDBChild();
-        }
-        if (c->repl_data->replstate == SLAVE_STATE_SEND_BULK) {
-            if (c->repl_data->repldbfd != -1) close(c->repl_data->repldbfd);
-            c->repl_data->repldbfd = -1;
-            if (c->repl_data->replpreamble) sdsfree(c->repl_data->replpreamble);
-            c->repl_data->replpreamble = NULL;
-        }
-        list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
-        ln = listSearchKey(l,c);
-        serverAssert(ln != NULL);
-        listDelNode(l,ln);
-        /* We need to remember the time when we started to have zero
-         * attached slaves, as after some time we'll free the replication
-         * backlog. */
-        if (clientTypeIsSlave(c) && listLength(server.slaves) == 0)
-            server.repl_no_slaves_since = server.unixtime;
-        refreshGoodSlavesCount();
-        /* Fire the replica change modules event. */
-        if (c->repl_data->replstate == SLAVE_STATE_ONLINE)
-            moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
-                                  REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
-                                  NULL);
-    }
-
-    /* Master/slave cleanup Case 2:
-     * we lost the connection with the master. */
-    if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
     /* Remove client from memory usage buckets */
     if (c->mem_usage_bucket) {
@@ -2319,7 +2243,6 @@ void freeClient(client *c) {
     serverAssert(c->all_argv_len_sum == 0);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
-    freeClientReplicationData(c);
     sdsfree(c->node_id);
     zfree(c);
 }
@@ -3430,13 +3353,6 @@ void commandProcessed(client *c) {
 
     prepareForNextCommand(c, 1);
 
-    long long prev_offset = c->repl_data->reploff;
-    if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-        /* Update the applied replication offset of our master. */
-        serverAssert(c->repl_data->reploff_next > 0);
-        c->repl_data->reploff = c->repl_data->reploff_next;
-    }
-
     /* If the client is a master we need to compute the difference
      * between the applied offset before and after processing the buffer,
      * to understand how much of the replication stream was actually
@@ -3444,6 +3360,12 @@ void commandProcessed(client *c) {
      * part of the replication stream, will be propagated to the
      * sub-replicas and to the replication backlog. */
     if (c->flags & CLIENT_MASTER) {
+        long long prev_offset = c->repl_data->reploff;
+        if (!(c->flags & CLIENT_MULTI)) {
+            serverAssert(c->repl_data->reploff_next > 0);
+            c->repl_data->reploff = c->repl_data->reploff_next;
+        }
+
         long long applied = c->repl_data->reploff - prev_offset;
         if (applied) {
             replicationFeedStreamFromMasterStream(c->querybuf+c->repl_data->repl_applied,applied);
@@ -3932,13 +3854,13 @@ void readQueryFromClient(connection *conn) {
     }
     c->net_input_bytes += nread;
 
+    size_t qb_memory = sdslen(c->querybuf) + (c->mstate ? c->mstate->argv_len_sums : 0);
     if (!(c->flags & CLIENT_MASTER) &&
         /* The commands cached in the MULTI/EXEC queue have not been executed yet,
          * so they are also considered a part of the query buffer in a broader sense.
          *
          * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
-        ((c->mstate ? c->mstate->argv_len_sums : 0) + sdslen(c->querybuf) > server.client_max_querybuf_len ||
-         ((c->mstate ? c->mstate->argv_len_sums : 0) + sdslen(c->querybuf) > 1024*1024 && authRequired(c))))
+        (qb_memory > server.client_max_querybuf_len || (qb_memory > 1024*1024 && authRequired(c))))
     {
         c->read_error = CLIENT_READ_REACHED_MAX_QUERYBUF;
         freeClientAsync(c);
@@ -4614,6 +4536,7 @@ NULL
         uint64_t options = 0;
         robj **prefix = NULL;
         size_t numprefix = 0;
+        initClientPubSubData(c);
 
         /* Parse the options. */
         for (int j = 3; j < c->argc; j++) {
@@ -5233,17 +5156,6 @@ int getClientType(client *c) {
         return CLIENT_TYPE_SLAVE;
     if (c->flags & CLIENT_PUBSUB) return CLIENT_TYPE_PUBSUB;
     return CLIENT_TYPE_NORMAL;
-}
-
-static inline int clientTypeIsSlave(client *c) {
-    /* Even though MONITOR clients and ASM destination RDB/main channels are
-     * marked as replicas, we want to expose them as normal clients. */
-    if (unlikely((c->flags & CLIENT_SLAVE) &&
-        !(c->flags & (CLIENT_MONITOR | CLIENT_ASM_MIGRATING))))
-    {
-        return 1;
-    }
-    return 0;
 }
 
 int getClientTypeByName(char *name) {

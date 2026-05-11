@@ -19,6 +19,21 @@ void initClientMultiState(client *c) {
     c->mstate->executing_cmd = -1;
 }
 
+/* Free queued commands but keep the mstate struct allocated */
+void resetClientMultiState(client *c) {
+    if (!c->mstate || !c->mstate->commands) return;
+    for (int i = 0; i < c->mstate->count; i++) {
+        freePendingCommand(c, c->mstate->commands[i]);
+    }
+    zfree(c->mstate->commands);
+    c->mstate->commands = NULL;
+    c->mstate->count = 0;
+    c->mstate->cmd_flags = 0;
+    c->mstate->cmd_inv_flags = 0;
+    c->mstate->argv_len_sums = 0;
+    c->mstate->alloc_count = 0;
+}
+
 /* Release all the resources associated with MULTI/EXEC state */
 void freeClientMultiState(client *c) {
     if (!c->mstate) return;
@@ -75,8 +90,7 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
 }
 
 void discardTransaction(client *c) {
-    freeClientMultiState(c);
-    initClientMultiState(c);
+    resetClientMultiState(c);
     c->flags &= ~(CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
     unwatchAllKeys(c);
 }

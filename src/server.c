@@ -4504,20 +4504,18 @@ int processCommand(client *c) {
 
     const uint64_t cmd_flags = getCommandFlags(c);
 
-    int is_read_command = (cmd_flags & CMD_READONLY) ||
-                           (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_flags & CMD_READONLY));
-    int is_write_command = (cmd_flags & CMD_WRITE) ||
-                           (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_flags & CMD_WRITE));
-    int is_denyoom_command = (cmd_flags & CMD_DENYOOM) ||
-                             (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_flags & CMD_DENYOOM));
-    int is_denystale_command = !(cmd_flags & CMD_STALE) ||
-                               (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_inv_flags & CMD_STALE));
-    int is_denyloading_command = !(cmd_flags & CMD_LOADING) ||
-                                 (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_inv_flags & CMD_LOADING));
-    int is_may_replicate_command = (cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
-                                   (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    int is_deny_async_loading_command = (cmd_flags & CMD_NO_ASYNC_LOADING) ||
-                                        (c->cmd->proc == execCommand && (c->flags & CLIENT_MULTI) && (c->mstate->cmd_flags & CMD_NO_ASYNC_LOADING));
+    int is_exec = (c->mstate && c->cmd->proc == execCommand);
+    int ms_flags = is_exec ? c->mstate->cmd_flags : 0;
+    int ms_inv_flags = is_exec ? c->mstate->cmd_inv_flags : 0;
+
+    int is_read_command = (cmd_flags | ms_flags) & CMD_READONLY;
+    int is_write_command = (cmd_flags | ms_flags) & CMD_WRITE;
+    int is_denyoom_command = (cmd_flags | ms_flags) & CMD_DENYOOM;
+    int is_denystale_command = (~cmd_flags | ms_inv_flags) & CMD_STALE;
+    int is_denyloading_command = (~cmd_flags | ms_inv_flags) & CMD_LOADING;
+    int is_may_replicate_command = (cmd_flags | ms_flags) & (CMD_WRITE | CMD_MAY_REPLICATE);
+    int is_deny_async_loading_command = (cmd_flags | ms_flags) & CMD_NO_ASYNC_LOADING;
+
     int obey_client = mustObeyClient(c);
 
     if (authRequired(c)) {
@@ -7119,6 +7117,7 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
+    initClientReplicationData(c);
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);
     addReply(c,shared.ok);

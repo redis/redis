@@ -1688,15 +1688,6 @@ typedef struct client {
     size_t stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
 } client;
 
-void initClientReplicationData(client *c);
-void freeClientReplicationData(client *c);
-void initClientBlockingState(client *c);
-void freeClientBlockingState(client *c);
-void initClientPubSubData(client *c);
-void freeClientPubSubData(client *c);
-void initClientModuleData(client *c);
-void freeClientModuleData(client *c);
-void initClientMultiState(client *c);
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     uint8_t id;                                 /* The unique ID assigned, if IO_THREADS_MAX_NUM is more
@@ -3164,6 +3155,8 @@ extern EbucketsType hashFieldExpireBucketsType; /* local per hash */
 void populateCommandLegacyRangeSpec(struct redisCommand *c);
 
 /* Modules */
+void initClientModuleData(client *c);
+void freeClientModuleData(client *c);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
@@ -3343,6 +3336,16 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);
+static inline int clientTypeIsSlave(client *c) {
+    /* Even though MONITOR clients and ASM destination RDB/main channels are
+     * marked as replicas, we want to expose them as normal clients. */
+    if (unlikely((c->flags & CLIENT_SLAVE) &&
+        !(c->flags & (CLIENT_MONITOR | CLIENT_ASM_MIGRATING))))
+    {
+        return 1;
+    }
+    return 0;
+}
 int getClientTypeByName(char *name);
 char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
@@ -3468,6 +3471,7 @@ void listTypeTryConversionAppend(robj *o, robj **argv, int start, int end, befor
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
+void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
 void queueMultiCommand(client *c, uint64_t cmd_flags);
 size_t multiStateMemOverhead(client *c);
@@ -3489,6 +3493,8 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
+void initClientReplicationData(client *c);
+void freeClientReplicationData(client *c);
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen);
 void resetReplicationBuffer(void);
@@ -3949,6 +3955,8 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
 robj *arrayTypeDup(robj *o);
 
 /* Pub / Sub */
+void initClientPubSubData(client *c);
+void freeClientPubSubData(client *c);
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeShardAllChannels(client *c, int notify);
 void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot);
@@ -4246,6 +4254,8 @@ typedef struct luaScript {
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
 
 /* Blocked clients API */
+void initClientBlockingState(client *c);
+void freeClientBlockingState(client *c);
 void processUnblockedClients(void);
 void blockClient(client *c, int btype);
 void unblockClient(client *c, int queue_for_reprocessing);

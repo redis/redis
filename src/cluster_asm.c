@@ -2021,6 +2021,7 @@ void clusterSyncSlotsCommand(client *c) {
         /* We mark the main channel client as a replica, so this client is limited
          * by the client output buffer settings for replicas. The replstate has
          * no real significance, just to prevent it from going online. */
+        initClientReplicationData(c);
         c->flags |= (CLIENT_SLAVE | CLIENT_ASM_MIGRATING);
         c->repl_data->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
         if (server.repl_disable_tcp_nodelay)
@@ -2080,6 +2081,7 @@ void clusterSyncSlotsCommand(client *c) {
         }
 
         /* Mark the client as a slave to generate slots snapshot */
+        initClientReplicationData(c);
         c->flags |= (CLIENT_SLAVE | CLIENT_REPL_RDB_CHANNEL | CLIENT_REPL_RDBONLY | CLIENT_ASM_MIGRATING);
         c->repl_data->slave_capa |= SLAVE_CAPA_EOF;
         c->repl_data->slave_req |= (SLAVE_REQ_SLOTS_SNAPSHOT | SLAVE_REQ_RDB_CHANNEL);

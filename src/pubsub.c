@@ -90,25 +90,6 @@ pubsubtype pubSubShardType = {
  * message. However if the caller sets 'msg' as NULL, it will be able
  * to send a special message (for instance an Array type) by using the
  * addReply*() API family. */
-void initClientPubSubData(client *c) {
-    if (c->pubsub_data) return;
-    c->pubsub_data = zcalloc(sizeof(ClientPubSubData));
-    c->pubsub_data->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
-    c->pubsub_data->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
-    c->pubsub_data->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
-}
-
-void freeClientPubSubData(client *c) {
-    if (!c->pubsub_data) return;
-    dictRelease(c->pubsub_data->pubsub_channels);
-    dictRelease(c->pubsub_data->pubsub_patterns);
-    dictRelease(c->pubsub_data->pubsubshard_channels);
-    if (c->pubsub_data->client_tracking_prefixes)
-        raxFree(c->pubsub_data->client_tracking_prefixes);
-    zfree(c->pubsub_data);
-    c->pubsub_data = NULL;
-}
-
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk) {
     uint64_t old_flags = c->flags;
     c->flags |= CLIENT_PUSHING;
@@ -223,22 +204,20 @@ int serverPubsubShardSubscriptionCount(void) {
 
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
-    if (!c->pubsub_data) return 0;
     return dictSize(c->pubsub_data->pubsub_channels) + dictSize(c->pubsub_data->pubsub_patterns);
 }
 
 /* Return the number of shard level channels a client is subscribed to. */
 int clientShardSubscriptionsCount(client *c) {
-    if (!c->pubsub_data) return 0;
     return dictSize(c->pubsub_data->pubsubshard_channels);
 }
 
 dict* getClientPubSubChannels(client *c) {
-    return c->pubsub_data ? c->pubsub_data->pubsub_channels : NULL;
+    return c->pubsub_data->pubsub_channels;
 }
 
 dict* getClientPubSubShardChannels(client *c) {
-    return c->pubsub_data ? c->pubsub_data->pubsubshard_channels : NULL;
+    return c->pubsub_data->pubsubshard_channels;
 }
 
 /* Return the number of pubsub + pubsub shard level channels
@@ -259,6 +238,29 @@ void unmarkClientAsPubSub(client *c) {
         c->flags &= ~CLIENT_PUBSUB;
         server.pubsub_clients--;
     }
+}
+
+void initClientPubSubData(client *c) {
+    if (c->pubsub_data) return;
+    c->pubsub_data = zcalloc(sizeof(ClientPubSubData));
+    c->pubsub_data->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_data->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_data->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+}
+
+void freeClientPubSubData(client *c) {
+    if (!c->pubsub_data) return;
+    pubsubUnsubscribeAllChannels(c, 0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
+    pubsubUnsubscribeAllPatterns(c, 0);
+    unmarkClientAsPubSub(c);
+    dictRelease(c->pubsub_data->pubsub_channels);
+    dictRelease(c->pubsub_data->pubsub_patterns);
+    dictRelease(c->pubsub_data->pubsubshard_channels);
+    if (c->pubsub_data->client_tracking_prefixes)
+        disableTracking(c);
+    zfree(c->pubsub_data);
+    c->pubsub_data = NULL;
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
@@ -467,7 +469,7 @@ int pubsubUnsubscribeShardAllChannels(client *c, int notify) {
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     int count = 0;
 
-    if (c->pubsub_data && dictSize(c->pubsub_data->pubsub_patterns) > 0) {
+    if (dictSize(c->pubsub_data->pubsub_patterns) > 0) {
         dictIterator di;
         dictEntry *de;
 
@@ -581,6 +583,7 @@ void subscribeCommand(client *c) {
 
 /* UNSUBSCRIBE [channel ...] */
 void unsubscribeCommand(client *c) {
+    if (!c->pubsub_data) initClientPubSubData(c);
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
     } else {
@@ -617,6 +620,7 @@ void psubscribeCommand(client *c) {
 
 /* PUNSUBSCRIBE [pattern [pattern ...]] */
 void punsubscribeCommand(client *c) {
+    if (!c->pubsub_data) initClientPubSubData(c);
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
     } else {
@@ -766,6 +770,7 @@ void ssubscribeCommand(client *c) {
 
 /* SUNSUBSCRIBE [shardchannel [shardchannel ...]] */
 void sunsubscribeCommand(client *c) {
+    if (!c->pubsub_data) initClientPubSubData(c);
     if (c->argc == 1) {
         pubsubUnsubscribeShardAllChannels(c, 1);
     } else {

@@ -63,15 +63,72 @@ void initClientReplicationData(client *c) {
     if (c->repl_data) return;
     c->repl_data = zcalloc(sizeof(ClientReplicationData));
     c->repl_data->repldbfd = -1;
-    c->repl_data->slave_capa = SLAVE_CAPA_NONE;
-    c->repl_data->slave_req = SLAVE_REQ_NONE;
+}
+
+/* Check if there is any other slave waiting dumping RDB finished expect me.
+ * This function is useful to judge current dumping RDB can be used for full
+ * synchronization or not. */
+int anyOtherSlaveWaitRdb(client *except_me) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves, &li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave != except_me &&
+            slave->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void freeClientReplicationData(client *c) {
     if (!c->repl_data) return;
-    if (c->repl_data->repldbfd != -1) close(c->repl_data->repldbfd);
-    if (c->repl_data->replpreamble) sdsfree(c->repl_data->replpreamble);
-    if (c->repl_data->slave_addr) sdsfree(c->repl_data->slave_addr);
+    freeReplicaReferencedReplBuffer(c);
+    /* Master/slave cleanup Case 1:
+     * we lost the connection with a slave. */
+    if (c->flags & CLIENT_SLAVE) {
+        /* If there is no any other slave waiting dumping RDB finished, the
+         * current child process need not continue to dump RDB, then we kill it.
+         * So child process won't use more memory, and we also can fork a new
+         * child process asap to dump rdb for next full synchronization or bgsave.
+         * But we also need to check if users enable 'save' RDB, if enable, we
+         * should not remove directly since that means RDB is important for users
+         * to keep data safe and we may delay configured 'save' for full sync. */
+        if (server.saveparamslen == 0 &&
+            c->repl_data->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+            server.child_type == CHILD_TYPE_RDB &&
+            server.rdb_child_type == RDB_CHILD_TYPE_DISK &&
+            anyOtherSlaveWaitRdb(c) == 0)
+        {
+            killRDBChild();
+        }
+        if (c->repl_data->replstate == SLAVE_STATE_SEND_BULK) {
+            if (c->repl_data->repldbfd != -1) close(c->repl_data->repldbfd);
+            if (c->repl_data->replpreamble) sdsfree(c->repl_data->replpreamble);
+        }
+        list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
+        listNode *ln = listSearchKey(l,c);
+        serverAssert(ln != NULL);
+        listDelNode(l,ln);
+        /* We need to remember the time when we started to have zero
+         * attached slaves, as after some time we'll free the replication
+         * backlog. */
+        if (clientTypeIsSlave(c) && listLength(server.slaves) == 0)
+            server.repl_no_slaves_since = server.unixtime;
+        refreshGoodSlavesCount();
+        /* Fire the replica change modules event. */
+        if (c->repl_data->replstate == SLAVE_STATE_ONLINE)
+            moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
+                                  REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
+                                  NULL);
+    }
+    /* Master/slave cleanup Case 2:
+     * we lost the connection with the master. */
+    if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
+    sdsfree(c->repl_data->slave_addr);
     zfree(c->repl_data);
     c->repl_data = NULL;
 }
@@ -1057,7 +1114,6 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 1) Set client state to make it a slave.
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
-    initClientReplicationData(c);
     c->flags |= CLIENT_SLAVE;
     c->repl_data->replstate = SLAVE_STATE_ONLINE;
     c->repl_data->repl_ack_time = server.unixtime;
@@ -1258,6 +1314,8 @@ void syncCommand(client *c) {
         return;
     }
 
+    initClientReplicationData(c);
+
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
      * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
      * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
@@ -1304,7 +1362,6 @@ void syncCommand(client *c) {
                  * replica's main channel. Let replica know full sync is needed.
                  * Replica will open another connection (rdbchannel). Once rdb
                  * delivery starts, we'll stream repl data to the main channel.*/
-                initClientReplicationData(c);
                 c->flags |= CLIENT_SLAVE;
                 c->repl_data->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
                 c->repl_data->repl_ack_time = server.unixtime;
@@ -1337,11 +1394,9 @@ void syncCommand(client *c) {
 
     /* Setup the slave as one waiting for BGSAVE to start. The following code
      * paths will change the state if we handle the slave differently. */
-    initClientReplicationData(c);
     c->repl_data->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
     if (server.repl_disable_tcp_nodelay)
         connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
-    c->repl_data->repldbfd = -1;
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
@@ -1474,8 +1529,6 @@ void replconfCommand(client *c) {
         return;
     }
 
-    /* Ensure repl_data is allocated; REPLCONF is sent by a connecting
-     * replica before SYNC, so repl_data may not exist yet. */
     initClientReplicationData(c);
 
     /* Process every option-value pair. */
@@ -2206,13 +2259,13 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
      * to pass the execution to a background thread and unblock after the
      * execution is done. This is the reason why we allow blocking the replication
      * connection. */
-    initClientReplicationData(server.master);
     server.master->flags |= CLIENT_MASTER;
 
     /* Allocate a private query buffer for the master client instead of using the reusable query buffer.
      * This is done because the master's query buffer data needs to be preserved for my sub-replicas to use. */
     server.master->querybuf = sdsempty();
     server.master->authenticated = 1;
+    initClientReplicationData(server.master);
     server.master->repl_data->reploff = server.master_initial_offset;
     server.master->repl_data->read_reploff = server.master->repl_data->reploff;
     server.master->user = NULL; /* This client can do everything. */

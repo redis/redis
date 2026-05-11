@@ -47,7 +47,7 @@ typedef struct bcastState {
 void disableTracking(client *c) {
     /* If this client is in broadcasting mode, we need to unsubscribe it
      * from all the prefixes it is registered to. */
-    if (c->flags & CLIENT_TRACKING_BCAST && c->pubsub_data) {
+    if (c->flags & CLIENT_TRACKING_BCAST) {
         raxIterator ri;
         raxStart(&ri,c->pubsub_data->client_tracking_prefixes);
         raxSeek(&ri,"^",NULL,0);
@@ -94,7 +94,7 @@ static int stringCheckPrefix(unsigned char *s1, size_t s1_len, unsigned char *s2
 int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
     for (size_t i = 0; i < numprefix; i++) {
         /* Check input list has no overlap with existing prefixes. */
-        if (c->pubsub_data && c->pubsub_data->client_tracking_prefixes) {
+        if (c->pubsub_data->client_tracking_prefixes) {
             raxIterator ri;
             raxStart(&ri,c->pubsub_data->client_tracking_prefixes);
             raxSeek(&ri,"^",NULL,0);
@@ -263,7 +263,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     c->flags |= CLIENT_PUSHING;
 
     int using_redirection = 0;
-    if (c->pubsub_data && c->pubsub_data->client_tracking_redirection) {
+    if (c->pubsub_data->client_tracking_redirection) {
         client *redir = lookupClientByID(c->pubsub_data->client_tracking_redirection);
         if (!redir) {
             c->flags |= CLIENT_TRACKING_BROKEN_REDIR;
