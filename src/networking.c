@@ -260,6 +260,7 @@ void putClientInPendingWriteQueue(client *c) {
      * writes at this stage. */
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
         (!c->repl_data ||
+         c->repl_data->replstate == REPL_STATE_NONE ||
          c->repl_data->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM ||
          (c->repl_data->replstate == SLAVE_STATE_ONLINE && !c->repl_data->repl_start_cmd_stream_on_ack)))
     {

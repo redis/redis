@@ -32,6 +32,7 @@ void resetClientMultiState(client *c) {
     c->mstate->cmd_inv_flags = 0;
     c->mstate->argv_len_sums = 0;
     c->mstate->alloc_count = 0;
+    c->mstate->executing_cmd = -1;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
