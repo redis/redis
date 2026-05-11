@@ -2468,6 +2468,13 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
         return 1;
     }
 
+    /* Also accept valid hostnames, but limited to NET_IP_STR_LEN since
+       cluster_announce_ip is stored in a NET_IP_STR_LEN buffer */
+    if (strlen(val) >= NET_IP_STR_LEN) {
+        *err = "Hostnames for cluster-announce-ip must be less than "
+               STRINGIFY(NET_IP_STR_LEN) " characters";
+        return 0;
+    }
     /* Also accept valid hostnames */
     const char *hostnameErr = NULL;
     if (isValidAnnouncedHostname(val, &hostnameErr)) {
