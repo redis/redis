@@ -1011,20 +1011,31 @@ void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* reghis
  * accumulators, each byte goes to a different copy, allowing the CPU's
  * out-of-order engine to overlap the increments.
  *
- * The zero-word fast-path from the original (if *word == 0: reghisto[0] += 8)
- * is intentionally removed: on populated HLLs zero words are rare, so the
- * branch mispredicts on almost every iteration and costs more than it saves.
- * The 4-way path increments h0[0]..h3[0] correctly for zero bytes. */
+ * Retains a zero-word fast-path for empty/sparse HLL regions, but in a
+ * 4-way-aware form — each accumulator is bumped independently so the
+ * fast-path itself does not serialize on a single counter. */
 void hllRawRegHisto(uint8_t *registers, int* reghisto) {
     /* 4 independent accumulators — each byte position in the 8-byte word
      * maps to a different accumulator to maximize ILP. Accumulator
      * assignment is by byte index mod 4: bytes 0,4 → h0, 1,5 → h1,
      * 2,6 → h2, 3,7 → h3. */
     int h0[64] = {0}, h1[64] = {0}, h2[64] = {0}, h3[64] = {0};
-    uint8_t *r = registers;
+    uint64_t *word = (uint64_t*) registers;
+    uint8_t *r;
     int j;
 
-    for (j = 0; j < HLL_REGISTERS; j += 8) {
+    for (j = 0; j < HLL_REGISTERS; j += 8, word++) {
+        /* Zero-word fast-path: bump h{0..3}[0] by 2 each — equivalent to
+         * 8 zero-byte increments but distributed across 4 independent
+         * accumulators, preserving the ILP property of the main path. */
+        if (*word == 0) {
+            h0[0] += 2;
+            h1[0] += 2;
+            h2[0] += 2;
+            h3[0] += 2;
+            continue;
+        }
+        r = (uint8_t*) word;
         h0[r[0]]++;
         h1[r[1]]++;
         h2[r[2]]++;
@@ -1033,7 +1044,6 @@ void hllRawRegHisto(uint8_t *registers, int* reghisto) {
         h1[r[5]]++;
         h2[r[6]]++;
         h3[r[7]]++;
-        r += 8;
     }
 
     /* Merge accumulators. The histogram has 64 entries (register values
