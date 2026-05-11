@@ -563,9 +563,9 @@ void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
             /* Interleave across 4 accumulators by index mod 4:
              * r0,r4,r8,r12 → h0;  r1,r5,r9,r13 → h1;
              * r2,r6,r10,r14 → h2; r3,r7,r11,r15 → h3.
-             * Consecutive registers (which tend to have similar values)
-             * go to different accumulators, breaking store→load
-             * dependency chains when adjacent registers collide. */
+             * HLL register values cluster in a few consecutive bins, so adjacent
+             * registers frequently hit the same histogram bin. 4 accumulators
+             * break the resulting store→load dependency chain. */
             h0[r0]++;
             h1[r1]++;
             h2[r2]++;
@@ -1011,10 +1011,10 @@ void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* reghis
  * accumulators, each byte goes to a different copy, allowing the CPU's
  * out-of-order engine to overlap the increments.
  *
- * The zero-check branch from the original implementation is removed —
- * the byte-by-byte path handles zeros correctly (reghisto[0]++ × 8),
- * and the branch was unpredictable on populated HLLs causing pipeline
- * flushes. */
+ * The zero-word fast-path from the original (if *word == 0: reghisto[0] += 8)
+ * is intentionally removed: on populated HLLs zero words are rare, so the
+ * branch mispredicts on almost every iteration and costs more than it saves.
+ * The 4-way path increments h0[0]..h3[0] correctly for zero bytes. */
 void hllRawRegHisto(uint8_t *registers, int* reghisto) {
     /* 4 independent accumulators — each byte position in the 8-byte word
      * maps to a different accumulator to maximize ILP. Accumulator
