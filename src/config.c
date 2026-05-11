@@ -2476,14 +2476,9 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
         return 0;
     }
     /* Also accept valid hostnames */
-    const char *hostnameErr = NULL;
-    if (isValidAnnouncedHostname(val, &hostnameErr)) {
-        return 1;
-    }
-
-    /* Use hostname-specific error if available, otherwise generic message */
-    *err = hostnameErr ? hostnameErr : "Cluster announce IP must be a valid IPv4, IPv6 address or hostname";
-    return 0;
+    if (!isValidAnnouncedHostname(val, err))
+        return 0;
+    return 1;
 }
 
 /* Validate specified string is a valid proc-title-template */
