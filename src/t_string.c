@@ -939,7 +939,7 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_ENX     (1<<7)  /* Set expiration only when the key has no expiry */
 #define OBJ_INCREX_PERSIST (1<<8)  /* Set if we need to remove the ttl */
 #define OBJ_INCREX_EX      (1<<9)  /* Set if time in seconds is given */
-#define OBJ_INCREX_PX      (1<<10)  /* Set if time in ms is given */
+#define OBJ_INCREX_PX      (1<<10) /* Set if time in ms is given */
 #define OBJ_INCREX_EXAT    (1<<11) /* Set if timestamp in second is given */
 #define OBJ_INCREX_PXAT    (1<<12) /* Set if timestamp in ms is given */
 
