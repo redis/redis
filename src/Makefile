@@ -25,12 +25,14 @@ CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
 # some automatic defaults are added to it. To specify optimization flags
 # explicitly without any defaults added, pass the OPT variable instead.
 OPTIMIZATION?=-O3
+ENABLE_LTO?=
 ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
-		OPTIMIZATION+=-flto
+		ENABLE_LTO=-flto
 	else
-		OPTIMIZATION+=-flto=auto
+		ENABLE_LTO=-flto=auto
 	endif
+	OPTIMIZATION+=$(ENABLE_LTO)
 endif
 ifneq ($(OPTIMIZATION),-O0)
 	OPTIMIZATION+=-fno-omit-frame-pointer
@@ -423,7 +425,7 @@ persist-settings: distclean
 	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
 	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS) ENABLE_LTO="$(ENABLE_LTO)")
 
 .PHONY: persist-settings
 
