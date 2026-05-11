@@ -228,9 +228,10 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
         if (rioRead(rdb,&len,8) == 0) return -1;
         *lenptr = ntohu64(len);
     } else {
+        rioAbort(rdb);
         rdbReportCorruptRDB(
             "Unknown length encoding %d in rdbLoadLen()",type);
-        return -1; /* Never reached. */
+        return -1;
     }
     return 0;
 }
@@ -3317,10 +3318,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* last_id must equal the last physical entry: XDEL never
-             * lowers it and the tail listpack is never trimmed. */
-            if (streamCompareID(&rax_last_entry, &s->last_id) != 0) {
-                rdbReportCorruptRDB("Stream last_id inconsistent with content");
+            /* The rax tail may lag behind last_id (XSETID can advance
+             * last_id past the tail, XDEL can drop the tail entry) but
+             * must never exceed it. */
+            if (streamCompareID(&rax_last_entry, &s->last_id) > 0) {
+                rdbReportCorruptRDB("Stream last_id smaller than last entry");
                 decrRefCount(o);
                 return NULL;
             }
