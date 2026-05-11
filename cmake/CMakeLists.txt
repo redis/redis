@@ -912,7 +912,7 @@ open(f,'w').write(d)
 # patch test_helper.tcl
 f = 'tests/test_helper.tcl'
 d = open(f).read()
-d = d.replace('if {!$::dont_clean} cleanup\\n        exit 0', 'kill_clients\\n        if {!$::dont_clean} cleanup\\n        catch {close stdout}\\n        catch {close stderr}\\n        exit 0')
+d = d.replace('cleanup\\n        exit 0', 'cleanup\\n        catch {exec taskkill /F /IM redis-server.exe /T}\\n        catch {close stdout}\\n        catch {close stderr}\\n        exit 0')
 open(f,'w').write(d)
 
 # patch all tcl tests to use taskkill and custom cat/grep
@@ -952,7 +952,7 @@ copy_runtest_script("runtest-cluster")
 copy_runtest_script("runtest-moduleapi")
 copy_runtest_script("runtest-sentinel")
 
-set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-unit-auth;runtest-unit-geo;runtest-unit-type-stream-cgroups;runtest-unit-cluster-multi-slot-operations;runtest-unit-cluster-scripting;runtest-unit-cluster-sharded-pubsub;runtest-integration-corrupt-dump;runtest-integration-replication-3;runtest-unit-gcra;runtest-unit-info-command;runtest-unit-replybufsize;runtest-unit-querybuf;runtest-cluster-00-base;runtest-cluster-01-faildet;runtest-cluster-02-failover;runtest-cluster-03-failover-loop;runtest-cluster-04-resharding;runtest-cluster-05-slave-selection;runtest-cluster-06-slave-stop-cond;runtest-cluster-07-replica-migration;runtest-cluster-08-update-msg;runtest-cluster-09-pubsub;runtest-cluster-10-manual-failover;runtest-cluster-11-manual-takeover;runtest-cluster-12-replica-migration-2;runtest-cluster-12;runtest-cluster-13-no-failover-option;runtest-cluster-15-cluster-slots;runtest-cluster-16-transactions-on-replica;runtest-cluster-17-diskless-load-swapdb;runtest-cluster-18-info;runtest-cluster-19-cluster-nodes-slots;runtest-cluster-20-half-migrated-slot;runtest-cluster-22-replica-in-sync;runtest-cluster-25-pubsubshard-slot-migration;runtest-cluster-26-pubsubshard;runtest-cluster-29-slot-migration-response;runtest-sentinel-00-base;runtest-sentinel-01-conf-update;runtest-sentinel-02-slaves-reconf;runtest-sentinel-04-slave-selection;runtest-sentinel-05-manual;runtest-sentinel-06-ckquorum;runtest-sentinel-08-hostname-conf;runtest-sentinel-09-acl-support;runtest-sentinel-10-replica-priority;runtest-sentinel-11-port-0;runtest-sentinel-12-master-reboot;runtest-sentinel-13-info-command;runtest-sentinel-14-debug-command;runtest-sentinel-15-config-set-config-get;runtest-moduleapi-rdbloadsave;runtest-moduleapi-crash;runtest-moduleapi-internalsecret;runtest-moduleapi-configaccess;runtest-moduleapi-keymeta;runtest-moduleapi-ksn_notify_side_effect;runtest-unit-introspection-2;runtest-cluster-21-many-slot-migration;runtest-moduleapi-fork;runtest-moduleapi-testrdb;runtest-moduleapi-propagate;runtest-moduleapi-hooks")
+set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-unit-auth;runtest-unit-geo;runtest-unit-type-stream-cgroups;runtest-unit-cluster-multi-slot-operations;runtest-unit-cluster-scripting;runtest-unit-cluster-sharded-pubsub;runtest-integration-corrupt-dump;runtest-integration-replication-3;runtest-unit-gcra;runtest-unit-info-command;runtest-unit-replybufsize;runtest-unit-querybuf;runtest-cluster-00-base;runtest-cluster-01-faildet;runtest-cluster-02-failover;runtest-cluster-03-failover-loop;runtest-cluster-04-resharding;runtest-cluster-05-slave-selection;runtest-cluster-06-slave-stop-cond;runtest-cluster-07-replica-migration;runtest-cluster-08-update-msg;runtest-cluster-09-pubsub;runtest-cluster-10-manual-failover;runtest-cluster-11-manual-takeover;runtest-cluster-12-replica-migration-2;runtest-cluster-12;runtest-cluster-13-no-failover-option;runtest-cluster-15-cluster-slots;runtest-cluster-16-transactions-on-replica;runtest-cluster-17-diskless-load-swapdb;runtest-cluster-18-info;runtest-cluster-19-cluster-nodes-slots;runtest-cluster-20-half-migrated-slot;runtest-cluster-22-replica-in-sync;runtest-cluster-25-pubsubshard-slot-migration;runtest-cluster-26-pubsubshard;runtest-cluster-29-slot-migration-response;runtest-sentinel-00-base;runtest-sentinel-01-conf-update;runtest-sentinel-02-slaves-reconf;runtest-sentinel-04-slave-selection;runtest-sentinel-05-manual;runtest-sentinel-06-ckquorum;runtest-sentinel-08-hostname-conf;runtest-sentinel-09-acl-support;runtest-sentinel-10-replica-priority;runtest-sentinel-11-port-0;runtest-sentinel-12-master-reboot;runtest-sentinel-13-info-command;runtest-sentinel-14-debug-command;runtest-sentinel-15-config-set-config-get;runtest-unit-introspection-2;runtest-cluster-21-many-slot-migration")
 enable_testing()
 find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
 
@@ -966,17 +966,16 @@ if (TCLSH_EXECUTABLE)
     add_custom_target(copy_bins_for_tests ALL
         
         COMMAND ${CMAKE_COMMAND} -E make_directory src
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-server
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-cli> src/redis-cli
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-sentinel
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-check-aof
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-check-rdb
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-server
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-cli> ../src/redis-cli
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-sentinel
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-aof
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-rdb
-        DEPENDS redis-server redis-cli
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-server.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-cli> src/redis-cli.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-sentinel.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-check-aof.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> src/redis-check-rdb.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-server.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-cli> ../src/redis-cli.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-sentinel.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-aof.exe
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-rdb.exe        DEPENDS redis-server redis-cli
     )
     # add_test(NAME runtest COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     # set_tests_properties(runtest PROPERTIES TIMEOUT 12000)
@@ -990,11 +989,12 @@ if (TCLSH_EXECUTABLE)
     
 
     file(GLOB CLUSTER_TESTS "tests/cluster/tests/*.tcl")
+    string(REPLACE ";" "\\\\;" SAFE_PATH "$ENV{PATH}")
     foreach(testpath ${CLUSTER_TESTS})
         get_filename_component(testname ${testpath} NAME_WE)
         if (NOT "runtest-cluster-${testname}" IN_LIST FAILING_TESTS)
-            add_test(NAME "runtest-cluster-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${REDIS_ROOT}/tests/cluster/run.tcl" --single ${testname} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-            set_tests_properties("runtest-cluster-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR};${CMAKE_BINARY_DIR}/bin/Release;$ENV{PATH}")
+            add_test(NAME "runtest-cluster-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${CMAKE_BINARY_DIR}/tests/cluster/run.tcl" --single ${testname} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+            set_tests_properties("runtest-cluster-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
         endif()
     endforeach()
 
@@ -1002,16 +1002,16 @@ if (TCLSH_EXECUTABLE)
     foreach(testpath ${SENTINEL_TESTS})
         get_filename_component(testname ${testpath} NAME_WE)
         if (NOT "runtest-sentinel-${testname}" IN_LIST FAILING_TESTS)
-            add_test(NAME "runtest-sentinel-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${REDIS_ROOT}/tests/sentinel/run.tcl" --single ${testname} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-            set_tests_properties("runtest-sentinel-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR};${CMAKE_BINARY_DIR}/bin/Release;$ENV{PATH}")
+            add_test(NAME "runtest-sentinel-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${CMAKE_BINARY_DIR}/tests/sentinel/run.tcl" --single ${testname} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+            set_tests_properties("runtest-sentinel-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
         endif()
     endforeach()
 
     set(MODULEAPI_TESTS "commandfilter" "basics" "fork" "testrdb" "infotest" "moduleconfigs" "infra" "propagate" "hooks" "misc" "blockonkeys" "blockonbackground" "scan" "datatype" "auth" "keyspace_events" "blockedclient" "getchannels" "getkeys" "test_lazyfree" "defrag" "keyspecs" "hash" "zset" "list" "stream" "mallocsize" "datatype2" "cluster" "aclcheck" "subcommands" "reply" "cmdintrospection" "eventloop" "timer" "publish" "usercall" "postnotifications" "async_rm_call" "moduleauth" "rdbloadsave" "crash" "internalsecret" "configaccess" "keymeta" "ksn_notify_side_effect")
     foreach(testname ${MODULEAPI_TESTS})
         if (NOT "runtest-moduleapi-${testname}" IN_LIST FAILING_TESTS)
-            add_test(NAME "runtest-moduleapi-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${REDIS_ROOT}/tests/test_helper.tcl" --clients 1 --single "unit/moduleapi/${testname}" WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-            set_tests_properties("runtest-moduleapi-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR};${CMAKE_BINARY_DIR}/bin/Release;$ENV{PATH}")
+            add_test(NAME "runtest-moduleapi-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${CMAKE_BINARY_DIR}/tests/test_helper.tcl" --clients 1 --single "unit/moduleapi/${testname}" WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+            set_tests_properties("runtest-moduleapi-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
         endif()
     endforeach()
 endif()
@@ -1158,6 +1158,9 @@ endif()
 
 
 file(WRITE "${CMAKE_BINARY_DIR}/kill.bat" "@echo off\nif \"%~1\"==\"-9\" goto kill\nif \"%~1\"==\"-SIGCONT\" goto kill\nif \"%~1\"==\"-SEGV\" goto kill\nif \"%~1\"==\"-KILL\" goto kill\nif \"%~1\"==\"-0\" goto check\ntaskkill /F /T /PID %~1 >NUL 2>&1\nexit /b 0\n\n:kill\ntaskkill /F /T /PID %~2 >NUL 2>&1\nexit /b 0\n\n:check\ntasklist /FI \"PID eq %~2\" | findstr %~2 >NUL 2>&1\nexit /b %ERRORLEVEL%\n")
+
+
+
 
 
 
