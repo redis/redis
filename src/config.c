@@ -2463,10 +2463,8 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
     }
 
     /* Accept valid IPv4 or IPv6 */
-    if (inet_pton(AF_INET, val, buf) == 1 ||
-        inet_pton(AF_INET6, val, buf) == 1) {
+    if (inet_pton(AF_INET, val, buf) == 1 || inet_pton(AF_INET6, val, buf) == 1)
         return 1;
-    }
 
     /* Also accept valid hostnames, but limited to NET_IP_STR_LEN since
        cluster_announce_ip is stored in a NET_IP_STR_LEN buffer */
