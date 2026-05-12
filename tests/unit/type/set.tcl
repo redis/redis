@@ -1026,22 +1026,7 @@ foreach type {single multiple single_multiple} {
                 break
             }
         }
-        r deferred 1
-        set count 0
-        foreach m $members {
-            r srem $myset $m
-            incr count
-            if {$count == 500} {
-                for {set i 0} {$i < 500} {incr i} {
-                    r read
-                }
-                set count 0
-            }
-        }
-        for {set i 0} {$i < $count} {incr i} {
-            r read
-        }
-        r deferred 0
+        r srem $myset {*}$members
     }
 
     proc verify_rehashing_completed_key {myset table_size keys} {

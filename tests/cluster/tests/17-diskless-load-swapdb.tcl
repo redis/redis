@@ -54,12 +54,9 @@ test "Main db not affected when fail to diskless load" {
     set rd [redis_deferring_client redis $master_id]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $j $value
-
-        if {($j + 1) % 500 == 0} {
-            for {set i 0} {$i < 500} {incr i} {
-                $rd read
-            }
-        }
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
     }
 
     # Start the replica again
