@@ -3213,7 +3213,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             long long lp_live;
-            if (!lpGetIntegerValue(first, &lp_live) || lp_live < 0) {
+            if (!lpGetIntegerValue(first, &lp_live) || lp_live <= 0) {
                 rdbReportCorruptRDB("Stream listpack bad entry count");
                 sdsfree(nodekey);
                 decrRefCount(o);

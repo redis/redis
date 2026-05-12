@@ -1040,5 +1040,19 @@ test {corrupt payload: stream all-tombstone entries with non-zero length} {
     }
 }
 
+test {corrupt payload: stream all-tombstone listpack with zero length} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r debug set-skip-checksum-validation 1
+        # Payload: listpack has lp_live = 0 (only a tombstone entry) and
+        # s->length = 0. With lp_live rejected only on < 0 this would load
+        # silently into an inconsistent state (raxSize > 0, length = 0);
+        # the <= 0 check rejects it at the listpack header.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x00\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        catch {r XREAD COUNT 1 STREAMS mystream $} _
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 } ;# tags
 
