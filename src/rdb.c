@@ -3225,13 +3225,28 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
             live_entries += lp_live;
 
-            /* Save order is rax-key ascending, so first/last iterations
-             * are the head/tail nodes. Capture for post-trailer ID checks. */
+            /* Listpacks are serialized in rax-key ascending order
+             * (rdbSaveStream walks the rax via raxSeek "^"+raxNext),
+             * so each master_id must be strictly greater than the
+             * previous one. Enforcing this makes head_lp/tail_lp
+             * reliably the rax head/tail nodes, which the post-trailer
+             * ID cross-checks below depend on. */
+            streamID this_master;
+            streamDecodeID(nodekey, &this_master);
+            if (head_lp != NULL &&
+                streamCompareID(&this_master, &tail_master) <= 0)
+            {
+                rdbReportCorruptRDB("Stream listpacks not in ascending order");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
             if (head_lp == NULL) {
-                streamDecodeID(nodekey, &head_master);
+                head_master = this_master;
                 head_lp = lp;
             }
-            streamDecodeID(nodekey, &tail_master);
+            tail_master = this_master;
             tail_lp = lp;
 
             /* Insert the key in the radix tree. */

@@ -1044,12 +1044,15 @@ test {corrupt payload: stream last_id smaller than actual tail entry} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
         r config set sanitize-dump-payload yes
         r debug set-skip-checksum-validation 1
-        # Payload: stream with one live entry at id 1-0 (master id 1-0,
-        # delta 0-0) but last_id declared as 0-0 in the trailer.
-        # The post-load ID cross-check rejects this because last_id must
-        # equal the last physical entry: XDEL never lowers last_id, so a
-        # last_id smaller than the rax tail can only be corruption.
-        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x00\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        # Payload: stream with two listpacks (master 1-0 and master 5-0,
+        # one live entry "k=v" each), declared first_id=1-0 and
+        # last_id=3-0 in the trailer. last_id sits between the rax head
+        # (1-0) and the rax tail (5-0), so the first_id range check
+        # (first_id <= last_id, first_id >= rax_first) still passes.
+        # The only check that catches this is the rax-tail vs last_id
+        # cross-check, which rejects last_id < rax tail since XDEL never
+        # lowers last_id.
+        catch {r RESTORE mystream 0 "\x1A\x02\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x03\x00\x01\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\x00\x00\x00\x00\x00\x00\x00\x00" REPLACE} err
         assert_match "*Bad data format*" $err
         r ping
     }
@@ -1092,6 +1095,89 @@ test {corrupt payload: stream max_deleted_entry_id beyond last_id} {
         # exist at IDs that were once XADD'd, which are bounded by
         # last_id, so max_deleted > last_id is corruption.
         catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x02\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream first_id below rax head entry} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: stream with one live entry at id 1-0 (master 1-0,
+        # delta 0-0), length=1, last_id=1-0, but first_id declared as
+        # 0-0 in the trailer. first_id only ever advances past
+        # tombstones, so it must be >= the first physical entry in the
+        # rax. A first_id smaller than the head entry is corruption.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x00\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream first_id above last_id} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: stream with one live entry at id 1-0, length=1,
+        # last_id=1-0, but first_id declared as 2-0. first_id must lie
+        # within [head_entry, last_id]; anything above last_id is
+        # corruption.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x02\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream entries_added smaller than length} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: stream with one live entry at id 1-0, length=1,
+        # last_id=1-0, first_id=1-0, max_deleted=0-0, but entries_added
+        # declared as 0. entries_added is monotonic and counts every
+        # XADD ever performed, so it can never be less than the current
+        # number of live entries.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x00\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream listpacks in non-ascending master order} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: two listpacks (master 5-0 first, master 1-0 second),
+        # each with a single live "k=v" entry at the master id. The
+        # trailer declares first_id=5-0 and last_id=5-0 so that without
+        # the ascending-order check, head_lp would be captured from the
+        # master-5 listpack and every post-trailer cross-check would
+        # pass (rax_first_entry=5-0 matches first_id, rax_last_entry
+        # read from the master-1 listpack=1-0 is below last_id=5-0).
+        # The corruption is that an entry at 1-0 is hidden below the
+        # declared first_id. Streams always serialize listpacks in
+        # rax-key ascending order, so master_id[i+1] <= master_id[i]
+        # is the canonical signature for this class of bypass.
+        catch {r RESTORE mystream 0 "\x1A\x02\x10\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x05\x00\x05\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\x00\x00\x00\x00\x00\x00\x00\x00" REPLACE} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream length inconsistent with summed live entries} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: one listpack with a single live entry at id 1-0
+        # (lp_live=1 in the listpack header, so the per-listpack
+        # lp_live>0 check passes), but the trailer declares length=2
+        # and entries_added=2. The summed live-entry count (1) does
+        # not match s->length (2), and entries_added>=length so the
+        # entries_added<length check cannot fire first. Only the
+        # post-loop "length inconsistent with live entries"
+        # cross-check rejects this.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x01\x00\x01\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
         assert_match "*Bad data format*" $err
         r ping
     }
