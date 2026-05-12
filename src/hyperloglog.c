@@ -1025,14 +1025,11 @@ void hllRawRegHisto(uint8_t *registers, int* reghisto) {
     int j;
 
     for (j = 0; j < HLL_REGISTERS; j += 8, word++) {
-        /* Zero-word fast-path: bump h{0..3}[0] by 2 each — equivalent to
-         * 8 zero-byte increments but distributed across 4 independent
-         * accumulators, preserving the ILP property of the main path. */
+        /* Zero-word fast-path: 8 zero bytes contribute 8 to bin 0. The
+         * h0 accumulator is summed into reghisto[0] at the end of the
+         * function, so bumping h0[0] alone is sufficient. */
         if (*word == 0) {
-            h0[0] += 2;
-            h1[0] += 2;
-            h2[0] += 2;
-            h3[0] += 2;
+            h0[0] += 8;
             continue;
         }
         r = (uint8_t*) word;
