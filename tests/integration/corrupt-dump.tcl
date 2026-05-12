@@ -1028,12 +1028,13 @@ test {corrupt payload: stream listpack with wrong deleted count in header} {
     }
 }
 
-test {corrupt payload: stream all-tombstone entries with non-zero length} {
+test {corrupt payload: stream length inconsistent with live entries} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
         r debug set-skip-checksum-validation 1
-        # Payload: stream where every entry is a tombstone
-        # s->length claims 1 live entry.
-        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        # Payload: listpack has master.count=1 (lp_live=1) so the lp_live <= 0
+        # guard passes, but s->length=2 while live_entries accumulates to 1.
+        # Exercises the s->length != live_entries check in rdb.c.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
         catch {r XREAD COUNT 1 STREAMS mystream $} _
         assert_match "*Bad data format*" $err
         r ping
