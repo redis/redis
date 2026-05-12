@@ -1438,6 +1438,7 @@ void asmRdbChannelSyncWithSource(connection *conn) {
 
             task->rdb_channel_state = ASM_RDBCHANNEL_TRANSFER;
             client *c = createClient(conn);
+            initClientReplicationData(c);
             c->flags |= (CLIENT_MASTER | CLIENT_INTERNAL | CLIENT_ASM_IMPORTING);
             c->querybuf = sdsempty();
             c->authenticated = 1;
@@ -2552,6 +2553,7 @@ void asmSyncBufferStreamToDb(asmTask *task) {
     /* The buffered stream from the main channel connection into
      * the database is processed by a fake client. */
     client *c = createClient(task->main_channel_conn);
+    initClientReplicationData(c);
     c->flags |= (CLIENT_MASTER | CLIENT_INTERNAL | CLIENT_ASM_IMPORTING);
     c->querybuf = sdsempty();
     c->authenticated = 1;
