@@ -355,6 +355,9 @@ void setcpuaffinity(const char *cpulist);
     #else
         #define ATTRIBUTE_TARGET_POPCNT
     #endif
+#elif defined(__riscv) && defined(__riscv_zbb)
+    #define HAVE_POPCNT
+    #define ATTRIBUTE_TARGET_POPCNT
 #else
     #define ATTRIBUTE_TARGET_POPCNT
 #endif
