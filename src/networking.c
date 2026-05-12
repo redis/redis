@@ -4027,7 +4027,7 @@ sds catClientInfoString(sds s, client *client) {
         " sub=%i", client->pubsub_data ? (int) dictSize(client->pubsub_data->pubsub_channels) : 0,
         " psub=%i", client->pubsub_data ? (int) dictSize(client->pubsub_data->pubsub_patterns) : 0,
         " ssub=%i", client->pubsub_data ? (int) dictSize(client->pubsub_data->pubsubshard_channels) : 0,
-        " multi=%i", (client->flags & CLIENT_MULTI && client->mstate) ? client->mstate->count : -1,
+        " multi=%i", ((client->flags & CLIENT_MULTI) && client->mstate) ? client->mstate->count : -1,
         " watch=%i", (int) listLength(client->watched_keys),
         " qbuf=%U", client->querybuf ? (unsigned long long) sdslen(client->querybuf) : 0,
         " qbuf-free=%U", client->querybuf ? (unsigned long long) sdsavail(client->querybuf) : 0,
