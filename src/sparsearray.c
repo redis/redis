@@ -1095,6 +1095,55 @@ void arFree(redisArray *ar) {
     zfree(ar);
 }
 
+/* Dismiss a single slice's memory back to the OS. */
+static void arSliceDismiss(arSlice *s, int dismiss_values) {
+    if (s->encoding == AR_SLICE_DENSE) {
+        if (dismiss_values) {
+            void **items = s->layout.dense.items;
+            for (uint32_t i = 0; i < s->layout.dense.winsize; i++) {
+                if (arIsPtr(items[i]))
+                    dismissMemory(items[i], arStringLen(items[i]));
+            }
+        }
+        dismissMemory(s, arDenseAllocSize(s->layout.dense.winsize));
+    } else {
+        if (dismiss_values) {
+            void **values = s->layout.sparse.values;
+            for (uint32_t i = 0; i < s->count; i++) {
+                if (arIsPtr(values[i]))
+                    dismissMemory(values[i], arStringLen(values[i]));
+            }
+        }
+        dismissMemory(s, arSparseAllocSize(s->layout.sparse.cap));
+    }
+}
+
+/* See dismissObject(). Always dismiss the directory and slices; per-value
+ * dismissal only when the average element size makes it worthwhile. */
+void arDismiss(redisArray *ar, size_t size_hint) {
+    if (!ar) return;
+    uint64_t count = ar->count;
+    int dismiss_values = (count != 0 && size_hint / count >= server.page_size);
+
+    if (ar->superdir) {
+        for (uint32_t bi = 0; bi < ar->sdir_len; bi++) {
+            arSDirEntry *e = ar->superdir + bi;
+            for (uint32_t si = 0; si < AR_SUPER_BLOCK_SLOTS; si++) {
+                if (e->slots[si] == NULL) continue;
+                arSliceDismiss(e->slots[si], dismiss_values);
+            }
+            dismissMemory(e->slots, AR_SUPER_BLOCK_SLOTS * sizeof(arSlice *));
+        }
+        dismissMemory(ar->superdir, ar->sdir_cap * sizeof(arSDirEntry));
+    } else if (ar->dir) {
+        for (uint64_t i = 0; i < ar->dir_alloc; i++) {
+            if (ar->dir[i] == NULL) continue;
+            arSliceDismiss(ar->dir[i], dismiss_values);
+        }
+        dismissMemory(ar->dir, ar->dir_alloc * sizeof(arSlice *));
+    }
+}
+
 /* arDup() helper to duplicate a single slice into the duplicated array.
  * This function is responsible of tracking allocations in dup_ar
  * (hence the name of the parameter), since it has the knowledge of

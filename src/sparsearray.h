@@ -276,6 +276,7 @@ static inline void *arFromSmallStr(const char *s, int len) {
 redisArray *arNew(void);
 void arFree(redisArray *ar);
 redisArray *arDup(redisArray *ar);
+void arDismiss(redisArray *ar, size_t size_hint);
 
 /* Element access */
 void *arGet(redisArray *ar, uint64_t idx);

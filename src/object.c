@@ -822,6 +822,11 @@ void dismissStreamObject(robj *o, size_t size_hint) {
     }
 }
 
+/* See dismissObject() */
+void dismissArrayObject(robj *o, size_t size_hint) {
+    arDismiss(o->ptr, size_hint);
+}
+
 void dismissGCRAObject(robj *o, size_t size_hint) {
     /* GCRA is a single allocation of a long long thus way smaller than a
      * page-size. The dismiss mechanism is not needed for it - hence NOOP.*/
@@ -858,6 +863,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_HASH: dismissHashObject(o, size_hint); break;
         case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
+        case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
         default: break;
     }
 #else
