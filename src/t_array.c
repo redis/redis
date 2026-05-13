@@ -1257,14 +1257,14 @@ void argrepCommand(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Operation types for AROP */
-#define AROP_SUM   1
-#define AROP_MIN   2
-#define AROP_MAX   3
-#define AROP_AND   4
-#define AROP_OR    5
-#define AROP_XOR   6
-#define AROP_MATCH 7
-#define AROP_USED  8
+#define AROP_SUM   1  /* Sum of numeric elements in range. */
+#define AROP_MIN   2  /* Minimum numeric element in range. */
+#define AROP_MAX   3  /* Maximum numeric element in range. */
+#define AROP_AND   4  /* Bitwise AND of integer elements in range. */
+#define AROP_OR    5  /* Bitwise OR of integer elements in range. */
+#define AROP_XOR   6  /* Bitwise XOR of integer elements in range. */
+#define AROP_MATCH 7  /* Count elements equal to a target string. */
+#define AROP_USED  8  /* Count of non-empty (used) slots in range. */
 
 /* Accumulator state for AROP */
 typedef struct {
