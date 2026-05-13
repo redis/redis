@@ -24,9 +24,12 @@ proc test_memory_efficiency {range} {
         incr written [string length $key]
         incr written [string length $val]
         incr written 2 ;# A separator is the minimum to store key-value data.
-    }
-    for {set j 0} {$j < 10000} {incr j} {
-        $rd read ; # Discard replies
+        
+        if {($j + 1) % 500 == 0} {
+            for {set i 0} {$i < 500} {incr i} {
+                $rd read ; # Discard replies
+            }
+        }
     }
 
     set current_mem [s used_memory]
@@ -352,7 +355,7 @@ run_solo {defrag} {
             # create big keys with 10k items
             # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
-            set batch_size 1000
+            set batch_size 100
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
@@ -602,15 +605,27 @@ run_solo {defrag} {
             # Populate memory with interleaving IDMP stream-key pattern of same size
             set dummy_iid "[string repeat x 400]"
             set rd [redis_deferring_client]
+
+            # Use batching to avoid TCP deadlock
+            set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 set producer_id "producer[expr {$j % 10}]"
                 set iid "$dummy_iid[format "%06d" $j]"
                 $rd xadd idmpstream IDMP $producer_id $iid * field value
                 $rd set k$j $iid
+
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < [expr {$batch_size * 2}]} {incr i} {
+                        $rd read
+                    }
+                }
             }
-            for {set j 0} {$j < [expr {$n * 2}]} {incr j} {
-                $rd read ; # Discard replies
+            # Read remaining responses
+            set remaining [expr {($n % $batch_size) * 2}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
             }
+
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
                 puts "used [s allocator_allocated]"
@@ -620,7 +635,7 @@ run_solo {defrag} {
             }
             assert_lessthan [s allocator_frag_ratio] 1.05
 
-                # Verify IDMP structures were created
+            # Verify IDMP structures were created
             set idmp_info [r xinfo stream idmpstream full]
             set num_producers [dict get $idmp_info pids-tracked]
             set num_entries [dict get $idmp_info iids-tracked]
@@ -925,7 +940,7 @@ run_solo {defrag} {
                 $rd lpush biglist2 $val
 
                 incr count
-                discard_replies_every $rd $count 10000 20000
+                discard_replies_every $rd $count 1000 2000
             }
 
             # create some fragmentation
