@@ -1028,18 +1028,6 @@ test {corrupt payload: stream listpack with wrong deleted count in header} {
     }
 }
 
-test {corrupt payload: stream all-tombstone entries with non-zero length} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
-        r debug set-skip-checksum-validation 1
-        # Payload: stream where every entry is a tombstone
-        # s->length claims 1 live entry.
-        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
-        catch {r XREAD COUNT 1 STREAMS mystream $} _
-        assert_match "*Bad data format*" $err
-        r ping
-    }
-}
-
 test {corrupt payload: stream length inconsistent with live entries} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
         r debug set-skip-checksum-validation 1
@@ -1047,6 +1035,48 @@ test {corrupt payload: stream length inconsistent with live entries} {
         # guard passes, but s->length=2 while live_entries accumulates to 1.
         # Exercises the s->length != live_entries check in rdb.c.
         catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        catch {r XREAD COUNT 1 STREAMS mystream $} _
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream all-tombstone listpack with zero length} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: a single listpack containing one tombstone entry, with
+        # s->length declared as 0 (so it matches live_entries == 0).
+        # At runtime, XDEL/XTRIM remove a node when its live count drops
+        # to 0, so an all-tombstone listpack is impossible. The new
+        # in-loop "lp_live > 0" check rejects it.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x00\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream live entry count integer overflow bypasses length check} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        # Three listpacks whose lp_live counts sum to exactly 2^64, wrapping
+        # live_entries (uint64_t) back to 0.  Stream length is also set to 0, so
+        # without the overflow guard the s->length != live_entries check passes,
+        # silently accepting a structurally broken stream.
+        # (LLONG_MAX + LLONG_MAX + 2 = 2^64 => live_entries wraps to 0)
+        catch {r RESTORE mystream 0 "\x0F\x03\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x11\x11\x00\x00\x00\x01\x00\xF4\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F\x09\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x11\x11\x00\x00\x00\x01\x00\xF4\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F\x09\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x09\x09\x00\x00\x00\x01\x00\x02\x01\xFF\x00\x03\x00\x00\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream all-tombstone entries with non-zero length} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r debug set-skip-checksum-validation 1
+        # Payload: stream where every entry is a tombstone
+        # s->length claims 1 live entry.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
         catch {r XREAD COUNT 1 STREAMS mystream $} _
         assert_match "*Bad data format*" $err
         r ping
@@ -1066,21 +1096,6 @@ test {corrupt payload: stream last_id smaller than actual tail entry} {
         # cross-check, which rejects last_id < rax tail since XDEL never
         # lowers last_id.
         catch {r RESTORE mystream 0 "\x1A\x02\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x03\x00\x01\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\x00\x00\x00\x00\x00\x00\x00\x00" REPLACE} err
-        assert_match "*Bad data format*" $err
-        r ping
-    }
-}
-
-test {corrupt payload: stream all-tombstone listpack with zero length} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
-        r config set sanitize-dump-payload yes
-        r debug set-skip-checksum-validation 1
-        # Payload: a single listpack containing one tombstone entry, with
-        # s->length declared as 0 (so it matches live_entries == 0).
-        # At runtime, XDEL/XTRIM remove a node when its live count drops
-        # to 0, so an all-tombstone listpack is impossible. The new
-        # in-loop "lp_live > 0" check rejects it.
-        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x00\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
         assert_match "*Bad data format*" $err
         r ping
     }
@@ -1191,21 +1206,6 @@ test {corrupt payload: stream length inconsistent with summed live entries} {
         # post-loop "length inconsistent with live entries"
         # cross-check rejects this.
         catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x01\x00\x01\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
-        assert_match "*Bad data format*" $err
-        r ping
-    }
-}
-
-test {corrupt payload: stream live entry count integer overflow bypasses length check} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
-        r config set sanitize-dump-payload no
-        r debug set-skip-checksum-validation 1
-        # Three listpacks whose lp_live counts sum to exactly 2^64, wrapping
-        # live_entries (uint64_t) back to 0.  Stream length is also set to 0, so
-        # without the overflow guard the s->length != live_entries check passes,
-        # silently accepting a structurally broken stream.
-        # (LLONG_MAX + LLONG_MAX + 2 = 2^64 => live_entries wraps to 0)
-        catch {r RESTORE mystream 0 "\x0F\x03\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x11\x11\x00\x00\x00\x01\x00\xF4\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F\x09\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x11\x11\x00\x00\x00\x01\x00\xF4\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F\x09\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x09\x09\x00\x00\x00\x01\x00\x02\x01\xFF\x00\x03\x00\x00\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
         assert_match "*Bad data format*" $err
         r ping
     }
