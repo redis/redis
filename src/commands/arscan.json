@@ -33,10 +33,13 @@
             }
         ],
         "reply_schema": {
-            "description": "Flat array of index-value pairs: [idx1, val1, idx2, val2, ...]",
+            "description": "Array of [index, value] pairs. In RESP2 this is returned as a flat array",
             "type": "array",
             "items": {
-                "oneOf": [
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
                     {
                         "type": "integer",
                         "description": "Index of existing element"

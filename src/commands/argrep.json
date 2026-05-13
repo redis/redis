@@ -33,20 +33,35 @@
             }
         ],
         "reply_schema": {
-            "description": "Array of matching indexes, or flat index-value pairs when WITHVALUES is used.",
-            "type": "array",
-            "items": {
-                "oneOf": [
-                    {
+            "anyOf": [
+                {
+                    "description": "Array of matching indexes.",
+                    "type": "array",
+                    "items": {
                         "type": "integer",
                         "description": "Index of a matching element"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Matching value when WITHVALUES is used"
                     }
-                ]
-            }
+                },
+                {
+                    "description": "Array of [index, value] pairs. Returned in case `WITHVALUES` was used. In RESP2 this is returned as a flat array.",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "integer",
+                                "description": "Index of a matching element"
+                            },
+                            {
+                                "type": "string",
+                                "description": "Value at that index"
+                            }
+                        ]
+                    }
+                }
+            ]
         },
         "arguments": [
             {

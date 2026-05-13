@@ -868,13 +868,16 @@ void arscanCommand(client *c) {
 
     arScanIterInit(ar, start, end, &it);
     while (remaining && arScanIterNext(&it, &idx, &v)) {
+        if (c->resp > 2) addReplyArrayLen(c, 2);
         addReplyUnsignedLongLong(c, idx);
         addReplyArrayValue(c, v);
         count++;
         remaining--;
     }
 
-    setDeferredArrayLen(c, replylen, count * 2);
+    /* In RESP3 reply with nested [idx, value] pairs, in RESP2 with a flat
+     * [idx, val, idx, val, ...] array. */
+    setDeferredArrayLen(c, replylen, c->resp > 2 ? count : count * 2);
 }
 
 /* ============================================================================
@@ -1237,13 +1240,16 @@ void argrepCommand(client *c) {
     arScanIterInit(ar, start, end, &it);
     while (remaining && arScanIterNext(&it, &idx, &v)) {
         if (!arGrepValueMatches(&plan, v)) continue;
+        if (plan.withvalues && c->resp > 2) addReplyArrayLen(c, 2);
         addReplyUnsignedLongLong(c, idx);
         if (plan.withvalues) addReplyArrayValue(c, v);
         count++;
         remaining--;
     }
 
-    setDeferredArrayLen(c, replylen, count * (plan.withvalues ? 2 : 1));
+    /* With WITHVALUES, reply nested [idx, value] pairs in RESP3 and a flat array in RESP2. */
+    setDeferredArrayLen(c, replylen,
+        (plan.withvalues && c->resp == 2) ? count * 2 : count);
     arGrepFreePlan(&plan);
 }
 

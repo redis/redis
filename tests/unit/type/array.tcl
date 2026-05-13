@@ -274,6 +274,19 @@ start_server {
         assert_equal 3.14 [lindex $result 5]
     }
 
+    test {ARSCAN with RESP3 returns nested [idx, value] pairs} {
+        r del myarray
+        r arset myarray 0 a
+        r arset myarray 1 b
+
+        r hello 3
+        set res [r arscan myarray 0 10]
+        assert_equal 2 [llength $res]
+        assert_equal {0 a} [lindex $res 0]
+        assert_equal {1 b} [lindex $res 1]
+        r hello 2
+    }
+
     # ARGREP tests
     test {ARGREP MATCH returns matching indexes} {
         r del myarray
@@ -381,6 +394,27 @@ start_server {
         set invalid [format "\\%c%c1" 120 123]
         assert_error {*invalid regular expression*} [list r argrep myarray - + RE $invalid]
         assert_error {*invalid regular expression*} [list r argrep myarray - + RE $invalid NOCASE]
+    }
+
+    test {ARGREP WITHVALUES with RESP3 returns nested [idx, value] pairs} {
+        r del myarray
+        r armset myarray 0 alpha 1 beta 2 alphabet 3 delta
+
+        r hello 3
+        set res [r argrep myarray - + MATCH alpha WITHVALUES]
+        assert_equal 2 [llength $res]
+        assert_equal {0 alpha} [lindex $res 0]
+        assert_equal {2 alphabet} [lindex $res 1]
+        r hello 2
+    }
+
+    test {ARGREP without WITHVALUES in RESP3 stays a flat integer array} {
+        r del myarray
+        r armset myarray 0 alpha 1 beta 2 alphabet 5 gamma
+
+        r hello 3
+        assert_equal {0 2} [r argrep myarray - + MATCH alpha]
+        r hello 2
     }
 
     test {ARSET contiguous write basics} {
