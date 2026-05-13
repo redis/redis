@@ -11,7 +11,7 @@ jobs:
     if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@main
+    - uses: actions/checkout@v6
     - name: Download and extract the Coverity Build Tool
       run: |
           wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=${COVERITY_SCAN_TOKEN}&project=redis-unstable" -O cov-analysis-linux64.tar.gz

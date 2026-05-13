@@ -218,7 +218,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
  *    | robj (16) | key-hdr-size (1) | sdshdr8 "myvalue" \0  (11) | 
  *    +-----------+------------------+----------------------------+
  */
-robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
+static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
     
@@ -635,6 +635,14 @@ void decrRefCount(robj *o) {
     }
 
     if (--(o->refcount) == 0) {
+        /* Fast path for embedded strings: no inner allocation to free, and we
+         * can compute the alloc size to hint jemalloc for a faster deallocation. */
+        if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_EMBSTR && !o->iskvobj) {
+            serverAssert(sdsType(o->ptr) == SDS_TYPE_8); /* embstr always type_8 */
+            zfree_with_size(o, sizeof(robj) + sdsAllocSize(o->ptr));
+            return;
+        }
+
         void *alloc = o;
         
         if (o->iskvobj) {
@@ -1394,6 +1402,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->repl_backlog;
     mem_total += mh->clients_slaves;
 
+    /* Compute shared/unshared reply memory. */
+    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
+
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * updateClientMemoryUsage(). */
@@ -1424,7 +1435,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     /* Cluster atomic slot migration buffers. */
     mh->asm_import_input_buffer = asmGetImportInputBufferSize();
-    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputMemoryUsage();
     mem_total += mh->asm_import_input_buffer;
     mem_total += mh->asm_migrate_output_buffer;
 
@@ -1749,7 +1760,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,33+mh->num_dbs);
+        addReplyMapLen(c,35+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1771,6 +1782,12 @@ NULL
 
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
+
+        addReplyBulkCString(c,"clients.normal.shared");
+        addReplyLongLong(c,mh->clients_normal_shared);
+
+        addReplyBulkCString(c,"clients.normal.unshared");
+        addReplyLongLong(c,mh->clients_normal_unshared);
 
         addReplyBulkCString(c,"cluster.links");
         addReplyLongLong(c,mh->cluster_links);

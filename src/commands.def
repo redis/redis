@@ -11355,6 +11355,58 @@ struct COMMAND_ARG INCRBYFLOAT_Args[] = {
 {MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** INCREX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* INCREX history */
+#define INCREX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* INCREX tips */
+#define INCREX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* INCREX key specs */
+keySpec INCREX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* INCREX increment argument table */
+struct COMMAND_ARG INCREX_increment_Subargs[] = {
+{MAKE_ARG("float",ARG_TYPE_DOUBLE,-1,"BYFLOAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("integer",ARG_TYPE_INTEGER,-1,"BYINT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* INCREX overflow_block argument table */
+struct COMMAND_ARG INCREX_overflow_block_Subargs[] = {
+{MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("reject",ARG_TYPE_PURE_TOKEN,-1,"REJECT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* INCREX expiration argument table */
+struct COMMAND_ARG INCREX_expiration_Subargs[] = {
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* INCREX argument table */
+struct COMMAND_ARG INCREX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=INCREX_increment_Subargs},
+{MAKE_ARG("overflow-block",ARG_TYPE_ONEOF,-1,"OVERFLOW","Out-of-bounds policy; defaults to FAIL. Missing LBOUND/UBOUND default to the type limits (LLONG_MIN/LLONG_MAX for BYINT, -LDBL_MAX/LDBL_MAX for BYFLOAT).",NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=INCREX_overflow_block_Subargs},
+{MAKE_ARG("lowerbound",ARG_TYPE_STRING,-1,"LBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("upperbound",ARG_TYPE_STRING,-1,"UBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=INCREX_expiration_Subargs},
+{MAKE_ARG("enx",ARG_TYPE_PURE_TOKEN,-1,"ENX","Only set the expiration if the key currently has no TTL. Requires one of EX/PX/EXAT/PXAT; cannot be combined with PERSIST.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /********** LCS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -12090,6 +12142,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("incr","Increments the integer value of a key by one. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCR_History,0,INCR_Tips,0,incrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCR_Keyspecs,1,NULL,1),.args=INCR_Args},
 {MAKE_CMD("incrby","Increments the integer value of a key by a number. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCRBY_History,0,INCRBY_Tips,0,incrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCRBY_Keyspecs,1,NULL,2),.args=INCRBY_Args},
 {MAKE_CMD("incrbyfloat","Increment the floating point value of a key by a number. Uses 0 as initial value if the key doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCRBYFLOAT_History,0,INCRBYFLOAT_Tips,0,incrbyfloatCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCRBYFLOAT_Keyspecs,1,NULL,2),.args=INCRBYFLOAT_Args},
+{MAKE_CMD("increx","Increments the numeric value of a key by a number and sets its expiration time. Uses 0 as initial value if the key doesn't exist.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCREX_History,0,INCREX_Tips,0,increxCommand,-2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCREX_Keyspecs,1,NULL,7),.args=INCREX_Args},
 {MAKE_CMD("lcs","Finds the longest common substring.","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,LCS_History,0,LCS_Tips,0,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,LCS_Keyspecs,1,NULL,6),.args=LCS_Args},
 {MAKE_CMD("mget","Atomically returns the string values of one or more keys.","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MGET_History,0,MGET_Tips,1,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,MGET_Keyspecs,1,NULL,1),.args=MGET_Args},
 {MAKE_CMD("mset","Atomically creates or modifies the string values of one or more keys.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSET_History,0,MSET_Tips,2,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSET_Keyspecs,1,NULL,1),.args=MSET_Args},
