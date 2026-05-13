@@ -5813,18 +5813,6 @@ sds genClusterInfoString(void) {
     return info;
 }
 
-
-void removeChannelsInSlot(unsigned int slot) {
-    if (countChannelsInSlot(slot) == 0) return;
-
-    pubsubShardUnsubscribeAllChannelsInSlot(slot);
-}
-
-/* Get the count of the channels for a given slot. */
-unsigned int countChannelsInSlot(unsigned int hashslot) {
-    return kvstoreDictSize(server.pubsubshard_channels, hashslot);
-}
-
 int clusterNodeIsMyself(clusterNode *n) {
     return n == server.cluster->myself;
 }

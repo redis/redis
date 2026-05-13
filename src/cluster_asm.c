@@ -2887,13 +2887,18 @@ int asmNotifyConfigUpdated(asmTask *task, sds *err) {
         return C_ERR;
     }
 
-    /* Reset per-slot statistics for the migrated/imported ranges.
+    /* Reset per-slot state for the migrated/imported ranges.
      * Note: cluster_legacy.c also cleans up, so this may run twice, but
      * required if an alternative cluster impl is in use. */
     for (int i = 0; i < task->slots->num_ranges; i++) {
         slotRange *sr = &task->slots->ranges[i];
-        for (int j = sr->start; j <= sr->end; j++)
+        for (int j = sr->start; j <= sr->end; j++) {
+            /* Reset slot statistics. */
             clusterSlotStatReset(j);
+            /* Remove channels in slot for migrate task. */
+            if (task->operation == ASM_MIGRATE)
+                removeChannelsInSlot(j);
+        }
     }
 
     /* Clear error message if successful. */

@@ -3048,6 +3048,30 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
         R 0 asm.enable_trim
         wait_for_asm_done
     }
+
+    test "Sharded pub/sub channels are unsubscribed after slot migration" {
+        set channelname [slot_key 0 myshardchan]
+
+        # Subscribe to the channel on the source node.
+        set rd [redis_deferring_client]
+        $rd ssubscribe $channelname
+        $rd read
+
+        # Migrate slot 0 from node 0 to node 1.
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        # Verify the client receives sunsubscribe for the channel in the migrated slot.
+        set msg [$rd read]
+        assert {"sunsubscribe" eq [lindex $msg 0]}
+        assert {$channelname eq [lindex $msg 1]}
+        assert {"0" eq [lindex $msg 2]}
+        $rd close
+
+        # cleanup: migrate slot back to node 0
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
 }
 
 start_server {tags "cluster external:skip"} {

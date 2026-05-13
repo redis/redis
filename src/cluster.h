@@ -150,6 +150,8 @@ long long clusterNodeReplOffset(clusterNode *node);
 clusterNode *clusterLookupNode(const char *name, int length);
 const char *clusterGetSecret(size_t *len);
 unsigned int countKeysInSlot(unsigned int slot);
+unsigned int countChannelsInSlot(unsigned int hashslot);
+void removeChannelsInSlot(unsigned int slot);
 int getSlotOrReply(client *c, robj *o);
 int clusterIsMySlot(int slot);
 int clusterCanAccessKeysInSlot(int slot);
