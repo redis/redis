@@ -33,7 +33,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Array of [index, value] pairs. In RESP2 this is returned as a flat array",
+            "description": "Array of [index, value] pairs.",
             "type": "array",
             "items": {
                 "type": "array",

@@ -43,7 +43,7 @@
                     }
                 },
                 {
-                    "description": "Array of [index, value] pairs. Returned in case `WITHVALUES` was used. In RESP2 this is returned as a flat array.",
+                    "description": "Array of [index, value] pairs. Returned in case `WITHVALUES` was used.",
                     "type": "array",
                     "items": {
                         "type": "array",

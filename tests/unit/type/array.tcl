@@ -232,7 +232,7 @@ start_server {
         r arset myarray 9 c
 
         set result [r arscan myarray 0 10]
-        assert_equal {0 a 5 b 9 c} $result
+        assert_equal {{0 a} {5 b} {9 c}} $result
     }
 
     test {ARSCAN on empty range returns empty array} {
@@ -249,7 +249,7 @@ start_server {
         r arset myarray 5 b
 
         set result [r arscan myarray 5 0]
-        assert_equal {5 b 0 a} $result
+        assert_equal {{5 b} {0 a}} $result
     }
 
     test {ARSCAN on non-existent key returns empty array} {
@@ -265,26 +265,10 @@ start_server {
         r arset myarray 2 3.14
 
         set result [r arscan myarray 0 10]
-        assert_equal 6 [llength $result]
-        assert_equal 0 [lindex $result 0]
-        assert_equal string [lindex $result 1]
-        assert_equal 1 [lindex $result 2]
-        assert_equal 12345 [lindex $result 3]
-        assert_equal 2 [lindex $result 4]
-        assert_equal 3.14 [lindex $result 5]
-    }
-
-    test {ARSCAN with RESP3 returns nested [idx, value] pairs} {
-        r del myarray
-        r arset myarray 0 a
-        r arset myarray 1 b
-
-        r hello 3
-        set res [r arscan myarray 0 10]
-        assert_equal 2 [llength $res]
-        assert_equal {0 a} [lindex $res 0]
-        assert_equal {1 b} [lindex $res 1]
-        r hello 2
+        assert_equal 3 [llength $result]
+        assert_equal {0 string} [lindex $result 0]
+        assert_equal {1 12345} [lindex $result 1]
+        assert_equal {2 3.14} [lindex $result 2]
     }
 
     # ARGREP tests
@@ -299,7 +283,7 @@ start_server {
         r del myarray
         r armset myarray 0 alpha 1 beta 2 alphabet 3 delta
 
-        assert_equal {2 alphabet 0 alpha} \
+        assert_equal {{2 alphabet} {0 alpha}} \
             [r argrep myarray 3 0 MATCH alpha WITHVALUES]
     }
 
@@ -394,27 +378,6 @@ start_server {
         set invalid [format "\\%c%c1" 120 123]
         assert_error {*invalid regular expression*} [list r argrep myarray - + RE $invalid]
         assert_error {*invalid regular expression*} [list r argrep myarray - + RE $invalid NOCASE]
-    }
-
-    test {ARGREP WITHVALUES with RESP3 returns nested [idx, value] pairs} {
-        r del myarray
-        r armset myarray 0 alpha 1 beta 2 alphabet 3 delta
-
-        r hello 3
-        set res [r argrep myarray - + MATCH alpha WITHVALUES]
-        assert_equal 2 [llength $res]
-        assert_equal {0 alpha} [lindex $res 0]
-        assert_equal {2 alphabet} [lindex $res 1]
-        r hello 2
-    }
-
-    test {ARGREP without WITHVALUES in RESP3 stays a flat integer array} {
-        r del myarray
-        r armset myarray 0 alpha 1 beta 2 alphabet 5 gamma
-
-        r hello 3
-        assert_equal {0 2} [r argrep myarray - + MATCH alpha]
-        r hello 2
     }
 
     test {ARSET contiguous write basics} {
@@ -1095,7 +1058,7 @@ start_server {
 
         set result {}
         foreach idx [lsort -integer [array names expected]] {
-            lappend result $idx $expected($idx)
+            lappend result [list $idx $expected($idx)]
         }
         return $result
     }
@@ -1166,7 +1129,7 @@ start_server {
 
         foreach idx [iterator_stress_sorted_indices model $reverse] {
             if {$idx < $lo || $idx > $hi} continue
-            lappend result $idx $model($idx)
+            lappend result [list $idx $model($idx)]
             incr emitted
             if {$limit > 0 && $emitted >= $limit} break
         }
@@ -1196,8 +1159,11 @@ start_server {
             }
 
             if {$match} {
-                lappend result $idx
-                if {$withvalues} { lappend result $value }
+                if {$withvalues} {
+                    lappend result [list $idx $value]
+                } else {
+                    lappend result $idx
+                }
                 incr emitted
                 if {$emitted >= $limit} break
             }
@@ -2817,12 +2783,12 @@ start_server {
 
         # ARSCAN should find remaining elements
         set result [r arscan myarray 0 100]
-        assert_equal 8 [llength $result]  ;# 4 pairs
-        assert_equal {0 val0 1 val1 2 val2 3 val3} $result
+        assert_equal 4 [llength $result]
+        assert_equal {{0 val0} {1 val1} {2 val2} {3 val3}} $result
 
         # Reverse scan
         set result [r arscan myarray 100 0]
-        assert_equal {3 val3 2 val2 1 val1 0 val0} $result
+        assert_equal {{3 val3} {2 val2} {1 val1} {0 val0}} $result
     }
 
     test {ARSCAN with LIMIT after range delete} {
@@ -2836,8 +2802,8 @@ start_server {
 
         # Scan with limit
         set result [r arscan myarray 0 100 LIMIT 3]
-        assert_equal 6 [llength $result]  ;# 3 pairs
-        assert_equal {0 0 1 1 2 2} $result
+        assert_equal 3 [llength $result]
+        assert_equal {{0 0} {1 1} {2 2}} $result
     }
 
     test {AROP after ARDELRANGE across multiple slices} {
@@ -2899,19 +2865,16 @@ start_server {
 
         # Scan entire range
         set result [r arscan myarray 0 20000000]
-        assert_equal 6 [llength $result]
-        assert_equal 0 [lindex $result 0]
-        assert_equal "first" [lindex $result 1]
-        assert_equal 8388608 [lindex $result 2]
-        assert_equal "second" [lindex $result 3]
-        assert_equal 16777216 [lindex $result 4]
-        assert_equal "third" [lindex $result 5]
+        assert_equal 3 [llength $result]
+        assert_equal {0 first} [lindex $result 0]
+        assert_equal {8388608 second} [lindex $result 1]
+        assert_equal {16777216 third} [lindex $result 2]
 
         # Reverse scan
         set result [r arscan myarray 20000000 0]
-        assert_equal "third" [lindex $result 1]
-        assert_equal "second" [lindex $result 3]
-        assert_equal "first" [lindex $result 5]
+        assert_equal {16777216 third} [lindex $result 0]
+        assert_equal {8388608 second} [lindex $result 1]
+        assert_equal {0 first} [lindex $result 2]
 
         r del myarray
     }
@@ -2922,9 +2885,9 @@ start_server {
         r arset myarray 4586 "b"
         r arset myarray 19245258 "c"
 
-        assert_equal {43 a 4586 b 19245258 c} \
+        assert_equal {{43 a} {4586 b} {19245258 c}} \
             [r arscan myarray 0 30000000 LIMIT 8]
-        assert_equal {19245258 c} \
+        assert_equal {{19245258 c}} \
             [r argrep myarray 0 30000000 EXACT c WITHVALUES LIMIT 4]
         assert_equal 3 [r arop myarray 0 30000000 USED]
     }
@@ -2965,9 +2928,8 @@ start_server {
 
         # ARSCAN should only find second slice elements
         set result [r arscan myarray 0 5000]
-        assert_equal 20 [llength $result]
-        assert_equal 4096 [lindex $result 0]
-        assert_equal "slice1_4096" [lindex $result 1]
+        assert_equal 10 [llength $result]
+        assert_equal {4096 slice1_4096} [lindex $result 0]
     }
 
 }
