@@ -3220,6 +3220,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 zfree(lp);
                 return NULL;
             }
+            if ((uint64_t)lp_live > UINT64_MAX - live_entries) {
+                rdbReportCorruptRDB("Stream live entry count overflow");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
             live_entries += lp_live;
 
             /* Insert the key in the radix tree. */
