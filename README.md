@@ -947,9 +947,9 @@ For a bank processing 100M active cards:
 
 ### Experiment 4: Ad-Tech: Multi-Region Unique Reach via PFMERGE
 
-**Company:** Digital advertising platform (Google Ads / Meta Ads style)
-**Problem:** Campaign runs across 4 regional data centers. Each region counts unique users who saw the ad. Need total unique reach without double-counting users who saw ad in multiple regions.
-**Goal:** Modify hllMerge to log register-level MAX operations, proving distributed merge is mathematically correct.
+* **Company:** Digital advertising platform (Google Ads / Meta Ads style)
+* **Problem:** Campaign runs across 4 regional data centers. Each region counts unique users who saw the ad. Need total unique reach without double-counting users who saw ad in multiple regions.
+* **Goal:** Modify hllMerge to log register-level MAX operations, proving distributed merge is mathematically correct.
 
 #### Change
 
@@ -985,7 +985,7 @@ changed to:
 
 #### Experiment Script
 
-```
+```[python]
 import redis, random, string
 
 r = redis.Redis(decode_responses=True)
@@ -1080,9 +1080,86 @@ Check redis-server terminal for MERGE register update logs!
 ```
 
 **Conclusion of Experiment:** `PFMERGE` mechanism preserves the highest probabilistic observation for each register, ensuring duplicate users are not overcounted across regions.
+
 ---
 
 ## 6. Failure Analysis
+
+### FA-1 — What happens when data size increases significantly?
+
+**Hypothesis:** HLL memory stays flat (12 KB) but relative error increases at very high cardinalities because register saturation becomes more likely.
+
+Expected:
+* Scale: 100 M+ 
+* Error > 5%, negative bias
+
+#### Script
+
+```[python]
+# fa1_scale.py — run as: python3 fa1_scale.py
+import redis, random, string, time
+
+r = redis.Redis(decode_responses=True)
+
+def rstr(k=12):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=k))
+
+cardinalities = [1_000, 10_000, 100_000, 1_000_000, 10_000_000]
+
+print("="*72)
+print(f"{'Actual':>12} {'Estimate':>12} {'Error%':>8} {'Memory':>10} {'Time(s)':>9}")
+print("="*72)
+
+for n in cardinalities:
+    key = f"fa1:{n}"
+    r.delete(key)
+    actual = set()
+
+    t0 = time.time()
+    pipe = r.pipeline(transaction=False)
+    batch = []
+    for i in range(n):
+        v = rstr()
+        actual.add(v)
+        pipe.pfadd(key, v)
+        if i % 5000 == 4999:          # flush every 5K
+            pipe.execute()
+            pipe = r.pipeline(transaction=False)
+    pipe.execute()
+    elapsed = time.time() - t0
+
+    est  = r.pfcount(key)
+    mem  = r.memory_usage(key)
+    err  = abs(est - len(actual)) / len(actual) * 100
+    flag = "  ← DEGRADED" if err > 5 else ""
+    print(f"{len(actual):>12,} {est:>12,} {err:>7.2f}% {mem:>10,}B {elapsed:>8.2f}s{flag}")
+
+print("="*72)
+print("Note: memory should stay ~12–14 KB regardless of cardinality.")
+print("Error spikes near 10^7+ indicate register saturation (max-value = 63).")
+```
+
+#### Results
+
+```
+========================================================================
+      Actual     Estimate   Error%     Memory   Time(s)
+========================================================================
+       1,000          995    0.50%      2,616B     0.01s
+      10,000       10,090    0.90%     12,856B     0.05s
+     100,000      101,404    1.40%     12,856B     0.47s
+   1,000,000    1,005,822    0.58%     12,856B     4.92s
+  10,000,000    9,929,181    0.71%     12,856B    67.52s
+========================================================================
+Note: memory should stay ~12–14 KB regardless of cardinality.
+Error spikes near 10^7+ indicate register saturation (max-value = 63).
+```
+
+**Findings:**
+1. The predicted failure did NOT occur.
+2. The real failure at scale is throughput, not accuracy.
+3. The sparse $\rightarrow$ dense transition is a one-way memory jump.
+4. The 100K error spike is statistical noise, not a structural flaw.
 
 ---
 
