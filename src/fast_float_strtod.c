@@ -479,8 +479,7 @@ static adjusted_mantissa compute_float_d(int64_t q, uint64_t w) {
     int shift = upperbit + 64 - DOUBLE_MANTISSA_EXPLICIT_BITS - 3;
 
     answer.mantissa = product.high >> shift;
-    answer.power2 = (int32_t)(eisel_lemire_power((int32_t)q) + upperbit -
-                              lz - DOUBLE_MINIMUM_EXPONENT);
+    answer.power2 = (int32_t)(eisel_lemire_power((int32_t)q) + upperbit - lz - DOUBLE_MINIMUM_EXPONENT);
 
     if (answer.power2 <= 0) {
         /* Subnormal path. */
@@ -496,10 +495,7 @@ static adjusted_mantissa compute_float_d(int64_t q, uint64_t w) {
         answer.mantissa >>= 1;
         /* If post-rounding the value crosses back into the normal range, mark
          * it normal (power2 = 1) rather than subnormal (power2 = 0). */
-        answer.power2 = (answer.mantissa <
-                         ((uint64_t)1 << DOUBLE_MANTISSA_EXPLICIT_BITS))
-                            ? 0
-                            : 1;
+        answer.power2 = (answer.mantissa < ((uint64_t)1 << DOUBLE_MANTISSA_EXPLICIT_BITS)) ? 0 : 1;
         return answer;
     }
 
@@ -662,8 +658,8 @@ static inline int parse_number_string(const char *p, const char *pend, double *r
          * mismatches vs strtod() on inputs like 9007199255094284e-19 and
          * 2489830482329185244e1. compute_float_d is bit-exact with strtod()
          * for every input parse_number_string can produce. */
-        if (exponent < EISEL_LEMIRE_SMALLEST_POWER_OF_FIVE ||
-            exponent > EISEL_LEMIRE_LARGEST_POWER_OF_FIVE) return 0;
+        if (exponent < EISEL_LEMIRE_SMALLEST_POWER_OF_FIVE || exponent > EISEL_LEMIRE_LARGEST_POWER_OF_FIVE)
+            return 0;
 
         adjusted_mantissa am = compute_float_d(exponent, mantissa);
         /* power2 < 0 would mean indeterminate (caller should fall back to
