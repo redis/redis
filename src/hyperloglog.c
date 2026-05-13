@@ -191,6 +191,8 @@ struct hllhdr {
 #define HLL_INVALIDATE_CACHE(hdr) (hdr)->card[7] |= (1<<7)
 #define HLL_VALID_CACHE(hdr) (((hdr)->card[7] & (1<<7)) == 0)
 
+/*Experiment 1: reducing the number of registers from 14 for experiment.*/
+/* #define HLL_P 10 */
 #define HLL_P 14 /* The greater is P, the smaller the error. */
 #define HLL_Q (64-HLL_P) /* The number of bits of the hash value used for
                             determining the number of leading zeros. */
@@ -475,6 +477,13 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
         count++;
         bit <<= 1;
     }
+
+/* DEBUG: Print register assignment for each element */
+    if (getenv("HLL_DEBUG")) {
+        fprintf(stderr, "[HLL_DEBUG] ele='%.*s' index=%lu count=%d\n",
+                (int)elesize, (char*)ele, (unsigned long)index, count);
+    }
+
     *regp = (int) index;
     return count;
 }
@@ -851,8 +860,10 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
     int oldlen = is_xzero ? 2 : 1;
     int deltalen = seqlen-oldlen;
 
+    /* EXPERIMENT 2: hardcoded 500, original was server.hll_sparse_max_bytes=3000 */
     if (deltalen > 0 &&
         sdslen(o->ptr) + deltalen > server.hll_sparse_max_bytes) goto promote;
+	//sdslen(o->ptr) + deltalen > 500) goto promote;
     serverAssert(sdslen(o->ptr) + deltalen <= sdsalloc(o->ptr));
     if (deltalen && next) memmove(next+deltalen,next,end-next);
     sdsIncrLen(o->ptr,deltalen);
@@ -1262,6 +1273,19 @@ void pfaddCommand(client *c) {
         server.dirty += updated;
         HLL_INVALIDATE_CACHE(hdr);
     }
+    /* EXPERIMENT 3: Corporate fraud detection alert
+     * If key starts with "card:" and cardinality exceeds 10
+     * unique locations, flag as suspicious activity */
+    // if (strncmp(c->argv[1]->ptr, "card:", 5) == 0) {
+    //     struct hllhdr *fhdr = o->ptr;
+    //     uint64_t card = hllCount(fhdr, NULL);
+    //     if (card > 10) {
+    //         fprintf(stderr,
+    //             "[FRAUD ALERT] Card '%s' accessed from %llu unique locations!\n",
+    //             (char*)c->argv[1]->ptr,
+    //             (unsigned long long)card);
+    //     }
+    // }
     addReply(c, updated ? shared.cone : shared.czero);
 }
 
