@@ -59,7 +59,7 @@ distclean:
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
 	-(cd fpconv && $(MAKE) clean) > /dev/null || true
-	-(cd fast_float && $(MAKE) clean) > /dev/null || true
+	-(cd tre && $(MAKE) clean) > /dev/null || true
 	-(cd xxhash && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
@@ -95,11 +95,12 @@ fpconv: .make-prerequisites
 
 .PHONY: fpconv
 
-fast_float: .make-prerequisites
+tre: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd fast_float && $(MAKE) libfast_float CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
+	cd tre && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
-.PHONY: fast_float
+.PHONY: tre
+
 
 XXHASH_CFLAGS = -fPIC $(DEPS_CFLAGS)
 xxhash: .make-prerequisites
@@ -136,8 +137,8 @@ lua: .make-prerequisites
 
 .PHONY: lua
 
-JEMALLOC_CFLAGS=$(CFLAGS)
-JEMALLOC_LDFLAGS=$(LDFLAGS)
+JEMALLOC_CFLAGS=$(ENABLE_LTO) $(CFLAGS)
+JEMALLOC_LDFLAGS=$(ENABLE_LTO) $(LDFLAGS)
 
 ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)

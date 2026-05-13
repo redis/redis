@@ -3402,47 +3402,47 @@ start_server {
 
         # Unrecognized option at various positions — the parser accepts options
         # both before and after the IDS block, so verify rejection in each slot.
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL BADOPT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT BADOPT IDS 1 1-0 FORCE}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT FORCE BADOPT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL RETRYCOUNT 5 BADOPT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 5 BADOPT}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL FORCE IDS 1 1-0 BADOPT RETRYCOUNT 5}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL BADOPT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT BADOPT IDS 1 1-0 FORCE}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT FORCE BADOPT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL RETRYCOUNT 5 BADOPT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 5 BADOPT}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL FORCE IDS 1 1-0 BADOPT RETRYCOUNT 5}
 
         # Invalid mode
-        assert_error "*mode must be SILENT, FAIL, or FATAL*" {r XNACK mystream grp BADMODE IDS 1 1-0}
+        assert_error "ERR mode must be SILENT, FAIL, or FATAL" {r XNACK mystream grp BADMODE IDS 1 1-0}
 
         # Multiple mode words — only one mode is allowed per invocation.
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL FATAL IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT FAIL IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FATAL SILENT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL FATAL IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT FAIL IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FATAL SILENT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
 
         # IDS keyword validation
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT FORCE RETRYCOUNT 5}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
+        assert_error "ERR syntax error, expected IDS keyword" {r XNACK mystream grp SILENT FORCE RETRYCOUNT 5}
 
         # numids validation
-        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS abc 1-0}
-        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS 0 1-0}
-        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS -1 1-0}
-        assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
+        assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS abc 1-0}
+        assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS 0 1-0}
+        assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS -1 1-0}
+        assert_error "ERR number of IDs doesn't match numids" {r XNACK mystream grp SILENT IDS 2 1-0}
 
         # Invalid stream ID format
-        assert_error "*Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
+        assert_error "ERR Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
 
         # RETRYCOUNT validation — non-integer, negative, overflow, missing value
-        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
-        assert_error "*Invalid RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
-        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
+        assert_error "ERR value is not an integer or out of range" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
+        assert_error "ERR Invalid RETRYCOUNT value, must be >= 0" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
+        assert_error "ERR value is not an integer or out of range" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
         # RETRYCOUNT without a following value — consumed as trailing option
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
         # RETRYCOUNT right after mode with no IDS — too few arguments
-        assert_error "*wrong number of arguments*" {r XNACK mystream grp FAIL RETRYCOUNT}
+        assert_error "ERR wrong number of arguments for 'xnack' command" {r XNACK mystream grp FAIL RETRYCOUNT}
 
         # Extra args after numids IDs — the surplus ID is parsed as an option
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 2-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 2-0}
     }
 
     # Verify SILENT mode decrements delivery_count by 1, clamped at 0.

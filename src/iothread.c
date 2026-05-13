@@ -859,6 +859,8 @@ int IOThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData) 
  * and IO thread will communicate through event notifier. */
 void *IOThreadMain(void *ptr) {
     IOThread *t = ptr;
+    /* Claim a reserved used_memory accounting slot before any allocation. */
+    zmalloc_register_reserved_slot();
     char thdname[16];
     snprintf(thdname, sizeof(thdname), "io_thd_%d", t->id);
     redis_set_thread_title(thdname);

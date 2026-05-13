@@ -29,12 +29,12 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
 
-    if (slargc > SLOWLOG_ENTRY_MAX_ARGC) slargc = SLOWLOG_ENTRY_MAX_ARGC;
+    if (slargc > server.slowlog_max_argc) slargc = server.slowlog_max_argc;
     se->argc = slargc;
     se->argv = zmalloc(sizeof(robj*)*slargc);
     for (j = 0; j < slargc; j++) {
         /* Logging too many arguments is a useless memory waste, so we stop
-         * at SLOWLOG_ENTRY_MAX_ARGC, but use the last argument to specify
+         * at server.slowlog_max_argc, but use the last argument to specify
          * how many remaining arguments there were in the original command. */
         if (slargc != argc && j == slargc-1) {
             se->argv[j] = createObject(OBJ_STRING,
@@ -44,13 +44,13 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
             /* Trim too long strings as well... */
             if (argv[j]->type == OBJ_STRING &&
                 sdsEncodedObject(argv[j]) &&
-                sdslen(argv[j]->ptr) > SLOWLOG_ENTRY_MAX_STRING)
+                sdslen(argv[j]->ptr) > server.slowlog_max_string_len)
             {
-                sds s = sdsnewlen(argv[j]->ptr, SLOWLOG_ENTRY_MAX_STRING);
+                sds s = sdsnewlen(argv[j]->ptr, server.slowlog_max_string_len);
 
                 s = sdscatprintf(s,"... (%lu more bytes)",
                     (unsigned long)
-                    sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
+                    sdslen(argv[j]->ptr) - server.slowlog_max_string_len);
                 se->argv[j] = createObject(OBJ_STRING,s);
             } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];

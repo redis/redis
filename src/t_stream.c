@@ -3878,7 +3878,7 @@ void xnackCommand(client *c) {
     } else if (!strcasecmp(c->argv[3]->ptr,"FATAL")) {
         mode = XNACK_FATAL;
     } else {
-        addReplyError(c,"ERR mode must be SILENT, FAIL, or FATAL");
+        addReplyError(c,"mode must be SILENT, FAIL, or FATAL");
         return;
     }
 
@@ -3897,7 +3897,7 @@ void xnackCommand(client *c) {
             numids = (int)numids_long;
             ids_start = i + 2;
             if (numids > (c->argc - ids_start)) {
-                addReplyError(c,"ERR number of IDs doesn't match numids");
+                addReplyError(c,"number of IDs doesn't match numids");
                 return;
             }
             i = ids_start + numids - 1;
@@ -3908,18 +3908,18 @@ void xnackCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
                 return;
             if (retrycount < 0) {
-                addReplyError(c,"ERR Invalid RETRYCOUNT value, must be >= 0");
+                addReplyError(c,"Invalid RETRYCOUNT value, must be >= 0");
                 return;
             }
         } else {
-            addReplyErrorFormat(c,"ERR Unrecognized XNACK option '%s'",
+            addReplyErrorFormat(c,"Unrecognized XNACK option '%s'",
                                 (char *)c->argv[i]->ptr);
             return;
         }
     }
 
     if (ids_start == 0) {
-        addReplyError(c,"ERR syntax error, expected IDS keyword");
+        addReplyError(c,"syntax error, expected IDS keyword");
         return;
     }
 
@@ -5038,7 +5038,7 @@ void xtrimCommand(client *c) {
 
 /* Helper function for xinfoCommand.
  * Handles the variants of XINFO STREAM */
-void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
+void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
     stream *s = kv->ptr;
     int full = 1;
     long long count = 10; /* Default COUNT is 10 so we don't block the server */
@@ -5275,7 +5275,7 @@ void xinfoReplyWithStreamInfo(client *c, kvobj *kv) {
         }
     }
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+        updateSlotAllocSize(c->db,getKeySlot(key->ptr),kv,old_alloc,kvobjAllocSize(kv));
 }
 
 /* XINFO CONSUMERS <key> <group>
@@ -5379,7 +5379,7 @@ NULL
         raxStop(&ri);
     } else if (!strcasecmp(opt,"STREAM")) {
         /* XINFO STREAM <key> [FULL [COUNT <count>]]. */
-        xinfoReplyWithStreamInfo(c,kv);
+        xinfoReplyWithStreamInfo(c,key,kv);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -5518,12 +5518,14 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     if (!valid_record || zero != 0) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
+    int64_t actual_deleted = 0;
     entry_count += deleted_count;
     while (entry_count--) {
         if (!p) return 0;
         int64_t fields = master_fields, extra_fields = 3;
         int64_t flags = lpGetIntegerIfValid(p, &valid_record);
         if (!valid_record) return 0;
+        if (flags & STREAM_ITEM_FLAG_DELETED) actual_deleted++;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
         /* entry id */
@@ -5559,6 +5561,9 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
         if (lp_count != fields + extra_fields) return 0;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
     }
+
+    if (actual_deleted != deleted_count)
+        return 0;
 
     if (next)
         return 0;
