@@ -945,6 +945,141 @@ For a bank processing 100M active cards:
 - HLL approach: **~1.4 TB fixed** regardless of transaction volume,
   with fraud alerts delivered at the moment of threshold breach.
 
+### Experiment 4: Ad-Tech: Multi-Region Unique Reach via PFMERGE
+
+**Company:** Digital advertising platform (Google Ads / Meta Ads style)
+**Problem:** Campaign runs across 4 regional data centers. Each region counts unique users who saw the ad. Need total unique reach without double-counting users who saw ad in multiple regions.
+**Goal:** Modify hllMerge to log register-level MAX operations, proving distributed merge is mathematically correct.
+
+#### Change
+
+`src/hyperloglog.c` line 1116 (hllMerge)
+```
+    if (hdr->encoding == HLL_DENSE) {
+        uint8_t val;
+        for (i = 0; i < HLL_REGISTERS; i++) {
+            HLL_DENSE_GET_REGISTER(val,hdr->registers,i);
+            if (val > max[i]) max[i] = val;
+        }
+```
+
+changed to:
+```
+    if (hdr->encoding == HLL_DENSE) {
+        uint8_t val;
+        int merge_updates = 0; /* EXPERIMENT 4: count register updates */
+        for (i = 0; i < HLL_REGISTERS; i++) {
+            HLL_DENSE_GET_REGISTER(val,hdr->registers,i);
+            if (val > max[i]) {
+                max[i] = val;
+                merge_updates++;
+            }
+        }
+        /* EXPERIMENT 4: Log merge statistics */
+        if (getenv("HLL_MERGE_DEBUG")) {
+            fprintf(stderr,
+                "[MERGE] %d of %d registers updated during merge\n",
+                merge_updates, HLL_REGISTERS);
+        }
+```
+
+#### Experiment Script
+
+```
+import redis, random, string
+
+r = redis.Redis(decode_responses=True)
+
+def rstr(): return ''.join(random.choices(string.ascii_letters, k=10))
+
+print("="*65)
+print("CORPORATE EXPERIMENT C: Multi-Region Ad Campaign Reach")
+print("="*65)
+
+# 4 regional data centers — some users overlap (saw ad in multiple regions)
+total_users    = 100000
+overlap_users  = 20000   # users who appear in multiple regions
+
+# Generate shared overlap users
+overlap_pool = [rstr() for _ in range(overlap_users)]
+
+regions = {
+    "ad:region_india":   30000,
+    "ad:region_usa":     40000,
+    "ad:region_europe":  25000,
+    "ad:region_apac":    20000,
+}
+
+# Delete all keys
+for k in regions: r.delete(k)
+r.delete("ad:global_reach")
+
+# Add regional users + overlap users to each region
+for region_key, unique_count in regions.items():
+    # Add region-specific unique users
+    for _ in range(unique_count):
+        r.pfadd(region_key, rstr())
+    # Add some overlap users (seen in multiple regions)
+    for u in random.sample(overlap_pool, min(5000, overlap_users)):
+        r.pfadd(region_key, u)
+
+print(f"\nRegional unique reach (before merge):")
+print(f"{'Region':<25}{'Unique Users'}")
+print("-"*40)
+
+regional_sum = 0
+for region_key in regions:
+    count = r.pfcount(region_key)
+    regional_sum += count
+    print(f"{region_key:<25}{count}")
+
+print(f"\nNaive sum (with double counting): {regional_sum}")
+
+# Merge all regions — eliminates double counting
+r.pfmerge("ad:global_reach", *regions.keys())
+global_reach = r.pfcount("ad:global_reach")
+
+print(f"True global reach (PFMERGE):      {global_reach}")
+print(f"Double counting avoided:          {regional_sum - global_reach} users")
+print(f"\nGlobal reach memory:  {r.memory_usage('ad:global_reach')} bytes (12KB)")
+print(f"Sum of all regions:   {sum(r.memory_usage(k) for k in regions)} bytes")
+print(f"\nCheck redis-server terminal for MERGE register update logs!")
+```
+
+#### Experiment Result
+
+```
+=================================================================
+CORPORATE EXPERIMENT C: Multi-Region Ad Campaign Reach
+=================================================================
+
+Regional unique reach (before merge):
+Region                   Unique Users
+----------------------------------------
+ad:region_india          34848
+ad:region_usa            45308
+ad:region_europe         29864
+ad:region_apac           24946
+
+Naive sum (with double counting): 134966
+True global reach (PFMERGE):      128811
+Double counting avoided:          6155 users
+
+Global reach memory:  12872 bytes (12KB)
+Sum of all regions:   51456 bytes
+
+Check redis-server terminal for MERGE register update logs!
+```
+
+**Observed merge logs from redis-server:**
+```
+[MERGE] 14414 of 16384 registers updated during merge
+[MERGE] 7733 of 16384 registers updated during merge
+[MERGE] 3221 of 16384 registers updated during merge
+[MERGE] 2123 of 16384 registers updated during merge
+```
+
+**Conclusion of Experiment:** `PFMERGE` mechanism preserves the highest probabilistic observation for each register, ensuring duplicate users are not overcounted across regions.
 ---
 
 ## 6. Failure Analysis
@@ -958,11 +1093,6 @@ BDE_Project/
 ├── README.md                          ← this report
 ├── redis/                             ← Redis 7.2 source (cloned)
 │   └── src/hyperloglog.c              ← primary file studied
-└── experiments/
-    ├── experiment1_error_rate.py      ← error rate vs cardinality
-    ├── experiment2_memory.py          ← HLL vs SET memory
-    ├── experiment3_skew.py            ← duplicate/skew handling
-    └── experiment4_sparse_threshold.py ← threshold modification
 ```
 
 ### Quick Reproduction
@@ -974,16 +1104,6 @@ cd redis && git checkout 7.2 && make
 
 # Start server
 src/redis-server &
-
-# Install Python client
-pip3 install redis
-
-# Run all experiments
-cd experiments
-python3 experiment1_error_rate.py
-python3 experiment2_memory.py
-python3 experiment3_skew.py
-python3 experiment4_sparse_threshold.py
 ```
 
 ---

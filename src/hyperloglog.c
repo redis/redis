@@ -1124,6 +1124,22 @@ int hllMerge(uint8_t *max, robj *hll) {
             HLL_DENSE_GET_REGISTER(val,hdr->registers,i);
             if (val > max[i]) max[i] = val;
         }
+
+        /* EXPERIMENT 4: count register updates */
+        // int merge_updates = 0;
+        // for (i = 0; i < HLL_REGISTERS; i++) {
+        //     HLL_DENSE_GET_REGISTER(val,hdr->registers,i);
+        //     if (val > max[i]) {
+        //         max[i] = val;
+        //         merge_updates++;
+        //     }
+        // }
+        /* EXPERIMENT 4: Log merge statistics */
+        // if (getenv("HLL_MERGE_DEBUG")) {
+        //     fprintf(stderr,
+        //         "[MERGE] %d of %d registers updated during merge\n",
+        //         merge_updates, HLL_REGISTERS);
+        // }
     } else {
         uint8_t *p = hll->ptr, *end = p + sdslen(hll->ptr);
         long runlen, regval;
