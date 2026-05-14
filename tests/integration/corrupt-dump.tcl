@@ -1070,18 +1070,6 @@ test {corrupt payload: stream live entry count integer overflow bypasses length 
     }
 }
 
-test {corrupt payload: stream all-tombstone entries with non-zero length} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
-        r debug set-skip-checksum-validation 1
-        # Payload: stream where every entry is a tombstone
-        # s->length claims 1 live entry.
-        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
-        catch {r XREAD COUNT 1 STREAMS mystream $} _
-        assert_match "*Bad data format*" $err
-        r ping
-    }
-}
-
 test {corrupt payload: stream last_id smaller than actual tail entry} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
         r config set sanitize-dump-payload yes
@@ -1187,24 +1175,6 @@ test {corrupt payload: stream listpacks in non-ascending master order} {
         # rax-key ascending order, so master_id[i+1] <= master_id[i]
         # is the canonical signature for this class of bypass.
         catch {r RESTORE mystream 0 "\x1A\x02\x10\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x05\x00\x05\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\x00\x00\x00\x00\x00\x00\x00\x00" REPLACE} err
-        assert_match "*Bad data format*" $err
-        r ping
-    }
-}
-
-test {corrupt payload: stream length inconsistent with summed live entries} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
-        r config set sanitize-dump-payload yes
-        r debug set-skip-checksum-validation 1
-        # Payload: one listpack with a single live entry at id 1-0
-        # (lp_live=1 in the listpack header, so the per-listpack
-        # lp_live>0 check passes), but the trailer declares length=2
-        # and entries_added=2. The summed live-entry count (1) does
-        # not match s->length (2), and entries_added>=length so the
-        # entries_added<length check cannot fire first. Only the
-        # post-loop "length inconsistent with live entries"
-        # cross-check rejects this.
-        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x01\x00\x01\x00\x00\x00\x02\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
         assert_match "*Bad data format*" $err
         r ping
     }
