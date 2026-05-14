@@ -2429,13 +2429,7 @@ static int isValidAnnouncedNodename(char *val,const char **err) {
     return 1;
 }
 
-static int isValidAnnouncedHostname(char *val, const char **err) {
-    if (strlen(val) >= NET_HOST_STR_LEN) {
-        *err = "Hostnames must be less than "
-            STRINGIFY(NET_HOST_STR_LEN) " characters";
-        return 0;
-    }
-
+static int isValidHostnameChars(char *val, const char **err) {
     int i = 0;
     char c;
     while ((c = val[i])) {
@@ -2453,6 +2447,15 @@ static int isValidAnnouncedHostname(char *val, const char **err) {
     return 1;
 }
 
+static int isValidAnnouncedHostname(char *val, const char **err) {
+    if (strlen(val) >= NET_HOST_STR_LEN) {
+        *err = "Hostnames must be less than "
+            STRINGIFY(NET_HOST_STR_LEN) " characters";
+        return 0;
+    }
+    return isValidHostnameChars(val, err);
+}
+
 /* Validation function for cluster-announce-ip.
  * Ensures the IP address is valid and rejects control characters. */
 static int isValidClusterAnnounceIp(char *val, const char **err) {
@@ -2462,12 +2465,19 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
         return 1;
     }
 
-    if (inet_pton(AF_INET, val, buf) != 1 &&
-        inet_pton(AF_INET6, val, buf) != 1) {
-        *err = "Cluster announce IP must be a valid IPv4 or IPv6 address";
+    /* Accept valid IPv4 or IPv6 */
+    if (inet_pton(AF_INET, val, buf) == 1 || inet_pton(AF_INET6, val, buf) == 1) {
+        return 1;
+    }
+    /* Also accept valid hostnames, but limited to NET_IP_STR_LEN since
+     * cluster_announce_ip is stored in a NET_IP_STR_LEN buffer */
+    if (strlen(val) >= NET_IP_STR_LEN) {
+        *err = "Hostnames for cluster-announce-ip must be less than "
+               STRINGIFY(NET_IP_STR_LEN) " characters";
         return 0;
     }
-    return 1;
+    /* Also accept valid hostnames */
+    return isValidHostnameChars(val, err);
 }
 
 /* Validate specified string is a valid proc-title-template */
