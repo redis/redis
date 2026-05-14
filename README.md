@@ -332,7 +332,7 @@ PFCOUNT myhll                     ← cache invalid
       ↓ save result to hdr->card  ← cache now valid
 
 PFCOUNT myhll (again)             ← cache valid
-      ↓ return hdr->card instantly ← O(1), no recalculation ⚡
+      ↓ return hdr->card instantly ← O(1), no recalculation
 
 PFCOUNT myhll (1000 more times)   ← all return from cache instantly
 ```
@@ -424,7 +424,7 @@ User types: PFCOUNT myhll
                     │
                     ▼
               HLL_VALID_CACHE?
-              ├─ YES → read hdr->card → return instantly ⚡
+              ├─ YES → read hdr->card → return instantly
               └─ NO  → hllCount()                          line 1050
                             ├─ hllDenseRegHisto()          build histogram
                             ├─ hllTau()                    large cardinality fix
@@ -708,7 +708,7 @@ Reducing `HLL_P` from 14 to 10 increased worst-case error from
 **0.50% to 6.83%** — a 13.6x accuracy degradation. This directly
 validates the theoretical formula:
 
-- `HLL_P=14` → `1.04 / √16384 = 0.81%` (observed max: 0.50% ✅)
+- `HLL_P=14` → `1.04 / √16384 = 0.81%` (observed max: 0.50%)
 - `HLL_P=10` → `1.04 / √1024  = 3.25%` (observed max: 6.83%)
 
 At `HLL_P=10`, error exceeded 3.25% in 3 of 5 runs due to
@@ -863,9 +863,9 @@ any client-side polling.
 
 | Card ID | Unique IPs Injected | Expected Status |
 |---|---|---|
-| `card:4111-1111-NORMAL` | 4  | ✅ SAFE        |
-| `card:5500-0000-SUSPECT` | 8  | ⚠️ SUSPICIOUS  |
-| `card:3714-4963-FRAUD`   | 15 | 🚨 FRAUD ALERT |
+| `card:4111-1111-NORMAL` | 4  | SAFE        |
+| `card:5500-0000-SUSPECT` | 8  | SUSPICIOUS  |
+| `card:3714-4963-FRAUD`   | 15 | FRAUD ALERT |
 
 Threshold logic applied:
 - `unique_locs > 10` → **FRAUD ALERT**
@@ -891,9 +891,9 @@ for card_key, num_locations in cards.items():
         r.pfadd(card_key, ip)
 
     unique_locs = r.pfcount(card_key)
-    status = ("🚨 FRAUD ALERT" if unique_locs > 10
-              else "⚠️ SUSPICIOUS" if unique_locs > 7
-              else "✅ SAFE")
+    status = ("FRAUD ALERT" if unique_locs > 10
+              else "SUSPICIOUS" if unique_locs > 7
+              else "SAFE")
 
     print(f"\nCard:      {card_key}")
     print(f"Locations: {unique_locs} unique IPs")
@@ -905,9 +905,9 @@ for card_key, num_locations in cards.items():
 
 | Card | Unique IPs Detected | Status |
 |---|---|---|
-| `card:4111-1111-NORMAL`  | 4  | ✅ SAFE        |
-| `card:5500-0000-SUSPECT` | 8  | ⚠️ SUSPICIOUS  |
-| `card:3714-4963-FRAUD`   | 15 | 🚨 FRAUD ALERT |
+| `card:4111-1111-NORMAL`  | 4  | SAFE        |
+| `card:5500-0000-SUSPECT` | 8  | SUSPICIOUS  |
+| `card:3714-4963-FRAUD`   | 15 | FRAUD ALERT |
 
 **Results — Redis Server Terminal (Keyspace Notification Logs):**
 
@@ -938,7 +938,7 @@ polling required.
 | Approach | Memory per Card | Fraud Latency | Scalability |
 |---|---|---|---|
 | Exact Set (Redis SET) | O(n) per IP stored | Post-hoc query | Poor at 100M cards |
-| HLL + Notifications   | ~14 KB fixed       | Real-time, in-flight | ✅ Constant |
+| HLL + Notifications   | ~14 KB fixed       | Real-time, in-flight | Constant |
 
 For a bank processing 100M active cards:
 - Exact tracking: potentially **gigabytes** of IP sets per day.
@@ -1256,8 +1256,8 @@ BDE_Project/
 
 ```bash
 # Clone and build Redis
-git clone https://github.com/redis/redis.git
-cd redis && git checkout 7.2 && make
+git clone --branch 7.2 https://github.com/redis/redis.git
+cd redis && make
 
 # Start server
 src/redis-server &
