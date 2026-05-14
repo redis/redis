@@ -745,25 +745,9 @@ per key at scale can cause memory spikes and OOM events.
 
 **Code Modification — `src/hyperloglog.c`:**
 ```c
-
-### Experiment 2 — Social Media: Sparse-to-Dense Encoding Transition (HLL Threshold Modification)
-
-**Corporate Scenario:**
-A social media platform tracks unique hashtag interactions in
-real-time. Redis HyperLogLog uses two internal encodings: a
-memory-efficient **SPARSE** format for low-cardinality sets, and
-a fixed **DENSE** (12 KB) format for high-cardinality sets.
-Understanding when this transition occurs is critical for
-capacity planning — an unexpected jump from ~800 B to 12 KB
-per key at scale can cause memory spikes and OOM events.
-
 **Code Modification — `src/hyperloglog.c`:**
 ```c
-/* ORIGINAL */
-#define HLL_SPARSE_MAX_BYTES 3000   /* Sparse → Dense at ~3000 bytes */
-
-/* MODIFIED */
-#define HLL_SPARSE_MAX_BYTES 500    /* Hardcoded threshold = 500 bytes */
+    if (deltalen > 0 && sdslen(o->ptr) + deltalen > 500) goto promote;
 ```
 
 `HLL_SPARSE_MAX_BYTES` defines the maximum size (in bytes) the
@@ -858,6 +842,22 @@ A custom threshold check was injected so that every `PFADD`
 triggers a server-side log message when `PFCOUNT` exceeds 10
 unique locations — simulating a fraud alert pipeline without
 any client-side polling.
+
+**Code Modification — `src/hyperloglog.c`:**
+```c
+**Code Modification — `src/hyperloglog.c`:**
+```c
+    if (strncmp(c->argv[1]->ptr, "card:", 5) == 0) {
+         struct hllhdr *fhdr = o->ptr;
+         uint64_t card = hllCount(fhdr, NULL);
+         if (card > 10) {
+             fprintf(stderr,
+                 "[FRAUD ALERT] Card '%s' accessed from %llu unique locations!\n",
+                 (char*)c->argv[1]->ptr,
+                 (unsigned long long)card);
+         }
+     }
+```
 
 **Simulation Setup:**
 
