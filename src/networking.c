@@ -1336,9 +1336,31 @@ void addReplyBulk(client *c, robj *obj) {
     addReplyBulkWithFlag(c, obj, 1);
 }
 
-/* Add a C buffer as bulk reply */
+/* Add a C buffer as bulk reply.
+ *
+ * Fast path: assemble "$N\r\n<payload>\r\n" into a stack buffer and emit
+ * via a single _addReplyToBufferOrList call. Reuses the existing helper's
+ * full safety chain (replica/push/CLOSE/encoded/overflow), but pays one
+ * per-call branch chain instead of three. Slow path covers payloads too
+ * large for the stack buffer. */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     if (_prepareClientToWrite(c) != C_OK) return;
+    char buf[256];
+    if (likely(len + 16 <= sizeof(buf))) {
+        char *dst = buf;
+        if (likely(len < OBJ_SHARED_BULKHDR_LEN)) {
+            const size_t hl = OBJ_SHARED_HDR_STRLEN(len);
+            memcpy(dst, shared.bulkhdr[len]->ptr, hl); dst += hl;
+        } else {
+            *dst++ = '$';
+            dst += ll2string(dst, sizeof(buf) - 16, (long long)len);
+            *dst++ = '\r'; *dst++ = '\n';
+        }
+        memcpy(dst, p, len); dst += len;
+        *dst++ = '\r'; *dst++ = '\n';
+        _addReplyToBufferOrList(c, buf, dst - buf);
+        return;
+    }
     _addReplyLongLongBulk(c, len);
     _addReplyToBufferOrList(c, p, len);
     _addReplyToBufferOrList(c, "\r\n", 2);
