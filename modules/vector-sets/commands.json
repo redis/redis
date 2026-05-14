@@ -97,7 +97,19 @@
     "command_flags": [
       "WRITE",
       "DENYOOM"
-    ]
+    ],
+    "reply_schema": {
+      "oneOf": [
+        {
+          "description": "A new element was added.",
+          "const": true
+        },
+        {
+          "description": "The element already existed and was updated.",
+          "const": false
+        }
+      ]
+    }
   },
   "VREM": {
     "summary": "Remove an element from a vector set",
@@ -118,7 +130,19 @@
         "name": "element",
         "type": "string"
       }
-    ]
+    ],
+    "reply_schema": {
+      "oneOf": [
+        {
+          "description": "The element was removed.",
+          "const": true
+        },
+        {
+          "description": "The element was not found.",
+          "const": false
+        }
+      ]
+    }
   },
   "VSIM": {
     "summary": "Return elements by vector similarity",
@@ -232,7 +256,12 @@
         "name": "key",
         "type": "key"
       }
-    ]
+    ],
+    "reply_schema": {
+      "description": "The vector dimension.",
+      "type": "integer",
+      "minimum": 1
+    }
   },
   "VCARD": {
     "summary": "Return the number of elements in a vector set",
@@ -250,7 +279,12 @@
         "name": "key",
         "type": "key"
       }
-    ]
+    ],
+    "reply_schema": {
+      "description": "The cardinality (number of elements) of the vector set, or 0 if key does not exist.",
+      "type": "integer",
+      "minimum": 0
+    }
   },
   "VEMB": {
     "summary": "Return the vector associated with an element",
@@ -347,7 +381,19 @@
         "name": "json",
         "type": "string"
       }
-    ]
+    ],
+    "reply_schema": {
+      "oneOf": [
+        {
+          "description": "The attributes were updated.",
+          "const": true
+        },
+        {
+          "description": "The element was not found.",
+          "const": false
+        }
+      ]
+    }
   },
   "VGETATTR": {
     "summary": "Retrieve the JSON attributes of elements",
@@ -368,7 +414,19 @@
         "name": "element",
         "type": "string"
       }
-    ]
+    ],
+    "reply_schema": {
+      "oneOf": [
+        {
+          "description": "The attributes associated with the element.",
+          "type": "string"
+        },
+        {
+          "description": "The element does not exist or has no attributes.",
+          "type": "null"
+        }
+      ]
+    }
   },
   "VRANDMEMBER": {
     "summary": "Return one or multiple random members from a vector set",
@@ -390,7 +448,26 @@
         "type": "integer",
         "optional": true
       }
-    ]
+    ],
+    "reply_schema": {
+      "oneOf": [
+        {
+          "description": "Key does not exist and count was not specified.",
+          "type": "null"
+        },
+        {
+          "description": "Randomly selected element when count is not specified.",
+          "type": "string"
+        },
+        {
+          "description": "Randomly selected elements when count is specified.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    }
   },
   "VISMEMBER": {
     "summary": "Check if an element exists in a vector set",
@@ -411,7 +488,19 @@
         "name": "element",
         "type": "string"
       }
-    ]
+    ],
+    "reply_schema": {
+      "oneOf": [
+        {
+          "description": "The element exists.",
+          "const": true
+        },
+        {
+          "description": "The element does not exist.",
+          "const": false
+        }
+      ]
+    }
   },
   "VRANGE": {
     "summary": "Return elements in a lexicographical range",
