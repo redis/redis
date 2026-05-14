@@ -10,7 +10,8 @@
             "PUBSUB",
             "NOSCRIPT",
             "LOADING",
-            "STALE"
+            "STALE",
+            "DENYOOM"
         ],
         "arguments": [
             {

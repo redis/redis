@@ -81,10 +81,11 @@
 #define RDB_TYPE_STREAM_LISTPACKS_4 26        /* Stream with IDMP support */
 #define RDB_TYPE_STREAM_LISTPACKS_5 27        /* Stream with XNACK support (NACKed entries) */
 #define RDB_TYPE_GCRA 28                      /* GCRA object */
+#define RDB_TYPE_ARRAY 29                     /* Array data type */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 28))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 29))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_KEY_META   243   /* Key metadata (module metadata classes). */
@@ -133,6 +134,8 @@ int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 time_t rdbLoadTime(rio *rdb);
 int rdbSaveLen(rio *rdb, uint64_t len);
+ssize_t rdbSaveSignedInteger(rio *rdb, int64_t val);
+int64_t rdbLoadSignedInteger(rio *rdb, int rdbver);
 ssize_t rdbSaveMillisecondTime(rio *rdb, long long t);
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver);
 uint64_t rdbLoadLen(rio *rdb, int *isencoded);

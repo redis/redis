@@ -46,6 +46,15 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         # stream
         r xadd bigstream * entry1 $bigstr entry2 $bigstr
 
+        # array: dense slice populated with large string values, plus a
+        # sparsely-populated array whose indices span multiple slices.
+        for {set i 0} {$i < 32} {incr i} {
+            r arset dense_array $i $bigstr
+        }
+        for {set i 0} {$i < 16} {incr i} {
+            r arset sparse_array [expr {$i * 5000}] $bigstr
+        }
+
         set digest [debug_digest]
         # Test both RDB (yes) and AOF (no) rewrite paths.
         foreach preamble {yes no} {
