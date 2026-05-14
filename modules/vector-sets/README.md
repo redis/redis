@@ -145,8 +145,8 @@ Example:
     > VREM vset bar
     (integer) 0
 
-VREM does not perform thumstone / logical deletion, but will actually reclaim
-the memory from the vector set, so it is save to add and remove elements
+VREM does not perform tombstone / logical deletion, but will actually reclaim
+the memory from the vector set, so it is safe to add and remove elements
 in a vector set in the context of long running applications that continuously
 update the same index.
 
@@ -628,18 +628,18 @@ There are a few interesting facts to note about this pattern:
 4. Insertions, so **write** queries, will be scaled linearly: I can add N items against N instances at the same time, splitting the insertion load evenly. This is very important since vector sets, being based on HNSW data structures, are slower to add items than to query similar items, by a very big factor.
 5. While it cannot guarantee always the best results, with proper timeout management this system may be considered *highly available*, since if a subset of N instances are reachable, I'll be still be able to return similar items to my query vector.
 
-Notably, this pattern can be implemented in a way that avoids paying the sum of the round trip time with all the servers: it is possible to send the queries at the same time to all the instances, so that latency will be equal the slower reply out of of the N servers queries.
+Notably, this pattern can be implemented in a way that avoids paying the sum of the round trip time with all the servers: it is possible to send the queries at the same time to all the instances, so that latency will be equal to the slowest reply out of the N server queries.
 
 # Optimizing memory usage
 
 Vector Sets, or better, HNSWs, the underlying data structure used by Vector Sets, combined with the features provided by the Vector Sets themselves (quantization, random projection, filtering, ...) form an implementation that has a non-trivial space of parameters that can be tuned. Despite to the complexity of the implementation and of vector similarity problems, here there is a list of simple ideas that can drive the user to pick the best settings:
 
 * 8 bit quantization (the default) is almost always a win. It reduces the memory usage of vectors by a factor of 4, yet the performance penalty in terms of recall is minimal. It also reduces insertion and search time by around 2 times or more.
-* Binary quantization is much more extreme: it makes vector sets a lot faster, but increases the recall error in a sensible way, for instance from 95% to 80% if all the parameters remain the same. Yet, the speedup is really big, and the memory usage of vectors, compaerd to full precision vectors, 32 times smaller.
-* Vectors memory usage are not the only responsible for Vector Set high memory usage per entry: nodes contain, on average `M*2 + M*0.33` pointers, where M is by default 16 (but can be tuned in `VADD`, see the `M` option). Also each node has the string item and the optional JSON attributes: those should be as small as possible in order to avoid contributing more to the memory usage.
+* Binary quantization is much more extreme: it makes vector sets a lot faster, but increases the recall error in a sensible way, for instance from 95% to 80% if all the parameters remain the same. Yet, the speedup is really big, and the memory usage of vectors, compared to full precision vectors, is 32 times smaller.
+* Vector memory usage is not the only reason for Vector Set high memory usage per entry: nodes contain, on average `M*2 + M*0.33` pointers, where M is by default 16 (but can be tuned in `VADD`, see the `M` option). Also each node has the string item and the optional JSON attributes: those should be as small as possible in order to avoid contributing more to the memory usage.
 * The `M` parameter should be increased to 32 or more only when a near perfect recall is really needed.
 * It is possible to gain space (less memory usage) sacrificing time (more CPU time) by using a low `M` (the default of 16, for instance) and a high `EF` (the effort parameter of `VSIM`) in order to scan the graph more deeply.
-* When memory usage is seriosu concern, and there is the suspect the vectors we are storing don't contain as much information - at least for our use case - to justify the number of components they feature, random projection (the `REDUCE` option of `VADD`) could be tested to see if dimensionality reduction is possible with acceptable precision loss.
+* When memory usage is a serious concern, and there is a suspicion that the vectors we are storing don't contain as much information - at least for our use case - to justify the number of components they feature, random projection (the `REDUCE` option of `VADD`) could be tested to see if dimensionality reduction is possible with acceptable precision loss.
 
 ## Random projection tradeoffs
 
@@ -647,7 +647,7 @@ Sometimes learned vectors are not as information dense as we could guess, that
 is there are components having similar meanings in the space, and components
 having values that don't really represent features that matter in our use case.
 
-At the same time, certain vectors are very big, 1024 components or more. In this cases, it is possible to use the random projection feature of Redis Vector Sets in order to reduce both space (less RAM used) and space (more operstions per second). The feature is accessible via the `REDUCE` option of the `VADD` command. However, keep in mind that you need to test how much reduction impacts the performances of your vectors in term of recall and quality of the results you get back.
+At the same time, certain vectors are very big, 1024 components or more. In these cases, it is possible to use the random projection feature of Redis Vector Sets in order to reduce space (less RAM used) and improve speed (more operations per second). The feature is accessible via the `REDUCE` option of the `VADD` command. However, keep in mind that you need to test how much reduction impacts the performance of your vectors in terms of recall and quality of the results you get back.
 
 ## What is a random projection?
 
@@ -655,7 +655,7 @@ The concept of Random Projection is relatively simple to grasp. For instance, a 
 
 ## Examples of projections and loss of precision
 
-To show you a bit of a extreme case, let's take Word2Vec 3 million items and compress them from 300 to 100, 50 and 25 components vectors. Then, we check the recall compared to the ground truth against each of the vector sets produced in this way (using different `REDUCE` parameters of `VADD`). This is the result, obtained asking for the top 10 elements.
+To show you a bit of an extreme case, let's take Word2Vec 3 million items and compress them from 300 to 100, 50 and 25 component vectors. Then, we check the recall compared to the ground truth against each of the vector sets produced in this way (using different `REDUCE` parameters of `VADD`). This is the result, obtained asking for the top 10 elements.
 
 ```
 ----------------------------------------------------------------------
