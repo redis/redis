@@ -744,8 +744,7 @@ capacity planning — an unexpected jump from ~800 B to 12 KB
 per key at scale can cause memory spikes and OOM events.
 
 **Code Modification — `src/hyperloglog.c`:**
-```c
-**Code Modification — `src/hyperloglog.c`:**
+
 ```c
     if (deltalen > 0 && sdslen(o->ptr) + deltalen > 500) goto promote;
 ```
@@ -843,8 +842,6 @@ triggers a server-side log message when `PFCOUNT` exceeds 10
 unique locations — simulating a fraud alert pipeline without
 any client-side polling.
 
-**Code Modification — `src/hyperloglog.c`:**
-```c
 **Code Modification — `src/hyperloglog.c`:**
 ```c
     if (strncmp(c->argv[1]->ptr, "card:", 5) == 0) {
