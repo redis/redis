@@ -737,8 +737,7 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
     const char *eptr;
 
     /* Use fast path for non-null-terminated strings */
-    int parsed = fast_float_try_fast(nptr, pend, &result, &eptr);
-    if (likely(parsed && eptr == pend)) {
+    if (likely(fast_float_try_fast(nptr, pend, &result, &eptr) && eptr == pend)) {
         if (endptr) *endptr = (char *)eptr;
 #if UINTPTR_MAX == 0xffffffff
         /* On 32-bit x86 with x87 FPU, the fast-path fdiv/fmul result lives in
@@ -754,15 +753,6 @@ double fast_float_strtod(const char *nptr, size_t len, char **endptr) {
 #else
         return result;
 #endif
-    }
-
-    /* Keep nan parsing platform-independent. Some libc strtod()
-     * implementations accept a wider nan(n-char-seq) than C/POSIX allow, so
-     * falling back after a partial local parse would turn invalid inputs like
-     * nan(ab!c) into successful conversions on those platforms. */
-    if (parsed && isnan(result)) {
-        if (endptr) *endptr = (char *)eptr;
-        return result;
     }
     
     /* Fall back to strtod for complex cases:
@@ -808,6 +798,33 @@ static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
         else
             snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.20g) but got %s(%.20g)",
                      s, expect_failed ? "fail" : "ok", cases[i].expected, failed ? "fail" : "ok", d);
+        test_cond(descr, ok);
+    }
+}
+
+static void run_ff_libc_compat_tests(const char **cases, int n) {
+    for (int i = 0; i < n; i++) {
+        const char *s = cases[i];
+        size_t len = strlen(s);
+        char *eptr, *libc_eptr;
+
+        errno = 0;
+        double d = fast_float_strtod(s, len, &eptr);
+        int err = errno;
+
+        errno = 0;
+        double libc_d = strtod(s, &libc_eptr);
+        int libc_err = errno;
+
+        int failed = ((size_t)(eptr - s) != len) || err == EINVAL ||
+                     (err == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
+        int libc_failed = ((size_t)(libc_eptr - s) != len) || libc_err == EINVAL ||
+                          (libc_err == ERANGE && (
+                               libc_d == HUGE_VAL || libc_d == -HUGE_VAL || fpclassify(libc_d) == FP_ZERO));
+        int ok = failed == libc_failed && (eptr - s) == (libc_eptr - s) && ff_eq(d, libc_d);
+
+        char descr[128];
+        snprintf(descr, sizeof(descr), "ff matches libc strtod: \"%s\"", s);
         test_cond(descr, ok);
     }
 }
@@ -1025,8 +1042,6 @@ int fastFloatTest(int argc, char **argv, int flags) {
         {"na", 0},
         {"nan(", NAN},         /* unclosed paren */
         {"nan(abc", NAN},      /* missing closing paren */
-        {"nan(ab!c)", NAN},    /* invalid char in paren */
-        {"nan(ab c)", NAN},    /* space in paren */
         {"nanx", NAN},         /* trailing garbage */
     };
     run_ff_tests(nan_invalid, COUNTOF(nan_invalid), 1);
@@ -1052,6 +1067,14 @@ int fastFloatTest(int argc, char **argv, int flags) {
         test_cond("invalid large input (>128 bytes) zmalloc fallback path",
                   eptr == big && ff_eq(d, 0.0));
     }
+
+    /* The accepted character set for nan(n-char-sequence) is libc-dependent.
+    * Preserve strtod-compatible behavior instead of asserting a fixed result. */
+    const char *nan_libc_compat[] = {
+        "nan(ab!c)",
+        "nan(ab c)",
+    };
+    run_ff_libc_compat_tests(nan_libc_compat, COUNTOF(nan_libc_compat));
 
     return 0;
 }
