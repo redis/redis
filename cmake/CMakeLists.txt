@@ -944,9 +944,11 @@ for root, dirs, files in os.walk('tests'):
 
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
-            if 'exec uname -a' in c or 'exec uname -s' in c:
+            if 'exec uname' in c:
                 c = c.replace('[exec uname -a]', '"Windows_NT x86_64"')
                 c = c.replace('[exec uname -s]', '"Windows_NT"')
+                c = c.replace('[exec uname -m]', '"x86_64"')
+                c = c.replace('[exec uname]', '"Windows_NT"')
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
@@ -967,7 +969,7 @@ copy_runtest_script("runtest-cluster")
 copy_runtest_script("runtest-moduleapi")
 copy_runtest_script("runtest-sentinel")
 
-set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-integration-replication-3;runtest-cluster-22-replica-in-sync;runtest-sentinel-00-base;runtest-sentinel-01-conf-update;runtest-sentinel-02-slaves-reconf;runtest-sentinel-04-slave-selection;runtest-sentinel-05-manual;runtest-sentinel-06-ckquorum;runtest-sentinel-08-hostname-conf;runtest-sentinel-09-acl-support;runtest-sentinel-10-replica-priority;runtest-sentinel-11-port-0;runtest-sentinel-12-master-reboot;runtest-sentinel-13-info-command;runtest-sentinel-14-debug-command;runtest-sentinel-15-config-set-config-get")
+set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-integration-replication-3;runtest-cluster-22-replica-in-sync;runtest-sentinel-00-base")
 enable_testing()
 find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
 
