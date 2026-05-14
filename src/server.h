@@ -2742,7 +2742,7 @@ typedef struct {
         struct {
             /* Index of the argument containing the number of keys to come */
             int keynumidx;
-            /* Index of the fist key (Usually it's just after keynumidx, in
+            /* Index of the first key (Usually it's just after keynumidx, in
              * which case it should be set to keynumidx+1). */
             int firstkey;
             /* How many args should we skip after finding a key, in order to find the next one. */

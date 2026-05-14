@@ -1778,7 +1778,7 @@ int RM_SetCommandACLCategories(RedisModuleCommand *command, const char *aclflags
  *             * `keynumidx`: Index of the argument containing the number of
  *               keys to come, relative to the result of the begin search step.
  *
- *             * `firstkey`: Index of the fist key relative to the result of the
+ *             * `firstkey`: Index of the first key relative to the result of the
  *               begin search step. (Usually it's just after `keynumidx`, in
  *               which case it should be set to `keynumidx + 1`.)
  *
