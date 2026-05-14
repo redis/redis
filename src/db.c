@@ -1751,14 +1751,15 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
 }
 
 char *obj_type_name[OBJ_TYPE_MAX] = {
-    "string", 
-    "list", 
-    "set", 
-    "zset", 
-    "hash", 
+    "string",
+    "list",
+    "set",
+    "zset",
+    "hash",
     NULL, /* module type is special */
     "stream",
-    "gcra"
+    "gcra",
+    "array"
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2438,6 +2439,7 @@ void copyCommand(client *c) {
             newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
             if (!newobj) return;
             break;
+        case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
         default:
             addReplyError(c, "unknown type object");
             return;

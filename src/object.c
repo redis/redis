@@ -531,6 +531,13 @@ robj *createGCRAObject(long long value) {
     return o;
 }
 
+robj *createArrayObject(void) {
+    redisArray *ar = arNew();
+    robj *o = createObject(OBJ_ARRAY, ar);
+    o->encoding = OBJ_ENCODING_SLICED_ARRAY;
+    return o;
+}
+
 robj *createModuleObject(moduleType *mt, void *value) {
     moduleValue *mv = zmalloc(sizeof(*mv));
     mv->type = mt;
@@ -611,6 +618,10 @@ void freeGCRAObject(robj *o) {
 #endif
 }
 
+void freeArrayObject(robj *o) {
+    arFree(o->ptr);
+}
+
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
         o->refcount++;
@@ -663,6 +674,7 @@ void decrRefCount(robj *o) {
             case OBJ_MODULE: freeModuleObject(o); break;
             case OBJ_STREAM: freeStreamObject(o); break;
             case OBJ_GCRA: freeGCRAObject(o); break;
+            case OBJ_ARRAY: freeArrayObject(o); break;
             default: serverPanic("Unknown object type"); break;
             }
         }
@@ -810,6 +822,11 @@ void dismissStreamObject(robj *o, size_t size_hint) {
     }
 }
 
+/* See dismissObject() */
+void dismissArrayObject(robj *o, size_t size_hint) {
+    arDismiss(o->ptr, size_hint);
+}
+
 void dismissGCRAObject(robj *o, size_t size_hint) {
     /* GCRA is a single allocation of a long long thus way smaller than a
      * page-size. The dismiss mechanism is not needed for it - hence NOOP.*/
@@ -846,6 +863,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_HASH: dismissHashObject(o, size_hint); break;
         case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
+        case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
         default: break;
     }
 #else
@@ -968,6 +986,7 @@ size_t getObjectLength(robj *o) {
         case OBJ_HASH: return hashTypeLength(o, 0);
         case OBJ_STREAM: return streamLength(o);
         case OBJ_GCRA: return gcraObjectLength(o);
+        case OBJ_ARRAY: return arCount(o->ptr);
         default: return 0;
     }
 }
@@ -1265,6 +1284,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
+    case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
     default: return "unknown";
     }
 }
@@ -1283,7 +1303,8 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         o->type == OBJ_ZSET ||
         o->type == OBJ_HASH ||
         o->type == OBJ_STREAM ||
-        o->type == OBJ_GCRA)
+        o->type == OBJ_GCRA ||
+        o->type == OBJ_ARRAY)
     {
         return kvobjAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
@@ -1311,6 +1332,9 @@ size_t kvobjAllocSize(kvobj *o) {
         asize += s->alloc_size;
     } else if (o->type == OBJ_GCRA) {
         asize += gcraTypeAllocSize(o);
+    } else if (o->type == OBJ_ARRAY) {
+        redisArray *ar = o->ptr;
+        asize += ar->alloc_size;
     } else if (o->type == OBJ_MODULE) {
         /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
     }

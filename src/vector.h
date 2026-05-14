@@ -83,7 +83,8 @@ static inline void vecSetFreeMethod(vec *v, void (*freefn)(void *ptr)) {
  * before the backing storage is released. Stack storage is never freed. */
 void vecRelease(vec *v);
 
-/* Reset the logical length to zero while preserving allocated storage. */
+/* Reset the logical length to zero while preserving allocated storage.
+ * If a free method is set, it is applied to every element before reset. */
 void vecClear(vec *v);
 
 /* Requires index < vecSize(v). */

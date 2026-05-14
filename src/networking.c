@@ -1181,6 +1181,18 @@ void addReplyLongLongFromStr(client *c, robj *str) {
     addReplyProto(c,"\r\n",2);
 }
 
+/* Reply with unsigned 64-bit value. Uses integer reply when value fits in
+ * signed long long, otherwise big number (RESP3) or bulk string (RESP2). */
+void addReplyUnsignedLongLong(client *c, uint64_t v) {
+    if (v <= (uint64_t)LLONG_MAX) {
+        addReplyLongLong(c, (long long)v);
+    } else {
+        char buf[LONG_STR_SIZE];
+        int len = ull2string(buf, sizeof(buf), v);
+        addReplyBigNum(c, buf, len);
+    }
+}
+
 void addReplyAggregateLen(client *c, long length, int prefix) {
     serverAssert(length >= 0);
     if (_prepareClientToWrite(c) != C_OK) return;

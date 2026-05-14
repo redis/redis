@@ -90,6 +90,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_MODULE 6
 #define REDISMODULE_KEYTYPE_STREAM 7
 #define REDISMODULE_KEYTYPE_GCRA 8
+#define REDISMODULE_KEYTYPE_ARRAY 9
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -254,18 +255,19 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_SUBKEYEVENT (1<<20)      /* T */
 #define REDISMODULE_NOTIFY_SUBKEYSPACEITEM (1<<21)  /* I */
 #define REDISMODULE_NOTIFY_SUBKEYSPACEEVENT (1<<22) /* V */
+#define REDISMODULE_NOTIFY_ARRAY (1<<23)     /* a, array key space notification */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<23)
+#define _REDISMODULE_NOTIFY_NEXT (1<<24)
 
 /* Delivery flags for RM_SubscribeToKeyspaceEventsWithSubkeys.
  * These are passed in the 'flags' parameter, not in 'types'. */
 #define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
 #define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
 
-#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
+#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_ARRAY)      /* A */
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
