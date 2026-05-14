@@ -75,7 +75,7 @@ PFCOUNT result
 
 ```bash
 # Clone Redis 7.2 source
-git clone https://github.com/redis/redis.git
+git clone --branch 7.2 https://github.com/redis/redis.git
 cd redis && git checkout 7.2
 
 # Compile from source
