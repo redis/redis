@@ -728,8 +728,6 @@ For billing and revenue analytics → `HLL_P=14` is required.
 For product recommendations → `HLL_P=10` saves 94% memory
 at acceptable 3.25% error.
 
-**Code location:** `src/hyperloglog.c` — `#define HLL_P 14` (top of file)
-
 ---
 
 ### Experiment 2 — Social Media: Sparse-to-Dense Encoding Transition (HLL Threshold Modification)
@@ -812,7 +810,7 @@ modified configuration's 14,392 B.
 |---|---|---|---|
 | 500 B  | N ≈ 200–500   | 14,392 B | Premature promotion, memory spikes |
 | 3000 B | N > 1,000     | 2,616 B  | Controlled, gradual growth |
-| 3000 B (default) | Optimal for most workloads | Efficient | ✅ Recommended |
+| 3000 B (default) | Optimal for most workloads | Efficient | Recommended |
 
 For social media hashtag counters with millions of keys:
 - A **premature threshold** (500 B) forces nearly all real-world
@@ -822,7 +820,6 @@ For social media hashtag counters with millions of keys:
   allocation until genuinely needed.
 - At 10M hashtag keys: default saves ~116 GB vs. the 500-byte config.
 
-**Code location:** `src/hyperloglog.c` — `#define HLL_SPARSE_MAX_BYTES 3000`
 ---
 ### Experiment 3 — FinTech: Real-Time Credit Card Fraud Detection (HLL + Keyspace Notifications)
 
