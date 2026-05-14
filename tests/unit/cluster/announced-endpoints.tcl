@@ -75,21 +75,26 @@ start_cluster 2 2 {tags {external:skip cluster}} {
 
     # Tests for cluster-announce-ip validation
     test "cluster-announce-ip validation" {
+        # Reject control characters in IP-like values
         catch {R 0 config set cluster-announce-ip "192.168.1.100\nnext"} err
-        assert_match "*valid IPv4 or IPv6*" $err
+        assert_match "*alphanumeric*" $err
 
         catch {R 0 config set cluster-announce-ip "10.0.0.1\ttab"} err
-        assert_match "*valid IPv4 or IPv6*" $err
+        assert_match "*alphanumeric*" $err
 
         catch {R 0 config set cluster-announce-ip "1.2.3.4\r\n"} err
-        assert_match "*valid IPv4 or IPv6*" $err
+        assert_match "*alphanumeric*" $err
 
-        catch {R 0 config set cluster-announce-ip "redis-node-1.example.com"} err
-        assert_match "*valid IPv4 or IPv6*" $err
+        # Reject control characters in hostname-like values
+        catch {R 0 config set cluster-announce-ip "redis-node\nnext"} err
+        assert_match "*alphanumeric*" $err
 
-        catch {R 0 config set cluster-announce-ip "192.168.1"} err
-        assert_match "*valid IPv4 or IPv6*" $err
+        catch {R 0 config set cluster-announce-ip "redis-node\ttab"} err
+        assert_match "*alphanumeric*" $err
 
+        catch {R 0 config set cluster-announce-ip "redis-node\r\n"} err
+        assert_match "*alphanumeric*" $err
+        
         # Accept valid IPv4
         R 0 config set cluster-announce-ip "192.168.1.100"
         assert_equal "192.168.1.100" [lindex [R 0 config get cluster-announce-ip] 1]
@@ -97,6 +102,10 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         # Accept valid IPv6
         R 0 config set cluster-announce-ip "2001:db8::1"
         assert_equal "2001:db8::1" [lindex [R 0 config get cluster-announce-ip] 1]
+
+        # Accept valid hostname
+        R 0 config set cluster-announce-ip "redis-node-1.example.com"
+        assert_equal "redis-node-1.example.com" [lindex [R 0 config get cluster-announce-ip] 1]
 
         # Can be cleared
         R 0 config set cluster-announce-ip ""
