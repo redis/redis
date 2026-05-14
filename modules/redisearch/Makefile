@@ -7,5 +7,9 @@ TARGET_MODULE = $(SRC_DIR)/bin/$(FULL_VARIANT)/search-community/redisearch.so
 LTO ?= 1
 export LTO
 
+# Default to 0 to maintain backward compatibility and ensure support across multiple architectures
+INLINE_LSE_ATOMICS ?= 0
+export INLINE_LSE_ATOMICS
+
 include ../common.mk
 
