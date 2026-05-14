@@ -1283,6 +1283,13 @@ void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
 
     /* Release context and slots */
     asmTrimCtxRelease(ctx);
+
+#if defined(USE_JEMALLOC)
+    /* Purge jemalloc dirty pages after background trim/flush completes.
+     * The BIO thread freed a potentially large amount of memory; purging
+     * ensures those pages are returned to the OS promptly, reducing RSS. */
+    jemalloc_purge();
+#endif
 }
 
 /* Unblock client on async flush/trim completion */
