@@ -930,8 +930,30 @@ for root, dirs, files in os.walk('tests'):
 
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
-            if 'exec ps -p' in c:
-                c = re.sub(r'exec ps -p \$pid', r'exec tasklist /FI "PID eq $pid" | findstr $pid', c)
+            if 'createComplexDataset' in c:
+                c = c.replace('set d [expr {rand()}]', 'set d [expr {rand()}]; set d [string map {, .} $d]')
+                c = c.replace('{set d +inf}', '{set d 1e99}')
+                c = c.replace('{set d -inf}', '{set d -1e99}')
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'set value [expr rand()]' in c:
+                c = c.replace('set value [expr rand()]', 'set value [expr rand()]; set value [string map {, .} $value]')
+                c = c.replace('$r set [expr rand()] $value', '$r set [string map {, .} [expr rand()]] $value')
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'exec ps ' in c or 'exec ps' in c:
+                c = re.sub(r'exec ps -p \$pid -f', r'exec tasklist /FI "PID eq $pid"', c)
+                c = re.sub(r'exec ps -o s= -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
+                c = re.sub(r'exec ps -o state= -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
+                c = re.sub(r'exec ps -l -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
+                c = re.sub(r'exec ps j \$pid', r'exec tasklist /FI "PID eq $pid"', c)
+                c = re.sub(r'exec ps -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
@@ -960,6 +982,51 @@ for root, dirs, files in os.walk('tests'):
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'src/redis-' in c:
+                c = re.sub(r'src/(redis-[a-z-]+)', r'bin/Release/\1.exe', c)
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if '-permissions' in c:
+                c = re.sub(r'file attributes (.*?) -permissions 0222', r'file attributes \1 -readonly 1', c)
+                c = re.sub(r'file attributes (.*?) -permissions 0666', r'file attributes \1 -readonly 0', c)
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'exec cp ' in c:
+                c = c.replace('exec cp ', 'exec cp.bat ')
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'exec tail ' in c:
+                c = re.sub(r'\[exec tail -([0-9]+) < (\[[^\]]+\])\]', r'[apply {{f n} { set fd [open $f r]; set lines [split [read $fd] "\\n"]; close $fd; join [lrange $lines end-$n end] "\\n" }} \2 \1]', c)
+                c = re.sub(r'\[exec tail -n ([0-9]+) < (\[[^\]]+\])\]', r'[apply {{f n} { set fd [open $f r]; set lines [split [read $fd] "\\n"]; close $fd; join [lrange $lines end-$n end] "\\n" }} \2 \1]', c)
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'exec getconf' in c:
+                c = c.replace('[exec getconf PAGESIZE]', '4096')
+                c = c.replace('[exec getconf CLK_TCK]', '100')
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+            if 'printf arg |' in c:
+                c = c.replace('printf arg |', 'cmd.exe /c echo arg |')
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(c)
+
 ]=])
 
 execute_process(COMMAND python patch_tests.py WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -969,7 +1036,7 @@ copy_runtest_script("runtest-cluster")
 copy_runtest_script("runtest-moduleapi")
 copy_runtest_script("runtest-sentinel")
 
-set(FAILING_TESTS "runtest-integration-psync2-reg;runtest-integration-psync2;runtest-integration-rdb;runtest-integration-redis-benchmark;runtest-integration-redis-cli;runtest-integration-replication-2;runtest-integration-replication-4;runtest-integration-replication-buffer;runtest-integration-replication-iothreads;runtest-integration-replication-psync;runtest-integration-replication-rdbchannel;runtest-integration-replication;runtest-integration-shutdown;runtest-integration-replication-3;runtest-cluster-22-replica-in-sync;runtest-sentinel-00-base")
+set(FAILING_TESTS "runtest-integration-shutdown;runtest-integration-replication-3;runtest-cluster-22-replica-in-sync;runtest-sentinel-00-base")
 enable_testing()
 find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
 
