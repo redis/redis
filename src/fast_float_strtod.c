@@ -1069,7 +1069,7 @@ int fastFloatTest(int argc, char **argv, int flags) {
     }
 
     /* The accepted character set for nan(n-char-sequence) is libc-dependent.
-    * Preserve strtod-compatible behavior instead of asserting a fixed result. */
+     * Preserve strtod-compatible behavior instead of asserting a fixed result. */
     const char *nan_libc_compat[] = {
         "nan(ab!c)",
         "nan(ab c)",
