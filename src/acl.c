@@ -2481,6 +2481,14 @@ sds ACLLoadFromFile(const char *filename) {
          * beforeSleep. A whole-table flush is appropriate here since the load
          * may change many users at once. */
         trackingBroadcastInvalidationMessages(NULL);
+        /* Snapshot the old default user before mutation, so that provenance
+         * checks for "default" can compare against the pre-load permissions. */
+        user old_default_snapshot;
+        old_default_snapshot.name = DefaultUser->name;
+        old_default_snapshot.flags = DefaultUser->flags;
+        old_default_snapshot.passwords = listDup(DefaultUser->passwords);
+        old_default_snapshot.selectors = listDup(DefaultUser->selectors);
+        old_default_snapshot.acl_string = NULL;
 
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
@@ -2539,11 +2547,22 @@ sds ACLLoadFromFile(const char *filename) {
 
                     list *channels = NULL;
                     if (!raxFind(user_channels, (unsigned char*)prov_username, sdslen(prov_username), (void**)&channels)) {
-                        user *old_prov = NULL;
-                        raxFind(old_users, (unsigned char*)prov_username, sdslen(prov_username), (void**)&old_prov);
-                        if (old_prov) {
-                            channels = getUpcomingChannelList(new_prov, old_prov);
+                        user *old_prov;
+                        if (sdslen(prov_username) == 7 && !memcmp(prov_username, "default", 7)) {
+                            old_prov = &old_default_snapshot;
+                        } else {
+                            old_prov = NULL;
+                            raxFind(old_users, (unsigned char*)prov_username, sdslen(prov_username), (void**)&old_prov);
+                            /* A provenance entry for a user that didn't exist
+                             * before and wasn't the default user is suspicious.
+                             * Kill the client to be safe. */
+                            if (!old_prov) {
+                                deauthenticateAndCloseClient(c);
+                                killed = 1;
+                                break;
+                            }
                         }
+                        channels = getUpcomingChannelList(new_prov, old_prov);
                         raxInsert(user_channels, (unsigned char*)prov_username, sdslen(prov_username), channels, NULL);
                     }
 
@@ -2564,6 +2583,8 @@ sds ACLLoadFromFile(const char *filename) {
             }
         }
 
+        listRelease(old_default_snapshot.passwords);
+        listRelease(old_default_snapshot.selectors);
         if (user_channels)
             raxFreeWithCallback(user_channels, listReleaseGeneric);
         raxFreeWithCallback(old_users, ACLFreeUserGeneric);
