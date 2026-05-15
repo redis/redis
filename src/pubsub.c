@@ -921,8 +921,10 @@ size_t pubsubMemOverhead(client *c) {
     dictEntry *de;
     dictInitIterator(&di, c->pubsub_subscriptions);
     while ((de = dictNext(&di)) != NULL) {
+        sds username = dictGetKey(de);
+        mem += sdsZmallocSize(username);
         pubsubUserSubs *subs = dictGetVal(de);
-        mem += sizeof(*subs);
+        mem += zmalloc_size(subs);
         mem += dictMemUsage(subs->channels);
         mem += dictMemUsage(subs->patterns);
         mem += dictMemUsage(subs->shard_channels);
