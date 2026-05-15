@@ -91,6 +91,12 @@ static inline int log2ceil(size_t x) {
 #endif
 }
 
+/* Return the smallest power of 2 >= count (e.g. 5 -> 8, 8 -> 8). */
+static inline int nearestNextPowerOf2(unsigned int count) {
+    if (count <= 1) return 1;
+    return 1 << (32 - __builtin_clz(count-1));
+}
+
 /* Check for __builtin_add_overflow() */
 #ifndef __has_builtin
 #define __has_builtin(x) 0

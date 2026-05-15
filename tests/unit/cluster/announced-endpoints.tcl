@@ -72,4 +72,97 @@ start_cluster 2 2 {tags {external:skip cluster}} {
             fail "Cluster announced port was not updated in cluster slots"
         }
     }
+
+    # Tests for cluster-announce-ip validation
+    test "cluster-announce-ip validation" {
+        # Reject control characters in IP-like values
+        catch {R 0 config set cluster-announce-ip "192.168.1.100\nnext"} err
+        assert_match "*alphanumeric*" $err
+
+        catch {R 0 config set cluster-announce-ip "10.0.0.1\ttab"} err
+        assert_match "*alphanumeric*" $err
+
+        catch {R 0 config set cluster-announce-ip "1.2.3.4\r\n"} err
+        assert_match "*alphanumeric*" $err
+
+        # Reject control characters in hostname-like values
+        catch {R 0 config set cluster-announce-ip "redis-node\nnext"} err
+        assert_match "*alphanumeric*" $err
+
+        catch {R 0 config set cluster-announce-ip "redis-node\ttab"} err
+        assert_match "*alphanumeric*" $err
+
+        catch {R 0 config set cluster-announce-ip "redis-node\r\n"} err
+        assert_match "*alphanumeric*" $err
+        
+        # Accept valid IPv4
+        R 0 config set cluster-announce-ip "192.168.1.100"
+        assert_equal "192.168.1.100" [lindex [R 0 config get cluster-announce-ip] 1]
+
+        # Accept valid IPv6
+        R 0 config set cluster-announce-ip "2001:db8::1"
+        assert_equal "2001:db8::1" [lindex [R 0 config get cluster-announce-ip] 1]
+
+        # Accept valid hostname
+        R 0 config set cluster-announce-ip "redis-node-1.example.com"
+        assert_equal "redis-node-1.example.com" [lindex [R 0 config get cluster-announce-ip] 1]
+
+        # Can be cleared
+        R 0 config set cluster-announce-ip ""
+        assert_equal "" [lindex [R 0 config get cluster-announce-ip] 1]
+    }
+
+    # Tests for cluster-announce-human-nodename validation
+    test "cluster-announce-human-nodename validation" {
+        # Reject control characters
+        catch {R 0 config set cluster-announce-human-nodename "badchar\nnext"} err
+        assert_match "*invalid character*" $err
+
+        catch {R 0 config set cluster-announce-human-nodename "bad\ttab"} err
+        assert_match "*invalid character*" $err
+
+        catch {R 0 config set cluster-announce-human-nodename "bad\r\nline"} err
+        assert_match "*invalid character*" $err
+
+        # Reject delimiter characters (comma, equals, space)
+        catch {R 0 config set cluster-announce-human-nodename "bad,comma"} err
+        assert_match "*invalid character*" $err
+
+        catch {R 0 config set cluster-announce-human-nodename "bad=equals"} err
+        assert_match "*invalid character*" $err
+
+        catch {R 0 config set cluster-announce-human-nodename "bad space"} err
+        assert_match "*invalid character*" $err
+
+        # Reject quote characters (double quote, single quote, backslash)
+        catch {R 0 config set cluster-announce-human-nodename "bad\"quote"} err
+        assert_match "*invalid character*" $err
+
+        catch {R 0 config set cluster-announce-human-nodename "bad'quote"} err
+        assert_match "*invalid character*" $err
+
+        catch {R 0 config set cluster-announce-human-nodename "bad\\slash"} err
+        assert_match "*invalid character*" $err
+
+        # Accept valid names
+        R 0 config set cluster-announce-human-nodename "my-redis-node-1"
+        assert_equal "my-redis-node-1" [lindex [R 0 config get cluster-announce-human-nodename] 1]
+    }
+
+    # DoS prevention test: verify server can restart after CLUSTER SAVECONFIG
+    test "cluster-announce-ip persists correctly with CLUSTER SAVECONFIG" {
+        R 0 config set cluster-announce-ip "192.168.1.100"
+        R 0 cluster saveconfig
+
+        # Verify the IP appears in CLUSTER NODES output
+        assert_match "*192.168.1.100*" [R 0 cluster nodes]
+    }
+
+    test "cluster-announce-human-nodename persists correctly with CLUSTER SAVECONFIG" {
+        R 0 config set cluster-announce-human-nodename "production-node-1"
+        R 0 cluster saveconfig
+
+        # Verify the nodename is set correctly
+        assert_equal "production-node-1" [lindex [R 0 config get cluster-announce-human-nodename] 1]
+    }
 }

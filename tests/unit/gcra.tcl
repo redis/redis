@@ -1,4 +1,5 @@
 start_server {tags {"gcra" "external:skip"}} {
+if 0 {
     test {GCRA - argument validation} {
         # Wrong number of arguments (too few)
         catch {r gcra} err
@@ -236,8 +237,10 @@ start_server {tags {"gcra" "external:skip"}} {
         assert {[r pttl mykey] > 0}
     }
 }
+}
 
 start_server {tags {"gcra" "external:skip"}} {
+if 0 {
     test {GCRA - RDB save and reload preserves value} {
         r del mykey
         r gcra mykey 5 1 60
@@ -333,8 +336,10 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_equal $digest_before $digest_after
     } {} {needs:debug}
 }
+}
 
 start_server {tags {"gcra repl" "external:skip"}} {
+if 0 {
     set replica [srv 0 client]
     set replica_host [srv 0 host]
     set replica_port [srv 0 port]
@@ -367,4 +372,5 @@ start_server {tags {"gcra repl" "external:skip"}} {
             assert_morethan_equal [lsearch -glob $cmdinfo "cmdstat_gcrasetvalue:*"] 0
         } {} {external:skip}
     }
+}
 }

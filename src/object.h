@@ -5,7 +5,7 @@
  * values of different logical types (strings, lists, sets, hashes, sorted sets,
  * streams, modules, ...). It contains:
  *   - type: one of OBJ_STRING, OBJ_LIST, OBJ_SET, OBJ_ZSET, OBJ_HASH, OBJ_STREAM,
- *           OBJ_GCRA, OBJ_MODULE, ...
+ *           OBJ_MODULE, ...
  *   - encoding: an implementation detail of how the value is represented in
  *           memory for the given type (see OBJ_ENCODING_* below). For example,
  *           strings may be RAW/EMBSTR/INT, sets may be INTSET or HT, etc.
@@ -85,6 +85,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 #define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
+#define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -163,6 +164,7 @@ robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createGCRAObject(long long value);
 robj *createModuleObject(struct RedisModuleType *mt, void *value);
+robj *createArrayObject(void);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
