@@ -382,6 +382,52 @@ static inline long long redisPopcountAuto(const unsigned char *p, long count) {
 #endif
 }
 
+/* ---------------------------------------------------------------------------
+ * SIMD helpers for redisBitpos() — scan for the first word that does not
+ * match 'skipval' (0 when looking for bit=1, ULONG_MAX for bit=0).
+ * Each function returns the number of bytes scanned that all matched skipval.
+ * The caller advances past that many bytes and falls into the scalar tail.
+ * ----------------------------------------------------------------------- */
+#ifdef HAVE_AVX512
+ATTRIBUTE_TARGET_AVX512
+static unsigned long redisBitposScanAVX512(unsigned long *l,
+                                           unsigned long count, int bit) {
+    unsigned long scanned = 0;
+    __m512i skip = bit ? _mm512_setzero_si512()
+                       : _mm512_set1_epi64(-1LL);
+
+    while (count >= 64) {
+        __m512i data = _mm512_loadu_si512(l);
+        __mmask8 eq = _mm512_cmpeq_epi64_mask(data, skip);
+        if (eq != 0xFF) break;
+        l = (unsigned long *)((unsigned char *)l + 64);
+        count -= 64;
+        scanned += 64;
+    }
+    return scanned;
+}
+#endif
+
+#ifdef HAVE_AVX2
+ATTRIBUTE_TARGET_AVX2
+static unsigned long redisBitposScanAVX2(unsigned long *l,
+                                         unsigned long count, int bit) {
+    unsigned long scanned = 0;
+    __m256i skip = bit ? _mm256_setzero_si256()
+                       : _mm256_set1_epi8((char)0xFF);
+
+    while (count >= 32) {
+        __m256i data = _mm256_loadu_si256((__m256i *)l);
+        int eq = _mm256_movemask_epi8(_mm256_cmpeq_epi8(data, skip));
+        if (eq != -1) break;
+        l = (unsigned long *)((unsigned char *)l + 32);
+        count -= 32;
+        scanned += 32;
+    }
+    return scanned;
+}
+#endif
+
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
  *
@@ -420,10 +466,37 @@ long long redisBitpos(void *s, unsigned long count, int bit) {
         pos += 8;
     }
 
-    /* Skip bits with full word step. */
+    /* Skip bits with full word step. Use SIMD when available for the
+     * bulk of the scan, then fall through to scalar for the tail. */
     l = (unsigned long*) c;
     if (!found) {
         skipval = bit ? 0 : ULONG_MAX;
+
+#if defined(HAVE_AVX512) || defined(HAVE_AVX2)
+        int useAVX = 0;
+#endif
+
+#if defined(HAVE_AVX512)
+        if (BITOP_USE_AVX512 && count >= 64) {
+            unsigned long advanced = redisBitposScanAVX512(l, count, bit);
+            l = (unsigned long*)((unsigned char*)l + advanced);
+            count -= advanced;
+            pos += advanced * 8;
+            useAVX = 1;
+        }
+#endif
+
+#if defined(HAVE_AVX2)
+        if (!useAVX && BITOP_USE_AVX2 && count >= 32) {
+            unsigned long advanced = redisBitposScanAVX2(l, count, bit);
+            l = (unsigned long*)((unsigned char*)l + advanced);
+            count -= advanced;
+            pos += advanced * 8;
+        }
+#endif
+
+        /* Scalar word-at-a-time scan handles the tail after SIMD and
+         * serves as the sole scan path when SIMD is unavailable. */
         while (count >= sizeof(*l)) {
             if (*l != skipval) break;
             l++;
