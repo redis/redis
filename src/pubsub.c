@@ -60,12 +60,12 @@ static pubsubUserSubs *createPubsubUserSubs(void) {
     return subs;
 }
 
-pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c, const char *username, size_t username_len) {
+pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c, sds username) {
     dictEntry *de = dictFind(c->pubsub_subscriptions, username);
     if (de) return dictGetVal(de);
     pubsubUserSubs *subs = createPubsubUserSubs();
-    sds key = sdsnewlen(username, username_len);
-    dictAdd(c->pubsub_subscriptions, key, subs);
+    sds key = sdsdup(username);
+    serverAssert(dictAdd(c->pubsub_subscriptions, key, subs) == DICT_OK);
     return subs;
 }
 
@@ -291,7 +291,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         retval = 1;
 
         /* Look up or create per-user entry for current user */
-        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c, c->user->name, sdslen(c->user->name));
+        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c, c->user->name);
         dict *innerDict = pubsubUserSubsGetDict(subs, type);
 
         /* Add the client to the channel -> list of clients hash table */
@@ -469,7 +469,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
 
     if (!pubsubClientIsSubscribedPattern(c, pattern)) {
         retval = 1;
-        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c, c->user->name, sdslen(c->user->name));
+        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c, c->user->name);
 
         serverAssert(dictAdd(subs->patterns, pattern, NULL) != DICT_ERR);
         incrRefCount(pattern);
