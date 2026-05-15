@@ -2052,12 +2052,16 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         return;
 
     list *channels = getUpcomingChannelList(new, original);
+    /* If the new user's pubsub permissions are a strict superset of the original, return early. */
     if (!channels)
         return;
 
     listIter li;
     listNode *ln;
 
+    /* Permissions have changed, so we need to iterate through all
+     * the clients and disconnect those that hold subscriptions
+     * created under this user that are no longer valid. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
