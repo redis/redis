@@ -3940,6 +3940,7 @@ int clientSubscriptionsCount(client *c);
 int clientShardSubscriptionsCount(client *c);
 int clientTotalPubSubSubscriptionCount(client *c);
 pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c, const char *username, size_t username_len);
+int pubsubUserSubsIsEmpty(pubsubUserSubs *subs);
 int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming);
 
 /* Keyspace events notification */

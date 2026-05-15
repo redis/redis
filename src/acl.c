@@ -2004,6 +2004,7 @@ list *getUpcomingChannelList(user *new, user *original) {
 /* Check if a specific user's subscriptions violate the given channel list.
  * Returns 1 if any violation is found, 0 otherwise. */
 int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming) {
+    serverAssert(!pubsubUserSubsIsEmpty(subs));
     robj *o;
     int kill = 0;
     dictIterator di;
@@ -2060,6 +2061,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
+        if (getClientType(c) != CLIENT_TYPE_PUBSUB) continue;
         dictEntry *de = dictFind(c->pubsub_subscriptions, original->name);
         if (!de) continue;
         pubsubUserSubs *subs = dictGetVal(de);
