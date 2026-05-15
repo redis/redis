@@ -83,6 +83,9 @@ static size_t *pubsubClientCountPtr(client *c, pubsubtype type) {
     return type.shard ? &c->pubsubshard_channels_count : &c->pubsub_channels_count;
 }
 
+/*
+ * Pub/Sub type for global channels.
+ */
 pubsubtype pubSubType = {
     .shard = 0,
     .subscriptionCount = clientSubscriptionsCount,
@@ -92,6 +95,9 @@ pubsubtype pubSubType = {
     .messageBulk = &shared.messagebulk,
 };
 
+/*
+ * Pub/Sub type for shard level channels bounded to a slot.
+ */
 pubsubtype pubSubShardType = {
     .shard = 1,
     .subscriptionCount = clientShardSubscriptionsCount,
@@ -260,7 +266,9 @@ static int pubsubClientIsSubscribedChannel(client *c, robj *channel, pubsubtype 
     dictInitIterator(&di, c->pubsub_subscriptions);
     while ((userEntry = dictNext(&di)) != NULL) {
         pubsubUserSubs *subs = dictGetVal(userEntry);
+        serverAssert(subs != NULL);
         dict *innerDict = pubsubUserSubsGetDict(subs, type);
+        serverAssert(innerDict != NULL);
         if (dictFind(innerDict, channel)) {
             dictResetIterator(&di);
             return 1;
@@ -326,13 +334,19 @@ static void pubsubUnsubscribeKnownChannel(client *c, dict *innerDict,
     serverAssert(dictDelete(innerDict, channel) == DICT_OK);
 
     if (server.cluster_enabled && type.shard) {
+        /* Compute the slot from the channel directly instead of using getKeySlot(),
+         * because the unsubscribe may be triggered by a different client, and
+         * getKeySlot() would return the cached slot of that client. */
         slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
     }
     de = kvstoreDictFind(*type.serverPubSubChannels, slot, channel);
-    serverAssertWithInfo(c,NULL,de != NULL);
+    serverAssertWithInfo(c, NULL, de != NULL);
     clients = dictGetVal(de);
     serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
     if (dictSize(clients) == 0) {
+        /* Free the dict and associated hash entry at all if this was
+         * the latest client, so that it will be possible to abuse
+         * Redis PUBSUB creating millions of channels. */
         kvstoreDictDelete(*type.serverPubSubChannels, slot, channel);
     }
 
@@ -350,8 +364,9 @@ static void pubsubUnsubscribeKnownChannel(client *c, dict *innerDict,
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype type) {
     int retval = 0;
 
-    incrRefCount(channel);
-
+    /* Remove the channel from the client's subscription bookkeeping */
+    incrRefCount(channel); /* channel may be just a pointer to the same object
+                            we have in the hash tables. Protect it... */
     /* Scan per-user entries to find which one holds this channel */
     dictIterator outer;
     dictEntry *userEntry;
@@ -370,10 +385,11 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     }
     dictResetIterator(&outer);
 
+    /* Notify the client */
     if (!retval && notify) {
         addReplyPubsubUnsubscribed(c,channel,type);
     }
-    decrRefCount(channel);
+    decrRefCount(channel); /* it is finally safe to release it */
     return retval;
 }
 
@@ -388,6 +404,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
+        /* For each client subscribed to the channel, unsubscribe it. */
         dictIterator iter;
         dictEntry *entry;
 
@@ -411,6 +428,8 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
             }
             dictResetIterator(&di);
             addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
+            /* If the client has no other pubsub subscription,
+             * move out of pubsub mode. */
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
                 unmarkClientAsPubSub(c);
             }
@@ -428,6 +447,8 @@ static int pubsubClientIsSubscribedPattern(client *c, robj *pattern) {
     dictInitIterator(&di, c->pubsub_subscriptions);
     while ((userEntry = dictNext(&di)) != NULL) {
         pubsubUserSubs *subs = dictGetVal(userEntry);
+        serverAssert(subs != NULL);
+        serverAssert(subs->patterns != NULL);
         if (dictFind(subs->patterns, pattern)) {
             dictResetIterator(&di);
             return 1;
@@ -449,7 +470,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
 
         serverAssert(dictAdd(subs->patterns, pattern, NULL) != DICT_ERR);
         incrRefCount(pattern);
-
+        /* Add the client to the pattern -> list of clients hash table */
         de = dictFind(server.pubsub_patterns,pattern);
         if (de == NULL) {
             clients = dictCreate(&clientDictType);
@@ -496,7 +517,7 @@ static void pubsubUnsubscribeKnownPattern(client *c, dict *innerDict,
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     int retval = 0;
 
-    incrRefCount(pattern);
+    incrRefCount(pattern); /* Protect the object. May be the same we remove */
 
     dictIterator outer;
     dictEntry *userEntry;
@@ -513,7 +534,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         }
     }
     dictResetIterator(&outer);
-
+    /* Notify the client */
     if (!retval && notify) addReplyPubsubPatUnsubscribed(c,pattern);
     decrRefCount(pattern);
     return retval;
@@ -545,6 +566,7 @@ int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubtype type)
         }
     }
     dictResetIterator(&outer);
+    /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) {
         addReplyPubsubUnsubscribed(c,NULL,type);
     }
@@ -594,6 +616,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     }
     dictResetIterator(&outer);
 
+    /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) addReplyPubsubPatUnsubscribed(c,NULL);
     return count;
 }
