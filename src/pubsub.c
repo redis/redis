@@ -412,12 +412,14 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             /* Find and remove from the per-user entry that holds it. */
+            int found = 0;
             dictIterator di;
             dictEntry *userEntry;
             dictInitSafeIterator(&di, c->pubsub_subscriptions);
             while ((userEntry = dictNext(&di)) != NULL) {
                 pubsubUserSubs *subs = dictGetVal(userEntry);
                 if (dictDelete(subs->shard_channels, channel) == DICT_OK) {
+                    found = 1;
                     serverAssert(c->pubsubshard_channels_count > 0);
                     c->pubsubshard_channels_count--;
                     if (pubsubUserSubsIsEmpty(subs)) {
@@ -427,6 +429,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
                 }
             }
             dictResetIterator(&di);
+            serverAssertWithInfo(c, channel, found);
             addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
             /* If the client has no other pubsub subscription,
              * move out of pubsub mode. */
