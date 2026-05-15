@@ -821,11 +821,9 @@ static void run_ff_libc_compat_tests(const char **cases, int n) {
         int libc_failed = ((size_t)(libc_eptr - s) != len) || libc_err == EINVAL ||
                           (libc_err == ERANGE && (
                                libc_d == HUGE_VAL || libc_d == -HUGE_VAL || fpclassify(libc_d) == FP_ZERO));
-        int ok = failed == libc_failed && (eptr - s) == (libc_eptr - s) && ff_eq(d, libc_d);
-
         char descr[128];
         snprintf(descr, sizeof(descr), "ff matches libc strtod: \"%s\"", s);
-        test_cond(descr, ok);
+        test_cond(descr, failed == libc_failed && (eptr - s) == (libc_eptr - s) && ff_eq(d, libc_d));
     }
 }
 
