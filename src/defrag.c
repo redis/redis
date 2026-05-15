@@ -127,10 +127,9 @@ typedef struct {
 } defragSubexpiresCtx;
 
 /* Context for pubsub kvstores */
-typedef dict *(*getClientChannelsFn)(client *);
 typedef struct {
     kvstoreIterState kvstate;
-    getClientChannelsFn getPubSubChannels;
+    int shard;
 } defragPubSubCtx;
 static_assert(offsetof(defragPubSubCtx, kvstate) == 0, "defragStageKvstoreHelper requires this");
 
@@ -1278,17 +1277,30 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 
         /* The channel name is shared by the client's pubsub(shard) and server's
          * pubsub(shard), after defraging the channel name, we need to update
-         * the reference in the clients' dictionary. */
+         * the reference in the clients' per-user inner dicts. */
         dictIterator di;
         dictEntry *clientde;
         dictInitIterator(&di, clients);
         while((clientde = dictNext(&di)) != NULL) {
             client *c = dictGetKey(clientde);
-            dict *client_channels = ctx->getPubSubChannels(c);
-            uint64_t hash = dictGetHash(client_channels, newchannel);
-            dictEntry *pubsub_channel = dictFindByHashAndPtr(client_channels, channel, hash);
-            serverAssert(pubsub_channel);
-            dictSetKey(ctx->getPubSubChannels(c), pubsub_channel, newchannel);
+            /* Scan the per-user dict to find which inner dict holds the old pointer */
+            dictIterator udi;
+            dictEntry *userEntry;
+            int found = 0;
+            dictInitIterator(&udi, c->pubsub_subscriptions);
+            while ((userEntry = dictNext(&udi)) != NULL) {
+                pubsubUserSubs *subs = dictGetVal(userEntry);
+                dict *inner = ctx->shard ? subs->shard_channels : subs->channels;
+                uint64_t hash = dictGetHash(inner, newchannel);
+                dictEntry *pubsub_channel = dictFindByHashAndPtr(inner, channel, hash);
+                if (pubsub_channel) {
+                    dictSetKey(inner, pubsub_channel, newchannel);
+                    found = 1;
+                    break;
+                }
+            }
+            dictResetIterator(&udi);
+            serverAssert(found);
         }
         dictResetIterator(&di);
     }
@@ -1637,6 +1649,52 @@ static doneStatus defragStagePubsubKvstore(void *ctx, monotime endtime) {
         defragPubsubScanCallback, NULL, &defragfns);
 }
 
+/* Defrag client-side per-user pubsub dict structures.
+ * This handles the outer dict, sds username keys, pubsubUserSubs structs,
+ * and inner dict tables. Inner dict key objects (robj) are NOT touched here
+ * — they are handled by the server-side defrag callbacks above. */
+static doneStatus defragStagePubsubClientSide(void *ctx, monotime endtime) {
+    UNUSED(ctx);
+    UNUSED(endtime);
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        if (dictSize(c->pubsub_subscriptions) == 0) continue;
+
+        dict *newd = dictDefragTables(c->pubsub_subscriptions);
+        if (newd) c->pubsub_subscriptions = newd;
+
+        dictIterator di;
+        dictEntry *de;
+        dictInitIterator(&di, c->pubsub_subscriptions);
+        while ((de = dictNext(&di)) != NULL) {
+            sds key = dictGetKey(de);
+            sds newkey = activeDefragSds(key);
+            if (newkey) dictSetKey(c->pubsub_subscriptions, de, newkey);
+
+            pubsubUserSubs *subs = dictGetVal(de);
+            pubsubUserSubs *newsubs = activeDefragAlloc(subs);
+            if (newsubs) {
+                dictSetVal(c->pubsub_subscriptions, de, newsubs);
+                subs = newsubs;
+            }
+
+            dict *newinner;
+            if ((newinner = dictDefragTables(subs->channels)))
+                subs->channels = newinner;
+            if ((newinner = dictDefragTables(subs->patterns)))
+                subs->patterns = newinner;
+            if ((newinner = dictDefragTables(subs->shard_channels)))
+                subs->shard_channels = newinner;
+        }
+        dictResetIterator(&di);
+    }
+    return DEFRAG_DONE;
+}
+
 static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     UNUSED(endtime);
     UNUSED(ctx);
@@ -1963,14 +2021,17 @@ static void beginDefragCycle(void) {
     /* Add stage for pubsub channels. */
     defragPubSubCtx *defrag_pubsub_ctx = zmalloc(sizeof(defragPubSubCtx));
     defrag_pubsub_ctx->kvstate = INIT_KVSTORE_STATE(server.pubsub_channels);
-    defrag_pubsub_ctx->getPubSubChannels = getClientPubSubChannels;
+    defrag_pubsub_ctx->shard = 0;
     addDefragStage(defragStagePubsubKvstore, zfree, defrag_pubsub_ctx);
 
     /* Add stage for pubsubshard channels. */
     defragPubSubCtx *defrag_pubsubshard_ctx = zmalloc(sizeof(defragPubSubCtx));
     defrag_pubsubshard_ctx->kvstate = INIT_KVSTORE_STATE(server.pubsubshard_channels);
-    defrag_pubsubshard_ctx->getPubSubChannels = getClientPubSubShardChannels;
+    defrag_pubsubshard_ctx->shard = 1;
     addDefragStage(defragStagePubsubKvstore, zfree, defrag_pubsubshard_ctx);
+
+    /* Add stage for client-side pubsub per-user dict structures. */
+    addDefragStage(defragStagePubsubClientSide, NULL, NULL);
 
     addDefragStage(defragLuaScripts, NULL, NULL);
 

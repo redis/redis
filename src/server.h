@@ -1381,6 +1381,12 @@ typedef struct {
     robj *acl_string; /* cached string represent of ACLs */
 } user;
 
+typedef struct pubsubUserSubs {
+    dict *channels;
+    dict *patterns;
+    dict *shard_channels;
+} pubsubUserSubs;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 
@@ -1575,9 +1581,10 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
-    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE) */
-    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
+    dict *pubsub_subscriptions;    /* sds user_name -> pubsubUserSubs* */
+    size_t pubsub_channels_count;
+    size_t pubsub_patterns_count;
+    size_t pubsubshard_channels_count;
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -3098,6 +3105,7 @@ extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyNoValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
+extern dictType pubsubSubscriptionsDictType;
 extern dictType setDictType;
 extern dictType BenchmarkDictType;
 extern dictType zsetDictType;
@@ -3928,8 +3936,11 @@ int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 void unmarkClientAsPubSub(client *c);
 int pubsubTotalSubscriptions(void);
-dict *getClientPubSubChannels(client *c);
-dict *getClientPubSubShardChannels(client *c);
+int clientSubscriptionsCount(client *c);
+int clientShardSubscriptionsCount(client *c);
+int clientTotalPubSubSubscriptionCount(client *c);
+pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c, const char *username, size_t username_len);
+int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);

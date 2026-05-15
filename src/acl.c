@@ -492,12 +492,11 @@ void ACLFreeUserAndKillClients(user *u) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
         if (c->user == u) {
-            /* We'll free the connection asynchronously, so
-             * in theory to set a different user is not needed.
-             * However if there are bugs in Redis, soon or later
-             * this may result in some security hole: it's much
-             * more defensive to set the default user and put
-             * it in non authenticated mode. */
+            deauthenticateAndCloseClient(c);
+            continue;
+        }
+        /* Kill clients that still hold subscriptions from the deleted user */
+        if (dictFind(c->pubsub_subscriptions, u->name)) {
             deauthenticateAndCloseClient(c);
         }
     }
@@ -2002,52 +2001,46 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
-/* Check if the client should be killed because it is subscribed to channels that were
- * permitted in the past, are not in the `upcoming` channel list. */
-int ACLShouldKillPubsubClient(client *c, list *upcoming) {
+/* Check if a specific user's subscriptions violate the given channel list.
+ * Returns 1 if any violation is found, 0 otherwise. */
+int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming) {
     robj *o;
     int kill = 0;
+    dictIterator di;
+    dictEntry *de;
 
-    if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
-        /* Check for pattern violations. */
-        dictIterator di;
-        dictEntry *de;
-        dictInitIterator(&di, c->pubsub_patterns);
+    /* Check for pattern violations. */
+    dictInitIterator(&di, subs->patterns);
+    while (!kill && ((de = dictNext(&di)) != NULL)) {
+        o = dictGetKey(de);
+        int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
+        kill = (res == ACL_DENIED_CHANNEL);
+    }
+    dictResetIterator(&di);
+
+    /* Check for global channel violations. */
+    if (!kill) {
+        dictInitIterator(&di, subs->channels);
         while (!kill && ((de = dictNext(&di)) != NULL)) {
             o = dictGetKey(de);
-            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
+            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
             kill = (res == ACL_DENIED_CHANNEL);
         }
         dictResetIterator(&di);
-
-        /* Check for channel violations. */
-        if (!kill) {
-            /* Check for global channels violation. */
-            dictInitIterator(&di, c->pubsub_channels);
-
-            while (!kill && ((de = dictNext(&di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictResetIterator(&di);
-        }
-        if (!kill) {
-            /* Check for shard channels violation. */
-            dictInitIterator(&di, c->pubsubshard_channels);
-            while (!kill && ((de = dictNext(&di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictResetIterator(&di);
-        }
-
-        if (kill) {
-            return 1;
-        }
     }
-    return 0;
+
+    /* Check for shard channel violations. */
+    if (!kill) {
+        dictInitIterator(&di, subs->shard_channels);
+        while (!kill && ((de = dictNext(&di)) != NULL)) {
+            o = dictGetKey(de);
+            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+            kill = (res == ACL_DENIED_CHANNEL);
+        }
+        dictResetIterator(&di);
+    }
+
+    return kill;
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
@@ -2058,22 +2051,19 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         return;
 
     list *channels = getUpcomingChannelList(new, original);
-    /* If the new user's pubsub permissions are a strict superset of the original, return early. */
     if (!channels)
         return;
 
     listIter li;
     listNode *ln;
 
-    /* Permissions have changed, so we need to iterate through all
-     * the clients and disconnect those that are no longer valid.
-     * Scan all connected clients to find the user's pub/subs. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (c->user != original)
-            continue;
-        if (ACLShouldKillPubsubClient(c, channels))
+        dictEntry *de = dictFind(c->pubsub_subscriptions, original->name);
+        if (!de) continue;
+        pubsubUserSubs *subs = dictGetVal(de);
+        if (ACLShouldKillForUserSubs(subs, channels))
             deauthenticateAndCloseClient(c);
     }
 
@@ -2499,7 +2489,7 @@ sds ACLLoadFromFile(const char *filename) {
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
 
-        /* If there are some subscribers, we need to check if we need to drop some clients. */
+        /* Build a cache of channel-change lists, keyed by username. */
         rax *user_channels = NULL;
         if (pubsubTotalSubscriptions() > 0) {
             user_channels = raxNew();
@@ -2517,21 +2507,55 @@ sds ACLLoadFromFile(const char *filename) {
              * (CLIENT_INTERNAL), both of which run without a user. */
             if (c->user == NULL)
                 continue;
-            user *original = c->user;
-            list *channels = NULL;
-            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (new && user_channels) {
-                if (!raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name), (void**)&channels)) {
-                    channels = getUpcomingChannelList(new, original);
-                    raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
-                }
-            }
-            /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
-            if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
+
+            /* Reassign c->user to the new user object (or kill if gone). */
+            user *new_current = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (!new_current) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            clientSetUser(c, new);
+
+            /* Check all provenance entries in the per-user dict. */
+            int killed = 0;
+            if (user_channels) {
+                dictIterator di;
+                dictEntry *entry;
+                dictInitSafeIterator(&di, c->pubsub_subscriptions);
+                while ((entry = dictNext(&di)) != NULL) {
+                    sds prov_username = dictGetKey(entry);
+
+                    user *new_prov = ACLGetUserByName(prov_username, sdslen(prov_username));
+                    if (!new_prov) {
+                        deauthenticateAndCloseClient(c);
+                        killed = 1;
+                        break;
+                    }
+
+                    list *channels = NULL;
+                    if (!raxFind(user_channels, (unsigned char*)prov_username, sdslen(prov_username), (void**)&channels)) {
+                        user *old_prov = NULL;
+                        raxFind(old_users, (unsigned char*)prov_username, sdslen(prov_username), (void**)&old_prov);
+                        if (old_prov) {
+                            channels = getUpcomingChannelList(new_prov, old_prov);
+                        }
+                        raxInsert(user_channels, (unsigned char*)prov_username, sdslen(prov_username), channels, NULL);
+                    }
+
+                    if (channels != NULL) {
+                        pubsubUserSubs *subs = dictGetVal(entry);
+                        if (ACLShouldKillForUserSubs(subs, channels)) {
+                            deauthenticateAndCloseClient(c);
+                            killed = 1;
+                            break;
+                        }
+                    }
+                }
+                dictResetIterator(&di);
+            }
+
+            if (!killed) {
+                clientSetUser(c, new_current);
+            }
         }
 
         if (user_channels)
