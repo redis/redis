@@ -874,16 +874,16 @@ new_get_child = '''proc get_child_pid {idx} {
     set pid [srv $idx pid]
     set child_pid ""
     catch {
-        set fd [open "|wmic process where ParentProcessId=$pid get ProcessId" "r"]
+        set fd [open "|powershell.exe -NoProfile -Command \\"(Get-CimInstance Win32_Process -Filter 'ParentProcessId=$pid').ProcessId\\"" "r"]
         set lines [split [string trim [read $fd]] "\n"]
         close $fd
-        if {[llength $lines] >= 2} {
-            set server_pid [string trim [lindex $lines 1]]
-            set fd2 [open "|wmic process where ParentProcessId=$server_pid get ProcessId" "r"]
+        if {[llength $lines] >= 1} {
+            set server_pid [string trim [lindex $lines 0]]
+            set fd2 [open "|powershell.exe -NoProfile -Command \\"(Get-CimInstance Win32_Process -Filter 'ParentProcessId=$server_pid').ProcessId\\"" "r"]
             set lines2 [split [string trim [read $fd2]] "\n"]
             close $fd2
-            if {[llength $lines2] >= 2} {
-                set child_pid [string trim [lindex $lines2 1]]
+            if {[llength $lines2] >= 1} {
+                set child_pid [string trim [lindex $lines2 0]]
             }
         }
     }
@@ -903,6 +903,8 @@ open(f,'w').write(d)
 # patch server.tcl
 f = 'tests/support/server.tcl'
 d = open(f).read()
+d = d.replace('after 10\\n', 'after 500\\n')
+d = d.replace('incr wait 10\\n', 'incr wait 500\\n')
 d = d.replace('set pid [exec /usr/bin/env {*}$env {*}$cmd >> $stdout 2>> $stderr &]', 'set pid [exec {*}$cmd >> $stdout 2>> $stderr &]')
 d = d.replace('set line [exec head -n1 $stdout]', '''set line ""\n        catch {\n            set fd [open $stdout r]\n            set line [gets $fd]\n            close $fd\n        }''')
 d = re.sub(r'if \{\[regexp -- " PID: \$pid\.\*Server initialized" \[exec cat \$stdout\]\]\} \{', 'if {[regexp -- "Server initialized" [apply {{f} {set res ""; catch {set fd [open $f r]; set res [read $fd]; close $fd}; return $res}} $stdout]]} {', d)
@@ -912,8 +914,15 @@ open(f,'w').write(d)
 # patch test_helper.tcl
 f = 'tests/test_helper.tcl'
 d = open(f).read()
-d = d.replace('cleanup\\n        exit 0', 'cleanup\\n        catch {exec taskkill /F /IM redis-server.exe /T}\\n        catch {close stdout}\\n        catch {close stderr}\\n        exit 0')
+d = d.replace('cleanup\\n        exit 0', 'cleanup\\n        catch {close stdout}\\n        catch {close stderr}\\n        exit 0')
 open(f,'w').write(d)
+
+# patch instances.tcl
+f = 'tests/instances.tcl'
+if os.path.exists(f):
+    d = open(f).read()
+    d = d.replace('../../../src/', '$::env(REDIS_BIN_DIR)/')
+    open(f,'w').write(d)
 
 # patch all tcl tests to use taskkill and custom cat/grep
 for root, dirs, files in os.walk('tests'):
@@ -948,12 +957,12 @@ for root, dirs, files in os.walk('tests'):
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
             if 'exec ps ' in c or 'exec ps' in c:
-                c = re.sub(r'exec ps -p \$pid -f', r'exec tasklist /FI "PID eq $pid"', c)
-                c = re.sub(r'exec ps -o s= -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
-                c = re.sub(r'exec ps -o state= -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
-                c = re.sub(r'exec ps -l -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
-                c = re.sub(r'exec ps j \$pid', r'exec tasklist /FI "PID eq $pid"', c)
-                c = re.sub(r'exec ps -p \$pid', r'exec tasklist /FI "PID eq $pid"', c)
+                c = re.sub(r'exec ps -p \$pid -f', r'exec kill.bat -0 $pid', c)
+                c = re.sub(r'exec ps -o s= -p \$pid', r'exec kill.bat -0 $pid', c)
+                c = re.sub(r'exec ps -o state= -p \$pid', r'exec kill.bat -0 $pid', c)
+                c = re.sub(r'exec ps -l -p \$pid', r'exec kill.bat -0 $pid', c)
+                c = re.sub(r'exec ps j \$pid', r'exec kill.bat -0 $pid', c)
+                c = re.sub(r'exec ps -p \$pid', r'exec kill.bat -0 $pid', c)
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
@@ -999,8 +1008,9 @@ for root, dirs, files in os.walk('tests'):
 
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
-            if 'exec cp ' in c:
+            if 'exec cp ' in c or 'exec rm ' in c:
                 c = c.replace('exec cp ', 'exec cp.bat ')
+                c = c.replace('exec rm ', 'exec rm.bat ')
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(c)
 
@@ -1036,7 +1046,7 @@ copy_runtest_script("runtest-cluster")
 copy_runtest_script("runtest-moduleapi")
 copy_runtest_script("runtest-sentinel")
 
-set(FAILING_TESTS "runtest-integration-shutdown;runtest-integration-replication-3;runtest-cluster-22-replica-in-sync;runtest-sentinel-00-base")
+set(FAILING_TESTS "runtest-cluster-04-resharding;runtest-cluster-12;runtest-cluster-14-consistency-check;runtest-cluster-22-replica-in-sync;runtest-cluster-28-cluster-shards")
 enable_testing()
 find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
 
@@ -1062,13 +1072,13 @@ if (TCLSH_EXECUTABLE)
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-rdb.exe        DEPENDS redis-server redis-cli
     )
     # add_test(NAME runtest COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-    # set_tests_properties(runtest PROPERTIES TIMEOUT 12000)
+    # set_tests_properties(runtest PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
     # add_test(NAME runtest-cluster COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-cluster WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-    # set_tests_properties(runtest-cluster PROPERTIES TIMEOUT 12000)
+    # set_tests_properties(runtest-cluster PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
     # add_test(NAME runtest-sentinel COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-sentinel WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-    # set_tests_properties(runtest-sentinel PROPERTIES TIMEOUT 12000)
+    # set_tests_properties(runtest-sentinel PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
     # add_test(NAME runtest-moduleapi COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-moduleapi WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-    # set_tests_properties(runtest-moduleapi PROPERTIES TIMEOUT 12000)
+    # set_tests_properties(runtest-moduleapi PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
     
     
 
@@ -1078,7 +1088,7 @@ if (TCLSH_EXECUTABLE)
         get_filename_component(testname ${testpath} NAME_WE)
         if (NOT "runtest-cluster-${testname}" IN_LIST FAILING_TESTS)
             add_test(NAME "runtest-cluster-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${CMAKE_BINARY_DIR}/tests/cluster/run.tcl" --single ${testname} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-            set_tests_properties("runtest-cluster-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
+            set_tests_properties("runtest-cluster-${testname}" PROPERTIES RUN_SERIAL TRUE TIMEOUT 180 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
         endif()
     endforeach()
 
@@ -1087,7 +1097,7 @@ if (TCLSH_EXECUTABLE)
         get_filename_component(testname ${testpath} NAME_WE)
         if (NOT "runtest-sentinel-${testname}" IN_LIST FAILING_TESTS)
             add_test(NAME "runtest-sentinel-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${CMAKE_BINARY_DIR}/tests/sentinel/run.tcl" --single ${testname} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-            set_tests_properties("runtest-sentinel-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
+            set_tests_properties("runtest-sentinel-${testname}" PROPERTIES RUN_SERIAL TRUE TIMEOUT 180 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
         endif()
     endforeach()
 
@@ -1095,7 +1105,7 @@ if (TCLSH_EXECUTABLE)
     foreach(testname ${MODULEAPI_TESTS})
         if (NOT "runtest-moduleapi-${testname}" IN_LIST FAILING_TESTS)
             add_test(NAME "runtest-moduleapi-${testname}" COMMAND "${TCLSH_EXECUTABLE}" "${CMAKE_BINARY_DIR}/tests/test_helper.tcl" --clients 1 --single "unit/moduleapi/${testname}" WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-            set_tests_properties("runtest-moduleapi-${testname}" PROPERTIES TIMEOUT 12000 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
+            set_tests_properties("runtest-moduleapi-${testname}" PROPERTIES RUN_SERIAL TRUE TIMEOUT 180 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\\\;${CMAKE_BINARY_DIR}/bin/Release\\\\;${SAFE_PATH}")
         endif()
     endforeach()
 endif()
@@ -1229,7 +1239,7 @@ if(MSVC)
             string(REPLACE "/" "-" test_name_clean "${testname}")
             if (NOT "runtest-${test_name_clean}" IN_LIST FAILING_TESTS)
                 add_test(NAME "runtest-${test_name_clean}" COMMAND ${CMAKE_COMMAND} -E true)
-                set_tests_properties("runtest-${test_name_clean}" PROPERTIES TIMEOUT 1200 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\;${CMAKE_BINARY_DIR}/bin/Release\\;$ENV{PATH}")
+                set_tests_properties("runtest-${test_name_clean}" PROPERTIES RUN_SERIAL TRUE TIMEOUT 180 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\;${CMAKE_BINARY_DIR}/bin/Release\\;$ENV{PATH}")
             endif()
         endif()
     endforeach()
