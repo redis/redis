@@ -942,22 +942,49 @@ void initThreadedIO(void) {
     }
 }
 
-/* Kill the IO threads, TODO: release the applied resources. */
+/* Stop all IO threads and wait for them to exit.
+ *
+ * pthread_cancel is unsafe here: IO threads run with PTHREAD_CANCEL_ASYNCHRONOUS
+ * (set by makeThreadKillable), so a cancel signal can land inside the allocator's
+ * internal lock paths, leaving those locks permanently held and causing
+ * pthread_join to hang forever.
+ *
+ * Instead we ask each thread to exit cooperatively: aeStop sets the event-loop
+ * stop flag, and triggerEventNotifier wakes the thread if it is blocked in
+ * epoll_wait. The thread exits at the top of the aeMain loop, where no lock
+ * is held. We signal all threads first, then join them in a second pass so
+ * they can exit in parallel.
+ *
+ * A second hang path: if a thread is spinning in handlePauseAndResume()
+ * waiting for IO_THREAD_RESUMING (e.g. the main thread paused it before
+ * crashing), it never reaches the aeMain loop top to see eventLoop->stop.
+ * The signal pass therefore also forces paused threads to IO_THREAD_RESUMING
+ * so they exit the spin and can observe the stop flag.
+ *
+ * TODO: release the applied resources. */
 void killIOThreads(void) {
     if (server.io_threads_num <= 1) return;
 
     int err, j;
     for (j = 1; j < server.io_threads_num; j++) {
-        if (IOThreads[j].tid == pthread_self()) continue;
-        if (IOThreads[j].tid && pthread_cancel(IOThreads[j].tid) == 0) {
-            if ((err = pthread_join(IOThreads[j].tid,NULL)) != 0) {
-                serverLog(LL_WARNING,
-                    "IO thread(tid:%lu) can not be joined: %s",
-                        (unsigned long)IOThreads[j].tid, strerror(err));
-            } else {
-                serverLog(LL_WARNING,
-                    "IO thread(tid:%lu) terminated",(unsigned long)IOThreads[j].tid);
-            }
-        }
+        if (IOThreads[j].tid == pthread_self() || !IOThreads[j].tid) continue;
+        aeStop(IOThreads[j].el);
+        /* If the thread is spinning in handlePauseAndResume waiting for
+         * IO_THREAD_RESUMING, it will never reach the aeMain loop top to
+         * see eventLoop->stop. Release it so it can exit. */
+        int paused;
+        atomicGetWithSync(IOThreads[j].paused, paused);
+        if (paused == IO_THREAD_PAUSED || paused == IO_THREAD_PAUSING)
+            atomicSetWithSync(IOThreads[j].paused, IO_THREAD_RESUMING);
+        triggerEventNotifier(IOThreads[j].pending_clients_notifier);
+    }
+
+    for (j = 1; j < server.io_threads_num; j++) {
+        if (IOThreads[j].tid == pthread_self() || !IOThreads[j].tid) continue;
+        if ((err = pthread_join(IOThreads[j].tid, NULL)) != 0)
+            serverLog(LL_WARNING, "IO thread %d: pthread_join failed: %s",
+                      j, strerror(err));
+        else
+            serverLog(LL_VERBOSE, "IO thread %d stopped.", j);
     }
 }
