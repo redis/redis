@@ -30,7 +30,7 @@ ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
 		ENABLE_LTO=-flto
 	else
-		ENABLE_LTO=-flto=auto
+		ENABLE_LTO=-flto=auto -ffat-lto-objects
 	endif
 	OPTIMIZATION+=$(ENABLE_LTO)
 endif
