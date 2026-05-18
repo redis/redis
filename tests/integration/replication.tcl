@@ -886,7 +886,7 @@ proc compute_cpu_usage {start end} {
     return [ list $pucpu $pscpu ]
 }
 
-
+if {!$::valgrind} {
 # test diskless rdb pipe with multiple replicas, which may drop half way
 start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set master [srv 0 client]
@@ -1074,6 +1074,7 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
         }
     }
 }
+} ;# end of valgrind
 
 test "diskless replication child being killed is collected" {
     # when diskless master is waiting for the replica to become writable
