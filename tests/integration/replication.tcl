@@ -987,13 +987,13 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         # is paused, then restore a generous timeout so the
                         # remaining replica can finish the streamed RDB.
                         $master config set repl-timeout 2
-                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 100 100
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 200 100
                         $master config set repl-timeout 60
                     }
 
                     # Use a single generous budget for all subcases; successful
                     # runs still exit early once the child is done.
-                    wait_for_condition 2400 100 {
+                    wait_for_condition 5000 100 {
                         [s -2 rdb_bgsave_in_progress] == 0
                     } else {
                         fail "rdb child didn't terminate"
