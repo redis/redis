@@ -3454,9 +3454,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         } else if (deep_integrity_validation) {
             /* lpGetEdgeStreamID walks the listpack, so only run after
              * deep integrity validation has confirmed it's well-formed. */
-            streamID rax_first_entry, rax_last_entry;
-            if (!lpGetEdgeStreamID(head_lp, 1, &head_master, &rax_first_entry) ||
-                !lpGetEdgeStreamID(tail_lp, 0, &tail_master, &rax_last_entry))
+            streamID rax_first_id, rax_last_id;
+            if (!lpGetEdgeStreamID(head_lp, 1, &head_master, &rax_first_id) ||
+                !lpGetEdgeStreamID(tail_lp, 0, &tail_master, &rax_last_id))
             {
                 rdbReportCorruptRDB("Stream edge entries unreadable");
                 decrRefCount(o);
@@ -3466,7 +3466,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             /* The rax tail may lag behind last_id (XSETID can advance
              * last_id past the tail, XDEL can drop the tail entry) but
              * must never exceed it. */
-            if (streamCompareID(&rax_last_entry, &s->last_id) > 0) {
+            if (streamCompareID(&rax_last_id, &s->last_id) > 0) {
                 rdbReportCorruptRDB("Stream last_id smaller than last entry");
                 decrRefCount(o);
                 return NULL;
@@ -3475,7 +3475,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             /* first_id skips leading tombstones, so it must lie within
              * [rax_first_entry, last_id]. */
             if (s->length &&
-                (streamCompareID(&s->first_id, &rax_first_entry) < 0 ||
+                (streamCompareID(&s->first_id, &rax_first_id) < 0 ||
                  streamCompareID(&s->first_id, &s->last_id) > 0))
             {
                 rdbReportCorruptRDB("Stream first_id out of range");
