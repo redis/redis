@@ -659,7 +659,7 @@ static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t o
     unsigned char *utf8 = NULL;
     int len = ASN1_STRING_to_UTF8(&utf8, data);
 
-    if (len < 0 || (size_t)len >= outlen) {
+    if (len <= 0 || (size_t)len >= outlen) {
         OPENSSL_free(utf8);
         return 0;
     }
