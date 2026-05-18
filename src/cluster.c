@@ -2127,6 +2127,27 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
     return slots ? slots : slotRangeArrayCreate(0);
 }
 
+/* Return the slot ranges that belong to a node or its master. */
+slotRangeArray *clusterGetNodeSlotRanges(const char *id) {
+    slotRangeArray *slots = NULL;
+
+    if (!server.cluster_enabled) {
+        slots = slotRangeArrayCreate(1);
+        slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
+        return slots;
+    }
+
+    clusterNode *node = clusterLookupNode(id, CLUSTER_NAMELEN);
+    clusterNode *master = node ? clusterNodeGetMaster(node) : NULL;
+    if (master) {
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            if (clusterNodeCoversSlot(master, i))
+                slots = slotRangeArrayAppend(slots, i);
+        }
+    }
+    return slots ? slots : slotRangeArrayCreate(0);
+}
+
 /* Partially flush destination DB in a cluster node, based on the slot range.
  *
  * Usage: SFLUSH <start-slot> <end slot> [<start-slot> <end slot>]* [SYNC|ASYNC]
