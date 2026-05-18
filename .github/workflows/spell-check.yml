@@ -9,6 +9,10 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: spellcheck-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Spellcheck

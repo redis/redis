@@ -3,9 +3,14 @@ name: Coverity Scan
 on:
   schedule:
   # Run once daily, since below 500k LOC can have 21 builds per week, per https://scan.coverity.com/faq#frequency
-  - cron: '0 0 * * *'
+  - cron: '0 1 * * *'
   # Support manual execution
   workflow_dispatch:
+
+concurrency:
+  group: coverity-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   coverity:
     if: github.repository == 'redis/redis'
