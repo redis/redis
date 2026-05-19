@@ -4,7 +4,7 @@ on:
   pull_request:
   schedule:
     # run weekly new vulnerability was added to the database
-    - cron: '0 3 * * 0'
+    - cron: '0 0 * * 0'
 
 concurrency:
   group: codeql-${{ github.head_ref || github.ref }}

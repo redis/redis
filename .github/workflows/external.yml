@@ -4,7 +4,7 @@ on:
     pull_request:
     push:
     schedule:
-      - cron: '0 2 * * *'
+      - cron: '0 0 * * *'
 
 concurrency:
   group: external-${{ github.head_ref || github.ref }}
