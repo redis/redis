@@ -10,9 +10,6 @@
 #ifndef __SLOWLOG_H__
 #define __SLOWLOG_H__
 
-#define SLOWLOG_ENTRY_MAX_ARGC 32
-#define SLOWLOG_ENTRY_MAX_STRING 128
-
 /* This structure defines an entry inside the slow log list */
 typedef struct slowlogEntry {
     robj **argv;

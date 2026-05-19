@@ -24,13 +24,545 @@ const char *COMMAND_GROUP_STR[] = {
     "geo",
     "stream",
     "bitmap",
+    "array",
     "module",
+#ifdef ENABLE_GCRA
     "rate_limit"
+#endif
 };
 
 const char *commandGroupStr(int index) {
     return COMMAND_GROUP_STR[index];
 }
+/********** ARCOUNT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARCOUNT history */
+#define ARCOUNT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARCOUNT tips */
+#define ARCOUNT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARCOUNT key specs */
+keySpec ARCOUNT_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARCOUNT argument table */
+struct COMMAND_ARG ARCOUNT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** ARDEL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARDEL history */
+#define ARDEL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARDEL tips */
+#define ARDEL_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARDEL key specs */
+keySpec ARDEL_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARDEL argument table */
+struct COMMAND_ARG ARDEL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** ARDELRANGE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARDELRANGE history */
+#define ARDELRANGE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARDELRANGE tips */
+#define ARDELRANGE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARDELRANGE key specs */
+keySpec ARDELRANGE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARDELRANGE range argument table */
+struct COMMAND_ARG ARDELRANGE_range_Subargs[] = {
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARDELRANGE argument table */
+struct COMMAND_ARG ARDELRANGE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=ARDELRANGE_range_Subargs},
+};
+
+/********** ARGET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARGET history */
+#define ARGET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARGET tips */
+#define ARGET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARGET key specs */
+keySpec ARGET_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARGET argument table */
+struct COMMAND_ARG ARGET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** ARGETRANGE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARGETRANGE history */
+#define ARGETRANGE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARGETRANGE tips */
+#define ARGETRANGE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARGETRANGE key specs */
+keySpec ARGETRANGE_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARGETRANGE argument table */
+struct COMMAND_ARG ARGETRANGE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** ARGREP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARGREP history */
+#define ARGREP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARGREP tips */
+#define ARGREP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARGREP key specs */
+keySpec ARGREP_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARGREP predicate exact argument table */
+struct COMMAND_ARG ARGREP_predicate_exact_Subargs[] = {
+{MAKE_ARG("exact",ARG_TYPE_PURE_TOKEN,-1,"EXACT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("string",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARGREP predicate match argument table */
+struct COMMAND_ARG ARGREP_predicate_match_Subargs[] = {
+{MAKE_ARG("match",ARG_TYPE_PURE_TOKEN,-1,"MATCH",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("string",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARGREP predicate glob argument table */
+struct COMMAND_ARG ARGREP_predicate_glob_Subargs[] = {
+{MAKE_ARG("glob",ARG_TYPE_PURE_TOKEN,-1,"GLOB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARGREP predicate re argument table */
+struct COMMAND_ARG ARGREP_predicate_re_Subargs[] = {
+{MAKE_ARG("re",ARG_TYPE_PURE_TOKEN,-1,"RE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARGREP predicate argument table */
+struct COMMAND_ARG ARGREP_predicate_Subargs[] = {
+{MAKE_ARG("exact",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_exact_Subargs},
+{MAKE_ARG("match",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_match_Subargs},
+{MAKE_ARG("glob",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_glob_Subargs},
+{MAKE_ARG("re",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_re_Subargs},
+};
+
+/* ARGREP options argument table */
+struct COMMAND_ARG ARGREP_options_Subargs[] = {
+{MAKE_ARG("and",ARG_TYPE_PURE_TOKEN,-1,"AND",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("or",ARG_TYPE_PURE_TOKEN,-1,"OR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withvalues",ARG_TYPE_PURE_TOKEN,-1,"WITHVALUES",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("nocase",ARG_TYPE_PURE_TOKEN,-1,"NOCASE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARGREP argument table */
+struct COMMAND_ARG ARGREP_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("predicate",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,4,NULL),.subargs=ARGREP_predicate_Subargs},
+{MAKE_ARG("options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,5,NULL),.subargs=ARGREP_options_Subargs},
+};
+
+/********** ARINFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARINFO history */
+#define ARINFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARINFO tips */
+#define ARINFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARINFO key specs */
+keySpec ARINFO_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARINFO argument table */
+struct COMMAND_ARG ARINFO_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("full",ARG_TYPE_PURE_TOKEN,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** ARINSERT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARINSERT history */
+#define ARINSERT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARINSERT tips */
+#define ARINSERT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARINSERT key specs */
+keySpec ARINSERT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARINSERT argument table */
+struct COMMAND_ARG ARINSERT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** ARLASTITEMS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARLASTITEMS history */
+#define ARLASTITEMS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARLASTITEMS tips */
+#define ARLASTITEMS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARLASTITEMS key specs */
+keySpec ARLASTITEMS_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARLASTITEMS argument table */
+struct COMMAND_ARG ARLASTITEMS_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** ARLEN ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARLEN history */
+#define ARLEN_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARLEN tips */
+#define ARLEN_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARLEN key specs */
+keySpec ARLEN_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARLEN argument table */
+struct COMMAND_ARG ARLEN_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** ARMGET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARMGET history */
+#define ARMGET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARMGET tips */
+#define ARMGET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARMGET key specs */
+keySpec ARMGET_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARMGET argument table */
+struct COMMAND_ARG ARMGET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** ARMSET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARMSET history */
+#define ARMSET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARMSET tips */
+#define ARMSET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARMSET key specs */
+keySpec ARMSET_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARMSET data argument table */
+struct COMMAND_ARG ARMSET_data_Subargs[] = {
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARMSET argument table */
+struct COMMAND_ARG ARMSET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=ARMSET_data_Subargs},
+};
+
+/********** ARNEXT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARNEXT history */
+#define ARNEXT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARNEXT tips */
+#define ARNEXT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARNEXT key specs */
+keySpec ARNEXT_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARNEXT argument table */
+struct COMMAND_ARG ARNEXT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** AROP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* AROP history */
+#define AROP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* AROP tips */
+#define AROP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* AROP key specs */
+keySpec AROP_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* AROP operation match argument table */
+struct COMMAND_ARG AROP_operation_match_Subargs[] = {
+{MAKE_ARG("match",ARG_TYPE_PURE_TOKEN,-1,"MATCH",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* AROP operation argument table */
+struct COMMAND_ARG AROP_operation_Subargs[] = {
+{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("and",ARG_TYPE_PURE_TOKEN,-1,"AND",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("or",ARG_TYPE_PURE_TOKEN,-1,"OR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xor",ARG_TYPE_PURE_TOKEN,-1,"XOR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("match",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=AROP_operation_match_Subargs},
+{MAKE_ARG("used",ARG_TYPE_PURE_TOKEN,-1,"USED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* AROP argument table */
+struct COMMAND_ARG AROP_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,8,NULL),.subargs=AROP_operation_Subargs},
+};
+
+/********** ARRING ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARRING history */
+#define ARRING_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARRING tips */
+#define ARRING_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARRING key specs */
+keySpec ARRING_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARRING argument table */
+struct COMMAND_ARG ARRING_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("size",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** ARSCAN ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARSCAN history */
+#define ARSCAN_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARSCAN tips */
+#define ARSCAN_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARSCAN key specs */
+keySpec ARSCAN_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARSCAN argument table */
+struct COMMAND_ARG ARSCAN_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** ARSEEK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARSEEK history */
+#define ARSEEK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARSEEK tips */
+#define ARSEEK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARSEEK key specs */
+keySpec ARSEEK_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARSEEK argument table */
+struct COMMAND_ARG ARSEEK_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** ARSET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARSET history */
+#define ARSET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARSET tips */
+#define ARSET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARSET key specs */
+keySpec ARSET_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARSET argument table */
+struct COMMAND_ARG ARSET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** BITCOUNT ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -5378,59 +5910,6 @@ struct COMMAND_ARG SUNSUBSCRIBE_Args[] = {
 /* UNSUBSCRIBE argument table */
 struct COMMAND_ARG UNSUBSCRIBE_Args[] = {
 {MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
-};
-
-/********** GCRA ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* GCRA history */
-#define GCRA_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* GCRA tips */
-#define GCRA_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* GCRA key specs */
-keySpec GCRA_Keyspecs[1] = {
-{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* GCRA argument table */
-struct COMMAND_ARG GCRA_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("max-burst",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("tokens-per-period",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("period",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"TOKENS",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-};
-
-/********** GCRASETVALUE ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* GCRASETVALUE history */
-#define GCRASETVALUE_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* GCRASETVALUE tips */
-#define GCRASETVALUE_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* GCRASETVALUE key specs */
-keySpec GCRASETVALUE_Keyspecs[1] = {
-{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* GCRASETVALUE argument table */
-struct COMMAND_ARG GCRASETVALUE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("tat",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /********** EVAL ********************/
@@ -11355,6 +11834,58 @@ struct COMMAND_ARG INCRBYFLOAT_Args[] = {
 {MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** INCREX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* INCREX history */
+#define INCREX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* INCREX tips */
+#define INCREX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* INCREX key specs */
+keySpec INCREX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* INCREX increment argument table */
+struct COMMAND_ARG INCREX_increment_Subargs[] = {
+{MAKE_ARG("float",ARG_TYPE_DOUBLE,-1,"BYFLOAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("integer",ARG_TYPE_INTEGER,-1,"BYINT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* INCREX overflow_block argument table */
+struct COMMAND_ARG INCREX_overflow_block_Subargs[] = {
+{MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("reject",ARG_TYPE_PURE_TOKEN,-1,"REJECT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* INCREX expiration argument table */
+struct COMMAND_ARG INCREX_expiration_Subargs[] = {
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* INCREX argument table */
+struct COMMAND_ARG INCREX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=INCREX_increment_Subargs},
+{MAKE_ARG("overflow-block",ARG_TYPE_ONEOF,-1,"OVERFLOW","Out-of-bounds policy; defaults to FAIL. Missing LBOUND/UBOUND default to the type limits (LLONG_MIN/LLONG_MAX for BYINT, -LDBL_MAX/LDBL_MAX for BYFLOAT).",NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=INCREX_overflow_block_Subargs},
+{MAKE_ARG("lowerbound",ARG_TYPE_STRING,-1,"LBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("upperbound",ARG_TYPE_STRING,-1,"UBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=INCREX_expiration_Subargs},
+{MAKE_ARG("enx",ARG_TYPE_PURE_TOKEN,-1,"ENX","Only set the expiration if the key currently has no TTL. Requires one of EX/PX/EXAT/PXAT; cannot be combined with PERSIST.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /********** LCS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -11824,6 +12355,25 @@ struct COMMAND_ARG WATCH_Args[] = {
 
 /* Main command table */
 struct COMMAND_STRUCT redisCommandTable[] = {
+/* array */
+{MAKE_CMD("arcount","Returns the number of non-empty elements in an array.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARCOUNT_History,0,ARCOUNT_Tips,0,arcountCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_ARRAY,ARCOUNT_Keyspecs,1,NULL,1),.args=ARCOUNT_Args},
+{MAKE_CMD("ardel","Deletes elements at the specified indices in an array.","O(N) where N is the number of indices to delete","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARDEL_History,0,ARDEL_Tips,0,ardelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_ARRAY,ARDEL_Keyspecs,1,NULL,2),.args=ARDEL_Args},
+{MAKE_CMD("ardelrange","Deletes elements in one or more ranges.","Proportional to the number of existing elements / slices touched, not to the numeric span of the requested ranges","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARDELRANGE_History,0,ARDELRANGE_Tips,0,ardelrangeCommand,-4,CMD_WRITE,ACL_CATEGORY_ARRAY,ARDELRANGE_Keyspecs,1,NULL,2),.args=ARDELRANGE_Args},
+{MAKE_CMD("arget","Gets the value at an index in an array.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARGET_History,0,ARGET_Tips,0,argetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_ARRAY,ARGET_Keyspecs,1,NULL,2),.args=ARGET_Args},
+{MAKE_CMD("argetrange","Gets values in a range of indices.","O(N) where N is the range length","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARGETRANGE_History,0,ARGETRANGE_Tips,0,argetrangeCommand,4,CMD_READONLY,ACL_CATEGORY_ARRAY,ARGETRANGE_Keyspecs,1,NULL,3),.args=ARGETRANGE_Args},
+{MAKE_CMD("argrep","Searches array elements in a range using textual predicates.","O(P * C) where P is the number of visited positions in touched slices and C is the cost of evaluating the predicates on one existing element.","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARGREP_History,0,ARGREP_Tips,0,argrepCommand,-6,CMD_READONLY,ACL_CATEGORY_ARRAY,ARGREP_Keyspecs,1,NULL,5),.args=ARGREP_Args},
+{MAKE_CMD("arinfo","Returns metadata about an array.","O(1), or O(N) with FULL option where N is the number of slices.","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARINFO_History,0,ARINFO_Tips,0,arinfoCommand,-2,CMD_READONLY,ACL_CATEGORY_ARRAY,ARINFO_Keyspecs,1,NULL,2),.args=ARINFO_Args},
+{MAKE_CMD("arinsert","Inserts one or more values at consecutive indices.","O(N) where N is the number of values","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARINSERT_History,0,ARINSERT_Tips,0,arinsertCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_ARRAY,ARINSERT_Keyspecs,1,NULL,2),.args=ARINSERT_Args},
+{MAKE_CMD("arlastitems","Returns the most recently inserted elements.","O(N) where N is the count","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARLASTITEMS_History,0,ARLASTITEMS_Tips,0,arlastitemsCommand,-3,CMD_READONLY,ACL_CATEGORY_ARRAY,ARLASTITEMS_Keyspecs,1,NULL,3),.args=ARLASTITEMS_Args},
+{MAKE_CMD("arlen","Returns the length of an array (max index + 1).","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARLEN_History,0,ARLEN_Tips,0,arlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_ARRAY,ARLEN_Keyspecs,1,NULL,1),.args=ARLEN_Args},
+{MAKE_CMD("armget","Gets values at multiple indices in an array.","O(N) where N is the number of indices","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARMGET_History,0,ARMGET_Tips,0,armgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_ARRAY,ARMGET_Keyspecs,1,NULL,2),.args=ARMGET_Args},
+{MAKE_CMD("armset","Sets multiple index-value pairs in an array.","O(N) where N is the number of pairs","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARMSET_History,0,ARMSET_Tips,0,armsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_ARRAY,ARMSET_Keyspecs,1,NULL,2),.args=ARMSET_Args},
+{MAKE_CMD("arnext","Returns the next index ARINSERT would use.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARNEXT_History,0,ARNEXT_Tips,0,arnextCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_ARRAY,ARNEXT_Keyspecs,1,NULL,1),.args=ARNEXT_Args},
+{MAKE_CMD("arop","Performs aggregate operations on array elements in a range.","O(P) where P is visited positions in touched slices (dense scanned slots + sparse entries), with worst-case O(|end-start|+1) and typical case close to O(N), where N is the number of existing elements in range.","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,AROP_History,0,AROP_Tips,0,aropCommand,-5,CMD_READONLY,ACL_CATEGORY_ARRAY,AROP_Keyspecs,1,NULL,4),.args=AROP_Args},
+{MAKE_CMD("arring","Inserts values into a ring buffer of specified size, wrapping and truncating as needed.","O(M) normally, O(N+M) on ring resize, where N is the maximum of the old and new ring size and M is the number of inserted values","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARRING_History,0,ARRING_Tips,0,arringCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_ARRAY,ARRING_Keyspecs,1,NULL,3),.args=ARRING_Args},
+{MAKE_CMD("arscan","Iterates existing elements in a range, returning index-value pairs.","O(P) where P is visited positions in touched slices (dense scanned slots + sparse entries), with worst-case O(|end-start|+1) and typical case close to O(N), where N is the number of existing elements in range.","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARSCAN_History,0,ARSCAN_Tips,0,arscanCommand,-4,CMD_READONLY,ACL_CATEGORY_ARRAY,ARSCAN_Keyspecs,1,NULL,4),.args=ARSCAN_Args},
+{MAKE_CMD("arseek","Sets the ARINSERT / ARRING cursor to a specific index.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARSEEK_History,0,ARSEEK_Tips,0,arseekCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_ARRAY,ARSEEK_Keyspecs,1,NULL,2),.args=ARSEEK_Args},
+{MAKE_CMD("arset","Sets one or more contiguous values starting at an index in an array.","O(N) where N is the number of values","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARSET_History,0,ARSET_Tips,0,arsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_ARRAY,ARSET_Keyspecs,1,NULL,3),.args=ARSET_Args},
 /* bitmap */
 {MAKE_CMD("bitcount","Counts the number of set bits (population counting) in a string.","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITCOUNT_History,1,BITCOUNT_Tips,0,bitcountCommand,-2,CMD_READONLY,ACL_CATEGORY_BITMAP,BITCOUNT_Keyspecs,1,NULL,2),.args=BITCOUNT_Args},
 {MAKE_CMD("bitfield","Performs arbitrary bitfield integer operations on strings.","O(1) for each subcommand specified","3.2.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITFIELD_History,0,BITFIELD_Tips,0,bitfieldCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,BITFIELD_Keyspecs,1,bitfieldGetKeys,2),.args=BITFIELD_Args},
@@ -11946,18 +12496,15 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("rpush","Appends one or more elements to a list. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSH_History,1,RPUSH_Tips,0,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSH_Keyspecs,1,NULL,2),.args=RPUSH_Args},
 {MAKE_CMD("rpushx","Appends an element to a list only when the list exists.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSHX_History,1,RPUSHX_Tips,0,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSHX_Keyspecs,1,NULL,2),.args=RPUSHX_Args},
 /* pubsub */
-{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
+{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_DENYOOM,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
 {MAKE_CMD("publish","Posts a message to a channel.","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBLISH_History,0,PUBLISH_Tips,0,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,PUBLISH_Keyspecs,0,NULL,2),.args=PUBLISH_Args},
 {MAKE_CMD("pubsub","A container for Pub/Sub commands.","Depends on subcommand.","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_History,0,PUBSUB_Tips,0,NULL,-2,0,0,PUBSUB_Keyspecs,0,NULL,0),.subcommands=PUBSUB_Subcommands},
 {MAKE_CMD("punsubscribe","Stops listening to messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,0,PUNSUBSCRIBE_Tips,0,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PUNSUBSCRIBE_Keyspecs,0,NULL,1),.args=PUNSUBSCRIBE_Args},
 {MAKE_CMD("spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SPUBLISH_History,0,SPUBLISH_Tips,0,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,SPUBLISH_Keyspecs,1,NULL,2),.args=SPUBLISH_Args},
-{MAKE_CMD("ssubscribe","Listens for messages published to shard channels.","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,0,SSUBSCRIBE_Tips,0,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SSUBSCRIBE_Keyspecs,1,NULL,1),.args=SSUBSCRIBE_Args},
-{MAKE_CMD("subscribe","Listens for messages published to channels.","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,0,SUBSCRIBE_Tips,0,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,SUBSCRIBE_Keyspecs,0,NULL,1),.args=SUBSCRIBE_Args},
+{MAKE_CMD("ssubscribe","Listens for messages published to shard channels.","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,0,SSUBSCRIBE_Tips,0,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_DENYOOM,0,SSUBSCRIBE_Keyspecs,1,NULL,1),.args=SSUBSCRIBE_Args},
+{MAKE_CMD("subscribe","Listens for messages published to channels.","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,0,SUBSCRIBE_Tips,0,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_DENYOOM,0,SUBSCRIBE_Keyspecs,0,NULL,1),.args=SUBSCRIBE_Args},
 {MAKE_CMD("sunsubscribe","Stops listening to messages posted to shard channels.","O(N) where N is the number of shard channels to unsubscribe.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,0,SUNSUBSCRIBE_Tips,0,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=SUNSUBSCRIBE_Args},
 {MAKE_CMD("unsubscribe","Stops listening to messages posted to channels.","O(N) where N is the number of channels to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,0,UNSUBSCRIBE_Tips,0,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,UNSUBSCRIBE_Keyspecs,0,NULL,1),.args=UNSUBSCRIBE_Args},
-/* rate_limit */
-{MAKE_CMD("gcra","Rate limit via GCRA (Generic Cell Rate Algorithm).","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"rate_limit",COMMAND_GROUP_RATE_LIMIT,GCRA_History,0,GCRA_Tips,0,gcraCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_RATE_LIMIT,GCRA_Keyspecs,1,NULL,5),.args=GCRA_Args},
-{MAKE_CMD("gcrasetvalue","An internal command for recording a GCRA TAT value during AOF rewrite and replication.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"rate_limit",COMMAND_GROUP_RATE_LIMIT,GCRASETVALUE_History,0,GCRASETVALUE_Tips,0,gcraSetValueCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_RATE_LIMIT,GCRASETVALUE_Keyspecs,1,NULL,2),.args=GCRASETVALUE_Args},
 /* scripting */
 {MAKE_CMD("eval","Executes a server-side Lua script.","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,EVAL_History,0,EVAL_Tips,0,evalCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,EVAL_Keyspecs,1,evalGetKeys,4),.args=EVAL_Args},
 {MAKE_CMD("evalsha","Executes a server-side Lua script by SHA1 digest.","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,EVALSHA_History,0,EVALSHA_Tips,0,evalShaCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,EVALSHA_Keyspecs,1,evalGetKeys,4),.args=EVALSHA_Args},
@@ -12090,6 +12637,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("incr","Increments the integer value of a key by one. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCR_History,0,INCR_Tips,0,incrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCR_Keyspecs,1,NULL,1),.args=INCR_Args},
 {MAKE_CMD("incrby","Increments the integer value of a key by a number. Uses 0 as initial value if the key doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCRBY_History,0,INCRBY_Tips,0,incrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCRBY_Keyspecs,1,NULL,2),.args=INCRBY_Args},
 {MAKE_CMD("incrbyfloat","Increment the floating point value of a key by a number. Uses 0 as initial value if the key doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCRBYFLOAT_History,0,INCRBYFLOAT_Tips,0,incrbyfloatCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCRBYFLOAT_Keyspecs,1,NULL,2),.args=INCRBYFLOAT_Args},
+{MAKE_CMD("increx","Increments the numeric value of a key by a number and sets its expiration time. Uses 0 as initial value if the key doesn't exist.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,INCREX_History,0,INCREX_Tips,0,increxCommand,-2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,INCREX_Keyspecs,1,NULL,7),.args=INCREX_Args},
 {MAKE_CMD("lcs","Finds the longest common substring.","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,LCS_History,0,LCS_Tips,0,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,LCS_Keyspecs,1,NULL,6),.args=LCS_Args},
 {MAKE_CMD("mget","Atomically returns the string values of one or more keys.","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MGET_History,0,MGET_Tips,1,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,MGET_Keyspecs,1,NULL,1),.args=MGET_Args},
 {MAKE_CMD("mset","Atomically creates or modifies the string values of one or more keys.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSET_History,0,MSET_Tips,2,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSET_Keyspecs,1,NULL,1),.args=MSET_Args},
