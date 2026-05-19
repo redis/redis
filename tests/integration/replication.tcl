@@ -888,25 +888,26 @@ proc compute_cpu_usage {start end} {
 
 if {!$::valgrind} {
 # test diskless rdb pipe with multiple replicas, which may drop half way
-start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
-    set master [srv 0 client]
-    $master config set repl-diskless-sync yes
-    $master config set repl-diskless-sync-delay 5
-    $master config set repl-diskless-sync-max-replicas 2
-    set master_host [srv 0 host]
-    set master_port [srv 0 port]
-    set master_pid [srv 0 pid]
-    # Put enough data in the db that the RDB is comfortably larger than the
-    # pipe and socket buffers so the primary can hit the blocked writer path,
-    # but keep it small enough that slow TLS CI runners don't spend minutes
-    # draining an oversized transfer (~40 MB uncompressed).
-    $master debug populate 4000 test 10000
-    $master config set rdbcompression no
-    $master config set repl-rdb-channel no
-    # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
-    set os [catch {exec uname}]
-    set measure_time [expr {$os == "Linux"} ? 1 : 0]
-    foreach all_drop {no slow fast all timeout} {
+foreach all_drop {no slow fast all timeout} {
+    start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
+        set master [srv 0 client]
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 5
+        $master config set repl-diskless-sync-max-replicas 2
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_pid [srv 0 pid]
+        # Put enough data in the db that the RDB is comfortably larger than the
+        # pipe and socket buffers so the primary can hit the blocked writer path,
+        # but keep it small enough that slow TLS CI runners don't spend minutes
+        # draining an oversized transfer (~40 MB uncompressed).
+        $master debug populate 4000 test 10000
+        $master config set rdbcompression no
+        $master config set repl-rdb-channel no
+        # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
+        set os [catch {exec uname}]
+        set measure_time [expr {$os == "Linux"} ? 1 : 0]
+
         test "diskless $all_drop replicas drop during rdb pipe" {
             # Reset config that the timeout subcase may change, so a failing
             # subcase does not leave the next one with an aggressive timeout.
