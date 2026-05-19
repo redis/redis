@@ -1896,7 +1896,7 @@ static void sendGetackToReplicas(void) {
     robj *argv[3];
     argv[0] = shared.replconf;
     argv[1] = shared.getack;
-    argv[2] = shared.special_asterick; /* Not used argument. */
+    argv[2] = shared.special_asterisk; /* Not used argument. */
     replicationFeedSlaves(server.slaves, -1, argv, 3);
 }
 
@@ -2311,7 +2311,7 @@ void createSharedObjects(void) {
     shared.load = createStringObject("LOAD",4);
     shared.createconsumer = createStringObject("CREATECONSUMER",14);
     shared.getack = createStringObject("GETACK",6);
-    shared.special_asterick = createStringObject("*",1);
+    shared.special_asterisk = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
     shared.fields = createStringObject("FIELDS",6);

@@ -1721,7 +1721,7 @@ struct sharedObjectsStruct {
     *hdel, *hpexpireat, *hpersist, *hsetex,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
-    *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *getack, *special_asterisk, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk, *smessagebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
