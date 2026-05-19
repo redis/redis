@@ -308,10 +308,12 @@ if(EXISTS "${REDIS_ROOT}/src/quicklist.c")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/quicklist.c" "${QUICKLIST_CONTENT}")
 endif()
 
+if(MSVC)
 if(EXISTS "${REDIS_ROOT}/src/rdb.c")
     file(READ "${REDIS_ROOT}/src/rdb.c" RDB_C_CONTENT)
     string(REPLACE "FILE *fp = fopen(filename,\"w\");" "char abs_filename[1024];\n    char *cwdp = getcwd(cwd, 1024);\n    if (cwdp && filename[0] != '/' && filename[0] != '\\\\' && filename[1] != ':') {\n        snprintf(abs_filename, 1024, \"%s\\\\\\\\%s\", cwdp, filename);\n    } else {\n        snprintf(abs_filename, 1024, \"%s\", filename);\n    }\n    FILE *fp = fopen(abs_filename, \"w\");" RDB_C_CONTENT "${RDB_C_CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/rdb.c" "${RDB_C_CONTENT}")
+endif()
 endif()
 
 if(EXISTS "${REDIS_ROOT}/tests/modules/rdbloadsave.c")
@@ -805,6 +807,7 @@ endfunction()
 
 file(COPY "${REDIS_ROOT}/tests" DESTINATION "${CMAKE_BINARY_DIR}")
 
+if(MSVC)
 file(WRITE "${CMAKE_BINARY_DIR}/patch_tests.py" [=[
 import os, re, glob
 # patch util.tcl
@@ -1049,6 +1052,7 @@ if os.path.exists(f):
 ]=])
 
 execute_process(COMMAND python patch_tests.py WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
 
 copy_runtest_script("runtest")
 copy_runtest_script("runtest-cluster")
@@ -1165,7 +1169,7 @@ file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "
 ssize_t posix_read(int fd, void *buf, size_t count);
 ssize_t posix_write(int fd, const void *buf, size_t count);
 ")
-file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp))\n#define __sync_fetch_and_add(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() MemoryBarrier()\n\n")
+file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) _Generic(*(ptr), long long: _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val), unsigned long long: _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val), default: _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) _Generic(*(ptr), long long: _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val), unsigned long long: _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val), default: _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) _Generic(*(ptr), long long: _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)), unsigned long long: _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)), default: _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (_Generic(*(ptr), long long: _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp), unsigned long long: _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp), default: _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp)))\n#define __sync_fetch_and_add(ptr, val) _Generic(*(ptr), long long: _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)), unsigned long long: _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)), default: _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() MemoryBarrier()\n\n")
 
 if(NOT MSVC_COMPAT_PATCHED)
 set(MSVC_COMPAT_PATCHED 1)
