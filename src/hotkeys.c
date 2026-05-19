@@ -13,11 +13,6 @@
 #include "cluster.h"
 #include <sys/resource.h>
 
-static inline int nearestNextPowerOf2(unsigned int count) {
-    if (count <= 1) return 1;
-    return 1 << (32 - __builtin_clz(count-1));
-}
-
 /* Comparison function for qsort to sort slot indices */
 static inline int slotCompare(const void *a, const void *b) {
     return (*(const int *)a) - (*(const int *)b);

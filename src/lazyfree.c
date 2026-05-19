@@ -207,6 +207,9 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         /* If the module's free_effort returns 0, we will use asynchronous free
          * memory by default. */
         return effort == 0 ? ULONG_MAX : effort;
+    } else if (obj->type == OBJ_ARRAY) {
+        redisArray *ar = obj->ptr;
+        return arCount(ar);
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -332,7 +335,7 @@ void emptyDbAsync(redisDb *db) {
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-    db->stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+    db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
     emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL);
 }
