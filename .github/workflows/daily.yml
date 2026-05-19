@@ -29,7 +29,7 @@ on:
         default: 'unstable'
 
 concurrency:
-  group: daily-${{ github.head_ref || github.ref }}
+  group: daily-${{ github.event_name }}-${{ github.event.inputs.use_repo || github.repository }}-${{ github.event.inputs.use_git_ref || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
