@@ -1,8 +1,7 @@
-# A CI action that using codespell to check spell.
-# .github/.codespellrc is a config file.
-# .github/wordlist.txt is a list of words that will ignore word checks.
+# A CI action that uses https://github.com/crate-ci/typos to check spelling.
+# .config/typos.toml is a configuration file.
 # More details please check the following link:
-# https://github.com/codespell-project/codespell
+# https://github.com/crate-ci/typos
 name: Spellcheck
 
 on:
@@ -18,15 +17,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: pip cache
-        uses: actions/cache@v5
+      - name: Install typos
+        uses: taiki-e/install-action@v2
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: ${{ runner.os }}-pip-
-
-      - name: Install prerequisites
-        run: sudo pip install -r ./.codespell/requirements.txt
+          tool: typos
 
       - name: Spell check
-        run: codespell --config=./.codespell/.codespellrc
+        run: typos --config=./.config/typos.toml

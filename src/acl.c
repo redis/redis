@@ -616,7 +616,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
     sdsupdatelen(selector->command_rules);
 }
 
-/* This function is resopnsible for updating the command_rules struct so that relative ordering of
+/* This function is responsible for updating the command_rules struct so that relative ordering of
  * commands and categories is maintained and can be reproduced without loss. */
 void ACLUpdateCommandRules(aclSelector *selector, const char *rule, int allow) {
     sds new_rule = sdsnew(rule);

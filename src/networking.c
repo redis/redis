@@ -2517,13 +2517,13 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
             /* BULK_STR_REF - release object references */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
 
-            size_t writen_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
-            if (*remaining < (ssize_t)(writen_len - *sentlen)) {
+            size_t written_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
+            if (*remaining < (ssize_t)(written_len - *sentlen)) {
                 *sentlen += *remaining;
                 *remaining = 0;
                 return head;
             }
-            *remaining -= (writen_len - *sentlen);
+            *remaining -= (written_len - *sentlen);
             c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);

@@ -289,7 +289,7 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp x] == 25}
         }
 
-        test "ZADD INCR works with a single score-elemenet pair - $encoding" {
+        test "ZADD INCR works with a single score-element pair - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             catch {r zadd ztmp INCR 15 x 10 y} err

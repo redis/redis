@@ -776,7 +776,7 @@ start_server {tags {"introspection"}} {
             lappend backups $c [lindex [r config get $c] 1]
         }
 
-        # multi config set and veirfy
+        # multi config set and verify
         assert_equal [eval "r config set $some_configs"] "OK"
         dict for {c val} $some_configs {
             assert_equal [lindex [r config get $c] 1] $val

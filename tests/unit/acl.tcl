@@ -632,7 +632,7 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER adv-test -@all +select|0 +select|0 +debug|segfault +debug
         assert_equal "-@all +select|0 +debug" [dict get [r ACL getuser adv-test] commands]
 
-        # Unnecessary categories are retained for potentional future compatibility
+        # Unnecessary categories are retained for potential future compatibility
         r ACL SETUSER adv-test -@all -@dangerous
         assert_equal "-@all -@dangerous" [dict get [r ACL getuser adv-test] commands]
 
@@ -686,16 +686,16 @@ start_server {tags {"acl external:skip"}} {
          for {set j 0} {$j < 10} {incr j} {
              assert_error "*WRONGPASS*" {r AUTH user1 doo}
          }
-         set entry_id_lastest_error [dict get [lindex [r ACL LOG] 0] entry-id]
+         set entry_id_latest_error [dict get [lindex [r ACL LOG] 0] entry-id]
          set timestamp_created_updated [dict get [lindex [r ACL LOG] 0] timestamp-created]
          set timestamp_last_updated_after_update [dict get [lindex [r ACL LOG] 0] timestamp-last-updated]
-         assert {$entry_id_lastest_error eq $entry_id_initial_error}
+         assert {$entry_id_latest_error eq $entry_id_initial_error}
          assert {$timestamp_last_update_original < $timestamp_last_updated_after_update}
          assert {$timestamp_created_original eq $timestamp_created_updated}
          r ACL setuser user2 >doo
          assert_error "*WRONGPASS*" {r AUTH user2 foo}
          set new_error_entry_id [dict get [lindex [r ACL LOG] 0] entry-id]
-         assert {$new_error_entry_id eq $entry_id_lastest_error + 1 }
+         assert {$new_error_entry_id eq $entry_id_latest_error + 1 }
     }
 
     test {ACL LOG shows failed command executions at toplevel} {

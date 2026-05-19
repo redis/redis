@@ -1,0 +1,120 @@
+# See https://github.com/crate-ci/typos/blob/master/docs/reference.md to configure typos
+
+[files]
+extend-exclude = [
+    "deps/",
+    # crc16_slottable is primarily pre-generated random strings.
+    "src/crc16_slottable.h",
+    # Third-party imported code.
+    "src/pqsort.c",
+    "src/lzf_c.c",
+    "src/lzf_d.c",
+    "src/lzf.h",
+]
+
+[default]
+# WATCHed / SELECTed / RESTOREd / DUMPed: intentional capitalization of Redis
+# command names with a lowercase verb suffix. They trigger false positives for
+# `Hed`, `SELEC`, `RESTOR`, etc.
+extend-ignore-re = [
+    'WATCHed',
+    'SELECTed',
+    'RESTOREd',
+    'DUMPed',
+    # Italian poetry in lolwut8.c.
+    'delle cose',
+    'le cose',
+    # ANSI escape sequences inside redis-cli reverse-search test regexes
+    # (e.g. `k\x1B[1mey\x1B[0m`).
+    '\[1mey',
+]
+
+[default.extend-words]
+exat = "exat"
+optin = "optin"
+smove = "smove"
+# `tre` is the name of a dependency directory (deps/tre).
+tre = "tre"
+# `special_asterick` is a shared object name kept for ABI/compat stability.
+asterick = "asterick"
+# `sufix` is widely used in AOF-manifest test fixture identifiers.
+sufix = "sufix"
+# `subcriber` appears in cluster slot-stats test variables.
+subcriber = "subcriber"
+
+[default.extend-identifiers]
+# POSIX glob struct field; not a typo.
+gl_pathc = "gl_pathc"
+# Existing Redis identifiers preserved to avoid sweeping renames.
+CLIENT_READ_MASTER_USING_INLINE_PROTOCAL = "CLIENT_READ_MASTER_USING_INLINE_PROTOCAL"
+hnswSerNode = "hnswSerNode"
+HNSW_SER_WORSTLINK_MISSING = "HNSW_SER_WORSTLINK_MISSING"
+keyMetaClassSer = "keyMetaClassSer"
+functionsLibMataData = "functionsLibMataData"
+luaEngineGetUsedMemoy = "luaEngineGetUsedMemoy"
+lpFingArgs = "lpFingArgs"
+
+[type.c]
+extend-ignore-re = [
+    "BA3E2571", # sha1.c
+    "D4C4DAA4", # sha1.c
+    "Georg Nees",
+    "\\[l\\]ist", # eval.c
+]
+
+[type.tcl]
+extend-ignore-re = [
+    "DUMPed",
+]
+
+[type.sv.extend-identifiers]
+# sv = .h
+module_gil_acquring = "module_gil_acquring"
+
+[type.c.extend-identifiers]
+clen = "clen"
+fle = "fle"
+module_gil_acquring = "module_gil_acquring"
+nd = "nd"
+ot = "ot"
+# Local variable abbreviations widespread across the codebase.
+cpy = "cpy"
+pn = "pn"
+# Latency-tracking subsystem identifiers.
+advices = "advices"
+# t_string GETRANGE/SETRANGE locals.
+arange_start = "arange_start"
+arange_end = "arange_end"
+
+[type.tcl.extend-identifiers]
+fo = "fo"
+oll = "oll"
+stressers = "stressers"
+# AOF manifest test fixtures use `sufix` in many identifier names.
+base_aof_sufix = "base_aof_sufix"
+incr_aof_sufix = "incr_aof_sufix"
+manifest_sufix = "manifest_sufix"
+history_sufix = "history_sufix"
+tmp_sufix = "tmp_sufix"
+aof_dirname_sufix = "aof_dirname_sufix"
+
+[type.sv.extend-words]
+# sv = .h
+fo = "fo"
+seeked = "seeked"
+
+[type.c.extend-words]
+fo = "fo"
+limite = "limite"
+seeked = "seeked"
+tre = "tre"
+# `pn_ctx` etc. in postnotifications module test (post-notification context).
+pn = "pn"
+
+[type.systemd.extend-words]
+# systemd = .conf
+ake = "ake"
+
+[type.tcl.extend-words]
+fo = "fo"
+tre = "tre"
