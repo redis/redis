@@ -833,7 +833,7 @@ hisds *hi_sdssplitlen(const char *s, int len, const char *sep, int seplen, int *
             tokens = newtokens;
         }
         /* search the separator */
-        if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
+        if (seplen == 1 ? (*(s+j) == sep[0]) : (memcmp(s+j, sep, seplen) == 0)) {
             tokens[elements] = hi_sdsnewlen(s+start,j-start);
             if (tokens[elements] == NULL) goto cleanup;
             elements++;
