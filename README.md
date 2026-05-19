@@ -849,6 +849,11 @@ Tested with the following Docker image:
 
 The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
 
+> **Note**: Three RediSearch-specific build constraints apply on macOS and are handled in the steps below:
+> - The cross-language LTO that RediSearch enables by default requires Linux; its build script aborts on macOS with `Error: LTO is only supported on Linux`. Step 6 sets `LTO=0` to disable it.
+> - RediSearch's Rust workspace uses edition 2024 and features stabilized in Rust 1.94, so the Rust toolchain in step 3 is pinned to `1.94.0`. Older Rust fails with `feature edition2024 is required`.
+> - RediSearch's CMake build calls `libtool -static` (BSD libtool syntax). Step 6's `PATH` does **not** prepend `$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin`, so macOS's `/usr/bin/libtool` is used for that step.
+
 1. Install Homebrew
 
    If Homebrew is not already installed, follow the installation instructions on the [Homebrew home page](https://brew.sh/).
@@ -874,7 +879,7 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    Rust is required to build the JSON package.
 
    ```sh
-   RUST_INSTALLER=rust-1.80.1-$(if [ "$(uname -m)" = "arm64" ]; then echo "aarch64"; else echo "x86_64"; fi)-apple-darwin
+   RUST_INSTALLER=rust-1.94.0-$(if [ "$(uname -m)" = "arm64" ]; then echo "aarch64"; else echo "x86_64"; fi)-apple-darwin
    wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
    tar -xf ${RUST_INSTALLER}.tar.xz
    (cd ${RUST_INSTALLER} && sudo ./install.sh)
@@ -909,7 +914,8 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    export BUILD_WITH_MODULES=yes
    export BUILD_TLS=yes
    export DISABLE_WERRORS=yes
-   PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
+   export LTO=0
+   PATH="$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
    mkdir -p build_dir/etc
