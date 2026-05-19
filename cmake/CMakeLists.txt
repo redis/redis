@@ -358,7 +358,7 @@ if(EXISTS "${REDIS_ROOT}/src/server.c")
     
     string(REPLACE "server.repl_full_sync_buffer = (struct replDataBuf) {0};" "memset(&server.repl_full_sync_buffer, 0, sizeof(server.repl_full_sync_buffer));" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     string(REPLACE "R_PosInf = 1.0/R_Zero;\n    R_NegInf = -1.0/R_Zero;\n    R_Nan = R_Zero/R_Zero;" "R_PosInf = INFINITY;\n    R_NegInf = -INFINITY;\n    R_Nan = NAN;" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
-    string(REPLACE "server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);" "int _setsize = server.maxclients+CONFIG_FDSET_INCR; if (_setsize < 65536) _setsize = 65536; server.el = aeCreateEventLoop(_setsize);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
+    string(REPLACE "server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);" "int _setsize = server.maxclients+CONFIG_FDSET_INCR; if (_setsize < 524288) _setsize = 524288; server.el = aeCreateEventLoop(_setsize);" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     string(REPLACE "if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE, modulePipeReadable,NULL) == AE_ERR) { serverLog(LL_WARNING, \"Error registering the readable event for the module pipe. fd=%d, setsize=%d, errno=%d\", (int)server.module_pipe[0], (int)server.el->setsize, (int)errno); serverPanic(\"Error registering the readable event for the module pipe.\");" "if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE, modulePipeReadable,NULL) == AE_ERR) { fprintf(stderr, \"\\n\\nMODULE PIPE FD=%d, SETSIZE=%d\\n\\n\", (int)server.module_pipe[0], (int)server.el->setsize); fflush(stderr); serverPanic(\"Error registering the readable event for the module pipe.\");" SERVER_C_CONTENT "${SERVER_C_CONTENT}")
     if(EXISTS "${REDIS_ROOT}/src/ae.c")
         file(READ "${REDIS_ROOT}/src/ae.c" AE_C_CONTENT)
@@ -414,7 +414,6 @@ file(WRITE "${CMAKE_BINARY_DIR}/patched/src/sha256.c" "${CONTENT}")
 
 file(READ "${REDIS_ROOT}/src/cluster_legacy.c" CONTENT)
 string(REPLACE "char buf[length + 1];" "char *buf = _alloca(length + 1);" CONTENT "${CONTENT}")
-string(REPLACE "char buf[128];" "char *buf = _alloca(128);" CONTENT "${CONTENT}")
 file(WRITE "${CMAKE_BINARY_DIR}/patched/src/cluster_legacy.c" "${CONTENT}")
 
 file(READ "${REDIS_ROOT}/src/redismodule.h" CONTENT)
@@ -504,7 +503,6 @@ set(PATCHED_FILES
     "src/slowlog.c"
     "src/mstr.h"
     "src/mstr.c"
-    "src/evict.c"
     "src/acl.c"
     "src/unit/main.cpp"
     "deps/linenoise/linenoise.c"
@@ -595,10 +593,6 @@ if(EXISTS "${REDIS_ROOT}/src/server.h")
 endif()
 
 
-if(EXISTS "${REDIS_ROOT}/src/atomicvar.h")
-    file(READ "${REDIS_ROOT}/src/atomicvar.h" CONTENT_src_atomicvar_h)
-    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/atomicvar.h" "${CONTENT_src_atomicvar_h}")
-endif()
 
 if(EXISTS "${REDIS_ROOT}/src/dict.h")
     file(READ "${REDIS_ROOT}/src/dict.h" CONTENT_src_dict_h)
@@ -723,10 +717,6 @@ if(MSVC)
       get_filename_component(F_NAME ${C_FILE} NAME)
       if(NOT EXISTS "${CMAKE_BINARY_DIR}/patched/src/${F_NAME}")
           file(READ "${C_FILE}" CONTENT)
-          if(F_NAME STREQUAL "server.c")
-              string(REPLACE "int main(int argc, char **argv) {" "int main(int argc, char **argv) { fprintf(stderr, \"=== MAIN STARTED ===\\n\"); fflush(stderr);" CONTENT "${CONTENT}")
-              string(REPLACE "server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);" "int _setsize = server.maxclients+CONFIG_FDSET_INCR; if (_setsize < 524288) _setsize = 524288; server.el = aeCreateEventLoop(_setsize);" CONTENT "${CONTENT}")
-          endif()
           if(F_NAME STREQUAL "networking.c")
               string(REPLACE "c->reqtype = PROTO_REQ_INLINE;" "serverLog(LL_WARNING, \"Falling back to inline! qb_pos=%d, char=%d ('%c'), qbuf_len=%d\", (int)c->qb_pos, (int)c->querybuf[c->qb_pos], c->querybuf[c->qb_pos], (int)sdslen(c->querybuf));\n                    c->reqtype = PROTO_REQ_INLINE;" CONTENT "${CONTENT}")
           endif()
@@ -1167,15 +1157,15 @@ endif()
 
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "#define read posix_read
 #define write posix_write
-int posix_read(int fd, void *buf, unsigned int count);
-int posix_write(int fd, const void *buf, unsigned int count);
+ssize_t posix_read(int fd, void *buf, size_t count);
+ssize_t posix_write(int fd, const void *buf, size_t count);
 ")
 
 file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "
-int posix_read(int fd, void *buf, unsigned int count);
-int posix_write(int fd, const void *buf, unsigned int count);
+ssize_t posix_read(int fd, void *buf, size_t count);
+ssize_t posix_write(int fd, const void *buf, size_t count);
 ")
-file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp))\n#define __sync_fetch_and_add(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() _ReadWriteBarrier()\n\n")
+file(APPEND "${CMAKE_BINARY_DIR}/msvc_compat.h" "\n#define close posix_close\n#define connect posix_connect\nint posix_close(int fd);\n#ifndef __cplusplus\n#define __thread __declspec(thread)\n#define static_assert(expr, lit) _Static_assert(expr, lit)\n#endif\n\n#include <intrin.h>\n#define __sync_add_and_fetch(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) + (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)) + (long)(val))\n#define __sync_sub_and_fetch(ptr, val, ...) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), -(__int64)(val)) - (__int64)(val) : _InterlockedExchangeAdd((long volatile *)(ptr), -(long)(val)) - (long)(val))\n#define __sync_val_compare_and_swap(ptr, comp, exch) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)))\n#define __sync_bool_compare_and_swap(ptr, comp, exch, ...) (sizeof(*(ptr)) == 8 ? _InterlockedCompareExchange64((__int64 volatile *)(ptr), (__int64)(exch), (__int64)(comp)) == (__int64)(comp) : _InterlockedCompareExchange((long volatile *)(ptr), (long)(exch), (long)(comp)) == (long)(comp))\n#define __sync_fetch_and_add(ptr, val) (sizeof(*(ptr)) == 8 ? _InterlockedExchangeAdd64((__int64 volatile *)(ptr), (__int64)(val)) : _InterlockedExchangeAdd((long volatile *)(ptr), (long)(val)))\n#define __sync_synchronize() MemoryBarrier()\n\n")
 
 if(NOT MSVC_COMPAT_PATCHED)
 set(MSVC_COMPAT_PATCHED 1)
