@@ -2,6 +2,7 @@
 
 [files]
 extend-exclude = [
+    ".git/",
     "deps/",
     # crc16_slottable is primarily pre-generated random strings.
     "src/crc16_slottable.h",
@@ -12,11 +13,6 @@ extend-exclude = [
     "src/lzf.h",
     "src/sha1.c",
 ]
-
-[default.extend-words]
-exat = "exat"
-optin = "optin"
-smove = "smove"
 
 [default]
 extend-ignore-re = [
@@ -32,6 +28,13 @@ extend-ignore-re = [
     # (e.g. `k\x1B[1mey\x1B[0m`).
     '\[1mey',
 ]
+
+[default.extend-words]
+exat = "exat"
+optin = "optin"
+smove = "smove"
+# 'tre' is the name of the TRE regex library dependency.
+tre = "tre"
 
 [default.extend-identifiers]
 # POSIX glob struct field; not a typo.
@@ -78,7 +81,6 @@ seeked = "seeked"
 [type.c.extend-words]
 fo = "fo"
 seeked = "seeked"
-tre = "tre"
 pn = "pn"
 
 [type.systemd.extend-words]
@@ -87,4 +89,3 @@ ake = "ake"
 
 [type.tcl.extend-words]
 fo = "fo"
-tre = "tre"
