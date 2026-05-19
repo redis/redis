@@ -4,17 +4,13 @@ name: "Codecov"
 # where each PR needs to be compared against the coverage of the head commit
 on: [push, pull_request]
 
-permissions:
-  contents: read
-
 jobs:
   code-coverage:
-    if: ${{ github.repository == 'redis/redis' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v4
 
     - name: Install lcov and run test
       run: |
@@ -22,11 +18,7 @@ jobs:
         make lcov
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      uses: codecov/codecov-action@v4
       with:
-        files: ./src/redis.info
-        disable_search: true
-        fail_ci_if_error: true
-
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./src/redis.info
