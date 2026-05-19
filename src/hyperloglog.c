@@ -530,11 +530,17 @@ void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
 
     /* Redis default is to use 16384 registers 6 bits each. The code works
      * with other values by modifying the defines, but for our target value
-     * we take a faster path with unrolled loops. */
+     * we take a faster path with unrolled loops.
+     *
+     * Uses 4 independent histogram accumulators to break store→load
+     * dependency chains when multiple registers map to the same bin.
+     * Each group of 4 registers goes to a different accumulator. */
     if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
         uint8_t *r = registers;
         unsigned long r0, r1, r2, r3, r4, r5, r6, r7, r8, r9,
                       r10, r11, r12, r13, r14, r15;
+        int h0[64] = {0}, h1[64] = {0}, h2[64] = {0}, h3[64] = {0};
+
         for (j = 0; j < 1024; j++) {
             /* Handle 16 registers per iteration. */
             r0 = r[0] & 63;
@@ -554,24 +560,35 @@ void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
             r14 = (r[10] >> 4 | r[11] << 4) & 63;
             r15 = (r[11] >> 2) & 63;
 
-            reghisto[r0]++;
-            reghisto[r1]++;
-            reghisto[r2]++;
-            reghisto[r3]++;
-            reghisto[r4]++;
-            reghisto[r5]++;
-            reghisto[r6]++;
-            reghisto[r7]++;
-            reghisto[r8]++;
-            reghisto[r9]++;
-            reghisto[r10]++;
-            reghisto[r11]++;
-            reghisto[r12]++;
-            reghisto[r13]++;
-            reghisto[r14]++;
-            reghisto[r15]++;
+            /* Interleave across 4 accumulators by index mod 4:
+             * r0,r4,r8,r12 → h0;  r1,r5,r9,r13 → h1;
+             * r2,r6,r10,r14 → h2; r3,r7,r11,r15 → h3.
+             * HLL register values cluster in a few consecutive bins, so adjacent
+             * registers frequently hit the same histogram bin. 4 accumulators
+             * break the resulting store→load dependency chain. */
+            h0[r0]++;
+            h1[r1]++;
+            h2[r2]++;
+            h3[r3]++;
+            h0[r4]++;
+            h1[r5]++;
+            h2[r6]++;
+            h3[r7]++;
+            h0[r8]++;
+            h1[r9]++;
+            h2[r10]++;
+            h3[r11]++;
+            h0[r12]++;
+            h1[r13]++;
+            h2[r14]++;
+            h3[r15]++;
 
             r += 12;
+        }
+
+        /* Merge accumulators — 64 entries (6-bit register values), negligible cost. */
+        for (j = 0; j < 64; j++) {
+            reghisto[j] = h0[j] + h1[j] + h2[j] + h3[j];
         }
     } else {
         for(j = 0; j < HLL_REGISTERS; j++) {
@@ -986,27 +1003,39 @@ void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* reghis
  * computation, which is representation-specific, while all the rest is common. */
 
 /* Implements the register histogram calculation for uint8_t data type
- * which is only used internally as speedup for PFCOUNT with multiple keys. */
+ * which is only used internally as speedup for PFCOUNT with multiple keys.
+ *
+ * Uses 4 independent histogram accumulators to break store→load dependency
+ * chains: when two bytes in the same word map to the same histogram bin,
+ * a single accumulator serializes on the load-modify-store cycle. With 4
+ * accumulators, each byte goes to a different copy, allowing the CPU's
+ * out-of-order engine to overlap the increments. */
 void hllRawRegHisto(uint8_t *registers, int* reghisto) {
-    uint64_t *word = (uint64_t*) registers;
-    uint8_t *bytes;
+    /* 4 independent accumulators — each byte position in the 8-byte word
+     * maps to a different accumulator to maximize ILP. Accumulator
+     * assignment is by byte index mod 4: bytes 0,4 → h0, 1,5 → h1,
+     * 2,6 → h2, 3,7 → h3. */
+    int h0[64] = {0}, h1[64] = {0}, h2[64] = {0}, h3[64] = {0};
+    uint8_t *r = registers;
     int j;
 
-    for (j = 0; j < HLL_REGISTERS/8; j++) {
-        if (*word == 0) {
-            reghisto[0] += 8;
-        } else {
-            bytes = (uint8_t*) word;
-            reghisto[bytes[0]]++;
-            reghisto[bytes[1]]++;
-            reghisto[bytes[2]]++;
-            reghisto[bytes[3]]++;
-            reghisto[bytes[4]]++;
-            reghisto[bytes[5]]++;
-            reghisto[bytes[6]]++;
-            reghisto[bytes[7]]++;
-        }
-        word++;
+    for (j = 0; j < HLL_REGISTERS; j += 8) {
+        h0[r[0]]++;
+        h1[r[1]]++;
+        h2[r[2]]++;
+        h3[r[3]]++;
+        h0[r[4]]++;
+        h1[r[5]]++;
+        h2[r[6]]++;
+        h3[r[7]]++;
+        r += 8;
+    }
+
+    /* Merge accumulators. The histogram has 64 entries (register values
+     * are 6-bit, range 0-63), so this loop is negligible compared to
+     * the 16384-register main loop. */
+    for (j = 0; j < 64; j++) {
+        reghisto[j] = h0[j] + h1[j] + h2[j] + h3[j];
     }
 }
 

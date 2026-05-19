@@ -8,7 +8,9 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include "xxhash.h"
+#include <float.h>
 #include <math.h> /* isnan(), isinf() */
 
 /* XXH3 64-bit hash produces 16 hex characters when formatted */
@@ -71,7 +73,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_SET_IFDNE (1<<12)      /* Set if current digest does not equal match digest */
 
 /* Forward declaration */
-static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int relative_ttl, int unit, long long *milliseconds);
 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
  *
@@ -88,8 +90,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
     int setkey_flags = 0;
+    int relative_ttl = (flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
 
-    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+    if (expire && getExpireMillisecondsOrReply(c, expire, relative_ttl, unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -226,18 +229,19 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
 }
 
 /*
- * Extract the `expire` argument of a given GET/SET command as an absolute timestamp in milliseconds.
+ * Extract the `expire` argument of a given command as an absolute timestamp in milliseconds.
  *
  * "client" is the client that sent the `expire` argument.
  * "expire" is the `expire` argument to be extracted.
- * "flags" represents the behavior of the command (e.g. PX or EX).
+ * "relative_ttl" is true when the value is a relative TTL (EX/PX),
+ *                false when it is an absolute timestamp (EXAT/PXAT).
  * "unit" is the original unit of the given `expire` argument (e.g. UNIT_SECONDS).
  * "milliseconds" is output argument.
  *
  * If return C_OK, "milliseconds" output argument will be set to the resulting absolute timestamp.
  * If return C_ERR, an error reply has been added to the given client.
  */
-static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds) {
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int relative_ttl, int unit, long long *milliseconds) {
     int ret = getLongLongFromObjectOrReply(c, expire, milliseconds, NULL);
     if (ret != C_OK) {
         return ret;
@@ -251,7 +255,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
-    if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+    if (relative_ttl) {
         *milliseconds += commandTimeSnapshot();
     }
 
@@ -510,7 +514,8 @@ void getexCommand(client *c) {
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
+    int relative_ttl = (args.flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, relative_ttl, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -683,51 +688,125 @@ void getrangeCommand(client *c) {
     }
 }
 
-void mgetCommand(client *c) {
-    int j;
+/* Batch size for intra-command key prefetching. */
+#define PREFETCH_BATCH_SIZE 16
 
-    addReplyArrayLen(c,c->argc-1);
-    for (j = 1; j < c->argc; j++) {
-        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-        if (o == NULL) {
-            addReplyNull(c);
-        } else {
-            if (o->type != OBJ_STRING) {
-                addReplyNull(c);
-            } else {
-                addReplyBulk(c,o);
-            }
+/* Pick the next prefetch batch starting at argv[start] and warm it via
+ * dictPrefetchKeys. 'stride' is 1 for keys-only args (MGET) or 2 for
+ * key/value pairs (MSET). Returns the chosen batch size in items. */
+static int prefetchKeysBatch(client *c, int slot, int start, int stride) {
+    int batch = (c->argc - start) / stride;
+
+    /* If at least two full batches remain, take one; otherwise fall
+     * through with batch = remaining keys, doing them in one go. */
+    if (batch >= PREFETCH_BATCH_SIZE*2) batch = PREFETCH_BATCH_SIZE;
+
+    dict *d = kvstoreGetDict(c->db->keys, slot);
+    if (d != NULL && dictSize(d) > 0) {
+        void *keys[PREFETCH_BATCH_SIZE*2];
+        dict *dicts[PREFETCH_BATCH_SIZE*2];
+        for (int k = 0; k < batch; k++) {
+            keys[k]  = c->argv[start + k * stride]->ptr;
+            dicts[k] = d;
         }
+        dictPrefetchKeys(dicts, keys, batch);
+    }
+    return batch;
+}
+
+void mgetCommand(client *c) {
+    int numkeys = c->argc - 1;
+
+    addReplyArrayLen(c, numkeys);
+
+    /* MGET requires all keys in the same slot in cluster mode. Reuse the
+     * slot already computed by the cross-command batching path when
+     * available, otherwise fall back to recomputing from argv[1]. */
+    int slot = 0;
+    if (server.cluster_enabled) {
+        pendingCommand *pcmd = c->current_pending_cmd;
+        slot = (pcmd && pcmd->slot != INVALID_CLUSTER_SLOT) ?
+                pcmd->slot : getKeySlot(c->argv[1]->ptr);
+    }
+
+    /* Decide whether to prefetch within this command. Skip if disabled by
+     * config (prefetch_batch_max_size == 0), or if the cross-command batch
+     * path already warmed our keys — running both paths would just contend
+     * for cache bandwidth. */
+    int already_prefetched = c->current_pending_cmd &&
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+    int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
+
+    int j = 1;
+    while (j < c->argc) {
+        /* If prefetching, take one batch; otherwise take all items. */
+        int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 1) : c->argc - j;
+
+        for (int k = 0; k < batch; k++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j + k]);
+            if (o == NULL || o->type != OBJ_STRING)
+                addReplyNull(c);
+            else
+                addReplyBulk(c, o);
+        }
+        j += batch;
     }
 }
 
 void msetGenericCommand(client *c, int nx) {
-    int j;
-
     if ((c->argc % 2) == 0) {
         addReplyErrorArity(c);
         return;
     }
 
+    int numkeys = (c->argc - 1) / 2;
+
+    /* Same gating as mgetCommand, see comment there. */
+    int slot = 0;
+    if (server.cluster_enabled) {
+        pendingCommand *pcmd = c->current_pending_cmd;
+        slot = (pcmd && pcmd->slot != INVALID_CLUSTER_SLOT) ?
+                pcmd->slot : getKeySlot(c->argv[1]->ptr);
+    }
+    int already_prefetched = c->current_pending_cmd &&
+        (c->current_pending_cmd->flags & PENDING_CMD_KEYS_PREFETCHED);
+    int do_prefetch = server.prefetch_batch_max_size && !already_prefetched && numkeys > 1;
+
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
      * set anything if at least one key already exists. */
     if (nx) {
-        for (j = 1; j < c->argc; j += 2) {
-            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
-                addReply(c, shared.czero);
-                return;
+        int j = 1;
+        while (j < c->argc) {
+            /* If prefetching, take one batch; otherwise take all items. */
+            int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 2)
+                                    : (c->argc - j) / 2;
+            for (int k = 0; k < batch; k++) {
+                if (lookupKeyWrite(c->db, c->argv[j + k * 2]) != NULL) {
+                    addReply(c, shared.czero);
+                    return;
+                }
             }
+            j += batch * 2;
         }
     }
 
-    for (j = 1; j < c->argc; j += 2) {
-        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        /* if 'NX', no need set flags SETKEY_DOESNT_EXIST. Already verified earlier! */
-        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , 0 /*flags*/);
-        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
-        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
+    /* If nx is set, the NX loop above already prefetched. */
+    do_prefetch = do_prefetch && !nx;
+
+    int j = 1;
+    while (j < c->argc) {
+        int batch = do_prefetch ? prefetchKeysBatch(c, slot, j, 2)
+                                : (c->argc - j) / 2;
+        for (int k = 0; k < batch; k++) {
+            int i = j + k * 2;
+            c->argv[i + 1] = tryObjectEncoding(c->argv[i + 1]);
+            setKey(c, c->db, c->argv[i], &(c->argv[i + 1]), 0);
+            incrRefCount(c->argv[i + 1]);
+            notifyKeyspaceEvent(NOTIFY_STRING, "set", c->argv[i], c->db->id);
+        }
+        j += batch * 2;
     }
-    server.dirty += (c->argc-1)/2;
+    server.dirty += numkeys;
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
@@ -762,7 +841,8 @@ void msetexCommand(client *c) {
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
+    int relative_ttl = (args.flags & (OBJ_EX|OBJ_PX)) != 0; /* EX/PX are relative; EXAT/PXAT are absolute. */
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, relative_ttl, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -916,6 +996,405 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,0,shared.set);
     rewriteClientCommandArgument(c,2,new);
     rewriteClientCommandArgument(c,3,shared.keepttl);
+}
+
+/* INCREX option flags. */
+#define OBJ_INCREX_BYFLOAT (1<<0)  /* Set if float-point increment is given */
+#define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
+#define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
+#define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
+#define OBJ_INCREX_OVERFLOW_FAIL   (1<<4) /* Return an error when the result is out of bounds (default) */
+#define OBJ_INCREX_OVERFLOW_SAT    (1<<5) /* Saturate the result to LBOUND/UBOUND/type limits instead of failing */
+#define OBJ_INCREX_OVERFLOW_REJECT (1<<6) /* Leave the key unchanged and reply [current_value, 0] when the result is out of bounds */
+#define OBJ_INCREX_ENX     (1<<7)  /* Set expiration only when the key has no expiry */
+#define OBJ_INCREX_PERSIST (1<<8)  /* Set if we need to remove the ttl */
+#define OBJ_INCREX_EX      (1<<9)  /* Set if time in seconds is given */
+#define OBJ_INCREX_PX      (1<<10) /* Set if time in ms is given */
+#define OBJ_INCREX_EXAT    (1<<11) /* Set if timestamp in second is given */
+#define OBJ_INCREX_PXAT    (1<<12) /* Set if timestamp in ms is given */
+
+/* INCREX argument structure */
+typedef struct {
+    int flags;             /* OBJ_INCREX_* bits set during parsing. */
+    int unit;              /* UNIT_SECONDS or UNIT_MILLISECONDS for EX/PX/EXAT/PXAT. */
+    long long expire_ms;   /* Absolute expire timestamp in ms (0 if no expiration given). */
+    long long incr_ll;     /* BYINT increment value (defaults to 1). */
+    long long ub_ll;       /* BYINT upper bound (defaults to LLONG_MAX). */
+    long long lb_ll;       /* BYINT lower bound (defaults to LLONG_MIN). */
+    long double incr_ld;   /* BYFLOAT increment value (defaults to 0). */
+    long double ub_ld;     /* BYFLOAT upper bound (defaults to LDBL_MAX). */
+    long double lb_ld;     /* BYFLOAT lower bound (defaults to -LDBL_MAX). */
+} incrExArgs;
+
+/* The parseIncrExArgumentsOrReply() function performs validation for INCREX command.
+ * If there are any syntax violations C_ERR is returned else C_OK is returned. */
+static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *args) {
+    memset(args, 0, sizeof(*args));
+    args->unit = UNIT_SECONDS;
+    args->incr_ll = 1;
+    args->lb_ll = LLONG_MIN;
+    args->ub_ll = LLONG_MAX;
+    args->lb_ld = -LDBL_MAX;
+    args->ub_ld = LDBL_MAX;
+
+    /* LBOUND/UBOUND values are parsed after the loop because their target type
+     * depends on whether BYINT or BYFLOAT was given, which may appear later. */
+    robj *lower_bound = NULL, *upper_bound = NULL, *expire = NULL;
+
+    /* Mask of all mutually-exclusive expiration-related flags. */
+    const int expire_flags = OBJ_INCREX_EX|OBJ_INCREX_PX|OBJ_INCREX_EXAT|OBJ_INCREX_PXAT|OBJ_INCREX_PERSIST;
+
+    for (int j = start_pos; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
+
+        if (!strcasecmp(opt, "BYINT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
+            if (getLongLongFromObjectOrReply(c, next, &args->incr_ll,
+                    "Increment is not an integer or out of range") != C_OK)
+            {
+                return C_ERR;
+            }
+            args->flags |= OBJ_INCREX_BYINT;
+            j++;
+        } else if (!strcasecmp(opt, "BYFLOAT") && next && !(args->flags & (OBJ_INCREX_BYINT|OBJ_INCREX_BYFLOAT))) {
+            if (getLongDoubleFromObjectOrReply(c, next, &args->incr_ld,
+                    "Increment is not a valid float") != C_OK)
+            {
+                return C_ERR;
+            }
+            if (isinf(args->incr_ld)) {
+                addReplyError(c, "BYFLOAT increment cannot be Infinity");
+                return C_ERR;
+            }
+            args->flags |= OBJ_INCREX_BYFLOAT;
+            j++;
+        } else if (!strcasecmp(opt, "LBOUND") && next && !(args->flags & OBJ_INCREX_LBOUND)) {
+            args->flags |= OBJ_INCREX_LBOUND;
+            lower_bound = next;
+            j++;
+        } else if (!strcasecmp(opt, "UBOUND") && next && !(args->flags & OBJ_INCREX_UBOUND)) {
+            args->flags |= OBJ_INCREX_UBOUND;
+            upper_bound = next;
+            j++;
+        } else if (!strcasecmp(opt, "OVERFLOW") && next &&
+                   !(args->flags & (OBJ_INCREX_OVERFLOW_FAIL|OBJ_INCREX_OVERFLOW_SAT|OBJ_INCREX_OVERFLOW_REJECT)))
+        {
+            if (!strcasecmp(next->ptr, "FAIL")) {
+                args->flags |= OBJ_INCREX_OVERFLOW_FAIL;
+            } else if (!strcasecmp(next->ptr, "SAT")) {
+                args->flags |= OBJ_INCREX_OVERFLOW_SAT;
+            } else if (!strcasecmp(next->ptr, "REJECT")) {
+                args->flags |= OBJ_INCREX_OVERFLOW_REJECT;
+            } else {
+                addReplyError(c, "OVERFLOW policy must be FAIL, SAT or REJECT");
+                return C_ERR;
+            }
+            j++;
+        } else if (!strcasecmp(opt, "ENX") && !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_PERSIST))) {
+            args->flags |= OBJ_INCREX_ENX;
+        } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
+            args->flags |= OBJ_INCREX_PERSIST;
+        } else if (!strcasecmp(opt, "EX") && !(args->flags & expire_flags) && next) {
+            args->flags |= OBJ_INCREX_EX;
+            expire = next;
+            j++;
+        } else if (!strcasecmp(opt, "PX") && !(args->flags & expire_flags) && next) {
+            args->flags |= OBJ_INCREX_PX;
+            args->unit = UNIT_MILLISECONDS;
+            expire = next;
+            j++;
+        } else if (!strcasecmp(opt, "EXAT") && !(args->flags & expire_flags) && next) {
+            args->flags |= OBJ_INCREX_EXAT;
+            expire = next;
+            j++;
+        } else if (!strcasecmp(opt, "PXAT") && !(args->flags & expire_flags) && next) {
+            args->flags |= OBJ_INCREX_PXAT;
+            args->unit = UNIT_MILLISECONDS;
+            expire = next;
+            j++;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return C_ERR;
+        }
+    }
+
+    /* Resolve LBOUND/UBOUND values now that BYINT/BYFLOAT is known. */
+    if (args->flags & OBJ_INCREX_BYFLOAT) {
+        if (lower_bound && getLongDoubleFromObjectOrReply(c, lower_bound, &args->lb_ld,
+                "LBOUND is not a valid float") != C_OK)
+        {
+            return C_ERR;
+        }
+        if (upper_bound && getLongDoubleFromObjectOrReply(c, upper_bound, &args->ub_ld,
+                "UBOUND is not a valid float") != C_OK)
+        {
+            return C_ERR;
+        }
+        if (args->lb_ld > args->ub_ld) {
+            addReplyError(c, "LBOUND can't be greater than UBOUND");
+            return C_ERR;
+        }
+    } else {
+        if (lower_bound && getLongLongFromObjectOrReply(c, lower_bound, &args->lb_ll,
+                "LBOUND is not an integer or out of range") != C_OK)
+        {
+            return C_ERR;
+        }
+        if (upper_bound && getLongLongFromObjectOrReply(c, upper_bound, &args->ub_ll,
+                "UBOUND is not an integer or out of range") != C_OK)
+        {
+            return C_ERR;
+        }
+        if (args->lb_ll > args->ub_ll) {
+            addReplyError(c, "LBOUND can't be greater than UBOUND");
+            return C_ERR;
+        }
+    }
+
+    /* ENX requires an expiration option. */
+    if ((args->flags & OBJ_INCREX_ENX) && !(args->flags & expire_flags)) {
+        addReplyError(c, "ENX flag requires an expiration");
+        return C_ERR;
+    }
+
+    if (expire) {
+        int relative_ttl = (args->flags & (OBJ_INCREX_EX|OBJ_INCREX_PX)) != 0;
+        if (getExpireMillisecondsOrReply(c, expire, relative_ttl, args->unit, &args->expire_ms) != C_OK)
+            return C_ERR;
+    }
+    return C_OK;
+}
+
+/*
+ * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound]
+ *   [UBOUND upperbound] [OVERFLOW <FAIL | SAT | REJECT>]
+ *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
+ *
+ * Increments the numeric value of a key and optionally updates its expiration time.
+ *
+ * Increment options:
+ * Defaults to incrementing by 1 (like INCR) if no increment option is given.
+ * At most one of the following may be specified:
+ * - BYINT:   Increment by an integer (like INCRBY).
+ * - BYFLOAT: Increment by a float (like INCRBYFLOAT). Returns an error if the result is NaN or Infinity.
+ *
+ * Range options:
+ * LBOUND and UBOUND optionally restrict the result to a range. The behavior
+ * when the result would land outside that range (or, with no explicit bound,
+ * would overflow the type limits) is controlled by OVERFLOW:
+ * - OVERFLOW FAIL (default): the operation is rejected with an error,
+ *                  matching the semantics of INCRBY/INCRBYFLOAT.
+ * - OVERFLOW SAT:  the result is silently capped at UBOUND / floored at LBOUND
+ *                  (or saturated to the type limits when no explicit bound is
+ *                  given) instead of producing an error.
+ * - OVERFLOW REJECT: the operation is silently skipped (the key value and TTL
+ *                  are left unchanged) and the reply is the current value with
+ *                  an applied increment of 0, instead of producing an error.
+ *
+ * Expiration options:
+ * At most one of the following may be specified:
+ * - EX:      Set expiration in seconds.
+ * - PX:      Set expiration in milliseconds.
+ * - EXAT:    Set expiration to an absolute Unix timestamp (seconds).
+ * - PXAT:    Set expiration to an absolute Unix timestamp (milliseconds).
+ * - PERSIST: Remove the key's TTL.
+ *
+ * If no expiration option is given, the key's existing TTL is preserved.
+ * ENX restricts expiration updates to keys that currently have no TTL.
+ *
+ * Reply:
+ * - (Simple Error) if any parameter is invalid, or if BYFLOAT produces NaN or Infinity.
+ * - (Array) of two Bulk Strings on success:
+ *   1. The new value of the key after the increment.
+ *   2. The actual increment applied.
+ *
+ * Note: When the result is saturated by LBOUND/UBOUND, the expiration is still updated normally.
+ */
+void increxCommand(client *c) {
+    kvobj *o = NULL;
+    robj *new = NULL;
+    dictEntryLink link;
+    long long value_ll, oldvalue_ll = 0;
+    long double value_ld, oldvalue_ld = 0;
+
+    incrExArgs args;
+    if (parseIncrExArgumentsOrReply(c, 2, &args) != C_OK)
+        return;
+
+    o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (checkType(c, o, OBJ_STRING)) return;
+
+    int byfloat = args.flags & OBJ_INCREX_BYFLOAT;
+    /* FAIL is the default when no OVERFLOW policy is specified. */
+    int fail_mode = !(args.flags & (OBJ_INCREX_OVERFLOW_SAT | OBJ_INCREX_OVERFLOW_REJECT));
+    int reject_mode = args.flags & OBJ_INCREX_OVERFLOW_REJECT;
+    if (byfloat) {
+        long double lb = args.lb_ld, ub = args.ub_ld;
+        if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK)
+            return;
+
+        /* Reject if the existing value is already Infinity (the increment is
+         * checked at parse time in parseIncrExArgumentsOrReply). */
+        if (isinf(value_ld)) {
+            addReplyError(c, "value cannot be Infinity");
+            return;
+        }
+
+        oldvalue_ld = value_ld;
+        value_ld += args.incr_ld;
+        int overflow = isinf(value_ld);
+        if (overflow || value_ld > ub || value_ld < lb) {
+            /* FAIL: return an error. */
+            if (fail_mode) {
+                addReplyError(c, overflow ? "increment would produce Infinity" :
+                    "value is out of bounds");
+                return;
+            }
+
+            /* Result is infinite or out of [LBOUND, UBOUND]:
+             * FAIL: error; SAT: clamp to +/-LDBL_MAX or the breached bound;
+             * REJECT: leave key untouched, reply [current_value, 0]. */
+            if (reject_mode) {
+                addReplyArrayLen(c, 2);
+                addReplyHumanLongDouble(c, oldvalue_ld);
+                addReplyHumanLongDouble(c, 0);
+                return;
+            }
+
+            /* SAT: clamp the result. */
+            if (overflow)
+                value_ld = (args.incr_ld >= 0) ? ub : lb;
+            else
+                value_ld = value_ld > ub ? ub : lb;
+        }
+
+        long double delta = value_ld - oldvalue_ld;
+        if (isinf(delta)) {
+            /* The applied delta cannot be represented as a valid long double. This can
+             * only happen under OVERFLOW SAT when the saturated result and the
+             * prior value sit at opposite ends of the type range. */
+            addReplyError(c, "applied increment would be Infinity");
+            return;
+        }
+
+        addReplyArrayLen(c, 2);
+        addReplyHumanLongDouble(c, value_ld);
+        addReplyHumanLongDouble(c, delta);
+    } else {
+        long long lb = args.lb_ll, ub = args.ub_ll;
+        if (getLongLongFromObjectOrReply(c, o, &value_ll, NULL) != C_OK)
+            return;
+
+        oldvalue_ll = value_ll;
+        int overflow = add_overflow_ll(oldvalue_ll, args.incr_ll, &value_ll);
+        if (overflow || value_ll > ub || value_ll < lb) {
+            /* FAIL: return an error. */
+            if (fail_mode) {
+                addReplyError(c, overflow ? "increment or decrement would overflow" :
+                    "value is out of bounds");
+                return;
+            }
+
+            /* Result overflows long long or is out of [LBOUND, UBOUND]:
+             * FAIL: error; SAT: clamp to LLONG_MAX/LLONG_MIN or the breached bound;
+             * REJECT: leave key untouched, reply [current_value, 0]. */
+            if (reject_mode) {
+                addReplyArrayLen(c, 2);
+                addReplyLongLong(c, oldvalue_ll);
+                addReplyLongLong(c, 0);
+                return;
+            }
+
+            /* SAT: clamp the result. */
+            if (overflow)
+                value_ll = (args.incr_ll >= 0) ? ub : lb;
+            else
+                value_ll = value_ll > ub ? ub : lb;
+        }
+
+        long long delta = 0;
+        if (sub_overflow_ll(value_ll, oldvalue_ll, &delta)) {
+            /* The applied delta cannot be represented as a long long. This can
+             * only happen under OVERFLOW SAT when the saturated result and the
+             * prior value sit at opposite ends of the type range. */
+            addReplyError(c, "applied increment would overflow");
+            return;
+        }
+
+        addReplyArrayLen(c, 2);
+        addReplyLongLong(c, value_ll);
+        addReplyLongLong(c, delta);
+    }
+
+    /* If the expire time is already elapsed, it is propagated as DEL/UNLINK */
+    int has_expiry = o && (kvobjGetExpire(o) != -1);
+    int set_new_expire = args.expire_ms && (!(args.flags & OBJ_INCREX_ENX) || !has_expiry);
+    if (set_new_expire && checkAlreadyExpired(args.expire_ms)) {
+        if (o) {
+            int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
+            serverAssert(deleted);
+            robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+            rewriteClientCommandVector(c, 2, aux, c->argv[1]);
+            keyModified(c, c->db, c->argv[1], NULL, 1);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+            server.dirty++;
+        }
+        server.stat_expiredkeys++;
+        return;
+    }
+
+    if (!byfloat && o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
+        value_ll >= LONG_MIN && value_ll <= LONG_MAX)
+    {
+        new = o;
+        o->ptr = (void*)((long)value_ll);
+        updateKeysizesHist(c->db, OBJ_STRING, (int64_t)sdigits10(oldvalue_ll), (int64_t)sdigits10(value_ll));
+    } else {
+        if (byfloat)
+            new = createStringObjectFromLongDouble(value_ld, 1);
+        else
+            new = createStringObjectFromLongLongForValue(value_ll);
+        if (o)
+            dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
+        else
+            dbAddByLink(c->db, c->argv[1], &new, &link);
+    }
+
+    /* Replicate INCREX as SET with the final value to avoid float precision
+     * or formatting drift across replicas / AOF restart. The TTL clause is:
+     *   PERSIST          -> SET <key> <result>
+     *   sets a new TTL   -> SET <key> <result> PXAT <timestamp>
+     *   otherwise        -> SET <key> <result> KEEPTTL  (no expire option,
+     *                       or ENX hit on a key that already has a TTL) */
+    int persist_notify = 0, expire_notify = 0;
+    if (args.flags & OBJ_INCREX_PERSIST) {
+        persist_notify = removeExpire(c->db, c->argv[1]);
+        rewriteClientCommandVector(c, 3, shared.set, c->argv[1], new);
+    } else if (set_new_expire) {
+        new = setExpire(c, c->db, c->argv[1], args.expire_ms);
+        expire_notify = 1;
+        robj *milliseconds_obj = createStringObjectFromLongLong(args.expire_ms);
+        rewriteClientCommandVector(c, 5, shared.set, c->argv[1], new, shared.pxat, milliseconds_obj);
+        decrRefCount(milliseconds_obj);
+    } else {
+        rewriteClientCommandVector(c, 4, shared.set, c->argv[1], new, shared.keepttl);
+    }
+
+    keyModified(c, c->db, c->argv[1], new, 1);
+    server.dirty++;
+
+    notifyKeyspaceEvent(NOTIFY_STRING, byfloat ? "incrbyfloat" : "incrby", c->argv[1], c->db->id);
+    if (persist_notify)
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "persist", c->argv[1], c->db->id);
+    if (expire_notify)
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[1], c->db->id);
+
+    /* A KSN handler may reallocate the kvobj and replace it in the dict. The local
+     * pointers `o`/`new` may then point to a stale object and must not be dereferenced;
+     * null them out. The object is not freed though if rewriteClientCommandVector()
+     * above incremented its refcount, so c->argv keeps it alive for command propagation. */
+    KSN_INVALIDATE_KVOBJ(o);
+    KSN_INVALIDATE_KVOBJ(new);
 }
 
 void appendCommand(client *c) {

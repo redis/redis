@@ -124,33 +124,42 @@ time_t rdbLoadTime(rio *rdb) {
     return (time_t)t32;
 }
 
-ssize_t rdbSaveMillisecondTime(rio *rdb, long long t) {
-    int64_t t64 = (int64_t) t;
-    memrev64ifbe(&t64); /* Store in little endian. */
-    return rdbWriteRaw(rdb,&t64,8);
+/* Save a signed 64-bit integer in little-endian format. */
+ssize_t rdbSaveSignedInteger(rio *rdb, int64_t val) {
+    memrev64ifbe(&val); /* Store in little endian. */
+    return rdbWriteRaw(rdb, &val, 8);
 }
 
-/* This function loads a time from the RDB file. It gets the version of the
- * RDB because, unfortunately, before Redis 5 (RDB version 9), the function
- * failed to convert data to/from little endian, so RDB files with keys having
- * expires could not be shared between big endian and little endian systems
- * (because the expire time will be totally wrong). The fix for this is just
- * to call memrev64ifbe(), however if we fix this for all the RDB versions,
+/* This function loads a signed 64-bit integer from the RDB file. It gets the
+ * version of the RDB because, unfortunately, before Redis 5 (RDB version 9),
+ * the function failed to convert data to/from little endian, so RDB files with
+ * keys having expires could not be shared between big endian and little endian
+ * systems (because the expire time will be totally wrong). The fix for this is
+ * just to call memrev64ifbe(), however if we fix this for all the RDB versions,
  * this call will introduce an incompatibility for big endian systems:
  * after upgrading to Redis version 5 they will no longer be able to load their
  * own old RDB files. Because of that, we instead fix the function only for new
  * RDB versions, and load older RDB versions as we used to do in the past,
  * allowing big endian systems to load their own old RDB files.
  *
- * On I/O error the function returns LLONG_MAX, however if this is also a
+ * On I/O error the function returns INT64_MAX, however if this is also a
  * valid stored value, the caller should use rioGetReadError() to check for
  * errors after calling this function. */
-long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
-    int64_t t64;
-    if (rioRead(rdb,&t64,8) == 0) return LLONG_MAX;
+int64_t rdbLoadSignedInteger(rio *rdb, int rdbver) {
+    int64_t val;
+    if (rioRead(rdb, &val, 8) == 0) return INT64_MAX;
     if (rdbver >= 9) /* Check the top comment of this function. */
-        memrev64ifbe(&t64); /* Convert in big endian if the system is BE. */
-    return (long long)t64;
+        memrev64ifbe(&val); /* Convert in big endian if the system is BE. */
+    return val;
+}
+
+/* Wrappers for millisecond time - these just call the signed integer functions */
+ssize_t rdbSaveMillisecondTime(rio *rdb, long long t) {
+    return rdbSaveSignedInteger(rdb, (int64_t)t);
+}
+
+long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
+    return (long long)rdbLoadSignedInteger(rdb, rdbver);
 }
 
 /* Saves an encoded length. The first two bits in the first byte are used to
@@ -713,10 +722,14 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
         return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
+#ifdef ENABLE_GCRA
     case OBJ_GCRA:
         return rdbSaveType(rdb,RDB_TYPE_GCRA);
+#endif
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
+    case OBJ_ARRAY:
+        return rdbSaveType(rdb,RDB_TYPE_ARRAY);
     default:
         serverPanic("Unknown object type");
     }
@@ -1039,6 +1052,68 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
 
 /* Save a Redis object.
  * Returns -1 on error, number of bytes written on success. */
+static ssize_t rdbSaveArrayElement(rio *rdb, uint64_t idx, void *v) {
+    ssize_t n, nwritten = 0;
+
+    if ((n = rdbSaveLen(rdb, idx)) == -1) return -1;
+    nwritten += n;
+
+    if (arIsInt(v)) {
+        if ((n = rdbSaveLen(rdb, AR_RDB_TAG_INT)) == -1) return -1;
+        nwritten += n;
+        int64_t ival = arToInt(v);
+        if ((n = rdbSaveSignedInteger(rdb, ival)) == -1) return -1;
+        nwritten += n;
+    } else if (arIsFloat(v)) {
+        if ((n = rdbSaveLen(rdb, AR_RDB_TAG_FLOAT)) == -1) return -1;
+        nwritten += n;
+        double d = arToDouble(v);
+        if (rdbSaveBinaryDoubleValue(rdb, d) == -1) return -1;
+        nwritten += 8;
+    } else if (arIsSmallStr(v)) {
+        char buf[AR_SMALLSTR_MAXLEN + 1];
+        int len = arToSmallStr(v, buf);
+        if ((n = rdbSaveLen(rdb, AR_RDB_TAG_SMALLSTR)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveRawString(rdb, (unsigned char *)buf, len)) == -1) return -1;
+        nwritten += n;
+    } else {
+        if ((n = rdbSaveLen(rdb, AR_RDB_TAG_SDS)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveRawString(rdb, (unsigned char *)arStringData(v), arStringLen(v))) == -1) return -1;
+        nwritten += n;
+    }
+
+    return nwritten;
+}
+
+static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
+                                 uint32_t slice_size) {
+    ssize_t n, nwritten = 0;
+
+    if (s->encoding == AR_SLICE_DENSE) {
+        for (uint32_t i = 0; i < s->layout.dense.winsize; i++) {
+            void *v = s->layout.dense.items[i];
+            if (arIsEmpty(v)) continue;
+
+            uint64_t idx = arMakeIdx(slice_id, s->layout.dense.offset + i, slice_size);
+            if ((n = rdbSaveArrayElement(rdb, idx, v)) == -1) return -1;
+            nwritten += n;
+        }
+    } else {
+        uint16_t *offsets = s->layout.sparse.offsets;
+        void **values = s->layout.sparse.values;
+
+        for (uint32_t i = 0; i < s->count; i++) {
+            uint64_t idx = arMakeIdx(slice_id, offsets[i], slice_size);
+            if ((n = rdbSaveArrayElement(rdb, idx, values[i])) == -1) return -1;
+            nwritten += n;
+        }
+    }
+
+    return nwritten;
+}
+
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     ssize_t n = 0, nwritten = 0;
 
@@ -1401,11 +1476,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         /* Save the all-time count of duplicate IIDs detected. */
         if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
         nwritten += n;
+#ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         long long t;
         getLongLongFromGCRAObject(o, &t);
         if ((n = rdbSaveLen(rdb,t)) == -1) return -1;
         nwritten += n;
+#endif
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -1432,6 +1509,57 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             zfree(io.ctx);
         }
         return io.error ? -1 : (ssize_t)io.bytes;
+    } else if (o->type == OBJ_ARRAY) {
+        /* Save an array value. We persist only elements and insert_idx - no
+         * implementation details like slice_size. Arrays are loaded using
+         * the current ar_slice_size config. */
+        redisArray *ar = o->ptr;
+
+        /* Save count */
+        if ((n = rdbSaveLen(rdb, ar->count)) == -1) return -1;
+        nwritten += n;
+
+        /* Save insert_idx: 0 = none, 1 = has value followed by actual value.
+         * We can't save UINT64_MAX directly with rdbSaveLen/rdbLoadLen because
+         * rdbLoadLen returns UINT64_MAX (RDB_LENERR) to signal an error, making
+         * it impossible to distinguish a valid UINT64_MAX value from an error. */
+        if (ar->insert_idx == AR_INSERT_IDX_NONE) {
+            if ((n = rdbSaveLen(rdb, 0)) == -1) return -1;
+            nwritten += n;
+        } else {
+            if ((n = rdbSaveLen(rdb, 1)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveLen(rdb, ar->insert_idx)) == -1) return -1;
+            nwritten += n;
+        }
+
+        /* Save elements in index order.
+         * We need to iterate through all slices, handling both flat directory
+         * mode and superdir mode. In superdir mode, blocks are sorted by
+         * block_id, so we iterate through blocks in order. */
+        if (ar->superdir) {
+            /* Superdir mode: iterate through blocks */
+            for (uint32_t bi = 0; bi < ar->sdir_len; bi++) {
+                arSDirEntry *e = ar->superdir + bi;
+                uint64_t block_base = e->block_id * AR_SUPER_BLOCK_SLOTS;
+
+                for (uint32_t si = 0; si < AR_SUPER_BLOCK_SLOTS; si++) {
+                    arSlice *s = e->slots[si];
+                    if (!s) continue;
+                    uint64_t slice_id = block_base + si;
+                    if ((n = rdbSaveArraySlice(rdb, s, slice_id, ar->slice_size)) == -1) return -1;
+                    nwritten += n;
+                }
+            }
+        } else {
+            /* Flat directory mode */
+            for (uint64_t slice_id = 0; slice_id <= ar->dir_highest_used && slice_id < ar->dir_alloc; slice_id++) {
+                arSlice *s = ar->dir[slice_id];
+                if (!s) continue;
+                if ((n = rdbSaveArraySlice(rdb, s, slice_id, ar->slice_size)) == -1) return -1;
+                nwritten += n;
+            }
+        }
     } else {
         serverPanic("Unknown object type");
     }
@@ -2934,13 +3062,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                         /* search for duplicate records */
                         sds field = sdstrynewlen(fstr, flen);
-                        int field_added = (field != NULL && dictAdd(dupSearchDict, field, NULL) == DICT_OK);
-                        if (!field_added || !lpSafeToAdd(lp, (size_t)flen + vlen)) {
+                        if (!field || !lpSafeToAdd(lp, (size_t)flen + vlen) ||
+                            dictAdd(dupSearchDict, field, NULL) != DICT_OK) {
                             rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
                             /* If field was not added to dict, we still own it.
                              * If it was added, dict owns it and dictRelease will free it. */
-                            if (!field_added) sdsfree(field);
                             dictRelease(dupSearchDict);
+                            sdsfree(field);
                             lpFree(lp);
                             zfree(encoded);
                             o->ptr = NULL;
@@ -3162,6 +3290,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
+        uint64_t live_entries = 0;
         while(listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
@@ -3210,6 +3339,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 zfree(lp);
                 return NULL;
             }
+
+            long long lp_live;
+            if (!lpGetIntegerValue(first, &lp_live) || lp_live <= 0 ||
+                (uint64_t)lp_live > UINT64_MAX - live_entries)
+            {
+                rdbReportCorruptRDB("Stream listpack bad entry count");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
+            live_entries += lp_live;
 
             /* Insert the key in the radix tree. */
             int retval = raxTryInsert(s->rax,
@@ -3260,8 +3401,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
-        if (s->length && !raxSize(s->rax)) {
-            rdbReportCorruptRDB("Stream length inconsistent with rax entries");
+        if (s->length != live_entries) {
+            rdbReportCorruptRDB("Stream length inconsistent with live entries");
             decrRefCount(o);
             return NULL;
         }
@@ -3447,7 +3588,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
-                        streamFreeNACK(s, nack);
                         decrRefCount(o);
                         return NULL;
                     }
@@ -3633,6 +3773,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         o = createModuleObject(mt, ptr);
+#ifdef ENABLE_GCRA
     } else if (rdbtype == RDB_TYPE_GCRA) {
         uint64_t time = rdbLoadLen(rdb, NULL);
         if (time == RDB_LENERR || time > LLONG_MAX) {
@@ -3640,6 +3781,105 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         o = createGCRAObject((long long)time);
+#endif
+    } else if (rdbtype == RDB_TYPE_ARRAY) {
+        /* Load array value. We only persist elements and insert_idx - no
+         * implementation details. Arrays use current ar_slice_size config. */
+        uint64_t count;
+        if ((count = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+        if (count == 0) {
+            rdbReportCorruptRDB("Empty array (count == 0) is invalid");
+            return NULL;
+        }
+
+        /* Load insert_idx: 0 = none, 1 = has value followed by actual value */
+        uint64_t insert_idx_flag;
+        if ((insert_idx_flag = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+        if (insert_idx_flag > 1) {
+            rdbReportCorruptRDB("Invalid array insert_idx_flag %llu",
+                (unsigned long long)insert_idx_flag);
+            return NULL;
+        }
+        uint64_t insert_idx;
+        if (insert_idx_flag == 0) {
+            insert_idx = AR_INSERT_IDX_NONE;
+        } else {
+            if ((insert_idx = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+        }
+
+        o = createArrayObject();
+        redisArray *ar = o->ptr;
+        ar->insert_idx = insert_idx;
+
+        /* Load elements */
+        for (uint64_t i = 0; i < count; i++) {
+            uint64_t idx;
+            int idx_isencoded;
+            if (rdbLoadLenByRef(rdb, &idx_isencoded, &idx) == -1) {
+                decrRefCount(o);
+                return NULL;
+            }
+            if (idx_isencoded || idx == UINT64_MAX) {
+                decrRefCount(o);
+                rdbReportCorruptRDB("Invalid array index %llu",
+                    (unsigned long long)idx);
+                return NULL;
+            }
+
+            uint64_t type_tag;
+            if ((type_tag = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+                decrRefCount(o);
+                return NULL;
+            }
+
+            void *v;
+            if (type_tag == AR_RDB_TAG_INT) {
+                int64_t ival = rdbLoadSignedInteger(rdb, RDB_VERSION);
+                if (ival == INT64_MAX && rioGetReadError(rdb)) {
+                    decrRefCount(o);
+                    return NULL;
+                }
+                v = arValueFromRdbInt(ival);
+            } else if (type_tag == AR_RDB_TAG_FLOAT) {
+                double d;
+                if (rdbLoadBinaryDoubleValue(rdb, &d) == -1) {
+                    decrRefCount(o);
+                    return NULL;
+                }
+                v = arValueFromRdbFloat(d);
+            } else if (type_tag == AR_RDB_TAG_SMALLSTR) {
+                sds str;
+                if ((str = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL)) == NULL) {
+                    decrRefCount(o);
+                    return NULL;
+                }
+                size_t len = sdslen(str);
+                if (len > AR_SMALLSTR_MAXLEN) {
+                    sdsfree(str);
+                    decrRefCount(o);
+                    rdbReportCorruptRDB("Invalid small string length %zu in array", len);
+                    return NULL;
+                }
+                v = arValueFromRdbSmallStr(str, sdslen(str));
+                sdsfree(str);
+            } else if (type_tag == AR_RDB_TAG_SDS) {
+                /* arString */
+                sds str;
+                if ((str = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL)) == NULL) {
+                    decrRefCount(o);
+                    return NULL;
+                }
+                v = arEncode(str, sdslen(str));
+                sdsfree(str);
+            } else {
+                decrRefCount(o);
+                rdbReportCorruptRDB("Unknown array element type_tag %llu",
+                    (unsigned long long)type_tag);
+                return NULL;
+            }
+
+            arSet(ar, idx, v);
+        }
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
