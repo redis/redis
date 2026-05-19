@@ -35,12 +35,6 @@ optin = "optin"
 smove = "smove"
 # `tre` is the name of a dependency directory (deps/tre).
 tre = "tre"
-# `special_asterick` is a shared object name kept for ABI/compat stability.
-asterick = "asterick"
-# `sufix` is widely used in AOF-manifest test fixture identifiers.
-sufix = "sufix"
-# `subcriber` appears in cluster slot-stats test variables.
-subcriber = "subcriber"
 
 [default.extend-identifiers]
 # POSIX glob struct field; not a typo.
