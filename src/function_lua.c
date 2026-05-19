@@ -169,7 +169,7 @@ static void luaEngineCall(scriptRunCtx *run_ctx,
     luaGC(lua, &gc_count);
 }
 
-static size_t luaEngineGetUsedMemoy(void *engine_ctx) {
+static size_t luaEngineGetUsedMemory(void *engine_ctx) {
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     return luaMemory(lua_engine_ctx->lua);
 }
@@ -503,7 +503,7 @@ int luaEngineInitEngine(void) {
         .engine_ctx = lua_engine_ctx,
         .create = luaEngineCreate,
         .call = luaEngineCall,
-        .get_used_memory = luaEngineGetUsedMemoy,
+        .get_used_memory = luaEngineGetUsedMemory,
         .get_function_memory_overhead = luaEngineFunctionMemoryOverhead,
         .get_engine_memory_overhead = luaEngineMemoryOverhead,
         .free_function = luaEngineFreeFunction,

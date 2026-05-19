@@ -1692,7 +1692,7 @@ start_server {tags {"zset"}} {
         assert_error {*at least 1 input key * 'zintercard' command} {r zintercard 0 key{t}}
     }
 
-    proc stressers {encoding} {
+    proc stresses {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         if {$encoding == "listpack"} {
@@ -2213,8 +2213,8 @@ start_server {tags {"zset"}} {
     }
 
     tags {"slow"} {
-        stressers listpack
-        stressers skiplist
+        stresses listpack
+        stresses skiplist
     }
 
     test "BZPOP/BZMPOP against wrong type" {

@@ -461,7 +461,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * various issues that can occur while reading or parsing data from a client. */
 #define CLIENT_READ_TOO_BIG_INLINE_REQUEST 1
 #define CLIENT_READ_UNBALANCED_QUOTES 2
-#define CLIENT_READ_MASTER_USING_INLINE_PROTOCAL 3
+#define CLIENT_READ_MASTER_USING_INLINE_PROTOCOL 3
 #define CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING 4
 #define CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING 5
 #define CLIENT_READ_EXPECTED_DOLLAR 6
@@ -2013,7 +2013,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
-    redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
+    redisAtomic int module_gil_acquiring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */

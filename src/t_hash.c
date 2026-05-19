@@ -296,7 +296,7 @@ static void listpackExFree(listpackEx *lpt) {
     zfree(lpt);
 }
 
-struct lpFingArgs {
+struct lpFindArgs {
     uint64_t max_to_search; /* [in] Max number of tuples to search */
     uint64_t expire_time;   /* [in] Find the tuple that has a TTL larger than expire_time */
     unsigned char *p;       /* [out] First item of the tuple that has a TTL larger than expire_time */
@@ -312,7 +312,7 @@ static int cbFindInListpack(const unsigned char *lp, unsigned char *p,
                             void *user, unsigned char *s, long long slen)
 {
     (void) lp;
-    struct lpFingArgs *r = user;
+    struct lpFindArgs *r = user;
 
     r->index++;
 
@@ -342,7 +342,7 @@ static uint64_t listpackExExpireDryRun(const robj *o) {
 
     listpackEx *lpt = o->ptr;
 
-    struct lpFingArgs r = {
+    struct lpFindArgs r = {
         .max_to_search = UINT64_MAX,
         .expire_time = commandTimeSnapshot(),
     };
@@ -444,7 +444,7 @@ static void listpackExAddInternal(robj *o, listpackEntry ent[3]) {
         return;
     }
 
-    struct lpFingArgs r = {
+    struct lpFindArgs r = {
             .max_to_search = UINT64_MAX,
             .expire_time = ent[2].lval,
     };

@@ -3095,7 +3095,7 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
-        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
+        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCOL;
         return C_ERR;
     }
 
@@ -3528,7 +3528,7 @@ void handleClientReadError(client *c) {
             addReplyError(c,"Protocol error: unbalanced quotes in request");
             setProtocolError("unbalanced quotes in request",c);
             break;
-        case CLIENT_READ_MASTER_USING_INLINE_PROTOCAL:
+        case CLIENT_READ_MASTER_USING_INLINE_PROTOCOL:
             serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
             setProtocolError("Master using the inline protocol. Desync?",c);
             break;
