@@ -13373,7 +13373,7 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         serverLog(LL_WARNING,
-            "Module %s initialization failed. Module not loaded",path);
+            "Module %s initialization failed. Module not loaded", path ? path : "(null)");
         if (ctx.module) {
             moduleUnregisterCleanup(ctx.module);
             moduleRemoveCateogires(ctx.module);
