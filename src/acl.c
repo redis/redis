@@ -496,7 +496,7 @@ void ACLFreeUserAndKillClients(user *u) {
             continue;
         }
         /* Kill clients that still hold subscriptions from the deleted user */
-        if (dictFind(c->pubsub_subscriptions, u->name)) {
+        if (dictFind(c->pubsub_subscriptions, u)) {
             deauthenticateAndCloseClient(c);
         }
     }
@@ -2066,7 +2066,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
         if (getClientType(c) != CLIENT_TYPE_PUBSUB) continue;
-        dictEntry *de = dictFind(c->pubsub_subscriptions, original->name);
+        dictEntry *de = dictFind(c->pubsub_subscriptions, original);
         if (!de) continue;
         pubsubUserSubs *subs = dictGetVal(de);
         if (ACLShouldKillForUserSubs(subs, channels))
@@ -2524,25 +2524,27 @@ sds ACLLoadFromFile(const char *filename) {
                 continue;
 
             /* Reassign c->user to the new user object (or kill if gone). */
-            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (!new) {
+            user *new_current = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (!new_current) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
 
-            /* Check all provenance entries in the per-user dict. */
-            int killed = 0;
+            /* Phase 1: Validate provenance entries (read-only, no mutation).
+             * Old user pointers are still alive — old_users is freed after
+             * the walk — so old_user_ptr->name is safe to dereference. */
+            int must_kill = 0;
             if (user_channels) {
                 dictIterator di;
                 dictEntry *entry;
-                dictInitSafeIterator(&di, c->pubsub_subscriptions);
+                dictInitIterator(&di, c->pubsub_subscriptions);
                 while ((entry = dictNext(&di)) != NULL) {
-                    sds prov_username = dictGetKey(entry);
+                    user *old_user_ptr = dictGetKey(entry);
+                    sds prov_username = old_user_ptr->name;
 
                     user *new_prov = ACLGetUserByName(prov_username, sdslen(prov_username));
                     if (!new_prov) {
-                        deauthenticateAndCloseClient(c);
-                        killed = 1;
+                        must_kill = 1;
                         break;
                     }
 
@@ -2550,11 +2552,8 @@ sds ACLLoadFromFile(const char *filename) {
                     if (!raxFind(user_channels, (unsigned char*)prov_username, sdslen(prov_username), (void**)&channels)) {
                         user *old_prov = NULL;
                         raxFind(old_users, (unsigned char*)prov_username, sdslen(prov_username), (void**)&old_prov);
-                        /* A provenance entry for a user that didn't exist
-                         * before is suspicious. Kill the client to be safe. */
                         if (!old_prov) {
-                            deauthenticateAndCloseClient(c);
-                            killed = 1;
+                            must_kill = 1;
                             break;
                         }
                         channels = getUpcomingChannelList(new_prov, old_prov);
@@ -2564,8 +2563,7 @@ sds ACLLoadFromFile(const char *filename) {
                     if (channels != NULL) {
                         pubsubUserSubs *subs = dictGetVal(entry);
                         if (ACLShouldKillForUserSubs(subs, channels)) {
-                            deauthenticateAndCloseClient(c);
-                            killed = 1;
+                            must_kill = 1;
                             break;
                         }
                     }
@@ -2573,9 +2571,18 @@ sds ACLLoadFromFile(const char *filename) {
                 dictResetIterator(&di);
             }
 
-            if (!killed) {
-                clientSetUser(c, new);
+
+            if (must_kill) {
+                deauthenticateAndCloseClient(c);
+                continue;
             }
+
+            /* Phase 2: Client survived — re-key provenance entries from old
+             * user pointers to new user pointers, then reassign c->user. */
+            if (dictSize(c->pubsub_subscriptions) > 0) {
+                pubsubRekeySubscriptionsForACLLoad(c);
+            }
+            clientSetUser(c, new_current);
         }
 
         if (user_channels)

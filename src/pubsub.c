@@ -43,12 +43,22 @@ static void freePubsubUserSubs(dict *d, void *val) {
 }
 
 dictType pubsubSubscriptionsDictType = {
-    dictSdsHash,
+    dictPtrHash,
     NULL,
     NULL,
-    dictSdsKeyCompare,
-    dictSdsDestructor,
+    NULL,
+    NULL,
     freePubsubUserSubs,
+    NULL
+};
+
+static dictType pubsubNoDestructorDictType = {
+    dictPtrHash,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     NULL
 };
 
@@ -60,12 +70,12 @@ static pubsubUserSubs *createPubsubUserSubs(void) {
     return subs;
 }
 
-pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c, sds username) {
-    dictEntry *de = dictFind(c->pubsub_subscriptions, username);
+pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c) {
+    serverAssert(c->user != NULL);
+    dictEntry *de = dictFind(c->pubsub_subscriptions, c->user);
     if (de) return dictGetVal(de);
     pubsubUserSubs *subs = createPubsubUserSubs();
-    sds key = sdsdup(username);
-    serverAssert(dictAdd(c->pubsub_subscriptions, key, subs) == DICT_OK);
+    serverAssert(dictAdd(c->pubsub_subscriptions, c->user, subs) == DICT_OK);
     return subs;
 }
 
@@ -291,7 +301,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         retval = 1;
 
         /* Look up or create per-user entry for current user */
-        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c, c->user->name);
+        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c);
         dict *innerDict = pubsubUserSubsGetDict(subs, type);
 
         /* Add the client to the channel -> list of clients hash table */
@@ -469,7 +479,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
 
     if (!pubsubClientIsSubscribedPattern(c, pattern)) {
         retval = 1;
-        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c, c->user->name);
+        pubsubUserSubs *subs = pubsubGetOrCreateUserSubs(c);
 
         serverAssert(dictAdd(subs->patterns, pattern, NULL) != DICT_ERR);
         incrRefCount(pattern);
@@ -921,8 +931,6 @@ size_t pubsubMemOverhead(client *c) {
     dictEntry *de;
     dictInitIterator(&di, c->pubsub_subscriptions);
     while ((de = dictNext(&di)) != NULL) {
-        sds username = dictGetKey(de);
-        mem += sdsZmallocSize(username);
         pubsubUserSubs *subs = dictGetVal(de);
         mem += zmalloc_size(subs);
         mem += dictMemUsage(subs->channels);
@@ -931,6 +939,32 @@ size_t pubsubMemOverhead(client *c) {
     }
     dictResetIterator(&di);
     return mem;
+}
+
+/* Re-key c->pubsub_subscriptions from old user pointers to new user pointers
+ * after ACL LOAD. Called only after phase 1 validation has confirmed the client
+ * survives (all provenance users still exist with acceptable permissions).
+ *
+ * Builds a new dict with new user* keys and transfers ownership of the
+ * pubsubUserSubs values. The old dict is released without value destructors. */
+void pubsubRekeySubscriptionsForACLLoad(client *c) {
+    dict *new_dict = dictCreate(&pubsubSubscriptionsDictType);
+
+    dictIterator di;
+    dictEntry *entry;
+    dictInitIterator(&di, c->pubsub_subscriptions);
+    while ((entry = dictNext(&di)) != NULL) {
+        user *old_user_ptr = dictGetKey(entry);
+        user *new_user = ACLGetUserByName(old_user_ptr->name, sdslen(old_user_ptr->name));
+        serverAssert(new_user != NULL);
+        pubsubUserSubs *subs = dictGetVal(entry);
+        dictAdd(new_dict, new_user, subs);
+    }
+    dictResetIterator(&di);
+
+    c->pubsub_subscriptions->type = &pubsubNoDestructorDictType;
+    dictRelease(c->pubsub_subscriptions);
+    c->pubsub_subscriptions = new_dict;
 }
 
 int pubsubTotalSubscriptions(void) {

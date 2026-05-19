@@ -1581,7 +1581,7 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_subscriptions;    /* sds user_name -> pubsubUserSubs* */
+    dict *pubsub_subscriptions;    /* user* -> pubsubUserSubs* */
     size_t pubsub_channels_count;
     size_t pubsub_patterns_count;
     size_t pubsubshard_channels_count;
@@ -3939,7 +3939,8 @@ int pubsubTotalSubscriptions(void);
 int clientSubscriptionsCount(client *c);
 int clientShardSubscriptionsCount(client *c);
 int clientTotalPubSubSubscriptionCount(client *c);
-pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c, sds username);
+pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c);
+void pubsubRekeySubscriptionsForACLLoad(client *c);
 int pubsubUserSubsIsEmpty(pubsubUserSubs *subs);
 int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming);
 

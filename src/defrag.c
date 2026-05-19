@@ -1650,9 +1650,10 @@ static doneStatus defragStagePubsubKvstore(void *ctx, monotime endtime) {
 }
 
 /* Defrag client-side per-user pubsub dict structures.
- * This handles the outer dict, sds username keys, pubsubUserSubs structs,
- * and inner dict tables. Inner dict key objects (robj) are NOT touched here
- * — they are handled by the server-side defrag callbacks above. */
+ * This handles the outer dict tables, pubsubUserSubs structs, and inner dict
+ * tables. Outer dict keys are user* pointers (not heap-allocated, defragged
+ * as part of ACL/Users rax defrag). Inner dict key objects (robj) are NOT
+ * touched here — they are handled by the server-side defrag callbacks above. */
 static doneStatus defragStagePubsubClientSide(void *ctx, monotime endtime) {
     UNUSED(ctx);
     UNUSED(endtime);
@@ -1671,10 +1672,6 @@ static doneStatus defragStagePubsubClientSide(void *ctx, monotime endtime) {
         dictEntry *de;
         dictInitIterator(&di, c->pubsub_subscriptions);
         while ((de = dictNext(&di)) != NULL) {
-            sds key = dictGetKey(de);
-            sds newkey = activeDefragSds(key);
-            if (newkey) dictSetKey(c->pubsub_subscriptions, de, newkey);
-
             pubsubUserSubs *subs = dictGetVal(de);
             pubsubUserSubs *newsubs = activeDefragAlloc(subs);
             if (newsubs) {
