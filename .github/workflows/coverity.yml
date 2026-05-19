@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: coverity-${{ github.head_ref || github.ref }}
+  group: coverity-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

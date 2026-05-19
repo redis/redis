@@ -5,7 +5,7 @@ name: "Codecov"
 on: [push, pull_request]
 
 concurrency:
-  group: codecov-${{ github.event.pull_request.number || github.ref }}
+  group: codecov-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:

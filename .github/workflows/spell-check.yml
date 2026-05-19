@@ -10,7 +10,7 @@ on:
   pull_request:
 
 concurrency:
-  group: spellcheck-${{ github.head_ref || github.ref }}
+  group: spellcheck-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
