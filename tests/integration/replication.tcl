@@ -897,11 +897,22 @@ foreach all_drop {no slow fast all timeout} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
         set master_pid [srv 0 pid]
-        # Put enough data in the db that the RDB is comfortably larger than the
-        # pipe and socket buffers so the primary can hit the blocked writer path,
-        # but keep it small enough that slow TLS CI runners don't spend minutes
-        # draining an oversized transfer (~40 MB uncompressed).
-        $master debug populate 4000 test 10000
+        if {$all_drop == "timeout"} {
+            # Use a larger RDB (~100 MB) so it cannot fit into the kernel TCP
+            # send buffer (autotuning can absorb tens of MB on some hosts). We
+            # need the primary to hit the blocked writer path
+            # (repl_last_partial_write != 0) while the slow replica is paused,
+            # so the cron triggers the "(full sync)" timeout path instead of
+            # the replica being moved to ONLINE prematurely and timing out via
+            # the "(streaming sync)" path.
+            $master debug populate 10000 test 10000
+        } else {
+            # Put enough data in the db that the RDB is comfortably larger than the
+            # pipe and socket buffers so the primary can hit the blocked writer path,
+            # but keep it small enough that slow TLS CI runners don't spend minutes
+            # draining an oversized transfer (~40 MB uncompressed).
+            $master debug populate 4000 test 10000
+        }
         $master config set rdbcompression no
         $master config set repl-rdb-channel no
         # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
