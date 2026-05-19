@@ -142,7 +142,7 @@ done:
 }
 
 /*
- * Invole the give function with the given keys and args
+ * Invoke the given function with the given keys and args
  */
 static void luaEngineCall(scriptRunCtx *run_ctx,
                           void *engine_ctx,

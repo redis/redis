@@ -1489,7 +1489,7 @@ start_server {
         # Although XTRIM doesn't update the `max-deleted-entry-id`, it always updates the
         # position of the first entry. When trimming causes the first entry to be behind
         # the consumer group's last_id, the consumer group's lag will always be equal to
-        # the number of remainin entries in the stream.
+        # the number of remaining entries in the stream.
         r XTRIM x MAXLEN 1
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]

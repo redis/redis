@@ -855,7 +855,7 @@ int IOThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData) 
     return 1000/CONFIG_DEFAULT_HZ;
 }
 
-/* The main function of IO thread, it will run an event loop. The mian thread
+/* The main function of IO thread, it will run an event loop. The main thread
  * and IO thread will communicate through event notifier. */
 void *IOThreadMain(void *ptr) {
     IOThread *t = ptr;

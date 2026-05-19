@@ -1771,7 +1771,7 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     {
         /* When both the consumer group's last_id and the maximum tombstone are behind
          * the stream's first entry, the consumer group's lag will always be equal to
-         * the number of remainin entries in the stream. */
+         * the number of remaining entries in the stream. */
         lag = s->length;
         valid = 1;
     } else if (cg->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&cg->last_id,NULL)) {
