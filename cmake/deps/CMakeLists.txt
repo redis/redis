@@ -33,7 +33,7 @@ add_subdirectory(hiredis)
 add_subdirectory(linenoise)
 add_subdirectory(fpconv)
 add_subdirectory(hdr_histogram)
-add_subdirectory(fast_float)
+add_subdirectory(tre)
 
 # Clear any cached variables passed to hiredis from the cache
 unset(BUILD_SHARED_LIBS CACHE)

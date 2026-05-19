@@ -119,6 +119,10 @@ set(REDIS_SERVER_SRCS
     ${REDIS_ROOT}/src/mstr.c
     ${REDIS_ROOT}/src/script_lua.c
     ${REDIS_ROOT}/src/slowlog.c
+    ${REDIS_ROOT}/src/vector.c
+    ${REDIS_ROOT}/src/fast_float_strtod.c
+    ${REDIS_ROOT}/src/t_array.c
+    ${REDIS_ROOT}/src/sparsearray.c
 )
 
 
@@ -146,6 +150,7 @@ set(REDIS_CLI_SRCS
     ${REDIS_ROOT}/src/monotonic.c
     ${REDIS_ROOT}/src/mt19937-64.c
     ${REDIS_ROOT}/src/strl.c
+    ${REDIS_ROOT}/src/fast_float_strtod.c
 )
 
 
@@ -171,6 +176,7 @@ set(REDIS_BENCHMARK_SRCS
     ${REDIS_ROOT}/src/monotonic.c
     ${REDIS_ROOT}/src/mt19937-64.c
     ${REDIS_ROOT}/src/strl.c
+    ${REDIS_ROOT}/src/fast_float_strtod.c
 )
 
 # redis-rdma module
