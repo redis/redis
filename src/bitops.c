@@ -532,7 +532,14 @@ long long redisBitpos(void *s, unsigned long count, int bit) {
     /* Last word left, find the position of the first matching bit.
      * __builtin_clzl gives the count of leading zeros in an unsigned long,
      * which is exactly the bit offset from MSB to the first set bit.
-     * For bit=0 we invert the word first to find the first zero bit. */
+     * For bit=0 we invert the word first to find the first zero bit.
+     *
+     * Safety: __builtin_clzl is undefined for a zero argument, but that
+     * cannot happen here:
+     *  - bit==1: the 'if (bit == 1 && word == 0) return -1' above guards it.
+     *  - bit==0: the skip-word loop consumes all words equal to ULONG_MAX
+     *    (skipval), so the word loaded here satisfies word != ULONG_MAX,
+     *    meaning ~word != 0. */
     pos += bit ? __builtin_clzl(word) : __builtin_clzl(~word);
     return pos;
 }
