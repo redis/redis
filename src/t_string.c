@@ -1074,8 +1074,8 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
             args->flags |= OBJ_INCREX_UBOUND;
             upper_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "SATURATE") && !(args->flags & OBJ_INCREX_OVERFLOW_SAT)) {
-            args->flags |= OBJ_INCREX_OVERFLOW_SAT;
+        } else if (!strcasecmp(opt, "SATURATE") && !(args->flags & OBJ_INCREX_SAT)) {
+            args->flags |= OBJ_INCREX_SAT;
         } else if (!strcasecmp(opt, "ENX") && !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_PERSIST))) {
             args->flags |= OBJ_INCREX_ENX;
         } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
@@ -1210,7 +1210,7 @@ void increxCommand(client *c) {
     int byfloat = args.flags & OBJ_INCREX_BYFLOAT;
     /* By default the operation is rejected on out-of-bounds:
      * leave the key unchanged and reply [current_value, 0]. */
-    int sat_mode = args.flags & OBJ_INCREX_OVERFLOW_SAT;
+    int sat_mode = args.flags & OBJ_INCREX_SAT;
     if (byfloat) {
         long double lb = args.lb_ld, ub = args.ub_ld;
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK)
