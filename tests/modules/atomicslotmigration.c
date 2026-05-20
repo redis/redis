@@ -1,6 +1,5 @@
 #include "redismodule.h"
 
-#include <cstddef>
 #include <stdlib.h>
 #include <memory.h>
 #include <errno.h>
