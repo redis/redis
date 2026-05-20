@@ -1651,9 +1651,10 @@ static doneStatus defragStagePubsubKvstore(void *ctx, monotime endtime) {
 
 /* Defrag client-side per-user pubsub dict structures.
  * This handles the outer dict tables, pubsubUserSubs structs, and inner dict
- * tables. Outer dict keys are user* pointers (not heap-allocated, defragged
- * as part of ACL/Users rax defrag). Inner dict key objects (robj) are NOT
- * touched here — they are handled by the server-side defrag callbacks above. */
+ * tables. Outer dict keys are user* pointers (user objects are not moved by
+ * active defrag today; if that changes, all user-pointer indexes must be
+ * updated). Inner dict key objects (robj) are NOT touched here - they are
+ * handled by the server-side defrag callbacks above. */
 static doneStatus defragStagePubsubClientSide(void *ctx, monotime endtime) {
     UNUSED(ctx);
     UNUSED(endtime);

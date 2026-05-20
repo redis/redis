@@ -492,6 +492,12 @@ void ACLFreeUserAndKillClients(user *u) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
         if (c->user == u) {
+            /* We'll free the connection asynchronously, so
+             * in theory to set a different user is not needed.
+             * However if there are bugs in Redis, soon or later
+             * this may result in some security hole: it's much
+             * more defensive to set the default user and put
+             * it in non authenticated mode. */
             deauthenticateAndCloseClient(c);
             continue;
         }
@@ -2504,7 +2510,7 @@ sds ACLLoadFromFile(const char *filename) {
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxInsert(old_users,(unsigned char*)"default",7,old_default_copy,NULL);
 
-        /* Build a cache of channel-change lists, keyed by username. */
+        /* If there are some subscribers, we need to check if we need to drop some clients. */
         rax *user_channels = NULL;
         if (pubsubTotalSubscriptions() > 0) {
             user_channels = raxNew();
