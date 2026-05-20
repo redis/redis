@@ -964,7 +964,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         ldbLogRedisReply(reply);
 
     if (reply != c->buf) sdsfree(reply);
-    c->reply_bytes = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
 
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
@@ -1131,6 +1131,9 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     struct redisCommand *cmd;
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
         luaPushError(lua, "Invalid command passed to redis.acl_check_cmd()");
+        raise_error = 1;
+    } else if (!commandCheckArity(cmd, argc, NULL)) {
+        luaPushError(lua, "Wrong number of args for redis.acl_check_cmd()");
         raise_error = 1;
     } else {
         int keyidxptr;

@@ -1,0 +1,62 @@
+{
+    "ARMGET": {
+        "summary": "Gets values at multiple indices in an array.",
+        "complexity": "O(N) where N is the number of indices",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": -3,
+        "function": "armgetCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "index",
+                "type": "integer",
+                "multiple": true
+            }
+        ]
+    }
+}

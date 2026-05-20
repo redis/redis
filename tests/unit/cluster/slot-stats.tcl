@@ -158,7 +158,7 @@ proc wait_for_replica_key_exists {key key_count} {
 # Test cases for CLUSTER SLOT-STATS cpu-usec metric correctness.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "FOO"
@@ -361,7 +361,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS network-bytes-in.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "key"
@@ -471,7 +471,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 }
 
-start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
     set channel "channel"
     set key_slot [R 0 cluster keyslot $channel]
     set metrics_to_assert [list network-bytes-in]
@@ -525,7 +525,6 @@ start_cluster 1 0 {tags {external:skip cluster}} {
     set key_slot [R 0 cluster keyslot $key]
     set expected_slots_to_key_count [dict create $key_slot 1]
     set metrics_to_assert [list network-bytes-out]
-    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     test "CLUSTER SLOT-STATS network-bytes-out, for non-slot specific commands." {
         R 0 INFO
@@ -583,7 +582,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
     set key "FOO"
     set key_slot [R 0 CLUSTER KEYSLOT $key]
     set metrics_to_assert [list network-bytes-out]
-    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     # Setup replication.
     assert {[s -1 role] eq {slave}}
@@ -616,7 +614,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
     set channel_secondary "channel2"
     set key_slot_secondary [R 0 cluster keyslot $channel_secondary]
     set metrics_to_assert [list network-bytes-out]
-    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     test "CLUSTER SLOT-STATS network-bytes-out, sharded pub/sub, single channel." {
         set slot [R 0 cluster keyslot $channel]
@@ -700,7 +697,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
 # Test cases for CLUSTER SLOT-STATS key-count metric correctness.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "FOO"
@@ -785,7 +782,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
 # Test cases for CLUSTER SLOT-STATS ORDERBY sub-argument.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
 
     set metrics [list "key-count" "memory-bytes" "cpu-usec" "network-bytes-in" "network-bytes-out"]
 
@@ -891,7 +888,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS replication.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "key"
@@ -994,7 +991,7 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 1 CONFIG RESETSTAT
 }
 
-start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 2 2 {tags {external:skip cluster}} {
     test "CLUSTER SLOT-STATS reset upon atomic slot migration" {
         # key on slot-0
         set key0 "{06S}mykey0"
@@ -1044,7 +1041,7 @@ start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS memory-bytes field presence.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
     # Define shared variables.
     set key "FOO"
     set key_slot [R 0 cluster keyslot $key]
@@ -1174,7 +1171,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # may change object encoding (e.g., listTypeTryConversion).
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
     # Enable debug assertion that validates memory tracking after each command.
     # This will cause a panic if tracked memory doesn't match actual memory.
     R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
@@ -1232,5 +1229,16 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         assert_equal "d" [R 0 LRANGE mylist{t} 0 -1]
 
         R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
+    }
+}
+
+start_server {} {
+    test "CLUSTER SLOT-STATS memory tracking cannot be re-enabled after being disabled (non-clustered mode)" {
+        # Once memory tracking is disabled, it cannot be re-enabled at runtime
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {r CONFIG SET cluster-slot-stats-enabled yes}
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {r CONFIG SET cluster-slot-stats-enabled mem}
+
+        # But cpu and net can still be enabled
+        assert_match "OK" [r CONFIG SET cluster-slot-stats-enabled "cpu net"]
     }
 }

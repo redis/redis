@@ -189,6 +189,17 @@ start_server {tags {"introspection"}} {
         assert_equal {key1 key2} [r command getkeys lcs key1 key2]
     }
 
+    test {COMMAND GETKEYS PFMERGE with and without source keys} {
+        # dest + sources: both key specs yield keys
+        assert_equal {dest src1 src2} [r command getkeys PFMERGE dest src1 src2]
+
+        # dest only, no source keys: spec[1] yields empty range (last < first).
+        # Without pfmergeGetKeys this returned "Invalid arguments" because
+        # getKeysUsingKeySpecs treated the empty range as invalid_spec,
+        # discarding the dest key found by spec[0].
+        assert_equal {dest} [r command getkeys PFMERGE dest]
+    }
+
     test {COMMAND GETKEYS MORE THAN 256 KEYS} {
         set all_keys [list]
         set numkeys 260

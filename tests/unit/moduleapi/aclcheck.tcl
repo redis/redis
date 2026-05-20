@@ -17,6 +17,11 @@ start_server {tags {"modules acl external:skip"}} {
         assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {set}}
         assert {[dict get $entry reason] eq {command}}
+
+        # Wrong command arity must fail safely (no crash on KEYNUM keyspec path)
+        r acl setuser default on nopass resetkeys ~restricted:* +@all
+        catch {r aclcheck.rm_call.check.cmd eval script} e
+        assert_match {*DENIED*} $e
     }
         
     test {test module check acl for key prefix permission} {

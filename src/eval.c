@@ -1027,7 +1027,7 @@ int ldbDelBreakpoint(int line) {
     for (j = 0; j < ldb.bpcount; j++) {
         if (ldb.bp[j] == line) {
             ldb.bpcount--;
-            memmove(ldb.bp+j,ldb.bp+j+1,ldb.bpcount-j);
+            memmove(ldb.bp+j,ldb.bp+j+1,(ldb.bpcount-j) * sizeof(int));
             return 1;
         }
     }
@@ -1502,7 +1502,9 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
     sdsfree(code);
     sdsfree(expr);
     if (lua_pcall(lua,0,1,0)) {
-        ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
+        const char *err = lua_tostring(lua,-1);
+        ldbLog(sdscatfmt(sdsempty(),"<error> %s",
+            err ? err : "(error object is not a string)"));
         lua_pop(lua,1);
         return;
     }

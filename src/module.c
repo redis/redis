@@ -303,6 +303,9 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
+/* Function pointer type for keyspace event notifications with subkeys from modules. */
+typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
+
 /* Function pointer type for post jobs */
 typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
 
@@ -313,8 +316,12 @@ typedef struct RedisModuleKeyspaceSubscriber {
     RedisModule *module;
     /* Notification callback in the module*/
     RedisModuleNotificationFunc notify_callback;
+    /* Extended notification callback with subkeys */
+    RedisModuleNotificationWithSubkeysFunc notify_callback_with_subkeys;
     /* A bit mask of the events the module is interested in */
     int event_mask;
+    /* Delivery flags for subkey notifications, controlling when the callback is invoked. */
+    int flags;
     /* Active flag set on entry, to avoid reentrant subscribers
      * calling themselves */
     int active;
@@ -331,6 +338,11 @@ typedef struct RedisModulePostExecUnitJob {
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
+
+/* Cached event types that have at least one subscriber.
+ * Updated on subscribe/unsubscribe to avoid traversing the list on every event. */
+static int moduleKeyspaceSubscribersTypes = 0;
+static int moduleKeyspaceSubscribersWithSubkeysTypes = 0;
 
 /* The module post keyspace jobs list */
 static list *modulePostExecUnitJobs;
@@ -667,7 +679,7 @@ void moduleReleaseTempClient(client *c) {
     }
     clearClientConnectionState(c);
     listEmpty(c->reply);
-    c->reply_bytes = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->duration = 0;
     resetClient(c, -1);
     serverAssert(c->all_argv_len_sum == 0);
@@ -781,6 +793,23 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     } else {
         return 0;
     }
+}
+
+/* Update the cached subscriber types by walking the subscriber list.
+ * Called after subscribe/unsubscribe operations. */
+static void moduleUpdateKeyspaceSubscribersTypes(void) {
+    int mask = 0, subkeys_mask = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
+        mask |= sub->event_mask;
+        if (sub->notify_callback_with_subkeys)
+            subkeys_mask |= sub->event_mask;
+    }
+    moduleKeyspaceSubscribersTypes = mask;
+    moduleKeyspaceSubscribersWithSubkeysTypes = subkeys_mask;
 }
 
 /* --------------------------------------------------------------------------
@@ -2528,7 +2557,7 @@ void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
  * RM_SetModuleOptions().
 */
 int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
-    kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+    kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOEFFECTS);
     keyModified(ctx->client,ctx->client->db,keyname,kv,1);
     return REDISMODULE_OK;
 }
@@ -4225,6 +4254,10 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_HASH: return REDISMODULE_KEYTYPE_HASH;
     case OBJ_MODULE: return REDISMODULE_KEYTYPE_MODULE;
     case OBJ_STREAM: return REDISMODULE_KEYTYPE_STREAM;
+#ifdef ENABLE_GCRA
+    case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
+#endif
+    case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }
@@ -4480,9 +4513,10 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  * Note: the metadata class name "AAAAAAAAA" is reserved and produces an error.
  *
- * If RM_CreateKeyMetaClass() is called outside of RedisModule_OnLoad() function,
- * there is already a metadata class registered with the same name,
- * or if the metadata class name or metaver is invalid, a negative value is returned.
+ * If RM_CreateKeyMetaClass() is called outside of RedisModule_OnLoad() function
+ * and outside of server startup, there is already a metadata class registered
+ * with the same name, or if the metadata class name or metaver is invalid,
+ * a negative value is returned.
  * Otherwise the new metadata class is registered into Redis, and a reference of
  * type RedisModuleKeyMetaClassId is returned: the caller of the function should store
  * this reference into a global variable to make future use of it in the
@@ -4503,8 +4537,11 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
 {
     RedisModuleKeyMetaClassId id;
     
-    /* Allow registration only OnLoad (and when debug commands disabled) */
-    if ((!ctx->module->onload) && (server.enable_debug_cmd == PROTECTED_ACTION_ALLOWED_NO))
+    /* Allow registration during OnLoad, server startup, or when debug flag is set */
+    int ctx_flags = RM_GetContextFlags(ctx);
+    if (!ctx->module->onload &&
+        !(ctx_flags & REDISMODULE_CTX_FLAGS_SERVER_STARTUP) &&
+        !server.allow_keymeta_registration)
         return -1;
 
     if (!confPtr)
@@ -4746,7 +4783,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         if (curlen != newlen)
-            updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_STRING, curlen, newlen);
+            updateKeysizesHist(key->db, OBJ_STRING, curlen, newlen);
     }
     return REDISMODULE_OK;
 }
@@ -4861,7 +4898,7 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     listTypePush(key->kv, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     int64_t l = listTypeLength(key->kv);
-    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l-1, l);
+    updateKeysizesHist(key->db, OBJ_LIST, l-1, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return REDISMODULE_OK;
@@ -4899,7 +4936,7 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
     int64_t l = (int64_t) listTypeLength(key->kv);
-    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l+1, l);
+    updateKeysizesHist(key->db, OBJ_LIST, l+1, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     if (!moduleDelKeyIfEmpty(key)) {
@@ -5027,7 +5064,7 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
         int where = index < 0 ? LIST_TAIL : LIST_HEAD;
         listTypeInsert(&key->u.list.entry, value, where);
         int64_t l = (int64_t) listTypeLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l-1, l);
+        updateKeysizesHist(key->db, OBJ_LIST, l-1, l);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         /* A note in quicklist.c forbids use of iterator after insert. */
@@ -5058,7 +5095,7 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
             oldsize = kvobjAllocSize(key->kv);
         listTypeDelete(key->iter, &key->u.list.entry);
         int64_t l = (int64_t) listTypeLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l+1, l);
+        updateKeysizesHist(key->db, OBJ_LIST, l+1, l);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
@@ -5167,7 +5204,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
     }
     if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
     int64_t l = (int64_t) zsetLength(key->kv);
-    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l-1, l);
+    updateKeysizesHist(key->db, OBJ_ZSET, l-1, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return REDISMODULE_OK;
@@ -5207,7 +5244,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     if (out_flags & ZADD_OUT_ADDED) {
         int64_t l = (int64_t) zsetLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l-1, l);
+        updateKeysizesHist(key->db, OBJ_ZSET, l-1, l);
     }
     if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
     return REDISMODULE_OK;
@@ -5244,7 +5281,7 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
     if (zsetDel(key->kv,ele->ptr)) {
         if (deleted) *deleted = 1;
         int64_t l = (int64_t) zsetLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l+1, l);
+        updateKeysizesHist(key->db, OBJ_ZSET, l+1, l);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         moduleDelKeyIfEmpty(key);
@@ -5747,7 +5784,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         }
     }
     va_end(ap);
-    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_HASH, oldlen,
+    updateKeysizesHist(key->db, OBJ_HASH, oldlen,
                        (int64_t) hashTypeLength(key->kv, 0));
 
     moduleDelKeyIfEmpty(key);
@@ -6575,6 +6612,13 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
 /* Modifies the user that RM_Call will use (e.g. for ACL checks) */
 void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
+}
+
+/* Returns the user associated with the context via RM_SetContextUser.
+ * Returns NULL if no user was set on the context.
+ * The returned pointer is borrowed from the context — do NOT free it. */
+const RedisModuleUser *RM_GetContextUser(RedisModuleCtx *ctx) {
+    return ctx->user;
 }
 
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
@@ -9191,10 +9235,11 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_OVERWRITTEN: Overwritten events
  *  - REDISMODULE_NOTIFY_TYPE_CHANGED: Type-changed events
  *  - REDISMODULE_NOTIFY_KEY_TRIMMED: Key trimmed events after a slot migration operation
+ *  - REDISMODULE_NOTIFY_RATE_LIMIT: Rate limit event
  *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS,
  *                            REDISMODULE_NOTIFY_NEW, REDISMODULE_NOTIFY_OVERWRITTEN,
- *                            REDISMODULE_NOTIFY_TYPE_CHANGED
- *                            and REDISMODULE_NOTIFY_KEY_TRIMMED)
+ *                            REDISMODULE_NOTIFY_TYPE_CHANGED, REDISMODULE_NOTIFY_KEY_TRIMMED
+ *                            and REDISMODULE_NOTIFY_RATE_LIMIT)
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicates that the key was loaded from persistence.
  *                               Notice, when this event fires, the given key
@@ -9237,10 +9282,13 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
     sub->module = ctx->module;
     sub->event_mask = types;
+    sub->flags = REDISMODULE_NOTIFY_FLAG_NONE;
     sub->notify_callback = callback;
+    sub->notify_callback_with_subkeys = NULL;
     sub->active = 0;
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    moduleUpdateKeyspaceSubscribersTypes();
     return REDISMODULE_OK;
 }
 
@@ -9273,19 +9321,101 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
             removed++;
         }
     }
+    if (removed > 0) moduleUpdateKeyspaceSubscribersTypes();
     return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* Check any subscriber for event */
-int moduleHasSubscribersForKeyspaceEvent(int type) {
+/* Subscribe to keyspace notifications with subkey information.
+ *
+ * This is the extended version of RM_SubscribeToKeyspaceEvents. When subkeys
+ * are available, the `subkeys` array and `count` are passed to the callback.
+ * `subkeys` contains only the names of affected subkeys (values are not included),
+ * and `count` is the number of elements. The array may contain duplicates when
+ * the same subkey appears more than once in a command (e.g. HSET key f1 v1 f1 v2
+ * produces subkeys=["f1","f1"], count=2). When no subkeys are present, `subkeys`
+ * will be NULL and `count` will be 0. Whether events without subkeys are delivered
+ * depends on the `flags` parameter (see below).
+ *
+ * `types` is a bit mask of event types the module is interested in
+ * (using the same REDISMODULE_NOTIFY_* flags as RM_SubscribeToKeyspaceEvents).
+ *
+ * `flags` controls delivery filtering:
+ *  - REDISMODULE_NOTIFY_FLAG_NONE: The callback is invoked for all matching
+ *    events regardless of whether subkeys are present, so a separate
+ *    RM_SubscribeToKeyspaceEvents registration can be omitted.
+ *  - REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED: The callback is only invoked
+ *    when subkeys are not empty. Events without subkey information (e.g. SET,
+ *    EXPIRE, DEL) are skipped.
+ *
+ * The callback signature is:
+ *   void callback(RedisModuleCtx *ctx, int type, const char *event,
+ *                 RedisModuleString *key, RedisModuleString **subkeys, int count);
+ *
+ * The subkeys array and its contents are only valid during the callback.
+ * The underlying objects may be stack-allocated or temporary, so
+ * RM_RetainString must NOT be used on them. To keep a subkey beyond
+ * the callback (e.g. in a RM_AddPostNotificationJob callback), use
+ * RM_HoldString (which handles static objects by copying) or
+ * RM_CreateStringFromString to make a deep copy before returning.
+ */
+int RM_SubscribeToKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc callback) {
+    RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
+    sub->module = ctx->module;
+    sub->event_mask = types;
+    sub->flags = flags;
+    sub->notify_callback = NULL;
+    sub->notify_callback_with_subkeys = callback;
+    sub->active = 0;
+
+    listAddNodeTail(moduleKeyspaceSubscribers, sub);
+    moduleUpdateKeyspaceSubscribersTypes();
+    return REDISMODULE_OK;
+}
+
+/* Unregister a module's callback from keyspace notifications with subkeys
+ * for specific event types.
+ *
+ * This function removes a previously registered subscription identified by
+ * the event mask, delivery flags, and the callback function.
+ *
+ * Parameters:
+ *  - ctx: The RedisModuleCtx associated with the calling module.
+ *  - types: The event mask representing the notification types to unsubscribe from.
+ *  - flags: The delivery flags that were used during registration.
+ *  - callback: The callback function pointer that was originally registered.
+ *
+ * Returns:
+ *  - REDISMODULE_OK on successful removal of the subscription.
+ *  - REDISMODULE_ERR if no matching subscription was found. */
+int RM_UnsubscribeFromKeyspaceEventsWithSubkeys(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc callback) {
+    if (!ctx || !callback) return REDISMODULE_ERR;
+    int removed = 0;
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
-        if (sub->event_mask & type) return 1;
+        if (sub->event_mask == types && sub->flags == flags &&
+            sub->notify_callback_with_subkeys == callback &&
+            sub->module == ctx->module)
+        {
+            zfree(sub);
+            listDelNode(moduleKeyspaceSubscribers, ln);
+            removed++;
+        }
     }
-    return 0;
+    if (removed > 0) moduleUpdateKeyspaceSubscribersTypes();
+    return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Check any subscriber for event. */
+int moduleHasSubscribersForKeyspaceEvent(int type) {
+    return (moduleKeyspaceSubscribersTypes & type) != 0;
+}
+
+/* Check any subscriber for event with subkeys. */
+int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type) {
+    return (moduleKeyspaceSubscribersWithSubkeysTypes & type) != 0;
 }
 
 void firePostExecutionUnitJobs(void) {
@@ -9359,10 +9489,29 @@ int RM_NotifyKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, Red
     return REDISMODULE_OK;
 }
 
+/* Like RM_NotifyKeyspaceEvent, but also triggers subkey-level notifications
+ * when subkeys are provided. Both key-level (keyspace/keyevent) and
+ * subkey-level (subkeyspace/subkeyevent/subkeyspaceitem/subkeyspaceevent)
+ * channels are published to, depending on the server configuration.
+ *
+ * This is the extended version of RM_NotifyKeyspaceEvent and can actually
+ * replace it. When called with subkeys=NULL and count=0, it behaves
+ * identically to RM_NotifyKeyspaceEvent. */
+int RM_NotifyKeyspaceEventWithSubkeys(RedisModuleCtx *ctx, int type, const char *event,
+                                      RedisModuleString *key, RedisModuleString **subkeys, int count) {
+    if (!ctx || !ctx->client)
+        return REDISMODULE_ERR;
+    notifyKeyspaceEventWithSubkeys(type, (char *)event, key, ctx->client->db->id, subkeys, count);
+    return REDISMODULE_OK;
+}
+
 /* Dispatcher for keyspace notifications to module subscriber functions.
- * This gets called  only if at least one module requested to be notified on
- * keyspace notifications */
-void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
+ * This gets called only if at least one module requested to be notified on
+ * keyspace notifications. For each subscriber, if notify_callback is set it
+ * is called; otherwise if notify_callback_with_subkeys is set it is called
+ * for all events (subkeys may be NULL/0 when not applicable). */
+void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
+                               robj **subkeys, int count) {
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
 
@@ -9390,7 +9539,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     listRewind(moduleKeyspaceSubscribers,&li);
 
     /* Remove irrelevant flags from the type mask */
-    type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE);
+    type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE |
+              NOTIFY_SUBKEYSPACE | NOTIFY_SUBKEYEVENT |
+              NOTIFY_SUBKEYSPACEITEM | NOTIFY_SUBKEYSPACEEVENT);
 
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
@@ -9398,6 +9549,15 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
          * and avoid subscribers triggering themselves */
         if ((sub->event_mask & type) &&
             (sub->active == 0 || (sub->module->options & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS))) {
+
+            /* If SUBKEYS_REQUIRED is set, skip events without subkeys. */
+            if (sub->notify_callback_with_subkeys &&
+                (sub->flags & REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED) &&
+                (subkeys == NULL || count == 0))
+            {
+                continue;
+            }
+
             RedisModuleCtx ctx;
             moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);
@@ -9409,7 +9569,11 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             sub->active = 1;
             server.allow_access_expired++;
             server.allow_access_trimmed++;
-            sub->notify_callback(&ctx, type, event, key);
+            if (sub->notify_callback) {
+                sub->notify_callback(&ctx, type, event, key);
+            } else if (sub->notify_callback_with_subkeys) {
+                sub->notify_callback_with_subkeys(&ctx, type, event, key, subkeys, count);
+            }
             server.allow_access_expired--;
             server.allow_access_trimmed--;
             sub->active = prev_active;
@@ -9432,6 +9596,7 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
             zfree(sub);
         }
     }
+    moduleUpdateKeyspaceSubscribersTypes();
 }
 
 /* --------------------------------------------------------------------------
@@ -9499,7 +9664,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
                 if (prev)
                     prev->next = r->next;
                 else
-                    clusterReceivers[type]->next = r->next;
+                    clusterReceivers[type] = r->next; /* Update the head */
                 zfree(r);
             }
             return;
@@ -10314,6 +10479,17 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
     return REDISMODULE_OK;
 }
 
+/* Return the username of the given RedisModuleUser as a RedisModuleString.
+ * Returns NULL if user is NULL or the user has no name.
+ * The returned string must be freed by the caller with RedisModule_FreeString()
+ * or by enabling automatic memory management on a context. */
+ RedisModuleString *RM_GetUserUsername(RedisModuleCtx *ctx, const RedisModuleUser *user) {
+    if(user == NULL || user->user == NULL || user->user->name == NULL) 
+        return NULL;
+    
+    return RM_CreateString(ctx, user->user->name, sdslen(user->user->name));
+}
+
 /* Sets the permissions of a user created through the redis module
  * interface. The syntax is the same as ACL SETUSER, so refer to the
  * documentation in acl.c for more information. See RM_CreateModuleUser
@@ -10411,6 +10587,7 @@ RedisModuleUser *RM_GetModuleUserFromUserName(RedisModuleString *name) {
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * ENOENT: Specified command does not exist.
+ * * EINVAL: Invalid number of arguments for the specified command.
  * * EACCES: Command cannot be executed, according to ACL rules
  */
 int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **argv, int argc) {
@@ -10420,6 +10597,11 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     /* Find command */
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
         errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    if (!commandCheckArity(cmd, argc, NULL)) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
     }
 
@@ -13191,7 +13373,7 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         serverLog(LL_WARNING,
-            "Module %s initialization failed. Module not loaded",path);
+            "Module %s initialization failed. Module not loaded", path ? path : "(null)");
         if (ctx.module) {
             moduleUnregisterCleanup(ctx.module);
             moduleRemoveCateogires(ctx.module);
@@ -15384,9 +15566,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
     REGISTER_API(NotifyKeyspaceEvent);
+    REGISTER_API(NotifyKeyspaceEventWithSubkeys);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
     REGISTER_API(UnsubscribeFromKeyspaceEvents);
+    REGISTER_API(SubscribeToKeyspaceEventsWithSubkeys);
+    REGISTER_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
     REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
@@ -15491,6 +15676,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetContextUser);
+    REGISTER_API(GetContextUser);
+    REGISTER_API(GetUserUsername);
     REGISTER_API(SetModuleUserACL);
     REGISTER_API(SetModuleUserACLString);
     REGISTER_API(GetModuleUserACLString);

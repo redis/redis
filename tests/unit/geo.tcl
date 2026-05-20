@@ -223,6 +223,14 @@ start_server {tags {"geo"}} {
         set err
     } {*valid*}
 
+    test {GEOADD out-of-range longitude/latitude error reply is well-formed} {
+        r readraw 1
+        set reply [r geoadd nyc 200 40 "bad lon"]
+        r readraw 0
+        # RESP simple error: single line starting with '-', no duplicated "-ERR" prefix.
+        assert_match {-ERR invalid longitude,latitude pair*} $reply
+    }
+
     test {GEOADD multi add} {
         r geoadd nyc -73.9733487 40.7648057 "central park n/q/r" -73.9903085 40.7362513 "union square" -74.0131604 40.7126674 "wtc one" -73.7858139 40.6428986 "jfk" -73.9375699 40.7498929 "q4" -73.9564142 40.7480973 4545
     } {6}

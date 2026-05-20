@@ -121,7 +121,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r auth k} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -137,15 +137,15 @@ start_server {tags {"info" "external:skip"}} {
             catch {r exec} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat set]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat exec]
             assert_equal [s total_error_replies] 1
 
             # MULTI/EXEC command errors should still be pinpointed to him
             catch {r exec} e
             assert_match {ERR EXEC without MULTI} $e
-            assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat exec]
             assert_match {*count=2*} [errorstat ERR]
             assert_equal [s total_error_replies] 2
         }
@@ -156,13 +156,13 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 0
             catch {r eval {redis.pcall('XGROUP', 'CREATECONSUMER', 's1', 'mygroup', 'consumer') return } 0} e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat eval]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat xgroup\\|createconsumer]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat eval]
 
             # EVAL command errors should still be pinpointed to him
             catch {r eval a} e
             assert_match {ERR wrong*} $e
-            assert_match {*calls=1,*,rejected_calls=1,failed_calls=0} [cmdstat eval]
+            assert_match {*calls=1,*,rejected_calls=1,failed_calls=0*} [cmdstat eval]
             assert_match {*count=2*} [errorstat ERR]
             assert_equal [s total_error_replies] 2
         }
@@ -174,7 +174,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r evalsha NotValidShaSUM 0} e
             assert_match {NOSCRIPT*} $e
             assert_match {*count=1*} [errorstat NOSCRIPT]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat evalsha]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat evalsha]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOSCRIPT]
@@ -188,7 +188,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r XGROUP CREATECONSUMER mystream mygroup consumer} e
             assert_match {NOGROUP*} $e
             assert_match {*count=1*} [errorstat NOGROUP]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat xgroup\\|createconsumer]
             r config resetstat
             assert_match {} [errorstat NOGROUP]
         }
@@ -217,9 +217,9 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*count=1*} [errorstat EXECABORT]
             assert_equal [s total_error_replies] 2
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat multi]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat multi]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat exec]
             assert_equal [s total_error_replies] 2
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -232,11 +232,11 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set k} e
             assert_match {ERR wrong number of arguments for 'set' command} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             # ensure that after a rejected command, valid ones are counted properly
             r set k1 v1
             r set k2 v2
-            assert_match {calls=2,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {calls=2,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
         }
 
@@ -248,7 +248,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set a b} e
             assert_match {OOM*} $e
             assert_match {*count=1*} [errorstat OOM]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat OOM]
@@ -264,7 +264,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set a b} e
             assert_match {NOPERM*} $e
             assert_match {*count=1*} [errorstat NOPERM]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOPERM]
@@ -283,7 +283,7 @@ start_server {tags {"info" "external:skip"}} {
             r client unblock $rd_id error
             assert_error {UNBLOCKED*} {$rd read}
             assert_match {*count=1*} [errorstat UNBLOCKED]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat blpop]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat blpop]
             assert_equal [s total_error_replies] 1
             $rd close
         }
@@ -393,8 +393,6 @@ start_server {tags {"info" "external:skip"}} {
         }
 
         test {stats: client input and output buffer limit disconnections} {
-            r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
             r config resetstat
             set info [r info stats]
             assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {0}
@@ -509,6 +507,135 @@ start_server {tags {"info" "external:skip"}} {
             $r2 close
             wait_for_watched_clients_count 0
         }
+ 
+        test {clients: active_clients} {
+            set info [r info clients]
+            set ac [getInfoProperty $info active_clients]
+            # The test connection just ran a command, so at least 1 client is active
+            assert_morethan_equal $ac 1
+
+            # Create additional clients and make them active
+            set r2 [redis_client]
+            set r3 [redis_client]
+            $r2 ping
+            $r3 ping
+
+            # Within the 512ms window, all 3 clients should be counted
+            set info [r info clients]
+            set ac [getInfoProperty $info active_clients]
+            assert_morethan_equal $ac 3
+
+            # After the window expires (512ms), idle clients should drop off
+            wait_for_condition 20 100 {
+                [getInfoProperty [r info clients] active_clients] <= 1
+            } else {
+                fail "active_clients did not drop after window expired"
+            }
+
+            $r2 close
+            $r3 close
+        }
+
+        test {stats: client processing and pipeline metrics} {
+            set info1 [r info stats]
+            set proc_events1 [getInfoProperty $info1 total_client_processing_events]
+            set cycles1 [getInfoProperty $info1 eventloop_cycles_with_clients_processing]
+            set plsum1 [getInfoProperty $info1 avg_pipeline_length_sum]
+            set plcnt1 [getInfoProperty $info1 avg_pipeline_length_cnt]
+
+            # Issue several commands
+            r ping
+            r ping
+            r ping
+
+            set info2 [r info stats]
+            set proc_events2 [getInfoProperty $info2 total_client_processing_events]
+            set cycles2 [getInfoProperty $info2 eventloop_cycles_with_clients_processing]
+            set plsum2 [getInfoProperty $info2 avg_pipeline_length_sum]
+            set plcnt2 [getInfoProperty $info2 avg_pipeline_length_cnt]
+            set plavg2 [getInfoProperty $info2 avg_pipeline_length]
+
+            # processInputBuffer was called for 3 PINGs + the INFO call = at least 4
+            assert_morethan_equal [expr {$proc_events2 - $proc_events1}] 4
+
+            # At least one eventloop cycle processed client input
+            assert_morethan $cycles2 $cycles1
+
+            # Cycles with clients can never exceed total processInputBuffer calls
+            assert_morethan_equal $proc_events2 $cycles2
+
+            # Pipeline sum and cnt increased (3 PINGs + INFO, each batch of 1)
+            assert_morethan_equal [expr {$plsum2 - $plsum1}] 4
+            assert_morethan_equal [expr {$plcnt2 - $plcnt1}] 4
+
+            # Average pipeline length is a valid positive number
+            assert_morethan $plavg2 0
+        }
+
+        test {stats: client processing metrics reset with CONFIG RESETSTAT} {
+            # Build up meaningful counter values
+            for {set i 0} {$i < 20} {incr i} { r ping }
+
+            set info_before [r info stats]
+            set proc_before [getInfoProperty $info_before total_client_processing_events]
+            set cycles_before [getInfoProperty $info_before eventloop_cycles_with_clients_processing]
+            set plsum_before [getInfoProperty $info_before avg_pipeline_length_sum]
+            set plcnt_before [getInfoProperty $info_before avg_pipeline_length_cnt]
+
+            # Verify counters are meaningfully large before resetting
+            assert_morethan $proc_before 10
+            assert_morethan $cycles_before 0
+            assert_morethan $plsum_before 10
+            assert_morethan $plcnt_before 10
+
+            r config resetstat
+
+            set info_after [r info stats]
+            set proc_after [getInfoProperty $info_after total_client_processing_events]
+            set cycles_after [getInfoProperty $info_after eventloop_cycles_with_clients_processing]
+            set plsum_after [getInfoProperty $info_after avg_pipeline_length_sum]
+            set plcnt_after [getInfoProperty $info_after avg_pipeline_length_cnt]
+
+            # Counters should be near zero (only RESETSTAT + INFO ran after reset)
+            assert_lessthan_equal $proc_after 3
+            assert_lessthan_equal $cycles_after 3
+            assert_lessthan_equal $plsum_after 3
+            assert_lessthan_equal $plcnt_after 3
+        }
+    }
+}
+
+start_server {tags {"info" "external:skip"} overrides {io-threads 4 io-threads-do-reads yes}} {
+    test {clients: active_clients with io-thread one-by-one commands} {
+        r config resetstat
+
+        set clients {}
+        set clients_num 16
+        for {set i 0} {$i < $clients_num} {incr i} {
+            lappend clients [redis_client]
+        }
+
+        # Run request/response (non-pipelined) traffic on many clients.
+        for {set round 0} {$round < 5} {incr round} {
+            set i 0
+            foreach c $clients {
+                $c set key:$round:$i value
+                incr i
+            }
+        }
+
+        # We are still within the 512ms active-client window.
+        set info [r info clients]
+        set ac [getInfoProperty $info active_clients]
+
+        foreach c $clients {
+            $c close
+        }
+
+        # The query client itself is active; additional active clients should
+        # also be counted. If this is <= 1, IO-thread one-by-one traffic was
+        # likely missed by active-client accounting.
+        assert_morethan_equal $ac 2
     }
 }
 

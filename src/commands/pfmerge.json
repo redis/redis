@@ -6,6 +6,7 @@
         "since": "2.8.9",
         "arity": -2,
         "function": "pfmergeCommand",
+        "get_keys_function": "pfmergeGetKeys",
         "command_flags": [
             "WRITE",
             "DENYOOM"

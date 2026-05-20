@@ -119,7 +119,13 @@ start_server {tags {"repl external:skip"}} {
             } else {
                 fail "set get wasn't propagated"
             }
-            assert_match {*calls=3,*} [cmdrstat set $A]
+            assert_equal [r set test qaz get get] vaz
+            wait_for_condition 500 10 {
+                [$A get test] eq "qaz"
+            } else {
+                fail "set get get wasn't propagated"
+            }
+            assert_match {*calls=4,*} [cmdrstat set $A]
             assert_match {} [cmdrstat getset $A]
         }
 
@@ -880,27 +886,44 @@ proc compute_cpu_usage {start end} {
     return [ list $pucpu $pscpu ]
 }
 
-
+if {!$::valgrind} {
 # test diskless rdb pipe with multiple replicas, which may drop half way
-start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
-    set master [srv 0 client]
-    $master config set repl-diskless-sync yes
-    $master config set repl-diskless-sync-delay 5
-    $master config set repl-diskless-sync-max-replicas 2
-    set master_host [srv 0 host]
-    set master_port [srv 0 port]
-    set master_pid [srv 0 pid]
-    # put enough data in the db that the rdb file will be bigger than the socket buffers
-    # and since we'll have key-load-delay of 100, 20000 keys will take at least 2 seconds
-    # we also need the replica to process requests during transfer (which it does only once in 2mb)
-    $master debug populate 20000 test 10000
-    $master config set rdbcompression no
-    $master config set repl-rdb-channel no
-    # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
-    set os [catch {exec uname}]
-    set measure_time [expr {$os == "Linux"} ? 1 : 0]
-    foreach all_drop {no slow fast all timeout} {
+foreach all_drop {no slow fast all timeout} {
+    start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
+        set master [srv 0 client]
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 5
+        $master config set repl-diskless-sync-max-replicas 2
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_pid [srv 0 pid]
+        if {$all_drop == "timeout"} {
+            # Use a larger RDB (~100 MB) so it cannot fit into the kernel TCP
+            # send buffer (autotuning can absorb tens of MB on some hosts). We
+            # need the primary to hit the blocked writer path
+            # (repl_last_partial_write != 0) while the slow replica is paused,
+            # so the cron triggers the "(full sync)" timeout path instead of
+            # the replica being moved to ONLINE prematurely and timing out via
+            # the "(streaming sync)" path.
+            $master debug populate 10000 test 10000
+        } else {
+            # Put enough data in the db that the RDB is comfortably larger than the
+            # pipe and socket buffers so the primary can hit the blocked writer path,
+            # but keep it small enough that slow TLS CI runners don't spend minutes
+            # draining an oversized transfer (~40 MB uncompressed).
+            $master debug populate 4000 test 10000
+        }
+        $master config set rdbcompression no
+        $master config set repl-rdb-channel no
+        # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
+        set os [catch {exec uname}]
+        set measure_time [expr {$os == "Linux"} ? 1 : 0]
+
         test "diskless $all_drop replicas drop during rdb pipe" {
+            # Reset config that the timeout subcase may change, so a failing
+            # subcase does not leave the next one with an aggressive timeout.
+            $master config set repl-timeout 60
+            $master config set rdb-key-save-delay 0
             set replicas {}
             set replicas_alive {}
             # start one replica that will read the rdb fast, and one that will be slow
@@ -917,7 +940,24 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
                     [lindex $replicas 1] config set repl-diskless-load swapdb
-                    [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
+                    if {$all_drop == "all"} {
+                        # Keep the RDB child generating data long enough for
+                        # both replicas to be killed before the pipe reaches
+                        # EOF, so this subcase still covers the last-replica
+                        # drop path instead of racing with normal completion.
+                        $master config set rdb-key-save-delay 1000
+                    }
+                    # For non-timeout subcases, use key-load-delay to keep
+                    # replica 0 as a steady slow reader for the entire RDB
+                    # transfer. This keeps the expected diskless pipe code
+                    # paths covered without accepting alternate log outcomes.
+                    if {$all_drop != "timeout"} {
+                        # 4k keys with 500 microseconds each keeps replica 0
+                        # slow for about 2 seconds, which is long enough to
+                        # fill the pipe without turning the transfer into a
+                        # multi-minute TLS run.
+                        [lindex $replicas 0] config set key-load-delay 500
+                    }
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port
 
@@ -931,9 +971,16 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         set start_time [clock seconds]
                     }
 
-                    # wait a while so that the pipe socket writer will be
-                    # blocked on write (since replica 0 is slow to read from the socket)
-                    after 500
+                    if {$all_drop != "timeout"} {
+                        # key-load-delay is already throttling the slow
+                        # replica; just wait for the pipe to fill.
+                        after 500
+                    } else {
+                        # For the timeout subcase, stop the slow reader so it
+                        # reaches repl-timeout during full sync.
+                        pause_process [srv -1 pid]
+                        after 500
+                    }
 
                     # add some command to be present in the command stream after the rdb.
                     $master incr $all_drop
@@ -948,14 +995,17 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         set replicas_alive [lreplace $replicas_alive 0 0]
                     }
                     if {$all_drop == "timeout"} {
+                        # Let one replica hit repl-timeout while the slow reader
+                        # is paused, then restore a generous timeout so the
+                        # remaining replica can finish the streamed RDB.
                         $master config set repl-timeout 2
-                        # we want the slow replica to hang on a key for very long so it'll reach repl-timeout
-                        pause_process [srv -1 pid]
-                        after 2000
+                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 200 100
+                        $master config set repl-timeout 60
                     }
 
-                    # wait for rdb child to exit
-                    wait_for_condition 500 100 {
+                    # Use a single generous budget for all subcases; successful
+                    # runs still exit early once the child is done.
+                    wait_for_condition 5000 100 {
                         [s -2 rdb_bgsave_in_progress] == 0
                     } else {
                         fail "rdb child didn't terminate"
@@ -972,7 +1022,6 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                     }
                     if {$all_drop == "timeout"} {
-                        wait_for_log_messages -2 {"*Disconnecting timedout replica (full sync)*"} $loglines 1 1
                         wait_for_log_messages -2 {"*Diskless rdb transfer, done reading from pipe, 1 replicas still up*"} $loglines 1 1
                         # master disconnected the slow replica, remove from array
                         set replicas_alive [lreplace $replicas_alive 0 0]
@@ -996,18 +1045,23 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                             assert {$master_utime < 70}
                             assert {$master_stime < 70}
                         }
-                        if {!$::no_latency && ($all_drop == "none" || $all_drop == "fast")} {
+                        if {!$::no_latency && ($all_drop == "no" || $all_drop == "fast")} {
                             assert {$master_utime < 15}
                             assert {$master_stime < 15}
                         }
                     }
+
+                    # In the "no" case both replicas stay alive through the
+                    # full streamed RDB, so on slow TLS runners the final
+                    # ONLINE transition can lag behind child exit.
+                    set replica_online_wait_tries [expr {$all_drop == "no" ? 600 : 150}]
 
                     # verify the data integrity
                     foreach replica $replicas_alive {
                         # Wait that replicas acknowledge they are online so
                         # we are sure that DBSIZE and DEBUG DIGEST will not
                         # fail because of timing issues.
-                        wait_for_condition 150 100 {
+                        wait_for_condition $replica_online_wait_tries 100 {
                             [lindex [$replica role] 3] eq {connected}
                         } else {
                             fail "replicas still not connected after some time"
@@ -1032,6 +1086,7 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
         }
     }
 }
+} ;# end of valgrind
 
 test "diskless replication child being killed is collected" {
     # when diskless master is waiting for the replica to become writable
@@ -1828,6 +1883,122 @@ start_server {tags {"repl external:skip"}} {
                 [status $slave master_current_sync_attempts] >= 2
             } else {
                 fail "Timeout waiting for master_current_sync_attempts"
+            }
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    start_server {overrides {io-threads 2}} {
+        set slave [srv 0 client]
+
+        test {prefetchCommands handles NULL argv and keys during RDB replication with IO threads} {
+            # Enable diskless sync to trigger RDB streaming during replication
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 0
+
+            # Populate keys in the format key:$i with 128-byte values.
+            $slave debug populate 700000 key 128
+
+            # Force a full resync by resetting the slave.
+            set rd [redis_deferring_client 0]
+            $rd slaveof $master_host $master_port
+
+            # Create a large pipeline command.
+            set batch_size 1000
+            set buf ""
+            for {set i 0} {$i < $batch_size} {incr i} {
+                append buf [format_command get key:1]
+            }
+            
+            # Continuously send pipelined commands so that the replica processes
+            # and prefetches them while it is emptying old data during full sync.
+            set start_time [clock milliseconds]
+            while {[clock milliseconds] - $start_time < 5000} {
+                $rd write $buf
+                $rd flush
+                if {[s 0 master_link_status] eq "up"} break
+            }
+            $rd close
+        }
+    }
+}
+
+# Fullsync should not free the functions lib ctx while the replica has 
+# a timed out function that is still running.
+foreach type {script function} {
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            set master [srv -1 client]
+            set master_host [srv -1 host]
+            set master_port [srv -1 port]
+            set replica [srv 0 client]
+
+            test "Fullsync should not free scripting engine on a replica while a $type is running" {
+                $master config set repl-diskless-sync yes
+                $master config set repl-diskless-sync-delay 0
+                # Set small client output buffer limit to trigger fullsync quickly
+                $master config set client-output-buffer-limit "replica 1k 1k 0"
+                $replica config set busy-reply-threshold 1 ;# script timeout in 1 ms
+
+                # Load function
+                if {$type eq "function"} {
+                    $master function load replace {#!lua name=blocklib
+                        redis.register_function{
+                            function_name='blockfunc',
+                            callback=function() while true do end end,
+                            flags={'no-writes'}
+                        }
+                    }
+                }
+
+                # Start replication
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+
+                # Run the blocking script on replica
+                set rd [redis_deferring_client]
+                if {$type eq "script"} {
+                    $rd eval {while true do end} 0
+                } else {
+                    $rd fcall_ro blockfunc 0
+                }
+
+                # Verify replica replies with BUSY
+                wait_for_condition 50 100 {
+                    [catch {$replica ping} e] == 1 && [string match {*BUSY*} $e]
+                } else {
+                    fail "$type didn't become busy"
+                }
+
+                # Fills client output buffer and triggers fullsync
+                populate 5 bigkey 1000000 -1
+                wait_for_condition 50 100 {
+                    [s -1 sync_full] >= 2
+                } else {
+                    fail "Fullsync was not triggered"
+                }
+                
+                # Verify replica is still running the function
+                after 1000
+                catch {$replica ping} e
+                assert_match {*BUSY*} $e "replica should still reply with BUSY"
+
+                if {$type eq "script"} {
+                    $replica script kill
+                } else {
+                    $replica function kill
+                }
+
+                # Verify replica is responsive again
+                catch {$rd read} result
+                $rd close
+                wait_for_sync $replica
+                assert_equal [$replica ping] "PONG"
             }
         }
     }

@@ -754,6 +754,32 @@ void defragSet(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = newd;
 }
 
+/* Arrays can be expensive to defrag in one shot because they may contain many
+ * independently allocated slices. Small arrays are defragmented immediately,
+ * while large arrays are queued for later and processed one slice per step. */
+void defragArray(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_ARRAY);
+    /* Maybe arCount() is not the best possible value to check against
+     * server.active_defrag_max_scan_fields, also because anyway when we
+     * defrag incrementally, we defrag a since slice per call. Yet it makes
+     * sense in a non very obvious way, for several reasons:
+     *
+     * 1. If the array is very sparse, it is an upper bound to the max
+     *    number of slices it is composed to.
+     * 2. If the array is dense, we will scan in the default case at most 4096
+     *    entries, and the default defrag limit for max scans is 1000. They
+     *    are kinda comparable numbers.
+     * 3. In case of a highly sparse array with huge indexes, in superdir mode,
+     *    yet the super blocks are going to be at max arCount().
+     *
+     * So regardless of the fact we later will defrag in slice units, this
+     * is a good trigger for the one shot or incremental selection. */
+    if (arCount(ob->ptr) > server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else
+        ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
+}
+
 /* Defrag callback for radix tree iterator, called for each node,
  * used in order to defrag the nodes allocations. */
 int defragRaxNode(raxNode **noderef, void *privdata) {
@@ -855,51 +881,52 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
     raxStop(&ri);
 }
 
-typedef struct {
-    streamCG *cg;
-    streamConsumer *c;
-} PendingEntryContext;
-
 void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
-    PendingEntryContext *ctx = privdata;
+    streamConsumer *c = privdata;
+    streamNACK *nack = ri->data;
+    /* NACKs are already defragged by the CG PEL walk (defragStreamCGPendingEntry).
+     * cgroup_ref_node->value is also updated there for all NACKs (including
+     * unowned NACK-zone entries that have no consumer PEL walk).
+     * Here we only fix up the back-pointer to the possibly-relocated consumer. */
+    nack->consumer = c;
+    return NULL;
+}
+
+void* defragStreamCGPendingEntry(raxIterator *ri, void *privdata) {
+    streamCG *cg = privdata;
     streamNACK *nack = ri->data, *newnack;
-    nack->consumer = ctx->c; /* update nack pointer to consumer */
-    nack->cgroup_ref_node->value = ctx->cg; /* Update the value of cgroups_ref node to the consumer group. */
+    /* Update cgroup_ref_node to the possibly-relocated CG for every NACK.
+     * Consumer-owned entries will get this overwritten again redundantly by
+     * defragStreamConsumerPendingEntry; unowned (NACK zone) entries have no
+     * consumer PEL walk, so this is their only chance. */
+    nack->cgroup_ref_node->value = cg;
     newnack = activeDefragAlloc(nack);
     if (newnack) {
-        /* Update consumer group pointer to the nack. */
-        void *prev;
-        raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
-        serverAssert(prev==nack);
-        
-        /* Update the doubly-linked list pointers in adjacent nacks.
-         * When we move a nack to a new address, we need to update the
-         * pel_prev->pel_next and pel_next->pel_prev pointers. */
+        /* If this NACK is owned by a consumer, update the consumer's PEL. */
+        if (newnack->consumer) {
+            void *prev;
+            raxInsert(newnack->consumer->pel, ri->key, ri->key_len, newnack, &prev);
+            serverAssert(prev == nack);
+        }
         if (newnack->pel_prev) {
             newnack->pel_prev->pel_next = newnack;
         } else {
-            /* This is the head of the list */
-            ctx->cg->pel_time_head = newnack;
+            cg->pel_time_head = newnack;
         }
         if (newnack->pel_next) {
             newnack->pel_next->pel_prev = newnack;
         } else {
-            /* This is the tail of the list */
-            ctx->cg->pel_time_tail = newnack;
+            cg->pel_time_tail = newnack;
+        }
+        if (cg->pel_nack_tail == nack) {
+            cg->pel_nack_tail = newnack;
         }
     }
     return newnack;
 }
 
-typedef struct {
-    stream *s;
-    streamCG *cg;
-} StreamConsumerContext;
-
 void* defragStreamConsumer(raxIterator *ri, void *privdata) {
-    StreamConsumerContext *ctx = privdata;
-    stream *s = ctx->s;
-    streamCG *cg = ctx->cg;
+    stream *s = privdata;
     streamConsumer *c = ri->data;
     void *newc = activeDefragAlloc(c);
     if (newc) {
@@ -911,8 +938,7 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
     if (c->pel) {
         /* Update pel back-pointer to new stream */
         c->pel->alloc_size = &s->alloc_size;
-        PendingEntryContext pel_ctx = {cg, c};
-        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, &pel_ctx);
+        defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, c);
     }
     return newc; /* returns NULL if c was not defragged */
 }
@@ -925,14 +951,12 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     if (cg->pel) {
         /* Update pel back-pointer to new stream */
         cg->pel->alloc_size = &s->alloc_size;
-        defragRadixTree(&cg->pel, 0, NULL, NULL);
+        defragRadixTree(&cg->pel, 0, defragStreamCGPendingEntry, cg);
     }
-    /* pel_time_head/tail are just pointers to NACKs in pel, no separate defrag needed */
     if (cg->consumers) {
         /* Update consumers back-pointer to new stream */
         cg->consumers->alloc_size = &s->alloc_size;
-        StreamConsumerContext consumer_ctx = {s, cg};
-        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);
+        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, s);
     }
     return cg;
 }
@@ -1165,8 +1189,19 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         }
     } else if (ob->type == OBJ_STREAM) {
         defragStream(ctx, ob);
+#ifdef ENABLE_GCRA
+    } else if (ob->type == OBJ_GCRA) {
+        /* GCRA object is just an allocation to a long long value */
+#if UINTPTR_MAX == 0xffffffff
+        void *newptr, *ptr = ob->ptr;
+        if ((newptr = activeDefragAlloc(ptr)))
+            ob->ptr = newptr;
+#endif
+#endif
     } else if (ob->type == OBJ_MODULE) {
         defragModule(ctx,db, ob);
+    } else if (ob->type == OBJ_ARRAY) {
+        defragArray(ctx, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1283,6 +1318,10 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             robj keyobj;
             initStaticStringObject(keyobj, kvobjGetKey(ob));
             return moduleLateDefrag(&keyobj, ob, cursor, endtime, dbid);
+        } else if (ob->type == OBJ_ARRAY) {
+            redisArray *ar = ob->ptr;
+            *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
+            ob->ptr = ar;
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }
