@@ -1003,7 +1003,7 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
 #define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_SAT     (1<<4)  /* Saturate the result to LBOUND/UBOUND/type limits when out of bounds. */
+#define OBJ_INCREX_SATURATE (1<<4) /* Saturate the result to LBOUND/UBOUND/type limits when out of bounds. */
 #define OBJ_INCREX_ENX     (1<<5)  /* Set expiration only when the key has no expiry */
 #define OBJ_INCREX_PERSIST (1<<6)  /* Set if we need to remove the ttl */
 #define OBJ_INCREX_EX      (1<<7)  /* Set if time in seconds is given */
@@ -1074,8 +1074,8 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
             args->flags |= OBJ_INCREX_UBOUND;
             upper_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "SATURATE") && !(args->flags & OBJ_INCREX_SAT)) {
-            args->flags |= OBJ_INCREX_SAT;
+        } else if (!strcasecmp(opt, "SATURATE") && !(args->flags & OBJ_INCREX_SATURATE)) {
+            args->flags |= OBJ_INCREX_SATURATE;
         } else if (!strcasecmp(opt, "ENX") && !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_PERSIST))) {
             args->flags |= OBJ_INCREX_ENX;
         } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
@@ -1210,7 +1210,7 @@ void increxCommand(client *c) {
     int byfloat = args.flags & OBJ_INCREX_BYFLOAT;
     /* By default the operation is rejected on out-of-bounds:
      * leave the key unchanged and reply [current_value, 0]. */
-    int sat_mode = args.flags & OBJ_INCREX_SAT;
+    int sat_mode = args.flags & OBJ_INCREX_SATURATE;
     if (byfloat) {
         long double lb = args.lb_ld, ub = args.ub_ld;
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK)
