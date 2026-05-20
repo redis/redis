@@ -702,9 +702,7 @@ Tested with the following Docker images:
 - rockylinux/rockylinux:10.1
 - rockylinux/rockylinux:10.1-minimal
 
-> **Note**: At the time of writing, `redisearch.so` does not build on AlmaLinux/Rocky 10 due to two upstream issues. With `IGNORE_MISSING_DEPS=1` (step 5), the core `redis-server` and the `redisbloom`, `rejson`, and `redistimeseries` modules build successfully:
-> - The `redisearch` dep-checker did not recognize `almalinux` and reported "Unsupported operating system". Fixed in [RediSearch#9717](https://github.com/RediSearch/RediSearch/pull/9717) and [RediSearch#9719](https://github.com/RediSearch/RediSearch/pull/9719), released in `redisearch` v8.8.0. The redis/redis modules pin is still `v8.7.91`, so `IGNORE_MISSING_DEPS=1` remains needed until the pin bumps to v8.8.0+.
-> - The bundled clang in AlmaLinux/Rocky 10 is LLVM 20 while `INSTALL_RUST_TOOLCHAIN=yes` installs a Rust whose LLVM is 21, which trips RediSearch's cross-language LTO check. This still needs an upstream fix in `RediSearch`.
+> **Note**: At the time of writing, `redisearch.so` does not build on AlmaLinux/Rocky 10: the bundled clang is LLVM 20 while `INSTALL_RUST_TOOLCHAIN=yes` installs a Rust whose LLVM is 21, which trips `RediSearch`'s cross-language LTO check. This still needs an upstream fix in `RediSearch`. The core `redis-server` and the `redisbloom`, `rejson`, and `redistimeseries` modules build successfully.
 
 1. Prepare the system
 
@@ -775,11 +773,11 @@ Tested with the following Docker images:
 
 5. Build Redis
 
-   Set the necessary environment variables and build Redis. `IGNORE_MISSING_DEPS=1` is required until the `redisearch` dep-checker is updated to recognize AlmaLinux/Rocky 10:
+   Set the necessary environment variables and build Redis:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes IGNORE_MISSING_DEPS=1
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
    make -j "$(nproc)" all
    ```
 
