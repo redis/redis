@@ -1,10 +1,13 @@
 # Return the current host distro name. For example: ubuntu, debian, amzn etc
 function (redis_get_distro_name DISTRO_NAME)
     if (LINUX AND NOT APPLE)
-        execute_process(
-            COMMAND /bin/bash "-c" "cat /etc/os-release |grep ^ID=|cut -d = -f 2"
-            OUTPUT_VARIABLE _OUT_VAR
-            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(EXISTS "/etc/os-release")
+            file(READ "/etc/os-release" OS_RELEASE_CONTENT)
+            string(REGEX MATCH "^ID=([^\n]*)" _MATCH "${OS_RELEASE_CONTENT}")
+            if(CMAKE_MATCH_1)
+                set(_OUT_VAR "${CMAKE_MATCH_1}")
+            endif()
+        endif()
         # clean the output
         string(REPLACE "\"" "" _OUT_VAR "${_OUT_VAR}")
         string(REPLACE "." "" _OUT_VAR "${_OUT_VAR}")

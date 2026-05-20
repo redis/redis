@@ -218,8 +218,10 @@ IF(NOT DISABLE_TESTS)
         ADD_DEFINITIONS(-DHIREDIS_TEST_ASYNC=1)
         TARGET_LINK_LIBRARIES(hiredis-test event)
     ENDIF()
-    ADD_TEST(NAME hiredis-test
-        COMMAND ${REDIS_ROOT}/deps/hiredis/test.sh)
+    IF(NOT WIN32)
+        ADD_TEST(NAME hiredis-test
+            COMMAND ${REDIS_ROOT}/deps/hiredis/test.sh)
+    ENDIF()
 ENDIF()
 
 # Add examples

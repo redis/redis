@@ -8,21 +8,23 @@ if (NOT EXISTS ${JEMALLOC_INSTALL_DIR}/lib/libjemalloc.a)
     message(STATUS "JEMALLOC_SRC_DIR = ${JEMALLOC_SRC_DIR}")
     message(STATUS "JEMALLOC_INSTALL_DIR = ${JEMALLOC_INSTALL_DIR}")
 
-    execute_process(
-        COMMAND sh -c "${JEMALLOC_SRC_DIR}/configure --disable-cxx \
-            --with-version=5.3.0-0-g0 --with-lg-quantum=3 --disable-cache-oblivious --with-jemalloc-prefix=je_ \
-            --enable-static --disable-shared --prefix=${JEMALLOC_INSTALL_DIR}"
-        WORKING_DIRECTORY ${JEMALLOC_SRC_DIR} RESULTS_VARIABLE CONFIGURE_RESULT)
+    if (NOT MSVC)
+        execute_process(
+            COMMAND sh -c "${JEMALLOC_SRC_DIR}/configure --disable-cxx \
+                --with-version=5.3.0-0-g0 --with-lg-quantum=3 --disable-cache-oblivious --with-jemalloc-prefix=je_ \
+                --enable-static --disable-shared --prefix=${JEMALLOC_INSTALL_DIR}"
+            WORKING_DIRECTORY ${JEMALLOC_SRC_DIR} RESULTS_VARIABLE CONFIGURE_RESULT)
 
-    if (NOT ${CONFIGURE_RESULT} EQUAL 0)
-        message(FATAL_ERROR "Jemalloc configure failed")
-    endif ()
+        if (NOT ${CONFIGURE_RESULT} EQUAL 0)
+            message(FATAL_ERROR "Jemalloc configure failed")
+        endif ()
 
-    execute_process(COMMAND make -j${REDIS_PROCESSOR_COUNT} lib/libjemalloc.a install
-                    WORKING_DIRECTORY "${JEMALLOC_SRC_DIR}" RESULTS_VARIABLE MAKE_RESULT)
+        execute_process(COMMAND make -j${REDIS_PROCESSOR_COUNT} lib/libjemalloc.a install
+                        WORKING_DIRECTORY "${JEMALLOC_SRC_DIR}" RESULTS_VARIABLE MAKE_RESULT)
 
-    if (NOT ${MAKE_RESULT} EQUAL 0)
-        message(FATAL_ERROR "Jemalloc build failed")
+        if (NOT ${MAKE_RESULT} EQUAL 0)
+            message(FATAL_ERROR "Jemalloc build failed")
+        endif ()
     endif ()
 endif ()
 

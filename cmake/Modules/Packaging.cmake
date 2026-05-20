@@ -29,10 +29,11 @@ unset(DISTRO_NAME CACHE)
 # ---------------------------------------------------
 # Create a helper script for creating symbolic links
 # ---------------------------------------------------
+if (NOT WIN32)
 write_file(
     ${CMAKE_BINARY_DIR}/CreateSymlink.sh
     "\
-#!/bin/bash                                                 \n\
+#!/bin/sh                                                   \n\
 if [ -z \${DESTDIR} ]; then                                 \n\
     # Script is called during 'make install'                \n\
     PREFIX=${CMAKE_INSTALL_PREFIX}/bin                      \n\
@@ -42,3 +43,4 @@ else                                                        \n\
 fi                                                          \n\
 cd \$PREFIX                                                 \n\
 ln -sf \$1 \$2")
+endif()
