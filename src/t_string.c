@@ -1187,7 +1187,6 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
  * ENX restricts expiration updates to keys that currently have no TTL.
  *
  * Reply:
- * - (Simple Error) if any parameter is invalid, or if BYFLOAT produces NaN or Infinity.
  * - (Array) of two Bulk Strings on success:
  *   1. The new value of the key after the increment.
  *   2. The actual increment applied.
