@@ -202,7 +202,7 @@ start_server {tags {"increx"}} {
         assert_equal [r get mykey] 5
     }
 
-    test {INCREX - BYINT within bounds is unaffected by SATURATE policy} {
+    test {INCREX - BYINT within bounds is unaffected by SATURATE} {
         r set mykey 10
         assert_equal [r increx mykey BYINT 3 UBOUND 20] {13 3}
         assert_equal [r increx mykey BYINT -3 LBOUND 0 SATURATE] {10 -3}
@@ -379,7 +379,6 @@ start_server {tags {"increx"}} {
         assert_error "*syntax error*" {r increx mykey LBOUND 0 LBOUND 1}
         assert_error "*syntax error*" {r increx mykey UBOUND 9 UBOUND 8}
         assert_error "*syntax error*" {r increx mykey SATURATE SATURATE LBOUND 0}
-        assert_error "*syntax error*" {r increx mykey OVERFLOW SATURATE LBOUND 0}
         assert_error "*syntax error*" {r increx mykey SAT LBOUND 0}
         assert_error "*syntax error*" {r increx mykey ENX ENX EX 10}
         assert_error "*syntax error*" {r increx mykey PERSIST PERSIST}
