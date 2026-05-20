@@ -1269,7 +1269,44 @@ endif()
 
 
 
-file(WRITE "${CMAKE_BINARY_DIR}/kill.bat" "@echo off\nif \"%~1\"==\"-9\" goto kill\nif \"%~1\"==\"-SIGCONT\" goto kill\nif \"%~1\"==\"-SEGV\" goto kill\nif \"%~1\"==\"-KILL\" goto kill\nif \"%~1\"==\"-0\" goto check\ntaskkill /F /T /PID %~1 >NUL 2>&1\nexit /b 0\n\n:kill\ntaskkill /F /T /PID %~2 >NUL 2>&1\nexit /b 0\n\n:check\ntasklist /FI \"PID eq %~2\" | findstr %~2 >NUL 2>&1\nexit /b %ERRORLEVEL%\n")
+file(WRITE "${CMAKE_BINARY_DIR}/win_kill.c" "
+#include <windows.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(int argc, char** argv) {
+    if (argc < 2) return 1;
+    
+    int check_only = 0;
+    int pid_idx = 1;
+    
+    if (strcmp(argv[1], \"-0\") == 0) {
+        check_only = 1;
+        pid_idx = 2;
+    } else if (argv[1][0] == '-') {
+        pid_idx = 2;
+    }
+    
+    if (argc <= pid_idx) return 1;
+    int pid = atoi(argv[pid_idx]);
+    
+    if (check_only) {
+        HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (!h) return 1;
+        DWORD ret = WaitForSingleObject(h, 0);
+        CloseHandle(h);
+        return ret == WAIT_TIMEOUT ? 0 : 1;
+    } else {
+        HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (!h) return 1;
+        TerminateProcess(h, 1);
+        CloseHandle(h);
+        return 0;
+    }
+}
+")
+add_executable(win_kill "${CMAKE_BINARY_DIR}/win_kill.c")
+file(WRITE "${CMAKE_BINARY_DIR}/kill.bat" "@echo off\nif exist \"%~dp0bin\\Release\\win_kill.exe\" (\n  \"%~dp0bin\\Release\\win_kill.exe\" %*\n) else if exist \"%~dp0bin\\Debug\\win_kill.exe\" (\n  \"%~dp0bin\\Debug\\win_kill.exe\" %*\n) else (\n  \"%~dp0win_kill.exe\" %*\n)\n")
 
 
 
