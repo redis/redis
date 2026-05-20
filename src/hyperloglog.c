@@ -17,6 +17,7 @@
 #include "server.h"
 
 #include <stdint.h>
+#include <stdalign.h>
 #include <math.h>
 
 #ifdef HAVE_AVX2
@@ -28,6 +29,10 @@
 
 #ifdef HAVE_AARCH64_NEON
 #include <arm_neon.h>
+#endif
+
+#ifdef HAVE_RISCV_RVV
+#include <riscv_vector.h>
 #endif
 
 #undef MAX
@@ -206,7 +211,7 @@ struct hllhdr {
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
-#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON)
+#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON) || defined(HAVE_RISCV_RVV)
 static int simd_enabled = 1;
 #endif
 
@@ -220,6 +225,12 @@ static int simd_enabled = 1;
 #define HLL_USE_NEON (simd_enabled)
 #else
 #define HLL_USE_NEON 0
+#endif
+
+#ifdef HAVE_RISCV_RVV
+#define HLL_USE_RVV (simd_enabled)
+#else
+#define HLL_USE_RVV 0
 #endif
 
 /* =========================== Low level bit macros ========================= */
@@ -1304,6 +1315,59 @@ void hllMergeDenseAarch64(uint8_t *reg_raw, const uint8_t *reg_dense) {
 }
 #endif /* HAVE_AARCH64_NEON */
 
+#ifdef HAVE_RISCV_RVV
+/* RISC-V RVV version of hllMergeDense. */
+void hllMergeDenseRVV(uint8_t *reg_raw, const uint8_t *reg_dense) {
+    static const uint8_t merge_idx[16] = {
+        0, 1, 2, 16, 3, 4, 5, 16,
+        6, 7, 8, 16, 9, 10, 11, 16
+    };
+    const uint8_t *r = reg_dense;
+    uint8_t *t = reg_raw;
+    const size_t vl8 = __riscv_vsetvl_e8m1(16);
+    const size_t vl32 = __riscv_vsetvl_e32m1(4);
+    vuint8m1_t vidx = __riscv_vle8_v_u8m1(merge_idx, vl8);
+    alignas(16) uint8_t tmp[16];
+
+    for (int i = 0; i < HLL_REGISTERS / 16 - 1; ++i) {
+        vuint8m1_t x0 = __riscv_vle8_v_u8m1(r, vl8);
+        vuint8m1_t x = __riscv_vrgather_vv_u8m1(x0, vidx, vl8);
+
+        __riscv_vse8_v_u8m1(tmp, x, vl8);
+        vuint32m1_t x32 = __riscv_vle32_v_u32m1((const uint32_t *)tmp, vl32);
+
+        vuint32m1_t a1 = __riscv_vand_vx_u32m1(x32, 0x0000003fu, vl32);
+        vuint32m1_t a2 = __riscv_vand_vx_u32m1(x32, 0x00000fc0u, vl32);
+        vuint32m1_t a3 = __riscv_vand_vx_u32m1(x32, 0x0003f000u, vl32);
+        vuint32m1_t a4 = __riscv_vand_vx_u32m1(x32, 0x00fc0000u, vl32);
+
+        a2 = __riscv_vsll_vx_u32m1(a2, 2, vl32);
+        a3 = __riscv_vsll_vx_u32m1(a3, 4, vl32);
+        a4 = __riscv_vsll_vx_u32m1(a4, 6, vl32);
+
+        vuint32m1_t y32 = __riscv_vor_vv_u32m1(
+            __riscv_vor_vv_u32m1(a1, a2, vl32),
+            __riscv_vor_vv_u32m1(a3, a4, vl32), vl32);
+
+        __riscv_vse32_v_u32m1((uint32_t *)tmp, y32, vl32);
+        vuint8m1_t y = __riscv_vle8_v_u8m1(tmp, vl8);
+
+        vuint8m1_t z = __riscv_vle8_v_u8m1(t, vl8);
+        z = __riscv_vmaxu_vv_u8m1(z, y, vl8);
+        __riscv_vse8_v_u8m1(t, z, vl8);
+
+        r += 12;
+        t += 16;
+    }
+
+    uint8_t val;
+    for (int i = HLL_REGISTERS - 16; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_GET_REGISTER(val, reg_dense, i);
+        reg_raw[i] = MAX(reg_raw[i], val);
+    }
+}
+#endif /* HAVE_RISCV_RVV */
+
 /* Merge dense-encoded registers to raw registers array. */
 void hllMergeDense(uint8_t* reg_raw, const uint8_t* reg_dense) {
 #if HLL_REGISTERS == 16384 && HLL_BITS == 6
@@ -1316,6 +1380,12 @@ void hllMergeDense(uint8_t* reg_raw, const uint8_t* reg_dense) {
 #ifdef HAVE_AARCH64_NEON
     if (HLL_USE_NEON) {
         hllMergeDenseAarch64(reg_raw, reg_dense);
+        return;
+    }
+#endif
+#ifdef HAVE_RISCV_RVV
+    if (HLL_USE_RVV) {
+        hllMergeDenseRVV(reg_raw, reg_dense);
         return;
     }
 #endif
@@ -1545,6 +1615,50 @@ void hllDenseCompressAarch64(uint8_t *reg_dense, const uint8_t *reg_raw) {
 }
 #endif
 
+#ifdef HAVE_RISCV_RVV
+/* RISC-V RVV version of hllDenseCompress. */
+void hllDenseCompressRVV(uint8_t *reg_dense, const uint8_t *reg_raw) {
+    static const uint8_t compress_idx[16] = {
+        0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16, 16, 16, 16
+    };
+    const uint8_t *r = reg_raw;
+    uint8_t *t = reg_dense;
+    const size_t vl8 = __riscv_vsetvl_e8m1(16);
+    const size_t vl32 = __riscv_vsetvl_e32m1(4);
+    vuint8m1_t vidx = __riscv_vle8_v_u8m1(compress_idx, vl8);
+    alignas(16) uint8_t tmp[16];
+
+    for (int i = 0; i < HLL_REGISTERS / 16 - 1; ++i) {
+        vuint32m1_t x = __riscv_vle32_v_u32m1((const uint32_t *)r, vl32);
+
+        vuint32m1_t a1 = __riscv_vand_vx_u32m1(x, 0x0000003fu, vl32);
+        vuint32m1_t a2 = __riscv_vand_vx_u32m1(x, 0x00003f00u, vl32);
+        vuint32m1_t a3 = __riscv_vand_vx_u32m1(x, 0x003f0000u, vl32);
+        vuint32m1_t a4 = __riscv_vand_vx_u32m1(x, 0x3f000000u, vl32);
+
+        a2 = __riscv_vsrl_vx_u32m1(a2, 2, vl32);
+        a3 = __riscv_vsrl_vx_u32m1(a3, 4, vl32);
+        a4 = __riscv_vsrl_vx_u32m1(a4, 6, vl32);
+
+        vuint32m1_t y32 = __riscv_vor_vv_u32m1(
+            __riscv_vor_vv_u32m1(a1, a2, vl32),
+            __riscv_vor_vv_u32m1(a3, a4, vl32), vl32);
+
+        __riscv_vse32_v_u32m1((uint32_t *)tmp, y32, vl32);
+        vuint8m1_t y = __riscv_vle8_v_u8m1(tmp, vl8);
+        y = __riscv_vrgather_vv_u8m1(y, vidx, vl8);
+        __riscv_vse8_v_u8m1(t, y, vl8);
+
+        r += 16;
+        t += 12;
+    }
+
+    for (int i = HLL_REGISTERS - 16; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_SET_REGISTER(reg_dense, i, reg_raw[i]);
+    }
+}
+#endif /* HAVE_RISCV_RVV */
+
 /* Compress raw registers to dense representation. */
 void hllDenseCompress(uint8_t *reg_dense, const uint8_t *reg_raw) {
 #if HLL_REGISTERS == 16384 && HLL_BITS == 6
@@ -1558,6 +1672,13 @@ void hllDenseCompress(uint8_t *reg_dense, const uint8_t *reg_raw) {
 #ifdef HAVE_AARCH64_NEON
     if (HLL_USE_NEON) {
         hllDenseCompressAarch64(reg_dense, reg_raw);
+        return;
+    }
+#endif
+
+#ifdef HAVE_RISCV_RVV
+    if (HLL_USE_RVV) {
+        hllDenseCompressRVV(reg_dense, reg_raw);
         return;
     }
 #endif
@@ -2002,18 +2123,18 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (!strcasecmp(c->argv[2]->ptr, "on")) {
-#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON)
+#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON) || defined(HAVE_RISCV_RVV)
             simd_enabled = 1;
 #endif
         } else if (!strcasecmp(c->argv[2]->ptr, "off")) {
-#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON)
+#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON) || defined(HAVE_RISCV_RVV)
             simd_enabled = 0;
 #endif
         } else {
             addReplyError(c, "Argument must be ON or OFF");
         }
 
-        addReplyStatus(c, HLL_USE_AVX2 || HLL_USE_NEON ? "enabled" : "disabled");
+        addReplyStatus(c, HLL_USE_AVX2 || HLL_USE_NEON || HLL_USE_RVV ? "enabled" : "disabled");
 
         return;
     }
