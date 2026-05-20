@@ -1003,7 +1003,7 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
 #define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_OVERFLOW_SAT    (1<<4) /* Saturate the result to LBOUND/UBOUND/type limits when out of bounds. */
+#define OBJ_INCREX_OVERFLOW_SAT (1<<4) /* Saturate the result to LBOUND/UBOUND/type limits when out of bounds. */
 #define OBJ_INCREX_ENX     (1<<5)  /* Set expiration only when the key has no expiry */
 #define OBJ_INCREX_PERSIST (1<<6)  /* Set if we need to remove the ttl */
 #define OBJ_INCREX_EX      (1<<7)  /* Set if time in seconds is given */
