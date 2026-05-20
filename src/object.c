@@ -514,6 +514,7 @@ robj *createStreamObject(void) {
     return o;
 }
 
+#ifdef ENABLE_GCRA
 robj *createGCRAObject(long long value) {
     /* NOTE: for 32-bit systems we can't use integer encoding (as OBJ_STRING does)
      * as the GCRA object is a unixtime value in microseconds, which as of the
@@ -530,6 +531,7 @@ robj *createGCRAObject(long long value) {
     o->encoding = OBJ_ENCODING_INT;
     return o;
 }
+#endif
 
 robj *createArrayObject(void) {
     redisArray *ar = arNew();
@@ -610,6 +612,7 @@ void freeStreamObject(robj *o) {
     freeStream(o->ptr);
 }
 
+#ifdef ENABLE_GCRA
 void freeGCRAObject(robj *o) {
 #if UINTPTR_MAX == 0xffffffff
     zfree(o->ptr);
@@ -617,6 +620,7 @@ void freeGCRAObject(robj *o) {
     (void)o;
 #endif
 }
+#endif
 
 void freeArrayObject(robj *o) {
     arFree(o->ptr);
@@ -673,7 +677,9 @@ void decrRefCount(robj *o) {
             case OBJ_HASH: freeHashObject(o); break;
             case OBJ_MODULE: freeModuleObject(o); break;
             case OBJ_STREAM: freeStreamObject(o); break;
+#ifdef ENABLE_GCRA
             case OBJ_GCRA: freeGCRAObject(o); break;
+#endif
             case OBJ_ARRAY: freeArrayObject(o); break;
             default: serverPanic("Unknown object type"); break;
             }
@@ -827,12 +833,14 @@ void dismissArrayObject(robj *o, size_t size_hint) {
     arDismiss(o->ptr, size_hint);
 }
 
+#ifdef ENABLE_GCRA
 void dismissGCRAObject(robj *o, size_t size_hint) {
     /* GCRA is a single allocation of a long long thus way smaller than a
      * page-size. The dismiss mechanism is not needed for it - hence NOOP.*/
     (void)o;
     (void)size_hint;
 }
+#endif
 
 /* When creating a snapshot in a fork child process, the main process and child
  * process share the same physical memory pages, and if / when the parent
@@ -862,7 +870,9 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_ZSET: dismissZsetObject(o, size_hint); break;
         case OBJ_HASH: dismissHashObject(o, size_hint); break;
         case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
+#ifdef ENABLE_GCRA
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
+#endif
         case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
         default: break;
     }
@@ -985,7 +995,9 @@ size_t getObjectLength(robj *o) {
         case OBJ_ZSET: return zsetLength(o);
         case OBJ_HASH: return hashTypeLength(o, 0);
         case OBJ_STREAM: return streamLength(o);
+#ifdef ENABLE_GCRA
         case OBJ_GCRA: return gcraObjectLength(o);
+#endif
         case OBJ_ARRAY: return arCount(o->ptr);
         default: return 0;
     }
@@ -1195,6 +1207,7 @@ int getLongLongFromObject(robj *o, long long *target) {
     return C_OK;
 }
 
+#ifdef ENABLE_GCRA
 int getLongLongFromGCRAObject(robj *o, long long *target) {
     long long res;
     serverAssertWithInfo(NULL, o, o->type == OBJ_GCRA);
@@ -1210,6 +1223,7 @@ int getLongLongFromGCRAObject(robj *o, long long *target) {
     *target = res;
     return C_OK;
 }
+#endif
 
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
@@ -1303,7 +1317,9 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         o->type == OBJ_ZSET ||
         o->type == OBJ_HASH ||
         o->type == OBJ_STREAM ||
+#ifdef ENABLE_GCRA
         o->type == OBJ_GCRA ||
+#endif
         o->type == OBJ_ARRAY)
     {
         return kvobjAllocSize(o);
@@ -1330,8 +1346,10 @@ size_t kvobjAllocSize(kvobj *o) {
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
         asize += s->alloc_size;
+#ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         asize += gcraTypeAllocSize(o);
+#endif
     } else if (o->type == OBJ_ARRAY) {
         redisArray *ar = o->ptr;
         asize += ar->alloc_size;
@@ -1341,6 +1359,7 @@ size_t kvobjAllocSize(kvobj *o) {
     return asize;
 }
 
+#ifdef ENABLE_GCRA
 size_t gcraTypeAllocSize(robj *o) {
     (void)o;
 #if UINTPTR_MAX == 0xffffffff
@@ -1357,6 +1376,7 @@ size_t gcraObjectLength(robj *o) {
     (void)o;
     return 1;
 }
+#endif
 
 /* Release data obtained with getMemoryOverheadData(). */
 void freeMemoryOverheadData(struct redisMemOverhead *mh) {

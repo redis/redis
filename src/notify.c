@@ -41,7 +41,9 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'n': flags |= NOTIFY_NEW; break;
         case 'o': flags |= NOTIFY_OVERWRITTEN; break;
         case 'c': flags |= NOTIFY_TYPE_CHANGED; break;
+#ifdef ENABLE_GCRA
         case 'r': flags |= NOTIFY_RATE_LIMIT; break;
+#endif
         case 'S': flags |= NOTIFY_SUBKEYSPACE; break;
         case 'T': flags |= NOTIFY_SUBKEYEVENT; break;
         case 'I': flags |= NOTIFY_SUBKEYSPACEITEM; break;
@@ -77,7 +79,9 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_NEW) res = sdscatlen(res,"n",1);
         if (flags & NOTIFY_OVERWRITTEN) res = sdscatlen(res,"o",1);
         if (flags & NOTIFY_TYPE_CHANGED) res = sdscatlen(res,"c",1);
+#ifdef ENABLE_GCRA
         if (flags & NOTIFY_RATE_LIMIT) res = sdscatlen(res,"r",1);
+#endif
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);

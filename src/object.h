@@ -5,7 +5,7 @@
  * values of different logical types (strings, lists, sets, hashes, sorted sets,
  * streams, modules, ...). It contains:
  *   - type: one of OBJ_STRING, OBJ_LIST, OBJ_SET, OBJ_ZSET, OBJ_HASH, OBJ_STREAM,
- *           OBJ_GCRA, OBJ_MODULE, ...
+ *           OBJ_MODULE, ...
  *   - encoding: an implementation detail of how the value is represented in
  *           memory for the given type (see OBJ_ENCODING_* below). For example,
  *           strings may be RAW/EMBSTR/INT, sets may be INTSET or HT, etc.

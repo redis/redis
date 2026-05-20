@@ -71,7 +71,9 @@ struct ACLCategoryItem {
     {"connection", ACL_CATEGORY_CONNECTION},
     {"transaction", ACL_CATEGORY_TRANSACTION},
     {"scripting", ACL_CATEGORY_SCRIPTING},
+#ifdef ENABLE_GCRA
     {"ratelimit", ACL_CATEGORY_RATE_LIMIT},
+#endif
     {NULL,0} /* Terminator. */
 };
 

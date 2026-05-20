@@ -606,7 +606,9 @@ const char *COMMAND_GROUP_STR[] = {
     "bitmap",
     "array",
     "module",
+#ifdef ENABLE_GCRA
     "rate_limit"
+#endif
 };
 
 const char *commandGroupStr(int index) {

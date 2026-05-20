@@ -1003,15 +1003,13 @@ void incrbyfloatCommand(client *c) {
 #define OBJ_INCREX_BYINT   (1<<1)  /* Set if integer increment is given */
 #define OBJ_INCREX_LBOUND  (1<<2)  /* Set if lower bound of increx result is given */
 #define OBJ_INCREX_UBOUND  (1<<3)  /* Set if upper bound of increx result is given */
-#define OBJ_INCREX_OVERFLOW_FAIL   (1<<4) /* Return an error when the result is out of bounds (default) */
-#define OBJ_INCREX_OVERFLOW_SAT    (1<<5) /* Saturate the result to LBOUND/UBOUND/type limits instead of failing */
-#define OBJ_INCREX_OVERFLOW_REJECT (1<<6) /* Leave the key unchanged and reply [current_value, 0] when the result is out of bounds */
-#define OBJ_INCREX_ENX     (1<<7)  /* Set expiration only when the key has no expiry */
-#define OBJ_INCREX_PERSIST (1<<8)  /* Set if we need to remove the ttl */
-#define OBJ_INCREX_EX      (1<<9)  /* Set if time in seconds is given */
-#define OBJ_INCREX_PX      (1<<10) /* Set if time in ms is given */
-#define OBJ_INCREX_EXAT    (1<<11) /* Set if timestamp in second is given */
-#define OBJ_INCREX_PXAT    (1<<12) /* Set if timestamp in ms is given */
+#define OBJ_INCREX_SATURATE (1<<4) /* Saturate the result to LBOUND/UBOUND/type limits when out of bounds. */
+#define OBJ_INCREX_ENX     (1<<5)  /* Set expiration only when the key has no expiry */
+#define OBJ_INCREX_PERSIST (1<<6)  /* Set if we need to remove the ttl */
+#define OBJ_INCREX_EX      (1<<7)  /* Set if time in seconds is given */
+#define OBJ_INCREX_PX      (1<<8)  /* Set if time in ms is given */
+#define OBJ_INCREX_EXAT    (1<<9)  /* Set if timestamp in second is given */
+#define OBJ_INCREX_PXAT    (1<<10) /* Set if timestamp in ms is given */
 
 /* INCREX argument structure */
 typedef struct {
@@ -1076,20 +1074,8 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
             args->flags |= OBJ_INCREX_UBOUND;
             upper_bound = next;
             j++;
-        } else if (!strcasecmp(opt, "OVERFLOW") && next &&
-                   !(args->flags & (OBJ_INCREX_OVERFLOW_FAIL|OBJ_INCREX_OVERFLOW_SAT|OBJ_INCREX_OVERFLOW_REJECT)))
-        {
-            if (!strcasecmp(next->ptr, "FAIL")) {
-                args->flags |= OBJ_INCREX_OVERFLOW_FAIL;
-            } else if (!strcasecmp(next->ptr, "SAT")) {
-                args->flags |= OBJ_INCREX_OVERFLOW_SAT;
-            } else if (!strcasecmp(next->ptr, "REJECT")) {
-                args->flags |= OBJ_INCREX_OVERFLOW_REJECT;
-            } else {
-                addReplyError(c, "OVERFLOW policy must be FAIL, SAT or REJECT");
-                return C_ERR;
-            }
-            j++;
+        } else if (!strcasecmp(opt, "SATURATE") && !(args->flags & OBJ_INCREX_SATURATE)) {
+            args->flags |= OBJ_INCREX_SATURATE;
         } else if (!strcasecmp(opt, "ENX") && !(args->flags & (OBJ_INCREX_ENX|OBJ_INCREX_PERSIST))) {
             args->flags |= OBJ_INCREX_ENX;
         } else if (!strcasecmp(opt, "PERSIST") && !(args->flags & (expire_flags|OBJ_INCREX_ENX))) {
@@ -1167,7 +1153,7 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
 
 /*
  * INCREX <key> [BYFLOAT increment | BYINT increment] [LBOUND lowerbound]
- *   [UBOUND upperbound] [OVERFLOW <FAIL | SAT | REJECT>]
+ *   [UBOUND upperbound] [SATURATE]
  *   [EX seconds | PX milliseconds | EXAT seconds-timestamp | PXAT milliseconds-timestamp | PERSIST] [ENX]
  *
  * Increments the numeric value of a key and optionally updates its expiration time.
@@ -1181,15 +1167,13 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
  * Range options:
  * LBOUND and UBOUND optionally restrict the result to a range. The behavior
  * when the result would land outside that range (or, with no explicit bound,
- * would overflow the type limits) is controlled by OVERFLOW:
- * - OVERFLOW FAIL (default): the operation is rejected with an error,
- *                  matching the semantics of INCRBY/INCRBYFLOAT.
- * - OVERFLOW SAT:  the result is silently capped at UBOUND / floored at LBOUND
- *                  (or saturated to the type limits when no explicit bound is
- *                  given) instead of producing an error.
- * - OVERFLOW REJECT: the operation is silently skipped (the key value and TTL
- *                  are left unchanged) and the reply is the current value with
- *                  an applied increment of 0, instead of producing an error.
+ * would overflow the type limits) is controlled by SATURATE:
+ * - Default:    the operation is rejected (the key value and TTL are left
+ *               unchanged) and the reply is the current value with an applied
+ *               increment of 0.
+ * - SATURATE:   the result is capped at UBOUND / floored at LBOUND (or
+ *               saturated to the type limits when no explicit bound is given)
+ *               instead of being rejected.
  *
  * Expiration options:
  * At most one of the following may be specified:
@@ -1203,7 +1187,6 @@ static int parseIncrExArgumentsOrReply(client *c, int start_pos, incrExArgs *arg
  * ENX restricts expiration updates to keys that currently have no TTL.
  *
  * Reply:
- * - (Simple Error) if any parameter is invalid, or if BYFLOAT produces NaN or Infinity.
  * - (Array) of two Bulk Strings on success:
  *   1. The new value of the key after the increment.
  *   2. The actual increment applied.
@@ -1225,9 +1208,9 @@ void increxCommand(client *c) {
     if (checkType(c, o, OBJ_STRING)) return;
 
     int byfloat = args.flags & OBJ_INCREX_BYFLOAT;
-    /* FAIL is the default when no OVERFLOW policy is specified. */
-    int fail_mode = !(args.flags & (OBJ_INCREX_OVERFLOW_SAT | OBJ_INCREX_OVERFLOW_REJECT));
-    int reject_mode = args.flags & OBJ_INCREX_OVERFLOW_REJECT;
+    /* By default the operation is rejected on out-of-bounds:
+     * leave the key unchanged and reply [current_value, 0]. */
+    int sat_mode = args.flags & OBJ_INCREX_SATURATE;
     if (byfloat) {
         long double lb = args.lb_ld, ub = args.ub_ld;
         if (getLongDoubleFromObjectOrReply(c, o, &value_ld, NULL) != C_OK)
@@ -1244,24 +1227,17 @@ void increxCommand(client *c) {
         value_ld += args.incr_ld;
         int overflow = isinf(value_ld);
         if (overflow || value_ld > ub || value_ld < lb) {
-            /* FAIL: return an error. */
-            if (fail_mode) {
-                addReplyError(c, overflow ? "increment would produce Infinity" :
-                    "value is out of bounds");
-                return;
-            }
-
             /* Result is infinite or out of [LBOUND, UBOUND]:
-             * FAIL: error; SAT: clamp to +/-LDBL_MAX or the breached bound;
-             * REJECT: leave key untouched, reply [current_value, 0]. */
-            if (reject_mode) {
+             * default: reject (leave key untouched, reply [current_value, 0]);
+             * SATURATE: clamp to +/-LDBL_MAX or the breached bound. */
+            if (!sat_mode) {
                 addReplyArrayLen(c, 2);
                 addReplyHumanLongDouble(c, oldvalue_ld);
                 addReplyHumanLongDouble(c, 0);
                 return;
             }
 
-            /* SAT: clamp the result. */
+            /* SATURATE: clamp the result. */
             if (overflow)
                 value_ld = (args.incr_ld >= 0) ? ub : lb;
             else
@@ -1271,7 +1247,7 @@ void increxCommand(client *c) {
         long double delta = value_ld - oldvalue_ld;
         if (isinf(delta)) {
             /* The applied delta cannot be represented as a valid long double. This can
-             * only happen under OVERFLOW SAT when the saturated result and the
+             * only happen under SATURATE when the saturated result and the
              * prior value sit at opposite ends of the type range. */
             addReplyError(c, "applied increment would be Infinity");
             return;
@@ -1288,24 +1264,17 @@ void increxCommand(client *c) {
         oldvalue_ll = value_ll;
         int overflow = add_overflow_ll(oldvalue_ll, args.incr_ll, &value_ll);
         if (overflow || value_ll > ub || value_ll < lb) {
-            /* FAIL: return an error. */
-            if (fail_mode) {
-                addReplyError(c, overflow ? "increment or decrement would overflow" :
-                    "value is out of bounds");
-                return;
-            }
-
             /* Result overflows long long or is out of [LBOUND, UBOUND]:
-             * FAIL: error; SAT: clamp to LLONG_MAX/LLONG_MIN or the breached bound;
-             * REJECT: leave key untouched, reply [current_value, 0]. */
-            if (reject_mode) {
+             * default: reject (leave key untouched, reply [current_value, 0]);
+             * SATURATE: clamp to LLONG_MAX/LLONG_MIN or the breached bound. */
+            if (!sat_mode) {
                 addReplyArrayLen(c, 2);
                 addReplyLongLong(c, oldvalue_ll);
                 addReplyLongLong(c, 0);
                 return;
             }
 
-            /* SAT: clamp the result. */
+            /* SATURATE: clamp the result. */
             if (overflow)
                 value_ll = (args.incr_ll >= 0) ? ub : lb;
             else
@@ -1315,7 +1284,7 @@ void increxCommand(client *c) {
         long long delta = 0;
         if (sub_overflow_ll(value_ll, oldvalue_ll, &delta)) {
             /* The applied delta cannot be represented as a long long. This can
-             * only happen under OVERFLOW SAT when the saturated result and the
+             * only happen under SATURATE when the saturated result and the
              * prior value sit at opposite ends of the type range. */
             addReplyError(c, "applied increment would overflow");
             return;

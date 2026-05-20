@@ -4254,7 +4254,9 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_HASH: return REDISMODULE_KEYTYPE_HASH;
     case OBJ_MODULE: return REDISMODULE_KEYTYPE_MODULE;
     case OBJ_STREAM: return REDISMODULE_KEYTYPE_STREAM;
+#ifdef ENABLE_GCRA
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
+#endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
@@ -13371,7 +13373,7 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         serverLog(LL_WARNING,
-            "Module %s initialization failed. Module not loaded",path);
+            "Module %s initialization failed. Module not loaded", path ? path : "(null)");
         if (ctx.module) {
             moduleUnregisterCleanup(ctx.module);
             moduleRemoveCateogires(ctx.module);

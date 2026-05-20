@@ -123,6 +123,7 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
+#ifdef ENABLE_GCRA
 void mixGCRAObjectDigest(unsigned char *digest, robj *o) {
     char buf[LONG_STR_SIZE];
     long long val;
@@ -130,6 +131,7 @@ void mixGCRAObjectDigest(unsigned char *digest, robj *o) {
     int len = ll2string(buf, sizeof(buf), val);
     mixDigest(digest,buf,len);
 }
+#endif
 
 /* This function computes the digest of a data structure stored in the
  * object 'o'. It is the core of the DEBUG DIGEST command: when taking the
@@ -263,8 +265,10 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         }
         streamIteratorStop(&si);
+#ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         mixGCRAObjectDigest(digest, o);
+#endif
     } else if (o->type == OBJ_MODULE) {
         RedisModuleDigest md = {{0},{0},keyobj,db->id};
         moduleValue *mv = o->ptr;
@@ -1327,9 +1331,11 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
+#ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
 #if UINTPTR_MAX == 0xffffffffffffffff
         serverLog(LL_WARNING, "GCRA object: %lld", (long long)o->ptr);
+#endif
 #endif
     }
 #endif

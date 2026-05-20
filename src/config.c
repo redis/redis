@@ -2412,7 +2412,7 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
 }
 
 static int updateMemoryTrackingEnabled(const char **err) {
-    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
+    int memory_tracking_enabled = server.key_memory_histograms || (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM);
     if (!server.memory_tracking_enabled && memory_tracking_enabled) {
         *err = "memory tracking cannot be enabled at runtime";
         return 0;
@@ -2972,7 +2972,11 @@ static int setConfigNotifyKeyspaceEventsOption(standardConfig *config, sds *argv
     }
     int flags = keyspaceEventsStringToFlags(argv[0]);
     if (flags == -1) {
-        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocrSTIV'.";
+#ifdef ENABLE_GCRA
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocraSTIV'.";
+#else
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocaSTIV'.";
+#endif
         return 0;
     }
     server.notify_keyspace_events = flags;

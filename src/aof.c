@@ -2467,6 +2467,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+#ifdef ENABLE_GCRA
 int rewriteGCRAObject(rio *r, robj *key, robj *o) {
     long long val;
     getLongLongFromGCRAObject(o, &val);
@@ -2478,6 +2479,7 @@ int rewriteGCRAObject(rio *r, robj *key, robj *o) {
     if (rioWriteBulkLongLong(r,val) == 0) return 0;
     return 1;
 }
+#endif
 
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
@@ -2644,8 +2646,10 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rewriteHashObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_STREAM) {
         if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
+#ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         if (rewriteGCRAObject(r,key,o) == 0) return C_ERR;
+#endif
     } else if (o->type == OBJ_ARRAY) {
         if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
