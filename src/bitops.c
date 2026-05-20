@@ -414,12 +414,13 @@ static unsigned long redisBitposScanAVX2(unsigned char *p,
                                          unsigned long count, int bit) {
     unsigned long scanned = 0;
     __m256i skip = bit ? _mm256_setzero_si256()
-                       : _mm256_set1_epi8((char)0xFF);
+                       : _mm256_set1_epi64x(-1LL);
 
     while (count >= 32) {
         __m256i data = _mm256_loadu_si256((__m256i *)p);
-        int eq = _mm256_movemask_epi8(_mm256_cmpeq_epi8(data, skip));
-        if (eq != -1) break;
+        int eq = _mm256_movemask_pd(_mm256_castsi256_pd(
+                     _mm256_cmpeq_epi64(data, skip)));
+        if (eq != 0xF) break;
         p += 32;
         count -= 32;
         scanned += 32;
