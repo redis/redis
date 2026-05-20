@@ -1066,7 +1066,7 @@ copy_runtest_script("runtest-sentinel")
 
 set(FAILING_TESTS "")
 enable_testing()
-find_program(TCLSH_EXECUTABLE tclsh HINTS "C:/Program Files/Git/mingw64/bin")
+find_program(TCLSH_EXECUTABLE tclsh)
 
 file(WRITE "${CMAKE_BINARY_DIR}/cat.bat" "@echo off\npowershell.exe -NoProfile -Command \"Get-Content -Raw '%*' | Write-Host -NoNewline\"")
 file(WRITE "${CMAKE_BINARY_DIR}/cp.bat" "@echo off\nset \"arg1=%~1\"\nset \"arg2=%~2\"\nset \"arg3=%~3\"\nif \"%arg1%\"==\"-f\" (\n  set \"src=%arg2:/=\\%\"\n  set \"dst=%arg3:/=\\%\"\n) else (\n  set \"src=%arg1:/=\\%\"\n  set \"dst=%arg2:/=\\%\"\n)\ncopy /Y \"%src%\" \"%dst%\" >nul")
@@ -1089,13 +1089,13 @@ if (TCLSH_EXECUTABLE)
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-aof.exe
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:redis-server> ../src/redis-check-rdb.exe        DEPENDS redis-server redis-cli
     )
-    # add_test(NAME runtest COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+    # add_test(NAME runtest COMMAND "sh" ${CMAKE_BINARY_DIR}/runtest WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     # set_tests_properties(runtest PROPERTIES RUN_SERIAL TRUE TIMEOUT 1200)
-    # add_test(NAME runtest-cluster COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-cluster WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+    # add_test(NAME runtest-cluster COMMAND "sh" ${CMAKE_BINARY_DIR}/runtest-cluster WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     # set_tests_properties(runtest-cluster PROPERTIES RUN_SERIAL TRUE TIMEOUT 1200)
-    # add_test(NAME runtest-sentinel COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-sentinel WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+    # add_test(NAME runtest-sentinel COMMAND "sh" ${CMAKE_BINARY_DIR}/runtest-sentinel WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     # set_tests_properties(runtest-sentinel PROPERTIES RUN_SERIAL TRUE TIMEOUT 1200)
-    # add_test(NAME runtest-moduleapi COMMAND "C:/Program Files/Git/bin/sh.exe" ${CMAKE_BINARY_DIR}/runtest-moduleapi WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+    # add_test(NAME runtest-moduleapi COMMAND "sh" ${CMAKE_BINARY_DIR}/runtest-moduleapi WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
     # set_tests_properties(runtest-moduleapi PROPERTIES RUN_SERIAL TRUE TIMEOUT 1200)
     
     

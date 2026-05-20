@@ -222,7 +222,7 @@ proc ::redis_cluster::__dispatch__ {id method args} {
         }
 
         # Execute the command in the node we think is the slot owner.
-        set retry 1000
+        set retry 100
         set asking 0
         while {[incr retry -1]} {
             if {$retry < 5} {after 100}
