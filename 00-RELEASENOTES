@@ -1,16 +1,312 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis Open Source 8.8 release notes
+===================================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
 
-    https://download.redis.io/redis-stable.tar.gz
+The release notes contain PRs from multiple repositories:
 
-More information is available at https://redis.io
+#n - Redis (https://github.com/redis/redis)
+#Qn = Query Engine (https://github.com/RediSearch/RediSearch)
+#Jn = JSON (https://github.com/RedisJSON/RedisJSON)
+#Tn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
+#Pn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
 
-Happy hacking!
+
+=================================================================
+Redis 8.8-RC1 (v8.7.240)    Released Thu 14 May 2026 18:00:00 IST
+=================================================================
+
+This is the first Release Candidate of Redis 8.8 in Redis Open Source.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### Headlines:
+
+Redis 8.8 introduces new features and performance improvements.
+
+### Operating systems we test Redis 8.8 on
+
+- Ubuntu 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat), 26.04 (Resolute Raccoon)
+- Rocky Linux 8.10, 9.7, 10.1
+- AlmaLinux 8.10, 9.7, 10.1
+- Debian 12.13 (Bookworm), Debian 13.4 (Trixie)
+- Alpine 3.23
+- macOS 14.8.4 (Sonoma), 15.7.4 (Sequoia), 26.3 (Tahoe) - for both Intel and ARM
+
+### Security fixes (compared to 8.8-M03)
+
+- (CVE-2026-23479) Use-After-Free in unblock client flow may lead to Remote Code Execution.
+- (CVE-2026-25243) Invalid memory access in `RESTORE` may lead to Remote Code Execution
+- (CVE-2026-23631) Lua Use-After-Free may lead to remote code execution
+- (CVE-2026-25588) Invalid memory access in `RESTORE` may lead to Remote Code Execution (Time Series)
+- (CVE-2026-25589) Invalid memory access in `RESTORE` may lead to Remote Code Execution (Probabilistic)
+
+### New Features (compared to 8.8-M03)
+
+- #15162 New data structure: Array (@antirez)
+- #15045 `INCREX`: a window counter rate limiter combining `INCR`,`INCRBY`,`INCRBYFLOAT`, bounds, and expiration (@raffertyyu + Redis team)
+- In group sorting new reducer, allowing unwind grouped documents (after `GROUPBY`) and sort them
+
+### Removed Features (compared to 8.8-M03)
+
+- #15191 Remove GCRA rate limiter
+
+### Bug fixes (compared to 8.8-M03)
+
+- `SUBSCRIBE`, `PSUBSCRIBE`, `SSUBSCRIBE`: crash on OOM (RED-167788)
+- `CONFIG SET`: some settings allow invalid characters (RED-167787)
+- `SCRIPT DEBUG`: potential crash on scripts (RED-175507)
+- `VADD`: crash or buffer overflow on large `REDUCE` value (RED-170921)
+- `VSET`: crash on huge allocations (MOD-12678)
+- #15188 `cluster-announce-ip` rejecting hostnames (regression)
+- #15095 Double free when loading streams with duplicate consumer PEL entries
+- #15124 Issues processing corrupt Streams RDB data
+- #15111 `fast_float_strtod` rounding mismatch
+- #15190 `vecClear` reset the logical size without releasing element ownership
+- #15163 `MULTI` queue memory incorrect memory accounting 
+- #15094 Cluster crash when `CLIENT KILL` unsubscribes `SSUBSCRIBE` client inside `EXEC`
+- #15151 Listpack backlength encoding thresholds off-by-one
+- #15115 Under-copy in the Lua debugger
+- #14970 Sentinel config injection via `SENTINEL SET`
+- #14934 Client output buffer memory tracking not accounting for copy-avoided bulk string references
+- #Q9182 `FT.PROFILE HYBRID` returns an empty reply (MOD-14778)
+- #Q9079 `FT.SPELLCHECK` treats `PARAMS` placeholders as literal terms instead of resolving them (MOD-10596)
+- #Q9047 `FT.PROFILE` output is inconsistent when a profiled value is missing (MOD-10560)
+- #Q9078 `FT.CREATE` now rejects schema definitions with invalid option combinations at creation time (MOD-14655)
+- #Q9012 `PERSIST` and `HPERSIST` notifications are not reflected in index expiration tracking (MOD-14800)
+- #Q9066 Race condition in `FT.HYBRID` causes intermittent failures under concurrent hybrid query load (MOD-14732)
+- #Q9163 Crash on `FT.SEARCH` when topology validation fails (for example, some nodes unreachable) (MOD-14475)
+- #Q9031, #Q9473 Coordinator deadlock under mixed `FT.SEARCH` and `FT.AGGREGATE` load (MOD-14268)
+- #Q9028 Memory leak when `FT.DROPINDEX` runs concurrently with in-flight hybrid queries (MOD-14135)
+- #Q9310, #Q9350 `FT.CURSOR READ` timeout and `ON_TIMEOUT FAIL` not enforced on coordinator and shard (MOD-14284, MOD-14998)
+- #Q9425 Cursors not cleaned up after `MAXIDLE`, causing resource exhaustion (MOD-6430)
+- #Q9234, #Q9404 Coordinator `RETURN_STRICT` returns wrong data on partial results, including `SORTBY` pipeline (MOD-13617)
+- #Q9382 `MAXPREFIXEXPANSION` warnings not propagated to clients in cluster mode (MOD-13804)
+- #Q9218 Search commands fail when no worker thread is available instead of falling back to main thread (MOD-14921)
+- #Q9448 RDB load missing validation of `FT.CREATE` arguments, allowing corrupt index state on load (MOD-13118)
+- #Q9377 Use-after-move in `Indexer_Process` causes crash during indexing (MOD-14980)
+- #Q9408 Deadlock between background query and main-thread writer (MOD-15364)
+- #Q9114 `FT.PROFILE` prints output using wrong iterator type (MOD-14678)
+- #Q9421 Confusing error returned when `DEBUG_PARAMS_COUNT` is zero (MOD-15118)
+- #Q9045 Stack-smashing error in coordinator code path (MOD-14649)
+- #J1554 Trailing chars are ignored (MOD-7266); Fixes #J976
+- #J1543 Wrong mutation ordering for array commands with recursive paths (MOD-6722)
+- #J1542 JSONPath evaluation issues (MOD-14664); Fixes #J968 (MOD-7264), #J962 (MOD-7272), #J963 (MOD-7270), #J1089 (MOD-7268)
+- #T2003 Potential crash on disconnections and TLS failures (MOD-14850)
+- #T2013 `count`, `countNaN`, `countAll` reducers return NaN when all values are NaN (MOD-14420)
+
+### Performance and resource utilization improvements (compared to 8.8-M03)
+
+- #15049 Hyperloglog: 4 independent accumulators that are merged at the end
+- #15133 Batched prefetch for `MGET` and `MSET`
+- #14988 Batched prefetch for `HGETALL` on hashtable-encoded hashes
+- #15071 Pass size hint to jemalloc for faster deallocation
+- #15096 Reduces allocator and accounting overhead by adding compile-time jemalloc tuning
+- #Q9197 Vector index hot path (HNSW and brute-force) devirtualized, reducing per-query latency (MOD-14916)
+- #Q9262, #Q9476 Inline LSE atomics enabled on AArch64, improving atomic operation throughput on ARM64 (MOD-14916, MOD-15419)
+- #Q9293 Expiration handling overhead reduced when many keys expire simultaneously (MOD-14916)
+- #Q9017 LTO (link-time optimization) enabled for x86_64 release builds (MOD-14700)
+- #Q8765 Shard-level timeout adjusted to coordinator dispatch time for more accurate accounting (MOD-13189)
+- #Q8790, #Q8900, #Q8827, #Q8971, #Q8966, #Q8762, #Q8678, #Q8915, #Q8653, #Q9085, #Q8751, #Q8692, #Q9224 Iterators ported to Rust, reducing FFI overhead
+- #Q9500 `numRecords` no longer updated for vector fields, removing unnecessary write overhead on ingest (MOD-15487)
+- VecSim SVS thread pool integrated with the worker pool for better thread utilization (MOD-9881)
+
+### Configuration parameters
+
+- #15182 Slowlog entry truncation limits:
+  - `slowlog-entry-max-argc`: maximum number of command arguments kept in a slowlog entry
+  - `slowlog-entry-max-string-len`: maximum length of a command argument in a slowlog entry
+- #Q8876, #Q8960 Default maximum worker threads value updated; `MAX_WORKER_THREADS` is now a string config (MOD-14486, MOD-14763)
+
+### Metrics (compared to 8.8-M03)
+
+- #Q8210, #Q8231 `FT.PROFILE`: added queue time tracking (MOD-13602)
+
+### CLI tools
+
+- #15150 Memory leak on malformed legacy help entry in redis-cli
+
+
+=================================================================
+Redis 8.8-M03 (v8.7.226)    Released Tue 28 Apr 2026 16:00:00 IST
+=================================================================
+
+This is the third Milestone of Redis 8.8 in Redis Open Source.
+
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### New Features (compared to 8.8-M02)
+
+- #14958 Subkey notification for hash fields - field-level notifications
+- #Q8227 `FT.HYBRID` `KNN` clause: new argument to request fewer candidates per shard
+- #Q8060 `FT.PROFILE` `HYBRID`: profiling support for `FT.HYBRID`
+
+### Bug fixes (compared to 8.8-M02)
+
+- #15034, #15081 Issues processing corrupt RDB data
+- #15059 Use-after-free
+- #15073 `CLIENT TRACKING`: self-overlap returning non-zero loop index
+- #14982 `SCAN` commands: integer overflow in `COUNT` parameter
+- #14956 Crash on `HSETEX` when a field appears more than once and an expiry is specified
+- #15015 Change log level for unknown extension types from `LL_WARNING` to `LL_VERBOSE`
+- #14995 Unnecessary `-ERR` and `\r\n`
+- #Q8708 Crash when many keys receive expirations under heavy TTL activity
+- #Q8774 Coordinator deadlock under mixed `FT.SEARCH` and `FT.AGGREGATE` load
+- #Q8415 Crash on `FT.SEARCH` when topology validation fails (for example, some nodes unreachable)
+- #Q8322 Crash when indexing negative zero (-0.0)
+- #Q8843 HNSW vector index memory growth under high-churn workloads until shard restart
+- #Q8396 `FILTER` returns inconsistent results with multiple indexes sharing field aliases
+- #Q8205 `FT.HYBRID` `VSIM RANGE` + `FILTER` incorrectly returns zero results
+- #Q8817 Instability and crashes in long-running search cursors during concurrent index updates
+- #Q8388 `FT.SEARCH` fails with “Query requires unavailable slots” after shard restart or failover
+- #Q8548 `FILTER` behavior depends on property order in the expression
+- #Q8320 Index `FILTER` applied inconsistently when documents are missing filtered fields
+- #Q8752 Missing blocked-client FAIL timeout mechanism for coordinator-level `FT.AGGREGATE`
+- #Q8657 Missing shard-level FAIL timeout handling for `FT.HYBRID` queries
+- #Q8420 Missing coordinator-level FAIL timeout handling for `FT.HYBRID` queries
+- #Q8335 Legacy shard-level FAIL handling for `FT.SEARCH` / `FT.AGGREGATE`
+- #Q8191 `FT.SEARCH` coordinator lacks strict FAIL timeout enforcement
+
+### Performance and resource utilization improvements (compared to 8.8-M02)
+
+- #15114 Optimize SET key value GET
+- #15065, #15118 Scan commands key collection: replace list with append-only pointer vector
+- #15061 Widen `fast_float_strtod` fast path to 17-19 digit mantissas
+- #Q8378 Optimize filter expression evaluation: skip indexes not matching the document type (MOD-14064)
+
+### Metrics (compared to 8.8-M02)
+- #Q8246 ‘frontend_buffer_size’, ‘HNSW_main_thread_insertion’: metrics for tiered vector indexes (MOD-13819)
+- #Q8210 `FT.PROFILE`: added queue time tracking (MOD-13602)
+- #Q8283 `INFO`: Skip metrics when there are no indices (MOD-13903)
+- #Q7417 Add unique error message ids for improved debugging and troubleshooting (MOD-11806)
+
+### Configuration parameters 
+- #Q8876 ‘search-workers’: change default to 16 (MOD-14486)
+- #Q8352 `BG_INDEX_SLEEP_DURATION_US`: sleep duration during background indexing (MOD-13994)
+
+
+=================================================================
+Redis 8.8-M02 (v8.7.225)    Released Thu 16 Apr 2026 16:00:00 IST
+=================================================================
+
+This is the second Milestone of Redis 8.8 in Redis Open Source.
+
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### Headlines:
+
+Redis 8.8 introduces new features and performance improvements.
+
+8.8-M02 is available as a Docker image and can be downloaded from [Docker Hub](https://hub.docker.com/_/redis). Additional distributions will be introduced in upcoming pre-releases.
+
+### Operating systems we test Redis 8.8 on
+
+- Ubuntu 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat), 26.04 (Resolute Raccoon)
+- Rocky Linux 8.10, 9.7, 10.1
+- AlmaLinux 8.10, 9.7, 10.1
+- Debian 12.13 (Bookworm), Debian 13.4 (Trixie)
+- Alpine 3.23
+- macOS 14.8.4 (Sonoma), 15.7.4 (Sequoia), 26.3 (Tahoe) - for both Intel and ARM
+
+### New Features (compared to 8.6)
+
+- #14826, #14905 GCRA (generic cell rate algorithm) rate limiter (based on the redis-cell module by @brandur - thank you!)
+- #14797 `XNACK`: a new streams command that allows consumers to explicitly release pending messages
+- #J1509 `JSON.SET`: new `FPHA` argument to specify the FP type for homogeneous FP arrays (MOD-13577)
+- #14892 `ZUNION`, `ZINTER`, `ZUNIONSTORE`, `ZINTERSTORE`: new `COUNT` aggregator
+- #T1916 `TS.RANGE`, `TS.REVRANGE`, `TS.MRANGE`, `TS.MREVRANGE`: multiple aggregators in a single command (MOD-9162)
+
+### Bug fixes (compared to 8.6.2)
+
+- #15037 `XINFO STREAM`: wrong value in the per-slot memory tracking
+- #12000 Incorrect shrinking of querybuf when client is reading a big argv
+- #15021 `HEXPIRE`: overflow on fields count
+- #14963 `XREADGROUP`: consumer replication inconsistency
+- #15011 Double-free in rdbLoadObject
+- #14667, #14886 Potential TCP stalls/deadlocks
+- #14942 Fix `COMMAND GETKEYS for PFMERGE` with no source keys
+- #14888 Hardens safety check in `lpSafeToAdd`
+- #14748 Ensure sensitive user data is not exposed in logs when `hide_user_data_from_log` is enabled
+- #14877 `INFO KEYSIZES` and INFO ALLOCSIZES` fixes
+- #14878 listpack memory leak in zipmap-to-hash conversion on error path
+- #14955 Streams: IDMP-related bug
+- #14974, #14932, #14866 Memory leaks
+- #14790 Missing initialization
+- #14789 DB hash tables not expanding during RDB load on standalone-mode
+- #14785 Add `HOTKEYS HELP` subcommand (Each command having subcommands needs a `HELP` subcommand)
+- #14784 `RESTORE` and `SET`: `expiredkeys` counter updates incorrectly on keys with past expiration time
+- #14779 Accurate memory accounting for RedisModuleDict (instead of estimation)
+- #14774 Missing cleanup code in `getKeysFreeResult()` on cross-slot error path
+- #14771 Potential unsigned integer underflow in `used_memory_dataset calculation`
+- #14780 Fixed name of `HOTKEYS` results field `sampled-command-selected-slots-us` to `sampled-commands-selected-slots-us`
+- #14756 `HOTKEYS` does not track each command in a `MULTI`/`EXEC` block
+- #14749 Fixed `HOTKEYS GET` RESP3 reply fixed to map instead of flat array
+- #J1520 Numeric operations on homogeneous arrays: promote to next type if results overflow (MOD-14427)
+- #J1519 `JSON.NUMINCRBY`, `JSON.NUMMULTBY` don’t error on numeric overflow (MOD-14191)
+- #J1487 Depth limit (128) was not fully enforced (MOD-4107)
+- #T1910 `TS.INCRBY`, `TS.DECRBY` create key before validating args (MOD-8167)
+- #T1908 Potential crash on `TS.RANGE` with aggregation and `EMPTY`
+- #T1896 Potential memory leak (MOD-13438)
+- #T1913 ACL rules are not fully enforced for multi-key commands on a cluster setup (MOD-14124)
+
+### Performance and resource utilization improvements (compared to 8.6.2)
+
+- #15003 Reduce overhead in command propagation
+- #14979 Dismiss dict bucket arrays in fork child to reduce CoW
+- #14661 Replace fast_float C++ library with pure C implementation
+- #14928 Disable memory tracking in child processes
+- #14885 Optimize rax (radix tree) insert and lookup for sequential key patterns
+- #14335 Handle primary/replica clients in I/O threads
+- #14754 Optimize prefetching commands
+- #14770 Optimize `BITOP` operations with AVX512
+- #14862 Streams: Filter expired IDMP entries during RDB save and load
+- #14750 `SFLUSH` can now flush slots partially
+- #14887 `SFLUSH` skips slot trimming when the requested slot ranges exactly match the node’s local slot coverage
+- #14851 Skip RDB checksum computation/validation during diskless full synchronization to reduce CPU overhead
+- #14783 Pause dict auto-resize during multi-field deletion
+- #1884 `TS.RANGE`, `TS.REVRANGE`, `TS.MRANGE`, `TS.MREVRANGE`: improve performance on a cluster setup (RED-184104)
+- #T1866 Register to `type_changed` KSN instead of `set` (MOD-12919)
+
+### Modules API
+
+- #14445 Allow modules to associate metadata with keys
+  - `RedisModule_CreateKeyMetaClass` - define a new key-metadata class
+  - `RedisModule_ReleaseKeyMetaClass` - release a key-metadata class
+  - `RedisModule_SetModuleMetadata` - attach or update metadata to a key
+  - `RedisModule_GetKeyMeta` - get key metadata
+
+### Metrics
+
+- #14896 `INFO STATS` - global stats for slowlog metrics:
+  - `slowlog_commands_count` - commands written to slowlog
+  - `slowlog_commands_time_ms_sum` - sum of execution times of commands from the slowlog
+  - `slowlog_commands_time_ms_max` - maximum execution time of a command from the slowlog
+- #14896 `INFO COMMANDSTATS` - per-command stats for slowlog metrics:
+  - `slowlog_count` - number of times the command was written in the slowlog
+  - `slowlog_time_ms_sum` - sum of execution time of the command (only from the slowlog)
+  - `slowlog_time_ms_max` - maximum execution time of the command (only from the slowlog)
+-14841  `INFO STATS` (global, all clients aggregated):
+  - `total_client_processing_events`: attempts to process client input buffers; does not guarantee any command was actually parsed
+  - `eventloop_cycles_with_clients_processing`: event loop cycles where client input buffers were processed
+  - `commands_per_parse_batch_sum`: cumulative number of commands parsed across all parsing batches for all clients
+  - `commands_per_parse_batch_cnt`: number of parsing batches across all clients. A batch is counted each time at least one command is parsed from a client's query buffer
+  - `commands_per_parse_batch_avg`: average commands parsed per batch (sum/cnt). Approximates pipelining depth
+-#14841 `CLIENT INFO` and `CLIENT LIST` (per-client):
+  - `read-events`: number of read events for this client
+  - `parse-batch-cmd-sum`: cumulative number of commands parsed across all parsing batches for this client
+  - `parse-batch-cnt`: total number of parsing batches for this client. Divide `parse-batch-cmd-sum` by this value to get the client’s average commands per batch
+
+### CLI tools
+
+- #14371 Divide-by-zero in redis-benchmark and redis-cli
+- #14863 Memory leak in redis-cli
+- #14703 redis-cli --keystats: fix percentile calculation
+
