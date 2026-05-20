@@ -131,7 +131,7 @@ start_server {tags {"increx"}} {
     # leaves the key absent and replies [0, 0].
     # ---------------------------------------------------------------------
 
-    test {INCREX - BYINT/BYFLOAT on non-existent key with out-of-range result leaves it absent} {
+    test {INCREX - BYINT/BYFLOAT on non-existent key refuses to create when result stays below LBOUND} {
         r del mykey
         assert_equal [r increx mykey BYINT 5 LBOUND 10] {0 0}
         assert_equal [r exists mykey] 0
