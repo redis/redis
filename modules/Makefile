@@ -1,34 +1,75 @@
+MODULES_RUST := redisjson redisearch
+MODULES_C := redistimeseries redisbloom redisearch
+MODULES_ALL := $(sort $(MODULES_RUST) $(MODULES_C))
+.PHONY: $(MODULES_ALL)
 
-SUBDIRS = redisjson redistimeseries redisbloom redisearch
+MODULES_RUST_GET_SOURCE := $(MODULES_RUST:%=%_get_source)
+MODULES_ALL_GET_SOURCE := $(MODULES_ALL:%=%_get_source)
+.PHONY: $(MODULES_ALL_GET_SOURCE)
 
-define submake
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $(1); done
-endef
+MODULES_RUST_DISTCLEAN := $(MODULES_RUST:%=%_distclean)
+MODULES_ALL_DISTCLEAN := $(MODULES_ALL:%=%_distclean)
+.PHONY: $(MODULES_ALL_DISTCLEAN)
 
-all: prepare_source
-	$(call submake,$@)
+MODULES_ALL_CLEAN := $(MODULES_ALL:%=%_clean)
+.PHONY: $(MODULES_ALL_CLEAN)
 
-get_source:
-	$(call submake,$@)
+MODULES_ALL_PRISTINE := $(MODULES_ALL:%=%_pristine)
+.PHONY: $(MODULES_ALL_PRISTINE)
 
-prepare_source: get_source handle-werrors setup_environment
+MODULES_ALL_INSTALL := $(MODULES_ALL:%=%_install)
+.PHONY: $(MODULES_ALL_INSTALL)
 
-clean:
-	$(call submake,$@)
+# all
+all: $(MODULES_ALL)
 
-distclean: clean_environment
-	$(call submake,$@)
+$(MODULES_ALL):
+	$(MAKE) -C $@ all
 
-pristine:
-	$(call submake,$@)
+# get_source #
+# static template for one2one relations: each module requires its own get_source
+$(MODULES_ALL): % : %_get_source
 
-install:
-	$(call submake,$@)
+# rust modules require installing rust
+$(MODULES_RUST_GET_SOURCE): install-rust
 
-setup_environment: install-rust handle-werrors
+$(MODULES_ALL_GET_SOURCE):
+	$(MAKE) -C $(@:%_get_source=%) get_source
 
-clean_environment: uninstall-rust
+get_source: $(MODULES_ALL_GET_SOURCE)
 
+# clean #
+$(MODULES_ALL_CLEAN):
+	$(MAKE) -C $(@:%_clean=%) clean
+
+clean: $(MODULES_ALL_CLEAN)
+
+# distclean #
+# rust modules require uninstalling rust on distclean
+$(MODULES_RUST_DISTCLEAN): uninstall-rust
+
+$(MODULES_ALL_DISTCLEAN):
+	$(MAKE) -C $(@:%_distclean=%) distclean
+
+distclean: $(MODULES_ALL_DISTCLEAN)
+
+# pristine #
+$(MODULES_ALL_PRISTINE):
+	$(MAKE) -C $(@:%_pristine=%) pristine
+
+pristine: $(MODULES_ALL_PRISTINE)
+
+# install #
+# static template for one2one relations: each module install requires its own module build
+$(MODULES_ALL_INSTALL): %_install : %
+
+$(MODULES_ALL_INSTALL):
+	$(MAKE) -C $(@:%_install=%) install
+
+install: $(MODULES_ALL_INSTALL)
+
+
+# Keep all of the Rust stuff in one place
 # Keep all of the Rust stuff in one place
 install-rust:
 ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
@@ -74,17 +115,4 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 	fi
 endif
 
-handle-werrors: get_source
-ifeq ($(DISABLE_WERRORS),yes)
-	@echo "Disabling -Werror for all modules"
-	@for dir in $(SUBDIRS); do \
-		echo "Processing $$dir"; \
-		find $$dir/src -type f \
-			\( -name "Makefile" \
-			-o -name "*.mk" \
-			-o -name "CMakeLists.txt" \) \
-			-exec sed -i 's/-Werror//g' {} +; \
-	done
-endif
-
-.PHONY: all clean distclean install $(SUBDIRS) setup_environment clean_environment install-rust uninstall-rust handle-werrors
+.PHONY: all clean distclean pristine install install-rust uninstall-rust get_source
