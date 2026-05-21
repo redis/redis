@@ -7,6 +7,12 @@
         "arity": -4,
         "function": "zinterstoreCommand",
         "get_keys_function": "zunionInterDiffStoreGetKeys",
+        "history": [
+            [
+                "8.8.0",
+                "Added `COUNT` aggregate option."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM"
@@ -100,6 +106,12 @@
                         "name": "max",
                         "type": "pure-token",
                         "token": "MAX"
+                    },
+                    {
+                        "name": "count",
+                        "type": "pure-token",
+                        "token": "COUNT",
+                        "since": "8.8.0"
                     }
                 ]
             }

@@ -87,6 +87,11 @@ char *rdb_type_string[] = {
     "hash-hashtable-md",
     "hash-listpack-md",
     "stream-v4",
+    "stream-v5",
+    "array",
+#ifdef ENABLE_GCRA
+    "gcra",
+#endif
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -254,7 +259,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 uint32_t classSpec;
                 if (rioRead(&rdb, &classSpec, 4) == 0) goto eoferr;
                 /* Skip module value using rdbLoadCheckModuleValue */
-                robj *o = rdbLoadCheckModuleValue(&rdb, "metadata");
+                robj *o = rdbLoadCheckModuleValue(&rdb, "metadata", 1);
                 if (o == NULL) goto eoferr;
                 decrRefCount(o);
             }
@@ -324,7 +329,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             moduleTypeNameByID(name,moduleid);
             rdbCheckInfo("MODULE AUX for: %s", name);
 
-            robj *o = rdbLoadCheckModuleValue(&rdb,name);
+            robj *o = rdbLoadCheckModuleValue(&rdb, name, 0);
             decrRefCount(o);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {

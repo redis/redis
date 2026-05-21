@@ -81,7 +81,8 @@ proc sanitizer_errors_from_file {filename} {
 
         # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
         if {[string match {*runtime error*} $line] ||
-            [string match {*Sanitizer*} $line]} {
+            [string match {*Sanitizer*} $line] ||
+            [string match {*<jemalloc>:*size mismatch*} $line]} {
             return $log
         }
     }
@@ -604,9 +605,11 @@ proc find_valgrind_errors {stderr on_termination} {
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance. If key is omitted, a random key
 # is used for every SET command.
-proc start_write_load {host port seconds {key ""} {size 0} {sleep 0}} {
+# ignore_error_reply (default 0): set non-zero in cluster slot-migration tests to tolerate
+# MOVED/ASK replies while draining pipelined writes in the load helper.
+proc start_write_load {host port seconds {key ""} {size 0} {sleep 0} {ignore_error_reply 0}} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key $size $sleep &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key $size $sleep $ignore_error_reply &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -796,9 +799,14 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
     set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
-    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL}
+    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL XNACK}
     set vset_commands {VADD VREM}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands]
+    set array_commands {ARSET ARGET ARDEL ARCOUNT ARMSET ARMGET ARGETRANGE ARDELRANGE ARINFO}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands]
+if 0 {
+    set gcra_commands {GCRA}
+    dict set commands gcra $gcra_commands
+}
 
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
@@ -858,6 +866,49 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
             lappend cmd $key
             lappend cmd [randomValue]
             incr i 2
+        }
+        # Array commands need integer indices
+        if {$cmd == "ARSET"} {
+            lappend cmd $key
+            lappend cmd [randomInt 100000]  ;# index
+            lappend cmd [randomValue]       ;# value
+            incr i 3
+        }
+        if {$cmd == "ARGET" || $cmd == "ARDEL"} {
+            lappend cmd $key
+            lappend cmd [randomInt 100000]  ;# index
+            incr i 2
+        }
+        if {$cmd == "ARCOUNT" || $cmd == "ARINFO"} {
+            lappend cmd $key
+            incr i 1
+        }
+        if {$cmd == "ARMSET"} {
+            lappend cmd $key
+            # Add 2-4 index/value pairs
+            set npairs [expr {int(rand() * 3) + 2}]
+            for {set p 0} {$p < $npairs} {incr p} {
+                lappend cmd [randomInt 100000]
+                lappend cmd [randomValue]
+            }
+            incr i [expr {1 + $npairs * 2}]
+        }
+        if {$cmd == "ARMGET"} {
+            lappend cmd $key
+            # Add 2-4 indices
+            set nidx [expr {int(rand() * 3) + 2}]
+            for {set p 0} {$p < $nidx} {incr p} {
+                lappend cmd [randomInt 100000]
+            }
+            incr i [expr {1 + $nidx}]
+        }
+        if {$cmd == "ARGETRANGE" || $cmd == "ARDELRANGE"} {
+            lappend cmd $key
+            set idx1 [randomInt 100000]
+            set idx2 [expr {$idx1 + [randomInt 1000]}]
+            lappend cmd $idx1
+            lappend cmd $idx2
+            incr i 3
         }
 
         for {} {$i < $arity} {incr i} {

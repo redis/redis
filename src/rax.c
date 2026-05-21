@@ -1254,48 +1254,48 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
     return 1;
 }
 
-/* This is the core of raxFree(): performs a depth-first scan of the
- * tree and releases all the nodes found. */
-void raxRecursiveFree(rax *rax, raxNode *n, void (*free_callback)(void*)) {
-    debugnode("free traversing",n);
-    int numchildren = n->iscompr ? 1 : n->size;
-    raxNode **cp = raxNodeLastChildPtr(n);
-    while(numchildren--) {
-        raxNode *child;
-        memcpy(&child,cp,sizeof(child));
-        raxRecursiveFree(rax,child,free_callback);
-        cp--;
-    }
-    debugnode("free depth-first",n);
-    if (free_callback && n->iskey && !n->isnull)
-        free_callback(raxGetData(n));
-    raxFreeNode(rax,n);
-    rax->numnodes--;
-}
+/* This is the core of raxFree(): performs an iterative depth-first scan
+ * of the tree and frees all the nodes found. Uses an explicit heap stack
+ * to avoid stack overflow on deep trees. The caller passes exactly one
+ * callback variant and the non-NULL one is invoked. */
+static void raxFreeNodesWithCallback(rax *rax, raxNode *n,
+                                     void (*free_callback)(void *item),
+                                     void (*free_callback_withctx)(void *item, void *ctx),
+                                     void *ctx)
+{
+    raxStack stack;
+    raxStackInit(&stack);
+    raxStackPush(&stack, n);
 
-/* Same as raxRecursiveFree() with context argument */
-void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
-                            void (*free_callback)(void *item, void *ctx), void *ctx) {
-    debugnode("free traversing",n);
-    int numchildren = n->iscompr ? 1 : n->size;
-    raxNode **cp = raxNodeLastChildPtr(n);
-    while(numchildren--) {
-        raxNode *child;
-        memcpy(&child,cp,sizeof(child));
-        raxRecursiveFreeWithCtx(rax,child,free_callback, ctx);
-        cp--;
+    while (stack.items > 0) {
+        raxNode *curr = raxStackPop(&stack);
+        debugnode("free traversing",curr);
+        int numchildren = curr->iscompr ? 1 : curr->size;
+        raxNode **cp = raxNodeFirstChildPtr(curr);
+        for (int i = 0; i < numchildren; i++) {
+            raxNode *child;
+            memcpy(&child, cp + i, sizeof(child));
+            raxStackPush(&stack, child);
+        }
+        debugnode("free depth-first",curr);
+        if (curr->iskey && !curr->isnull) {
+            void *data = raxGetData(curr);
+            if (free_callback_withctx)
+                free_callback_withctx(data, ctx);
+            else if (free_callback)
+                free_callback(data);
+        }
+        raxFreeNode(rax, curr);
+        rax->numnodes--;
     }
-    debugnode("free depth-first",n);
-    if (free_callback && n->iskey && !n->isnull)
-        free_callback(raxGetData(n), ctx);
-    raxFreeNode(rax,n);
-    rax->numnodes--;
+
+    raxStackFree(&stack);
 }
 
 /* Free a whole radix tree, calling the specified callback in order to
  * free the auxiliary data. */
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
-    raxRecursiveFree(rax,rax->head,free_callback);
+    raxFreeNodesWithCallback(rax, rax->head, free_callback, NULL, NULL);
     assert(rax->numnodes == 0);
     size_t *alloc_size = rax->alloc_size;
     size_t usable;
@@ -1307,7 +1307,7 @@ void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
  * free the auxiliary data. */
 void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx), void *ctx) {
-    raxRecursiveFreeWithCtx(rax,rax->head,free_callback,ctx);
+    raxFreeNodesWithCallback(rax, rax->head, NULL, free_callback, ctx);
     assert(rax->numnodes == 0);
     size_t *alloc_size = rax->alloc_size;
     size_t usable;

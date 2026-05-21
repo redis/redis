@@ -1,0 +1,60 @@
+{
+    "ARGET": {
+        "summary": "Gets the value at an index in an array.",
+        "complexity": "O(1)",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": 3,
+        "function": "argetCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The value at the given index.",
+                    "type": "string"
+                },
+                {
+                    "description": "Null reply if key or index does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "index",
+                "type": "integer"
+            }
+        ]
+    }
+}

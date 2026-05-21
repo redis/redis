@@ -18,7 +18,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define RDB_VERSION 13
+#define RDB_VERSION 14
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -79,10 +79,19 @@
 #define RDB_TYPE_HASH_METADATA 24             /* Hash with HFEs. Attach min TTL at start */
 #define RDB_TYPE_HASH_LISTPACK_EX 25          /* Hash LP with HFEs. Attach min TTL at start */
 #define RDB_TYPE_STREAM_LISTPACKS_4 26        /* Stream with IDMP support */
+#define RDB_TYPE_STREAM_LISTPACKS_5 27        /* Stream with XNACK support (NACKed entries) */
+#define RDB_TYPE_ARRAY 28                     /* Array data type */
+#ifdef ENABLE_GCRA
+#define RDB_TYPE_GCRA 29                      /* GCRA object */
+#endif
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 26))
+#ifdef ENABLE_GCRA
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 29))
+#else
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 28))
+#endif
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_KEY_META   243   /* Key metadata (module metadata classes). */
@@ -131,6 +140,8 @@ int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 time_t rdbLoadTime(rio *rdb);
 int rdbSaveLen(rio *rdb, uint64_t len);
+ssize_t rdbSaveSignedInteger(rio *rdb, int64_t val);
+int64_t rdbLoadSignedInteger(rio *rdb, int rdbver);
 ssize_t rdbSaveMillisecondTime(rio *rdb, long long t);
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver);
 uint64_t rdbLoadLen(rio *rdb, int *isencoded);
@@ -150,7 +161,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
-robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename);
+robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error);
 int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta);
 robj *rdbLoadStringObject(rio *rdb);
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj);

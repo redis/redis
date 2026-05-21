@@ -9,6 +9,8 @@
 #include "server.h"
 #include <math.h>
 
+#ifdef ENABLE_GCRA
+
 /* GCRA algorithm for rate limiting.
  * Implementation is heavily based on the implementation of (redis-cell)
  * [https://github.com/brandur/redis-cell] by (brandur)[https://github.com/brandur].
@@ -65,21 +67,21 @@
  *
  * (ASCII art adapted from https://brandur.org/rate-limiting). */
 
-/* GCRA key max_burst requests_per_period period [NUM_REQUESTS count]
+/* GCRA key max_burst tokens_per_period period [TOKENS count]
  *
  * key: Key related to specific rate limiting case
- * max_burst: Maximum requests allowed as burst (in addition to sustained rate)
- * requests_per_period: Number of requests allowed per period
+ * max_burst: Maximum tokens allowed as burst (in addition to sustained rate)
+ * tokens_per_period: Number of tokens allowed per period
  * period: Period in seconds for calculating sustained rate
- * num_requests: Optional, cost of this request (default: 1)
+ * tokens: Optional, cost of this request (default: 1)
  */
 void gcraCommand(client *c) {
     robj *key = c->argv[1];
 
     /* GCRA parameters */
     long max_burst;
-    long requests_per_period;
-    long num_requests = 1;
+    long tokens_per_period;
+    long num_tokens = 1;
     double period;
 
     /* Variables used in the reply */
@@ -98,7 +100,7 @@ void gcraCommand(client *c) {
     }
     if (likely(max_burst < LONG_MAX)) max_burst += 1;
 
-    if (getRangeLongFromObjectOrReply(c, c->argv[3], 1, LONG_MAX, &requests_per_period, NULL) != C_OK) {
+    if (getRangeLongFromObjectOrReply(c, c->argv[3], 1, LONG_MAX, &tokens_per_period, NULL) != C_OK) {
         return;
     }
 
@@ -111,15 +113,15 @@ void gcraCommand(client *c) {
     }
 
     if (c->argc >= 6) {
-        if (strcasecmp("NUM_REQUESTS", c->argv[5]->ptr)) {
+        if (strcasecmp("tokens", c->argv[5]->ptr)) {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
         if (c->argc == 6) {
-            addReplyError(c, "Missing NUM_REQUESTS value");
+            addReplyError(c, "Missing TOKENS value");
             return;
         }
-        if (getRangeLongFromObjectOrReply(c, c->argv[6], 1, LONG_MAX, &num_requests, NULL) != C_OK) {
+        if (getRangeLongFromObjectOrReply(c, c->argv[6], 1, LONG_MAX, &num_tokens, NULL) != C_OK) {
             return;
         }
     }
@@ -129,23 +131,11 @@ void gcraCommand(client *c) {
     long long tat_us, new_tat_us;
     dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
-    if (checkType(c, kv, OBJ_STRING)) {
+    if (checkType(c, kv, OBJ_GCRA)) {
         return;
     }
     if (kv != NULL) {
-        /* Note the value of the key may have been overwritten outside of the
-         * GCRA command (f.e by calling SET). We don't try to catch such errors
-         * as this would be possible only with a dedicated structures for GCRA,
-         * while using STRING gives us all the benefits of a redis key -
-         * replication, setting expiration, etc. */
-        if (getLongLongFromObject(kv, &tat_us) != C_OK) {
-            addReplyError(c, "Invalid GCRA key");
-            return;
-        }
-        if (tat_us <= 0) {
-            addReplyError(c, "Negative time is invalid value for GCRA");
-            return;
-        }
+        getLongLongFromGCRAObject(kv, &tat_us);
     } else {
         tat_us = now;
     }
@@ -158,18 +148,18 @@ void gcraCommand(client *c) {
      * Even if emission_interval_us becomes less than 1us, we assume it's min
      * 1ms. The API is already in seconds granularity so it is expected the user
      * won't need a submicrosecond accuracy. */
-    long long emission_interval_us = (long long)(period_us / requests_per_period + 0.5);
+    long long emission_interval_us = (long long)(period_us / tokens_per_period + 0.5);
     if (unlikely(emission_interval_us == 0)) emission_interval_us = 1;
 
     /* overflow checks. In normal circumstances we shouldn't get these but the
      * user may have wrongfully specified very large values.
      * Note that all values are positive. */
-    if (emission_interval_us > LLONG_MAX / num_requests) {
-        addReplyError(c, "GCRA limiting uses microsecond accuracy. Combination of period, requests_per_period and num_requests would cause an overflow");
+    if (emission_interval_us > LLONG_MAX / num_tokens) {
+        addReplyError(c, "GCRA limiting uses microsecond accuracy. Combination of period, tokens_per_period and TOKENS would cause an overflow");
         return;
     }
     if (emission_interval_us > LLONG_MAX / max_burst) {
-        addReplyError(c, "GCRA limiting uses microsecond accuracy. Combination of period, requests_per_period and max_burst would cause an overflow");
+        addReplyError(c, "GCRA limiting uses microsecond accuracy. Combination of period, tokens_per_period and max_burst would cause an overflow");
         return;
     }
 
@@ -180,11 +170,11 @@ void gcraCommand(client *c) {
 
     /* If a request is allowed the next TaT is after an emission_interval_us time.
      * Hence for multiple requests we multiple by their number. */
-    long long increment_us = emission_interval_us * num_requests;
+    long long increment_us = emission_interval_us * num_tokens;
 
     long long base_us = (now > tat_us) ? now : tat_us;
     if (LLONG_MAX - base_us < increment_us) {
-        addReplyError(c, "GCRA limiting uses microsecond accuracy. Combination of period, requests_per_period and num_requests would cause an overflow");
+        addReplyError(c, "GCRA limiting uses microsecond accuracy. Combination of period, tokens_per_period and TOKENS would cause an overflow");
         return;
     }
     new_tat_us = base_us + increment_us;
@@ -208,10 +198,18 @@ void gcraCommand(client *c) {
     } else {
         limited = 0;
         ttl_us = new_tat_us - now;
-        robj *tatobj = createStringObjectFromLongLong(new_tat_us);
+        robj *tatobj = createGCRAObject(new_tat_us);
         setKeyByLink(c, c->db, key, &tatobj, kv ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST, &link);
-        notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
+        notifyKeyspaceEvent(NOTIFY_RATE_LIMIT,"gcra",key,c->db->id);
 
+        /* The key implicitly sets its own expiry time (which is basically the
+         * TaT after which time the value is no longer of any use). That way even
+         * if only one GCRA command is called on a key it will automatically
+         * expire after reaching its TaT without user needing to explicitly call
+         * DEL on it.
+         * These keys are expected to be numerous and short lived thus the
+         * decision to keep the implicit expiraty.
+         * NOTE: idea is same as in redis-cell. */
         long long when = new_tat_us / 1000;
         kv = setExpireByLink(c, c->db, key->ptr, when, link);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -219,9 +217,11 @@ void gcraCommand(client *c) {
         /* Replicating the command directly would mess up TaT as we use
          * commandTimeSnapshot. We instead rewrite the command as SET with the
          * appropriate expire time. */
-        robj *pexat_obj = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c, 5, shared.set, key, kv, shared.pxat, pexat_obj);
-        decrRefCount(pexat_obj);
+        robj *gcrasetvalue = createStringObject("GCRASETVALUE", 12);
+        robj *newtatstr = createStringObjectFromLongLong(new_tat_us);
+        rewriteClientCommandVector(c, 3, gcrasetvalue, key, newtatstr);
+        decrRefCount(gcrasetvalue);
+        decrRefCount(newtatstr);
 
         server.dirty++;
     }
@@ -239,3 +239,46 @@ void gcraCommand(client *c) {
     addReplyLongLong(c, retry_after_s);
     addReplyLongLong(c, reset_after_s);
 }
+
+/* GCRASETVALUE key tat
+ *
+ * Internal command used during AOF rewrite to record a GCRA TAT value. The GCRA
+ * command is also rewritten as GCRASETVALUE for replication since GCRA uses
+ * commandTimeSnapshot. */
+void gcraSetValueCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *tat = c->argv[2];
+    long long when;
+
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
+    if (checkType(c, kv, OBJ_GCRA)) return;
+
+    if (getLongLongFromObjectOrReply(c, tat, &when, "Invalid TaT value") == C_ERR) {
+        return;
+    }
+    if (when < 0) {
+        addReplyError(c, "Invalid negative TaT value");
+        return;
+    }
+
+    robj *tatobj = createGCRAObject(when);
+    setKeyByLink(c, c->db, key, &tatobj, kv ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST, &link);
+    notifyKeyspaceEvent(NOTIFY_RATE_LIMIT,"gcra",key,c->db->id);
+
+    /* Just like the base GCRA command we set the expire time of the key implicitly. */
+    long long when_ms = when / 1000;
+    kv = setExpireByLink(c, c->db, key->ptr, when_ms, link);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+    server.dirty++;
+
+    addReply(c, shared.ok);
+}
+
+robj *gcraDup(robj *o) {
+    long long val;
+    getLongLongFromGCRAObject(o, &val);
+    return createGCRAObject(val);
+}
+
+#endif /* ENABLE_GCRA */

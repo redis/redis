@@ -135,6 +135,25 @@ typedef struct dictType {
 
     /* Optional callback called when the dict is destroyed. */
     void (*onDictRelease)(dict *d);
+
+    /* Optional prefetch hooks used by the memory_prefetch state machine.
+     * Both default to NULL; when both are NULL the state machine just
+     * prefetches the bucket + dictEntry chain and stops there.
+     *
+     * prefetchEntryKey: called after a dictEntry has been brought into
+     *   cache. Returns an address to issue redis_prefetch_read on (so the
+     *   key payload behind the entry is warm before keyCompare runs), or
+     *   NULL if nothing extra is needed (e.g. the key is co-located with
+     *   the entry).
+     * prefetchEntryValue: called when the entry is the *presumed* match
+     *   for the lookup key — either keyCompare returned equal, or the
+     *   state machine took the "last entry in chain, not rehashing"
+     *   shortcut and is betting on a hit without comparing. Callbacks
+     *   must therefore not assume the key has been verified equal; the
+     *   prefetch is advisory. Returns an address to prefetch for the
+     *   value-side payload, or NULL. */
+    void *(*prefetchEntryKey)(const dictEntry *de);
+    void *(*prefetchEntryValue)(const dictEntry *de);
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))

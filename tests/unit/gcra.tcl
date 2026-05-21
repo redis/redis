@@ -1,4 +1,5 @@
 start_server {tags {"gcra" "external:skip"}} {
+if 0 {
     test {GCRA - argument validation} {
         # Wrong number of arguments (too few)
         catch {r gcra} err
@@ -33,13 +34,13 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_match "*not a valid float*" $err
 
         # tokens (optional) must be >= 1
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS} err
-        assert_match "*Missing NUM_REQUESTS value*" $err
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS 0} err
+        catch {r gcra mykey 10 5 10 TOKENS} err
+        assert_match "*Missing TOKENS value*" $err
+        catch {r gcra mykey 10 5 10 TOKENS 0} err
         assert_match "*out of range*" $err
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS -1} err
+        catch {r gcra mykey 10 5 10 TOKENS -1} err
         assert_match "*out of range*" $err
-        catch {r gcra mykey 10 5 10 NUM_REQUESTS notanumber} err
+        catch {r gcra mykey 10 5 10 TOKENS notanumber} err
         assert_match "*not an integer*" $err
 
         # Valid arguments with default tokens
@@ -53,7 +54,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
         # Valid arguments with explicit tokens
         r del mykey
-        set result [r gcra mykey 10 5 60 NUM_REQUESTS 2]
+        set result [r gcra mykey 10 5 60 TOKENS 2]
         assert_equal 5 [llength $result]
         assert_equal 11 [lindex $result 1]
 
@@ -130,7 +131,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
         r del mykey
         # Consume 3 tokens from fresh state
-        set result2 [r gcra mykey 5 1 60 NUM_REQUESTS 3]
+        set result2 [r gcra mykey 5 1 60 TOKENS 3]
         set avail2 [lindex $result2 2]
         assert_equal 3 $avail2
     }
@@ -168,7 +169,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
         r del mykey
         r gcra mykey 5 1 60
-        set result [r gcra mykey 5 1 60 NUM_REQUESTS 4]
+        set result [r gcra mykey 5 1 60 TOKENS 4]
         set full_burst_after [lindex $result 4]
         assert {$full_burst_after >= 299}
     }
@@ -216,7 +217,7 @@ start_server {tags {"gcra" "external:skip"}} {
 
     test {GCRA - overflow} {
         r del mykey
-        catch {r gcra mykey 1 1 86400 NUM_REQUESTS 200000000} err
+        catch {r gcra mykey 1 1 86400 TOKENS 200000000} err
         assert_match "*would cause an overflow*" $err
 
         r del mykey
@@ -224,12 +225,121 @@ start_server {tags {"gcra" "external:skip"}} {
         assert_match "*would cause an overflow*" $err
 
         r del mykey
-        catch {r gcra mykey 1 1 2147483647 NUM_REQUESTS 2147483647} err
+        catch {r gcra mykey 1 1 2147483647 TOKENS 2147483647} err
         assert_match "*would cause an overflow*" $err
     }
+
+    test {GCRASETVALUE - basic functionality} {
+        r del mykey
+        set tat_us [expr {[clock microseconds] + 60000000}]
+        assert_equal {OK} [r gcrasetvalue mykey $tat_us]
+        assert_equal {gcra} [r type mykey]
+        assert {[r pttl mykey] > 0}
+    }
+}
+}
+
+start_server {tags {"gcra" "external:skip"}} {
+if 0 {
+    test {GCRA - RDB save and reload preserves value} {
+        r del mykey
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set dump_before [r dump mykey]
+
+        r debug reload
+
+        assert_equal [r type mykey] "gcra"
+        set dump_after [r dump mykey]
+        assert_equal $dump_before $dump_after
+    } {} {needs:debug}
+
+    test {GCRA - RDB save and reload preserves TTL} {
+        r del mykey
+        r gcra mykey 5 1 60
+        set ttl_before [r pexpiretime mykey]
+        assert_morethan $ttl_before 0
+
+        r debug reload
+
+        set ttl_after [r pexpiretime mykey]
+        assert_morethan $ttl_after 0
+        assert_equal $ttl_after $ttl_before
+    } {} {needs:debug}
+
+    test {GCRA - DUMP and RESTORE roundtrip} {
+        r del mykey mykey2
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set dump [r dump mykey]
+        set ttl [r pttl mykey]
+        r restore mykey2 $ttl $dump
+
+        assert_equal [r type mykey2] "gcra"
+
+        set result_orig [r gcra mykey 5 1 60]
+        set result_restored [r gcra mykey2 5 1 60]
+        assert_equal [lindex $result_orig 2] [lindex $result_restored 2]
+    }
+
+    test {GCRA - AOF rewrite preserves value} {
+        r del mykey
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set dump_before [r dump mykey]
+
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        r debug reload
+
+        assert_equal [r type mykey] "gcra"
+        set dump_after [r dump mykey]
+        assert_equal $dump_before $dump_after
+    } {} {external:skip needs:debug}
+
+    test {GCRA - AOF rewrite preserves TTL} {
+        r del mykey
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        r gcra mykey 5 1 60
+
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+
+        set ttl_before [r pttl mykey]
+        assert {$ttl_before > 0}
+
+        r debug reload
+
+        set ttl_after [r pttl mykey]
+        assert {$ttl_after > 0}
+        assert {$ttl_after <= $ttl_before}
+    } {} {external:skip needs:debug}
+
+    test {GCRA - DEBUG DIGEST consistent after RDB reload} {
+        r del mykey
+        r gcra mykey 5 1 60
+        r gcra mykey 5 1 60
+
+        set digest_before [r debug digest]
+
+        r debug reload
+
+        set digest_after [r debug digest]
+        assert_equal $digest_before $digest_after
+    } {} {needs:debug}
+}
 }
 
 start_server {tags {"gcra repl" "external:skip"}} {
+if 0 {
     set replica [srv 0 client]
     set replica_host [srv 0 host]
     set replica_port [srv 0 port]
@@ -240,27 +350,27 @@ start_server {tags {"gcra repl" "external:skip"}} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
 
-        $master flushdb
-        $replica flushdb
+        test {GCRA - Replication works} {
+            $master flushdb
+            $replica flushdb
 
-        $replica replicaof $master_host $master_port
-        wait_for_condition 100 100 {
-            [s -1 master_link_status] eq "up"
-        } else {
-            fail "Master <-> Replica didn't finish sync"
-        }
+            $replica replicaof $master_host $master_port
+            wait_for_condition 100 100 {
+                [s -1 master_link_status] eq "up"
+            } else {
+                fail "Master <-> Replica didn't finish sync"
+            }
 
-        set cmdinfo [$replica info commandstats]
-        assert_equal [lsearch -glob $cmdinfo "cmdstat_gcra:*"] -1
-        assert_equal [lsearch -glob $cmdinfo "cmdstat_set:*"] -1
+            set cmdinfo [$replica info commandstats]
+            assert_equal [lsearch -glob $cmdinfo "cmdstat_gcrasetvalue:*"] -1
 
-        $master del mykey
-        $master gcra mykey 2 1 1000 NUM_REQUESTS 2
+            $master del mykey
+            $master gcra mykey 2 1 1000 TOKENS 2
+            wait_for_ofs_sync $master $replica
 
-        wait_for_ofs_sync $master $replica
-
-        set cmdinfo [$replica info commandstats]
-        assert_equal [lsearch -glob $cmdinfo "cmdstat_gcra:*"] -1
-        assert_morethan_equal [lsearch -glob $cmdinfo "cmdstat_set:*"] 0
+            set cmdinfo [$replica info commandstats]
+            assert_morethan_equal [lsearch -glob $cmdinfo "cmdstat_gcrasetvalue:*"] 0
+        } {} {external:skip}
     }
+}
 }
