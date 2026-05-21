@@ -4248,6 +4248,12 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
+    /* Fire keyed post-notification jobs first, before any propagation. These
+     * fire after every command (including each sub-command inside MULTI/EXEC),
+     * regardless of execution-unit nesting, so a module can react to a key
+     * before the next sub-command observes it. */
+    firePostKeyedNotificationJobs();
+
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
