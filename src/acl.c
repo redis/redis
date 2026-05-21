@@ -2009,7 +2009,7 @@ list *getUpcomingChannelList(user *new, user *original) {
 
 /* Check if a specific user's subscriptions violate the given channel list.
  * Returns 1 if any violation is found, 0 otherwise. */
-int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming) {
+static int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming) {
     serverAssert(!pubsubUserSubsIsEmpty(subs));
     robj *o;
     int kill = 0;
@@ -2052,7 +2052,7 @@ int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming) {
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
-void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     /* Do nothing if there are no subscribers. */
     if (pubsubTotalSubscriptions() == 0)
         return;

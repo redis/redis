@@ -27,8 +27,6 @@ typedef struct pubsubtype {
     robj **messageBulk;
 }pubsubtype;
 
-void channelList(client *c, sds pat, kvstore *pubsub_channels);
-
 /* --------------------------------------------------------------------------
  * Per-user subscription dict helpers
  * -------------------------------------------------------------------------- */
@@ -70,7 +68,7 @@ static pubsubUserSubs *createPubsubUserSubs(void) {
     return subs;
 }
 
-pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c) {
+static pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c) {
     serverAssert(c->user != NULL);
     dictEntry *de = dictFind(c->pubsub_subscriptions, c->user);
     if (de) return dictGetVal(de);
@@ -92,6 +90,13 @@ static dict *pubsubUserSubsGetDict(pubsubUserSubs *subs, pubsubtype type) {
 static size_t *pubsubClientCountPtr(client *c, pubsubtype type) {
     return type.shard ? &c->pubsubshard_channels_count : &c->pubsub_channels_count;
 }
+
+/*
+ * Get list of channels client is subscribed to.
+ * If a pattern is provided, the subset of channels is returned
+ * matching the pattern.
+ */
+void channelList(client *c, sds pat, kvstore *pubsub_channels);
 
 /*
  * Pub/Sub type for global channels.
@@ -511,11 +516,14 @@ static void pubsubUnsubscribeKnownPattern(client *c, dict *innerDict,
     incrRefCount(pattern);
     serverAssert(dictDelete(innerDict, pattern) == DICT_OK);
 
+    /* Remove the client from the pattern -> clients list hash table */
     de = dictFind(server.pubsub_patterns,pattern);
     serverAssertWithInfo(c,NULL,de != NULL);
     clients = dictGetVal(de);
     serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
     if (dictSize(clients) == 0) {
+        /* Free the dict and associated hash entry at all if this was
+         * the latest client. */
         dictDelete(server.pubsub_patterns,pattern);
     }
 
@@ -556,7 +564,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 
 /* Unsubscribe from all the channels of a given type. Return the number of
  * channels the client was subscribed to. */
-int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubtype type) {
+static int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubtype type) {
     int count = 0;
     dictIterator outer;
     dictEntry *userEntry;
