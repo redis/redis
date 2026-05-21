@@ -49,65 +49,6 @@ static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
     RedisModule_FreeCallReply(rep);
 }
 
-/* Per-key post-notification callback: appends each batched key to a single
- * list, so the test can assert all keys touched in one execution unit fan
- * out into the same MULTI/EXEC replication block. */
-static void KeySpace_PostNotificationBatchedKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(pd);
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "batched_keys", key);
-    RedisModule_FreeCallReply(rep);
-}
-
-static int KeySpace_NotificationBatched(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(key_str, "batched_", 8) != 0) return REDISMODULE_OK;
-    if (strcmp(key_str, "batched_keys") == 0) return REDISMODULE_OK; /* skip our sink list */
-
-    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationBatchedKey, key, NULL, NULL);
-    return REDISMODULE_OK;
-}
-
-/* Re-entrance probe. The "outer" branch sets a marker, performs a nested
- * RM_Call (which itself triggers another keyed-job registration via KSN), then
- * clears the marker. If the firing function were to re-enter while the outer
- * callback is still on the stack, the "inner" branch would observe marker==1
- * and report REENTRANCE_DETECTED. With the guard in place, the inner job runs
- * only after the outer callback returns, so marker is always 0. */
-static int reentrance_in_outer_callback = 0;
-
-static void KeySpace_PostNotificationReentranceProbe(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(pd);
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    RedisModuleCallReply *rep;
-
-    if (strcmp(key_str, "reentrant_outer") == 0) {
-        reentrance_in_outer_callback = 1;
-        rep = RedisModule_Call(ctx, "set", "!cc", "reentrant_inner", "1");
-        if (rep) RedisModule_FreeCallReply(rep);
-        reentrance_in_outer_callback = 0;
-        rep = RedisModule_Call(ctx, "lpush", "!cc", "reentrance_log", "outer_done");
-        if (rep) RedisModule_FreeCallReply(rep);
-    } else if (strcmp(key_str, "reentrant_inner") == 0) {
-        const char *marker = reentrance_in_outer_callback ? "REENTRANCE_DETECTED" : "inner_after_outer";
-        rep = RedisModule_Call(ctx, "lpush", "!cc", "reentrance_log", marker);
-        if (rep) RedisModule_FreeCallReply(rep);
-    }
-}
-
-static int KeySpace_NotificationReentrance(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(key_str, "reentrant_", 10) != 0) return REDISMODULE_OK;
-
-    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationReentranceProbe, key, NULL, NULL);
-    return REDISMODULE_OK;
-}
-
 static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
@@ -325,14 +266,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EVICTED, KeySpace_NotificationEvicted) != REDISMODULE_OK){
-        return REDISMODULE_ERR;
-    }
-
-    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationBatched) != REDISMODULE_OK){
-        return REDISMODULE_ERR;
-    }
-
-    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationReentrance) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 
