@@ -1233,27 +1233,28 @@ if(MSVC)
     set(INTERNAL_TESTS ziplist quicklist intset zipmap sha1test util endianconv crc64 mstr dict kvstore fwtree estore ebuckets bitmap rax zset topk listpack zmalloc sds)
     foreach(testname ${INTERNAL_TESTS})
         if (NOT "internal-${testname}" IN_LIST FAILING_TESTS)
-            add_test(NAME "internal-${testname}" COMMAND redis-server test ${testname})
+            add_test(NAME "internal-${testname}" COMMAND $<TARGET_FILE:redis-server> test ${testname})
         endif()
     endforeach()
 
-    execute_process(
-        COMMAND "${TCLSH_EXECUTABLE}" "${REDIS_ROOT}/tests/test_helper.tcl" --list-tests
-        WORKING_DIRECTORY "${REDIS_ROOT}"
-        OUTPUT_VARIABLE RUNTEST_LIST_OUTPUT
-    )
-    string(REPLACE "
-" ";" RUNTEST_LIST "${RUNTEST_LIST_OUTPUT}")
-    
-    foreach(testname ${RUNTEST_LIST})
-        if (NOT testname STREQUAL "")
-            string(REPLACE "/" "-" test_name_clean "${testname}")
-            if (NOT "runtest-${test_name_clean}" IN_LIST FAILING_TESTS)
-                add_test(NAME "runtest-${test_name_clean}" COMMAND ${CMAKE_COMMAND} -E true)
-                set_tests_properties("runtest-${test_name_clean}" PROPERTIES RUN_SERIAL TRUE TIMEOUT 1200 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\;${CMAKE_BINARY_DIR}/bin/Release\\;$ENV{PATH}")
+    if (TCLSH_EXECUTABLE)
+        execute_process(
+            COMMAND "${TCLSH_EXECUTABLE}" "${REDIS_ROOT}/tests/test_helper.tcl" --list-tests
+            WORKING_DIRECTORY "${REDIS_ROOT}"
+            OUTPUT_VARIABLE RUNTEST_LIST_OUTPUT
+        )
+        string(REPLACE "\n" ";" RUNTEST_LIST "${RUNTEST_LIST_OUTPUT}")
+
+        foreach(testname ${RUNTEST_LIST})
+            if (NOT testname STREQUAL "")
+                string(REPLACE "/" "-" test_name_clean "${testname}")
+                if (NOT "runtest-${test_name_clean}" IN_LIST FAILING_TESTS)
+                    add_test(NAME "runtest-${test_name_clean}" COMMAND ${CMAKE_COMMAND} -E true)
+                    set_tests_properties("runtest-${test_name_clean}" PROPERTIES RUN_SERIAL TRUE TIMEOUT 1200 ENVIRONMENT "REDIS_BIN_DIR=${CMAKE_BINARY_DIR}/bin/Release;PATH=${CMAKE_BINARY_DIR}\\;${CMAKE_BINARY_DIR}/bin/Release\\;$ENV{PATH}")
+                endif()
             endif()
-        endif()
-    endforeach()
+        endforeach()
+    endif()
 endif()
 
 
