@@ -154,7 +154,7 @@ int getSlotOrReply(client *c, robj *o);
 int clusterIsMySlot(int slot);
 int clusterCanAccessKeysInSlot(int slot);
 struct slotRangeArray *clusterGetLocalSlotRanges(void);
-struct slotRangeArray *clusterGetSlotRangesByNode(clusterNode *node);
+struct slotRangeArray *clusterGetNodeSlotRanges(clusterNode *node);
 
 /* functions with shared implementations */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,

@@ -2116,13 +2116,13 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
         return slots;
     }
 
-    return clusterGetSlotRangesByNode(getMyClusterNode());
+    return clusterGetNodeSlotRanges(getMyClusterNode());
 }
 
 /* Returns the slot ranges owned by the given node.
  * If the node is a replica, the master's slot ranges are returned.
  * Returns an empty array if the node has no slots. */
-slotRangeArray *clusterGetSlotRangesByNode(clusterNode *node) {
+slotRangeArray *clusterGetNodeSlotRanges(clusterNode *node) {
     slotRangeArray *slots = NULL;
 
     serverAssert(server.cluster_enabled && node != NULL);

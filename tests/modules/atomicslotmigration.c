@@ -90,8 +90,8 @@ int testClusterGetLocalSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_OK;
 }
 
-/* Test command for RedisModule_ClusterGetSlotRangesByNodeId */
-int testClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/* Test command for RedisModule_GetClusterNodeSlotRanges */
+int testGetClusterNodeSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         return RedisModule_WrongArity(ctx);
     }
@@ -104,9 +104,9 @@ int testClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx, RedisModuleString **ar
     RedisModuleSlotRangeArray *slots;
     if (use_auto_memory) {
         RedisModule_AutoMemory(ctx);
-        slots = RedisModule_ClusterGetSlotRangesByNodeId(ctx, nodeid);
+        slots = RedisModule_GetClusterNodeSlotRanges(ctx, nodeid);
     } else {
-        slots = RedisModule_ClusterGetSlotRangesByNodeId(NULL, nodeid);
+        slots = RedisModule_GetClusterNodeSlotRanges(NULL, nodeid);
     }
 
     RedisModule_ReplyWithArray(ctx, slots->num_ranges);
@@ -592,7 +592,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.cluster_get_local_slot_ranges", testClusterGetLocalSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "asm.cluster_get_slot_ranges_by_nodeid", testClusterGetSlotRangesByNodeId, "", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "asm.get_cluster_node_slot_ranges", testGetClusterNodeSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.get_last_deleted_key", getLastDeletedKey, "", 0, 0, 0) == REDISMODULE_ERR)
