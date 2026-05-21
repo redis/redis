@@ -104,15 +104,15 @@ const char *je_malloc_conf =
 #define PEAK_CHECK_THRESHOLD (1024 * 100) /* 100KB */
 
 typedef struct used_memory_entry {
-    redisAtomic long long used_memory;
-    redisAtomic long long last_peak_check;
+    redisAtomicAlign(8) long long used_memory;
+    redisAtomicAlign(8) long long last_peak_check;
     char padding[CACHE_LINE_SIZE - sizeof(long long) - sizeof(long long)];
 } used_memory_entry;
 
 static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_ENTRIES];
 static redisAtomic size_t num_active_threads = 0;
 static redisAtomic size_t zmalloc_peak = 0;
-static redisAtomic time_t zmalloc_peak_time = 0;
+static redisAtomicAlign(8) time_t zmalloc_peak_time = 0;
 static __thread long my_thread_index = -1;
 
 static inline void init_my_thread_index(void) {
