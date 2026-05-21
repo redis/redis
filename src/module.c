@@ -337,30 +337,16 @@ typedef struct RedisModulePostExecUnitJob {
     int dbid;
 } RedisModulePostExecUnitJob;
 
-/* Per-key entry inside a keyed post-notification job. The keyed job fans out
- * and invokes its callback once per entry, in submission order. */
-typedef struct RedisModulePostKeyedNotificationEntry {
-    RedisModuleString *key; /* Owned reference; freed after the callback runs. */
-    void *pd;
-    void (*free_pd)(void*);
-} RedisModulePostKeyedNotificationEntry;
-
-/* A keyed post-notification job. Coalesces all keys submitted for the same
- * (module, callback) pair during a single command into one job; fires at the
- * tail of every call() so each sub-command boundary is observed. */
+/* A keyed post-notification job. Fires at the tail of every call() so each
+ * sub-command boundary is observed; jobs fire in submission order. */
 typedef struct RedisModulePostKeyedNotificationJob {
     RedisModule *module;
     RedisModulePostNotificationJobPerKeyFunc callback;
-    list *entries; /* list of RedisModulePostKeyedNotificationEntry* */
+    RedisModuleString *key; /* Owned reference; freed after the callback runs. */
+    void *pd;
+    void (*free_pd)(void*);
     int dbid;
 } RedisModulePostKeyedNotificationJob;
-
-/* Index key used to coalesce keyed post-notification jobs by (module, callback)
- * while the current command is still in progress. */
-typedef struct {
-    RedisModule *module;
-    RedisModulePostNotificationJobPerKeyFunc callback;
-} PostKeyedNotificationJobIndexKey;
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
@@ -377,12 +363,6 @@ static list *modulePostExecUnitJobs;
 /* The module per-key post-notification jobs list (fired at the tail of every
  * call(), so each sub-command boundary inside MULTI/EXEC is observed). */
 static list *modulePostKeyedNotificationJobs;
-
-/* Index from (module, per-key callback) -> RedisModulePostKeyedNotificationJob*
- * in modulePostKeyedNotificationJobs. Used so that submitting a second key for
- * an already-pending keyed job appends to that job's entry list rather than
- * enqueuing a new job. Reset to empty at the end of every drain. */
-static dict *modulePostKeyedNotificationJobIndex;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -9496,30 +9476,13 @@ void firePostKeyedNotificationJobs(void) {
         RedisModulePostKeyedNotificationJob *job = listNodeValue(ln);
         listDelNode(modulePostKeyedNotificationJobs, ln);
 
-        /* Remove the index entry up front so that any keys submitted from
-         * within the callback (e.g. via a nested KSN triggered by RM_Call)
-         * start a fresh keyed job. */
-        PostKeyedNotificationJobIndexKey idx = {
-            .module = job->module,
-            .callback = job->callback,
-        };
-        dictDelete(modulePostKeyedNotificationJobIndex, &idx);
-
         RedisModuleCtx ctx;
         moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
         selectDb(ctx.client, job->dbid);
 
-        listIter li;
-        listNode *eln;
-        listRewind(job->entries, &li);
-        while ((eln = listNext(&li)) != NULL) {
-            RedisModulePostKeyedNotificationEntry *e = listNodeValue(eln);
-            job->callback(&ctx, e->key, e->pd);
-            if (e->free_pd) e->free_pd(e->pd);
-            decrRefCount(e->key);
-            zfree(e);
-        }
-        listRelease(job->entries);
+        job->callback(&ctx, job->key, job->pd);
+        if (job->free_pd) job->free_pd(job->pd);
+        decrRefCount(job->key);
 
         moduleFreeContext(&ctx);
         zfree(job);
@@ -9560,12 +9523,10 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
     return REDISMODULE_OK;
 }
 
-/* Sibling of `RM_AddPostNotificationJob` that fans out per-key. The callback
- * is invoked at the tail of the currently executing command (and at the tail
- * of every sub-command inside MULTI/EXEC), so a module can observe per-key
- * effects before the next sub-command runs. Multiple submissions of the same
- * (module, callback) pair within a single command are coalesced; the callback
- * is invoked once per collected key, in submission order.
+/* Sibling of `RM_AddPostNotificationJob` that fires per-key. The callback is
+ * invoked at the tail of the currently executing command (and at the tail of
+ * every sub-command inside MULTI/EXEC), so a module can observe per-key
+ * effects before the next sub-command runs. Jobs fire in submission order.
  *
  * Only commands that touch exactly one key are supported. If called while the
  * current command touches zero or more than one key, the registration is
@@ -9593,34 +9554,15 @@ int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifica
     getKeysFreeResult(&result);
     if (numkeys != 1) return REDISMODULE_ERR;
 
-    RedisModulePostKeyedNotificationEntry *entry = zmalloc(sizeof(*entry));
-    entry->key = key;
-    incrRefCount(entry->key);
-    entry->pd = privdata;
-    entry->free_pd = free_privdata;
-
-    PostKeyedNotificationJobIndexKey idx_key = {
-        .module = ctx->module,
-        .callback = callback,
-    };
-    dictEntry *de = dictFind(modulePostKeyedNotificationJobIndex, &idx_key);
-    if (de) {
-        RedisModulePostKeyedNotificationJob *job = dictGetVal(de);
-        listAddNodeTail(job->entries, entry);
-        return REDISMODULE_OK;
-    }
-
     RedisModulePostKeyedNotificationJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
-    job->entries = listCreate();
+    job->key = key;
+    incrRefCount(job->key);
+    job->pd = privdata;
+    job->free_pd = free_privdata;
     job->dbid = ctx->client->db->id;
-    listAddNodeTail(job->entries, entry);
     listAddNodeTail(modulePostKeyedNotificationJobs, job);
-
-    PostKeyedNotificationJobIndexKey *idx = zmalloc(sizeof(*idx));
-    *idx = idx_key;
-    dictAdd(modulePostKeyedNotificationJobIndex, idx, job);
     return REDISMODULE_OK;
 }
 
@@ -13143,31 +13085,6 @@ dictType moduleAPIDictType = {
     NULL                       /* allow to expand */
 };
 
-static uint64_t postKeyedNotificationJobIndexHash(const void *key) {
-    return dictGenHashFunction(key, sizeof(PostKeyedNotificationJobIndexKey));
-}
-
-static int postKeyedNotificationJobIndexCompare(dictCmpCache *cache, const void *k1, const void *k2) {
-    UNUSED(cache);
-    const PostKeyedNotificationJobIndexKey *a = k1, *b = k2;
-    return a->module == b->module && a->callback == b->callback;
-}
-
-static void postKeyedNotificationJobIndexKeyDtor(dict *d, void *k) {
-    UNUSED(d);
-    zfree(k);
-}
-
-dictType postKeyedNotificationJobIndexDictType = {
-    postKeyedNotificationJobIndexHash,    /* hash function */
-    NULL,                                 /* key dup */
-    NULL,                                 /* val dup */
-    postKeyedNotificationJobIndexCompare, /* key compare */
-    postKeyedNotificationJobIndexKeyDtor, /* key destructor */
-    NULL,                                 /* val destructor */
-    NULL                                  /* allow to expand */
-};
-
 int moduleRegisterApi(const char *funcname, void *funcptr) {
     return dictAdd(server.moduleapi, (char*)funcname, funcptr);
 }
@@ -13209,7 +13126,6 @@ void moduleInitModulesSystem(void) {
 
     modulePostExecUnitJobs = listCreate();
     modulePostKeyedNotificationJobs = listCreate();
-    modulePostKeyedNotificationJobIndex = dictCreate(&postKeyedNotificationJobIndexDictType);
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
