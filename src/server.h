@@ -2062,6 +2062,8 @@ struct redisServer {
     int execution_nesting;      /* Execution nesting level.
                                  * e.g. call(), async module stuff (timers, events, etc.),
                                  * cron stuff (active expire, eviction) */
+    int firing_keyed_post_notif_jobs; /* Re-entrance guard while
+                                       * firePostKeyedNotificationJobs is draining. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */

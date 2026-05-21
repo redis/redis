@@ -9462,14 +9462,13 @@ void firePostExecutionUnitJobs(void) {
 
 /* Drain the keyed post-notification jobs queued during the current call().
  * Invoked at the tail of every call() (see afterCommand), so callbacks fire
- * between sub-commands inside MULTI/EXEC. Uses a static reentrance guard
- * since the per-call() hook bypasses the execution_nesting gating used by
- * firePostExecutionUnitJobs. */
+ * between sub-commands inside MULTI/EXEC. Uses server.firing_keyed_post_notif_jobs
+ * as a reentrance guard, since the per-call() hook bypasses the execution_nesting
+ * gating used by firePostExecutionUnitJobs. */
 void firePostKeyedNotificationJobs(void) {
-    static int firing = 0;
-    if (firing) return;
+    if (server.firing_keyed_post_notif_jobs) return;
     if (listLength(modulePostKeyedNotificationJobs) == 0) return;
-    firing = 1;
+    server.firing_keyed_post_notif_jobs = 1;
     enterExecutionUnit(0, 0);
     while (listLength(modulePostKeyedNotificationJobs) > 0) {
         listNode *ln = listFirst(modulePostKeyedNotificationJobs);
@@ -9488,7 +9487,7 @@ void firePostKeyedNotificationJobs(void) {
         zfree(job);
     }
     exitExecutionUnit();
-    firing = 0;
+    server.firing_keyed_post_notif_jobs = 0;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write

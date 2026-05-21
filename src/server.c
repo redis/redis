@@ -2972,6 +2972,7 @@ void initServer(void) {
     server.errors = raxNew();
     server.errors_enabled = 1;
     server.execution_nesting = 0;
+    server.firing_keyed_post_notif_jobs = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();

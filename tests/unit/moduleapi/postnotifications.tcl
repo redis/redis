@@ -177,6 +177,24 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
+        test {Per-key callback does not re-enter firing while a nested RM_Call is in flight} {
+            r flushall
+
+            # SET reentrant_outer triggers a keyed-job registration.
+            # That callback sets a marker and issues an internal SET on
+            # reentrant_inner, which registers another keyed job. If the
+            # firing function re-entered while still inside the outer
+            # callback, the inner branch would observe the marker set and
+            # log REENTRANCE_DETECTED. With the guard, the inner job is
+            # picked up by the outer drain only after the outer callback
+            # has returned and the marker has been cleared.
+            r set reentrant_outer 1
+
+            set log [r lrange reentrance_log 0 -1]
+            assert_equal -1 [lsearch $log "REENTRANCE_DETECTED"]
+            assert_equal {inner_after_outer outer_done} $log
+        }
+
         test {Per-key post notification job is refused on multi-key commands} {
             r flushall
             set repl [attach_to_replication_stream]
