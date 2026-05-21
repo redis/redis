@@ -9816,11 +9816,11 @@ RedisModuleSlotRangeArray *RM_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
     return (RedisModuleSlotRangeArray *)slots;
 }
 
-/* Returns the slot ranges for a cluster node identified by nodeid.
+/* Returns the slot ranges owned by the cluster node identified by `nodeid`.
  *
  * An optional `ctx` can be provided to enable auto-memory management.
- * If cluster mode is disabled, the array will include all slots (0-16383).
- * If the node is not found, an empty array is returned (num_ranges == 0).
+ * An empty array is returned if cluster mode is disabled (no cluster nodes
+ * exist) or if no node matches `nodeid`.
  * If the node is a replica, the slot ranges of its master are returned.
  *
  * The returned array must be freed with RM_ClusterFreeSlotRanges(). */
@@ -9828,8 +9828,7 @@ RedisModuleSlotRangeArray *RM_ClusterGetSlotRangesByNodeId(RedisModuleCtx *ctx, 
     slotRangeArray *slots;
 
     if (!server.cluster_enabled) {
-        slots = slotRangeArrayCreate(1);
-        slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
+        slots = slotRangeArrayCreate(0);
     } else {
         clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
         slots = node ? clusterGetSlotRangesByNode(node) : slotRangeArrayCreate(0);

@@ -3094,7 +3094,7 @@ start_server {tags "cluster external:skip"} {
         r module load $testmodule
         set local_id "nonexistent-node-id"
         set ranges [r asm.cluster_get_slot_ranges_by_nodeid $local_id]
-        assert_equal $ranges {{0 16383}}
+        assert_equal $ranges {}
     }
 }
 }
