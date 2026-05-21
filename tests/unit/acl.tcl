@@ -1125,6 +1125,157 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd2 close
     }
 
+    test {ACL LOAD re-keys surviving client subscriptions to new user pointers} {
+        reconnect
+
+        set rd1 [redis_deferring_client]
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 CLIENT SETNAME rekey-survivor
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        # alice is unchanged in the ACL file — should survive and
+        # subscriptions should still work after re-keying to the new
+        # user pointer.
+        r ACL LOAD
+        r PUBLISH test1 rekey-msg
+
+        assert_match {*rekey-msg*} [$rd1 read]
+        assert_match {*rekey-survivor*} [r CLIENT LIST]
+        $rd1 close
+    }
+
+    test {ACL LOAD re-keyed client can create new subscriptions} {
+        reconnect
+
+        set rd1 [redis_deferring_client]
+        $rd1 HELLO 3 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        r ACL LOAD
+
+        # After re-keying, the client should be able to subscribe to new
+        # channels under the same (now re-keyed) user pointer.
+        $rd1 SUBSCRIBE test2
+        $rd1 read
+
+        # Both the old (re-keyed) and new subscriptions should deliver.
+        r PUBLISH test1 old-channel
+        assert_match {*old-channel*} [$rd1 read]
+        r PUBLISH test2 new-channel
+        assert_match {*new-channel*} [$rd1 read]
+
+        # Second ACL LOAD: forces the walk to dereference every outer dict
+        # key (old_user_ptr->name). If the first re-key left a dangling
+        # pointer, this will crash rather than pass silently.
+        r ACL LOAD
+        r PUBLISH test1 after-second-load
+        assert_match {*after-second-load*} [$rd1 read]
+        $rd1 close
+    }
+
+    test {ACL LOAD kills client when one of multiple provenance users is deleted} {
+        reconnect
+        r ACL SETUSER tempuser on nopass ~* &* +@all
+
+        set rd1 [redis_deferring_client]
+        # Subscribe as alice first, then re-auth as tempuser and subscribe more
+        $rd1 HELLO 3 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+        $rd1 AUTH tempuser tempuser
+        $rd1 read
+        $rd1 SUBSCRIBE test2
+        $rd1 read
+        $rd1 CLIENT SETNAME multi-prov
+        $rd1 read
+
+        # tempuser is not in user.acl, so ACL LOAD will delete it.
+        # Client has a provenance entry for the deleted user → must be killed.
+        r ACL LOAD
+        catch {$rd1 read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*multi-prov*} [r CLIENT LIST]
+        $rd1 close
+    }
+
+    test {ACL LOAD kills default user subscriber when channel access revoked} {
+        reconnect
+        set rd1 [redis_deferring_client]
+        $rd1 CLIENT SETNAME default-sub
+        $rd1 read
+        $rd1 SUBSCRIBE secret
+        $rd1 read
+
+        # Write a modified ACL file that restricts default's channels
+        set aclfile [file join $server_path user.acl]
+        set fd [open $aclfile w]
+        puts $fd "user alice on allcommands allkeys &* >alice"
+        puts $fd "user bob on -@all +@set +acl ~set* &* >bob"
+        puts $fd "user doug on resetchannels &test +@all ~* >doug"
+        puts $fd "user default on nopass ~* resetchannels &healthcheck +@all"
+        close $fd
+
+        r ACL LOAD
+
+        # default no longer has access to "secret" → client must be killed
+        catch {$rd1 read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*default-sub*} [r CLIENT LIST]
+
+        # Restore the original ACL file
+        exec cp -f tests/assets/user.acl $server_path
+        r ACL LOAD
+        $rd1 close
+    }
+
+    test {ACL LOAD default user subscriber survives when permissions unchanged} {
+        reconnect
+        set rd1 [redis_deferring_client]
+        $rd1 CLIENT SETNAME default-survivor
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        # Reload with identical permissions — default pointer is stable,
+        # subscriptions should survive.
+        r ACL LOAD
+        r PUBLISH test1 default-ok
+
+        assert_match {*default-ok*} [$rd1 read]
+        assert_match {*default-survivor*} [r CLIENT LIST]
+        $rd1 close
+    }
+
+    test {Pointer-key optimization: long username does not bloat subscription memory} {
+        reconnect
+        set longname [string repeat "A" 1000000]
+        r ACL SETUSER $longname on nopass ~* &* +@all
+
+        set rd1 [redis_deferring_client]
+        $rd1 AUTH $longname $longname
+        $rd1 read
+
+        set mem_before [s used_memory]
+        $rd1 SUBSCRIBE ch1
+        $rd1 read
+        set mem_after [s used_memory]
+
+        # The subscription should add dict overhead + pubsubUserSubs (~hundreds
+        # of bytes), not a copy of the 1MB username. Allow 64KB slack for other
+        # allocations that may happen concurrently.
+        set delta [expr {$mem_after - $mem_before}]
+        assert {$delta < 65536}
+
+        $rd1 close
+        r ACL DELUSER $longname
+    }
+
     test {ACL load and save} {
         r ACL setuser eve +get allkeys >eve on
         r ACL save
