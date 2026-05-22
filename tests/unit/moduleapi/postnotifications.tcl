@@ -81,39 +81,22 @@ foreach api {regular perkey} {
                     fail "Failed waiting for x to expired"
                 }
 
-                # {lpush before_expired x} is a post-notification job registered
-                # via the RedisModuleEvent_Key/before_expired server event, which
-                # always uses the regular post-notif queue. {incr expired} is the
-                # keyspace-handler side-effect — registered on the regular queue
-                # in regular mode and on the per-key queue in perkey mode.
-                #
-                # Both APIs drain at postExecutionUnitOperations (called from
-                # activeExpireCycleTryExpire). In regular mode both jobs share
-                # the regular queue and fire in registration order. In perkey
-                # mode the per-key queue is drained before the regular queue,
-                # so {incr expired} propagates first.
-                if {$api eq "perkey"} {
-                    assert_replication_stream $repl {
-                        {select *}
-                        {set x 1}
-                        {pexpireat x *}
-                        {multi}
-                        {del x}
-                        {incr expired}
-                        {lpush before_expired x}
-                        {exec}
-                    }
-                } else {
-                    assert_replication_stream $repl {
-                        {select *}
-                        {set x 1}
-                        {pexpireat x *}
-                        {multi}
-                        {del x}
-                        {lpush before_expired x}
-                        {incr expired}
-                        {exec}
-                    }
+                # {lpush before_expired x} comes from the RedisModuleEvent_Key
+                # server event (always uses the regular post-notif queue).
+                # {incr expired} comes from the keyspace handler (regular or
+                # per-key queue depending on $api). Both APIs propagate the
+                # same stream: postExecutionUnitOperations drains regular
+                # before per-key, so the ordering between the two side-effects
+                # matches their in-process registration order.
+                assert_replication_stream $repl {
+                    {select *}
+                    {set x 1}
+                    {pexpireat x *}
+                    {multi}
+                    {del x}
+                    {lpush before_expired x}
+                    {incr expired}
+                    {exec}
                 }
                 close_replication_stream $repl
             }
@@ -221,34 +204,20 @@ foreach api {regular perkey} {
 
                 assert_error {OOM *} {r set y 1}
 
-                # {lpush before_evicted x} is registered via the
+                # {lpush before_evicted x} comes from the
                 # RedisModuleEvent_Key/before_evicted server event (always uses
                 # the regular post-notif queue). {incr evicted} comes from the
-                # keyspace handler — on the regular queue in regular mode and
-                # on the per-key queue in perkey mode. Both APIs drain in
-                # postExecutionUnitOperations (called from performEvictions);
-                # in perkey mode the per-key queue is drained first, so
-                # {incr evicted} propagates before {lpush before_evicted x}.
-                if {$api eq "perkey"} {
-                    assert_replication_stream $repl {
-                        {select *}
-                        {set x 1}
-                        {multi}
-                        {del x}
-                        {incr evicted}
-                        {lpush before_evicted x}
-                        {exec}
-                    }
-                } else {
-                    assert_replication_stream $repl {
-                        {select *}
-                        {set x 1}
-                        {multi}
-                        {del x}
-                        {lpush before_evicted x}
-                        {incr evicted}
-                        {exec}
-                    }
+                # keyspace handler (regular or per-key queue depending on
+                # $api). Both APIs propagate the same stream: regular drains
+                # before per-key inside postExecutionUnitOperations.
+                assert_replication_stream $repl {
+                    {select *}
+                    {set x 1}
+                    {multi}
+                    {del x}
+                    {lpush before_evicted x}
+                    {incr evicted}
+                    {exec}
                 }
                 close_replication_stream $repl
             } {} {needs:config-maxmemory}

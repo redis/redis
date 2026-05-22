@@ -3849,14 +3849,16 @@ void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
-    /* Drain keyed post-notification jobs before the regular ones. This is the
-     * exit-execution-unit firing site that mirrors afterCommand's drain
-     * order, and it is the point at which active-expire (expire.c) and
-     * eviction (evict.c) get the per-key callback delivered — both call us
-     * directly after their own enter/exitExecutionUnit. */
-    firePostKeyedNotificationJobs();
-
+    /* At this site the regular queue drains first and the keyed queue runs
+     * after it. We're past every command's afterCommand drain by now (no
+     * more sub-commands coming), so the per-sub-command ordering that
+     * afterCommand needs doesn't apply here. Keeping regular first matches
+     * the in-process registration order of the existing API and gives
+     * identical propagated streams between the two APIs for the cron-driven
+     * paths (active-expire in expire.c, eviction in evict.c — both call us
+     * directly after their own enter/exitExecutionUnit). */
     firePostExecutionUnitJobs();
+    firePostKeyedNotificationJobs();
 
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
