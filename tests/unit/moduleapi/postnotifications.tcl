@@ -19,60 +19,86 @@ tags "modules external:skip" {
         # which also fires the RedisModuleEvent_Key.before_overwritten server
         # event (registered first during dbGenericDelete inside setKey, before
         # notifyKeyspaceEvent).
-        #
-        # In the regular iteration both side effects ride the regular drain
-        # (server-event LPUSH first, KSN INCRs second). In the per-key
-        # iteration the per-key drain runs first in afterCommand, so the
-        # per-key LPUSH appears before the server-event LPUSH.
-        foreach {api setup_key drain_ops} {
-            regular  string_x  {{incr string_changed{string_x}} {incr string_total}}
-            perkey   batched_a {{lpush batched_keys batched_a}}
+        foreach {api key} {
+            regular  string_x
+            perkey   batched_a
         } {
             test "Post-notification job fires on writes ($api API)" {
                 r flushall
                 set repl [attach_to_replication_stream]
 
-                r set $setup_key 1
-                r set $setup_key 2
+                r set $key 1
+                r set $key 2
 
-                set expected [list {multi} {select *} [list set $setup_key 1]]
-                foreach op $drain_ops { lappend expected $op }
-                lappend expected {exec}
-
-                lappend expected {multi} [list set $setup_key 2]
                 if {$api eq "regular"} {
-                    lappend expected [list lpush before_overwritten $setup_key]
-                    foreach op $drain_ops { lappend expected $op }
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {set string_x 1}
+                        {incr string_changed{string_x}}
+                        {incr string_total}
+                        {exec}
+                        {multi}
+                        {set string_x 2}
+                        {lpush before_overwritten string_x}
+                        {incr string_changed{string_x}}
+                        {incr string_total}
+                        {exec}
+                    }
                 } else {
-                    foreach op $drain_ops { lappend expected $op }
-                    lappend expected [list lpush before_overwritten $setup_key]
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {set batched_a 1}
+                        {lpush batched_keys batched_a}
+                        {exec}
+                        {multi}
+                        {set batched_a 2}
+                        {lpush batched_keys batched_a}
+                        {lpush before_overwritten batched_a}
+                        {exec}
+                    }
                 }
-                lappend expected {exec}
-
-                assert_replication_stream $repl $expected
                 close_replication_stream $repl
             }
         }
 
-        # Regular-only: the per-key API can't fire from a thread because it
-        # requires server.executing_client to be set (single-key guard).
-        test {Test write on post notification callback from module thread} {
-            r flushall
-            set repl [attach_to_replication_stream]
+        # Common: an RM_Call from a module thread (after ThreadSafeContextLock)
+        # goes through call() and sets server.executing_client, so both APIs
+        # accept the registration.
+        foreach {api key} {
+            regular  string_x
+            perkey   batched_a
+        } {
+            test "Test write on post notification callback from module thread ($api API)" {
+                r flushall
+                set repl [attach_to_replication_stream]
 
-            assert_equal {OK} [r postnotification.async_set]
-            assert_equal {1} [r get string_changed{string_x}]
-            assert_equal {1} [r get string_total]
+                assert_equal {OK} [r postnotification.async_set $key]
 
-            assert_replication_stream $repl {
-                {multi}
-                {select *}
-                {set string_x 1}
-                {incr string_changed{string_x}}
-                {incr string_total}
-                {exec}
+                if {$api eq "regular"} {
+                    assert_equal {1} [r get string_changed{string_x}]
+                    assert_equal {1} [r get string_total]
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {set string_x 1}
+                        {incr string_changed{string_x}}
+                        {incr string_total}
+                        {exec}
+                    }
+                } else {
+                    assert_equal $key [r lindex batched_keys 0]
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {set batched_a 1}
+                        {lpush batched_keys batched_a}
+                        {exec}
+                    }
+                }
+                close_replication_stream $repl
             }
-            close_replication_stream $repl
         }
 
         # Regular-only: active expire fires from cron with no executing_client,
@@ -108,12 +134,10 @@ tags "modules external:skip" {
         # Common: lazy DEL on key access fires NOTIFY_EXPIRED with
         # server.executing_client still set, so a post-notification job
         # registered from inside the handler is queued and propagated as part
-        # of the same execution unit. Iterates over the legacy regular fixture
-        # (key "x", INCR-counter sink) and the per-key fixture (key
-        # "expire_x", LPUSH-list sink).
-        foreach {api key drain_op} {
-            regular  x         {incr expired}
-            perkey   expire_x  {lpush expired_keys expire_x}
+        # of the same execution unit.
+        foreach {api key} {
+            regular  x
+            perkey   expire_x
         } {
             test "Test lazy expire ($api API)" {
                 r flushall
@@ -125,32 +149,28 @@ tags "modules external:skip" {
                 after 10
                 assert_equal {} [r get $key]
 
-                # before_expired comes from the RedisModuleEvent_Key server event,
-                # registered during dbGenericDelete BEFORE notifyKeyspaceEvent.
-                # Regular iteration: both side effects ride the regular drain;
-                # server-event LPUSH appears before the KSN-driven INCR. Per-key
-                # iteration: per-key drain runs first in afterCommand, so the
-                # per-key LPUSH appears before the server-event LPUSH.
                 if {$api eq "regular"} {
-                    assert_replication_stream $repl [list \
-                        {select *} \
-                        [list set $key 1] \
-                        [list pexpireat $key *] \
-                        {multi} \
-                        [list del $key] \
-                        [list lpush before_expired $key] \
-                        $drain_op \
-                        {exec}]
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {pexpireat x *}
+                        {multi}
+                        {del x}
+                        {lpush before_expired x}
+                        {incr expired}
+                        {exec}
+                    }
                 } else {
-                    assert_replication_stream $repl [list \
-                        {select *} \
-                        [list set $key 1] \
-                        [list pexpireat $key *] \
-                        {multi} \
-                        [list del $key] \
-                        $drain_op \
-                        [list lpush before_expired $key] \
-                        {exec}]
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set expire_x 1}
+                        {pexpireat expire_x *}
+                        {multi}
+                        {del expire_x}
+                        {lpush expired_keys expire_x}
+                        {lpush before_expired expire_x}
+                        {exec}
+                    }
                 }
                 close_replication_stream $repl
                 r DEBUG SET-ACTIVE-EXPIRE 1
@@ -164,9 +184,9 @@ tags "modules external:skip" {
         # inside the outer callback's stack. The regular API gates this via
         # execution_nesting; the per-key API gates it via the dedicated
         # firing_keyed_post_notif_jobs flag.
-        foreach {api outer_key inner_key drain_op} {
-            regular  read_x                 x               {incr expired}
-            perkey   pkread_expire_target   expire_target   {lpush expired_keys expire_target}
+        foreach {api outer_key inner_key} {
+            regular  read_x                 x
+            perkey   pkread_expire_target   expire_target
         } {
             test "Test lazy expire inside post job notification ($api API)" {
                 r flushall
@@ -179,27 +199,29 @@ tags "modules external:skip" {
                 assert_equal {OK} [r set $outer_key 1]
 
                 if {$api eq "regular"} {
-                    assert_replication_stream $repl [list \
-                        {select *} \
-                        [list set $inner_key 1] \
-                        [list pexpireat $inner_key *] \
-                        {multi} \
-                        [list set $outer_key 1] \
-                        [list del $inner_key] \
-                        [list lpush before_expired $inner_key] \
-                        $drain_op \
-                        {exec}]
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {pexpireat x *}
+                        {multi}
+                        {set read_x 1}
+                        {del x}
+                        {lpush before_expired x}
+                        {incr expired}
+                        {exec}
+                    }
                 } else {
-                    assert_replication_stream $repl [list \
-                        {select *} \
-                        [list set $inner_key 1] \
-                        [list pexpireat $inner_key *] \
-                        {multi} \
-                        [list set $outer_key 1] \
-                        [list del $inner_key] \
-                        $drain_op \
-                        [list lpush before_expired $inner_key] \
-                        {exec}]
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set expire_target 1}
+                        {pexpireat expire_target *}
+                        {multi}
+                        {set pkread_expire_target 1}
+                        {del expire_target}
+                        {lpush expired_keys expire_target}
+                        {lpush before_expired expire_target}
+                        {exec}
+                    }
                 }
                 close_replication_stream $repl
                 r DEBUG SET-ACTIVE-EXPIRE 1
@@ -323,10 +345,12 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
-        # Regular-only: eviction triggers from performEvictions with no
-        # executing_client for the evicted key, so the per-key API's
-        # single-key guard refuses the registration. Placed last in the
-        # section because it sets maxmemory=1 and OOMs subsequent writes.
+        # Both APIs accept registrations from a NOTIFY_EVICTED handler
+        # because eviction fires inside the OOM-triggering command's call(),
+        # so server.executing_client is set. Tested only via the regular
+        # fixture for brevity — the per-key path is structurally identical.
+        # Placed last in the section because it sets maxmemory=1 and would
+        # OOM subsequent writes.
         test {Test eviction} {
             r flushall
             set repl [attach_to_replication_stream]

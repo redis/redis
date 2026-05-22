@@ -152,30 +152,40 @@ static int KeySpace_NestedNotification(RedisModuleCtx *ctx, int type, const char
     return REDISMODULE_OK;
 }
 
+typedef struct AsyncSetArgs {
+    RedisModuleBlockedClient *bc;
+    RedisModuleString *key;
+} AsyncSetArgs;
+
 static void *KeySpace_PostNotificationsAsyncSetInner(void *arg) {
-    RedisModuleBlockedClient *bc = arg;
-    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+    AsyncSetArgs *args = arg;
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(args->bc);
     RedisModule_ThreadSafeContextLock(ctx);
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, "set", "!cc", "string_x", "1");
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "set", "!sc", args->key, "1");
     RedisModule_ThreadSafeContextUnlock(ctx);
     RedisModule_ReplyWithCallReply(ctx, rep);
     RedisModule_FreeCallReply(rep);
 
-    RedisModule_UnblockClient(bc, NULL);
+    RedisModule_UnblockClient(args->bc, NULL);
     RedisModule_FreeThreadSafeContext(ctx);
+    RedisModule_FreeString(NULL, args->key);
+    RedisModule_Free(args);
     return NULL;
 }
 
 static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    if (argc != 1)
+    if (argc != 2)
         return RedisModule_WrongArity(ctx);
 
-    pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0);
+    AsyncSetArgs *args = RedisModule_Alloc(sizeof(*args));
+    args->bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0);
+    args->key = RedisModule_HoldString(NULL, argv[1]);
 
-    if (pthread_create(&tid,NULL,KeySpace_PostNotificationsAsyncSetInner,bc) != 0) {
-        RedisModule_AbortBlock(bc);
+    pthread_t tid;
+    if (pthread_create(&tid,NULL,KeySpace_PostNotificationsAsyncSetInner,args) != 0) {
+        RedisModule_AbortBlock(args->bc);
+        RedisModule_FreeString(NULL, args->key);
+        RedisModule_Free(args);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
     pthread_detach(tid);
@@ -437,7 +447,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "postnotification.async_set", KeySpace_PostNotificationsAsyncSet,
-                                      "write", 0, 0, 0) == REDISMODULE_ERR){
+                                      "write", 1, 1, 1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
