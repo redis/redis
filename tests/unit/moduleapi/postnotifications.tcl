@@ -28,8 +28,14 @@ tags "modules external:skip" {
                 set repl [attach_to_replication_stream]
 
                 r set $key 1
-                r set $key 2
+                if {$api eq "regular"} {
+                    assert_equal {1} [r get string_changed{string_x}]
+                    assert_equal {1} [r get string_total]
+                } else {
+                    assert_equal {batched_a} [r lrange batched_keys 0 -1]
+                }
 
+                r set $key 2
                 if {$api eq "regular"} {
                     assert_equal {2} [r get string_changed{string_x}]
                     assert_equal {2} [r get string_total]
