@@ -270,13 +270,20 @@ tags "modules external:skip" {
 
         # Per-key-only: the single-key guard refuses registration when the
         # current command touches more than one key. The regular API has no
-        # such constraint.
+        # such constraint. We also assert that the refusal logs a warning so
+        # module authors get a hint when they hit this.
         test {Per-key post notification job is refused on multi-key commands} {
             r flushall
             set repl [attach_to_replication_stream]
+            set baseline [count_log_message 0 "AddPostNotificationJobForKey"]
 
             r mset batched_a 1 batched_b 2 batched_c 3
             assert_equal {} [r lrange batched_keys 0 -1]
+
+            # MSET touches 3 keys; the keyspace handler fires once per key, so
+            # the warning is emitted three times.
+            set after [count_log_message 0 "AddPostNotificationJobForKey"]
+            assert_equal 3 [expr {$after - $baseline}]
 
             assert_replication_stream $repl {
                 {select *}

@@ -9551,7 +9551,15 @@ int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifica
     getKeysFromCommand(ec->cmd, ec->argv, ec->argc, &result);
     int numkeys = result.numkeys;
     getKeysFreeResult(&result);
-    if (numkeys != 1) return REDISMODULE_ERR;
+    if (numkeys != 1) {
+        serverLog(LL_WARNING,
+            "API misuse detected in module %s: "
+            "RedisModule_AddPostNotificationJobForKey called from a notification "
+            "on command '%s' which touches %d keys; the per-key API requires "
+            "exactly one key.",
+            ctx->module->name, ec->cmd->fullname, numkeys);
+        return REDISMODULE_ERR;
+    }
 
     RedisModulePostKeyedNotificationJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
