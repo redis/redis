@@ -343,6 +343,268 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    # ─── Provenance: subscription revocation across re-auth ───
+
+    test {Provenance: channel subscription is killed when originating user's permissions are revoked} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE secret
+        assert_match {subscribe secret 1} [$rd read]
+        # Re-auth as default — subscription stays under provuser
+        $rd AUTH default ""
+        $rd read
+        $rd CLIENT SETNAME prov-channel
+        $rd read
+        # Revoke provuser's channel access
+        r ACL SETUSER provuser resetchannels
+        # Client must be killed — provenance entry is under provuser
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-channel*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: pattern subscription is killed when originating user's permissions are revoked} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd PSUBSCRIBE secret:*
+        assert_match {psubscribe secret:* 1} [$rd read]
+        $rd AUTH default ""
+        $rd read
+        $rd CLIENT SETNAME prov-pattern
+        $rd read
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-pattern*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: shard channel subscription is killed when originating user's permissions are revoked} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SSUBSCRIBE secret
+        assert_match {ssubscribe secret 1} [$rd read]
+        $rd AUTH default ""
+        $rd read
+        $rd CLIENT SETNAME prov-shard
+        $rd read
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-shard*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    # ─── Provenance: ACL DELUSER on originating user ───
+
+    test {Provenance: ACL DELUSER kills client that holds subscriptions from deleted user} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE chan1
+        $rd read
+        # Re-auth as default, subscription remains under provuser
+        $rd AUTH default ""
+        $rd read
+        $rd CLIENT SETNAME prov-deluser
+        $rd read
+        r ACL DELUSER provuser
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-deluser*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    # ─── Provenance: duplicate subscribe after re-auth (first user wins) ───
+
+    test {Provenance: duplicate subscribe after re-auth attributes to first user} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE chan1
+        assert_match {subscribe chan1 1} [$rd read]
+        # Re-auth and subscribe to the same channel — should be a no-op
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE chan1
+        assert_match {subscribe chan1 1} [$rd read]
+        $rd CLIENT SETNAME prov-dup
+        $rd read
+        # Revoke provuser (the originating user) — must kill
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-dup*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    # ─── Provenance: many user switches on one connection ───
+
+    test {Provenance: many user switches with subscriptions, revoking one kills client} {
+        r ACL SETUSER user1 on nopass ~* &* +@all
+        r ACL SETUSER user2 on nopass ~* &* +@all
+        r ACL SETUSER user3 on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH user1 user1
+        $rd read
+        $rd SUBSCRIBE ch1
+        $rd read
+        $rd AUTH user2 user2
+        $rd read
+        $rd SUBSCRIBE ch2
+        $rd read
+        $rd AUTH user3 user3
+        $rd read
+        $rd SUBSCRIBE ch3
+        $rd read
+        $rd CLIENT SETNAME multi-user
+        $rd read
+        # Verify all subscriptions deliver
+        r PUBLISH ch1 msg1
+        assert_match {*msg1*} [$rd read]
+        r PUBLISH ch2 msg2
+        assert_match {*msg2*} [$rd read]
+        r PUBLISH ch3 msg3
+        assert_match {*msg3*} [$rd read]
+        # Revoke user2 — client must be killed
+        r ACL SETUSER user2 resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*multi-user*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER user1 user2 user3
+    }
+
+    # ─── Lifecycle: RESET after multi-user subscribe ───
+
+    test {Provenance: RESET clears all per-user subscription state} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE ch1
+        $rd read
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE ch2
+        $rd read
+        # RESET should clear everything
+        $rd RESET
+        $rd read
+        # Client should be out of pubsub mode — normal commands should work
+        $rd SET testkey testval
+        assert_match {OK} [$rd read]
+        $rd DEL testkey
+        $rd read
+        # PUBSUB NUMSUB should show zero for both channels
+        assert_equal {ch1 0 ch2 0} [r PUBSUB NUMSUB ch1 ch2]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    # ─── Lifecycle: unsubscribe-all after multi-user subscribe ───
+
+    test {Provenance: UNSUBSCRIBE with no args clears all per-user channel entries} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE ch1 ch2
+        $rd read ; # subscribe ch1
+        $rd read ; # subscribe ch2
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE ch3
+        $rd read
+        # Unsubscribe all channels (no args)
+        $rd UNSUBSCRIBE
+        $rd read ; # unsubscribe ch1
+        $rd read ; # unsubscribe ch2
+        $rd read ; # unsubscribe ch3
+        assert_equal {ch1 0 ch2 0 ch3 0} [r PUBSUB NUMSUB ch1 ch2 ch3]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: PUNSUBSCRIBE with no args clears all per-user pattern entries} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd PSUBSCRIBE foo:*
+        $rd read
+        $rd AUTH default ""
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        $rd PUNSUBSCRIBE
+        $rd read ; # punsubscribe foo:*
+        $rd read ; # punsubscribe bar:*
+        assert_equal {0} [r PUBSUB NUMPAT]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    # ─── PUBSUB NUMSUB/NUMPAT correctness after provenance operations ───
+
+    test {Provenance: PUBSUB NUMSUB stays correct through subscribe, re-auth, and revocation} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE ch1
+        $rd read
+        assert_equal {ch1 1} [r PUBSUB NUMSUB ch1]
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE ch2
+        $rd read
+        assert_equal {ch1 1 ch2 1} [r PUBSUB NUMSUB ch1 ch2]
+        # Revoke provuser — client killed, all subscriptions gone
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_equal {ch1 0 ch2 0} [r PUBSUB NUMSUB ch1 ch2]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: PUBSUB NUMPAT stays correct through subscribe, re-auth, and revocation} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd PSUBSCRIBE foo:*
+        $rd read
+        assert_equal {1} [r PUBSUB NUMPAT]
+        $rd AUTH default ""
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        assert_equal {2} [r PUBSUB NUMPAT]
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_equal {0} [r PUBSUB NUMPAT]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    # ─── End of provenance tests ───
+
     test {blocked command gets rejected when reprocessed after permission change} {
         r auth default ""
         r config resetstat

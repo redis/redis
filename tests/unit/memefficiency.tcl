@@ -582,6 +582,98 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
+        test "Active defrag pubsub multi-user subscriptions: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1500kb
+            r config set maxmemory 0
+
+            r ACL SETUSER defraguser on nopass ~* &* +@all
+
+            set n 25000
+            set dummy_channel "[string repeat x 400]"
+            set rd_default [redis_deferring_client]
+            set rd_extra [redis_deferring_client]
+            $rd_extra AUTH defraguser defraguser
+            $rd_extra read
+
+            set rd_filler [redis_deferring_client]
+            for {set j 0} {$j < $n} {incr j} {
+                set channel_name "$dummy_channel[format "%06d" $j]"
+                if {$j % 2 == 0} {
+                    $rd_default subscribe $channel_name
+                    $rd_default read
+                } else {
+                    $rd_extra subscribe $channel_name
+                    $rd_extra read
+                }
+                $rd_filler setbit k$j [expr {[string length $channel_name] * 8}] 1
+                $rd_filler read
+            }
+
+            after 120
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+            set batch_size 1000
+            for {set j 0} {$j < $n} {incr j} {
+                $rd_filler del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd_filler read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd_filler read }
+            if {$type eq "cluster"} {
+                $rd_filler config resetstat
+                $rd_filler read
+            }
+            $rd_filler close
+            after 120
+            assert_morethan [s allocator_frag_ratio] 1.35
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                wait_for_defrag_stop 500 100 1.05
+
+                after 120
+            }
+
+            for {set j 0} {$j < $n} {incr j} {
+                set channel "$dummy_channel[format "%06d" $j]"
+                r publish $channel "hello"
+                if {$j % 2 == 0} {
+                    assert_equal "message $channel hello" [$rd_default read]
+                    $rd_default unsubscribe $channel
+                    $rd_default read
+                } else {
+                    assert_equal "message $channel hello" [$rd_extra read]
+                    $rd_extra unsubscribe $channel
+                    $rd_extra read
+                }
+            }
+            $rd_default close
+            $rd_extra close
+            r ACL DELUSER defraguser
+        }
+
         test "Active defrag IDMP streams: $type" {
             r flushdb
             r config set hz 100
