@@ -70,7 +70,6 @@ install: $(MODULES_ALL_INSTALL)
 
 
 # Keep all of the Rust stuff in one place
-# Keep all of the Rust stuff in one place
 install-rust:
 ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 	@RUST_VERSION=1.94.0; \
