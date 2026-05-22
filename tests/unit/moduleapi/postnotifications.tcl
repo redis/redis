@@ -1,38 +1,61 @@
 set testmodule [file normalize tests/modules/postnotifications.so]
 
+# ----------------------------------------------------------------------------
+# Both post-notification APIs (RM_AddPostNotificationJob and
+# RM_AddPostNotificationJobForKey) share the same .so. Tests that exercise
+# behavior identical across both APIs — i.e. anything that doesn't depend on
+# the per-key API's distinct firing point inside MULTI/EXEC — are written as a
+# `foreach` over (regular, perkey) so the same assertions hold for both.
+# API-specific tests stay as standalone tests.
+# ----------------------------------------------------------------------------
+
 tags "modules external:skip" {
     start_server {} {
         r module load $testmodule with_key_events
 
-        test {Test write on post notification callback} {
-            set repl [attach_to_replication_stream]
+        # Common: a single SET fires the post-notification job registered by
+        # the KSN handler, and the side effect is propagated wrapped with the
+        # SET in one implicit MULTI/EXEC. The second SET overwrites the key,
+        # which also fires the RedisModuleEvent_Key.before_overwritten server
+        # event (registered first during dbGenericDelete inside setKey, before
+        # notifyKeyspaceEvent).
+        #
+        # In the regular iteration both side effects ride the regular drain
+        # (server-event LPUSH first, KSN INCRs second). In the per-key
+        # iteration the per-key drain runs first in afterCommand, so the
+        # per-key LPUSH appears before the server-event LPUSH.
+        foreach {api setup_key drain_ops} {
+            regular  string_x  {{incr string_changed{string_x}} {incr string_total}}
+            perkey   batched_a {{lpush batched_keys batched_a}}
+        } {
+            test "Post-notification job fires on writes ($api API)" {
+                r flushall
+                set repl [attach_to_replication_stream]
 
-            r set string_x 1
-            assert_equal {1} [r get string_changed{string_x}]
-            assert_equal {1} [r get string_total]
+                r set $setup_key 1
+                r set $setup_key 2
 
-            r set string_x 2
-            assert_equal {2} [r get string_changed{string_x}]
-            assert_equal {2} [r get string_total]
+                set expected [list {multi} {select *} [list set $setup_key 1]]
+                foreach op $drain_ops { lappend expected $op }
+                lappend expected {exec}
 
-            # the {lpush before_overwritten string_x} is a post notification job registered when 'string_x' was overwritten
-            assert_replication_stream $repl {
-                {multi}
-                {select *}
-                {set string_x 1}
-                {incr string_changed{string_x}}
-                {incr string_total}
-                {exec}
-                {multi}
-                {set string_x 2}
-                {lpush before_overwritten string_x}
-                {incr string_changed{string_x}}
-                {incr string_total}
-                {exec}
+                lappend expected {multi} [list set $setup_key 2]
+                if {$api eq "regular"} {
+                    lappend expected [list lpush before_overwritten $setup_key]
+                    foreach op $drain_ops { lappend expected $op }
+                } else {
+                    foreach op $drain_ops { lappend expected $op }
+                    lappend expected [list lpush before_overwritten $setup_key]
+                }
+                lappend expected {exec}
+
+                assert_replication_stream $repl $expected
+                close_replication_stream $repl
             }
-            close_replication_stream $repl
         }
 
+        # Regular-only: the per-key API can't fire from a thread because it
+        # requires server.executing_client to be set (single-key guard).
         test {Test write on post notification callback from module thread} {
             r flushall
             set repl [attach_to_replication_stream]
@@ -52,6 +75,8 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
+        # Regular-only: active expire fires from cron with no executing_client,
+        # so the per-key API's single-key guard refuses the registration.
         test {Test active expire} {
             r flushall
             set repl [attach_to_replication_stream]
@@ -80,57 +105,109 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
-        test {Test lazy expire} {
-            r flushall
-            r DEBUG SET-ACTIVE-EXPIRE 0
-            set repl [attach_to_replication_stream]
+        # Common: lazy DEL on key access fires NOTIFY_EXPIRED with
+        # server.executing_client still set, so a post-notification job
+        # registered from inside the handler is queued and propagated as part
+        # of the same execution unit. Iterates over the legacy regular fixture
+        # (key "x", INCR-counter sink) and the per-key fixture (key
+        # "expire_x", LPUSH-list sink).
+        foreach {api key drain_op} {
+            regular  x         {incr expired}
+            perkey   expire_x  {lpush expired_keys expire_x}
+        } {
+            test "Test lazy expire ($api API)" {
+                r flushall
+                r DEBUG SET-ACTIVE-EXPIRE 0
+                set repl [attach_to_replication_stream]
 
-            r set x 1
-            r pexpire x 1
-            after 10
-            assert_equal {} [r get x]
+                r set $key 1
+                r pexpire $key 1
+                after 10
+                assert_equal {} [r get $key]
 
-            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
-            assert_replication_stream $repl {
-                {select *}
-                {set x 1}
-                {pexpireat x *}
-                {multi}
-                {del x}
-                {lpush before_expired x}
-                {incr expired}
-                {exec}
-            }
-            close_replication_stream $repl
-            r DEBUG SET-ACTIVE-EXPIRE 1
-        } {OK} {needs:debug}
+                # before_expired comes from the RedisModuleEvent_Key server event,
+                # registered during dbGenericDelete BEFORE notifyKeyspaceEvent.
+                # Regular iteration: both side effects ride the regular drain;
+                # server-event LPUSH appears before the KSN-driven INCR. Per-key
+                # iteration: per-key drain runs first in afterCommand, so the
+                # per-key LPUSH appears before the server-event LPUSH.
+                if {$api eq "regular"} {
+                    assert_replication_stream $repl [list \
+                        {select *} \
+                        [list set $key 1] \
+                        [list pexpireat $key *] \
+                        {multi} \
+                        [list del $key] \
+                        [list lpush before_expired $key] \
+                        $drain_op \
+                        {exec}]
+                } else {
+                    assert_replication_stream $repl [list \
+                        {select *} \
+                        [list set $key 1] \
+                        [list pexpireat $key *] \
+                        {multi} \
+                        [list del $key] \
+                        $drain_op \
+                        [list lpush before_expired $key] \
+                        {exec}]
+                }
+                close_replication_stream $repl
+                r DEBUG SET-ACTIVE-EXPIRE 1
+            } {OK} {needs:debug}
+        }
 
-        test {Test lazy expire inside post job notification} {
-            r flushall
-            r DEBUG SET-ACTIVE-EXPIRE 0
-            set repl [attach_to_replication_stream]
+        # Common: an outer post-notification callback's RM_Call accesses an
+        # already-expired sibling key; the resulting lazy DEL fires KSN, which
+        # registers another post-notification job from inside the outer
+        # callback. That inner job must fire from the outer drain, not nested
+        # inside the outer callback's stack. The regular API gates this via
+        # execution_nesting; the per-key API gates it via the dedicated
+        # firing_keyed_post_notif_jobs flag.
+        foreach {api outer_key inner_key drain_op} {
+            regular  read_x                 x               {incr expired}
+            perkey   pkread_expire_target   expire_target   {lpush expired_keys expire_target}
+        } {
+            test "Test lazy expire inside post job notification ($api API)" {
+                r flushall
+                r DEBUG SET-ACTIVE-EXPIRE 0
+                set repl [attach_to_replication_stream]
 
-            r set x 1
-            r pexpire x 1
-            after 10
-            assert_equal {OK} [r set read_x 1]
+                r set $inner_key 1
+                r pexpire $inner_key 1
+                after 10
+                assert_equal {OK} [r set $outer_key 1]
 
-            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
-            assert_replication_stream $repl {
-                {select *}
-                {set x 1}
-                {pexpireat x *}
-                {multi}
-                {set read_x 1}
-                {del x}
-                {lpush before_expired x}
-                {incr expired}
-                {exec}
-            }
-            close_replication_stream $repl
-            r DEBUG SET-ACTIVE-EXPIRE 1
-        } {OK} {needs:debug}
+                if {$api eq "regular"} {
+                    assert_replication_stream $repl [list \
+                        {select *} \
+                        [list set $inner_key 1] \
+                        [list pexpireat $inner_key *] \
+                        {multi} \
+                        [list set $outer_key 1] \
+                        [list del $inner_key] \
+                        [list lpush before_expired $inner_key] \
+                        $drain_op \
+                        {exec}]
+                } else {
+                    assert_replication_stream $repl [list \
+                        {select *} \
+                        [list set $inner_key 1] \
+                        [list pexpireat $inner_key *] \
+                        {multi} \
+                        [list set $outer_key 1] \
+                        [list del $inner_key] \
+                        $drain_op \
+                        [list lpush before_expired $inner_key] \
+                        {exec}]
+                }
+                close_replication_stream $repl
+                r DEBUG SET-ACTIVE-EXPIRE 1
+            } {OK} {needs:debug}
+        }
 
+        # Regular-only: tests REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS,
+        # which is orthogonal to the post-notification API surface.
         test {Test nested keyspace notification} {
             r flushall
             set repl [attach_to_replication_stream]
@@ -148,6 +225,101 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
+        # Per-key-only: the per-key callback fires at the tail of EVERY call(),
+        # including each sub-command inside MULTI/EXEC. The regular API only
+        # fires at the outermost EXEC.
+        test {Per-key post notification job fires between MULTI/EXEC sub-commands} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r multi
+            r set batched_a 1
+            r set batched_b 2
+            r set batched_c 3
+            r exec
+
+            assert_equal {batched_c batched_b batched_a} [r lrange batched_keys 0 -1]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {set batched_a 1}
+                {lpush batched_keys batched_a}
+                {set batched_b 2}
+                {lpush batched_keys batched_b}
+                {set batched_c 3}
+                {lpush batched_keys batched_c}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
+        # Per-key-only: the firing function uses its own reentrance guard
+        # (firing_keyed_post_notif_jobs) because per-key callbacks must fire
+        # even when execution_nesting > 0. Test that a nested RM_Call inside
+        # an outer per-key callback does not re-enter the firing function.
+        test {Per-key callback does not re-enter firing while a nested RM_Call is in flight} {
+            r flushall
+
+            r set reentrant_outer 1
+
+            set log [r lrange reentrance_log 0 -1]
+            assert_equal -1 [lsearch $log "REENTRANCE_DETECTED"]
+            assert_equal {inner_after_outer outer_done} $log
+        }
+
+        # Per-key-only: the single-key guard refuses registration when the
+        # current command touches more than one key. The regular API has no
+        # such constraint.
+        test {Per-key post notification job is refused on multi-key commands} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r mset batched_a 1 batched_b 2 batched_c 3
+            assert_equal {} [r lrange batched_keys 0 -1]
+
+            assert_replication_stream $repl {
+                {select *}
+                {mset batched_a 1 batched_b 2 batched_c 3}
+            }
+            close_replication_stream $repl
+        }
+
+        # Per-key-only: HSET and HEXPIRE both touch a single hash, so they
+        # pass the single-key guard. The per-key callback fires at the tail of
+        # each sub-command's call(), interleaving an LPUSH between successive
+        # HSET/HEXPIRE on the same hash inside MULTI/EXEC (the original
+        # motivation for this API — RED-197766).
+        test {Per-key post notification job fires between HSET and HEXPIRE on the same hash inside MULTI/EXEC} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r multi
+            r hset hash_h f1 v1
+            r hset hash_h f2 v2
+            r hexpire hash_h 100 FIELDS 1 f1
+            r exec
+
+            assert_equal {hash_h hash_h hash_h} [r lrange hash_keys 0 -1]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {hset hash_h f1 v1}
+                {lpush hash_keys hash_h}
+                {hset hash_h f2 v2}
+                {lpush hash_keys hash_h}
+                {hpexpireat hash_h * FIELDS 1 f1}
+                {lpush hash_keys hash_h}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
+        # Regular-only: eviction triggers from performEvictions with no
+        # executing_client for the evicted key, so the per-key API's
+        # single-key guard refuses the registration. Placed last in the
+        # section because it sets maxmemory=1 and OOMs subsequent writes.
         test {Test eviction} {
             r flushall
             set repl [attach_to_replication_stream]

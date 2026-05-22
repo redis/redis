@@ -52,7 +52,14 @@ static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
 static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
-    REDISMODULE_NOT_USED(key);
+
+    /* Per-key fixtures own the "expire_" prefix; let their dedicated handler
+     * react to lazy expire on those keys without this counter-style handler
+     * interfering. The parametrized "Test lazy expire" iterates over the
+     * legacy regular key ("x") and the per-key key ("expire_x") to assert
+     * parity across both APIs. */
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "expire_", 7) == 0) return REDISMODULE_OK;
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "expired", 7);
     int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
@@ -225,6 +232,143 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     if (res == REDISMODULE_ERR) KeySpace_ServerEventPostNotificationFree(pn_ctx);
 }
 
+/* ============================================================================
+ * Per-key post-notification fixtures (RedisModule_AddPostNotificationJobForKey).
+ *
+ * Per-key callbacks fire at the tail of every call() — including each
+ * sub-command inside MULTI/EXEC — and registrations are restricted to commands
+ * that touch exactly one key. The fixtures below mirror the regular-API
+ * fixtures above, but exercise the per-key API surface, so a single .so can
+ * cover both APIs in one test file.
+ * ========================================================================= */
+
+/* "batched_" path: each keyed callback appends the touched key to a sink list.
+ * Used to assert per-sub-command firing inside MULTI/EXEC and to assert the
+ * single-key guard on multi-key commands. */
+static void KeySpace_PostNotificationBatchedKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "batched_keys", key);
+    if (rep) RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationBatched(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "batched_", 8) != 0) return REDISMODULE_OK;
+    if (strcmp(key_str, "batched_keys") == 0) return REDISMODULE_OK; /* skip our sink list */
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationBatchedKey, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
+/* "hash_" path: HSET/HEXPIRE both fire NOTIFY_HASH against a single hash key,
+ * so they pass the single-key guard. Used to assert that the per-key callback
+ * fires between successive HSET/HEXPIRE sub-commands on the same hash inside
+ * MULTI/EXEC (the original motivation for this API — RED-197766). */
+static void KeySpace_PostNotificationHashKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "hash_keys", key);
+    if (rep) RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationHash(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "hash_", 5) != 0) return REDISMODULE_OK;
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationHashKey, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
+/* "expire_" path: NOTIFY_EXPIRED fires on the lazy-DEL path with
+ * server.executing_client still pointing at the accessing command, so the
+ * single-key guard accepts the registration. The callback LPUSHes the expired
+ * key name to a sink list. Paired with the legacy regular fixture (key "x",
+ * INCR-counter shape) for the parametrized "Test lazy expire" test. */
+static void KeySpace_PostNotificationExpiredPerKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "expired_keys", key);
+    if (rep) RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationExpiredPerKey(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "expire_", 7) != 0) return REDISMODULE_OK;
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationExpiredPerKey, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
+/* "pkread_" path: the outer per-key callback for a "pkread_<target>" key issues
+ * a GET on <target>. If <target> is TTL-expired, that GET triggers a lazy DEL,
+ * which fires NOTIFY_EXPIRED and registers a second per-key job from inside
+ * the outer callback. The second job must fire from the outer drain (not
+ * nested inside the outer callback's stack) — the reentrance guard combined
+ * with the per-call() firing hook is what makes that work. Distinct from the
+ * regular module's "read_" prefix to keep their drains independent. */
+static void KeySpace_PostNotificationPerKeyRead(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    const char *target = key_str + 7; /* strip "pkread_" */
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "get", "!c", target);
+    if (rep) RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationPerKeyRead(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "pkread_", 7) != 0) return REDISMODULE_OK;
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationPerKeyRead, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
+/* "reentrant_" path: probes that the firing function does not re-enter while a
+ * nested RM_Call is in flight. The outer branch raises a marker, issues a
+ * nested SET (which registers a second keyed job via KSN), then lowers the
+ * marker. If re-entrance happened, the inner branch would observe marker==1
+ * and log REENTRANCE_DETECTED. */
+static int reentrance_in_outer_callback = 0;
+
+static void KeySpace_PostNotificationReentranceProbe(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    RedisModuleCallReply *rep;
+
+    if (strcmp(key_str, "reentrant_outer") == 0) {
+        reentrance_in_outer_callback = 1;
+        rep = RedisModule_Call(ctx, "set", "!cc", "reentrant_inner", "1");
+        if (rep) RedisModule_FreeCallReply(rep);
+        reentrance_in_outer_callback = 0;
+        rep = RedisModule_Call(ctx, "lpush", "!cc", "reentrance_log", "outer_done");
+        if (rep) RedisModule_FreeCallReply(rep);
+    } else if (strcmp(key_str, "reentrant_inner") == 0) {
+        const char *marker = reentrance_in_outer_callback ? "REENTRANCE_DETECTED" : "inner_after_outer";
+        rep = RedisModule_Call(ctx, "lpush", "!cc", "reentrance_log", marker);
+        if (rep) RedisModule_FreeCallReply(rep);
+    }
+}
+
+static int KeySpace_NotificationReentrance(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "reentrant_", 10) != 0) return REDISMODULE_OK;
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationReentranceProbe, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -273,6 +417,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, KeySpace_ServerEventCallback) != REDISMODULE_OK){
             return REDISMODULE_ERR;
         }
+    }
+
+    /* Per-key API subscriptions (and the "r_expire_" parity twin). */
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationBatched) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_HASH, KeySpace_NotificationHash) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationExpiredPerKey) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationPerKeyRead) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationReentrance) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
     }
 
     if (RedisModule_CreateCommand(ctx, "postnotification.async_set", KeySpace_PostNotificationsAsyncSet,

@@ -79,7 +79,6 @@ TEST_MODULES = \
     publish.so \
     usercall.so \
     postnotifications.so \
-    postnotifications_perkey.so \
     moduleauthtwo.so \
     rdbloadsave.so \
     crash.so \
