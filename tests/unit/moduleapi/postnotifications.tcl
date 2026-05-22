@@ -23,7 +23,7 @@ tags "modules external:skip" {
             regular  string_x
             perkey   batched_a
         } {
-            test "Post-notification job fires on writes ($api API)" {
+            test "Test write on post notification callback ($api API)" {
                 r flushall
                 set repl [attach_to_replication_stream]
 
@@ -31,6 +31,9 @@ tags "modules external:skip" {
                 r set $key 2
 
                 if {$api eq "regular"} {
+                    assert_equal {2} [r get string_changed{string_x}]
+                    assert_equal {2} [r get string_total]
+                    # the {lpush before_overwritten string_x} is a post notification job registered when 'string_x' was overwritten
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
@@ -46,6 +49,7 @@ tags "modules external:skip" {
                         {exec}
                     }
                 } else {
+                    assert_equal {batched_a batched_a} [r lrange batched_keys 0 -1]
                     assert_replication_stream $repl {
                         {multi}
                         {select *}
@@ -247,6 +251,33 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
+        # Both APIs accept registrations from a NOTIFY_EVICTED handler
+        # because eviction fires inside the OOM-triggering command's call(),
+        # so server.executing_client is set. Tested only via the regular
+        # fixture for brevity — the per-key path is structurally identical.
+        test {Test eviction} {
+            r flushall
+            set repl [attach_to_replication_stream]
+            r set x 1
+            r config set maxmemory-policy allkeys-random
+            r config set maxmemory 1
+
+            assert_error {OOM *} {r set y 1}
+
+            # the {lpush before_evicted x} is a post notification job registered before 'x' got evicted
+            assert_replication_stream $repl {
+                {select *}
+                {set x 1}
+                {multi}
+                {del x}
+                {lpush before_evicted x}
+                {incr evicted}
+                {exec}
+            }
+            r config set maxmemory 0
+            close_replication_stream $repl
+        } {} {needs:config-maxmemory}
+
         # Per-key-only: the per-key callback fires at the tail of EVERY call(),
         # including each sub-command inside MULTI/EXEC. The regular API only
         # fires at the outermost EXEC.
@@ -345,33 +376,6 @@ tags "modules external:skip" {
             close_replication_stream $repl
         }
 
-        # Both APIs accept registrations from a NOTIFY_EVICTED handler
-        # because eviction fires inside the OOM-triggering command's call(),
-        # so server.executing_client is set. Tested only via the regular
-        # fixture for brevity — the per-key path is structurally identical.
-        # Placed last in the section because it sets maxmemory=1 and would
-        # OOM subsequent writes.
-        test {Test eviction} {
-            r flushall
-            set repl [attach_to_replication_stream]
-            r set x 1
-            r config set maxmemory-policy allkeys-random
-            r config set maxmemory 1
-
-            assert_error {OOM *} {r set y 1}
-
-            # the {lpush before_evicted x} is a post notification job registered before 'x' got evicted
-            assert_replication_stream $repl {
-                {select *}
-                {set x 1}
-                {multi}
-                {del x}
-                {lpush before_evicted x}
-                {incr evicted}
-                {exec}
-            }
-            close_replication_stream $repl
-        } {} {needs:config-maxmemory}
     }
 }
 
