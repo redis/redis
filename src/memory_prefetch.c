@@ -19,18 +19,50 @@
 #include "server.h"
 #include "dict.h"
 
-typedef enum { HT_IDX_FIRST = 0, HT_IDX_SECOND = 1, HT_IDX_INVALID = -1 } HashTableIndex;
+/* --------------------------------------------------------------------------
+ * Dict prefetching state machine
+ * -------------------------------------------------------------------------- */
+
+typedef enum { HT_IDX_FIRST = 0, HT_IDX_SECOND = 1, HT_IDX_INVALID = -1 } dictHtIdx;
 
 typedef enum {
-    PREFETCH_BUCKET,     /* Initial state, determines which hash table to use and prefetch the table's bucket */
-    PREFETCH_ENTRY,      /* prefetch entries associated with the given key's hash */
-    PREFETCH_KVOBJ,      /* prefetch the kv object of the entry found in the previous step */
-    PREFETCH_VALDATA,    /* prefetch the value data of the kv object found in the previous step */
-    PREFETCH_DONE        /* Indicates that prefetching for this key is complete */
-} PrefetchState;
+    PREFETCH_BUCKET,        /* Initial state, determines which hash table to use and prefetch the table's bucket */
+    PREFETCH_ENTRY,         /* prefetch entries associated with the given key's hash */
+    PREFETCH_ENTRY_KEY,     /* dictType-driven prefetch of the entry's key payload (for keyCompare) */
+    PREFETCH_ENTRY_VALUE,   /* compare keys; on match, dictType-driven prefetch of the value payload */
+    PREFETCH_DONE           /* Indicates that prefetching for this key is complete */
+} dictPrefetchState;
 
+/* Per-key state of an in-flight, software-pipelined dictFind, advanced one
+ * stage at a time by dictPrefetcher (see below). The non-state fields mirror
+ * the locals that a synchronous dictFind would otherwise carry across one
+ * bucket walk. */
+typedef struct dictPrefetchLookup {
+    dictPrefetchState state;  /* Current FSM stage of this lookup */
+    dictHtIdx ht_idx;         /* Index of the current hash table (0 or 1 for rehashing) */
+    uint64_t bucket_idx;      /* Index of the bucket in the current hash table */
+    uint64_t key_hash;        /* Hash value of the key being looked up */
+    dictEntry *current_entry; /* Pointer to the current entry being processed */
+} dictPrefetchLookup;
 
-/************************************ State machine diagram for the prefetch operation. ********************************
+/* dictPrefetcher drives a batch of dictPrefetchLookup objects through the
+ * prefetch FSM, yielding to the next in-flight lookup each time a prefetch
+ * is issued — so one lookup's memory stall overlaps another's work. The
+ * state machine itself is fully dict-pure: any key/value payload prefetching
+ * is delegated to the dictType->prefetchEntryKey / prefetchEntryValue
+ * callbacks of each key's dict. The same prefetcher is used by both the
+ * cross-command batch path and the intra-command dictPrefetchKeys() API. */
+typedef struct dictPrefetcher {
+    size_t cur_idx;              /* Cursor; advances on each prefetch issue */
+    size_t nkeys;                /* Total key lookups in this batch */
+    size_t remaining;            /* Number of in-flight key lookups (not yet PREFETCH_DONE) */
+    void **keys;                 /* Array of key pointers (sds) */
+    dict **dicts;                /* Per-key dictionary pointers */
+    dictPrefetchLookup *lookups; /* Per-key lookup state, capacity == max_keys */
+    size_t max_keys;             /* Capacity of lookups[] */
+} dictPrefetcher;
+
+/******************************** State machine diagram for the dict prefetch operation. ******************************
                                                            │
                                                          start
                                                            │
@@ -44,33 +76,254 @@ typedef enum {
                                     ┌────────────►└────────┬────────┘              │
                                     |                 Entry│found                  │
                                     │                      |                       │
-                                    |              ┌───────▼────────┐              │
-                                    │              | PREFETCH_KVOBJ |              ▼
-                                    │              └───────┬────────┘              │
-        kvobj not found - goto next entry                  |                       |
-                                    │          ┌───────────▼────────────┐          │
-                                    └──────◄───│    PREFETCH_VALDATA    │          ▼
-                                               └───────────┬────────────┘          │
+                                    |          ┌───────────▼─────────────┐         │
+                                    │          |   PREFETCH_ENTRY_KEY    |         ▼
+                                    │          └───────────┬─────────────┘         │
+        key mismatch - goto next entry                     |                       |
+                                    │          ┌───────────▼─────────────┐         │
+                                    └──────◄───│   PREFETCH_ENTRY_VALUE  │         ▼
+                                               └───────────┬─────────────┘         │
                                                            |                       │
                                                  ┌───────-─▼─────────────┐         │
                                                  │     PREFETCH_DONE     │◄────────┘
                                                  └───────────────────────┘
+
 **********************************************************************************************************************/
 
-typedef void *(*GetValueDataFunc)(const void *val);
+/* Issue a software prefetch for `addr`, then yield to the next lookup by
+ * advancing the cursor. */
+static inline void dictPrefetchAdvance(dictPrefetcher *p, void *addr) {
+    redis_prefetch_read(addr);
+    if (++p->cur_idx >= p->nkeys) p->cur_idx = 0;
+}
 
-typedef struct KeyPrefetchInfo {
-    PrefetchState state;      /* Current state of the prefetch operation */
-    HashTableIndex ht_idx;    /* Index of the current hash table (0 or 1 for rehashing) */
-    uint64_t bucket_idx;      /* Index of the bucket in the current hash table */
-    uint64_t key_hash;        /* Hash value of the key being prefetched */
-    dictEntry *current_entry; /* Pointer to the current entry being processed */
-    kvobj *current_kv;        /* Pointer to the kv object being prefetched */
-} KeyPrefetchInfo;
+static inline void dictPrefetchMarkDone(dictPrefetcher *p, dictPrefetchLookup *lk) {
+    lk->state = PREFETCH_DONE;
+    p->remaining--;
+    server.stat_total_prefetch_entries++;
+}
+
+/* Return the next in-flight lookup that still needs work, or NULL if all done. */
+static inline dictPrefetchLookup *dictPrefetchNextInFlight(dictPrefetcher *p) {
+    if (p->remaining == 0) return NULL;
+    while (p->lookups[p->cur_idx].state == PREFETCH_DONE) {
+        if (++p->cur_idx >= p->nkeys) p->cur_idx = 0;
+    }
+    return &p->lookups[p->cur_idx];
+}
+
+/* Prefetch the bucket of the next hash table index.
+ * If no tables are left, move to the PREFETCH_DONE state. */
+static void dictPrefetchBucket(dictPrefetcher *p, dictPrefetchLookup *lk) {
+    size_t i = p->cur_idx;
+    dict *d = p->dicts[i];
+
+    /* Determine which hash table to use */
+    if (lk->ht_idx == HT_IDX_INVALID) {
+        lk->ht_idx = HT_IDX_FIRST;
+    } else if (lk->ht_idx == HT_IDX_FIRST && dictIsRehashing(d)) {
+        lk->ht_idx = HT_IDX_SECOND;
+    } else {
+        /* No more tables left - mark as done. */
+        dictPrefetchMarkDone(p, lk);
+        return;
+    }
+
+    /* Prefetch the bucket */
+    lk->bucket_idx = lk->key_hash & DICTHT_SIZE_MASK(d->ht_size_exp[lk->ht_idx]);
+    dictPrefetchAdvance(p, &d->ht_table[lk->ht_idx][lk->bucket_idx]);
+    lk->current_entry = NULL;
+    lk->state = PREFETCH_ENTRY;
+}
+
+/* Prefetch the entry in the bucket and move to the PREFETCH_ENTRY_KEY state.
+ * If no more entries in the bucket, move to the PREFETCH_BUCKET state to look at the next table. */
+static void dictPrefetchEntry(dictPrefetcher *p, dictPrefetchLookup *lk) {
+    size_t i = p->cur_idx;
+
+    if (lk->current_entry) {
+        /* We already found an entry in the bucket - move to the next entry */
+        lk->current_entry = dictGetNext(lk->current_entry);
+    } else {
+        /* Go to the first entry in the bucket */
+        lk->current_entry = p->dicts[i]->ht_table[lk->ht_idx][lk->bucket_idx];
+    }
+
+    if (lk->current_entry) {
+        dictPrefetchAdvance(p, lk->current_entry);
+        lk->state = PREFETCH_ENTRY_KEY;
+    } else {
+        /* No entry found in the bucket - try the bucket in the next table */
+        lk->state = PREFETCH_BUCKET;
+    }
+}
+
+/* Bring the entry's key payload into cache via the dictType callback,
+ * then move to PREFETCH_ENTRY_VALUE where the keyCompare runs. If the
+ * dict provides no callback, the entry alone already carries everything
+ * keyCompare needs. */
+static void dictPrefetchEntryKey(dictPrefetcher *p, dictPrefetchLookup *lk) {
+    dictType *type = p->dicts[p->cur_idx]->type;
+    lk->state = PREFETCH_ENTRY_VALUE;
+    if (type->prefetchEntryKey) {
+        void *addr = type->prefetchEntryKey(lk->current_entry);
+        if (addr) dictPrefetchAdvance(p, addr);
+    }
+}
+
+/* Compare the entry's stored key against the lookup key. On match, ask
+ * the dictType to prefetch the value-side payload (if any) and mark the
+ * lookup done. On mismatch, walk to the next entry in the chain.
+ *
+ * The entry's stored key may be in a different shape than the lookup key
+ * (e.g. dbDictType stores a kvobj but keyCompare wants the sds). When that
+ * is the case the dict provides keyFromStoredKey to convert; otherwise the
+ * stored key is already in comparable form. This mirrors what
+ * dictFindLinkInternal does. */
+static void dictPrefetchEntryValue(dictPrefetcher *p, dictPrefetchLookup *lk) {
+    size_t i = p->cur_idx;
+    dict *d = p->dicts[i];
+    dictType *type = d->type;
+    const void *stored_key = dictGetKey(lk->current_entry);
+    const void *cmp_key = type->keyFromStoredKey ? type->keyFromStoredKey(stored_key) : stored_key;
+
+    /* 1. If this is the last element, we assume a hit and don't compare the keys
+     * 2. The stored entry matches the lookup key. */
+    if ((!dictGetNext(lk->current_entry) && !dictIsRehashing(d)) ||
+        dictCompareKeys(d, p->keys[i], cmp_key))
+    {
+        if (type->prefetchEntryValue) {
+            void *addr = type->prefetchEntryValue(lk->current_entry);
+            if (addr) dictPrefetchAdvance(p, addr);
+        }
+        dictPrefetchMarkDone(p, lk);
+    } else {
+        /* Not found in the current entry, move to the next entry */
+        lk->state = PREFETCH_ENTRY;
+    }
+}
+
+/* Allocate the per-key lookup array. The prefetcher can then be reused across
+ * many batches by repeated dictPrefetcherReset / dictPrefetcherRun calls. */
+static void dictPrefetcherInit(dictPrefetcher *p, size_t max_keys) {
+    p->lookups = zcalloc(max_keys * sizeof(dictPrefetchLookup));
+    p->max_keys = max_keys;
+}
+
+static void dictPrefetcherFree(dictPrefetcher *p) {
+    zfree(p->lookups);
+    p->lookups = NULL;
+    p->max_keys = 0;
+}
+
+/* Configure the prefetcher for a single batch and seed every lookup's
+ * starting state. dicts/keys must remain valid until dictPrefetcherRun
+ * returns; only the pointers are stored. */
+static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, size_t nkeys) {
+    serverAssert(nkeys <= p->max_keys);
+    p->dicts = dicts;
+    p->keys = keys;
+    p->nkeys = nkeys;
+    p->cur_idx = 0;
+
+    size_t remaining = 0;
+    for (size_t i = 0; i < nkeys; i++) {
+        dictPrefetchLookup *lk = &p->lookups[i];
+        if (!dicts[i] || dictSize(dicts[i]) == 0) {
+            lk->state = PREFETCH_DONE;
+            continue;
+        }
+
+        /* We skip prefetch during loading, so ht_table[0] should never be NULL
+         * when dictSize() > 0 (which only happens mid-dictEmpty via _dictReset). */
+        serverAssert(dicts[i]->ht_table[0]);
+
+        lk->ht_idx = HT_IDX_INVALID;
+        lk->current_entry = NULL;
+        lk->state = PREFETCH_BUCKET;
+        lk->key_hash = dictGetHash(dicts[i], keys[i]);
+        remaining++;
+    }
+    p->remaining = remaining;
+}
+
+/* Drive the prefetch state machine across all dict lookups until every lookup
+ * reaches PREFETCH_DONE.
+ *
+ * Conceptually each dict lookup is a dictFind broken into four stages:
+ *   bucket → entry → entry key payload → entry value payload
+ * If the key is not found in ht[0] and the dict is mid-rehash, the lookup
+ * loops back to the bucket stage to retry against ht[1].
+ *
+ * Instead of waiting for each stage's memory access to complete, the FSM
+ * issues a prefetch and yields to another in-flight lookup, hiding the
+ * memory access latency.
+ *
+ * Any prefetching of the entry's key payload (e.g. an out-of-line kvobj head)
+ * and the entry's value payload (e.g. kv->ptr for a RAW string) is delegated
+ * to dictType->prefetchEntryKey and prefetchEntryValue respectively. */
+static void dictPrefetcherRun(dictPrefetcher *p) {
+    dictPrefetchLookup *lk;
+    while ((lk = dictPrefetchNextInFlight(p))) {
+        switch (lk->state) {
+            case PREFETCH_BUCKET:      dictPrefetchBucket(p, lk); break;
+            case PREFETCH_ENTRY:       dictPrefetchEntry(p, lk); break;
+            case PREFETCH_ENTRY_KEY:   dictPrefetchEntryKey(p, lk); break;
+            case PREFETCH_ENTRY_VALUE: dictPrefetchEntryValue(p, lk); break;
+            default: serverPanic("Unknown prefetch state %d", lk->state);
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------
+ * Intra-command prefetch API
+ * --------------------------------------------------------------------------
+ * dictPrefetchKeys() allows a single multi-key command (e.g. MGET) to
+ * prefetch dict data for a batch of its own keys, reusing the same state
+ * machine that the cross-command path uses.
+ *
+ * Typical usage from a command implementation:
+ *
+ *   #define BATCH 16
+ *   void myMultiKeyCommand(client *c) {
+ *       dict *d = kvstoreGetDict(c->db->keys, slot);
+ *       for (int j = 0; j < numkeys; j += BATCH) {
+ *           int n = MIN(BATCH, numkeys - j);
+ *           void *keys[BATCH]; dict *dicts[BATCH];
+ *           for (int k = 0; k < n; k++) {
+ *               keys[k] = c->argv[j+k+1]->ptr;
+ *               dicts[k] = d;
+ *           }
+ *           dictPrefetchKeys(dicts, keys, n);
+ *           // Now process these n keys — dict bucket / entry / key payload
+ *           // (and value payload, if dictType->prefetchEntryValue is set)
+ *           // are warm in cache.
+ *       }
+ *   }
+ * ----------------------------------------------------------------------- */
+void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys) {
+    /* Single-key prefetch has no benefit — nothing to interleave with.
+     * Callers passing nkeys==1 (e.g. tail of a multi-key batch) should
+     * fall through to a direct lookup. */
+    if (nkeys <= 1) return;
+
+    /* Guard the fixed-size stack array below; callers must batch larger
+     * inputs into chunks of DICT_PREFETCH_MAX_SIZE or smaller. */
+    serverAssert(nkeys <= DICT_PREFETCH_MAX_SIZE);
+    server.stat_total_prefetch_batches++;
+
+    dictPrefetchLookup lookups[DICT_PREFETCH_MAX_SIZE];
+    dictPrefetcher p = { .lookups = lookups, .max_keys = nkeys };
+    dictPrefetcherReset(&p, dicts, keys, nkeys);
+    dictPrefetcherRun(&p);
+}
+
+/* --------------------------------------------------------------------------
+ * Cross-command batch prefetching
+ * -------------------------------------------------------------------------- */
 
 /* PrefetchCommandsBatch structure holds the state of the current batch of client commands being processed. */
 typedef struct PrefetchCommandsBatch {
-    size_t cur_idx;                 /* Index of the current key being processed */
     size_t key_count;               /* Number of keys in the current batch */
     size_t client_count;            /* Number of clients in the current batch */
     size_t pcmd_count;              /* Number of pending commands in the current batch */
@@ -79,9 +332,7 @@ typedef struct PrefetchCommandsBatch {
     client **clients;               /* Array of clients in the current batch */
     pendingCommand **pending_cmds;  /* Array of pending commands in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
-    dict **current_dicts;           /* Points to dict to prefetch from */
-    KeyPrefetchInfo *prefetch_info; /* Prefetch info for each key */
-    GetValueDataFunc get_value_data_func; /* Function to get the value data */
+    dictPrefetcher prefetcher;      /* Initialized once; reset and reused per batch. */
 } PrefetchCommandsBatch;
 
 static PrefetchCommandsBatch *batch = NULL;
@@ -95,7 +346,7 @@ void freePrefetchCommandsBatch(void) {
     zfree(batch->pending_cmds);
     zfree(batch->keys);
     zfree(batch->keys_dicts);
-    zfree(batch->prefetch_info);
+    dictPrefetcherFree(&batch->prefetcher);
     zfree(batch);
     batch = NULL;
 }
@@ -118,7 +369,7 @@ void prefetchCommandsBatchInit(void) {
     batch->pending_cmds = zcalloc(max_prefetch_size * sizeof(pendingCommand *));
     batch->keys = zcalloc(max_prefetch_size * sizeof(void *));
     batch->keys_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
-    batch->prefetch_info = zcalloc(max_prefetch_size * sizeof(KeyPrefetchInfo));
+    dictPrefetcherInit(&batch->prefetcher, max_prefetch_size);
 }
 
 void onMaxBatchSizeChange(void) {
@@ -131,173 +382,6 @@ void onMaxBatchSizeChange(void) {
     prefetchCommandsBatchInit();
 }
 
-/* Prefetch the given pointer and move to the next key in the batch. */
-static inline void prefetchAndMoveToNextKey(void *addr) {
-    redis_prefetch_read(addr);
-    /* While the prefetch is in progress, we can continue to the next key */
-    batch->cur_idx = (batch->cur_idx + 1) % batch->key_count;
-}
-
-static inline void markKeyAsdone(KeyPrefetchInfo *info) {
-    info->state = PREFETCH_DONE;
-    server.stat_total_prefetch_entries++;
-}
-
-/* Returns the next KeyPrefetchInfo structure that needs to be processed. */
-static KeyPrefetchInfo *getNextPrefetchInfo(void) {
-    size_t start_idx = batch->cur_idx;
-    do {
-        KeyPrefetchInfo *info = &batch->prefetch_info[batch->cur_idx];
-        if (info->state != PREFETCH_DONE) return info;
-        batch->cur_idx = (batch->cur_idx + 1) % batch->key_count;
-    } while (batch->cur_idx != start_idx);
-    return NULL;
-}
-
-static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
-    batch->current_dicts = dicts;
-    batch->get_value_data_func = func;
-
-    /* Initialize the prefetch info */
-    for (size_t i = 0; i < batch->key_count; i++) {
-        KeyPrefetchInfo *info = &batch->prefetch_info[i];
-        if (!batch->current_dicts[i] || dictSize(batch->current_dicts[i]) == 0) {
-            info->state = PREFETCH_DONE;
-            continue;
-        }
-
-        /* We skip prefetch during loading, so ht_table[0] should never be NULL
-         * when dictSize() > 0 (which only happens mid-dictEmpty via _dictReset). */
-        serverAssert(batch->current_dicts[i]->ht_table[0]);
-
-        info->ht_idx = HT_IDX_INVALID;
-        info->current_entry = NULL;
-        info->current_kv = NULL;
-        info->state = PREFETCH_BUCKET;
-        info->key_hash = dictGetHash(batch->current_dicts[i], batch->keys[i]);
-    }
-}
-
-/* Prefetch the bucket of the next hash table index.
- * If no tables are left, move to the PREFETCH_DONE state. */
-static void prefetchBucket(KeyPrefetchInfo *info) {
-    size_t i = batch->cur_idx;
-
-    /* Determine which hash table to use */
-    if (info->ht_idx == HT_IDX_INVALID) {
-        info->ht_idx = HT_IDX_FIRST;
-    } else if (info->ht_idx == HT_IDX_FIRST && dictIsRehashing(batch->current_dicts[i])) {
-        info->ht_idx = HT_IDX_SECOND;
-    } else {
-        /* No more tables left - mark as done. */
-        markKeyAsdone(info);
-        return;
-    }
-
-    /* Prefetch the bucket */
-    info->bucket_idx = info->key_hash & DICTHT_SIZE_MASK(batch->current_dicts[i]->ht_size_exp[info->ht_idx]);
-    prefetchAndMoveToNextKey(&batch->current_dicts[i]->ht_table[info->ht_idx][info->bucket_idx]);
-    info->current_entry = NULL;
-    info->state = PREFETCH_ENTRY;
-}
-
-/* Prefetch the entry in the bucket and move to the PREFETCH_KVOBJ state.
- * If no more entries in the bucket, move to the PREFETCH_BUCKET state to look at the next table. */
-static void prefetchEntry(KeyPrefetchInfo *info) {
-    size_t i = batch->cur_idx;
-
-    if (info->current_entry) {
-        /* We already found an entry in the bucket - move to the next entry */
-        info->current_entry = dictGetNext(info->current_entry);
-    } else {
-        /* Go to the first entry in the bucket */
-        info->current_entry = batch->current_dicts[i]->ht_table[info->ht_idx][info->bucket_idx];
-    }
-
-    if (info->current_entry) {
-        prefetchAndMoveToNextKey(info->current_entry);
-        info->current_kv = NULL;
-        info->state = PREFETCH_KVOBJ;
-    } else {
-        /* No entry found in the bucket - try the bucket in the next table */
-        info->state = PREFETCH_BUCKET;
-    }
-}
-
-/* Prefetch the kv object in the dict entry, and to the PREFETCH_VALDATA state. */
-static inline void prefetchKVOject(KeyPrefetchInfo *info) {
-    kvobj *kv = dictGetKey(info->current_entry);
-    int is_kv = dictEntryIsKey(info->current_entry);
-
-    info->current_kv = kv;
-    info->state = PREFETCH_VALDATA;
-    /* If the entry is a pointer of kv object, we don't need to prefetch it */
-    if (!is_kv) prefetchAndMoveToNextKey(kv);
-}
-
-/* Prefetch the value data of the kv object found in dict entry. */
-static void prefetchValueData(KeyPrefetchInfo *info) {
-    size_t i = batch->cur_idx;
-    kvobj *kv = info->current_kv;
-    sds key = kvobjGetKey(kv);
-
-    /* 1. If this is the last element, we assume a hit and don't compare the keys
-     * 2. This kv object is the target of the lookup. */
-    if ((!dictGetNext(info->current_entry) && !dictIsRehashing(batch->current_dicts[i])) ||
-        dictCompareKeys(batch->current_dicts[i], batch->keys[i], key))
-    {
-        if (batch->get_value_data_func) {
-            void *value_data = batch->get_value_data_func(kv);
-            if (value_data) prefetchAndMoveToNextKey(value_data);
-        }
-        markKeyAsdone(info);
-    } else {
-        /* Not found in the current entry, move to the next entry */
-        info->state = PREFETCH_ENTRY;
-    }
-}
-
-/* Prefetch dictionary data for an array of keys.
- *
- * This function takes an array of dictionaries and keys, attempting to bring
- * data closer to the L1 cache that might be needed for dictionary operations
- * on those keys.
- *
- * The dictFind algorithm:
- * 1. Evaluate the hash of the key
- * 2. Access the index in the first table
- * 3. Walk the entries linked list until the key is found
- *    If the key hasn't been found and the dictionary is in the middle of rehashing,
- *    access the index on the second table and repeat step 3
- *
- * dictPrefetch executes the same algorithm as dictFind, but one step at a time
- * for each key. Instead of waiting for data to be read from memory, it prefetches
- * the data and then moves on to execute the next prefetch for another key.
- *
- * dicts - An array of dictionaries to prefetch data from.
- * get_val_data_func - A callback function that dictPrefetch can invoke
- * to bring the key's value data closer to the L1 cache as well.
- */
-static void dictPrefetch(dict **dicts, GetValueDataFunc get_val_data_func) {
-    initBatchInfo(dicts, get_val_data_func);
-    KeyPrefetchInfo *info;
-    while ((info = getNextPrefetchInfo())) {
-        switch (info->state) {
-        case PREFETCH_BUCKET: prefetchBucket(info); break;
-        case PREFETCH_ENTRY: prefetchEntry(info); break;
-        case PREFETCH_KVOBJ: prefetchKVOject(info); break;
-        case PREFETCH_VALDATA: prefetchValueData(info); break;
-        default: serverPanic("Unknown prefetch state %d", info->state);
-        }
-    }
-}
-
-/* Helper function to get the value pointer of a kv object. */
-static void *getObjectValuePtr(const void *value) {
-    kvobj *kv = (kvobj *)value;
-    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
-}
-
 void resetCommandsBatch(void) {
     if (batch == NULL) {
         /* Handle the case where prefetching becomes enabled from disabled. */
@@ -305,7 +389,6 @@ void resetCommandsBatch(void) {
         return;
     }
 
-    batch->cur_idx = 0;
     batch->key_count = 0;
     batch->client_count = 0;
     batch->pcmd_count = 0;
@@ -379,8 +462,10 @@ void prefetchCommands(void) {
      * Prefetching is beneficial only if there are more than one key. */
     if (batch->key_count > 1) {
         server.stat_total_prefetch_batches++;
-        /* Prefetch keys from the main dict */
-        dictPrefetch(batch->keys_dicts, getObjectValuePtr);
+        /* Prefetch keys from the main dict — value-side prefetch (if any)
+         * is driven by dbDictType->prefetchEntryValue. */
+        dictPrefetcherReset(&batch->prefetcher, batch->keys_dicts, batch->keys, batch->key_count);
+        dictPrefetcherRun(&batch->prefetcher);
     }
 }
 
@@ -424,11 +509,15 @@ int addCommandToBatch(client *c) {
         batch->pending_cmds[batch->pcmd_count++] = pcmd;
 
         serverAssert(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID);
+        dict *cmd_dict = kvstoreGetDict(c->db->keys, pcmd->slot > 0 ? pcmd->slot : 0);
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = pcmd->argv[pcmd->keys_result.keys[i].pos];
-            batch->keys_dicts[batch->key_count] =
-                kvstoreGetDict(c->db->keys, pcmd->slot > 0 ? pcmd->slot : 0);
+            batch->keys_dicts[batch->key_count] = cmd_dict;
             batch->key_count++;
+            /* Mark the command as prefetched so the intra-command prefetch
+             * path skips it. Even on a partial batch, running both paths
+             * would just contend for cache bandwidth. */
+            pcmd->flags |= PENDING_CMD_KEYS_PREFETCHED;
         }
         pcmd = pcmd->next;
     }

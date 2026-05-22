@@ -83,8 +83,6 @@ run_solo {defrag} {
     # note: Disabling lookahead because it changes the number and order of allocations which interferes with defrag and causes tests to fail
     r config set lookahead 1
 
-    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
             r config set hz 100
@@ -1114,6 +1112,97 @@ run_solo {defrag} {
             }
         } ;# standalone
         }
+    }
+
+    if {[string match {*jemalloc*} [s mem_allocator]] &&
+        [r debug mallctl arenas.page] <= 8192 &&
+        $type eq "standalone"} { ;# skip in cluster mode and non-jemalloc
+        test "Active defrag arrays: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-max-scan-fields 100
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 512kb
+            r config set maxmemory 0
+
+            # Create two large arrays with interleaved allocations. Indices are
+            # one full slice apart so the surviving array is stored as many
+            # separate slices and uses superdir mode.
+            set rd [redis_deferring_client]
+            set payload [string repeat A 500]
+            set elements 3000
+            set base 8388608
+            set count 0
+            for {set j 0} {$j < $elements} {incr j} {
+                set idx [expr {$base + $j * 4096}]
+                $rd arset bigarray1 $idx "a1:$j:$payload"
+                $rd arset bigarray2 $idx "a2:$j:$payload"
+
+                incr count
+                discard_replies_every $rd $count 1000 2000
+            }
+            set remaining [expr {($count % 1000) * 2}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
+            }
+
+            assert_equal $elements [r arcount bigarray1]
+            assert_equal $elements [r arcount bigarray2]
+            assert_morethan [dict get [r arinfo bigarray1] directory-size] 0
+
+            # Free one full array to create fragmentation around the surviving
+            # array's slices and string allocations.
+            r del bigarray2
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            r config set latency-monitor-threshold 5
+            r latency reset
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # This test only needs to verify that active defrag reached the
+                # array and processed it without corrupting the value. We do
+                # not require the allocator to fully converge to a no-fragmentation
+                # state on every platform.
+                wait_for_condition 500 100 {
+                    [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "array defrag did not touch the key."
+                }
+
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            # Verify the array stayed intact after active defrag touched it.
+            assert_equal $elements [r arcount bigarray1]
+            assert_equal "a1:0:$payload" [r arget bigarray1 $base]
+            assert_equal "a1:1234:$payload" [r arget bigarray1 [expr {$base + 1234 * 4096}]]
+            assert_equal "a1:2999:$payload" [r arget bigarray1 [expr {$base + 2999 * 4096}]]
+            assert_equal $digest [debug_digest]
+            assert_equal OK [r save] ;# Iterates all pointers again after defrag.
+            expr 1
+        } {1}
     }
     }
 
