@@ -329,6 +329,23 @@ static int KeySpace_NotificationReentrance(RedisModuleCtx *ctx, int type, const 
     return REDISMODULE_OK;
 }
 
+static void KeySpace_PostNotificationMissKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "mget_misses", key);
+    if (rep) RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationMiss(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "miss_", 5) != 0) return REDISMODULE_OK;
+
+    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationMissKey, key, NULL, NULL);
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -389,6 +406,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             return REDISMODULE_ERR;
         }
         if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationReentrance) != REDISMODULE_OK) {
+            return REDISMODULE_ERR;
+        }
+        if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_MISS, KeySpace_NotificationMiss) != REDISMODULE_OK) {
             return REDISMODULE_ERR;
         }
     }

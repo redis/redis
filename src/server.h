@@ -2064,6 +2064,10 @@ struct redisServer {
                                  * cron stuff (active expire, eviction) */
     int firing_keyed_post_notif_jobs; /* Re-entrance guard while
                                        * firePostKeyedNotificationJobs is draining. */
+    int in_keyspace_notification;     /* >0 while inside a moduleNotifyKeyspaceEvent
+                                       * dispatch. Defines the scope from which
+                                       * RM_AddPostNotificationJobForKey may be called;
+                                       * a counter so nested notifications nest cleanly. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */

@@ -2973,6 +2973,7 @@ void initServer(void) {
     server.errors_enabled = 1;
     server.execution_nesting = 0;
     server.firing_keyed_post_notif_jobs = 0;
+    server.in_keyspace_notification = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -3847,6 +3848,13 @@ static void propagatePendingCommands(void) {
 void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
+
+    /* Drain keyed post-notification jobs before the regular ones. This is the
+     * exit-execution-unit firing site that mirrors afterCommand's drain
+     * order, and it is the point at which active-expire (expire.c) and
+     * eviction (evict.c) get the per-key callback delivered — both call us
+     * directly after their own enter/exitExecutionUnit. */
+    firePostKeyedNotificationJobs();
 
     firePostExecutionUnitJobs();
 

@@ -62,36 +62,61 @@ foreach api {regular perkey} {
     }
 }
 
-tags "modules external:skip" {
-    start_server {} {
-        r module load $testmodule with_key_events
+foreach api {regular perkey} {
+    tags "modules external:skip" {
+        start_server {} {
+            r module load $testmodule $api with_key_events
 
-        test {Test active expire} {
-            r flushall
-            set repl [attach_to_replication_stream]
+            test "Test active expire ($api API)" {
+                r flushall
+                set repl [attach_to_replication_stream]
 
-            r set x 1
-            r pexpire x 10
+                r set x 1
+                r pexpire x 10
 
-            wait_for_condition 100 50 {
-                [r keys expired] == {expired}
-            } else {
-                puts [r keys *]
-                fail "Failed waiting for x to expired"
+                wait_for_condition 100 50 {
+                    [r keys expired] == {expired}
+                } else {
+                    puts [r keys *]
+                    fail "Failed waiting for x to expired"
+                }
+
+                # {lpush before_expired x} is a post-notification job registered
+                # via the RedisModuleEvent_Key/before_expired server event, which
+                # always uses the regular post-notif queue. {incr expired} is the
+                # keyspace-handler side-effect — registered on the regular queue
+                # in regular mode and on the per-key queue in perkey mode.
+                #
+                # Both APIs drain at postExecutionUnitOperations (called from
+                # activeExpireCycleTryExpire). In regular mode both jobs share
+                # the regular queue and fire in registration order. In perkey
+                # mode the per-key queue is drained before the regular queue,
+                # so {incr expired} propagates first.
+                if {$api eq "perkey"} {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {pexpireat x *}
+                        {multi}
+                        {del x}
+                        {incr expired}
+                        {lpush before_expired x}
+                        {exec}
+                    }
+                } else {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {pexpireat x *}
+                        {multi}
+                        {del x}
+                        {lpush before_expired x}
+                        {incr expired}
+                        {exec}
+                    }
+                }
+                close_replication_stream $repl
             }
-
-            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
-            assert_replication_stream $repl {
-                {select *}
-                {set x 1}
-                {pexpireat x *}
-                {multi}
-                {del x}
-                {lpush before_expired x}
-                {incr expired}
-                {exec}
-            }
-            close_replication_stream $repl
         }
     }
 }
@@ -196,27 +221,23 @@ foreach api {regular perkey} {
 
                 assert_error {OOM *} {r set y 1}
 
-                # the {lpush before_evicted x} is a post notification job
-                # registered before 'x' got evicted via the RedisModuleEvent_Key
-                # server event (always uses the regular post-notif queue).
-                #
-                # Under the per-key API the keyspace-notification side-effect
-                # ({incr evicted}) drains from firePostKeyedNotificationJobs at
-                # the top of afterCommand, before the regular post-notif queue
-                # drains and before propagatePendingCommands flushes the outer
-                # multi/exec. With maxmemory=1 still in force, that per-key
-                # call() hits OOM and does not propagate; the trailing
-                # {del before_evicted} is the eviction of the list created by
-                # the regular drain's lpush.
+                # {lpush before_evicted x} is registered via the
+                # RedisModuleEvent_Key/before_evicted server event (always uses
+                # the regular post-notif queue). {incr evicted} comes from the
+                # keyspace handler — on the regular queue in regular mode and
+                # on the per-key queue in perkey mode. Both APIs drain in
+                # postExecutionUnitOperations (called from performEvictions);
+                # in perkey mode the per-key queue is drained first, so
+                # {incr evicted} propagates before {lpush before_evicted x}.
                 if {$api eq "perkey"} {
                     assert_replication_stream $repl {
                         {select *}
                         {set x 1}
                         {multi}
                         {del x}
+                        {incr evicted}
                         {lpush before_evicted x}
                         {exec}
-                        {del before_evicted}
                     }
                 } else {
                     assert_replication_stream $repl {
@@ -276,22 +297,48 @@ tags "modules external:skip" {
             assert_equal {inner_after_outer outer_done} $log
         }
 
-        test {Per-key post notification job is refused on multi-key commands} {
+        test {Per-key post notification job fires per affected key on multi-key commands} {
             r flushall
             set repl [attach_to_replication_stream]
-            set baseline [count_log_message 0 "AddPostNotificationJobForKey"]
 
+            # MSET emits one notifyKeyspaceEvent per key. Each dispatch sets
+            # server.in_keyspace_notification, so the keyspace handler can
+            # register one per-key job per affected key. All three jobs fire
+            # at the tail of MSET's call() and propagate inside the same
+            # multi/exec the propagation buffer flushes.
             r mset batched_a 1 batched_b 2 batched_c 3
-            assert_equal {} [r lrange batched_keys 0 -1]
-
-            # MSET touches 3 keys; the keyspace handler fires once per key, so
-            # the warning is emitted three times.
-            set after [count_log_message 0 "AddPostNotificationJobForKey"]
-            assert_equal 3 [expr {$after - $baseline}]
+            assert_equal {batched_c batched_b batched_a} [r lrange batched_keys 0 -1]
 
             assert_replication_stream $repl {
+                {multi}
                 {select *}
                 {mset batched_a 1 batched_b 2 batched_c 3}
+                {lpush batched_keys batched_a}
+                {lpush batched_keys batched_b}
+                {lpush batched_keys batched_c}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
+        test {Per-key post notification job fires per missing key on MGET (multi-key read)} {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            # MGET emits one NOTIFY_KEY_MISS notification per missing key. Each
+            # dispatch sets server.in_keyspace_notification, so the per-key
+            # handler registers one job per miss. The jobs drain at the tail of
+            # MGET's call(), propagating as a multi/exec after the read.
+            assert_equal {{} {} {}} [r mget miss_a miss_b miss_c]
+            assert_equal {miss_c miss_b miss_a} [r lrange mget_misses 0 -1]
+
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {lpush mget_misses miss_a}
+                {lpush mget_misses miss_b}
+                {lpush mget_misses miss_c}
+                {exec}
             }
             close_replication_stream $repl
         }

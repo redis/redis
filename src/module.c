@@ -9522,42 +9522,39 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
     return REDISMODULE_OK;
 }
 
-/* Sibling of `RM_AddPostNotificationJob` that fires per-key. The callback is
- * invoked at the tail of the currently executing command (and at the tail of
- * every sub-command inside MULTI/EXEC), so a module can observe per-key
- * effects before the next sub-command runs. Jobs fire in submission order.
+/* Sibling of `RM_AddPostNotificationJob` that fires per-key. May only be
+ * called from within a keyspace-notification handler (the single-key context
+ * the API is scoped to). Each call binds the job to the caller-supplied
+ * `key`, so multi-key commands such as MSET (which emit one notification per
+ * key) may register one job per affected key.
  *
- * Only commands that touch exactly one key are supported. If called while the
- * current command touches zero or more than one key, the registration is
- * refused with REDISMODULE_ERR. This avoids the ambiguity of "per-key" firing
- * inside multi-key commands (MSET, SUNIONSTORE, ...).
+ * Firing schedule (superset of `RM_AddPostNotificationJob`):
+ *  - At the tail of every `call()`, so per-key effects are observable between
+ *    MULTI/EXEC sub-commands.
+ *  - At the end of the outermost execution unit, alongside the regular
+ *    post-notification jobs. This covers the active-expire and eviction
+ *    paths (both call `postExecutionUnitOperations` themselves).
  *
- * `key` must be a valid RedisModuleString. The implementation takes its own
- * reference; the caller retains ownership of its own reference and may free
- * it at any time. `free_pd` may be NULL.
+ * Jobs fire in submission order. `key` must be a valid RedisModuleString; the
+ * implementation takes its own reference and the caller retains ownership of
+ * its own reference. `free_pd` may be NULL.
  *
- * Return REDISMODULE_OK on success and REDISMODULE_ERR if called while loading
- * data from disk (AOF or RDB), on a read-only replica, or if the currently
- * executing command does not touch exactly one key. */
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if called while
+ * loading data from disk (AOF or RDB), on a read-only replica, or outside a
+ * keyspace-notification handler. */
 int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotificationJobPerKeyFunc callback, RedisModuleString *key, void *privdata, void (*free_privdata)(void*)) {
     if (server.loading || (server.masterhost && server.repl_slave_ro)) {
         return REDISMODULE_ERR;
     }
 
-    /* Restrict to single-key commands. */
-    client *ec = server.executing_client;
-    if (!ec || !ec->cmd) return REDISMODULE_ERR;
-    getKeysResult result = GETKEYS_RESULT_INIT;
-    getKeysFromCommand(ec->cmd, ec->argv, ec->argc, &result);
-    int numkeys = result.numkeys;
-    getKeysFreeResult(&result);
-    if (numkeys != 1) {
+    /* The API is only meaningful from inside a keyspace-notification handler:
+     * that is the single-key context the per-key contract is scoped to. */
+    if (!server.in_keyspace_notification) {
         serverLog(LL_WARNING,
             "API misuse detected in module %s: "
-            "RedisModule_AddPostNotificationJobForKey called from a notification "
-            "on command '%s' which touches %d keys; the per-key API requires "
-            "exactly one key.",
-            ctx->module->name, ec->cmd->fullname, numkeys);
+            "RedisModule_AddPostNotificationJobForKey called outside a "
+            "keyspace-notification handler.",
+            ctx->module->name);
         return REDISMODULE_ERR;
     }
 
@@ -9632,6 +9629,12 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
      * but we do not want to update the cached time */
     enterExecutionUnit(0, 0);
 
+    /* Mark that we are inside a keyspace-notification dispatch. This is the
+     * single-key context that RM_AddPostNotificationJobForKey requires; the
+     * counter form lets nested notifications (a callback that triggers
+     * another KSN) nest cleanly. */
+    server.in_keyspace_notification++;
+
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
@@ -9679,6 +9682,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
         }
     }
 
+    server.in_keyspace_notification--;
     exitExecutionUnit();
 }
 
