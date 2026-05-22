@@ -273,7 +273,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -339,7 +339,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -393,7 +393,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -450,7 +450,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -569,7 +569,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -686,7 +686,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -758,7 +758,6 @@ Tested with the following Docker images:
    export HOMEBREW_PREFIX="$(brew --prefix)"
    export BUILD_WITH_MODULES=yes
    export BUILD_TLS=yes
-   export DISABLE_WERRORS=yes
    PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
