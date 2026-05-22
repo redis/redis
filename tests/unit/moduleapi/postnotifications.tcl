@@ -167,25 +167,27 @@ foreach api {regular perkey} {
     }
 }
 
-tags "modules external:skip" {
-    start_server {} {
-        r module load $testmodule with_key_events
+foreach api {regular perkey} {
+    tags "modules external:skip" {
+        start_server {} {
+            r module load $testmodule $api with_key_events
 
-        test {Test nested keyspace notification} {
-            r flushall
-            set repl [attach_to_replication_stream]
+            test "Test nested keyspace notification ($api API)" {
+                r flushall
+                set repl [attach_to_replication_stream]
 
-            assert_equal {OK} [r set write_sync_write_sync_x 1]
+                assert_equal {OK} [r set write_sync_write_sync_x 1]
 
-            assert_replication_stream $repl {
-                {multi}
-                {select *}
-                {set x 1}
-                {set write_sync_x 1}
-                {set write_sync_write_sync_x 1}
-                {exec}
+                assert_replication_stream $repl {
+                    {multi}
+                    {select *}
+                    {set x 1}
+                    {set write_sync_x 1}
+                    {set write_sync_write_sync_x 1}
+                    {exec}
+                }
+                close_replication_stream $repl
             }
-            close_replication_stream $repl
         }
     }
 }
