@@ -127,6 +127,30 @@ start_server {tags {"zset"}} {
             assert_equal {y x z} [r zrange ztmp 0 -1]
         }
 
+        test "ZSET score update with equal-score neighbor - $encoding" {
+            r del ztmp
+            r zadd ztmp 1 a 2 b 3 c
+            r zadd ztmp 3 b
+            assert_equal {a b c} [r zrange ztmp 0 -1]
+            assert_equal {a 1 b 3 c 3} [r zrange ztmp 0 -1 withscores]
+
+            r zadd ztmp 1 b
+            assert_equal {a b c} [r zrange ztmp 0 -1]
+            assert_equal {a 1 b 1 c 3} [r zrange ztmp 0 -1 withscores]
+
+            r del ztmp
+            r zadd ztmp 1 a 2 c 3 b
+            r zadd ztmp 3 c
+            assert_equal {a b c} [r zrange ztmp 0 -1]
+            assert_equal {a 1 b 3 c 3} [r zrange ztmp 0 -1 withscores]
+
+            r del ztmp
+            r zadd ztmp 1 b 2 a 3 c
+            r zadd ztmp 1 a
+            assert_equal {a b c} [r zrange ztmp 0 -1]
+            assert_equal {a 1 b 1 c 3} [r zrange ztmp 0 -1 withscores]
+        }
+
         test "ZSET element can't be set to NaN with ZADD - $encoding" {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }
