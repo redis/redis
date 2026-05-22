@@ -179,28 +179,59 @@ tags "modules external:skip" {
             }
             close_replication_stream $repl
         }
+    }
+}
 
-        test {Test eviction} {
-            r flushall
-            set repl [attach_to_replication_stream]
-            r set x 1
-            r config set maxmemory-policy allkeys-random
-            r config set maxmemory 1
+foreach api {regular perkey} {
+    tags "modules external:skip" {
+        start_server {} {
+            r module load $testmodule $api with_key_events
 
-            assert_error {OOM *} {r set y 1}
+            test "Test eviction ($api API)" {
+                r flushall
+                set repl [attach_to_replication_stream]
+                r set x 1
+                r config set maxmemory-policy allkeys-random
+                r config set maxmemory 1
 
-            # the {lpush before_evicted x} is a post notification job registered before 'x' got evicted
-            assert_replication_stream $repl {
-                {select *}
-                {set x 1}
-                {multi}
-                {del x}
-                {lpush before_evicted x}
-                {incr evicted}
-                {exec}
-            }
-            close_replication_stream $repl
-        } {} {needs:config-maxmemory}
+                assert_error {OOM *} {r set y 1}
+
+                # the {lpush before_evicted x} is a post notification job
+                # registered before 'x' got evicted via the RedisModuleEvent_Key
+                # server event (always uses the regular post-notif queue).
+                #
+                # Under the per-key API the keyspace-notification side-effect
+                # ({incr evicted}) drains from firePostKeyedNotificationJobs at
+                # the top of afterCommand, before the regular post-notif queue
+                # drains and before propagatePendingCommands flushes the outer
+                # multi/exec. With maxmemory=1 still in force, that per-key
+                # call() hits OOM and does not propagate; the trailing
+                # {del before_evicted} is the eviction of the list created by
+                # the regular drain's lpush.
+                if {$api eq "perkey"} {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {multi}
+                        {del x}
+                        {lpush before_evicted x}
+                        {exec}
+                        {del before_evicted}
+                    }
+                } else {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {multi}
+                        {del x}
+                        {lpush before_evicted x}
+                        {incr evicted}
+                        {exec}
+                    }
+                }
+                close_replication_stream $repl
+            } {} {needs:config-maxmemory}
+        }
     }
 }
 
