@@ -1192,6 +1192,8 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd1 read
         $rd1 SUBSCRIBE test2
         $rd1 read
+        $rd1 AUTH alice alice
+        $rd1 read
         $rd1 CLIENT SETNAME multi-prov
         $rd1 read
 
