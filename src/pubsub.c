@@ -60,6 +60,17 @@ static dictType pubsubNoDestructorDictType = {
     NULL
 };
 
+/* Sentinel user for clients with c->user == NULL (e.g. CLIENT_MASTER,
+ * module temp clients with RM_Call "K" flag).  This is a static object
+ * that is never registered in the ACL system, so no ACL operation will
+ * ever match or dereference it.  It lets us keep a non-NULL dict key
+ * in pubsub_subscriptions without changing protocol behaviour. */
+static user pubsubNoAuthUser;
+
+int pubsubUserIsNoAuth(user *u) {
+    return u == &pubsubNoAuthUser;
+}
+
 static pubsubUserSubs *createPubsubUserSubs(void) {
     pubsubUserSubs *subs = zmalloc(sizeof(*subs));
     subs->channels = dictCreate(&objectKeyPointerValueDictType);
@@ -69,11 +80,11 @@ static pubsubUserSubs *createPubsubUserSubs(void) {
 }
 
 static pubsubUserSubs *pubsubGetOrCreateUserSubs(client *c) {
-    serverAssert(c->user != NULL);
-    dictEntry *de = dictFind(c->pubsub_subscriptions, c->user);
+    user *key = c->user ? c->user : &pubsubNoAuthUser;
+    dictEntry *de = dictFind(c->pubsub_subscriptions, key);
     if (de) return dictGetVal(de);
     pubsubUserSubs *subs = createPubsubUserSubs();
-    serverAssert(dictAdd(c->pubsub_subscriptions, c->user, subs) == DICT_OK);
+    serverAssert(dictAdd(c->pubsub_subscriptions, key, subs) == DICT_OK);
     return subs;
 }
 
@@ -967,10 +978,16 @@ void pubsubRekeySubscriptionsForACLLoad(client *c) {
     dictInitIterator(&di, c->pubsub_subscriptions);
     while ((entry = dictNext(&di)) != NULL) {
         user *old_user_ptr = dictGetKey(entry);
-        user *new_user = ACLGetUserByName(old_user_ptr->name, sdslen(old_user_ptr->name));
-        serverAssert(new_user != NULL);
         pubsubUserSubs *subs = dictGetVal(entry);
-        dictAdd(new_dict, new_user, subs);
+
+        if (pubsubUserIsNoAuth(old_user_ptr)) {
+            /* Sentinel key is a stable static pointer — carry it as-is. */
+            dictAdd(new_dict, old_user_ptr, subs);
+        } else {
+            user *new_user = ACLGetUserByName(old_user_ptr->name, sdslen(old_user_ptr->name));
+            serverAssert(new_user != NULL);
+            dictAdd(new_dict, new_user, subs);
+        }
     }
     dictResetIterator(&di);
 

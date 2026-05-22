@@ -3941,6 +3941,7 @@ int clientSubscriptionsCount(client *c);
 int clientShardSubscriptionsCount(client *c);
 int clientTotalPubSubSubscriptionCount(client *c);
 void pubsubRekeySubscriptionsForACLLoad(client *c);
+int pubsubUserIsNoAuth(user *u);
 int pubsubUserSubsIsEmpty(pubsubUserSubs *subs);
 
 /* Keyspace events notification */

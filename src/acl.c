@@ -2545,6 +2545,7 @@ sds ACLLoadFromFile(const char *filename) {
                 dictInitIterator(&di, c->pubsub_subscriptions);
                 while ((entry = dictNext(&di)) != NULL) {
                     user *old_user_ptr = dictGetKey(entry);
+                    if (pubsubUserIsNoAuth(old_user_ptr)) continue;
                     sds prov_username = old_user_ptr->name;
 
                     user *new_prov = ACLGetUserByName(prov_username, sdslen(prov_username));
