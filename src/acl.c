@@ -2494,11 +2494,10 @@ sds ACLLoadFromFile(const char *filename) {
          * into old_users before mutation so the provenance loop can compare
          * against the pre-load permissions. */
         user *old_default_copy = zmalloc(sizeof(user));
-        *old_default_copy = *DefaultUser;
+        memset(old_default_copy, 0, sizeof(user));
+        serverAssert(DefaultUser);
         old_default_copy->name = sdsdup(DefaultUser->name);
-        old_default_copy->passwords = listDup(DefaultUser->passwords);
-        old_default_copy->selectors = listDup(DefaultUser->selectors);
-        old_default_copy->acl_string = NULL;
+        ACLCopyUser(old_default_copy, DefaultUser);
 
         user *new_default = ACLGetUserByName("default",7);
         if (!new_default) {
