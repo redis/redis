@@ -2214,6 +2214,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
+                node->reconnect_retry_delay = 0;
             }
         } else if (!node) {
             /* If it's not in NOADDR state and we don't have it, we
