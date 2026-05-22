@@ -2,28 +2,22 @@
 
 [files]
 extend-exclude = [
-    ".git/",
     "deps/",
     # crc16_slottable is primarily pre-generated random strings.
     "src/crc16_slottable.h",
     # Third-party imported code.
     "src/pqsort.c",
-    "src/lzf_c.c",
-    "src/lzf_d.c",
-    "src/lzf.h",
+    "src/lzf*",
     "src/sha1.c",
 ]
 
 [default]
 extend-ignore-re = [
-    'WATCHed',
-    'SELECTed',
+    # Redis command names with past-tense suffix in docs/log messages.
+    '(WATCH|SELECT|DUMP)ed',
     'RESTOREd',
-    'DUMPed',
-
     # Italian poetry in lolwut8.c.
     'le cose',
-
     # ANSI escape sequences inside redis-cli reverse-search test regexes
     # (e.g. `k\x1B[1mey\x1B[0m`).
     '\[1mey',
@@ -35,24 +29,21 @@ optin = "optin"
 smove = "smove"
 # 'tre' is the name of the TRE regex library dependency.
 tre = "tre"
+# 'ser' appears as a substring in existing Redis identifiers, preserved to avoid sweeping renames.
+ser = "ser"
+# Short identifiers used across C/TCL/header sources.
+fo = "fo"
+pn = "pn"
+seeked = "seeked"
 
 [default.extend-identifiers]
 # POSIX glob struct field; not a typo.
 gl_pathc = "gl_pathc"
-# Existing Redis identifiers preserved to avoid sweeping renames.
-hnswSerNode = "hnswSerNode"
-HNSW_SER_WORSTLINK_MISSING = "HNSW_SER_WORSTLINK_MISSING"
-keyMetaClassSer = "keyMetaClassSer"
 
 [type.c]
 extend-ignore-re = [
     "Georg Nees",
-    "\\[l\\]ist", # eval.c
-]
-
-[type.tcl]
-extend-ignore-re = [
-    "DUMPed",
+    '\[l\]ist',  # eval.c help text
 ]
 
 [type.c.extend-identifiers]
@@ -62,7 +53,6 @@ nd = "nd"
 ot = "ot"
 # Local variable abbreviations widespread across the codebase.
 cpy = "cpy"
-pn = "pn"
 # Latency-tracking subsystem identifiers.
 advices = "advices"
 # t_string GETRANGE/SETRANGE locals.
@@ -70,22 +60,8 @@ arange_start = "arange_start"
 arange_end = "arange_end"
 
 [type.tcl.extend-identifiers]
-fo = "fo"
 oll = "oll"
-
-[type.sv.extend-words]
-# sv = .h
-fo = "fo"
-seeked = "seeked"
-
-[type.c.extend-words]
-fo = "fo"
-seeked = "seeked"
-pn = "pn"
 
 [type.systemd.extend-words]
 # systemd = .conf
 ake = "ake"
-
-[type.tcl.extend-words]
-fo = "fo"
