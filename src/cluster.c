@@ -2128,7 +2128,7 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
 }
 
 /* Return the slot ranges that belong to a node or its master. */
-slotRangeArray *clusterGetNodeSlotRanges(const char *id) {
+slotRangeArray *getClusterNodeSlotRanges(const char *id) {
     slotRangeArray *slots = NULL;
 
     if (!server.cluster_enabled) {

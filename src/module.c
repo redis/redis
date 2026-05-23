@@ -9983,14 +9983,14 @@ RedisModuleSlotRangeArray *RM_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
  *
  * The returned array must be freed with RM_ClusterFreeSlotRanges().
  */
-RedisModuleSlotRangeArray *RM_ClusterGetNodeSlotRanges(RedisModuleCtx *ctx, const char *id) {
-    slotRangeArray *slots = clusterGetNodeSlotRanges(id);
+RedisModuleSlotRangeArray *RM_GetClusterNodeSlotRanges(RedisModuleCtx *ctx, const char *id) {
+    slotRangeArray *slots = getClusterNodeSlotRanges(id);
     if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
     return (RedisModuleSlotRangeArray *)slots;
 }
 
 /* Frees a slot range array returned by RM_ClusterGetLocalSlotRanges()
- * or RM_ClusterGetNodeSlotRanges().
+ * or RM_GetClusterNodeSlotRanges().
  * Pass the `ctx` pointer only if the array was created with a context. */
 void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
     if (ctx) autoMemoryFreed(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
@@ -15613,7 +15613,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ClusterCanAccessKeysInSlot);
     REGISTER_API(ClusterPropagateForSlotMigration);
     REGISTER_API(ClusterGetLocalSlotRanges);
-    REGISTER_API(ClusterGetNodeSlotRanges);
+    REGISTER_API(GetClusterNodeSlotRanges);
     REGISTER_API(ClusterFreeSlotRanges);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
