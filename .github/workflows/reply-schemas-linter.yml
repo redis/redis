@@ -8,6 +8,9 @@ on:
     paths:
       - 'src/commands/*.json'
 
+permissions:
+  contents: read
+
 jobs:
   reply-schemas-linter:
     runs-on: ubuntu-latest
