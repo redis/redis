@@ -347,7 +347,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis.conf
    ```
 
 ### Build and run Redis with all data structures - Ubuntu 24.04 (Noble)
@@ -355,6 +355,25 @@ Tested with the following Docker image:
 Tested with the following Docker image:
 
 - ubuntu:24.04
+
+> **Pre-built build environment image:** instead of running the apt-get
+> commands below by hand, you can build the bundled `docker/Dockerfile.noble`
+> image, which installs every per-module system dependency and runs
+> `make modules-update`. The image is intended as a build environment — mount
+> the repo at runtime, then run `make build`/`make run` inside the container.
+>
+> ```bash
+> # Native architecture only:
+> docker build -f docker/Dockerfile.noble -t redis-build:noble .
+>
+> # Multi-arch (requires `docker buildx` configured):
+> docker buildx build --platform linux/amd64,linux/arm64 \
+>     -f docker/Dockerfile.noble -t redis-build:noble .
+>
+> # Run with the working tree mounted:
+> docker run --rm -it -v "$PWD":/workspace -w /workspace redis-build:noble \
+>     bash -lc 'make build && make run'
+> ```
 
 1. Install required dependencies
 
@@ -401,7 +420,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis.conf
    ```
 
 ### Build and run Redis with all data structures - Debian 11 (Bullseye) / 12 (Bookworm)
@@ -458,7 +477,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis.conf
    ```
 
 ### Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10
@@ -577,7 +596,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis.conf
    ```
 
 ### Build and run Redis with all data structures - AlmaLinux 9.5 / Rocky Linux 9.5
@@ -694,7 +713,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis.conf
    ```
 
 ### Build and run Redis with all data structures - macOS 13 (Ventura) and macOS 14 (Sonoma)
@@ -772,7 +791,7 @@ Tested with the following Docker images:
    ```sh
    export LC_ALL=en_US.UTF-8
    export LANG=en_US.UTF-8
-   build_dir/bin/redis-server redis-full.conf
+   build_dir/bin/redis-server redis.conf
    ```
 
 ### Build and run Redis with all data structures - macOS 15 (Sequoia)

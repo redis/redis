@@ -5,10 +5,8 @@ then
     exit 1
 fi
 
-TAG=$1
-TARNAME="redis-${TAG}.tar"
-echo "Generating /tmp/${TARNAME}"
-git archive $TAG --prefix redis-${TAG}/ > /tmp/$TARNAME || exit 1
-echo "Gizipping the archive"
-rm -f /tmp/$TARNAME.gz
-gzip -9 /tmp/$TARNAME
+if [ ! -x scripts/tarball.sh ]; then
+    echo "ERROR: scripts/tarball.sh is missing or not executable (run from repo root)." >&2
+    exit 1
+fi
+TAG="$1" exec scripts/tarball.sh
