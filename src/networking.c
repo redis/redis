@@ -3127,6 +3127,8 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
 
     /* Create redis objects for all arguments. */
     for (pcmd->argc = 0, j = 0; j < argc; j++) {
+        /* Trim greedy allocation from sdssplitargs(). */
+        argv[j] = sdsRemoveFreeSpace(argv[j], 0);
         pcmd->argv[pcmd->argc] = createObject(OBJ_STRING,argv[j]);
         pcmd->argc++;
         pcmd->argv_len_sum += sdslen(argv[j]);
