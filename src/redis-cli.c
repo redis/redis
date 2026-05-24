@@ -3681,7 +3681,7 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
     if (config.auth) c += 2;
-    if (config.user) c += 1;
+    if (config.auth && config.user) c += 1;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
     argv = zcalloc(argc * sizeof(char *));
