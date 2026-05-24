@@ -168,6 +168,32 @@ typedef struct raxIterator {
     void *privdata;         /* Optional private data for node callback. */
 } raxIterator;
 
+/* Result of a rax walk, used to commit a find-then-insert pair without
+ * re-walking the tree.
+ *
+ *   raxFindLink()  produces a link.
+ *   raxInsertAt()  consumes it.
+ *
+ * Invalidation contract: `h` and `parentlink` are interior pointers into
+ * the tree. They become stale on ANY intervening rax mutation. Callers
+ * MUST commit (or discard) immediately after the find; do not interleave
+ * other rax calls on the same tree, do not retain across yield points.
+ * The commit itself is allowed to realloc `h` (raxReallocForData,
+ * raxAddChild) and update *parentlink in-place -- the link's own fields
+ * survive the commit, but a second commit on the same link is undefined. */
+typedef struct raxNodeLink {
+    raxNode  *h;            /* Stop node. */
+    raxNode **parentlink;   /* Slot in h's parent that holds h. */
+    size_t    i;            /* Bytes of key consumed at stop. */
+    int       splitpos;     /* Split position inside h's compressed
+                             * prefix. Same semantic as raxLowWalk():
+                             * only meaningful when h->iscompr; 0 with
+                             * i == len means clean arrival at h, 0 with
+                             * i < len means the first prefix byte
+                             * mismatched the next key byte, > 0 means
+                             * the walk stopped mid-prefix. */
+} raxNodeLink;
+
 /* Exported API. */
 rax *raxNew(void);
 rax *raxNewWithMetadata(int metaSize, size_t *alloc_size);
@@ -175,6 +201,12 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
 int raxFind(rax *rax, unsigned char *s, size_t len, void **value);
+
+int raxFindLink(rax *rax, unsigned char *s, size_t len,
+                void **value, raxNodeLink *link);
+int raxInsertAt(rax *rax, unsigned char *s, size_t len,
+                void *data, void **old, raxNodeLink *link);
+
 void raxFree(rax *rax);
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*));
 void raxFreeWithCbAndContext(rax *rax,
