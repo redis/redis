@@ -863,4 +863,94 @@ start_server {tags {"cli external:skip"}} {
     }
 }
 
+start_server {tags {"cli external:skip"}} {
+    # Regression for the parseRedisUri() bug where "redis://:password@host"
+    # produced an empty ACL username and the server replied WRONGPASS.
+    r config set requirepass "uri-no-username-pass"
+    set host [srv host]
+    set port [srv port]
+    if {$::tls} {
+        set scheme "rediss"
+    } else {
+        set scheme "redis"
+    }
+    set tls_args [rediscli_tls_config "tests"]
+
+    test "redis-cli -u with empty username falls back to legacy AUTH" {
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -u "$scheme://:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with explicit username uses ACL AUTH" {
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u after -a overrides auth without leaking" {
+        # -a sets connInfo->auth first, then -u must free the previous
+        # value before assigning the URI-provided one.
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -a wrong-pass \
+            -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u after --user overrides user without leaking" {
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            --user wronguser \
+            -u "$scheme://default:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with explicit empty username clears stale --user" {
+        # A previously set --user must be cleared (not left stale) when
+        # the URI explicitly empties the username component, otherwise
+        # cliAuth() would send ACL AUTH with the stale username instead
+        # of the intended legacy single-argument AUTH.
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            --user wronguser \
+            -u "$scheme://:uri-no-username-pass@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with empty userinfo keeps previously set -a auth" {
+        # "redis://@host" has empty userinfo, so the URI must not
+        # clobber the password already supplied via -a.
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -a uri-no-username-pass \
+            -u "$scheme://@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    r config set requirepass ""
+}
+
+start_server {tags {"cli external:skip"}} {
+    # Regression for empty userinfo URIs: "redis://@host" and
+    # "redis://user:@host" should leave connInfo->auth unset so that
+    # cliAuth() skips AUTH entirely instead of sending an empty password.
+    set host [srv host]
+    set port [srv port]
+    if {$::tls} {
+        set scheme "rediss"
+    } else {
+        set scheme "redis"
+    }
+    set tls_args [rediscli_tls_config "tests"]
+
+    test "redis-cli -u with empty userinfo skips AUTH" {
+        set cmd [list src/redis-cli {*}$tls_args \
+            -u "$scheme://@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+
+    test "redis-cli -u with empty password skips AUTH" {
+        set cmd [list src/redis-cli {*}$tls_args \
+            -u "$scheme://default:@$host:$port" PING]
+        assert_equal "PONG" [exec {*}$cmd]
+    }
+}
+
 file delete ./.rediscli_history_test

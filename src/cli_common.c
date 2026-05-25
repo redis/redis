@@ -324,11 +324,26 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
     /* Extract user info. */
     if ((userinfo = strchr(curr,'@'))) {
         if ((username = strchr(curr, ':')) && username < userinfo) {
-            connInfo->user = percentDecode(curr, username - curr);
+            /* "user:pass" form: both components are explicitly defined
+             * by the URI (possibly as the empty string). Free any value
+             * previously set by --user / -a and use NULL for explicitly
+             * empty components so cliAuth() falls back to legacy AUTH
+             * (or skips AUTH entirely) rather than sending an empty ACL
+             * username or password, which the server rejects. */
+            sdsfree(connInfo->user);
+            connInfo->user = (username > curr)
+                ? percentDecode(curr, username - curr) : NULL;
             curr = username + 1;
+            sdsfree(connInfo->auth);
+            connInfo->auth = (userinfo > curr)
+                ? percentDecode(curr, userinfo - curr) : NULL;
+        } else if (userinfo > curr) {
+            /* "user@host" form: only the username is defined by the URI;
+             * leave the password (e.g. from -a) untouched. */
+            sdsfree(connInfo->user);
+            connInfo->user = percentDecode(curr, userinfo - curr);
         }
-
-        connInfo->auth = percentDecode(curr, userinfo - curr);
+        /* else "redis://@host": empty userinfo, leave both untouched. */
         curr = userinfo + 1;
     }
     if (curr == end) return;
