@@ -42,3 +42,14 @@ Makefile.dep
 .ccls-cache/*
 compile_commands.json
 redis.code-workspace
+
+# MSVC build
+build_msvc2026/
+msvc2026-build/
+Testing/
+*.exe
+*.pdb
+*.ilk
+*.obj
+.vs/
+patched/
