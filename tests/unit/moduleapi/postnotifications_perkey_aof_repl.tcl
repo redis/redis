@@ -150,6 +150,12 @@ tags "modules aof external:skip" {
                     replicaof "$master_host $master_port"]] {
                 set replica [srv 0 client]
                 wait_for_sync $replica
+                # The replica boots with appendonly=yes and replicaof, so
+                # post-sync it kicks off a background AOF rewrite. Until that
+                # child finishes, propagated commands land in a temp incr
+                # file that `debug loadaof` won't see — wait it out before
+                # driving the write under test.
+                waitForBgrewriteaof $replica
 
                 # Drive a write on the master; replica receives it via
                 # propagation and writes it to its own AOF.
