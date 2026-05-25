@@ -9464,7 +9464,23 @@ void firePostExecutionUnitJobs(void) {
  * Invoked at the tail of every call() (see afterCommand), so callbacks fire
  * between sub-commands inside MULTI/EXEC. Uses server.firing_keyed_post_notif_jobs
  * as a reentrance guard, since the per-call() hook bypasses the execution_nesting
- * gating used by firePostExecutionUnitJobs. */
+ * gating used by firePostExecutionUnitJobs.
+ *
+ * Also invoked from the AOF replay loop in loadSingleAppendOnlyFile after
+ * each single command (sub-commands inside MULTI/EXEC are drained by
+ * afterCommand() since EXEC's processor goes through call()). This is what
+ * makes the firing pattern during AOF replay match normal command
+ * execution: one drain per single command, one per MULTI/EXEC sub-command.
+ *
+ * Contract for the callback: it MUST only touch non-replicated,
+ * non-AOF-persisted state — module-attached key metadata is the canonical
+ * case. The same callback fires on the master, on every replica receiving
+ * master-propagated commands, and during AOF replay; consistency relies on
+ * each instance running the same callback over the same KSN stream, not
+ * on replication of the callback's side-effects. Writes back into the
+ * keyspace via RM_Call(..., "!...") will duplicate effects already in the
+ * AOF on replay and diverge the replica from its master in steady state.
+ * The runtime does not enforce this; it is a documented contract. */
 void firePostKeyedNotificationJobs(void) {
     if (server.firing_keyed_post_notif_jobs) return;
     if (listLength(modulePostKeyedNotificationJobs) == 0) return;
@@ -9534,18 +9550,36 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
  *  - At the end of the outermost execution unit, alongside the regular
  *    post-notification jobs. This covers the active-expire and eviction
  *    paths (both call `postExecutionUnitOperations` themselves).
+ *  - During AOF replay, at the tail of every replayed command — single
+ *    commands and each sub-command of MULTI/EXEC — so per-key state that
+ *    lives outside the AOF (e.g. module-attached key metadata) is rebuilt
+ *    in the same pattern as during normal execution.
  *
  * Jobs fire in submission order. `key` must be a valid RedisModuleString; the
  * implementation takes its own reference and the caller retains ownership of
  * its own reference. `free_pd` may be NULL.
  *
- * Return REDISMODULE_OK on success and REDISMODULE_ERR if called while
- * loading data from disk (AOF or RDB), on a read-only replica, or outside a
- * keyspace-notification handler. */
+ * Cross-phase contract (enforced by documentation, not by the runtime):
+ *  - The callback MUST only touch non-replicated, non-AOF-persisted state,
+ *    such as module-attached key metadata via `RM_SetKeyMeta` /
+ *    `RM_GetKeyMeta`. The same callback fires on the master, on every
+ *    replica receiving master-propagated commands, and during AOF replay;
+ *    each instance maintains its own per-key state independently and they
+ *    converge because they all run the same callback over the same KSN
+ *    stream.
+ *  - Touching the keyspace from inside the callback (e.g.
+ *    `RM_Call(..., "!...")`) is a contract violation. On AOF replay it
+ *    amplifies the AOF; on a replica it diverges the replica from its
+ *    master. The runtime does not suppress propagation inside the per-key
+ *    drain and does not enforce this contract today — modules registering
+ *    per-key jobs are responsible for upholding it. A future change may
+ *    add runtime checks if reviewers want stronger enforcement.
+ *
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if called outside a
+ * keyspace-notification handler. The API is permitted on read-only replicas
+ * and during AOF replay, so per-key state stays continuously in sync with
+ * the keyspace events the instance observes. */
 int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotificationJobPerKeyFunc callback, RedisModuleString *key, void *privdata, void (*free_privdata)(void*)) {
-    if (server.loading || (server.masterhost && server.repl_slave_ro)) {
-        return REDISMODULE_ERR;
-    }
 
     /* The API is only meaningful from inside a keyspace-notification handler:
      * that is the single-key context the per-key contract is scoped to. */

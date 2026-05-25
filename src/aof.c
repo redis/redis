@@ -1681,6 +1681,12 @@ int loadSingleAppendOnlyFile(char *filename) {
             queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
+            /* AOF replay bypasses call()/afterCommand(); drain the per-key
+             * post-notification queue here so module callbacks fire once per
+             * replayed single command, mirroring the normal-execution path.
+             * EXEC's sub-commands run through call() above and are drained
+             * by afterCommand() for each sub-command. */
+            firePostKeyedNotificationJobs();
             fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
@@ -1760,6 +1766,12 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
+    /* Drain any per-key post-notification jobs left over from a partially
+     * applied command before tearing down the fake client. In the success
+     * path the per-iteration drain after cmd->proc() has already emptied
+     * the queue; this catches stragglers from any aborted-mid-execution
+     * path so the next caller doesn't observe stale jobs. */
+    firePostKeyedNotificationJobs();
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;
