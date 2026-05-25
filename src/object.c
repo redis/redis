@@ -690,7 +690,7 @@ void decrRefCount(robj *o) {
 
 /* See dismissObject() */
 void dismissSds(sds s) {
-    dismissMemory(sdsAllocPtr(s), sdsAllocSize(s));
+    sdsfree(s);
 }
 
 /* See dismissObject() */
@@ -863,6 +863,11 @@ void dismissObject(robj *o, size_t size_hint) {
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC) && defined(__linux__)
     if (o->refcount != 1) return;
+    /* For strings, sdsfree() works at any allocation size, so always proceed.
+     * For complex types, skip when serialized size is too small for the
+     * page-granular madvise to be effective. When size_hint is 0 (unknown),
+     * proceed and let the type-specific functions decide. */
+    if (o->type != OBJ_STRING && size_hint && size_hint <= server.page_size/2) return;
     switch(o->type) {
         case OBJ_STRING: dismissStringObject(o); break;
         case OBJ_LIST: dismissListObject(o, size_hint); break;

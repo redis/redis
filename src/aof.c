@@ -2736,9 +2736,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             /* In fork child process, we can try to release memory back to the
              * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
-            size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
-            if (server.in_fork_child && dump_size > server.page_size/2)
+            if (server.in_fork_child) {
+                size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
                 dismissObject(o, dump_size);
+            }
 
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
