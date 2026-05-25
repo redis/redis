@@ -77,7 +77,7 @@ modules:
   - name: redistimeseries
     repo: https://github.com/redistimeseries/redistimeseries
     tag:
-    branch: make_set_up_new_with_redis_dockers
+    branch: master
     commit:
     version:
     target_module: redistimeseries.so
