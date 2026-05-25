@@ -780,6 +780,11 @@ static int ff_eq(double a, double b) {
     return a == b;
 }
 
+static int is_parse_failed(const char *s, size_t len, const char *eptr, int err, double d) {
+    return ((size_t)(eptr - s) != len) || err == EINVAL ||
+           (err == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
+}
+
 static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
     for (int i = 0; i < n; i++) {
         const char *s = cases[i].input;
@@ -788,8 +793,7 @@ static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
 
         errno = 0;
         double d = fast_float_strtod(s, len, &eptr);
-        int failed = ((size_t)(eptr - s) != len) || errno == EINVAL ||
-            (errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
+        int failed = is_parse_failed(s, len, eptr, errno, d);
         int ok = (expect_failed == failed) && ff_eq(d, cases[i].expected);
         char descr[128];
         if (ok)
@@ -816,11 +820,8 @@ static void run_ff_libc_compat_tests(const char **cases, int n) {
         double libc_d = strtod(s, &libc_eptr);
         int libc_err = errno;
 
-        int failed = ((size_t)(eptr - s) != len) || err == EINVAL ||
-                     (err == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
-        int libc_failed = ((size_t)(libc_eptr - s) != len) || libc_err == EINVAL ||
-                          (libc_err == ERANGE && (
-                               libc_d == HUGE_VAL || libc_d == -HUGE_VAL || fpclassify(libc_d) == FP_ZERO));
+        int failed = is_parse_failed(s, len, eptr, err, d);
+        int libc_failed = is_parse_failed(s, len, libc_eptr, libc_err, libc_d);
         char descr[128];
         snprintf(descr, sizeof(descr), "ff matches libc strtod: \"%s\"", s);
         test_cond(descr, failed == libc_failed && (eptr - s) == (libc_eptr - s) && ff_eq(d, libc_d));
