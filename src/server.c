@@ -3856,7 +3856,16 @@ void postExecutionUnitOperations(void) {
      * the in-process registration order of the existing API and gives
      * identical propagated streams between the two APIs for the cron-driven
      * paths (active-expire in expire.c, eviction in evict.c — both call us
-     * directly after their own enter/exitExecutionUnit). */
+     * directly after their own enter/exitExecutionUnit).
+     *
+     * Cross-queue registration during these drains is unsupported: a keyed
+     * callback that causes a regular job to be queued (e.g. via a KSN
+     * surfaced from its RM_Call landing in another module's handler) leaves
+     * that regular job in the queue past propagatePendingCommands, so its
+     * writes land in a separate replication transaction. The contract
+     * around what keyed callbacks may do (documented on
+     * RM_AddPostNotificationJobForKey in module.c) is what keeps this from
+     * triggering in practice; modules are responsible for upholding it. */
     firePostExecutionUnitJobs();
     firePostKeyedNotificationJobs();
 

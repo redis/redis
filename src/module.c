@@ -9574,6 +9574,17 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
  *    drain and does not enforce this contract today — modules registering
  *    per-key jobs are responsible for upholding it. A future change may
  *    add runtime checks if reviewers want stronger enforcement.
+ *  - Causing a regular post-notification job to be queued from inside a
+ *    per-key callback is unsupported. The outermost drain in
+ *    `postExecutionUnitOperations` runs the regular queue first and the
+ *    per-key queue second; a regular job appended during the per-key drain
+ *    (for example via an `RM_Call` whose KSN handler in another module
+ *    calls `RM_AddPostNotificationJob`) is not drained before
+ *    `propagatePendingCommands`, so its writes land in a separate
+ *    replication transaction from the originating command. This falls out
+ *    naturally if the keyspace-mutation contract above is upheld, since
+ *    keyed callbacks would not be issuing the writes that surface the
+ *    cross-queueing KSN in the first place.
  *
  * Return REDISMODULE_OK on success and REDISMODULE_ERR if called outside a
  * keyspace-notification handler. The API is permitted on read-only replicas
