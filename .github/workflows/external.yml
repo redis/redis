@@ -7,7 +7,7 @@ on:
       - cron: '0 0 * * *'
 
 concurrency:
-  group: external-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

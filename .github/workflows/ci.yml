@@ -3,7 +3,7 @@ name: CI
 on: [push, pull_request]
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
