@@ -108,6 +108,15 @@ for name in $requested; do
           || git -C "$dest" fetch origin
         git -C "$dest" checkout -f "$ref" 2>/dev/null \
           || git -C "$dest" reset --hard FETCH_HEAD
+        # Branches move; tags don't. After `checkout master` we're on the
+        # LOCAL master, which still points at the clone-time tip — `fetch`
+        # only updated `refs/remotes/origin/master`. Fast-forward (or
+        # rewind) local to remote so re-running modules-update actually
+        # picks up upstream advances.
+        if [ "$kind" = "branch" ]; then
+          git -C "$dest" reset --hard "origin/$ref" 2>/dev/null \
+            || git -C "$dest" reset --hard FETCH_HEAD
+        fi
         ;;
     esac
     echo "==> Re-syncing submodules for $name"
