@@ -239,17 +239,18 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+s" {
-        run_command $fd "keys one\x0D"
-        run_command $fd "keys two\x0D"
+        set unique [clock microseconds]
+        run_command $fd "keys ${unique}-one\x0D"
+        run_command $fd "keys ${unique}-two\x0D"
 
         puts $fd "\x13" ;# CTRL+S
         read_cli $fd
 
-        puts -nonewline $fd "ey"
-        read_cli_until $fd {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one}
+        puts -nonewline $fd $unique
+        read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-one} $unique]
 
         puts $fd "\x13" ;# CTRL+S
-        read_cli_until $fd {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
+        read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-two} $unique]
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
