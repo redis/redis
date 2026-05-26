@@ -12,10 +12,11 @@
 
 /* This module supports both the regular post-notification API
  * (RedisModule_AddPostNotificationJob) and the per-key API
- * (RedisModule_AddPostNotificationJobForKey). A required load arg —
+ * (RedisModule_AddPostNotificationJobForKey). A load arg —
  * "regular" or "perkey" — selects which API the keyspace handlers register
- * against. The keyspace handlers and post-job side effects are otherwise
- * unchanged: only the registration call differs between modes. */
+ * against (defaults to "regular" if omitted). The keyspace handlers and post-job
+ * side effects are otherwise unchanged: only the registration call differs
+ * between modes. */
 
 #define _BSD_SOURCE
 #define _DEFAULT_SOURCE /* For usleep */
