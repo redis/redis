@@ -78,7 +78,7 @@ foreach api {regular perkey} {
                     [r keys expired] == {expired}
                 } else {
                     puts [r keys *]
-                    fail "Failed waiting for x to expired"
+                    fail "Failed waiting for x to expire"
                 }
 
                 # {lpush before_expired x} comes from the RedisModuleEvent_Key
