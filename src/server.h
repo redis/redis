@@ -711,6 +711,7 @@ typedef enum {
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
 #define SHUTDOWN_NOW 4          /* Don't wait for replicas to catch up. */
 #define SHUTDOWN_FORCE 8        /* Don't let errors prevent shutdown. */
+#define SHUTDOWN_FAILOVER 16    /* Perform cluster failover on shutdown. */
 
 /* Cluster slot stats flags */
 #define CLUSTER_SLOT_STATS_CPU 1  /* Track CPU usage per slot. */

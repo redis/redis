@@ -2137,6 +2137,8 @@ void shutdownCommand(client *c) {
             flags |= SHUTDOWN_NOW;
         } else if (!strcasecmp(c->argv[i]->ptr, "force")) {
             flags |= SHUTDOWN_FORCE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "failover")) {
+            flags |= SHUTDOWN_FAILOVER;
         } else if (!strcasecmp(c->argv[i]->ptr, "abort")) {
             abort = 1;
         } else {
@@ -2149,6 +2151,11 @@ void shutdownCommand(client *c) {
     {
         /* Illegal combo. */
         addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    if (flags & SHUTDOWN_FAILOVER && !server.cluster_enabled) {
+        addReplyError(c, "SHUTDOWN FAILOVER is only supported in cluster mode.");
         return;
     }
 
