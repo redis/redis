@@ -2831,6 +2831,18 @@ int clusterProcessPacket(clusterLink *link) {
                         (unsigned long long) totlen);
                     return 1;
                 }
+                uint16_t exttype = ntohs(ext->type);
+                if (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME ||
+                    exttype == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
+                    uint32_t datalen = extlen - sizeof(clusterMsgPingExt);
+                    char *str = (char *) ext->ext;
+                    if (datalen == 0 || str[datalen - 1] != '\0') {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with missing null terminator in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                }
                 explen += extlen;
                 ext = getNextPingExt(ext);
             }
