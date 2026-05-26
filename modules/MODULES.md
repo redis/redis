@@ -17,7 +17,7 @@ Everywhere below, `make` means "GNU make"; substitute `gmake` on macOS.
 
 | Path | Role |
 |---|---|
-| `modules/modules.yaml` | **Single source of truth** for which upstream repo / ref / SHA each external module is pinned to, plus the per-module build artifact path (`target_module`) and runtime load path (`loadmodule`). |
+| `modules/modules.yaml` | **Single source of truth** for which upstream repo and `ref:` (tag, branch, or commit SHA) each external module is pinned to, plus the per-module build artifact path (`target_module`) and runtime load path (`loadmodule`). |
 | `modules/manifest.mk` | Thin Make-API wrapper. Exposes `AVAILABLE_MODULES`, `$(call manifest-field,…)`, `$(call manifest-ref,…)`, `$(call manifest-ref-kind,…)`. All actual YAML parsing is delegated to `scripts/lib/manifest.sh`. |
 | `modules/common.mk` | Shared build rules for every module — invoked via `make -C modules/<name> -f common.mk` from `modules/Makefile` or `scripts/build.sh`. Auto-derives `MODULE_NAME` from `$(notdir $(CURDIR))`; reads repo / ref / `target_module` from the manifest via `manifest.mk`'s helpers. (`MODULE_NAME` is intentionally **not** passed on the cmdline — doing so would propagate via `MAKEFLAGS` and clobber per-module Makefiles that use `MODULE_NAME` as their build-output basename, e.g. redisjson's `rejson.so`.) |
 | `modules/Makefile` | Per-module dispatcher. Iterates `$(AVAILABLE_MODULES)`; for each, runs `make -C <name> -f common.mk`. Also owns optional Rust-toolchain install and `-Werror` stripping. |
@@ -37,25 +37,29 @@ are the ones managed by `make modules-update`. In-tree modules (e.g.
 ### Pin manifest (`modules.yaml`)
 
 Single file, one entry per managed module. Each entry pins the module to
-exactly one ref via `tag`, `branch`, or `commit`, and names the build
+exactly one `ref:` (a tag, branch, or commit SHA), and names the build
 artifact it produces:
 
 ```yaml
 modules:
   - name: redisearch
     repo: https://github.com/redisearch/redisearch
-    tag:    v8.7.90                                # immutable release tag (preferred)
-    branch:                                        # or a branch name for floating refs
-    commit:                                        # or a full SHA for exact pinning
-    version:                                       # legacy alias for `tag`
+    ref: v8.7.90                                   # tag, branch, or commit SHA
     target_module: search-community/redisearch.so  # produced under src/bin/<variant>/
     loadmodule: ./modules/redisearch/redisearch.so # post-build copy used by redis-gen.conf
 ```
 
-**Ref priority** when more than one is set: `tag` > `version` > `branch` >
-`commit`. `version` is an alias for `tag` and shares its priority tier
-(if you set both, `tag` wins). At least one of the four must be
-non-empty; otherwise `make modules-update` errors loudly.
+**Ref kind** is resolved dynamically against `repo:` by querying
+`git ls-remote`, in this order — first match wins:
+
+1. **tag** — `refs/tags/<ref>` exists on the remote (preferred for releases).
+2. **branch** — `refs/heads/<ref>` exists on the remote.
+3. **commit** — the value looks like a hex SHA (7–40 chars) when neither
+   of the above matched.
+
+`ref:` must be non-empty; otherwise `make modules-update` errors loudly.
+If no kind matches, the error message names the ref and the repo so you
+can correct the manifest.
 
 **`target_module`** is the path to the `.so` the upstream build produces,
 **relative to `src/bin/<os>-<arch>-release/`**. Most modules are just
@@ -66,7 +70,7 @@ non-empty; otherwise `make modules-update` errors loudly.
 convention it's `./modules/<name>/<artifact-basename>` (where the build
 step `cp`s the just-built `.so`).
 
-To bump a module: edit the appropriate ref field and run
+To bump a module: edit `ref:` and run
 `make modules-update <name>`. That's the only place pins live.
 
 ### Why `manifest.mk` and `manifest.sh` both exist
@@ -469,9 +473,9 @@ make tarball TAG=<tag> \
 1. Validates `TAG` resolves to a commit and that `TAR` is GNU tar.
 2. `git archive <tag>` of Redis core into `<staging>/redis-<tag>/`.
 3. For each module in `modules.yaml`, clones the upstream repo at the
-   pinned ref (priority tag > version > branch > commit) into
-   `<staging>/redis-<tag>/modules/<name>/src/`, recursively initializing
-   submodules.
+   pinned `ref:` (kind resolved via `git ls-remote`: tag > branch >
+   commit) into `<staging>/redis-<tag>/modules/<name>/src/`, recursively
+   initializing submodules.
 4. Strips `.git/`, `.github/`, and `.gitmodules` from cloned modules
    (Redis core's own `.github/` is preserved — it came from `git
    archive` and isn't dev-clone metadata).

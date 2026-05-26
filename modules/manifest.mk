@@ -27,11 +27,11 @@
 #   $(call manifest-field,<field>,<name>)
 #                          - one field for one module ("" if missing).
 #   $(call manifest-ref,<name>)
-#                          - resolved ref string
-#                            (priority: tag > version > branch > commit).
+#                          - the module's `ref:` value verbatim.
 #   $(call manifest-ref-kind,<name>)
-#                          - one of: tag | branch | commit
-#                            (`version` resolves to kind=tag).
+#                          - one of: tag | branch | commit, resolved against
+#                            the upstream `repo:` via `git ls-remote`
+#                            (priority: tag > branch > commit).
 #
 # YAML format the parser accepts is documented at the top of
 # scripts/lib/manifest.sh.

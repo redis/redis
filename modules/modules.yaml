@@ -10,18 +10,20 @@
 #   - `make tarball` to clone modules at their pinned ref into the
 #     release source tarball
 #
-# Ref selection — each module is pinned to exactly one of:
-#   tag:    <git tag>      preferred for releases (immutable)
-#   branch: <git branch>   for feature work / floating refs
-#   commit: <full SHA>     for exact pinning when no tag exists
-#   version: <ref>         legacy alias for `tag` (still accepted)
+# Ref selection — each module pins itself with a single `ref:` value. Its
+# kind is resolved dynamically against the upstream `repo:` by querying
+# `git ls-remote` in this order:
 #
-# Priority when more than one is set: tag > version > branch > commit.
-# `version` is treated as an alias for `tag` and shares its priority tier.
-# At least one of these must be set; otherwise modules-update / build will
-# error loudly.
+#   1. tag    — matches `refs/tags/<ref>` on the remote (preferred for
+#               releases; immutable)
+#   2. branch — matches `refs/heads/<ref>` on the remote
+#   3. commit — looks like a hex SHA (7–40 chars) when neither of the
+#               above matched
 #
-# To bump a module: edit the appropriate field and run
+# The first match wins. If none match, `make modules-update` / build error
+# out loudly with "unknown ref kind".
+#
+# To bump a module: edit `ref:` and run
 # `make modules-update <name>` to refresh the local clone.
 #
 # Format (kept deliberately simple so a small awk helper can parse it without
@@ -29,10 +31,7 @@
 #   modules:
 #     - name: <module-name>            # directory under modules/
 #       repo: <git URL>
-#       tag:    <tag-or-empty>         # optional
-#       branch: <branch-or-empty>      # optional
-#       commit: <sha-or-empty>         # optional
-#       version: <legacy-alias>        # optional; treated as `tag`
+#       ref:  <tag | branch | commit>  # required
 #       target_module: <path>          # build artifact path relative to
 #                                      # src/bin/<os>-<arch>-release/ (i.e.
 #                                      # the .so the upstream build produces).
@@ -52,33 +51,21 @@
 modules:
   - name: redisbloom
     repo: https://github.com/redisbloom/redisbloom
-    tag:
-    branch: make_setup_with_redis_docker
-    commit:
-    version:
+    ref: master
     target_module: redisbloom.so
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
     repo: https://github.com/redisearch/redisearch
-    tag: v8.7.90
-    branch:
-    commit:
-    version:
+    ref: v8.7.90
     target_module: search-community/redisearch.so
     loadmodule: ./modules/redisearch/redisearch.so
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
-    tag:
-    branch:
-    commit:
-    version: make_set_tup_with_redis_dockers
+    ref: make_set_tup_with_redis_dockers
     target_module: rejson.so
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
     repo: https://github.com/redistimeseries/redistimeseries
-    tag:
-    branch: master
-    commit:
-    version:
+    ref: master
     target_module: redistimeseries.so
     loadmodule: ./modules/redistimeseries/redistimeseries.so

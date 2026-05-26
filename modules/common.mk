@@ -7,17 +7,14 @@ INSTALL ?= install
 # keyed on the basename of the current module directory (e.g. `redisbloom`).
 # `?=` keeps the door open for an explicit override in a per-module Makefile.
 #
-# MODULE_REF / MODULE_REF_KIND resolve the per-module ref in priority order:
-#   tag > version > branch > commit  (version is an alias for tag).
-# MODULE_VERSION / MODULE_COMMIT remain for backward compatibility with any
-# external consumer; the build itself uses MODULE_REF + MODULE_REF_KIND.
+# MODULE_REF is the manifest's `ref:` value verbatim; MODULE_REF_KIND is
+# `tag` | `branch` | `commit`, resolved at recipe time by probing
+# MODULE_REPO with `git ls-remote` (tag > branch > commit).
 include $(dir $(lastword $(MAKEFILE_LIST)))manifest.mk
 MODULE_NAME       ?= $(notdir $(CURDIR))
 MODULE_REPO       ?= $(call manifest-field,repo,$(MODULE_NAME))
 MODULE_REF        ?= $(call manifest-ref,$(MODULE_NAME))
 MODULE_REF_KIND   ?= $(call manifest-ref-kind,$(MODULE_NAME))
-MODULE_VERSION    ?= $(call manifest-field,version,$(MODULE_NAME))
-MODULE_COMMIT     ?= $(call manifest-field,commit,$(MODULE_NAME))
 # Build-artifact path under $(SRC_DIR)/bin/$(FULL_VARIANT)/ — from modules.yaml.
 MODULE_ARTIFACT   ?= $(call manifest-field,target_module,$(MODULE_NAME))
 SRC_DIR           ?= src
@@ -69,7 +66,7 @@ $(SRC_DIR)/.prepared:
 	@if [ -d "$(SRC_DIR)/.git" ]; then \
 		echo "==> $(SRC_DIR) already cloned, marking prepared (use 'make modules-update $(notdir $(CURDIR))' to refresh)"; \
 	elif [ -z "$(MODULE_REF)" ]; then \
-		echo "ERROR: no tag/version/branch/commit set for $(MODULE_NAME) in modules.yaml" >&2; exit 1; \
+		echo "ERROR: no ref set for $(MODULE_NAME) in modules.yaml" >&2; exit 1; \
 	else \
 		mkdir -p $(SRC_DIR); \
 		case "$(MODULE_REF_KIND)" in \

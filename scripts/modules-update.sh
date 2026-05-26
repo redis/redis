@@ -46,8 +46,11 @@ for name in $requested; do
   if [ -z "$repo" ]; then
     echo "ERROR: 'repo' is not set for '$name' in modules.yaml"; exit 1
   fi
-  if [ -z "$ref" ] || [ -z "$kind" ]; then
-    echo "ERROR: '$name' must set one of tag/version/branch/commit in modules.yaml"; exit 1
+  if [ -z "$ref" ]; then
+    echo "ERROR: '$name' must set a 'ref' in modules.yaml"; exit 1
+  fi
+  if [ -z "$kind" ]; then
+    echo "ERROR: ref '$ref' for '$name' is neither a tag nor a branch on $repo, and is not a hex commit SHA"; exit 1
   fi
 
   if [ ! -d "$dest/.git" ]; then

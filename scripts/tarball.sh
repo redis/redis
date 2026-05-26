@@ -72,8 +72,12 @@ for name in $(manifest_modules); do
   kind="$(manifest_ref_kind "$name")"
   dest="$work/modules/$name/src"
   mkdir -p "$work/modules/$name"
-  if [ -z "$ref" ] || [ -z "$kind" ]; then
-    echo "ERROR: '$name' must set one of tag/version/branch/commit in modules.yaml" >&2
+  if [ -z "$ref" ]; then
+    echo "ERROR: '$name' must set a 'ref' in modules.yaml" >&2
+    exit 1
+  fi
+  if [ -z "$kind" ]; then
+    echo "ERROR: ref '$ref' for '$name' is neither a tag nor a branch on $repo, and is not a hex commit SHA" >&2
     exit 1
   fi
   case "$kind" in

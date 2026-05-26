@@ -26,10 +26,14 @@
 # Shell-side functions exposed when sourced:
 #   manifest_modules                           - sorted module names from modules.yaml
 #   manifest_field <name> <field>              - one field for one module ("" if missing)
-#   manifest_ref <name>                        - resolved ref string for a module,
-#                                                priority: tag > version > branch > commit
+#   manifest_ref <name>                        - the module's `ref:` value verbatim
 #   manifest_ref_kind <name>                   - one of: tag | branch | commit
-#                                                (`version` resolves to kind=tag)
+#                                                Resolved against the upstream `repo:`
+#                                                via `git ls-remote` in this order:
+#                                                  1. tag    — refs/tags/<ref>
+#                                                  2. branch — refs/heads/<ref>
+#                                                  3. commit — hex SHA (7–40 chars)
+#                                                Empty output = no match (bad ref).
 #   cloned_modules                             - names with .prepared or .git under modules/<n>/src
 #   resolve_modules <requested> <cloned> [allow_extras]
 #         Mirrors the case-statement repeated in build/bootstrap/run/test recipes.
@@ -42,14 +46,11 @@
 #
 #     - name: <module>
 #       repo: <url>
-#       tag:    <tag-or-empty>      # optional
-#       branch: <branch-or-empty>   # optional
-#       commit: <sha-or-empty>      # optional
-#       version: <legacy ref>       # optional alias for `tag`
+#       ref:  <tag | branch | commit>   # required
 #
-# At least one of `tag` / `version` / `branch` / `commit` must be set per
-# module. No nested structures, no inline comments after values, no quoted
-# strings.
+# `ref:` is the single source of pinning; its kind is determined dynamically
+# against `repo:`. No nested structures, no inline comments after values, no
+# quoted strings.
 
 set -euo pipefail
 
@@ -90,26 +91,39 @@ manifest_field() {
   ' "$MODULES_MANIFEST_FILE" 2>/dev/null
 }
 
-# Resolve a module's ref in priority order: tag > version > branch > commit.
-# Echoes empty if none is set; callers should treat that as an error.
+# Read the module's `ref:` value verbatim. Echoes empty if it's not set;
+# callers should treat that as an error.
 manifest_ref() {
-  local name="$1" v
-  v="$(manifest_field "$name" tag)";     [ -n "$v" ] && { echo "$v"; return; }
-  v="$(manifest_field "$name" version)"; [ -n "$v" ] && { echo "$v"; return; }
-  v="$(manifest_field "$name" branch)";  [ -n "$v" ] && { echo "$v"; return; }
-  v="$(manifest_field "$name" commit)";  [ -n "$v" ] && { echo "$v"; return; }
-  echo ""
+  manifest_field "$1" ref
 }
 
-# Resolve the *kind* of the ref selected by manifest_ref. `version` maps to
-# `tag` (it's an alias). Echoes empty if no field is set.
+# Determine the kind of `ref:` for a module by probing the upstream `repo:`.
+# Priority (first match wins):
+#   1. tag    — `refs/tags/<ref>` exists on the remote
+#   2. branch — `refs/heads/<ref>` exists on the remote
+#   3. commit — `<ref>` is a hex SHA (7–40 chars) and neither of the above
+#               matched
+# Echoes one of: tag | branch | commit. Empty output means "bad ref" — the
+# remote has no such tag or branch and the string does not look like a SHA.
 manifest_ref_kind() {
-  local name="$1" v
-  v="$(manifest_field "$name" tag)";     [ -n "$v" ] && { echo "tag";    return; }
-  v="$(manifest_field "$name" version)"; [ -n "$v" ] && { echo "tag";    return; }
-  v="$(manifest_field "$name" branch)";  [ -n "$v" ] && { echo "branch"; return; }
-  v="$(manifest_field "$name" commit)";  [ -n "$v" ] && { echo "commit"; return; }
-  echo ""
+  local name="$1" ref repo
+  ref="$(manifest_field "$name" ref)"
+  repo="$(manifest_field "$name" repo)"
+  [ -z "$ref" ] && return 0
+  [ -z "$repo" ] && return 0
+
+  if git ls-remote --tags --exit-code "$repo" "refs/tags/$ref" >/dev/null 2>&1; then
+    echo "tag"
+    return
+  fi
+  if git ls-remote --heads --exit-code "$repo" "refs/heads/$ref" >/dev/null 2>&1; then
+    echo "branch"
+    return
+  fi
+  if printf '%s' "$ref" | grep -Eq '^[0-9a-f]{7,40}$'; then
+    echo "commit"
+    return
+  fi
 }
 
 cloned_modules() {
@@ -201,10 +215,10 @@ Usage: scripts/lib/manifest.sh <subcommand> [args]
 Subcommands:
   modules                          Sorted list of module names in modules.yaml.
   field <name> <field>             One field for one module (empty if missing).
-  ref <name>                       Resolved ref string
-                                   (priority: tag > version > branch > commit).
-  ref-kind <name>                  One of: tag | branch | commit
-                                   (`version` resolves to kind=tag).
+  ref <name>                       The module's `ref:` value verbatim.
+  ref-kind <name>                  One of: tag | branch | commit, resolved
+                                   against the upstream `repo:` via
+                                   `git ls-remote` (tag > branch > commit).
   cloned                           Module names with .prepared or .git under
                                    modules/<name>/src.
   resolve <requested> <cloned> [extras]
