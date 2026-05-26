@@ -331,13 +331,11 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
              * entirely (empty password) instead of sending an empty ACL
              * component, which the server rejects. */
             sdsfree(connInfo->user);
-            connInfo->user = (username > curr)
-                ? percentDecode(curr, username - curr) : NULL;
+            connInfo->user = (username > curr) ? percentDecode(curr, username - curr) : NULL;
             curr = username + 1;
         }
         sdsfree(connInfo->auth);
-        connInfo->auth = (userinfo > curr)
-            ? percentDecode(curr, userinfo - curr) : NULL;
+        connInfo->auth = (userinfo > curr) ? percentDecode(curr, userinfo - curr) : NULL;
         curr = userinfo + 1;
     }
     if (curr == end) return;
