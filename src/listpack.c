@@ -945,6 +945,46 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
+/* Comparator for lpFindInteger. Matches integer-encoded entries by numeric
+ * value. For string-encoded entries, attempts to parse as integer for
+ * compatibility with lpFind on the decimal representation. */
+struct lpFindIntArg {
+    long long lval;
+};
+
+static inline int lpFindIntCmp(const unsigned char *lp, unsigned char *p,
+                               void *user, unsigned char *s, long long slen) {
+    (void) lp;
+    (void) p;
+    struct lpFindIntArg *arg = user;
+
+    if (s == NULL) {
+        /* Current entry is integer-encoded: direct numeric comparison (fast path). */
+        if (slen == arg->lval)
+            return 0;
+    } else {
+        /* Current entry is string-encoded: try to interpret it as integer. */
+        long long entry_ll;
+        if (lpStringToInt64((const char *)s, slen, &entry_ll) && entry_ll == arg->lval)
+            return 0;
+    }
+    return 1;
+}
+
+/* Find pointer to the entry equal to the specified integer. Skip 'skip' entries
+ * between every comparison. Returns NULL when the entry could not be found.
+ *
+ * This is the integer-optimized counterpart to lpFind. It avoids string
+ * conversion roundtrips when the caller already holds a parsed integer value
+ * (as is common in setType* operations for OBJ_ENCODING_LISTPACK). */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p, long long lval, unsigned int skip)
+{
+    struct lpFindIntArg arg = {
+        .lval = lval
+    };
+    return lpFindCbInternal(lp, p, &arg, lpFindIntCmp, skip);
+}
+
 /* Insert, delete or replace the specified string element 'elestr' of length
  * 'size' or integer element 'eleint' at the specified position 'p', with 'p'
  * being a listpack element pointer obtained with lpFirst(), lpLast(), lpNext(),

@@ -143,8 +143,15 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
-        if (p != NULL)
-            p = lpFind(lp, p, (unsigned char*)str, len, 0);
+        if (p != NULL) {
+            if (str == tmpbuf) {
+                /* Fast integer path: the value arrived (or was normalized) as an
+                 * integer. Use lpFindInteger to avoid string conversion roundtrip. */
+                p = lpFindInteger(lp, p, llval, 0);
+            } else {
+                p = lpFind(lp, p, (unsigned char*)str, len, 0);
+            }
+        }
         if (p == NULL) {
             /* Not found.  */
             if (lpLength(lp) < server.set_max_listpack_entries &&
@@ -152,8 +159,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 lpSafeToAdd(lp, len))
             {
                 if (str == tmpbuf) {
-                    /* This came in as integer so we can avoid parsing it again.
-                     * TODO: Create and use lpFindInteger; don't go via string. */
+                    /* This came in as integer so we can avoid parsing it again. */
                     lp = lpAppendInteger(lp, llval);
                 } else {
                     lp = lpAppend(lp, (unsigned char*)str, len);
@@ -254,7 +260,13 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
         unsigned char *lp = setobj->ptr;
         unsigned char *p = lpFirst(lp);
         if (p == NULL) return 0;
-        p = lpFind(lp, p, (unsigned char*)str, len, 0);
+        if (str == tmpbuf) {
+            /* Fast integer path: the value arrived (or was normalized) as an
+             * integer. Use lpFindInteger to avoid string conversion roundtrip. */
+            p = lpFindInteger(lp, p, llval, 0);
+        } else {
+            p = lpFind(lp, p, (unsigned char*)str, len, 0);
+        }
         if (p != NULL) {
             lp = lpDelete(lp, p, NULL);
             setobj->ptr = lp;
@@ -298,6 +310,12 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
+        if (str == tmpbuf) {
+            /* Fast integer path: the value arrived (or was normalized) as an
+             * integer. Use lpFindInteger to avoid string conversion roundtrip.
+             * See the TODO in setTypeAddAux and lpFindInteger(). */
+            return p && lpFindInteger(lp, p, llval, 0);
+        }
         return p && lpFind(lp, p, (unsigned char*)str, len, 0);
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
         long long llval;
