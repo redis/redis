@@ -185,11 +185,20 @@ the dependency install (e.g. after a Python version change).
 
 ---
 
-## 4. Build: `make build`
+## 4. Build: `make` / `make all` / `make build`
 
 ```bash
-make build [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
+make [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
+make all   [<name> ...] [VAR=value ...]
+make build [<name> ...] [VAR=value ...]
 ```
+
+All three are equivalent — they route through `scripts/build.sh`. `all` is
+the canonical target (also Make's default goal), and `build` is a
+discoverable alias declared as `build: all`. Positional names work on
+either form (`make all redisbloom` ≡ `make build redisbloom`); positional
+args after a bare `make` aren't supported (Make has no goal to attach
+them to).
 
 Selection:
 
@@ -208,15 +217,16 @@ Order (deliberate):
 1. Validate selection.
 2. Build Redis (`$(MAKE) -C src all`). If this fails, nothing else runs.
 3. For each selected cloned module, invoke `$(MAKE) -C modules/<name>`
-   with:
+   using `modules/common.mk` with:
    ```make
-   RM_INCLUDE_DIR=<repo>/src    # point at our redismodule.h
-   RS_INCLUDE_DIR=<repo>/src    # redisearch SDK variant
    REDIS_SERVER=<repo>/src/redis-server
    ```
-   Modules that honor these variables will compile against our freshly
-   built `redismodule.h` and can use our `redis-server` for test
-   harnesses. Modules that ignore them are unaffected.
+   So module test harnesses use the Redis we just built. The include-path
+   vars (`RM_INCLUDE_DIR`, `RS_INCLUDE_DIR`) are **not** overridden — each
+   module resolves `redismodule.h` via its own upstream defaults, the
+   same way it would build standalone in its own repo. Override them on
+   the command line — `make build VAR=…` — if you need to compile a
+   module against this tree's `redismodule.h`.
 4. Build stops on the first failing module (fail-fast).
 5. Refresh `redis-gen.conf` via `make sync-redis-conf MODULES="<selected>"`
    so the file reflects which modules were actually built this run.
@@ -318,6 +328,16 @@ Rewrites the untracked `redis-gen.conf` file at the repo root from:
      the module isn't loaded).
    - Modules with no `loadmodule:` field show up as `Bad manifest: <name>`
      in the file header so misconfigurations surface loudly.
+   - **Path rewriting**: the manifest's `loadmodule:` value (e.g.
+     `./modules/redisbloom/redisbloom.so`) is absolutized against
+     `PREFIX` before being written — the leading `.` is replaced by
+     `$PREFIX`, yielding `$PREFIX/modules/redisbloom/redisbloom.so`.
+     `PREFIX` defaults to `$PWD` (the repo root, since the script
+     `cd`s there), so out of the box the generated conf carries
+     absolute paths and `redis-server <conf>` works from any cwd.
+     Already-absolute manifest values are left untouched.
+     File existence is still tested against the on-disk path (where
+     the build actually drops .so files — REPO_ROOT-relative).
 
 The write is atomic (tmpfile + `mv`), so a mid-run failure leaves the
 previous `redis-gen.conf` intact.
@@ -326,6 +346,7 @@ previous `redis-gen.conf` intact.
 |---|---|---|
 | `MODULES` | every module in `modules.yaml` | Subset of modules to include. Unrequested modules are omitted entirely (not even commented out). |
 | `ASSUME_BUILT` | unset | When `1` / `true` / `yes`, emit active `loadmodule` lines regardless of whether the `.so` is on disk. Used by `make tarball`. |
+| `PREFIX` | `$PWD` (= repo root) | Install root prepended to every emitted `loadmodule` path. `./modules/foo/foo.so` → `$PREFIX/modules/foo/foo.so`. Pass on the make line: `make build PREFIX=/opt/redis-deploy`. |
 | `REDIS_CONF` | `redis.conf` | Source Redis-core config |
 | `REDIS_GEN_CONF` | `redis-gen.conf` | Destination |
 
@@ -586,7 +607,8 @@ make sync-redis-conf [<name> ...] \          # rewrite redis-gen.conf from redis
 make promote-redis-conf [<name> ...] \       # sync-redis-conf, then overwrite redis.conf
     [MODULES="<names>"] [ASSUME_BUILT=1]     #   (destructive on redis.conf; refuses to run twice)
 
-make build [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
+make [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
+make all|build [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
 
 make run [<name> ...] [ARGS="<redis-server args>"]
 

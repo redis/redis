@@ -8,8 +8,12 @@
 #   redis | none                 build Redis only
 #   <name> [<name> ...]          build Redis + the listed modules
 #
-# Each selected module is built via `make -C modules/<name>` with
-# RM_INCLUDE_DIR/RS_INCLUDE_DIR/REDIS_SERVER pointing at our just-built tree.
+# Each selected module is built via `make -C modules/<name>` using its
+# upstream defaults — RM_INCLUDE_DIR / RS_INCLUDE_DIR are intentionally
+# NOT overridden here, so a bundled build resolves `redismodule.h` the
+# same way the module would when built standalone in its own repo.
+# REDIS_SERVER is overridden so module test harnesses run against the
+# Redis we just built.
 # Failures are collected and reported at the end.
 
 set -euo pipefail
@@ -41,15 +45,13 @@ if [ -z "$modules" ]; then
   fi
 else
   echo
-  echo "==> Building modules against $PWD/src (RM_INCLUDE_DIR) and $PWD/src/redis-server:"
+  echo "==> Building modules (REDIS_SERVER=$REPO_ROOT/src/redis-server):"
   echo "   $modules"
   for name in $modules; do
     echo
     echo "==> [module] $name (modules/$name)"
     mkdir -p "modules/$name"
     if ! "$MAKE_BIN" -C "modules/$name" -f "$REPO_ROOT/modules/common.mk" \
-        RM_INCLUDE_DIR="$REPO_ROOT/src" \
-        RS_INCLUDE_DIR="$REPO_ROOT/src" \
         REDIS_SERVER="$REPO_ROOT/src/redis-server"; then
       failed="$failed $name"
       echo "==> [module] $name: FAILED (continuing with remaining modules)"

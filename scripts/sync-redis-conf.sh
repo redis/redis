@@ -18,6 +18,13 @@
 #                           regardless of whether the .so is present on disk
 #                           (used by `make tarball`)
 #   MODULES_MANIFEST_FILE   manifest path             (default: modules/modules.yaml)
+#   PREFIX                  install root prepended to every emitted loadmodule
+#                           path. The manifest's `loadmodule:` value
+#                           `./modules/foo/foo.so` is rewritten as
+#                           `$PREFIX/modules/foo/foo.so`. Defaults to $PWD (i.e.
+#                           the repo root, since this script `cd`s there) when
+#                           unset — yielding absolute paths that work regardless
+#                           of where `redis-server` is launched from.
 #
 # Output is always rewritten in full and is atomic (write to sibling tmpfile,
 # then rename). On any failure the temp file is cleaned up and the existing
@@ -32,6 +39,27 @@ cd "$REPO_ROOT"
 
 REDIS_CONF="${REDIS_CONF:-redis.conf}"
 REDIS_GEN_CONF="${REDIS_GEN_CONF:-redis-gen.conf}"
+
+# Install prefix used to absolutize every emitted `loadmodule` path. Default
+# is the current working directory (which is REPO_ROOT after the `cd` above),
+# so by default the generated conf carries absolute paths rooted at the build
+# tree — `redis-server <conf>` works from any cwd. Trailing slash stripped so
+# concatenation never produces `//`.
+PREFIX="${PREFIX:-$PWD}"
+PREFIX="${PREFIX%/}"
+
+# Translate a manifest `loadmodule:` value into the path written to the
+# generated conf:
+#   ./modules/foo/foo.so   →  $PREFIX/modules/foo/foo.so   (leading '.' → PREFIX)
+#   modules/foo/foo.so     →  $PREFIX/modules/foo/foo.so   (no leading '.': prepend)
+#   /abs/path/foo.so       →  /abs/path/foo.so             (already absolute)
+resolve_so_path() {
+  case "$1" in
+    /*)  printf '%s\n' "$1" ;;
+    ./*) printf '%s\n' "$PREFIX${1#.}" ;;
+    *)   printf '%s\n' "$PREFIX/$1" ;;
+  esac
+}
 
 # Mirror DOCKER_STRICT semantics from
 # modules/docker-install-bundled-module-deps.sh so all boolean-ish env vars
@@ -197,19 +225,23 @@ EOF
 EOF
 
   # `loadmodule` lines (or commented placeholders) come first so the rest of
-  # the section is just per-module config blocks.
+  # the section is just per-module config blocks. File existence is tested
+  # against the on-disk path (where the build actually drops .so files —
+  # REPO_ROOT-relative), while the emitted path is absolutized via $PREFIX
+  # so the conf is portable across cwds at `redis-server` launch time.
   for name in $requested; do
     so="$(lookup_so "$name")"
     if [ -z "$so" ]; then
       printf "# %s: 'loadmodule' field missing in modules.yaml\n" "$name"
       continue
     fi
+    so_full="$(resolve_so_path "$so")"
     if [ -f "$so" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; then
-      printf "loadmodule %s\n" "$so"
+      printf "loadmodule %s\n" "$so_full"
     else
       printf "# %s: not built (%s absent — run 'make build %s')\n" \
         "$name" "$so" "$name"
-      printf "# loadmodule %s\n" "$so"
+      printf "# loadmodule %s\n" "$so_full"
     fi
   done
   echo

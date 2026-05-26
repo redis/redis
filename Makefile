@@ -28,6 +28,7 @@ GOALS_WITH_ARGS := \
     modules-update:MODULES_ARGS \
     modules-shallow:SHALLOW_ARGS \
     run:RUN_ARGS \
+    all:BUILD_ARGS \
     build:BUILD_ARGS \
     bootstrap:BOOTSTRAP_ARGS \
     setup:SETUP_ARGS \
@@ -89,9 +90,13 @@ install:
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
 
-# build [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules.
-build:
+# all / build [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules.
+# `all` is the canonical entry point (also `make`'s default goal at line 11);
+# `make build` is kept as a discoverable alias and routes here.
+all:
 	@scripts/build.sh $(BUILD_ARGS)
+
+build: all
 
 # bootstrap [<name> ...|all|.|'*'] — install per-module build/test prereqs.
 bootstrap:
@@ -133,6 +138,7 @@ sync-redis-conf:
 	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
 	    MODULES='$(strip $(MODULES))' ASSUME_BUILT='$(strip $(ASSUME_BUILT))' \
 	    MODULES_MANIFEST_FILE='$(MODULES_MANIFEST_FILE)' \
+	    PREFIX='$(PREFIX)' \
 	    scripts/sync-redis-conf.sh
 
 # promote-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
@@ -144,6 +150,7 @@ promote-redis-conf:
 	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
 	    MODULES='$(strip $(MODULES))' ASSUME_BUILT='$(strip $(ASSUME_BUILT))' \
 	    MODULES_MANIFEST_FILE='$(MODULES_MANIFEST_FILE)' \
+	    PREFIX='$(PREFIX)' \
 	    scripts/promote-redis-conf.sh
 
-.PHONY: install build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf tarball
+.PHONY: all install build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf tarball
