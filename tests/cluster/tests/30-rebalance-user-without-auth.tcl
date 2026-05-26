@@ -14,8 +14,8 @@ test "Cluster is up" {
 
 test "Set up ACL users for testing" {
     foreach_redis_id id {
-        R $id ACL SETUSER testuser on nopass +@all
-        R $id ACL SETUSER testuser2 on >testpass +@all
+        R $id ACL SETUSER testuser on nopass +@all ~*
+        R $id ACL SETUSER testuser2 on >testpass +@all ~*
     }
 }
 
