@@ -22,14 +22,21 @@ test "Set up ACL users for testing" {
 proc write_keys_to_master0 {key_prefix} {
     set start_node_port [get_instance_attrib redis 0 port]
     set cluster [redis_cluster 127.0.0.1:$start_node_port]
-    set slots [dict get [get_myself 0] slots]
+    set slot_ranges [dict get [get_myself 0] slots]
     set count 0
-    foreach slot $slots {
-        $cluster set "$key_prefix:$slot:a" "value:$slot"
-        $cluster set "$key_prefix:$slot:b" "value:$slot"
-        incr count 2
+    foreach range $slot_ranges {
+        set start [lindex [split $range "-"] 0]
+        set end [lindex [split $range "-"] 1]
+        if {$end eq ""} {set end $start}
+        for {set s $start} {$s <= $end} {incr s} {
+            $cluster set "$key_prefix:$s:a" "value:$s"
+            $cluster set "$key_prefix:$s:b" "value:$s"
+            incr count 2
+            if {$count >= 100} break
+        }
         if {$count >= 100} break
     }
+    $cluster close
 }
 
 test "Write keys to master 0 slots" {
