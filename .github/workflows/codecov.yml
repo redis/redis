@@ -4,6 +4,10 @@ name: "Codecov"
 # where each PR needs to be compared against the coverage of the head commit
 on: [push, pull_request]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

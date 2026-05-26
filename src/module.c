@@ -9808,6 +9808,28 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     return REDISMODULE_OK;
 }
 
+/* Returns the slot ranges owned by the cluster node identified by `nodeid`.
+ *
+ * An optional `ctx` can be provided to enable auto-memory management.
+ * An empty array is returned if cluster mode is disabled (no cluster nodes
+ * exist) or if no node matches `nodeid`.
+ * If the node is a replica, the slot ranges of its master are returned.
+ *
+ * The returned array must be freed with RM_ClusterFreeSlotRanges(). */
+RedisModuleSlotRangeArray *RM_GetClusterNodeSlotRanges(RedisModuleCtx *ctx, const char *nodeid) {
+    slotRangeArray *slots;
+
+    if (!server.cluster_enabled) {
+        slots = slotRangeArrayCreate(0);
+    } else {
+        clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
+        slots = node ? clusterGetNodeSlotRanges(node) : slotRangeArrayCreate(0);
+    }
+    
+    if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    return (RedisModuleSlotRangeArray *)slots;
+}
+
 /* Set Redis Cluster flags in order to change the normal behavior of
  * Redis Cluster, especially with the goal of disabling certain functions.
  * This is useful for modules that use the Cluster API in order to create
@@ -15576,6 +15598,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);
+    REGISTER_API(GetClusterNodeSlotRanges);
     REGISTER_API(GetClusterNodesList);
     REGISTER_API(FreeClusterNodesList);
     REGISTER_API(CreateTimer);

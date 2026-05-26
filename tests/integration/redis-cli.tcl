@@ -42,7 +42,7 @@ start_server {tags {"cli"}} {
 
         # We may have a short read, try to read some more.
         set empty_reads 0
-        while {$empty_reads < 5} {
+        while {$empty_reads < 100} {
             set buf [read $fd]
             if {[string length $buf] == 0} {
                 after 10

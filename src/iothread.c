@@ -11,7 +11,7 @@
 #include "server.h"
 
 /* IO threads. */
-static IOThread IOThreads[IO_THREADS_MAX_NUM];
+IOThread IOThreads[IO_THREADS_MAX_NUM];
 
 /* For main thread */
 static list *mainThreadPendingClientsToIOThreads[IO_THREADS_MAX_NUM]; /* Clients to IO threads */

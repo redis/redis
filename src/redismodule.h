@@ -1390,6 +1390,7 @@ REDISMODULE_API int (*RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx
 REDISMODULE_API void (*RedisModule_RegisterClusterMessageReceiver)(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SendClusterMessage)(RedisModuleCtx *ctx, const char *target_id, uint8_t type, const char *msg, uint32_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClusterNodeInfo)(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleSlotRangeArray *(*RedisModule_GetClusterNodeSlotRanges)(RedisModuleCtx *ctx, const char *nodeid) REDISMODULE_ATTR;
 REDISMODULE_API char ** (*RedisModule_GetClusterNodesList)(RedisModuleCtx *ctx, size_t *numnodes) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeClusterNodesList)(char **ids) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleTimerID (*RedisModule_CreateTimer)(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data) REDISMODULE_ATTR;
@@ -1795,6 +1796,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RegisterClusterMessageReceiver);
     REDISMODULE_GET_API(SendClusterMessage);
     REDISMODULE_GET_API(GetClusterNodeInfo);
+    REDISMODULE_GET_API(GetClusterNodeSlotRanges);
     REDISMODULE_GET_API(GetClusterNodesList);
     REDISMODULE_GET_API(FreeClusterNodesList);
     REDISMODULE_GET_API(CreateTimer);
