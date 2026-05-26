@@ -540,14 +540,14 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
 int raxInsertAt(rax *rax, unsigned char *s, size_t len, void *data, void **old, raxNodeLink *link) {
     size_t usable;
     /* Pull walk state from `link`. */
-    size_t i = link->i;
+    size_t i = link->consumed;
     int j = link->splitpos; /* Split position. If raxLowWalk() stopped in
                                a compressed node, 'j' is the char index
                                within the compressed node where we
                                stopped; i.e. the position where to split
                                the node for insertion. Only meaningful
                                when h->iscompr. */
-    raxNode *h = link->h, **parentlink = link->parentlink;
+    raxNode *h = link->stopnode, **parentlink = link->parentlink;
     size_t dummy, *alloc_size = &dummy;
 
     if (rax->alloc_size) alloc_size = rax->alloc_size;
@@ -955,17 +955,17 @@ int raxFindLink(rax *rax, unsigned char *s, size_t len,
                 void **value, raxNodeLink *link) {
     debugf("### FindLink: %.*s\n", (int)len, s);
     link->splitpos = 0;
-    link->i = raxLowWalk(rax,s,len,
-                         &link->h,&link->parentlink,
+    link->consumed = raxLowWalk(rax,s,len,
+                         &link->stopnode,&link->parentlink,
                          &link->splitpos,NULL);
     /* Match condition: query fully consumed, stopped at a clean node
      * boundary (not mid-prefix on a compressed node), and the stop node
      * is a key. */
-    if (link->i != len ||
-        (link->h->iscompr && link->splitpos != 0) ||
-        !link->h->iskey)
+    if (link->consumed != len ||
+        (link->stopnode->iscompr && link->splitpos != 0) ||
+        !link->stopnode->iskey)
         return 0;
-    if (value != NULL) *value = raxGetData(link->h);
+    if (value != NULL) *value = raxGetData(link->stopnode);
     return 1;
 }
 

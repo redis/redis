@@ -174,21 +174,21 @@ typedef struct raxIterator {
  *   raxFindLink()  produces a link.
  *   raxInsertAt()  consumes it.
  *
- * Invalidation contract: `h` and `parentlink` are interior pointers into
+ * Invalidation contract: `stopnode` and `parentlink` are interior pointers into
  * the tree. They become stale on ANY intervening rax mutation. Callers
  * MUST commit (or discard) immediately after the find; do not interleave
  * other rax calls on the same tree, do not retain across yield points.
- * The commit itself is allowed to realloc `h` (raxReallocForData,
+ * The commit itself is allowed to realloc `stopnode` (raxReallocForData,
  * raxAddChild) and update *parentlink in-place -- the link's own fields
  * survive the commit, but a second commit on the same link is undefined. */
 typedef struct raxNodeLink {
-    raxNode  *h;            /* Stop node. */
-    raxNode **parentlink;   /* Slot in h's parent that holds h. */
-    size_t    i;            /* Bytes of key consumed at stop. */
-    int       splitpos;     /* Split position inside h's compressed
+    raxNode  *stopnode;     /* Stop node. */
+    raxNode **parentlink;   /* Slot in stopnode's parent that holds h. */
+    size_t    consumed;     /* Bytes of key consumed at stop. */
+    int       splitpos;     /* Split position inside stopnode's compressed
                              * prefix. Same semantic as raxLowWalk():
-                             * only meaningful when h->iscompr; 0 with
-                             * i == len means clean arrival at h, 0 with
+                             * only meaningful when stopnode->iscompr; 0 with
+                             * i == len means clean arrival at stopnode, 0 with
                              * i < len means the first prefix byte
                              * mismatched the next key byte, > 0 means
                              * the walk stopped mid-prefix. */
