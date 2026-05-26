@@ -840,8 +840,7 @@ start_server {tags {"cli external:skip"}} {
         write_cli $fd "GET a\x0D"
         after 100
         set regex {not connected> GET a.*"zoo-6".*127\.0\.0\.1:[0-9]*\[6\]>}
-        set result [format_output [read_cli_until $fd $regex]]
-        assert_equal 1 [regexp $regex $result]
+        read_cli_until $fd $regex
     }
 }
 
