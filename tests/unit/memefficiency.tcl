@@ -583,6 +583,12 @@ run_solo {defrag} {
         }
 
         test "Active defrag pubsub multi-user subscriptions: $type" {
+            # This test verifies that active defrag correctly handles the
+            # two-level pubsub_subscriptions dict (outer dict keyed by user*,
+            # inner dicts for channels/patterns/shard_channels).  Two clients
+            # subscribe under different ACL users so the outer dict has
+            # multiple entries, exercising the full defrag iteration path.
+
             r flushdb
             r config set hz 100
             r config set activedefrag no
@@ -594,6 +600,8 @@ run_solo {defrag} {
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
 
+            # Create a second ACL user so we have two distinct user* keys
+            # in each client's pubsub_subscriptions dict.
             r ACL SETUSER defraguser on nopass ~* &* +@all
 
             set n 25000
@@ -603,6 +611,11 @@ run_solo {defrag} {
             $rd_extra AUTH defraguser defraguser
             $rd_extra read
 
+            # Subscribe to 25k channels, alternating between the two clients.
+            # After each subscription, create a filler key of similar size via
+            # SETBIT.  This interleaves subscription allocations with filler
+            # allocations in memory, which is needed to create fragmentation
+            # when the fillers are deleted later.
             set rd_filler [redis_deferring_client]
             for {set j 0} {$j < $n} {incr j} {
                 set channel_name "$dummy_channel[format "%06d" $j]"
@@ -613,13 +626,17 @@ run_solo {defrag} {
                     $rd_extra subscribe $channel_name
                     $rd_extra read
                 }
+                # Create a ~400 byte filler key interleaved with subscription allocs
                 $rd_filler setbit k$j [expr {[string length $channel_name] * 8}] 1
                 $rd_filler read
             }
 
-            after 120
+            # Sanity: fragmentation should be low right after populating
+            after 120 ;# serverCron only updates the info once in 100ms
             assert_lessthan [s allocator_frag_ratio] 1.1
 
+            # Delete all filler keys to punch holes in memory and create
+            # fragmentation.  Use batching to avoid TCP deadlock.
             set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 $rd_filler del k$j
@@ -636,11 +653,15 @@ run_solo {defrag} {
                 $rd_filler read
             }
             $rd_filler close
-            after 120
+
+            # Verify fragmentation is high enough for defrag to kick in
+            after 120 ;# serverCron only updates the info once in 100ms
             assert_morethan [s allocator_frag_ratio] 1.35
 
+            # Enable active defrag and wait for it to compact memory
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
+                # Wait for defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
                     [s total_active_defrag_time] ne 0
                 } else {
@@ -651,11 +672,16 @@ run_solo {defrag} {
                     fail "defrag not started."
                 }
 
+                # Wait for defrag to finish and verify fragmentation dropped
                 wait_for_defrag_stop 500 100 1.1
 
-                after 120
+                after 120 ;# serverCron only updates the info once in 100ms
             }
 
+            # Verify data integrity: publish to every channel and confirm the
+            # correct client receives the message.  If defrag corrupted any
+            # channel name, dict pointer, or subscription structure, this will
+            # fail or crash the server.
             for {set j 0} {$j < $n} {incr j} {
                 set channel "$dummy_channel[format "%06d" $j]"
                 r publish $channel "hello"
