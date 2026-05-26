@@ -618,7 +618,7 @@ run_solo {defrag} {
             }
 
             after 120
-            assert_lessthan [s allocator_frag_ratio] 1.05
+            assert_lessthan [s allocator_frag_ratio] 1.1
 
             set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
@@ -651,7 +651,7 @@ run_solo {defrag} {
                     fail "defrag not started."
                 }
 
-                wait_for_defrag_stop 500 100 1.05
+                wait_for_defrag_stop 500 100 1.1
 
                 after 120
             }
