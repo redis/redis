@@ -982,11 +982,11 @@ void pubsubRekeySubscriptionsForACLLoad(client *c) {
 
         if (pubsubUserIsNoAuth(old_user_ptr)) {
             /* Sentinel key is a stable static pointer — carry it as-is. */
-            dictAdd(new_dict, old_user_ptr, subs);
+            serverAssert(dictAdd(new_dict, old_user_ptr, subs) == DICT_OK);
         } else {
             user *new_user = ACLGetUserByName(old_user_ptr->name, sdslen(old_user_ptr->name));
             serverAssert(new_user != NULL);
-            dictAdd(new_dict, new_user, subs);
+            serverAssert(dictAdd(new_dict, new_user, subs) == DICT_OK);
         }
     }
     dictResetIterator(&di);
