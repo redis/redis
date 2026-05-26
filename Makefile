@@ -32,7 +32,8 @@ GOALS_WITH_ARGS := \
     bootstrap:BOOTSTRAP_ARGS \
     setup:SETUP_ARGS \
     test:TEST_ARGS \
-    sync-redis-conf:SYNC_ARGS
+    sync-redis-conf:SYNC_ARGS \
+    promote-redis-conf:PROMOTE_ARGS
 
 # When <goal> is the top-level goal, stash trailing positional args into <var>
 # and turn each non-':'-bearing token into a no-op .PHONY target so .DEFAULT
@@ -65,6 +66,14 @@ endif
 ifeq ($(firstword $(MAKECMDGOALS)),sync-redis-conf)
   ifneq ($(SYNC_ARGS),)
     MODULES := $(SYNC_ARGS)
+  endif
+endif
+
+# Same glue for `promote-redis-conf <name> ...` — forwards positional args
+# into MODULES so the underlying script sees the subset.
+ifeq ($(firstword $(MAKECMDGOALS)),promote-redis-conf)
+  ifneq ($(PROMOTE_ARGS),)
+    MODULES := $(PROMOTE_ARGS)
   endif
 endif
 
@@ -126,4 +135,15 @@ sync-redis-conf:
 	    MODULES_MANIFEST_FILE='$(MODULES_MANIFEST_FILE)' \
 	    scripts/sync-redis-conf.sh
 
-.PHONY: install build run test setup bootstrap modules-update modules-shallow sync-redis-conf tarball
+# promote-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
+#   Run sync-redis-conf, then OVERWRITE redis.conf with the generated content.
+#   Destructive on the tracked redis.conf — use `git checkout -- redis.conf`
+#   to revert. Typical use: after extracting a release tarball + `make build`,
+#   so `./src/redis-server redis.conf` auto-loads bundled modules.
+promote-redis-conf:
+	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
+	    MODULES='$(strip $(MODULES))' ASSUME_BUILT='$(strip $(ASSUME_BUILT))' \
+	    MODULES_MANIFEST_FILE='$(MODULES_MANIFEST_FILE)' \
+	    scripts/promote-redis-conf.sh
+
+.PHONY: install build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf tarball

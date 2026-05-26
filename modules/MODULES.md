@@ -23,8 +23,9 @@ Everywhere below, `make` means "GNU make"; substitute `gmake` on macOS.
 | `modules/Makefile` | Per-module dispatcher. Iterates `$(AVAILABLE_MODULES)`; for each, runs `make -C <name> -f common.mk`. Also owns optional Rust-toolchain install and `-Werror` stripping. |
 | `modules/<name>/src/` | Checkout location — created by `make modules-update`. Bundled modules carry no per-module Makefile; `common.mk` plus the manifest is enough. |
 | `scripts/lib/manifest.sh` | **Single source of truth for YAML parsing.** Dual-mode: sourced as a shell library by every other script (`manifest_modules`, `manifest_field`, `manifest_ref`, `resolve_modules`, …) and invoked as a CLI by `manifest.mk`. |
-| `scripts/build.sh` etc. | One script per top-level target (`build`, `bootstrap`, `setup`, `run`, `test`, `modules-update`, `modules-shallow`, `sync-redis-conf`, `tarball`). The top-level `Makefile` exposes each as a 1–3-line target that shells out here. |
+| `scripts/build.sh` etc. | One script per top-level target (`build`, `bootstrap`, `setup`, `run`, `test`, `modules-update`, `modules-shallow`, `sync-redis-conf`, `promote-redis-conf`, `tarball`). The top-level `Makefile` exposes each as a 1–3-line target that shells out here. |
 | `scripts/sync-redis-conf.sh` | Generates `redis-gen.conf` from `redis.conf` + per-module `module.conf` files. See §6. |
+| `scripts/promote-redis-conf.sh` | Runs `sync-redis-conf` and then **overwrites `redis.conf`** with the generated content. See §6.1. |
 | `redis.conf` | Tracked, hand-edited Redis-core config. **Do not** add modules here; they're injected into `redis-gen.conf` instead. |
 | `redis-gen.conf` | Untracked, regenerated on every `make build` / `make modules-update`. This is the file you actually load. |
 | `src/redis-server` | Redis binary — produced by `make build`. |
@@ -334,6 +335,45 @@ directly. Run it by hand only if you've edited `modules.yaml` /
 `module.conf` and want an immediate refresh, or if you want to scope
 the file to a specific module subset.
 
+## 6.1 Promoting the generated config: `make promote-redis-conf` → overwrites `redis.conf`
+
+```bash
+make promote-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|true|yes]
+```
+
+Runs `sync-redis-conf` and then `mv redis-gen.conf redis.conf` — replacing
+the tracked `redis.conf` with the generated content. After this,
+`./src/redis-server redis.conf` auto-loads the bundled modules without
+needing to point at `redis-gen.conf`.
+
+**Destructive on `redis.conf`.** It's a tracked file; recover with
+`git checkout -- redis.conf` if you didn't mean to run it.
+
+**Refuses to run twice** in a row. `sync-redis-conf` strips only the
+legacy `# >>> BEGIN auto-managed modules section <<<` block, not its own
+`# >>> BEGIN section: Modules <<<` markers — so a second promote would
+nest one Modules section inside another. If the script sees those markers
+already in `redis.conf` it errors out and asks you to `git checkout --
+redis.conf` first.
+
+Typical use: after extracting a release tarball (see §9) and running
+`make build`, when you want a one-file launch path.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MODULES` / positional names | every module in `modules.yaml` | Subset of modules to include. |
+| `ASSUME_BUILT` | unset | Same as `sync-redis-conf` — emit active `loadmodule` lines regardless of whether the `.so` is on disk. |
+| `REDIS_CONF` | `redis.conf` | Destination (overwritten). |
+| `REDIS_GEN_CONF` | `redis-gen.conf` | Intermediate; removed after the `mv`. |
+
+Examples:
+
+```bash
+make promote-redis-conf                       # all manifest modules, .so must exist
+make promote-redis-conf redisbloom redisjson  # subset
+make promote-redis-conf ASSUME_BUILT=1        # tarball-style: pre-bake module lines
+```
+
 ### Per-module private blocks
 
 Anything in a module's `module.conf` wrapped in:
@@ -479,10 +519,13 @@ make tarball TAG=<tag> \
 4. Strips `.git/`, `.github/`, and `.gitmodules` from cloned modules
    (Redis core's own `.github/` is preserved — it came from `git
    archive` and isn't dev-clone metadata).
-5. Generates `redis-gen.conf` with `ASSUME_BUILT=1` (modules are
-   cloned but not yet built at staging time; the consumer will build
-   before running `redis-server`), then promotes it to `redis.conf` in
-   the tarball so the shipped config is ready to use.
+5. Overlays the local `scripts/sync-redis-conf.sh`,
+   `scripts/promote-redis-conf.sh`, `scripts/lib/manifest.sh`, and
+   `modules/modules.yaml` so tarball-time fixes ship without re-tagging
+   Redis core. **`redis.conf` is shipped UNMODIFIED** — the tarball does
+   not run `sync-redis-conf` at staging time and **does not pack
+   `redis-gen.conf`**. The consumer regenerates it (or promotes it onto
+   `redis.conf`) after build — see the consumer flow below.
 6. Produces a deterministic tarball: entries sorted by name, mtimes
    pinned to the tag's commit timestamp, owner/group `0`, gzip with
    `-n` (no embedded mtime). Two runs from the same `TAG` yield
@@ -511,6 +554,18 @@ redis-<tag>/
 tar xzf redis-<tag>.tar.gz
 cd redis-<tag>
 gmake BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+```
+
+`redis.conf` is shipped unmodified, so it does **not** load any bundled
+modules out of the box. Pick one:
+
+```bash
+# Option A — generate redis-gen.conf and point redis-server at it:
+gmake sync-redis-conf
+./src/redis-server redis-gen.conf
+
+# Option B — promote the generated config onto redis.conf:
+gmake promote-redis-conf
 ./src/redis-server redis.conf
 ```
 
@@ -528,6 +583,8 @@ make modules-update [<name> ...]             # idempotent: clones if missing, el
 make modules-shallow <name> [<name> ...]     # re-clone module(s) shallow (--depth 1) to reclaim disk
 make sync-redis-conf [<name> ...] \          # rewrite redis-gen.conf from redis.conf + module.confs
     [MODULES="<names>"] [ASSUME_BUILT=1]
+make promote-redis-conf [<name> ...] \       # sync-redis-conf, then overwrite redis.conf
+    [MODULES="<names>"] [ASSUME_BUILT=1]     #   (destructive on redis.conf; refuses to run twice)
 
 make build [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
 

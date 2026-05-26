@@ -113,23 +113,26 @@ if [ -d "$work/modules/redisearch/src" ]; then
 fi
 
 echo
-echo "==> Generating redis-gen.conf in staging (all manifest modules, ASSUME_BUILT=1)"
-# Overlay the LOCAL sync-redis-conf script + its lib + the manifest on top
-# of whatever came in from `git archive $TAG`, so tarball-time fixes (or
-# the modules.yaml-into-modules/ relocation) don't require re-tagging Redis
-# core. If $TAG predates that relocation, drop the stale root-level
-# modules.yaml so the in-staging tooling has exactly one manifest to find.
+echo "==> Overlaying local config-sync tooling in staging"
+# Overlay the LOCAL sync-redis-conf / promote-redis-conf scripts + their lib
+# + the manifest on top of whatever came in from `git archive $TAG`, so
+# tarball-time fixes (or the modules.yaml-into-modules/ relocation) don't
+# require re-tagging Redis core. If $TAG predates that relocation, drop the
+# stale root-level modules.yaml so the in-staging tooling has exactly one
+# manifest to find.
+#
+# The tarball ships `redis.conf` UNMODIFIED. To get a config that pre-loads
+# the bundled modules, the consumer runs one of:
+#   gmake sync-redis-conf      # produces redis-gen.conf (use with `redis-server redis-gen.conf`)
+#   gmake promote-redis-conf   # overwrites redis.conf with the generated content
+# Neither runs at tarball time, so `redis-gen.conf` is NEVER packed.
 mkdir -p "$work/scripts/lib" "$work/modules"
-cp scripts/sync-redis-conf.sh "$work/scripts/sync-redis-conf.sh"
-cp scripts/lib/manifest.sh    "$work/scripts/lib/manifest.sh"
-cp modules/modules.yaml       "$work/modules/modules.yaml"
-chmod +x "$work/scripts/sync-redis-conf.sh"
+cp scripts/sync-redis-conf.sh    "$work/scripts/sync-redis-conf.sh"
+cp scripts/promote-redis-conf.sh "$work/scripts/promote-redis-conf.sh"
+cp scripts/lib/manifest.sh       "$work/scripts/lib/manifest.sh"
+cp modules/modules.yaml          "$work/modules/modules.yaml"
+chmod +x "$work/scripts/sync-redis-conf.sh" "$work/scripts/promote-redis-conf.sh"
 rm -f "$work/modules.yaml"
-# Run the script directly against the staging tree (we don't need Make
-# here — the script is the contract).
-( cd "$work" && ASSUME_BUILT=1 scripts/sync-redis-conf.sh )
-echo "==> Promoting redis-gen.conf -> redis.conf, removing redis-gen.conf"
-mv "$work/redis-gen.conf" "$work/redis.conf"
 
 echo
 echo "==> Producing reproducible tarball at $out"
