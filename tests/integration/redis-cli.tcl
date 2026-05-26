@@ -42,7 +42,7 @@ start_server {tags {"cli"}} {
 
         # We may have a short read, try to read some more.
         set empty_reads 0
-        while {$empty_reads < 100} {
+        while {$empty_reads < 5} {
             set buf [read $fd]
             if {[string length $buf] == 0} {
                 after 10
@@ -69,6 +69,31 @@ start_server {tags {"cli"}} {
     proc run_command {fd cmd} {
         write_cli $fd $cmd
         set _ [format_output [read_cli $fd]]
+    }
+
+    proc read_cli_until {fd regex {timeout_ms 5000}} {
+        set ret ""
+        set deadline [expr {[clock milliseconds] + $timeout_ms}]
+
+        while {[clock milliseconds] < $deadline} {
+            set buf [read $fd]
+            if {[string length $buf] == 0} {
+                after 10
+                continue
+            }
+
+            append ret $buf
+            if {[regexp $regex $ret]} {
+                return $ret
+            }
+        }
+
+        fail "Timed out waiting for pattern '$regex' in redis-cli output: $ret"
+    }
+
+    proc run_command_until {fd cmd regex {timeout_ms 5000}} {
+        write_cli $fd $cmd
+        set _ [format_output [read_cli_until $fd $regex $timeout_ms]]
     }
 
     proc test_interactive_cli_with_prompt {name code} {
@@ -191,7 +216,7 @@ start_server {tags {"cli"}} {
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
-        set result2 [run_command $fd "keys \"$now\"\x0D"]
+        set result2 [run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}]
         assert_equal 1 [regexp {.*(empty array).*} $result2]
     }
 
