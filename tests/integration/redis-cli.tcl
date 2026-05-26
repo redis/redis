@@ -91,7 +91,7 @@ start_server {tags {"cli"}} {
         fail "Timed out waiting for pattern '$regex' in redis-cli output: $ret"
     }
 
-    proc run_command_until {fd cmd regex {timeout_ms 5000}} {
+    proc run_command_expect {fd cmd regex {timeout_ms 5000}} {
         write_cli $fd $cmd
         set _ [format_output [read_cli_until $fd $regex $timeout_ms]]
     }
@@ -216,8 +216,7 @@ start_server {tags {"cli"}} {
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
-        set result2 [run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}]
-        assert_equal 1 [regexp {.*(empty array).*} $result2]
+        run_command_expect $fd "keys \"$now\"\x0D" {.*(empty array).*}
     }
 
     test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
