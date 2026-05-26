@@ -226,9 +226,7 @@ start_server {tags {"cli"}} {
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
-        set result2 [run_command $fd "keys \"$now\"\x0D"]
-
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        run_command_expect $fd "keys \"$now\"\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {
