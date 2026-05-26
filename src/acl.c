@@ -523,6 +523,14 @@ void ACLCopyUser(user *dst, user *src) {
     }
 }
 
+/* Set the user for a client, performing any necessary bookkeeping such as
+ * updating broadcast tracking state for the user switch. */
+void clientSetUser(client *c, user *new_user) {
+    user *old = c->user;
+    c->user = new_user;
+    trackingBroadcastPostUserSwitch(c, old);
+}
+
 /* Given a command ID, this function set by reference 'word' and 'bit'
  * so that user->allowed_commands[word] will address the right word
  * where the corresponding bit for the provided ID is stored, and

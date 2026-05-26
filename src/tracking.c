@@ -67,7 +67,7 @@ void disableTracking(client *c) {
                             (unsigned char*)&c->user, sizeof(c->user),
                             (void**)&user_clients);
             serverAssert(found);
-            ssize_t idx = vecFindIndexOf(user_clients, c);
+            ssize_t idx = vecIndexOf(user_clients, c);
             serverAssert(idx >= 0);
             vecSwapRemoveAt(user_clients, idx);
             if (vecSize(user_clients) == 0) {
@@ -181,7 +181,7 @@ static void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
                   user_clients, NULL);
     }
 
-    if (vecFindIndexOf(user_clients, c) < 0) {
+    if (vecIndexOf(user_clients, c) < 0) {
         vecPush(user_clients, c);
         if (c->client_tracking_prefixes == NULL)
             c->client_tracking_prefixes = raxNew();
@@ -714,7 +714,7 @@ static void trackingBcastMoveClient(client *c, user *old_user) {
                         (unsigned char*)&old_user, sizeof(old_user),
                         (void**)&from_clients);
         serverAssert(found);
-        ssize_t idx = vecFindIndexOf(from_clients, c);
+        ssize_t idx = vecIndexOf(from_clients, c);
         serverAssert(idx >= 0);
         vecSwapRemoveAt(from_clients, idx);
         if (vecSize(from_clients) == 0) {

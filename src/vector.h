@@ -98,7 +98,7 @@ void vecReserve(vec *v, size_t mincap);
 void vecPush(vec *v, void *value);
 
 /* Return the index of the first occurrence of 'elem', or -1 if not found. */
-ssize_t vecFindIndexOf(const vec *v, void *elem);
+ssize_t vecIndexOf(const vec *v, void *elem);
 
 /* Remove the element at 'index' by swapping with the last element.
  * Does not invoke the free callback. Requires index < vecSize(v). */

@@ -3362,11 +3362,7 @@ uint64_t trackingGetTotalKeys(void);
 uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(void);
 void trackingBroadcastPostUserSwitch(client *c, user *old_user);
-static inline void clientSetUser(client *c, user *new_user) {
-    user *old = c->user;
-    c->user = new_user;
-    trackingBroadcastPostUserSwitch(c, old);
-}
+void clientSetUser(client *c, user *new_user);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */

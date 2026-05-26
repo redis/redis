@@ -101,7 +101,7 @@ void vecPush(vec *v, void *value) {
 }
 
 /* Return the index of the first occurrence of 'elem', or -1 if not found. */
-ssize_t vecFindIndexOf(const vec *v, void *elem) {
+ssize_t vecIndexOf(const vec *v, void *elem) {
     for (size_t i = 0; i < v->size; i++) {
         if (v->data[i] == elem) return (ssize_t)i;
     }
@@ -236,21 +236,21 @@ int vectorTest(int argc, char **argv, int flags)
     vecRelease(&v);
     test_cond("vecRelease() free method is a no-op on empty vector",
               vecTestFreeCalls == 0);
-    /* vecFindIndexOf tests */
+    /* vecIndexOf tests */
     vecInit(&v, NULL, 0);
-    test_cond("vecFindIndexOf() returns -1 on empty vector",
-              vecFindIndexOf(&v, &one) == -1);
+    test_cond("vecIndexOf() returns -1 on empty vector",
+              vecIndexOf(&v, &one) == -1);
     vecPush(&v, &one);
     vecPush(&v, &two);
     vecPush(&v, &three);
-    test_cond("vecFindIndexOf() finds first element",
-              vecFindIndexOf(&v, &one) == 0);
-    test_cond("vecFindIndexOf() finds middle element",
-              vecFindIndexOf(&v, &two) == 1);
-    test_cond("vecFindIndexOf() finds last element",
-              vecFindIndexOf(&v, &three) == 2);
-    test_cond("vecFindIndexOf() returns -1 for missing element",
-              vecFindIndexOf(&v, &four) == -1);
+    test_cond("vecIndexOf() finds first element",
+              vecIndexOf(&v, &one) == 0);
+    test_cond("vecIndexOf() finds middle element",
+              vecIndexOf(&v, &two) == 1);
+    test_cond("vecIndexOf() finds last element",
+              vecIndexOf(&v, &three) == 2);
+    test_cond("vecIndexOf() returns -1 for missing element",
+              vecIndexOf(&v, &four) == -1);
     vecRelease(&v);
 
     /* vecSwapRemoveAt tests */
