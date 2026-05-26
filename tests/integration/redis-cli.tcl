@@ -93,7 +93,7 @@ start_server {tags {"cli"}} {
 
     proc run_command_expect {fd cmd regex {timeout_ms 5000}} {
         write_cli $fd $cmd
-        set _ [format_output [read_cli_until $fd $regex $timeout_ms]]
+        format_output [read_cli_until $fd $regex $timeout_ms]
     }
 
     proc test_interactive_cli_with_prompt {name code} {
