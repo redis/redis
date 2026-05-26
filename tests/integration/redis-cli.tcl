@@ -915,13 +915,16 @@ start_server {tags {"cli external:skip"}} {
         assert_equal "PONG" [exec {*}$cmd]
     }
 
-    test "redis-cli -u with empty userinfo keeps previously set -a auth" {
-        # "redis://@host" has empty userinfo, so the URI must not
-        # clobber the password already supplied via -a.
+    test "redis-cli -u with empty userinfo overrides previously set -a" {
+        # "redis://@host" has empty userinfo. Since later parameters
+        # override earlier ones, the URI clears the password supplied via
+        # -a, so cliAuth() sends no AUTH and the password-protected server
+        # rejects the command with NOAUTH.
         set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
             -a uri-no-username-pass \
             -u "$scheme://@$host:$port" PING]
-        assert_equal "PONG" [exec {*}$cmd]
+        catch {exec {*}$cmd 2>@1} e
+        assert_match "*NOAUTH*" $e
     }
 
     r config set requirepass ""
