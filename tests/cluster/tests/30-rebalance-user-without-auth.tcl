@@ -1,7 +1,5 @@
 # Test that redis-cli --cluster rebalance doesn't fail with CROSSSLOT
 # when --user is specified without -a (no password).
-# This was a bug where argc was incorrectly incremented for the user
-# parameter without auth, causing an empty string argument in MIGRATE.
 
 source "../tests/includes/init-tests.tcl"
 source "../tests/includes/utils.tcl"
@@ -14,28 +12,96 @@ test "Cluster is up" {
     assert_cluster_state ok
 }
 
-test "Set up an ACL user for testing" {
+test "Set up ACL users for testing" {
     foreach_redis_id id {
         R $id ACL SETUSER testuser on nopass +@all
+        R $id ACL SETUSER testuser2 on >testpass +@all
     }
 }
 
-test "Create keys using cluster client" {
+proc write_keys_to_master0 {key_prefix} {
     set start_node_port [get_instance_attrib redis 0 port]
     set cluster [redis_cluster 127.0.0.1:$start_node_port]
-    $cluster set testkey1 v1
-    $cluster set testkey2 v2
-    $cluster set testkey3 v3
+    set slots [dict get [get_myself 0] slots]
+    set count 0
+    foreach slot $slots {
+        $cluster set "$key_prefix:$slot:a" "value:$slot"
+        $cluster set "$key_prefix:$slot:b" "value:$slot"
+        incr count 2
+        if {$count >= 100} break
+    }
+}
+
+test "Write keys to master 0 slots" {
+    write_keys_to_master0 "key"
+}
+
+test "Rebalance without --user and without -a should succeed" {
+    set master0_id [dict get [get_myself 0] id]
+    catch {
+        exec ../../../src/redis-cli --cluster rebalance \
+            127.0.0.1:[get_instance_attrib redis 0 port] \
+            {*}[rediscli_tls_config "../../../tests"] \
+            --cluster-weight ${master0_id}=0 \
+            --cluster-timeout 10000
+    } output
+    assert_no_match "*CROSSSLOT*" $output
+    assert_no_match "*CROSS*SLOT*" $output
+}
+
+test "Re-distribute slots to master 0 for next test" {
+    catch {
+        exec ../../../src/redis-cli --cluster rebalance \
+            127.0.0.1:[get_instance_attrib redis 0 port] \
+            {*}[rediscli_tls_config "../../../tests"] \
+            --cluster-timeout 10000
+    } output
+    wait_cluster_stable
+}
+
+test "Write more keys to master 0 slots" {
+    write_keys_to_master0 "key2"
 }
 
 test "Rebalance with --user but no -a should not CROSSSLOT" {
+    # This used to fail with CROSSSLOT because the empty string
+    # argument in MIGRATE was treated as a key with slot 0
     set master0_id [dict get [get_myself 0] id]
     catch {
-        exec ../../../src/redis-cli \
+        exec ../../../src/redis-cli --cluster rebalance \
+            127.0.0.1:[get_instance_attrib redis 0 port] \
             {*}[rediscli_tls_config "../../../tests"] \
             --user testuser \
-            --cluster rebalance \
+            --cluster-weight ${master0_id}=0 \
+            --cluster-timeout 10000
+    } output
+    assert_no_match "*CROSSSLOT*" $output
+    assert_no_match "*CROSS*SLOT*" $output
+}
+
+test "Re-distribute slots to master 0 for next test" {
+    catch {
+        exec ../../../src/redis-cli --cluster rebalance \
             127.0.0.1:[get_instance_attrib redis 0 port] \
+            {*}[rediscli_tls_config "../../../tests"] \
+            --cluster-timeout 10000
+    } output
+    wait_cluster_stable
+}
+
+test "Write more keys to master 0 slots" {
+    write_keys_to_master0 "key3"
+}
+
+test "Rebalance with --user and -a should succeed" {
+    set master0_id [dict get [get_myself 0] id]
+    catch {
+        exec ../../../src/redis-cli --cluster rebalance \
+            127.0.0.1:[get_instance_attrib redis 0 port] \
+            {*}[rediscli_tls_config "../../../tests"] \
+            --user testuser2 \
+            -a testpass \
+            --no-auth-warning \
             --cluster-weight ${master0_id}=0 \
             --cluster-timeout 10000
     } output
