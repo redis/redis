@@ -2170,7 +2170,7 @@ int raxTest(int argc, char **argv, int flags) {
         /* (b) ALGO 1: mismatch mid-prefix. "ANXX" stops at splitpos > 0
          * inside the compressed "ANNIBALE" node. */
         assert(raxFindLink(r, (unsigned char*)"ANXX", 4, NULL, &link) == 0);
-        assert(link.h->iscompr && link.splitpos > 0);
+        assert(link.stopnode->iscompr && link.splitpos > 0);
         assert(raxInsertAt(r, (unsigned char*)"ANXX", 4, vXX, NULL, &link) == 1);
 
         /* (c) ALGO 2: query exhausts mid-prefix (i == len, splitpos > 0). */
