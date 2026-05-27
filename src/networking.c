@@ -576,9 +576,9 @@ static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     str_ref.crlf[0] = '\r';
     str_ref.crlf[1] = '\n';
 
-    /* Track output bytes using prefix buffer size (not actual formatted length) so
-     * prefix formatting can be offloaded to the IO thread. Count: prefix buf + content + CRLF. */
-    c->net_output_bytes_curr_cmd += sizeof(str_ref.prefix) + len + 2;
+    /* Count exact wire bytes: "$<len>\r\n" + content + "\r\n". The prefix is
+     * formatted later on the IO thread, but its length is determined by len. */
+    c->net_output_bytes_curr_cmd += digits10(len) + 3 + len + 2;
 
     /* We call it here because this function may affect the reply
      * buffer offset (see function comment) */
