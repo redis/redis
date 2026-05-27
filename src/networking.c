@@ -556,7 +556,7 @@ static inline int clientIsInPendingRefReplyList(client *c) {
 unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref) {
     if (str_ref->prefix_cnt != 0) return str_ref->prefix_cnt;
     str_ref->prefix[0] = '$';
-    size_t num_len = ll2string(str_ref->prefix + 1, sizeof(str_ref->prefix) - 3, str_ref->len);
+    size_t num_len = ll2string(str_ref->prefix + 1, sizeof(str_ref->prefix) - 3, sdslen(str_ref->obj->ptr));
     str_ref->prefix[num_len + 1] = '\r';
     str_ref->prefix[num_len + 2] = '\n';
     str_ref->prefix_cnt = (unsigned int)(num_len + 3);
@@ -571,7 +571,6 @@ static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     bulkStrRef str_ref;
     str_ref.obj = obj;
     incrRefCount(obj); /* Refcount will be decremented in write handler */
-    str_ref.len = len;
     str_ref.prefix_cnt = 0; /* filled at write time */
     str_ref.crlf[0] = '\r';
     str_ref.crlf[1] = '\n';

@@ -1139,9 +1139,8 @@ static_assert(offsetof(payloadHeader, payload_len) == 0, "payload_len must be at
  * we store pointers to object and string itself */
 typedef struct __attribute__((__packed__)) bulkStrRef {
     robj *obj; /* pointer to object used for reference count management */
-    size_t len; /* bulk string length */
-    unsigned int prefix_cnt;
-    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n, filled when writing */
+    unsigned int prefix_cnt; /* length of prefix; 0 means prefix not yet formatted */
+    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n, lazily filled when writing */
     char crlf[2]; /* \r\n */
 } bulkStrRef;
 
