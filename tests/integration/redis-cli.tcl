@@ -91,7 +91,7 @@ start_server {tags {"cli"}} {
         fail "Timed out waiting for pattern '$regex' in redis-cli output: $ret"
     }
 
-    proc run_command_expect {fd cmd regex {timeout_ms 5000}} {
+    proc run_command_until {fd cmd regex {timeout_ms 5000}} {
         write_cli $fd $cmd
         read_cli_until $fd $regex $timeout_ms
     }
@@ -212,7 +212,7 @@ start_server {tags {"cli"}} {
         puts $fd "\x12" ;# CTRL+R
         read_cli_until $fd {\(reverse-i-search\):}
 
-        run_command_expect $fd "keys \"$now\"\x0D" {.*(empty array).*}
+        run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}
     }
 
     test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
@@ -221,7 +221,7 @@ start_server {tags {"cli"}} {
         set now [clock seconds]
         read_cli_until $fd {\(reverse-i-search\):}
 
-        run_command_expect $fd "keys \"$now\"\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
+        run_command_until $fd "keys \"$now\"\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {
@@ -825,10 +825,10 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
 start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
-        run_command_expect $fd "select 0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
-        run_command_expect $fd "set a zoo-0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
-        run_command_expect $fd "select 6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
-        run_command_expect $fd "set a zoo-6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
+        run_command_until $fd "select 0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_until $fd "set a zoo-0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_until $fd "select 6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
+        run_command_until $fd "set a zoo-6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
         r save
 
         # kill server and restart
