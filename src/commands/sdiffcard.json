@@ -50,12 +50,6 @@
                 "multiple": true
             },
             {
-                "name": "approx",
-                "token": "APPROX",
-                "type": "pure-token",
-                "optional": true
-            },
-            {
                 "token": "LIMIT",
                 "name": "limit",
                 "type": "integer",

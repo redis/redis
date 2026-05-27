@@ -407,15 +407,6 @@ foreach type {single multiple single_multiple} {
         assert_equal 2 [r sdiffcard 3 s0{t} s1{t} s2{t} LIMIT 0]
     }
 
-    test "SDIFFCARD with APPROX flag follows exact path" {
-        r del s0{t} s1{t}
-        r sadd s0{t} a b c
-        r sadd s1{t} c d
-        set exact [r sdiffcard 2 s0{t} s1{t}]
-        set approx [r sdiffcard 2 s0{t} s1{t} APPROX]
-        assert_equal $exact $approx
-    }
-
     test "SDIFFCARD with first set empty" {
         r del s0{t} s1{t}
         r sadd s1{t} a b c
@@ -614,12 +605,6 @@ foreach type {single multiple single_multiple} {
         test "SDIFFCARD with non existing keys - $type" {
             set expected [llength [lsort [r sdiff set1{t} set4{t}]]]
             assert_equal $expected [r sdiffcard 4 set1{t} nokey1{t} set4{t} nokey2{t}]
-        }
-
-        test "SDIFFCARD APPROX with two sets - $type" {
-            set exact [r sdiffcard 2 set1{t} set4{t}]
-            set approx [r sdiffcard 2 set1{t} set4{t} APPROX]
-            assert_equal $exact $approx
         }
 
         test "SINTER/SUNION/SDIFF with three same sets - $type" {

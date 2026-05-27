@@ -1981,7 +1981,7 @@ void sdiffstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0,0);
 }
 
-/* SDIFFCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
+/* SDIFFCARD numkeys key [key ...] [LIMIT limit] */
 void sdiffcardCommand(client *c) {
     long j;
     long numkeys = 0;
@@ -2004,9 +2004,6 @@ void sdiffcardCommand(client *c) {
             if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
                                                  "LIMIT can't be negative") != C_OK)
                 return;
-        } else if (!strcasecmp(opt, "APPROX")) {
-            /* TODO: HLL-based approximate cardinality not yet implemented.
-             * For now, fall through to the exact path. */
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
