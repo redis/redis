@@ -825,10 +825,10 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
 start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
-        run_command $fd "select 0\x0D"
-        run_command $fd "set a zoo-0\x0D"
-        run_command $fd "select 6\x0D"
-        run_command $fd "set a zoo-6\x0D"
+        run_command_expect $fd "select 0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_expect $fd "set a zoo-0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_expect $fd "select 6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
+        run_command_expect $fd "set a zoo-6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
         r save
 
         # kill server and restart
