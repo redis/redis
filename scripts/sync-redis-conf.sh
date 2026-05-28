@@ -342,6 +342,7 @@ EOF
 } > "$tmp_out"
 
 mv "$tmp_out" "$REDIS_GEN_CONF"
+rm -f "$LOOKUP_FILE"
 trap - EXIT
 
 echo "==> Wrote $REDIS_GEN_CONF"

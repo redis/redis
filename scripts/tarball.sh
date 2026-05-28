@@ -23,12 +23,9 @@ cd "$REPO_ROOT"
 MAKE_BIN="${MAKE:-make}"
 TAR="${TAR:-$(command -v gtar 2>/dev/null || command -v tar 2>/dev/null)}"
 
-if [ "${TARBALL_SKIP_MODULES_UPDATE:-}" != "1" ]; then
-  echo "==> [tarball] pre-step: modules-update all (shallow)"
-  MODULES_UPDATE_SHALLOW=1 "$SCRIPT_DIR/modules-update.sh" all
-  echo
-fi
-
+# Validate cheap-to-check inputs BEFORE the expensive modules-update clone, so
+# a missing/invalid TAG or unusable tar exits in milliseconds instead of after
+# a multi-minute network operation.
 if [ -z "${TAG:-}" ]; then
   echo "ERROR: TAG=<tag> is required"
   echo "       e.g. 'make tarball TAG=8.0.0'"
@@ -45,6 +42,12 @@ if ! "$TAR" --version 2>&1 | grep -qi 'GNU tar'; then
   echo "ERROR: GNU tar required (found: $($TAR --version 2>&1 | head -1))"
   echo "       On macOS: brew install gnu-tar, then retry with TAR=gtar"
   exit 1
+fi
+
+if [ "${TARBALL_SKIP_MODULES_UPDATE:-}" != "1" ]; then
+  echo "==> [tarball] pre-step: modules-update all (shallow)"
+  MODULES_UPDATE_SHALLOW=1 "$SCRIPT_DIR/modules-update.sh" all
+  echo
 fi
 
 staging="${STAGING_DIR:-/tmp/redis-tarball-staging-$TAG}"
