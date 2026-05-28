@@ -114,6 +114,20 @@ find "$work/modules" -type d \( -name build -o -name target -o -name bin \) \
 # IDE-local config (Cursor, VSCode, JetBrains). Useless to a tarball consumer.
 find "$work/modules" -type d \( -name .cursor -o -name .vscode -o -name .idea \) \
     -prune -exec rm -rf {} + 2>/dev/null || true
+# Vendored libraries' OWN benchmark suites and test datasets, found at
+# */deps/*/{benchmarks,test_dataset,testdata}. These benchmark/test the
+# bundled lib (e.g. fast_double_parser's Gay tests, ScalableVectorSearch's
+# fvecs/svs corpora) — the module never references them at build or run
+# time. Ship-only-what's-needed: ~35MB saved.
+find "$work/modules" -type d \( -name benchmarks -o -name benchmark -o -name test_dataset -o -name testdata \) \
+    -path '*/deps/*' -prune -exec rm -rf {} + 2>/dev/null || true
+# Module test fixtures — RDB backwards-compat snapshots and large input
+# corpora (>1MB CSV/fvecs/svs/txt). Useful only when running the module
+# test suite; this is a source/build tarball, not a test-dev kit.
+find "$work/modules" -path '*/tests/*' -type f -name '*.rdb' -delete 2>/dev/null || true
+find "$work/modules" -path '*/tests/*' -type f \
+    \( -name '*.csv' -o -name '*.fvecs' -o -name '*.svs' -o -name '*.txt' \) \
+    -size +1M -delete 2>/dev/null || true
 echo "==> Marking modules pre-prepared (so consumer 'make' skips clone step)"
 for name in $(manifest_modules); do
   touch "$work/modules/$name/src/.prepared"
