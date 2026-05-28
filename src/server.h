@@ -527,6 +527,7 @@ typedef enum {
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_REQ_REPLY,   /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
+    REPL_STATE_RECEIVE_NODEID_REPLY, /* Wait for REPLCONF reply */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
@@ -711,6 +712,7 @@ typedef enum {
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
 #define SHUTDOWN_NOW 4          /* Don't wait for replicas to catch up. */
 #define SHUTDOWN_FORCE 8        /* Don't let errors prevent shutdown. */
+#define SHUTDOWN_FAILOVER 16    /* Perform cluster failover on shutdown. */
 
 /* Cluster slot stats flags */
 #define CLUSTER_SLOT_STATS_CPU 1  /* Track CPU usage per slot. */
@@ -1570,6 +1572,8 @@ typedef struct client {
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     int slave_req;          /* Slave requirements: SLAVE_REQ_* */
     uint64_t main_ch_client_id; /* The client id of this replica's main channel */
+    sds slave_nodeid;       /* Cluster node id (binary, not null-terminated),
+                             * provided by REPLCONF set-cluster-node-id. */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */

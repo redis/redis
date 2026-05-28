@@ -1064,6 +1064,67 @@ void clusterInitLast(void) {
     }
 }
 
+void clusterAutoFailoverOnShutdown(void) {
+    if (!nodeIsMaster(myself)) return;
+
+    /* Find a fully-synced replica by iterating server.slaves directly.
+     * Match by slave_nodeid (set via REPLCONF set-cluster-node-id during
+     * replication handshake) for precise identity. Verify the cluster node
+     * is actually our replica (slaveof == myself). */
+    client *best_slave = NULL;
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *slave = listNodeValue(ln);
+        if (slave->replstate != SLAVE_STATE_ONLINE) continue;
+        /* Must be fully synced (zero data loss). */
+        if (slave->repl_ack_off != server.master_repl_offset) continue;
+        /* Must have a valid cluster node id. */
+        if (!slave->slave_nodeid || sdslen(slave->slave_nodeid) != CLUSTER_NAMELEN) continue;
+        /* Verify this replica belongs to us in the cluster. */
+        clusterNode *node = clusterLookupNode(slave->slave_nodeid, CLUSTER_NAMELEN);
+        if (!node || node->slaveof != myself) continue;
+        best_slave = slave;
+        break;
+    }
+
+    if (!best_slave) {
+        serverLog(LL_NOTICE, "SHUTDOWN FAILOVER: no eligible replica found.");
+        return;
+    }
+
+    serverLog(LL_NOTICE, "SHUTDOWN FAILOVER: triggering failover to replica %.40s.",
+              best_slave->slave_nodeid);
+
+    /* Send CLUSTER FAILOVER FORCE REPLICAID <id> via replication buffer.
+     * replicationFeedSlaves broadcasts to all replicas; the REPLICAID arg
+     * ensures only the intended replica acts on it. */
+    robj *cmd_argv[5];
+    cmd_argv[0] = createStringObject("CLUSTER", 7);
+    cmd_argv[1] = createStringObject("FAILOVER", 8);
+    cmd_argv[2] = createStringObject("FORCE", 5);
+    cmd_argv[3] = createStringObject("REPLICAID", 9);
+    cmd_argv[4] = createStringObject(best_slave->slave_nodeid, CLUSTER_NAMELEN);
+    replicationFeedSlaves(server.slaves, -1, cmd_argv, 5);
+    for (int i = 0; i < 5; i++) decrRefCount(cmd_argv[i]);
+}
+
+/* Called when a cluster node receives SHUTDOWN. */
+void clusterHandleServerShutdown(int auto_failover) {
+    /* Check if we are able to do the auto failover on shutdown. */
+    if (auto_failover) clusterAutoFailoverOnShutdown();
+
+    /* Save cluster config before exiting. */
+    if (auto_failover) {
+        serverLog(LL_NOTICE, "Cluster failover triggered, saving cluster config as backup.");
+    } else {
+        serverLog(LL_NOTICE, "Saving the cluster configuration file before exiting.");
+    }
+    clusterSaveConfig(1);
+}
+
 /* Reset a node performing a soft or hard reset:
  *
  * 1) All other nodes are forgotten.
@@ -4908,7 +4969,10 @@ void clusterCron(void) {
     if (nodeIsSlave(myself) &&
         server.masterhost == NULL &&
         myself->slaveof &&
-        nodeHasAddr(myself->slaveof))
+        nodeHasAddr(myself->slaveof) &&
+        server.cluster->mf_end == 0)  /* Don't reconnect during manual failover
+                                        * (e.g. SHUTDOWN FAILOVER triggers
+                                        *  CLUSTER FAILOVER FORCE REPLICAID) */
     {
         replicationSetMaster(myself->slaveof->ip, getNodeDefaultReplicationPort(myself->slaveof));
     }
@@ -6305,9 +6369,9 @@ int clusterCommandSpecial(client *c) {
             addReplyLongLong(c,clusterNodeFailureReportsCount(n));
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"failover") &&
-               (c->argc == 2 || c->argc == 3))
+               (c->argc == 2 || c->argc == 3 || c->argc == 5))
     {
-        /* CLUSTER FAILOVER [FORCE|TAKEOVER] */
+        /* CLUSTER FAILOVER [FORCE|TAKEOVER] [REPLICAID <NODE ID>] */
         int force = 0, takeover = 0;
 
         if (c->argc == 3) {
@@ -6320,6 +6384,31 @@ int clusterCommandSpecial(client *c) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 return 1;
             }
+        } else if (c->argc == 5) {
+            /* CLUSTER FAILOVER FORCE REPLICAID <node-id> */
+            if (strcasecmp(c->argv[2]->ptr,"force") ||
+                strcasecmp(c->argv[3]->ptr,"replicaid"))
+            {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return 1;
+            }
+            /* If this REPLICAID doesn't match our node, silently ignore.
+             * node->name is CLUSTER_NAMELEN bytes, not null-terminated. */
+            if (memcmp(c->argv[4]->ptr, myself->name, CLUSTER_NAMELEN)) {
+                addReply(c,shared.ok);
+                return 1;
+            }
+            /* Standard FORCE election flow: set mf_can_start, let
+             * clusterHandleSlaveFailover() handle the vote via the
+             * standard quorum election with FORCEACK. */
+            if (!clusterNodeIsMaster(myself)) {
+                serverLog(LL_NOTICE, "Received REPLICAID failover trigger from master.");
+                resetManualFailover();
+                server.cluster->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
+                server.cluster->mf_can_start = 1;
+            }
+            addReply(c,shared.ok);
+            return 1;
         }
 
         /* Check preconditions. */
