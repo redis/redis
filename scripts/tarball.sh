@@ -106,10 +106,27 @@ echo "==> Stripping .git, .github, build caches and IDE noise from cloned module
 find "$work/modules" -name '.git' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$work/modules" -type d -name '.github' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$work/modules" -name '.gitmodules' -delete 2>/dev/null || true
-# Local CMake/Rust build outputs from prior `make build` runs against the
-# cloned module trees. They're not source code; ship them and the tarball
-# balloons + reproducibility goes out the window.
-find "$work/modules" -type d \( -name build -o -name target -o -name bin \) \
+# Local CMake/Rust build outputs from prior `make build` runs. Not in a
+# fresh clone, so they have no business in a source tarball. Two-tier
+# strip so we don't accidentally remove tracked sources:
+#
+#   1. Module-root `bin/` and `target/` only — these are the module's
+#      own output dirs (never tracked). Per-module explicit path so
+#      we don't recurse into `deps/readies/bin/` (vendored scripts,
+#      tracked in readies' own repo) or any nested target/ that might
+#      be tracked.
+#   2. Anywhere — `*-release` / `*-debug` directories. These flavor
+#      suffixes only appear on build-output dirs (e.g.
+#      `bin/macos-arm64v8-release/`), never on source.
+#
+# `build/` is NOT in this list — redisearch ships tracked .cmake/Makefile
+# recipes under `src/build/{boost,hiredis,libuv}/` that CMakeLists.txt
+# `include`s at build time.
+for m in $(manifest_modules); do
+  [ -d "$work/modules/$m/src/bin" ]    && rm -rf "$work/modules/$m/src/bin"
+  [ -d "$work/modules/$m/src/target" ] && rm -rf "$work/modules/$m/src/target"
+done
+find "$work/modules" -type d \( -name '*-release' -o -name '*-debug' \) \
     -prune -exec rm -rf {} + 2>/dev/null || true
 # IDE-local config (Cursor, VSCode, JetBrains). Useless to a tarball consumer.
 find "$work/modules" -type d \( -name .cursor -o -name .vscode -o -name .idea \) \
