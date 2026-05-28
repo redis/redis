@@ -40,21 +40,22 @@ module, edit its `ref:` there and run `make modules-update <name>`.
                             └──────────────┘
 ```
 
-### 1. First-time provisioning — `make setup`
+### 1. First-time provisioning — `make modules-update` + `make bootstrap`
 
-Clones every module listed in [modules.yaml](modules.yaml) into
-`modules/<name>/src/` at its pinned ref, then runs each module's
-`.install/install_script.sh` to install OS packages, set up a Python
-venv, and pull in any module-specific toolchain (e.g. Rust for
+`modules-update` clones every module listed in [modules.yaml](modules.yaml)
+into `modules/<name>/src/` at its pinned ref. `bootstrap` then runs each
+module's `.install/install_script.sh` to install OS packages, set up a
+Python venv, and pull in any module-specific toolchain (e.g. Rust for
 `redisjson`).
 
 ```bash
-make setup                       # all modules
-make setup redisbloom redisjson  # subset
+make modules-update    # clone all modules from modules.yaml
+make bootstrap         # install per-module deps for every cloned module
 ```
 
-`setup` = `modules-update` + `bootstrap`. Use `make bootstrap` alone to
-re-run just the dependency install.
+Pass module names to either step to scope it: `make modules-update redisbloom redisjson` /
+`make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
+the dependency install.
 
 ### 2. Build — `make build`
 
@@ -115,7 +116,8 @@ positionally — Make reserves `:` for rule syntax. See
 
 ```bash
 # One-time:
-make setup
+make modules-update
+make bootstrap
 make build
 
 # Day to day:
