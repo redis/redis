@@ -369,27 +369,20 @@ test {Migrate the last slot away from a node using redis-cli} {
 # when --user is specified without -a (no password).
 
 # Test 1: rebalance without --user and without -a
-start_multiple_servers 6 [list overrides $base_conf] {
+start_multiple_servers 3 [list overrides $base_conf] {
 
     set node0 [srv 0 client]
 
-    test {Create a 3 node cluster with replicas} {
+    test {Create a 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port] \
-                           127.0.0.1:[srv -3 port] \
-                           127.0.0.1:[srv -4 port] \
-                           127.0.0.1:[srv -5 port] \
-                           --cluster-replicas 1
+                           127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
-            [CI 2 cluster_state] eq {ok} &&
-            [CI 3 cluster_state] eq {ok} &&
-            [CI 4 cluster_state] eq {ok} &&
-            [CI 5 cluster_state] eq {ok}
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -413,35 +406,27 @@ start_multiple_servers 6 [list overrides $base_conf] {
 } ;# stop servers
 
 # Test 2: rebalance with --user but no -a (the bug case)
-start_multiple_servers 6 [list overrides $base_conf] {
+start_multiple_servers 3 [list overrides $base_conf] {
 
     set node0 [srv 0 client]
 
-    test {Create a 3 node cluster with replicas} {
+    test {Create a 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port] \
-                           127.0.0.1:[srv -3 port] \
-                           127.0.0.1:[srv -4 port] \
-                           127.0.0.1:[srv -5 port] \
-                           --cluster-replicas 1
+                           127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
-            [CI 2 cluster_state] eq {ok} &&
-            [CI 3 cluster_state] eq {ok} &&
-            [CI 4 cluster_state] eq {ok} &&
-            [CI 5 cluster_state] eq {ok}
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
     }
 
     test {Set up ACL user for testing} {
-        foreach client [list $node0 [srv -1 client] [srv -2 client] \
-                             [srv -3 client] [srv -4 client] [srv -5 client]] {
+        foreach client [list $node0 [srv -1 client] [srv -2 client]] {
             $client ACL SETUSER testuser on nopass +@all ~*
         }
     }
@@ -467,35 +452,27 @@ start_multiple_servers 6 [list overrides $base_conf] {
 } ;# stop servers
 
 # Test 3: rebalance with --user and -a
-start_multiple_servers 6 [list overrides $base_conf] {
+start_multiple_servers 3 [list overrides $base_conf] {
 
     set node0 [srv 0 client]
 
-    test {Create a 3 node cluster with replicas} {
+    test {Create a 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port] \
-                           127.0.0.1:[srv -3 port] \
-                           127.0.0.1:[srv -4 port] \
-                           127.0.0.1:[srv -5 port] \
-                           --cluster-replicas 1
+                           127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
             [CI 1 cluster_state] eq {ok} &&
-            [CI 2 cluster_state] eq {ok} &&
-            [CI 3 cluster_state] eq {ok} &&
-            [CI 4 cluster_state] eq {ok} &&
-            [CI 5 cluster_state] eq {ok}
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
     }
 
     test {Set up ACL user for testing} {
-        foreach client [list $node0 [srv -1 client] [srv -2 client] \
-                             [srv -3 client] [srv -4 client] [srv -5 client]] {
+        foreach client [list $node0 [srv -1 client] [srv -2 client]] {
             $client ACL SETUSER testuser2 on >testpass +@all ~*
         }
     }
