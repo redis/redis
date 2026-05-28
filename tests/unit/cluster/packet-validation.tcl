@@ -64,11 +64,10 @@ test "PUBLISH with channel_len + message_len overflow is rejected" {
     fconfigure $fd -translation binary -buffering full
     puts -nonewline $fd $packet
     flush $fd
-    after 500
-    close $fd
 
     # The fix rejects the packet and logs a warning about the overflow.
     wait_for_log_messages 0 {"*publish*overflow in length fields*"} 0 20 500
+    close $fd
 
     # Verify the server is still responsive after the malformed packet.
     assert_equal [R 0 PING] {PONG}
@@ -100,11 +99,10 @@ test "MODULE with len overflow is rejected" {
     fconfigure $fd -translation binary -buffering full
     puts -nonewline $fd $packet
     flush $fd
-    after 500
-    close $fd
 
     # The fix rejects the packet and logs a warning about the overflow.
     wait_for_log_messages 0 {"*module*overflow in length field*"} 0 20 500
+    close $fd
 
     # Verify the server is still responsive after the malformed packet.
     assert_equal [R 0 PING] {PONG}
