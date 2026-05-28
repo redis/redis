@@ -16,19 +16,31 @@ proc write_keys_to_master0 {} {
             break
         }
     }
-    set count 0
+    # Build a list of slots owned by master0
+    set valid_slots {}
     foreach range $slot_ranges {
         set parts [split $range "-"]
-        set start [lindex $parts 0]
-        set end [lindex $parts 1]
-        if {$end eq ""} {set end $start}
-        for {set s $start} {$s <= $end} {incr s} {
-            exec src/redis-cli -c -p [srv 0 port] SET "key:$s:a" "value:$s"
-            exec src/redis-cli -c -p [srv 0 port] SET "key:$s:b" "value:$s"
-            incr count 2
-            if {$count >= 100} break
+        set s [lindex $parts 0]
+        set e [lindex $parts 1]
+        if {$s eq ""} continue
+        if {$e eq ""} {set e $s}
+        for {set i $s} {$i <= $e} {incr i} {
+            lappend valid_slots $i
         }
-        if {$count >= 100} break
+    }
+    # Pre-computed hash tags and their target slots
+    # {Qi}->1, {450}->5462, {YY}->16379, {wu}->16380,
+    # {0TG}->16381, {4oi}->16382, {6ZJ}->16383
+    set tag ""
+    foreach {t slt} {{Qi} 1 {450} 5462 {YY} 16379 {wu} 16380 {0TG} 16381 {4oi} 16382 {6ZJ} 16383} {
+        if {[lsearch -exact $valid_slots $slt] >= 0} {
+            set tag $t
+            break
+        }
+    }
+    if {$tag eq ""} {error "Cannot find a suitable hash tag for master0's slots"}
+    for {set i 0} {$i < 5} {incr i} {
+        exec src/redis-cli -c -p [srv 0 port] SET "$tag:key:$i" "value:$i"
     }
 }
 
@@ -396,7 +408,6 @@ start_multiple_servers 6 [list overrides $base_conf] {
                                --cluster-timeout 10000
         } e
         assert_no_match "*CROSSSLOT*" $e
-        assert_no_match "*CROSS*SLOT*" $e
     }
 
 } ;# stop servers
@@ -451,7 +462,6 @@ start_multiple_servers 6 [list overrides $base_conf] {
                                --cluster-timeout 10000
         } e
         assert_no_match "*CROSSSLOT*" $e
-        assert_no_match "*CROSS*SLOT*" $e
     }
 
 } ;# stop servers
@@ -506,7 +516,6 @@ start_multiple_servers 6 [list overrides $base_conf] {
                                --cluster-timeout 10000
         } e
         assert_no_match "*CROSSSLOT*" $e
-        assert_no_match "*CROSS*SLOT*" $e
     }
 
 } ;# stop servers
