@@ -4006,7 +4006,7 @@ long long getExpire(redisDb *db, sds key, kvobj *kv);
 kvobj *setExpire(client *c, redisDb *db, robj *key, long long when);
 kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntryLink link);
 int checkAlreadyExpired(long long when);
-int parseExtendedExpireArgumentsOrReply(client *c, int *flags);
+int parseExtendedExpireArgumentsOrReply(client *c, int *flags, robj **match_value);
 kvobj *lookupKeyRead(redisDb *db, robj *key);
 kvobj *lookupKeyWrite(redisDb *db, robj *key);
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link);
