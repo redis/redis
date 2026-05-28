@@ -102,10 +102,18 @@ for name in $(manifest_modules); do
 done
 
 echo
-echo "==> Stripping .git and .github from cloned modules"
+echo "==> Stripping .git, .github, build caches and IDE noise from cloned modules"
 find "$work/modules" -name '.git' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$work/modules" -type d -name '.github' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$work/modules" -name '.gitmodules' -delete 2>/dev/null || true
+# Local CMake/Rust build outputs from prior `make build` runs against the
+# cloned module trees. They're not source code; ship them and the tarball
+# balloons + reproducibility goes out the window.
+find "$work/modules" -type d \( -name build -o -name target -o -name bin \) \
+    -prune -exec rm -rf {} + 2>/dev/null || true
+# IDE-local config (Cursor, VSCode, JetBrains). Useless to a tarball consumer.
+find "$work/modules" -type d \( -name .cursor -o -name .vscode -o -name .idea \) \
+    -prune -exec rm -rf {} + 2>/dev/null || true
 echo "==> Marking modules pre-prepared (so consumer 'make' skips clone step)"
 for name in $(manifest_modules); do
   touch "$work/modules/$name/src/.prepared"
