@@ -32,7 +32,7 @@ proc write_keys_to_master0 {} {
     # {Qi}->1, {450}->5462, {YY}->16379, {wu}->16380,
     # {0TG}->16381, {4oi}->16382, {6ZJ}->16383
     set tag ""
-    foreach {t slt} {{Qi} 1 {450} 5462 {YY} 16379 {wu} 16380 {0TG} 16381 {4oi} 16382 {6ZJ} 16383} {
+    foreach {t slt} {"{Qi}" 1 "{450}" 5462 "{YY}" 16379 "{wu}" 16380 "{0TG}" 16381 "{4oi}" 16382 "{6ZJ}" 16383} {
         if {[lsearch -exact $valid_slots $slt] >= 0} {
             set tag $t
             break
