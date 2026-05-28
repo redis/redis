@@ -19,9 +19,15 @@
 # REDIS_GEN_CONF, MODULES, ASSUME_BUILT, MODULES_MANIFEST_FILE are all
 # forwarded unchanged.
 #
-# Refuses to run if $REDIS_CONF already contains a generated module section
-# (running again would nest another section inside it). Restore $REDIS_CONF
-# from git first and re-run.
+# Safe to re-run. `sync-redis-conf` extracts only the content between the
+# `# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<` and
+# matching END markers in $REDIS_CONF, ignoring everything else — so a
+# previously promoted Modules section in $REDIS_CONF is simply ignored on
+# the next pass and replaced with a freshly regenerated one.
+#
+# To strip the appended Modules section back out of $REDIS_CONF, run
+# `make demote-redis-conf` (or `git checkout -- $REDIS_CONF` to revert any
+# in-flight core edits too).
 
 set -euo pipefail
 
@@ -37,18 +43,6 @@ if [ ! -f "$REDIS_CONF" ]; then
   exit 1
 fi
 
-# sync-redis-conf wraps its module output in this marker. If REDIS_CONF
-# already carries it, a previous promote has already run; another pass would
-# nest sections (since sync only strips the legacy auto-managed block, not
-# the new section markers it writes itself).
-if grep -q '^# >>> BEGIN section: Modules' "$REDIS_CONF"; then
-  echo "ERROR: $REDIS_CONF already contains a generated Modules section." >&2
-  echo "       Running promote-redis-conf again would duplicate it." >&2
-  echo "       Restore $REDIS_CONF from git (e.g. 'git checkout -- $REDIS_CONF')" >&2
-  echo "       and re-run." >&2
-  exit 1
-fi
-
 echo "==> Regenerating $REDIS_GEN_CONF from $REDIS_CONF"
 "$SCRIPT_DIR/sync-redis-conf.sh"
 
@@ -60,4 +54,6 @@ fi
 echo "==> Promoting $REDIS_GEN_CONF -> $REDIS_CONF (overwriting)"
 mv -f "$REDIS_GEN_CONF" "$REDIS_CONF"
 echo "==> $REDIS_CONF now contains the generated module config"
-echo "    ($REDIS_GEN_CONF removed; 'git diff $REDIS_CONF' to inspect; 'git checkout -- $REDIS_CONF' to revert)"
+echo "    ($REDIS_GEN_CONF removed; 'git diff $REDIS_CONF' to inspect)"
+echo "    ('make demote-redis-conf' strips the Modules section back out;"
+echo "     'git checkout -- $REDIS_CONF' reverts the file entirely)"

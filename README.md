@@ -210,6 +210,18 @@ Fully-managed Redis with real-time performance at scale.
 
 This section refers to building Redis from source. If you want to get up and running with Redis quickly without needing to build from source see the [Getting started section](#getting-started).
 
+> **Configuration files**: the OS-specific sections below tell you to run
+> `./src/redis-server redis-gen.conf`. `redis-gen.conf` is the auto-generated
+> launch config produced by `make all` — it's `redis.conf` plus the
+> `loadmodule` lines and per-module settings for the bundled modules. Edit
+> Redis-core settings in [`redis.conf`](redis.conf) (only inside the
+> `# >>> BEGIN: Redis-core config <<<` … `# <<< END: Redis-core config >>>`
+> markers); the next `make all` (or `make sync-redis-conf`) regenerates
+> `redis-gen.conf`. If you'd rather launch with `./src/redis-server redis.conf`,
+> run `make promote-redis-conf` once after the build — it merges the Modules
+> section into `redis.conf` (idempotent; revert with `make demote-redis-conf`).
+> See [modules/MODULES.md](modules/MODULES.md) for the full config flow.
+
 ### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
 
 Tested with the following Docker image:
@@ -281,7 +293,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)
@@ -347,7 +359,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - Ubuntu 24.04 (Noble)
@@ -420,7 +432,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - Debian 11 (Bullseye) / 12 (Bookworm)
@@ -477,7 +489,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10
@@ -596,7 +608,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - AlmaLinux 9.5 / Rocky Linux 9.5
@@ -713,7 +725,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - macOS 13 (Ventura) and macOS 14 (Sonoma)
@@ -791,7 +803,7 @@ Tested with the following Docker images:
    ```sh
    export LC_ALL=en_US.UTF-8
    export LANG=en_US.UTF-8
-   build_dir/bin/redis-server redis.conf
+   build_dir/bin/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - macOS 15 (Sequoia)

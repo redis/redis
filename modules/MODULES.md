@@ -23,10 +23,11 @@ Everywhere below, `make` means "GNU make"; substitute `gmake` on macOS.
 | `modules/Makefile` | Per-module dispatcher. Iterates `$(AVAILABLE_MODULES)`; for each, runs `make -C <name> -f common.mk`. Also owns optional Rust-toolchain install and `-Werror` stripping. |
 | `modules/<name>/src/` | Checkout location — created by `make modules-update`. Bundled modules carry no per-module Makefile; `common.mk` plus the manifest is enough. |
 | `scripts/lib/manifest.sh` | **Single source of truth for YAML parsing.** Dual-mode: sourced as a shell library by every other script (`manifest_modules`, `manifest_field`, `manifest_ref`, `resolve_modules`, …) and invoked as a CLI by `manifest.mk`. |
-| `scripts/build.sh` etc. | One script per top-level target (`build`, `bootstrap`, `setup`, `run`, `test`, `modules-update`, `modules-shallow`, `sync-redis-conf`, `promote-redis-conf`, `tarball`). The top-level `Makefile` exposes each as a 1–3-line target that shells out here. |
+| `scripts/build.sh` etc. | One script per top-level target (`build`, `bootstrap`, `setup`, `run`, `test`, `modules-update`, `modules-shallow`, `sync-redis-conf`, `promote-redis-conf`, `demote-redis-conf`, `tarball`). The top-level `Makefile` exposes each as a 1–3-line target that shells out here. |
 | `scripts/sync-redis-conf.sh` | Generates `redis-gen.conf` from `redis.conf` + per-module `module.conf` files. See §6. |
-| `scripts/promote-redis-conf.sh` | Runs `sync-redis-conf` and then **overwrites `redis.conf`** with the generated content. See §6.1. |
-| `redis.conf` | Tracked, hand-edited Redis-core config. **Do not** add modules here; they're injected into `redis-gen.conf` instead. |
+| `scripts/promote-redis-conf.sh` | Runs `sync-redis-conf` and then **overwrites `redis.conf`** with the generated content. Idempotent. See §6.1. |
+| `scripts/demote-redis-conf.sh` | Inverse of promote — strips the auto-generated Modules section from `redis.conf`, preserving the core section. See §6.2. |
+| `redis.conf` | Tracked, hand-edited Redis-core config. Edit **only** the content between the `# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<` and matching END markers — `sync-redis-conf` extracts only that block. Module load lines go in the auto-generated Modules section (appended by `promote-redis-conf`), not here. |
 | `redis-gen.conf` | Untracked, regenerated on every `make build` / `make modules-update`. This is the file you actually load. |
 | `src/redis-server` | Redis binary — produced by `make build`. |
 
@@ -315,10 +316,14 @@ make sync-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|true|yes]
 
 Rewrites the untracked `redis-gen.conf` file at the repo root from:
 
-1. **`redis.conf`** — copied verbatim, with the legacy
-   `# >>> BEGIN auto-managed modules section <<<` … `# <<< END … <<<`
-   block stripped out (so module config never duplicates between the
-   two files).
+1. **`redis.conf`** — only the content between the markers
+   `# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<` and
+   `# <<< END: Redis-core config (DO NOT REMOVE THIS MARKER) >>>` is
+   extracted. Everything outside those markers (headers, banners, an
+   already-appended Modules section from a previous promote) is
+   ignored. If either marker is missing, duplicated, or out of order,
+   `sync-redis-conf` errors out loudly — restore `redis.conf` (e.g.
+   `git checkout -- redis.conf`) and re-run.
 2. **`modules.yaml`** — for each selected module:
    - If the `.so` artifact (manifest's `loadmodule` field) is on disk
      (or `ASSUME_BUILT=1`), emit an active `loadmodule <so>` line and
@@ -367,15 +372,18 @@ the tracked `redis.conf` with the generated content. After this,
 `./src/redis-server redis.conf` auto-loads the bundled modules without
 needing to point at `redis-gen.conf`.
 
-**Destructive on `redis.conf`.** It's a tracked file; recover with
-`git checkout -- redis.conf` if you didn't mean to run it.
+**Destructive on `redis.conf`.** It's a tracked file. Two recovery paths:
 
-**Refuses to run twice** in a row. `sync-redis-conf` strips only the
-legacy `# >>> BEGIN auto-managed modules section <<<` block, not its own
-`# >>> BEGIN section: Modules <<<` markers — so a second promote would
-nest one Modules section inside another. If the script sees those markers
-already in `redis.conf` it errors out and asks you to `git checkout --
-redis.conf` first.
+- `make demote-redis-conf` (see §6.2) strips just the appended Modules
+  section back out, preserving any Redis-core edits.
+- `git checkout -- redis.conf` reverts everything to the tracked state.
+
+**Idempotent.** Safe to re-run. `sync-redis-conf` only reads the content
+between the `# >>> BEGIN: Redis-core config <<<` and matching END markers
+in `redis.conf` — anything outside them (an already-appended Modules
+section from a previous promote) is ignored. Re-promoting simply
+regenerates the Modules section fresh against the current `modules.yaml`
+state.
 
 Typical use: after extracting a release tarball (see §9) and running
 `make build`, when you want a one-file launch path.
@@ -393,6 +401,49 @@ Examples:
 make promote-redis-conf                       # all manifest modules, .so must exist
 make promote-redis-conf redisbloom redisjson  # subset
 make promote-redis-conf ASSUME_BUILT=1        # tarball-style: pre-bake module lines
+```
+
+## 6.2 Demoting `redis.conf`: `make demote-redis-conf` → strips Modules section
+
+```bash
+make demote-redis-conf
+```
+
+Inverse of `promote-redis-conf`. Strips the auto-generated Modules
+section from `redis.conf`, leaving just the Redis-core section (with
+its `# >>> BEGIN: Redis-core config <<<` … `# <<< END: Redis-core
+config >>>` markers and banner intact).
+
+How it works:
+
+1. Extracts the content between the Redis-core BEGIN/END markers in
+   `redis.conf` (same logic as `sync-redis-conf`).
+2. Rewrites `redis.conf` as: banner + BEGIN marker + extracted core
+   content + END marker. Anything outside the markers (an auto-generated
+   sync header, an appended Modules section, stray content) is
+   discarded.
+
+**Idempotent.** Running on an already core-only `redis.conf` is a
+no-op modulo banner regeneration. Running on a malformed `redis.conf`
+(missing markers, duplicated markers) errors out without touching the
+file.
+
+When to use it vs. `git checkout`:
+
+- `make demote-redis-conf` — keep any in-flight Redis-core edits;
+  remove just the Modules section.
+- `git checkout -- redis.conf` — revert everything to the last
+  committed state.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `REDIS_CONF` | `redis.conf` | Target file (rewritten in place, atomic via tmpfile + `mv`). |
+
+Examples:
+
+```bash
+make demote-redis-conf                        # strip Modules section from redis.conf
+REDIS_CONF=/path/to/other.conf make demote-redis-conf   # operate on another file
 ```
 
 ### Per-module private blocks
@@ -605,7 +656,9 @@ make modules-shallow <name> [<name> ...]     # re-clone module(s) shallow (--dep
 make sync-redis-conf [<name> ...] \          # rewrite redis-gen.conf from redis.conf + module.confs
     [MODULES="<names>"] [ASSUME_BUILT=1]
 make promote-redis-conf [<name> ...] \       # sync-redis-conf, then overwrite redis.conf
-    [MODULES="<names>"] [ASSUME_BUILT=1]     #   (destructive on redis.conf; refuses to run twice)
+    [MODULES="<names>"] [ASSUME_BUILT=1]     #   (destructive on redis.conf; idempotent, safe to re-run)
+make demote-redis-conf                       # strip Modules section from redis.conf
+                                             #   (inverse of promote; preserves core edits)
 
 make [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
 make all|build [<name> ...|all|.|'*'|redis|none] [VAR=value ...]

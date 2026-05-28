@@ -77,8 +77,17 @@ fi
 
 # Marker strings used both as input filters and output framing. Single
 # source of truth so a future rename only happens here.
-AUTO_MGMT_BEGIN="# >>> BEGIN auto-managed modules section <<<"
-AUTO_MGMT_END="# <<< END auto-managed modules section <<<"
+#
+# CORE_BEGIN / CORE_END wrap the user-editable Redis-core configuration in
+# $REDIS_CONF. `sync-redis-conf` extracts ONLY the content between these
+# markers — anything outside them in $REDIS_CONF is ignored. This makes
+# `promote-redis-conf` idempotent: a promoted redis.conf still has these
+# markers around its core section (plus an appended Modules section), so a
+# subsequent sync re-extracts just the core and regenerates Modules fresh.
+CORE_BEGIN="# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<"
+CORE_END="# <<< END: Redis-core config (DO NOT REMOVE THIS MARKER) >>>"
+MODULES_BEGIN="# >>> BEGIN section: Modules (regenerated on every sync) <<<"
+MODULES_END="# <<< END section: Modules <<<"
 PRIVATE_BEGIN="# >>> BEGIN redis-gen-conf:private <<<"
 PRIVATE_END="# <<< END redis-gen-conf:private <<<"
 
@@ -149,17 +158,63 @@ for name in $requested; do
   fi
 done
 
-# Filters reused below. Both implement "skip lines between BEGIN/END
-# markers, including the markers themselves". Nesting is NOT supported: a
-# nested BEGIN would simply re-arm `skip`, an inner END would re-clear it.
-# Files without markers are passed through verbatim, so the filters are
-# fully opt-in per module.
+# Filters reused below.
+#
+# strip_block: "skip lines between BEGIN/END markers, including the markers
+# themselves". Nesting is NOT supported: a nested BEGIN would simply re-arm
+# `skip`, an inner END would re-clear it. Files without markers are passed
+# through verbatim, so the filter is fully opt-in per module. Used to strip
+# per-module redis-gen-conf:private blocks from module.conf.
 strip_block() {
   # strip_block <begin-marker> <end-marker> <file>
   awk -v begin="$1" -v end="$2" '
     $0 == begin { skip = 1; next }
     $0 == end   { skip = 0; next }
     !skip       { print }
+  ' "$3"
+}
+
+# extract_section: emit ONLY the lines between BEGIN and END markers
+# (exclusive). Validates that exactly one BEGIN and one END appear in the
+# right order; errors loudly otherwise. Used to pull the Redis-core section
+# out of $REDIS_CONF — anything outside the markers (e.g. an appended
+# Modules section after a previous promote) is ignored.
+extract_section() {
+  # extract_section <begin-marker> <end-marker> <file>
+  awk -v begin="$1" -v end="$2" -v file="$3" '
+    $0 == begin {
+      if (in_section) {
+        printf "ERROR: %s: nested or duplicate BEGIN marker at line %d\n", file, NR > "/dev/stderr"
+        exit 2
+      }
+      begin_count++; in_section = 1; next
+    }
+    $0 == end {
+      if (!in_section) {
+        printf "ERROR: %s: END marker without matching BEGIN at line %d\n", file, NR > "/dev/stderr"
+        exit 2
+      }
+      end_count++; in_section = 0; next
+    }
+    in_section { print }
+    END {
+      if (begin_count == 0) {
+        printf "ERROR: %s: missing BEGIN marker (%s)\n", file, begin > "/dev/stderr"
+        exit 2
+      }
+      if (end_count == 0) {
+        printf "ERROR: %s: missing END marker (%s)\n", file, end > "/dev/stderr"
+        exit 2
+      }
+      if (begin_count > 1) {
+        printf "ERROR: %s: duplicate BEGIN marker (%d occurrences)\n", file, begin_count > "/dev/stderr"
+        exit 2
+      }
+      if (end_count > 1) {
+        printf "ERROR: %s: duplicate END marker (%d occurrences)\n", file, end_count > "/dev/stderr"
+        exit 2
+      }
+    }
   ' "$3"
 }
 
@@ -195,9 +250,13 @@ trap 'rm -f "$LOOKUP_FILE" "$tmp_out"' EXIT
 # Untracked, regenerated whenever \`make modules-update\` or \`make build\`
 # runs (both call \`sync-redis-conf\` at the end). Two sections:
 #
-#   1. Redis-core config — verbatim copy of $REDIS_CONF (auto-managed modules
-#      block elided). Edit $REDIS_CONF to change Redis-core defaults; the next
-#      sync picks them up.
+#   1. Redis-core config — the content extracted from $REDIS_CONF between
+#      the marker lines:
+#        $CORE_BEGIN
+#        $CORE_END
+#      Anything outside those markers in $REDIS_CONF is ignored. Edit
+#      $REDIS_CONF (inside the markers) to change Redis-core defaults; the
+#      next sync picks them up.
 #   2. Modules — only the modules requested by the caller (via the MODULES
 #      variable; defaults to all manifest modules when invoked standalone).
 #      Each requested module appears as an active \`loadmodule\` + inlined
@@ -213,14 +272,28 @@ trap 'rm -f "$LOOKUP_FILE" "$tmp_out"' EXIT
 # Bad manifest: $bad_display
 # =============================================================================
 
-# >>> BEGIN section: Redis-core config (sourced from $REDIS_CONF) <<<
+# ============================================================================
+# Redis-core configuration
+# ----------------------------------------------------------------------------
+# The block below, between the BEGIN/END markers, is the user-editable
+# Redis-core configuration.
+#
+# \`make sync-redis-conf\` extracts ONLY the content between BEGIN/END to build
+# redis-gen.conf. Anything outside the markers (including this banner) is
+# ignored on every regeneration, so the banner is safe to keep here.
+#
+# Module load lines are NOT placed inside the markers — they belong in the
+# auto-generated Modules section below. To strip that section back out, run
+# \`make demote-redis-conf\`.
+# ============================================================================
 
+$CORE_BEGIN
 EOF
-  strip_block "$AUTO_MGMT_BEGIN" "$AUTO_MGMT_END" "$REDIS_CONF"
+  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF"
   cat <<EOF
-# <<< END section: Redis-core config <<<
+$CORE_END
 
-# >>> BEGIN section: Modules (regenerated on every sync) <<<
+$MODULES_BEGIN
 
 EOF
 
@@ -265,7 +338,7 @@ EOF
     printf "# <<< END module: %s <<<\n\n" "$name"
   done
 
-  echo "# <<< END section: Modules <<<"
+  echo "$MODULES_END"
 } > "$tmp_out"
 
 mv "$tmp_out" "$REDIS_GEN_CONF"

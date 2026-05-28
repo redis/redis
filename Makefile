@@ -143,9 +143,13 @@ sync-redis-conf:
 
 # promote-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
 #   Run sync-redis-conf, then OVERWRITE redis.conf with the generated content.
-#   Destructive on the tracked redis.conf — use `git checkout -- redis.conf`
-#   to revert. Typical use: after extracting a release tarball + `make build`,
-#   so `./src/redis-server redis.conf` auto-loads bundled modules.
+#   Destructive on the tracked redis.conf — use `make demote-redis-conf` to
+#   strip just the appended Modules section back out, or
+#   `git checkout -- redis.conf` to revert everything. Idempotent: re-running
+#   is safe because sync extracts only the Redis-core section between the
+#   BEGIN/END markers in redis.conf. Typical use: after extracting a release
+#   tarball + `make build`, so `./src/redis-server redis.conf` auto-loads
+#   bundled modules.
 promote-redis-conf:
 	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
 	    MODULES='$(strip $(MODULES))' ASSUME_BUILT='$(strip $(ASSUME_BUILT))' \
@@ -153,4 +157,14 @@ promote-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/promote-redis-conf.sh
 
-.PHONY: all install build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf tarball
+# demote-redis-conf
+#   Inverse of promote-redis-conf: strips the auto-generated Modules section
+#   from redis.conf, leaving just the Redis-core section (with its BEGIN/END
+#   markers and banner intact). Idempotent — re-running on an already
+#   core-only redis.conf is a no-op modulo banner regeneration. Use after
+#   promote when you want to rebuild against a clean redis.conf without
+#   going through git checkout.
+demote-redis-conf:
+	@REDIS_CONF='$(REDIS_CONF)' scripts/demote-redis-conf.sh
+
+.PHONY: all install build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf demote-redis-conf tarball
