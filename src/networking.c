@@ -2533,7 +2533,7 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
         } else {
             /* BULK_STR_REF - release object references */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
-            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt set for writen_len */
+            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt is set for writen_len */
 
             size_t writen_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
             if (*remaining < (ssize_t)(writen_len - *sentlen)) {
