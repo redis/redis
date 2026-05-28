@@ -61,7 +61,7 @@ modules:
     loadmodule: ./modules/redisearch/redisearch.so
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
-    ref: make_set_tup_with_redis_dockers
+    ref: master
     target_module: rejson.so
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
