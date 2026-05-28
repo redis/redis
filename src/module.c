@@ -307,8 +307,8 @@ typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const
 typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
 
 /* Function pointer type for post jobs */
-typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
-typedef void (*RedisModulePostNotificationJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
+typedef void (*RedisModulePostNotifyJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
 
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
@@ -331,7 +331,7 @@ typedef struct RedisModuleKeyspaceSubscriber {
 typedef struct RedisModulePostExecUnitJob {
     /* The module subscribed to the event */
     RedisModule *module;
-    RedisModulePostNotificationJobFunc callback;
+    RedisModulePostNotifyJobFunc callback;
     void *pd;
     void (*free_pd)(void*);
     int dbid;
@@ -341,7 +341,7 @@ typedef struct RedisModulePostExecUnitJob {
  * sub-command boundary is observed; jobs fire in submission order. */
 typedef struct RedisModulePostKeyedNotificationJob {
     RedisModule *module;
-    RedisModulePostNotificationJobPerKeyFunc callback;
+    RedisModulePostNotifyJobPerKeyFunc callback;
     RedisModuleString *key; /* Owned reference; freed after the callback runs. */
     void *pd;
     void (*free_pd)(void*);
@@ -9523,7 +9523,7 @@ void firePostKeyedNotificationJobs(void) {
  *
  * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) or
  * if the instance is a readonly replica. */
-int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
     if (server.loading|| (server.masterhost && server.repl_slave_ro)) {
         return REDISMODULE_ERR;
     }
@@ -9590,7 +9590,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
  * keyspace-notification handler. The API is permitted on read-only replicas
  * and during AOF replay, so per-key state stays continuously in sync with
  * the keyspace events the instance observes. */
-int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotificationJobPerKeyFunc callback, RedisModuleString *key, void *privdata, void (*free_privdata)(void*)) {
+int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *privdata, void (*free_privdata)(void*)) {
 
     /* The API is only meaningful from inside a keyspace-notification handler:
      * that is the single-key context the per-key contract is scoped to. */
