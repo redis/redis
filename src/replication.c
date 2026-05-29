@@ -3516,6 +3516,10 @@ int cancelReplicationHandshake(int reconnect) {
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
+    /* Mark replicaof runtime-modified once here so every caller (REPLICAOF,
+     * FAILOVER, cluster promotion) is covered. */
+    markConfigRuntimeModified("replicaof");
+
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     if (server.master) {
@@ -3568,6 +3572,11 @@ void replicationSetMaster(char *ip, int port) {
 /* Cancel replication, setting the instance as a master itself. */
 void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
+
+    /* Mark replicaof runtime-modified for every caller (REPLICAOF NO ONE,
+     * abortFailover, PSYNC error path, cluster demotion). Sticky and
+     * idempotent. */
+    markConfigRuntimeModified("replicaof");
 
     /* Fire the master link modules event. */
     if (server.repl_state == REPL_STATE_CONNECTED)
@@ -4366,7 +4375,6 @@ void replicaofCommand(client *c) {
         !strcasecmp(c->argv[2]->ptr,"one")) {
         if (server.masterhost) {
             replicationUnsetMaster();
-            markConfigRuntimeModified("replicaof");
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,"MASTER MODE enabled (user request from '%s')",
                 client);
@@ -4401,7 +4409,6 @@ void replicaofCommand(client *c) {
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
-        markConfigRuntimeModified("replicaof");
         sds client = catClientInfoString(sdsempty(),c);
         serverLog(LL_NOTICE,"REPLICAOF %s:%d enabled (user request from '%s')",
             server.masterhost, server.masterport, client);

@@ -254,3 +254,49 @@ test {runtime-modified + sentinel - general server configs not added by rewrite}
 
 catch {$::crm_sentinel_client shutdown nosave}
 $::crm_sentinel_client close
+
+# FAILOVER mutates server.masterhost without going through replicaofCommand,
+# so it must mark the replicaof config directly. Without that mark, the
+# new replica's REWRITE in runtime-modified mode silently drops the
+# replicaof line and a restart would silently come back as a primary.
+start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewrite-mode runtime-modified save {}}} {
+    start_server {overrides {save {}}} {
+        set primary [srv -1 client]
+        set primary_host [srv -1 host]
+        set primary_port [srv -1 port]
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+
+        test {runtime-modified - FAILOVER persists new replicaof on the old primary} {
+            # Sanity: the primary is the one under config-rewrite-mode runtime-modified.
+            assert_equal {any-modified} [lindex [$replica config get config-rewrite-mode] 1]
+            assert_equal {runtime-modified} [lindex [$primary config get config-rewrite-mode] 1]
+
+            $replica replicaof $primary_host $primary_port
+            wait_for_sync $replica
+            wait_for_condition 50 100 {
+                [string match "*slave0:*,state=online*" [$primary info replication]]
+            } else {
+                fail "replica did not come online before failover"
+            }
+
+            assert_equal "OK" [$primary failover to $replica_host $replica_port]
+            wait_for_condition 50 100 {
+                [s -1 master_failover_state] == "no-failover"
+            } else {
+                fail "FAILOVER did not complete"
+            }
+            assert_match *slave* [$primary role]
+
+            # The old primary is now a replica of the old replica. REWRITE
+            # in runtime-modified mode must emit replicaof pointing at the
+            # new master, otherwise restart would silently revert.
+            $primary config rewrite
+            set fd [open [srv -1 config_file] r]
+            set content [read $fd]
+            close $fd
+            assert_match "*replicaof $replica_host $replica_port*" $content
+        }
+    }
+}
