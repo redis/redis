@@ -237,6 +237,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
             ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $rd close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -259,6 +260,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
             ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $rd close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -283,6 +285,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
             ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $r1 close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -398,6 +401,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         ]
 
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $rd close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -424,6 +428,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         ]
 
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $rd close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -445,6 +450,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         ]
 
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $r close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -467,6 +473,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
 
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
         assert_empty_slot_stats $slot_stats $metrics_to_assert
+        $rd close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -511,6 +518,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
             ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $replica_subcriber close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -572,6 +580,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
             ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $rd close
     }
     R 0 CONFIG RESETSTAT
     R 0 FLUSHALL
@@ -620,7 +629,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         set slot [R 0 cluster keyslot $channel]
         set publisher [Rn 0]
         set subscriber [redis_client]
-        set replica [redis_deferring_client -1]
 
         # Subscriber client) *3\r\n$10\r\nssubscribe\r\n$7\r\nchannel\r\n:1\r\n --> 38 bytes
         $subscriber SSUBSCRIBE $channel
@@ -643,6 +651,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
         $subscriber QUIT
+        $subscriber close
     }
     R 0 FLUSHALL
     R 0 CONFIG RESETSTAT
@@ -651,7 +660,6 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         set slot [R 0 cluster keyslot $channel]
         set publisher [Rn 0]
         set subscriber [redis_client]
-        set replica [redis_deferring_client -1]
 
         # Stack multi-slot subscriptions against a single client.
         # For primary channel;
@@ -691,6 +699,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
                 ]
         ]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+        $subscriber close
     }
 }
 
