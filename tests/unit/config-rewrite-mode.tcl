@@ -98,6 +98,19 @@ start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewri
 }
 
 start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewrite-mode runtime-modified}} {
+    test {runtime-modified - CONFIG SET via alias name marks the primary config} {
+        # slave-priority is an alias for replica-priority (default 100).
+        # Setting via the alias must still cause the primary to be emitted.
+        r config set slave-priority 50
+        r config rewrite
+        set content [crm_read_config_file]
+        # The primary name should land in the file (the alias entry is
+        # skipped by ALIAS_CONFIG in the rewrite loop).
+        assert_match "*replica-priority 50*" $content
+    }
+}
+
+start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewrite-mode runtime-modified}} {
     test {runtime-modified - REPLICAOF emits the replicaof line} {
         # No real master at this address — REPLICAOF just sets the config.
         r replicaof 127.0.0.1 1

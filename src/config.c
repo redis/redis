@@ -302,12 +302,27 @@ static standardConfig *lookupConfig(const sds name) {
     return de ? dictGetVal(de) : NULL;
 }
 
+/* If config is an alias entry, return the corresponding primary; otherwise
+ * return config itself. The primary and alias are two separate standardConfig
+ * structs with independent flags (see registerConfigValue), so the
+ * RUNTIME_MODIFIED_CONFIG bit must always be set on the primary — the rewrite
+ * loop skips entries with ALIAS_CONFIG set. */
+static standardConfig *resolvePrimaryConfig(standardConfig *config) {
+    if (config && (config->flags & ALIAS_CONFIG)) {
+        sds key = sdsnew(config->alias);
+        standardConfig *primary = lookupConfig(key);
+        sdsfree(key);
+        if (primary) return primary;
+    }
+    return config;
+}
+
 /* Mark a config as runtime-modified by name. Used by callers outside config.c
  * that change config-backed state via dedicated commands (e.g. REPLICAOF) and
  * bypass the standard CONFIG SET path. No-op if the config name is unknown. */
 void markConfigRuntimeModified(const char *name) {
     sds key = sdsnew(name);
-    standardConfig *config = lookupConfig(key);
+    standardConfig *config = resolvePrimaryConfig(lookupConfig(key));
     sdsfree(key);
     if (config) config->flags |= RUNTIME_MODIFIED_CONFIG;
 }
@@ -953,9 +968,14 @@ void configSetCommand(client *c) {
 
     /* All sets succeeded and were applied: mark the configs that actually
      * changed as runtime-modified, so CONFIG REWRITE in runtime-modified
-     * mode will emit them. Sticky: never cleared once set. */
+     * mode will emit them. Sticky: never cleared once set. When the user
+     * passed an alias name, mark the primary entry — the alias entry is
+     * skipped by ALIAS_CONFIG in the rewrite loop. */
     for (i = 0; i < config_count; i++) {
-        if (config_changed[i]) set_configs[i]->flags |= RUNTIME_MODIFIED_CONFIG;
+        if (config_changed[i]) {
+            standardConfig *primary = resolvePrimaryConfig(set_configs[i]);
+            primary->flags |= RUNTIME_MODIFIED_CONFIG;
+        }
     }
 
     RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
