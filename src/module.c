@@ -14728,9 +14728,10 @@ NULL
             argv = &c->argv[3];
         }
 
-        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc, 0) == C_OK)
+        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc, 0) == C_OK) {
+            server.modules_modified = 1;
             addReply(c,shared.ok);
-        else
+        } else
             addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
     } else if (!strcasecmp(subcmd,"loadex") && c->argc >= 3) {
@@ -14744,9 +14745,10 @@ NULL
         /* If this is a loadex command we want to populate server.module_configs_queue with 
          * sds NAME VALUE pairs. We also want to increment argv to just after ARGS, if supplied. */
         if (parseLoadexArguments((RedisModuleString ***) &argv, &argc) == REDISMODULE_OK &&
-            moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
+            moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK) {
+            server.modules_modified = 1;
             addReply(c,shared.ok);
-        else {
+        } else {
             dictEmpty(server.module_configs_queue, NULL);
             addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
@@ -14754,9 +14756,10 @@ NULL
 
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
         const char *errmsg = NULL;
-        if (moduleUnload(c->argv[2]->ptr, &errmsg, 0) == C_OK)
+        if (moduleUnload(c->argv[2]->ptr, &errmsg, 0) == C_OK) {
+            server.modules_modified = 1;
             addReply(c,shared.ok);
-        else {
+        } else {
             if (errmsg == NULL) errmsg = "operation not possible.";
             addReplyErrorFormat(c, "Error unloading module: %s", errmsg);
             serverLog(LL_WARNING, "Error unloading module %s: %s", (sds) c->argv[2]->ptr, errmsg);

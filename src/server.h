@@ -664,6 +664,10 @@ typedef enum {
 #define SANITIZE_DUMP_YES 1
 #define SANITIZE_DUMP_CLIENTS 2
 
+/* CONFIG REWRITE filtering mode (see config-rewrite-mode option). */
+#define CONFIG_REWRITE_MODE_ANY_MODIFIED 0     /* Emit configs whose value differs from the built-in default. */
+#define CONFIG_REWRITE_MODE_RUNTIME_MODIFIED 1 /* Emit only configs touched at runtime since startup. */
+
 /* Enable protected config/command */
 #define PROTECTED_ACTION_ALLOWED_NO 0
 #define PROTECTED_ACTION_ALLOWED_YES 1
@@ -2085,6 +2089,9 @@ struct redisServer {
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
     int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
     int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
+    int config_rewrite_mode;         /* CONFIG REWRITE filtering mode, see CONFIG_REWRITE_MODE_* */
+    int acl_modified;                /* Sticky: any ACL SETUSER/DELUSER/LOAD has happened at runtime. */
+    int modules_modified;            /* Sticky: any MODULE LOAD/UNLOAD has happened at runtime. */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -3921,6 +3928,16 @@ int isSubkeyNotifyEnabled(int type);
                                    * a file name containing more configuration like a tls key). In this case we want
                                    * to apply the configuration change even if the new config value is the same as
                                    * the old. */
+#define RUNTIME_MODIFIED_CONFIG (1ULL<<10) /* This config has been modified at runtime via CONFIG SET (or an equivalent
+                                            * out-of-band path such as the REPLICAOF command). Sticky for the lifetime
+                                            * of the process; never cleared once set. Stickiness is required because
+                                            * a line written by a prior REWRITE must be overwritten by subsequent ones:
+                                            * if the user does REPLICAOF <host> <port> -> REWRITE (replicaof line lands
+                                            * in file) -> REPLICAOF NO ONE (back to default) -> REWRITE, the second
+                                            * REWRITE must still emit replicaof so the stale non-default line gets
+                                            * replaced. Without stickiness the file would keep the old master and a
+                                            * restart would silently reattach to it. Read by CONFIG REWRITE when
+                                            * config-rewrite-mode is set to runtime-modified. */
 
 #define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
 #define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
@@ -3951,6 +3968,7 @@ int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *optio
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void initConfigValues(void);
+void markConfigRuntimeModified(const char *name);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);

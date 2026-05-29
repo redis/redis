@@ -154,6 +154,12 @@ configEnum protected_action_enum[] = {
     {NULL, 0}
 };
 
+configEnum config_rewrite_mode_enum[] = {
+    {"any-modified", CONFIG_REWRITE_MODE_ANY_MODIFIED},
+    {"runtime-modified", CONFIG_REWRITE_MODE_RUNTIME_MODIFIED},
+    {NULL, 0}
+};
+
 configEnum cluster_preferred_endpoint_type_enum[] = {
     {"ip", CLUSTER_ENDPOINT_TYPE_IP},
     {"hostname", CLUSTER_ENDPOINT_TYPE_HOSTNAME},
@@ -294,6 +300,16 @@ dict *configs = NULL; /* Runtime config values */
 static standardConfig *lookupConfig(const sds name) {
     dictEntry *de = dictFind(configs, name);
     return de ? dictGetVal(de) : NULL;
+}
+
+/* Mark a config as runtime-modified by name. Used by callers outside config.c
+ * that change config-backed state via dedicated commands (e.g. REPLICAOF) and
+ * bypass the standard CONFIG SET path. No-op if the config name is unknown. */
+void markConfigRuntimeModified(const char *name) {
+    sds key = sdsnew(name);
+    standardConfig *config = lookupConfig(key);
+    sdsfree(key);
+    if (config) config->flags |= RUNTIME_MODIFIED_CONFIG;
 }
 
 /*-----------------------------------------------------------------------------
@@ -933,6 +949,13 @@ void configSetCommand(client *c) {
             err_arg_name = set_configs[i]->name;
             goto err;
         }
+    }
+
+    /* All sets succeeded and were applied: mark the configs that actually
+     * changed as runtime-modified, so CONFIG REWRITE in runtime-modified
+     * mode will emit them. Sticky: never cleared once set. */
+    for (i = 0; i < config_count; i++) {
+        if (config_changed[i]) set_configs[i]->flags |= RUNTIME_MODIFIED_CONFIG;
     }
 
     RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
@@ -1771,17 +1794,31 @@ int rewriteConfig(char *path, int force_write) {
     /* Iterate the configs that are standard */
     dictIterator di;
     dictEntry *de;
+    int runtime_modified_mode = (server.config_rewrite_mode == CONFIG_REWRITE_MODE_RUNTIME_MODIFIED);
     dictInitIterator(&di, configs);
     while ((de = dictNext(&di)) != NULL) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
+        if (!config->interface.rewrite) continue;
+        /* In runtime-modified mode, skip configs that haven't been touched at
+         * runtime. Their existing lines (if any) in the loaded file are left
+         * untouched because we never call rewriteConfigMarkAsProcessed for
+         * them, so rewriteConfigRemoveOrphaned won't blank them.
+         * Always respect force_write regardless of the rewrite mode. */
+        if (runtime_modified_mode && !(config->flags & RUNTIME_MODIFIED_CONFIG) &&
+            !state->force_write) continue;
+        config->interface.rewrite(config, dictGetKey(de), state);
     }
     dictResetIterator(&di);
 
-    rewriteConfigUserOption(state);
-    rewriteConfigLoadmoduleOption(state);
+    /* In runtime-modified mode, only rewrite the ACL user list and loadmodule
+     * directives if the corresponding subsystem has actually been touched at
+     * runtime. */
+    if (!runtime_modified_mode || server.acl_modified || state->force_write)
+        rewriteConfigUserOption(state);
+    if (!runtime_modified_mode || server.modules_modified || state->force_write)
+        rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
@@ -1790,6 +1827,15 @@ int rewriteConfig(char *path, int force_write) {
      * that were used by a config option and are no longer used, like in case
      * of multiple "save" options or duplicated options. */
     rewriteConfigRemoveOrphaned(state);
+
+    /* Short-circuit (runtime-modified mode only): if Phase 2 processed nothing,
+     * Phase 3 had nothing to blank either. Skip writing the file. any-modified
+     * mode's historical behavior is "always write the file on REWRITE" and must
+     * be preserved exactly. */
+    if (runtime_modified_mode && dictSize(state->rewritten) == 0) {
+        rewriteConfigReleaseState(state);
+        return 0;
+    }
 
     /* Step 4: generate a new configuration file from the modified state
      * and write it into the original file. */
@@ -3256,6 +3302,7 @@ standardConfig static_configs[] = {
     createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_protected_configs, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
+    createEnumConfig("config-rewrite-mode", NULL, IMMUTABLE_CONFIG, config_rewrite_mode_enum, server.config_rewrite_mode, CONFIG_REWRITE_MODE_ANY_MODIFIED, NULL, NULL),
     createEnumConfig("cluster-preferred-endpoint-type", NULL, MODIFIABLE_CONFIG, cluster_preferred_endpoint_type_enum, server.cluster_preferred_endpoint_type, CLUSTER_ENDPOINT_TYPE_IP, NULL, NULL),
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),

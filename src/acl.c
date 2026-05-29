@@ -2900,6 +2900,7 @@ void aclCommand(client *c) {
         sds error = ACLStringSetUser(u, username, temp_argv, c->argc - 3);
         zfree(temp_argv);
         if (error == NULL) {
+            server.acl_modified = 1;
             addReply(c,shared.ok);
         } else {
             addReplyErrorSdsSafe(c, error);
@@ -2930,6 +2931,7 @@ void aclCommand(client *c) {
                 deleted++;
             }
         }
+        if (deleted > 0) server.acl_modified = 1;
         addReplyLongLong(c,deleted);
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
         /* Redact the username to not leak any information about the user. */
@@ -3018,6 +3020,7 @@ void aclCommand(client *c) {
     } else if (!strcasecmp(sub,"load") && c->argc == 2) {
         sds errors = ACLLoadFromFile(server.acl_filename);
         if (errors == NULL) {
+            server.acl_modified = 1;
             addReply(c,shared.ok);
         } else {
             addReplyError(c,errors);
