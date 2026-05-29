@@ -3099,6 +3099,81 @@ start_server {
         assert_equal $res {{lestream {{3-0 {k3 v3}}}}}
     }
 
+    # Count the total number of entries across all streams in an XREAD reply.
+    proc xread_total_entries {res} {
+        set total 0
+        foreach stream $res {
+            incr total [llength [lindex $stream 1]]
+        }
+        return $total
+    }
+
+    test {XREAD MAXCOUNT caps total entries across streams} {
+        r DEL mc1{t} mc2{t} mc3{t}
+        for {set i 0} {$i < 100} {incr i} {
+            r XADD mc1{t} * f v$i
+            r XADD mc2{t} * f v$i
+            r XADD mc3{t} * f v$i
+        }
+        # Without MAXCOUNT, COUNT is per-stream: 50 * 3 = 150 entries.
+        set res [r XREAD COUNT 50 STREAMS mc1{t} mc2{t} mc3{t} 0 0 0]
+        assert_equal 150 [xread_total_entries $res]
+        # With MAXCOUNT 80 the cumulative total is capped at 80.
+        set res [r XREAD COUNT 50 MAXCOUNT 80 STREAMS mc1{t} mc2{t} mc3{t} 0 0 0]
+        assert_equal 80 [xread_total_entries $res]
+    }
+
+    test {XREAD MAXCOUNT without COUNT caps total entries} {
+        # No per-stream COUNT, only a cumulative cap.
+        set res [r XREAD MAXCOUNT 7 STREAMS mc1{t} mc2{t} mc3{t} 0 0 0]
+        assert_equal 7 [xread_total_entries $res]
+        # All 7 entries come from the first stream (it has >= 7 entries).
+        assert_equal {mc1{t}} [lindex $res 0 0]
+        assert_equal 1 [llength $res]
+    }
+
+    test {XREAD MAXCOUNT equal to COUNT behaves like COUNT on a single stream} {
+        set a [r XREAD COUNT 10 STREAMS mc1{t} 0]
+        set b [r XREAD COUNT 10 MAXCOUNT 10 STREAMS mc1{t} 0]
+        assert_equal $a $b
+    }
+
+    test {XREAD MAXCOUNT smaller than COUNT returns an error} {
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" \
+            {r XREAD COUNT 50 MAXCOUNT 10 STREAMS mc1{t} 0}
+    }
+
+    test {XREAD MAXCOUNT/MAXSIZE reject non-positive values} {
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREAD MAXCOUNT 0 STREAMS mc1{t} 0}
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREAD MAXCOUNT -1 STREAMS mc1{t} 0}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREAD MAXSIZE 0 STREAMS mc1{t} 0}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREAD MAXSIZE -5 STREAMS mc1{t} 0}
+        assert_error "*not an integer*" {r XREAD MAXCOUNT foo STREAMS mc1{t} 0}
+    }
+
+    test {XREAD MAXSIZE limits the reply size across streams} {
+        # The capped reply must contain fewer entries than the unbounded reply.
+        set full [r XREAD STREAMS mc1{t} mc2{t} mc3{t} 0 0 0]
+        set capped [r XREAD MAXSIZE 200 STREAMS mc1{t} mc2{t} mc3{t} 0 0 0]
+        assert {[xread_total_entries $capped] < [xread_total_entries $full]}
+        assert {[xread_total_entries $capped] >= 1}
+    }
+
+    test {XREAD MAXSIZE still returns a single oversized message} {
+        r DEL bigstream
+        r XADD bigstream 1-1 f [string repeat x 5000]
+        # MAXSIZE is much smaller than the single entry, but it is still returned.
+        set res [r XREAD MAXSIZE 50 STREAMS bigstream 0]
+        assert_equal 1 [xread_total_entries $res]
+        assert_equal 1-1 [lindex $res 0 1 0 0]
+    }
+
+    test {XREAD MAXSIZE and MAXCOUNT together, whichever triggers first} {
+        # MAXCOUNT 5 is the tighter bound here.
+        set res [r XREAD MAXCOUNT 5 MAXSIZE 100000 STREAMS mc1{t} mc2{t} mc3{t} 0 0 0]
+        assert_equal 5 [xread_total_entries $res]
+    }
+
     test "XREAD: read last element after XDEL (issue #13628)" {
         # Should return actual last element after XDEL of current last element
 

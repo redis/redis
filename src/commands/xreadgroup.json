@@ -58,6 +58,18 @@
                 "optional": true
             },
             {
+                "token": "MAXCOUNT",
+                "name": "maxcount",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "MAXSIZE",
+                "name": "maxsize",
+                "type": "integer",
+                "optional": true
+            },
+            {
                 "token": "BLOCK",
                 "name": "milliseconds",
                 "type": "integer",
