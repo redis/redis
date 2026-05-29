@@ -664,6 +664,7 @@ start_server {tags {"introspection"}} {
             enable-protected-configs
             enable-debug-command
             enable-module-command
+            config-rewrite-mode
             dbfilename
             logfile
             dir
