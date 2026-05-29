@@ -3363,9 +3363,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
              * ID cross-checks below depend on. */
             streamID this_master;
             streamDecodeID(nodekey, &this_master);
-            if (head_lp != NULL &&
-                streamCompareID(&this_master, &tail_master) <= 0)
-            {
+            if (head_lp != NULL && streamCompareID(&this_master, &tail_master) <= 0) {
                 rdbReportCorruptRDB("Stream listpacks not in ascending order");
                 sdsfree(nodekey);
                 decrRefCount(o);
