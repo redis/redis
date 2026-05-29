@@ -3362,7 +3362,10 @@ void syncWithMaster(connection *conn) {
             sleep(1);
         }
         if (dfd == -1) {
-            serverLog(LL_WARNING,"Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",strerror(errno));
+            char cwd[256];
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                cwd[0] = '\0';
+            serverLog(LL_WARNING,"Opening the temp file ( %s/%s ) needed for MASTER <-> REPLICA synchronization: %s",cwd,tmpfile,strerror(errno));
             goto error;
         }
         server.repl_transfer_tmpfile = zstrdup(tmpfile);
