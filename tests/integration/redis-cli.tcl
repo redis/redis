@@ -42,7 +42,7 @@ start_server {tags {"cli"}} {
 
         # We may have a short read, try to read some more.
         set empty_reads 0
-        while {$empty_reads < 100} {
+        while {$empty_reads < 5} {
             set buf [read $fd]
             if {[string length $buf] == 0} {
                 after 10
@@ -69,6 +69,31 @@ start_server {tags {"cli"}} {
     proc run_command {fd cmd} {
         write_cli $fd $cmd
         set _ [format_output [read_cli $fd]]
+    }
+
+    proc read_cli_until {fd regex {timeout_ms 5000}} {
+        set ret ""
+        set deadline [expr {[clock milliseconds] + $timeout_ms}]
+
+        while {[clock milliseconds] < $deadline} {
+            set buf [read $fd]
+            if {[string length $buf] == 0} {
+                after 10
+                continue
+            }
+
+            append ret $buf
+            if {[regexp $regex $ret]} {
+                return $ret
+            }
+        }
+
+        fail "Timed out waiting for pattern '$regex' in redis-cli output: $ret"
+    }
+
+    proc run_command_until {fd cmd regex {timeout_ms 5000}} {
+        write_cli $fd $cmd
+        read_cli_until $fd $regex $timeout_ms
     }
 
     proc test_interactive_cli_with_prompt {name code} {
@@ -162,8 +187,7 @@ start_server {tags {"cli"}} {
         read_cli $fd
 
         puts -nonewline $fd "ey"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
     }
 
     test_interactive_cli_with_prompt "should find and use the first search result" {
@@ -175,12 +199,10 @@ start_server {tags {"cli"}} {
         read_cli $fd
 
         puts -nonewline $fd "ET b"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah}
 
         puts $fd "\x0D" ;# ENTER
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {.*"myvalue"\n} $result2]
+        read_cli_until $fd {.*"myvalue"\n}
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
@@ -188,23 +210,18 @@ start_server {tags {"cli"}} {
 
         set now [clock seconds]
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
-        set result2 [run_command $fd "keys \"$now\"\x0D"]
-        assert_equal 1 [regexp {.*(empty array).*} $result2]
+        run_command_until $fd "keys \"$now\"\x0D" {.*(empty array).*}
     }
 
     test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
         puts $fd "\x12" ;# CTRL+R
 
         set now [clock seconds]
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
-        set result2 [run_command $fd "keys \"$now\"\x0D"]
-
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        run_command_until $fd "keys \"$now\"\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {
@@ -215,137 +232,117 @@ start_server {tags {"cli"}} {
         read_cli $fd
 
         puts -nonewline $fd "ey"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two}
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+        read_cli_until $fd {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one}
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+s" {
-        run_command $fd "keys one\x0D"
-        run_command $fd "keys two\x0D"
+        set unique [clock microseconds]
+        run_command $fd "keys ${unique}-one\x0D"
+        run_command $fd "keys ${unique}-two\x0D"
 
         puts $fd "\x13" ;# CTRL+S
         read_cli $fd
 
-        puts -nonewline $fd "ey"
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+        puts -nonewline $fd $unique
+        read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-one} $unique]
 
         puts $fd "\x13" ;# CTRL+S
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        read_cli_until $fd [format {\(i-search\): \x1B\[0mkeys \x1B\[1m%s\x1B\[0m-two} $unique]
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x07" ;# CTRL+G
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses up arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x41" ;# up arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses right arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x42" ;# right arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses down arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x43" ;# down arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses left arrow" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts $fd "\x1B\x5B\x44" ;# left arrow
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?>}
     }
 
     test_interactive_cli_with_prompt "should disable and persist line if user presses tab" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts -nonewline $fd "GET blah"
         read_cli $fd
 
         puts -nonewline $fd "\x09" ;# TAB
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah}
     }
 
     test_interactive_cli_with_prompt "should disable and persist search result if user presses tab" {
         run_command $fd "GET one\x0D"
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts -nonewline $fd "one"
         read_cli $fd
 
         puts -nonewline $fd "\x09" ;# TAB
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET one} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET one}
     }
 
     test_interactive_cli_with_prompt "should disable and persist line and move the cursor if user presses tab" {
         run_command $fd ""
 
         puts $fd "\x12" ;# CTRL+R
-        set result [read_cli $fd]
-        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+        read_cli_until $fd {\(reverse-i-search\):}
 
         puts -nonewline $fd "GET blah"
         read_cli $fd
 
         puts -nonewline $fd "\x09" ;# TAB
-        set result2 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah} $result2]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah}
 
         puts -nonewline $fd "suffix"
-        set result3 [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blahsuffix} $result3]
+        read_cli_until $fd {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blahsuffix}
     }
 
     test_interactive_cli "INFO response should be printed raw" {
@@ -828,10 +825,10 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
 start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
-        run_command $fd "select 0\x0D"
-        run_command $fd "set a zoo-0\x0D"
-        run_command $fd "select 6\x0D"
-        run_command $fd "set a zoo-6\x0D"
+        run_command_until $fd "select 0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_until $fd "set a zoo-0\x0D" {OK.*127\.0\.0\.1:[0-9]*>}
+        run_command_until $fd "select 6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
+        run_command_until $fd "set a zoo-6\x0D" {OK.*127\.0\.0\.1:[0-9]*\[6\]>}
         r save
 
         # kill server and restart
@@ -843,9 +840,8 @@ start_server {tags {"cli external:skip"}} {
         # redis-cli should show '[6]' after reconnected and return 'zoo-6'
         write_cli $fd "GET a\x0D"
         after 100
-        set result [format_output [read_cli $fd]]
         set regex {not connected> GET a.*"zoo-6".*127\.0\.0\.1:[0-9]*\[6\]>}
-        assert_equal 1 [regexp $regex $result]
+        read_cli_until $fd $regex
     }
 }
 
