@@ -139,18 +139,11 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             {
                 lp = lpAppendInteger(lp, llval);
                 set->ptr = lp;
+                return 1;
             } else {
-                /* Convert int to string. */
-                len = ll2string(tmpbuf, sizeof tmpbuf, llval);
-                str = tmpbuf;
-                str_is_sds = 0;
-                /* Size limit is reached. Convert to hashtable and add. */
+                /* Size limit is reached. Convert to hashtable. */
                 setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
             }
-            return 1;
         }
         /* Convert int to string. */
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);

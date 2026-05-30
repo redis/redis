@@ -939,13 +939,13 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
 
 /* Comparator function to find Integer */
 static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p, 
-                                   void *user, unsigned char *value, long long vll) {
+                                   void *user, unsigned char *value, long long ll) {
     (void) lp;
     (void) p;
-    struct lpFindIntArg *arg = user;
+    int64_t *vll = (int64_t *) user;                                
 
     if (value == NULL) {
-        if(vll == arg->vll) return 0;
+        if(ll == *vll) return 0;
     }
     return 1;
 }
@@ -967,10 +967,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
 unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
                              int64_t vll, unsigned int skip)
 {
-    struct lpFindIntArg arg = {
-        .vll = vll
-    };
-    return lpFindCbInternal(lp, p, &arg, lpFindIntegerCmp, skip);
+    return lpFindCbInternal(lp, p, &vll, lpFindIntegerCmp, skip);
 }
 
 /* Insert, delete or replace the specified string element 'elestr' of length
