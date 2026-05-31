@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Docker image build ONLY — not invoked by `make bootstrap`.
+# Docker image build ONLY — not invoked by `make deps`.
 # During `docker build`, runs each entry from `modules/modules.yaml` through
 # that module's `src/.install/install_script.sh` (same scripts as a dev
-# would run from `make bootstrap` per module).
+# would run from `make deps` per module).
 #
 # Environment:
 #   ROOT             workspace root (default: /workspace)

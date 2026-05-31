@@ -156,7 +156,7 @@ fi
 
 echo
 echo "==> Overlaying local config-sync tooling in staging"
-# Overlay the LOCAL sync-redis-conf / promote-redis-conf scripts + their lib
+# Overlay the LOCAL sync-redis-conf / apply-redis-conf scripts + their lib
 # + the manifest on top of whatever came in from `git archive $TAG`, so
 # tarball-time fixes (or the modules.yaml-into-modules/ relocation) don't
 # require re-tagging Redis core. If $TAG predates that relocation, drop the
@@ -166,14 +166,14 @@ echo "==> Overlaying local config-sync tooling in staging"
 # The tarball ships `redis.conf` UNMODIFIED. To get a config that pre-loads
 # the bundled modules, the consumer runs one of:
 #   gmake sync-redis-conf      # produces redis-gen.conf (use with `redis-server redis-gen.conf`)
-#   gmake promote-redis-conf   # overwrites redis.conf with the generated content
+#   gmake apply-redis-conf     # overwrites redis.conf with the generated content
 # Neither runs at tarball time, so `redis-gen.conf` is NEVER packed.
 mkdir -p "$work/scripts/lib" "$work/modules"
-cp scripts/sync-redis-conf.sh    "$work/scripts/sync-redis-conf.sh"
-cp scripts/promote-redis-conf.sh "$work/scripts/promote-redis-conf.sh"
-cp scripts/lib/manifest.sh       "$work/scripts/lib/manifest.sh"
-cp modules/modules.yaml          "$work/modules/modules.yaml"
-chmod +x "$work/scripts/sync-redis-conf.sh" "$work/scripts/promote-redis-conf.sh"
+cp scripts/sync-redis-conf.sh   "$work/scripts/sync-redis-conf.sh"
+cp scripts/apply-redis-conf.sh  "$work/scripts/apply-redis-conf.sh"
+cp scripts/lib/manifest.sh      "$work/scripts/lib/manifest.sh"
+cp modules/modules.yaml         "$work/modules/modules.yaml"
+chmod +x "$work/scripts/sync-redis-conf.sh" "$work/scripts/apply-redis-conf.sh"
 rm -f "$work/modules.yaml"
 
 echo

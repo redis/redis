@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# bootstrap.sh — install per-module build/test prereqs.
+# deps.sh — install per-module build/test prerequisites.
 #
-# Usage:  scripts/bootstrap.sh [<name> ...|all|.|'*']
+# Usage:  scripts/deps.sh [<name> ...|all|.|'*']
 #
-# Dispatches to each cloned module's `make -C modules/<name>/src bootstrap`.
+# Top-level entry point is `make deps`. Internally still dispatches to each
+# cloned module's `make -C modules/<name>/src bootstrap` — that's the
+# upstream module convention (we don't control the module's own Makefile,
+# so the inner target name stays `bootstrap`).
 # Continues past failures, prints a summary, exits non-zero on any failure.
 #
 # Env: MAKE                       make binary (defaults to `make`)
@@ -31,17 +34,17 @@ cloned="$(cloned_modules)"
 selected="$(resolve_modules "$*" "$cloned")"
 
 if [ -z "$selected" ]; then
-  echo "ERROR: no modules to bootstrap (no modules/*/src with .git or .prepared)"
+  echo "ERROR: no modules to install deps for (no modules/*/src with .git or .prepared)"
   echo "       run 'make modules-update all' or clone into modules/<name>/src"
   exit 1
 fi
 
-echo "==> Bootstrapping: $selected"
+echo "==> Installing deps for: $selected"
 export PIP_BREAK_SYSTEM_PACKAGES=1
 failed=""
 for name in $selected; do
   echo
-  echo "==> [bootstrap] $name"
+  echo "==> [deps] $name"
   src_mk="modules/$name/src/Makefile"
   if [ ! -f "$src_mk" ]; then
     echo "    !! SKIP: $src_mk does not exist"
@@ -49,6 +52,8 @@ for name in $selected; do
     failed="$failed $name"
     continue
   fi
+  # Per-module convention: the inner target is still called `bootstrap` —
+  # that's defined by each module's own Makefile, not by us.
   if ! grep -qE '^bootstrap[[:space:]]*:' "$src_mk"; then
     echo "    !! SKIP: no 'bootstrap' target in $src_mk"
     echo "       Add one to the upstream Makefile, e.g.:"
@@ -66,9 +71,9 @@ done
 
 echo
 if [ -n "$failed" ]; then
-  echo "==> Bootstrap completed with FAILURES for:$failed"
-  echo "    Re-run 'make bootstrap$failed' after fixing the issues above."
+  echo "==> Deps install completed with FAILURES for:$failed"
+  echo "    Re-run 'make deps$failed' after fixing the issues above."
   exit 1
 fi
-echo "==> Bootstrap complete for: $selected"
+echo "==> Deps install complete for: $selected"
 echo "    Next: 'make build [<name>]' then 'make test [<name>]' or 'make run'."

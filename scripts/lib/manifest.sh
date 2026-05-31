@@ -36,7 +36,7 @@
 #                                                Empty output = no match (bad ref).
 #   cloned_modules                             - names with .prepared or .git under modules/<n>/src
 #   resolve_modules <requested> <cloned> [allow_extras]
-#         Mirrors the case-statement repeated in build/bootstrap/run/test recipes.
+#         Mirrors the case-statement repeated in build/deps/run/test recipes.
 #         <allow_extras> is a space-separated list of synonyms in addition to the
 #         standard "" / all / . / '*'  (e.g. "redis none" for build, "none" for run).
 #         Echoes the resolved space-separated module list. Exits 1 on errors.

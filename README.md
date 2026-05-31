@@ -218,8 +218,8 @@ This section refers to building Redis from source. If you want to get up and run
 > `# >>> BEGIN: Redis-core config <<<` … `# <<< END: Redis-core config >>>`
 > markers); the next `make all` (or `make sync-redis-conf`) regenerates
 > `redis-gen.conf`. If you'd rather launch with `./src/redis-server redis.conf`,
-> run `make promote-redis-conf` once after the build — it merges the Modules
-> section into `redis.conf` (idempotent; revert with `make demote-redis-conf`).
+> run `make apply-redis-conf` once after the build — it merges the Modules
+> section into `redis.conf` (idempotent; revert with `make apply-redis-conf revert`).
 > See [modules/MODULES.md](modules/MODULES.md) for the full config flow.
 
 ### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)

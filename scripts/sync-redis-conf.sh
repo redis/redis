@@ -81,7 +81,7 @@ fi
 # CORE_BEGIN / CORE_END wrap the user-editable Redis-core configuration in
 # $REDIS_CONF. `sync-redis-conf` extracts ONLY the content between these
 # markers — anything outside them in $REDIS_CONF is ignored. This makes
-# `promote-redis-conf` idempotent: a promoted redis.conf still has these
+# `apply-redis-conf` idempotent: an applied redis.conf still has these
 # markers around its core section (plus an appended Modules section), so a
 # subsequent sync re-extracts just the core and regenerates Modules fresh.
 CORE_BEGIN="# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<"
@@ -178,7 +178,7 @@ strip_block() {
 # (exclusive). Validates that exactly one BEGIN and one END appear in the
 # right order; errors loudly otherwise. Used to pull the Redis-core section
 # out of $REDIS_CONF — anything outside the markers (e.g. an appended
-# Modules section after a previous promote) is ignored.
+# Modules section after a previous apply) is ignored.
 extract_section() {
   # extract_section <begin-marker> <end-marker> <file>
   awk -v begin="$1" -v end="$2" -v file="$3" '
@@ -284,7 +284,7 @@ trap 'rm -f "$LOOKUP_FILE" "$tmp_out"' EXIT
 #
 # Module load lines are NOT placed inside the markers — they belong in the
 # auto-generated Modules section below. To strip that section back out, run
-# \`make demote-redis-conf\`.
+# \`make apply-redis-conf revert\`.
 # ============================================================================
 
 $CORE_BEGIN

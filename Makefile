@@ -28,14 +28,12 @@ GOALS_WITH_ARGS := \
     modules-update:MODULES_ARGS \
     modules-shallow:SHALLOW_ARGS \
     run:RUN_ARGS \
-    all:BUILD_ARGS \
     build:BUILD_ARGS \
     clean:CLEAN_ARGS \
-    bootstrap:BOOTSTRAP_ARGS \
-    setup:SETUP_ARGS \
+    deps:DEPS_ARGS \
     test:TEST_ARGS \
     sync-redis-conf:SYNC_ARGS \
-    promote-redis-conf:PROMOTE_ARGS
+    apply-redis-conf:APPLY_ARGS
 
 # When <goal> is the top-level goal, stash trailing positional args into <var>
 # and turn each non-':'-bearing token into a no-op .PHONY target so .DEFAULT
@@ -71,11 +69,13 @@ ifeq ($(firstword $(MAKECMDGOALS)),sync-redis-conf)
   endif
 endif
 
-# Same glue for `promote-redis-conf <name> ...` — forwards positional args
-# into MODULES so the underlying script sees the subset.
-ifeq ($(firstword $(MAKECMDGOALS)),promote-redis-conf)
-  ifneq ($(PROMOTE_ARGS),)
-    MODULES := $(PROMOTE_ARGS)
+# Same glue for `apply-redis-conf <name> ...` — forwards positional args
+# into MODULES so the underlying script sees the subset. `revert` is
+# special: it stays in APPLY_ARGS (not in MODULES) so the script sees it
+# as the mode toggle. All other positional tokens flow into MODULES.
+ifeq ($(firstword $(MAKECMDGOALS)),apply-redis-conf)
+  ifneq ($(APPLY_ARGS),)
+    MODULES := $(filter-out revert,$(APPLY_ARGS))
   endif
 endif
 
@@ -98,21 +98,16 @@ clean:
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
 
-# all / build [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules.
-# `all` is the canonical entry point (also `make`'s default goal at line 11);
-# `make build` is kept as a discoverable alias and routes here.
-all:
+# build [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules,
+# orchestrated by scripts/build.sh. NOTE: `make` / `make all` still use the
+# legacy `.DEFAULT:` recursion into $(SUBDIRS) (preserved for compatibility
+# with the upstream Redis build flow); only `make build` routes here.
+build:
 	@scripts/build.sh $(BUILD_ARGS)
 
-build: all
-
-# bootstrap [<name> ...|all|.|'*'] — install per-module build/test prereqs.
-bootstrap:
-	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
-
-# setup [<name> ...|all|.|'*'] — modules-update + bootstrap in one step.
-setup:
-	@scripts/setup.sh $(SETUP_ARGS)
+# deps [<name> ...|all|.|'*'] — install per-module build/test prereqs.
+deps:
+	@scripts/deps.sh $(DEPS_ARGS)
 
 # run [<name> ...|all|.|'*'|none] [ARGS="<redis-server flags>"]
 run:
@@ -149,30 +144,20 @@ sync-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/sync-redis-conf.sh
 
-# promote-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
-#   Run sync-redis-conf, then OVERWRITE redis.conf with the generated content.
-#   Destructive on the tracked redis.conf — use `make demote-redis-conf` to
-#   strip just the appended Modules section back out, or
-#   `git checkout -- redis.conf` to revert everything. Idempotent: re-running
-#   is safe because sync extracts only the Redis-core section between the
-#   BEGIN/END markers in redis.conf. Typical use: after extracting a release
-#   tarball + `make build`, so `./src/redis-server redis.conf` auto-loads
-#   bundled modules.
-promote-redis-conf:
+# apply-redis-conf [<name> ...|revert] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
+#   Default mode: run sync-redis-conf, then OVERWRITE redis.conf with the
+#   generated content. Destructive on the tracked redis.conf — use
+#   `make apply-redis-conf revert` to strip just the appended Modules section
+#   back out, or `git checkout -- redis.conf` to revert everything.
+#   Idempotent: re-running is safe because sync extracts only the Redis-core
+#   section between the BEGIN/END markers in redis.conf. Typical use: after
+#   extracting a release tarball + `make build`, so
+#   `./src/redis-server redis.conf` auto-loads bundled modules.
+apply-redis-conf:
 	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
 	    MODULES='$(strip $(MODULES))' ASSUME_BUILT='$(strip $(ASSUME_BUILT))' \
 	    MODULES_MANIFEST_FILE='$(MODULES_MANIFEST_FILE)' \
 	    PREFIX='$(PREFIX)' \
-	    scripts/promote-redis-conf.sh
+	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-# demote-redis-conf
-#   Inverse of promote-redis-conf: strips the auto-generated Modules section
-#   from redis.conf, leaving just the Redis-core section (with its BEGIN/END
-#   markers and banner intact). Idempotent — re-running on an already
-#   core-only redis.conf is a no-op modulo banner regeneration. Use after
-#   promote when you want to rebuild against a clean redis.conf without
-#   going through git checkout.
-demote-redis-conf:
-	@REDIS_CONF='$(REDIS_CONF)' scripts/demote-redis-conf.sh
-
-.PHONY: all install clean build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf demote-redis-conf tarball
+.PHONY: install clean build run test deps modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
