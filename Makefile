@@ -30,6 +30,7 @@ GOALS_WITH_ARGS := \
     run:RUN_ARGS \
     all:BUILD_ARGS \
     build:BUILD_ARGS \
+    clean:CLEAN_ARGS \
     bootstrap:BOOTSTRAP_ARGS \
     setup:SETUP_ARGS \
     test:TEST_ARGS \
@@ -83,6 +84,13 @@ endif
 
 install:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
+
+# clean [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules.
+# Same per-module dispatch as scripts/build.sh. Env vars set on the make
+# line (e.g. `make clean DEPS=1`) propagate to the per-module clean via
+# the shell environment.
+clean:
+	@scripts/clean.sh $(CLEAN_ARGS)
 
 # ----------------------------------------------------------------------------
 # Module / build / test orchestration. Recipes are thin wrappers around
@@ -167,4 +175,4 @@ promote-redis-conf:
 demote-redis-conf:
 	@REDIS_CONF='$(REDIS_CONF)' scripts/demote-redis-conf.sh
 
-.PHONY: all install build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf demote-redis-conf tarball
+.PHONY: all install clean build run test setup bootstrap modules-update modules-shallow sync-redis-conf promote-redis-conf demote-redis-conf tarball
