@@ -1,4 +1,5 @@
 set testmodule [file normalize tests/modules/moduleconfigs.so]
+set configaccessmodule [file normalize tests/modules/configaccess.so]
 
 proc crm_read_config_file {} {
     set fd [open [srv 0 config_file] r]
@@ -44,5 +45,17 @@ start_server {tags {"modules config-rewrite-mode external:skip"} overrides {conf
         assert_equal 0 [regexp {(^|\n)moduleconfigs\.string\s} $content]
         assert_equal 0 [regexp {(^|\n)moduleconfigs\.numeric\s} $content]
         assert_equal 0 [regexp {(^|\n)moduleconfigs\.enum\s} $content]
+    }
+}
+
+start_server {tags {"modules config-rewrite-mode external:skip"} overrides {config-rewrite-mode runtime-modified enable-module-command yes}} {
+    test {runtime-modified - RM_ConfigSet from module is treated as runtime-modified} {
+        # configaccess module exposes commands that drive RM_ConfigSet* and
+        # thus exercise the moduleSetXxxConfig path in src/config.c.
+        r module load $configaccessmodule
+        # RM_ConfigSet on a built-in config should mark it runtime-modified.
+        r configaccess.set timeout 30
+        r config rewrite
+        assert_match "*timeout 30*" [crm_read_config_file]
     }
 }

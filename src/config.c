@@ -317,14 +317,21 @@ static standardConfig *resolvePrimaryConfig(standardConfig *config) {
     return config;
 }
 
+/* Set the RUNTIME_MODIFIED_CONFIG bit on a config, resolving alias entries
+ * to the primary first. Single primitive used by every site that needs to
+ * mark a config: configSetCommand, the moduleSetXxxConfig helpers, and the
+ * by-name wrapper below. */
+static void markStandardConfigRuntimeModified(standardConfig *config) {
+    if (config) resolvePrimaryConfig(config)->flags |= RUNTIME_MODIFIED_CONFIG;
+}
+
 /* Mark a config as runtime-modified by name. Used by callers outside config.c
  * that change config-backed state via dedicated commands (e.g. REPLICAOF) and
  * bypass the standard CONFIG SET path. No-op if the config name is unknown. */
 void markConfigRuntimeModified(const char *name) {
     sds key = sdsnew(name);
-    standardConfig *config = resolvePrimaryConfig(lookupConfig(key));
+    markStandardConfigRuntimeModified(lookupConfig(key));
     sdsfree(key);
-    if (config) config->flags |= RUNTIME_MODIFIED_CONFIG;
 }
 
 /*-----------------------------------------------------------------------------
@@ -968,14 +975,9 @@ void configSetCommand(client *c) {
 
     /* All sets succeeded and were applied: mark the configs that actually
      * changed as runtime-modified, so CONFIG REWRITE in runtime-modified
-     * mode will emit them. Sticky: never cleared once set. When the user
-     * passed an alias name, mark the primary entry — the alias entry is
-     * skipped by ALIAS_CONFIG in the rewrite loop. */
+     * mode will emit them. Sticky: never cleared once set. */
     for (i = 0; i < config_count; i++) {
-        if (config_changed[i]) {
-            standardConfig *primary = resolvePrimaryConfig(set_configs[i]);
-            primary->flags |= RUNTIME_MODIFIED_CONFIG;
-        }
+        if (config_changed[i]) markStandardConfigRuntimeModified(set_configs[i]);
     }
 
     RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
@@ -3777,8 +3779,11 @@ int moduleSetBoolConfig(client *c, sds name, int val, const char **err) {
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
 
     if (old_value) sdsfree(old_value);
 
@@ -3804,9 +3809,12 @@ int moduleSetStringConfig(client *c, sds name, const char *val, const char **err
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
- 
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
+
     if (old_value) sdsfree(old_value);
 
     return res;
@@ -3824,8 +3832,11 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
 
     if (old_value) sdsfree(old_value);
 
@@ -3843,8 +3854,11 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
 
     if (old_value) sdsfree(old_value);
 
