@@ -261,7 +261,19 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
 }
 
 /* Per-key-only fixtures: behaviors with no regular-API equivalent. Registered
- * only when the module is loaded in "perkey" mode. */
+ * only when the module is loaded in "perkey" mode.
+ *
+ * NOTE: these callbacks intentionally WRITE to the keyspace (RM_Call "!...")
+ * from inside a per-key job. That deliberately VIOLATES the documented
+ * RM_AddPostNotificationJobForKey contract (callbacks must touch only
+ * non-replicated state). The violation is the point: the keyspace write is
+ * what makes the firing order/granularity observable in
+ * assert_replication_stream on a standalone master. These fixtures are valid
+ * ONLY on a single master; they must never be exercised under a replica or
+ * AOF-consistency assertion, where they would (correctly) amplify the AOF and
+ * diverge the replica. For cross-phase / AOF / replica testing use the
+ * separate postnotifications_perkey_metadata.c module, whose callback touches
+ * only non-replicated key metadata. */
 
 static void KeySpace_PostNotificationBatchedKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
     REDISMODULE_NOT_USED(pd);
