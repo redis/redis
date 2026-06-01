@@ -151,22 +151,7 @@ start_server {tags {"modules external:skip"}} {
             set n 20000
             set dummy "[string repeat x 400]"
             set rd [redis_deferring_client]
-
-            # Use batching to avoid TCP deadlock when deferred replies accumulate.
-            set batch_size 1000
-            for {set i 0} {$i < $n} {incr i} {
-                $rd datatype.set k$i 1 $dummy
-
-                if {($i + 1) % $batch_size == 0} {
-                    for {set j 0} {$j < $batch_size} {incr j} {
-                        $rd read
-                    }
-                }
-            }
-            set remaining [expr {$n % $batch_size}]
-            for {set i 0} {$i < $remaining} {incr i} {
-                $rd read
-            }
+            deferred_batch $rd $n { $rd datatype.set k$i 1 $dummy }
 
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -177,21 +162,7 @@ start_server {tags {"modules external:skip"}} {
             }
             assert_lessthan [s allocator_frag_ratio] 1.05
 
-            set del_replies 0
-            for {set i 0} {$i < $n} {incr i 2} {
-                $rd del k$i
-                incr del_replies
-
-                if {$del_replies % $batch_size == 0} {
-                    for {set j 0} {$j < $batch_size} {incr j} {
-                        $rd read
-                    }
-                }
-            }
-            set remaining [expr {$del_replies % $batch_size}]
-            for {set i 0} {$i < $remaining} {incr i} {
-                $rd read
-            }
+            deferred_batch $rd [expr {$n / 2}] { $rd del k[expr {$i * 2}] }
             after 120 ;# serverCron only updates the info once in 100ms
             assert_morethan [s allocator_frag_ratio] 1.4
 
