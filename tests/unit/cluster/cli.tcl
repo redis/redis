@@ -7,40 +7,10 @@ set old_singledb $::singledb
 set ::singledb 1
 
 proc write_keys_to_master0 {} {
-    set client [srv 0 client]
-    set slot_ranges {}
-    foreach line [split [$client CLUSTER NODES] \n] {
-        if {[string match "*myself*" $line]} {
-            set fields [split $line " "]
-            set slot_ranges [lrange $fields 8 end]
-            break
-        }
-    }
-    # Build a list of slots owned by master0
-    set valid_slots {}
-    foreach range $slot_ranges {
-        set parts [split $range "-"]
-        set s [lindex $parts 0]
-        set e [lindex $parts 1]
-        if {$s eq ""} continue
-        if {$e eq ""} {set e $s}
-        for {set i $s} {$i <= $e} {incr i} {
-            lappend valid_slots $i
-        }
-    }
-    # Pre-computed hash tags and their target slots
-    # {Qi}->1, {450}->5462, {YY}->16379, {wu}->16380,
-    # {0TG}->16381, {4oi}->16382, {6ZJ}->16383
-    set tag ""
-    foreach {t slt} {"{Qi}" 1 "{450}" 5462 "{YY}" 16379 "{wu}" 16380 "{0TG}" 16381 "{4oi}" 16382 "{6ZJ}" 16383} {
-        if {[lsearch -exact $valid_slots $slt] >= 0} {
-            set tag $t
-            break
-        }
-    }
-    if {$tag eq ""} {error "Cannot find a suitable hash tag for master0's slots"}
-    for {set i 0} {$i < 5} {incr i} {
-        exec src/redis-cli -c -p [srv 0 port] SET "$tag:key:$i" "value:$i"
+    # master0 has slots 0-5460 by default in a 3-node cluster
+    # {06S}->slot 0, {Qi}->slot 1, {5L5}->slot 2
+    foreach tag {{06S} {Qi} {5L5}} {
+        populate 5 "${tag}key:" 3
     }
 }
 
