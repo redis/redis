@@ -260,13 +260,89 @@ tags "modules external:skip" {
 
 # Negative coverage: API misuse outside a KSN handler.
 #
-# The only remaining runtime guard. Calling RM_AddPostNotificationJobForKey
-# from a regular module command (not a KSN handler) must return
-# REDISMODULE_ERR with a LL_WARNING log entry.
+# Calling RM_AddPostNotificationJobForKey from a regular module command (not a
+# KSN handler) must return REDISMODULE_ERR with a LL_WARNING log entry.
 tags "modules external:skip" {
     test "perkey-misuse: registration refused outside a KSN handler" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             assert_error {ERR registration refused*} {r pkmeta.try_outside any_key}
+        }
+    }
+}
+
+# Per-key firing order / granularity on a standalone master.
+#
+# These pin the per-key firing behavior that used to be observed through
+# RM_Call writes in the replication stream. Since a per-key callback may no
+# longer touch the keyspace (see the no-write contract enforcement below), the
+# order and per-key granularity are observed through the module-internal fire
+# log instead.
+tags "modules external:skip" {
+    test "perkey-order: fires once per key in submission order across a MULTI/EXEC" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r pkmeta.reset
+            r multi
+            r hset ha f v
+            r hset hb f v
+            r hset hc f v
+            r exec
+            # One firing per sub-command, in order.
+            assert_equal {ha hb hc} [r pkmeta.firelog]
+            assert_equal 3 [r pkmeta.firecount]
+        }
+    }
+
+    test "perkey-order: multi-key command fires one job per affected key" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r pkmeta.reset
+            # MSET emits one notifyKeyspaceEvent per key, so the handler
+            # registers one per-key job per affected key; all fire at the tail
+            # of MSET's call().
+            r mset ma 1 mb 2 mc 3
+            assert_equal {ma mb mc} [r pkmeta.firelog]
+            assert_equal 3 [r pkmeta.firecount]
+        }
+    }
+}
+
+# No-write contract enforcement.
+#
+# A per-key callback fires on the master, on every replica receiving the
+# propagated stream, and again on AOF replay, so it must not mutate the
+# keyspace. The runtime enforces this: RM_Call from inside the per-key drain
+# is refused (returns NULL, errno set), and no write reaches the keyspace.
+# The "probe_" prefix registers a callback that deliberately attempts an
+# RM_Call("incr", "!c", "pkmeta_rmcall_sink").
+tags "modules external:skip" {
+    test "perkey-contract: RM_Call from inside a per-key callback is refused" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r pkmeta.reset
+            set repl [attach_to_replication_stream]
+
+            r set probe_x 1
+
+            # The callback's RM_Call was refused...
+            assert_equal 1 [r pkmeta.rmcall_blocked]
+            # ...and produced no keyspace write: the sink key never appeared.
+            assert_equal 0 [r exists pkmeta_rmcall_sink]
+
+            # Only the originating SET propagated — no incr leaked into the
+            # replication stream from the blocked callback.
+            assert_replication_stream $repl {
+                {select *}
+                {set probe_x 1}
+            }
+            close_replication_stream $repl
+        }
+    }
+
+    test "perkey-contract: refusal repeats per firing and never writes" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r pkmeta.reset
+            r mset probe_a 1 probe_b 2 probe_c 3
+            # One refused RM_Call per affected key, still no sink key.
+            assert_equal 3 [r pkmeta.rmcall_blocked]
+            assert_equal 0 [r exists pkmeta_rmcall_sink]
         }
     }
 }

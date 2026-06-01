@@ -3858,12 +3858,10 @@ void postExecutionUnitOperations(void) {
      * (active-expire in expire.c, eviction in evict.c — both call us directly
      * after their own enter/exitExecutionUnit).
      *
-     * Draining the regular queue last also means a regular job that a keyed
-     * callback happens to queue (e.g. via a KSN surfaced from its RM_Call
-     * landing in another module's handler) is still drained before
-     * propagatePendingCommands, in the same replication transaction as the
-     * originating command, rather than stranded in a separate one. That
-     * cross-queue case remains unsupported and is prevented in practice by
+     * A keyed callback cannot queue a regular job behind our back: RM_Call is
+     * refused for the duration of the keyed drain (see the guard in RM_Call),
+     * so it can no longer surface the KSN that would land in another module's
+     * handler and call RM_AddPostNotificationJob. This is the runtime side of
      * the no-write contract documented on RM_AddPostNotificationJobForKey in
      * module.c */
     firePostKeyedNotificationJobs();

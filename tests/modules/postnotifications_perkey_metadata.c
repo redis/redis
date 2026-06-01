@@ -16,10 +16,22 @@
  * Commands:
  *   pkmeta.getmeta <key>      - Return the metadata string, or nil.
  *   pkmeta.firecount          - Return the module-internal fire counter.
- *   pkmeta.reset              - Zero the fire counter.
+ *   pkmeta.firelog            - Return the ordered list of key names the
+ *                               per-key job fired for since the last reset.
+ *                               Lets a test observe firing order / per-key
+ *                               granularity without writing to the keyspace.
+ *   pkmeta.rmcall_blocked     - Return how many times an RM_Call issued from
+ *                               inside a per-key callback was refused by the
+ *                               runtime (the no-write contract enforcement).
+ *   pkmeta.reset              - Zero the fire counter, the RM_Call-blocked
+ *                               counter, and clear the fire log.
  *   pkmeta.try_outside        - Call RM_AddPostNotificationJobForKey from
  *                               outside a KSN handler; reply OK/ERR for the
  *                               negative-coverage test.
+ *
+ * Keys with the "probe_" prefix register a callback that deliberately tries
+ * RM_Call (a contract violation) to verify the runtime refuses it; all other
+ * keys register the metadata callback.
  *
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -39,6 +51,27 @@ static RedisModuleKeyMetaClassId meta_class_id = -1;
  * neither replicated nor AOF-persisted. Tests assert on it to confirm the
  * per-key callback actually ran. */
 static long long fire_count = 0;
+
+/* Ordered log of the key names the per-key job fired for, recorded in
+ * submission/firing order. Also module-internal (not a Redis key), so tests
+ * can assert firing order and per-key granularity — e.g. one entry per key on
+ * a multi-key command — without the callback ever touching the keyspace. */
+#define FIRELOG_CAP 256
+static char *fire_log[FIRELOG_CAP];
+static int fire_log_len = 0;
+
+static void FireLogAppend(const char *name) {
+    if (fire_log_len < FIRELOG_CAP) fire_log[fire_log_len++] = strdup(name);
+}
+
+static void FireLogClear(void) {
+    for (int i = 0; i < fire_log_len; i++) free(fire_log[i]);
+    fire_log_len = 0;
+}
+
+/* Counts RM_Call attempts from inside a per-key callback that the runtime
+ * refused. Proves the no-write contract is enforced, not merely documented. */
+static long long rmcall_blocked_count = 0;
 
 static void MetaFreeCallback(const char *keyname, uint64_t meta) {
     REDISMODULE_NOT_USED(keyname);
@@ -68,10 +101,31 @@ static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void 
     char *new_str = strdup("notified");
     if (RedisModule_SetKeyMeta(meta_class_id, k, (uint64_t)new_str) == REDISMODULE_OK) {
         fire_count++;
+        size_t klen;
+        const char *kname = RedisModule_StringPtrLen(key, &klen);
+        FireLogAppend(kname);
     } else {
         free(new_str);
     }
     RedisModule_CloseKey(k);
+}
+
+/* Per-key job that deliberately violates the contract by issuing an RM_Call.
+ * The runtime must refuse it while the per-key queue is draining: RM_Call
+ * returns NULL with errno set, and no write reaches the keyspace. We only
+ * record that the refusal happened — we never observe a reply. Registered for
+ * "probe_" keys by NotifyCallback. */
+static void PerKeyRMCallProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(key);
+    REDISMODULE_NOT_USED(pd);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "incr", "!c", "pkmeta_rmcall_sink");
+    if (rep == NULL) {
+        rmcall_blocked_count++;
+    } else {
+        /* Contract enforcement failed to block the call. Free the reply so a
+         * leak doesn't mask the real failure; the test asserts on the count. */
+        RedisModule_FreeCallReply(rep);
+    }
 }
 
 /* KSN handler: defers SetKeyMeta into a per-key job rather than calling it
@@ -82,7 +136,12 @@ static int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                           RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
-    RedisModule_AddPostNotificationJobForKey(ctx, PerKeyMetadataJob, key, NULL, NULL);
+    const char *kname = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(kname, "probe_", 6) == 0) {
+        RedisModule_AddPostNotificationJobForKey(ctx, PerKeyRMCallProbeJob, key, NULL, NULL);
+    } else {
+        RedisModule_AddPostNotificationJobForKey(ctx, PerKeyMetadataJob, key, NULL, NULL);
+    }
     return REDISMODULE_OK;
 }
 
@@ -109,10 +168,28 @@ static int FireCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithLongLong(ctx, fire_count);
 }
 
+static int FireLogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithArray(ctx, fire_log_len);
+    for (int i = 0; i < fire_log_len; i++) {
+        RedisModule_ReplyWithCString(ctx, fire_log[i]);
+    }
+    return REDISMODULE_OK;
+}
+
+static int RMCallBlockedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, rmcall_blocked_count);
+}
+
 static int ResetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     fire_count = 0;
+    rmcall_blocked_count = 0;
+    FireLogClear();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -155,6 +232,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "pkmeta.firecount", FireCountCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.firelog", FireLogCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.rmcall_blocked", RMCallBlockedCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.reset", ResetCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -171,5 +254,6 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
         RedisModule_ReleaseKeyMetaClass(meta_class_id);
         meta_class_id = -1;
     }
+    FireLogClear();
     return REDISMODULE_OK;
 }

@@ -6916,6 +6916,29 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
+    /* Enforce the per-key post-notification contract: a per-key callback
+     * (registered via RM_AddPostNotificationJobForKey) MUST NOT issue
+     * commands. Such a callback fires on the master, on every replica that
+     * receives the master-propagated stream, and again during AOF replay, so
+     * any keyspace mutation it triggered via RM_Call would be applied more
+     * than once — amplifying the AOF and diverging a replica from its master.
+     * The callback is meant to touch only non-replicated, non-AOF-persisted
+     * state (e.g. module key metadata via RM_SetKeyMeta). We refuse RM_Call
+     * entirely while the per-key queue is draining, rather than only write
+     * commands, because even a read can drive a lazy expiry (a propagated
+     * DEL). server.firing_keyed_post_notif_jobs is set only across that drain,
+     * so this never affects the regular RM_AddPostNotificationJob jobs, which
+     * are explicitly allowed to write. */
+    if (server.firing_keyed_post_notif_jobs) {
+        errno = ESPIPE;
+        if (error_as_call_replies) {
+            sds msg = sdsnew("RM_Call is not allowed from within a per-key "
+                             "post-notification callback");
+            reply = callReplyCreateError(msg, ctx);
+        }
+        goto cleanup;
+    }
+
     /* Call command filters */
     moduleCallCommandFilters(c);
 
@@ -9478,9 +9501,11 @@ void firePostExecutionUnitJobs(void) {
  * master-propagated commands, and during AOF replay; consistency relies on
  * each instance running the same callback over the same KSN stream, not
  * on replication of the callback's side-effects. Writes back into the
- * keyspace via RM_Call(..., "!...") will duplicate effects already in the
+ * keyspace via RM_Call(..., "!...") would duplicate effects already in the
  * AOF on replay and diverge the replica from its master in steady state.
- * The runtime does not enforce this; it is a documented contract. */
+ * To keep this from happening by accident, RM_Call is refused while this
+ * drain is running (server.firing_keyed_post_notif_jobs is set) — see the
+ * guard in RM_Call. */
 void firePostKeyedNotificationJobs(void) {
     if (server.firing_keyed_post_notif_jobs) return;
     if (listLength(modulePostKeyedNotificationJobs) == 0) return;
@@ -9559,7 +9584,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  * implementation takes its own reference and the caller retains ownership of
  * its own reference. `free_pd` may be NULL.
  *
- * Cross-phase contract (enforced by documentation, not by the runtime):
+ * Cross-phase contract:
  *  - The callback MUST only touch non-replicated, non-AOF-persisted state,
  *    such as module-attached key metadata via `RM_SetKeyMeta` /
  *    `RM_GetKeyMeta`. The same callback fires on the master, on every
@@ -9568,28 +9593,21 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  *    converge because they all run the same callback over the same KSN
  *    stream.
  *  - Touching the keyspace from inside the callback (e.g.
- *    `RM_Call(..., "!...")`) is a contract violation. On AOF replay it
+ *    `RM_Call(..., "!...")`) is a contract violation: on AOF replay it
  *    amplifies the AOF; on a replica it diverges the replica from its
- *    master. The runtime does not suppress propagation inside the per-key
- *    drain and does not enforce this contract today — modules registering
- *    per-key jobs are responsible for upholding it. A future change may
- *    add runtime checks if reviewers want stronger enforcement.
- *  - Causing a regular post-notification job to be queued from inside a
- *    per-key callback is unsupported, though the drain order no longer makes
- *    it worse. Both drain sites run the per-key queue before the regular
- *    queue: `afterCommand` drains the keyed queue (so per-key effects are
- *    observable between MULTI/EXEC sub-commands) before calling
- *    `postExecutionUnitOperations`, and `postExecutionUnitOperations` itself
- *    — reached directly on the cron-driven active-expire and eviction paths —
- *    also fires keyed before regular. Because the regular queue drains last,
- *    a regular job appended during the per-key drain (for example via an
- *    `RM_Call` whose KSN handler in another module calls
- *    `RM_AddPostNotificationJob`) is still drained before
- *    `propagatePendingCommands`, in the same replication transaction as the
- *    originating command. The case remains unsupported and falls out
- *    naturally if the keyspace-mutation contract above is upheld, since keyed
- *    callbacks would not be issuing the writes that surface the
- *    cross-queueing KSN in the first place.
+ *    master. The runtime enforces this — RM_Call is refused (returns NULL
+ *    with errno set, or a `-ERR` call-reply when CALL_REPLIES_AS_ERRORS is
+ *    requested) for the whole duration of the per-key drain. The guard is on
+ *    RM_Call specifically (the keyspace-mutation entry point); a module that
+ *    bypasses it with lower-level write APIs is still on its own.
+ *    With RM_Call refused inside the drain, a per-key callback can no longer
+ *    surface a fresh KSN (which is what could have queued a regular
+ *    post-notification job mid-drain), so the cross-queue interaction the
+ *    drain order used to have to defend against is no longer reachable
+ *    through the supported path. The drain order is still keyed-before-regular
+ *    at both sites (`afterCommand`, and `postExecutionUnitOperations` reached
+ *    directly on the cron-driven active-expire and eviction paths) so the two
+ *    queues keep a uniform relative order.
  *
  * Return REDISMODULE_OK on success and REDISMODULE_ERR if called outside a
  * keyspace-notification handler. The API is permitted on read-only replicas

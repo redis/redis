@@ -10,13 +10,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-/* This module supports both the regular post-notification API
- * (RedisModule_AddPostNotificationJob) and the per-key API
- * (RedisModule_AddPostNotificationJobForKey). A load arg —
- * "regular" or "perkey" — selects which API the keyspace handlers register
- * against (defaults to "regular" if omitted). The keyspace handlers and post-job
- * side effects are otherwise unchanged: only the registration call differs
- * between modes. */
+/* This module allow to verify 'RedisModule_AddPostNotificationJob' by registering to 3
+ * key space event:
+ * * STRINGS - the module register to all strings notifications and set post notification job
+ *             that increase a counter indicating how many times the string key was changed.
+ *             In addition, it increase another counter that counts the total changes that
+ *             was made on all strings keys.
+ * * EXPIRED - the module register to expired event and set post notification job that that
+ *             counts the total number of expired events.
+ * * EVICTED - the module register to evicted event and set post notification job that that
+ *             counts the total number of evicted events.
+ *
+ * In addition, the module register a new command, 'postnotification.async_set', that performs a set
+ * command from a background thread. This allows to check the 'RedisModule_AddPostNotificationJob' on
+ * notifications that was triggered on a background thread. */
 
 #define _BSD_SOURCE
 #define _DEFAULT_SOURCE /* For usleep */
@@ -26,9 +33,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
-
-enum api_mode { MODE_REGULAR, MODE_PERKEY };
-static int g_api_mode = MODE_REGULAR;
 
 static void KeySpace_PostNotificationStringFreePD(void *pd) {
     RedisModule_FreeString(NULL, pd);
@@ -45,42 +49,13 @@ static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
     RedisModule_FreeCallReply(rep);
 }
 
-/* Per-key-API trampolines: the per-key API's callback takes an extra `key`
- * argument; we ignore it and delegate to the regular-API callback so the
- * post-job effect stays identical across modes. */
-static void KeySpace_PostNotificationStringPerKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(key);
-    KeySpace_PostNotificationString(ctx, pd);
-}
-
-static void KeySpace_PostNotificationReadKeyPerKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(key);
-    KeySpace_PostNotificationReadKey(ctx, pd);
-}
-
-/* Register a post-notification job through the API selected by g_api_mode. */
-static int RegisterIncrJob(RedisModuleCtx *ctx, RedisModuleString *trigger_key, RedisModuleString *target) {
-    if (g_api_mode == MODE_REGULAR) {
-        return RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, target, KeySpace_PostNotificationStringFreePD);
-    } else {
-        return RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationStringPerKey, trigger_key, target, KeySpace_PostNotificationStringFreePD);
-    }
-}
-
-static int RegisterGetJob(RedisModuleCtx *ctx, RedisModuleString *trigger_key, RedisModuleString *target) {
-    if (g_api_mode == MODE_REGULAR) {
-        return RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, target, KeySpace_PostNotificationStringFreePD);
-    } else {
-        return RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationReadKeyPerKey, trigger_key, target, KeySpace_PostNotificationStringFreePD);
-    }
-}
-
 static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "expired", 7);
-    int res = RegisterIncrJob(ctx, key, new_key);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
@@ -101,7 +76,7 @@ static int KeySpace_NotificationEvicted(RedisModuleCtx *ctx, int type, const cha
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "evicted", 7);
-    int res = RegisterIncrJob(ctx, key, new_key);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
@@ -128,7 +103,7 @@ static int KeySpace_NotificationString(RedisModuleCtx *ctx, int type, const char
         new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
     }
 
-    int res = RegisterIncrJob(ctx, key, new_key);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
@@ -145,7 +120,7 @@ static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 5, strlen(key_str) - 5);;
-    int res = RegisterGetJob(ctx, key, new_key);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
     if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
@@ -170,40 +145,30 @@ static int KeySpace_NestedNotification(RedisModuleCtx *ctx, int type, const char
     return REDISMODULE_OK;
 }
 
-typedef struct AsyncSetArgs {
-    RedisModuleBlockedClient *bc;
-    RedisModuleString *key;
-} AsyncSetArgs;
-
 static void *KeySpace_PostNotificationsAsyncSetInner(void *arg) {
-    AsyncSetArgs *args = arg;
-    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(args->bc);
+    RedisModuleBlockedClient *bc = arg;
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
     RedisModule_ThreadSafeContextLock(ctx);
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, "set", "!sc", args->key, "1");
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "set", "!cc", "string_x", "1");
     RedisModule_ThreadSafeContextUnlock(ctx);
     RedisModule_ReplyWithCallReply(ctx, rep);
     RedisModule_FreeCallReply(rep);
 
-    RedisModule_UnblockClient(args->bc, NULL);
+    RedisModule_UnblockClient(bc, NULL);
     RedisModule_FreeThreadSafeContext(ctx);
-    RedisModule_FreeString(NULL, args->key);
-    RedisModule_Free(args);
     return NULL;
 }
 
 static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 2)
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
         return RedisModule_WrongArity(ctx);
 
-    AsyncSetArgs *args = RedisModule_Alloc(sizeof(*args));
-    args->bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0);
-    args->key = RedisModule_HoldString(NULL, argv[1]);
-
     pthread_t tid;
-    if (pthread_create(&tid,NULL,KeySpace_PostNotificationsAsyncSetInner,args) != 0) {
-        RedisModule_AbortBlock(args->bc);
-        RedisModule_FreeString(NULL, args->key);
-        RedisModule_Free(args);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,NULL,0);
+
+    if (pthread_create(&tid,NULL,KeySpace_PostNotificationsAsyncSetInner,bc) != 0) {
+        RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
     pthread_detach(tid);
@@ -260,108 +225,12 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     if (res == REDISMODULE_ERR) KeySpace_ServerEventPostNotificationFree(pn_ctx);
 }
 
-/* Per-key-only fixtures: behaviors with no regular-API equivalent. Registered
- * only when the module is loaded in "perkey" mode.
- *
- * NOTE: these callbacks intentionally WRITE to the keyspace (RM_Call "!...")
- * from inside a per-key job. That deliberately VIOLATES the documented
- * RM_AddPostNotificationJobForKey contract (callbacks must touch only
- * non-replicated state). The violation is the point: the keyspace write is
- * what makes the firing order/granularity observable in
- * assert_replication_stream on a standalone master. These fixtures are valid
- * ONLY on a single master; they must never be exercised under a replica or
- * AOF-consistency assertion, where they would (correctly) amplify the AOF and
- * diverge the replica. For cross-phase / AOF / replica testing use the
- * separate postnotifications_perkey_metadata.c module, whose callback touches
- * only non-replicated key metadata. */
-
-static void KeySpace_PostNotificationBatchedKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(pd);
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "batched_keys", key);
-    if (rep) RedisModule_FreeCallReply(rep);
-}
-
-static int KeySpace_NotificationBatched(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(key_str, "batched_", 8) != 0) return REDISMODULE_OK;
-    if (strcmp(key_str, "batched_keys") == 0) return REDISMODULE_OK; /* skip our sink list */
-
-    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationBatchedKey, key, NULL, NULL);
-    return REDISMODULE_OK;
-}
-
-static void KeySpace_PostNotificationHashKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(pd);
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "hash_keys", key);
-    if (rep) RedisModule_FreeCallReply(rep);
-}
-
-static int KeySpace_NotificationHash(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(key_str, "hash_", 5) != 0) return REDISMODULE_OK;
-
-    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationHashKey, key, NULL, NULL);
-    return REDISMODULE_OK;
-}
-
-static int reentrance_in_outer_callback = 0;
-
-static void KeySpace_PostNotificationReentranceProbe(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(pd);
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    RedisModuleCallReply *rep;
-
-    if (strcmp(key_str, "reentrant_outer") == 0) {
-        reentrance_in_outer_callback = 1;
-        rep = RedisModule_Call(ctx, "set", "!cc", "reentrant_inner", "1");
-        if (rep) RedisModule_FreeCallReply(rep);
-        reentrance_in_outer_callback = 0;
-        rep = RedisModule_Call(ctx, "lpush", "!cc", "reentrance_log", "outer_done");
-        if (rep) RedisModule_FreeCallReply(rep);
-    } else if (strcmp(key_str, "reentrant_inner") == 0) {
-        const char *marker = reentrance_in_outer_callback ? "REENTRANCE_DETECTED" : "inner_after_outer";
-        rep = RedisModule_Call(ctx, "lpush", "!cc", "reentrance_log", marker);
-        if (rep) RedisModule_FreeCallReply(rep);
-    }
-}
-
-static int KeySpace_NotificationReentrance(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(key_str, "reentrant_", 10) != 0) return REDISMODULE_OK;
-
-    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationReentranceProbe, key, NULL, NULL);
-    return REDISMODULE_OK;
-}
-
-static void KeySpace_PostNotificationMissKey(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-    REDISMODULE_NOT_USED(pd);
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, "lpush", "!cs", "mget_misses", key);
-    if (rep) RedisModule_FreeCallReply(rep);
-}
-
-static int KeySpace_NotificationMiss(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-
-    const char *key_str = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(key_str, "miss_", 5) != 0) return REDISMODULE_OK;
-
-    RedisModule_AddPostNotificationJobForKey(ctx, KeySpace_PostNotificationMissKey, key, NULL, NULL);
-    return REDISMODULE_OK;
-}
-
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
     if (RedisModule_Init(ctx,"postnotifications",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -371,14 +240,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     int with_key_events = 0;
-    for (int i = 0; i < argc; i++) {
-        const char *arg = RedisModule_StringPtrLen(argv[i], 0);
+    if (argc >= 1) {
+        const char *arg = RedisModule_StringPtrLen(argv[0], 0);
         if (strcmp(arg, "with_key_events") == 0) {
             with_key_events = 1;
-        } else if (strcmp(arg, "perkey") == 0) {
-            g_api_mode = MODE_PERKEY;
-        } else if (strcmp(arg, "regular") == 0) {
-            g_api_mode = MODE_REGULAR;
         }
     }
 
@@ -410,24 +275,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         }
     }
 
-    /* Per-key-only fixtures (behaviors with no regular API equivalent). */
-    if (g_api_mode == MODE_PERKEY) {
-        if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationBatched) != REDISMODULE_OK) {
-            return REDISMODULE_ERR;
-        }
-        if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_HASH, KeySpace_NotificationHash) != REDISMODULE_OK) {
-            return REDISMODULE_ERR;
-        }
-        if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationReentrance) != REDISMODULE_OK) {
-            return REDISMODULE_ERR;
-        }
-        if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_MISS, KeySpace_NotificationMiss) != REDISMODULE_OK) {
-            return REDISMODULE_ERR;
-        }
-    }
-
     if (RedisModule_CreateCommand(ctx, "postnotification.async_set", KeySpace_PostNotificationsAsyncSet,
-                                      "write", 1, 1, 1) == REDISMODULE_ERR){
+                                      "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
