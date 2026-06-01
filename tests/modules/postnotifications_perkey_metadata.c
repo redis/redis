@@ -44,6 +44,7 @@
 #include "redismodule.h"
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 static RedisModuleKeyMetaClassId meta_class_id = -1;
 
@@ -112,16 +113,18 @@ static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void 
 
 /* Per-key job that deliberately violates the contract by issuing an RM_Call.
  * The runtime must refuse it while the per-key queue is draining: RM_Call
- * returns NULL with errno set, and no write reaches the keyspace. We only
- * record that the refusal happened — we never observe a reply. Registered for
- * "probe_" keys by NotifyCallback. */
+ * returns NULL with errno == EBUSY, and no write reaches the keyspace. We only
+ * record that the refusal happened — we never observe a reply. Checking the
+ * specific errno keeps this distinct from any other reason RM_Call could
+ * return NULL. Registered for "probe_" keys by NotifyCallback. */
 static void PerKeyRMCallProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
     REDISMODULE_NOT_USED(key);
     REDISMODULE_NOT_USED(pd);
+    errno = 0;
     RedisModuleCallReply *rep = RedisModule_Call(ctx, "incr", "!c", "pkmeta_rmcall_sink");
-    if (rep == NULL) {
+    if (rep == NULL && errno == EBUSY) {
         rmcall_blocked_count++;
-    } else {
+    } else if (rep != NULL) {
         /* Contract enforcement failed to block the call. Free the reply so a
          * leak doesn't mask the real failure; the test asserts on the count. */
         RedisModule_FreeCallReply(rep);

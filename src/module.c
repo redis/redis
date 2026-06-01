@@ -6839,6 +6839,8 @@ fmterr:
  * * EACCES: Command cannot be executed, according to ACL rules
  * * ENOSPC: Write or deny-oom command is not allowed
  * * ESPIPE: Command not allowed on script mode
+ * * EBUSY: Command not allowed from within a per-key post-notification
+ *          callback (RM_AddPostNotificationJobForKey)
  *
  * Example code fragment:
  *
@@ -6920,7 +6922,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * (registered via RM_AddPostNotificationJobForKey) MUST NOT issue
      * commands. */
     if (server.firing_keyed_post_notif_jobs) {
-        errno = ESPIPE;
+        /* EBUSY, distinct from the ESPIPE used for script-mode refusals below,
+         * so a caller inspecting errno can tell this constraint apart. */
+        errno = EBUSY;
         if (error_as_call_replies) {
             sds msg = sdsnew("RM_Call is not allowed from within a per-key "
                              "post-notification callback");
@@ -9586,8 +9590,8 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  *    `RM_Call(..., "!...")`) is a contract violation: on AOF replay it
  *    amplifies the AOF; on a replica it diverges the replica from its
  *    master. The runtime enforces this — RM_Call is refused (returns NULL
- *    with errno set, or a `-ERR` call-reply when CALL_REPLIES_AS_ERRORS is
- *    requested) for the whole duration of the per-key drain. The guard is on
+ *    with errno == EBUSY, or a `-ERR` call-reply when CALL_REPLIES_AS_ERRORS
+ *    is requested) for the whole duration of the per-key drain. The guard is on
  *    RM_Call specifically (the keyspace-mutation entry point); a module that
  *    bypasses it with lower-level write APIs is still on its own.
  *    With RM_Call refused inside the drain, a per-key callback can no longer
