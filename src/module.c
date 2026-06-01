@@ -6918,17 +6918,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Enforce the per-key post-notification contract: a per-key callback
      * (registered via RM_AddPostNotificationJobForKey) MUST NOT issue
-     * commands. Such a callback fires on the master, on every replica that
-     * receives the master-propagated stream, and again during AOF replay, so
-     * any keyspace mutation it triggered via RM_Call would be applied more
-     * than once — amplifying the AOF and diverging a replica from its master.
-     * The callback is meant to touch only non-replicated, non-AOF-persisted
-     * state (e.g. module key metadata via RM_SetKeyMeta). We refuse RM_Call
-     * entirely while the per-key queue is draining, rather than only write
-     * commands, because even a read can drive a lazy expiry (a propagated
-     * DEL). server.firing_keyed_post_notif_jobs is set only across that drain,
-     * so this never affects the regular RM_AddPostNotificationJob jobs, which
-     * are explicitly allowed to write. */
+     * commands. */
     if (server.firing_keyed_post_notif_jobs) {
         errno = ESPIPE;
         if (error_as_call_replies) {

@@ -272,8 +272,7 @@ tags "modules external:skip" {
 
 # Per-key firing order / granularity on a standalone master.
 #
-# These pin the per-key firing behavior that used to be observed through
-# RM_Call writes in the replication stream. Since a per-key callback may no
+# These pin the per-key firing behavior. Since a per-key callback may no
 # longer touch the keyspace (see the no-write contract enforcement below), the
 # order and per-key granularity are observed through the module-internal fire
 # log instead.
@@ -307,12 +306,7 @@ tags "modules external:skip" {
 
 # No-write contract enforcement.
 #
-# A per-key callback fires on the master, on every replica receiving the
-# propagated stream, and again on AOF replay, so it must not mutate the
-# keyspace. The runtime enforces this: RM_Call from inside the per-key drain
-# is refused (returns NULL, errno set), and no write reaches the keyspace.
-# The "probe_" prefix registers a callback that deliberately attempts an
-# RM_Call("incr", "!c", "pkmeta_rmcall_sink").
+# A per-key callback is not allowed to emit any RM_Call.
 tags "modules external:skip" {
     test "perkey-contract: RM_Call from inside a per-key callback is refused" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
