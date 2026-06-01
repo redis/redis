@@ -9771,6 +9771,37 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
     moduleUpdateKeyspaceSubscribersTypes();
 }
 
+/* Drop any post-notification jobs still queued for this module upon unloading.
+ * A pending job holds the module pointer and a callback into the module's code;
+ * once the module is unloaded that code is gone, so a later drain would call
+ * through a dangling pointer. We don't run the callbacks here (the module is
+ * going away), we only release the privdata via free_pd and, for keyed jobs,
+ * the owned key reference. Covers both the single-shot execution-unit queue and
+ * the per-key queue. */
+void moduleUnregisterPostNotificationJobs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(modulePostExecUnitJobs, &li);
+    while ((ln = listNext(&li))) {
+        RedisModulePostExecUnitJob *job = ln->value;
+        if (job->module != module) continue;
+        if (job->free_pd) job->free_pd(job->pd);
+        listDelNode(modulePostExecUnitJobs, ln);
+        zfree(job);
+    }
+
+    listRewind(modulePostKeyedNotificationJobs, &li);
+    while ((ln = listNext(&li))) {
+        RedisModulePostKeyedNotificationJob *job = ln->value;
+        if (job->module != module) continue;
+        if (job->free_pd) job->free_pd(job->pd);
+        decrRefCount(job->key);
+        listDelNode(modulePostKeyedNotificationJobs, ln);
+        zfree(job);
+    }
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules Cluster API
  * -------------------------------------------------------------------------- */
@@ -13499,6 +13530,7 @@ void moduleUnregisterCleanup(RedisModule *module) {
     moduleFreeAuthenticatedClients(module);
     moduleUnregisterCommands(module);
     moduleUnsubscribeNotifications(module);
+    moduleUnregisterPostNotificationJobs(module);
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
