@@ -364,6 +364,11 @@ static list *modulePostExecUnitJobs;
  * call(), so each sub-command boundary inside MULTI/EXEC is observed). */
 static list *modulePostKeyedNotificationJobs;
 
+/* Set once per per-key drain cycle after we've logged a refused RM_Call, so a
+ * module that issues commands in a tight loop from its callback warns once
+ * rather than flooding the log. Reset at the start of each drain. */
+static int keyedPostNotifRMCallWarned = 0;
+
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
     rax *rax;                       /* The radix tree. */
@@ -6829,7 +6834,9 @@ fmterr:
  * NULL is returned and errno is set to the following values:
  *
  * * EBADF: wrong format specifier.
- * * EINVAL: wrong command arity.
+ * * EINVAL: wrong command arity, or the command was issued from within a
+ *           per-key post-notification callback (RM_AddPostNotificationJobForKey),
+ *           where commands are not allowed.
  * * ENOENT: command does not exist.
  * * EPERM: operation in Cluster instance with key in non local slot.
  * * EROFS: operation in Cluster instance when a write command is sent
@@ -6839,8 +6846,6 @@ fmterr:
  * * EACCES: Command cannot be executed, according to ACL rules
  * * ENOSPC: Write or deny-oom command is not allowed
  * * ESPIPE: Command not allowed on script mode
- * * EBUSY: Command not allowed from within a per-key post-notification
- *          callback (RM_AddPostNotificationJobForKey)
  *
  * Example code fragment:
  *
@@ -6922,9 +6927,20 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * (registered via RM_AddPostNotificationJobForKey) MUST NOT issue
      * commands. */
     if (server.firing_keyed_post_notif_jobs) {
-        /* EBUSY, distinct from the ESPIPE used for script-mode refusals below,
-         * so a caller inspecting errno can tell this constraint apart. */
-        errno = EBUSY;
+        /* Calling a command from within a per-key post-notification callback is
+         * a misuse of the API, so we report EINVAL. errno alone can't be
+         * distinguished from the other EINVAL cases, so we also log the precise
+         * reason for whoever is debugging the offending module — but only once
+         * per drain cycle, so a callback that loops on RM_Call can't flood the
+         * log. */
+        if (!keyedPostNotifRMCallWarned) {
+            serverLog(LL_WARNING,
+                      "RM_Call('%s') refused: commands are not allowed from "
+                      "within a per-key post-notification callback "
+                      "(RM_AddPostNotificationJobForKey).", cmdname);
+            keyedPostNotifRMCallWarned = 1;
+        }
+        errno = EINVAL;
         if (error_as_call_replies) {
             sds msg = sdsnew("RM_Call is not allowed from within a per-key "
                              "post-notification callback");
@@ -9504,6 +9520,7 @@ void firePostKeyedNotificationJobs(void) {
     if (server.firing_keyed_post_notif_jobs) return;
     if (listLength(modulePostKeyedNotificationJobs) == 0) return;
     server.firing_keyed_post_notif_jobs = 1;
+    keyedPostNotifRMCallWarned = 0;
     enterExecutionUnit(0, 0);
     while (listLength(modulePostKeyedNotificationJobs) > 0) {
         listNode *ln = listFirst(modulePostKeyedNotificationJobs);
@@ -9590,8 +9607,9 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  *    `RM_Call(..., "!...")`) is a contract violation: on AOF replay it
  *    amplifies the AOF; on a replica it diverges the replica from its
  *    master. The runtime enforces this — RM_Call is refused (returns NULL
- *    with errno == EBUSY, or a `-ERR` call-reply when CALL_REPLIES_AS_ERRORS
- *    is requested) for the whole duration of the per-key drain. The guard is on
+ *    with errno == EINVAL and a warning logged, or a `-ERR` call-reply when
+ *    CALL_REPLIES_AS_ERRORS is requested) for the whole duration of the
+ *    per-key drain. The guard is on
  *    RM_Call specifically (the keyspace-mutation entry point); a module that
  *    bypasses it with lower-level write APIs is still on its own.
  *    With RM_Call refused inside the drain, a per-key callback can no longer
