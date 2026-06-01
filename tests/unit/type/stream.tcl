@@ -3612,6 +3612,42 @@ start_server {tags {"stream"}} {
         catch {r XSETID x "1-2" } err
         set err
     } {ERR *smaller*}
+
+    test {XSETID can lower last_id below a tombstone tail and reload} {
+        # XSETID can lower max_deleted_entry_id and then lower last_id
+        # below an existing tombstone at the physical tail. This is a
+        # legitimate (if unusual) state that must still pass the stream
+        # RDB load integrity checks, which compare last_id against the
+        # last live entry rather than the physical (tombstone) tail.
+        r DEL x
+        r config set sanitize-dump-payload yes
+        r XADD x 1-1 a 1
+        r XADD x 10-10 b 2
+        r XDEL x 10-10
+        r XSETID x 10-10 MAXDELETEDID 1-1
+        r XSETID x 5-5
+        set reply [r XINFO stream x]
+        assert_equal [dict get $reply last-generated-id] "5-5"
+        assert_equal [dict get $reply max-deleted-entry-id] "1-1"
+
+        # DUMP/RESTORE forces deep_integrity_validation, exercising the
+        # last-live-entry vs last_id cross-check on the load path.
+        set dump [r DUMP x]
+        r DEL x
+        r RESTORE x 0 $dump
+        set reply [r XINFO stream x]
+        assert_equal [dict get $reply length] 1
+        assert_equal [dict get $reply last-generated-id] "5-5"
+        assert_equal [dict get $reply max-deleted-entry-id] "1-1"
+        assert_equal [r XRANGE x - +] {{1-1 {a 1}}}
+
+        # A plain reload must also keep the stream intact.
+        r debug reload
+        set reply [r XINFO stream x]
+        assert_equal [dict get $reply length] 1
+        assert_equal [dict get $reply last-generated-id] "5-5"
+        r config set sanitize-dump-payload no
+    }
 }
 
 start_server {tags {"stream"}} {

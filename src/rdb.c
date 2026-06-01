@@ -3461,10 +3461,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* The rax tail may lag behind last_id (XSETID can advance
-             * last_id past the tail, XDEL can drop the tail entry) but
-             * must never exceed it. */
-            if (streamCompareID(&rax_last_id, &s->last_id) > 0) {
+            /* last_id must be at least the last live entry, but not the
+             * physical tail: XSETID can lower last_id below a tombstone
+             * tail, so skip tombstones (length >= 1 here). */
+            streamID rax_last_live_id;
+            streamGetEdgeID(s, 0, 1, &rax_last_live_id);
+            if (streamCompareID(&rax_last_live_id, &s->last_id) > 0) {
                 rdbReportCorruptRDB("Stream last_id smaller than last entry");
                 decrRefCount(o);
                 return NULL;
