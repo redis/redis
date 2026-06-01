@@ -83,20 +83,35 @@ foreach api {regular perkey} {
 
                 # {lpush before_expired x} comes from the RedisModuleEvent_Key
                 # server event (always uses the regular post-notif queue).
-                # {incr expired} comes from the keyspace handler (regular or
-                # per-key queue depending on $api). Both APIs propagate the
-                # same stream: postExecutionUnitOperations drains regular
-                # before per-key, so the ordering between the two side-effects
-                # matches their in-process registration order.
-                assert_replication_stream $repl {
-                    {select *}
-                    {set x 1}
-                    {pexpireat x *}
-                    {multi}
-                    {del x}
-                    {lpush before_expired x}
-                    {incr expired}
-                    {exec}
+                # {incr expired} comes from the keyspace handler, on the
+                # regular queue for the regular API and on the per-key queue
+                # for the per-key API. postExecutionUnitOperations drains the
+                # per-key queue before the regular queue, so the two APIs emit
+                # the side-effects in opposite order: regular keeps the
+                # in-process registration order (lpush then incr), while
+                # per-key surfaces its keyed job first (incr then lpush).
+                if {$api eq "perkey"} {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {pexpireat x *}
+                        {multi}
+                        {del x}
+                        {incr expired}
+                        {lpush before_expired x}
+                        {exec}
+                    }
+                } else {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {pexpireat x *}
+                        {multi}
+                        {del x}
+                        {lpush before_expired x}
+                        {incr expired}
+                        {exec}
+                    }
                 }
                 close_replication_stream $repl
             }
@@ -209,17 +224,31 @@ foreach api {regular perkey} {
                 # {lpush before_evicted x} comes from the
                 # RedisModuleEvent_Key/before_evicted server event (always uses
                 # the regular post-notif queue). {incr evicted} comes from the
-                # keyspace handler (regular or per-key queue depending on
-                # $api). Both APIs propagate the same stream: regular drains
-                # before per-key inside postExecutionUnitOperations.
-                assert_replication_stream $repl {
-                    {select *}
-                    {set x 1}
-                    {multi}
-                    {del x}
-                    {lpush before_evicted x}
-                    {incr evicted}
-                    {exec}
+                # keyspace handler, on the regular queue for the regular API
+                # and on the per-key queue for the per-key API.
+                # postExecutionUnitOperations drains the per-key queue before
+                # the regular queue, so the two APIs emit the side-effects in
+                # opposite order (see "Test active expire").
+                if {$api eq "perkey"} {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {multi}
+                        {del x}
+                        {incr evicted}
+                        {lpush before_evicted x}
+                        {exec}
+                    }
+                } else {
+                    assert_replication_stream $repl {
+                        {select *}
+                        {set x 1}
+                        {multi}
+                        {del x}
+                        {lpush before_evicted x}
+                        {incr evicted}
+                        {exec}
+                    }
                 }
                 close_replication_stream $repl
             } {} {needs:config-maxmemory}

@@ -3849,25 +3849,25 @@ void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
-    /* At this site the regular queue drains first and the keyed queue runs
-     * after it. We're past every command's afterCommand drain by now (no
-     * more sub-commands coming), so the per-sub-command ordering that
-     * afterCommand needs doesn't apply here. Keeping regular first matches
-     * the in-process registration order of the existing API and gives
-     * identical propagated streams between the two APIs for the cron-driven
-     * paths (active-expire in expire.c, eviction in evict.c — both call us
-     * directly after their own enter/exitExecutionUnit).
+    /* Drain the keyed queue first, then the regular queue, matching the order
+     * on the normal command path: afterCommand drains the keyed queue
+     * unconditionally (so per-key effects are observable between MULTI/EXEC
+     * sub-commands) before calling us, so keyed callbacks run before regular
+     * ones there. Firing keyed-first here too keeps that relative order
+     * uniform across both drain sites — this site and the cron-driven paths
+     * (active-expire in expire.c, eviction in evict.c — both call us directly
+     * after their own enter/exitExecutionUnit).
      *
-     * Cross-queue registration during these drains is unsupported: a keyed
-     * callback that causes a regular job to be queued (e.g. via a KSN
-     * surfaced from its RM_Call landing in another module's handler) leaves
-     * that regular job in the queue past propagatePendingCommands, so its
-     * writes land in a separate replication transaction. The contract
-     * around what keyed callbacks may do (documented on
-     * RM_AddPostNotificationJobForKey in module.c) is what keeps this from
-     * triggering in practice; modules are responsible for upholding it. */
-    firePostExecutionUnitJobs();
+     * Draining the regular queue last also means a regular job that a keyed
+     * callback happens to queue (e.g. via a KSN surfaced from its RM_Call
+     * landing in another module's handler) is still drained before
+     * propagatePendingCommands, in the same replication transaction as the
+     * originating command, rather than stranded in a separate one. That
+     * cross-queue case remains unsupported and is prevented in practice by
+     * the no-write contract documented on RM_AddPostNotificationJobForKey in
+     * module.c */
     firePostKeyedNotificationJobs();
+    firePostExecutionUnitJobs();
 
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
