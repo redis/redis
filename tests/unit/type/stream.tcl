@@ -3644,10 +3644,10 @@ start_server {tags {"stream"}} {
         # A plain reload must also keep the stream intact.
         r debug reload
         set reply [r XINFO stream x]
+        r config set sanitize-dump-payload no
         assert_equal [dict get $reply length] 1
         assert_equal [dict get $reply last-generated-id] "5-5"
-        r config set sanitize-dump-payload no
-    }
+    } {} {external:skip needs:debug}
 }
 
 start_server {tags {"stream"}} {

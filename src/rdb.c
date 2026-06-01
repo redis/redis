@@ -3292,7 +3292,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
 
         uint64_t live_entries = 0;
-        unsigned char *head_lp = NULL, *tail_lp = NULL;
+        unsigned char *head_lp = NULL;
         streamID head_master = {0,0}, tail_master = {0,0};
         while(listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
@@ -3358,9 +3358,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             /* Listpacks are serialized in rax-key ascending order
              * (rdbSaveStream walks the rax via raxSeek "^"+raxNext),
              * so each master_id must be strictly greater than the
-             * previous one. Enforcing this makes head_lp/tail_lp
-             * reliably the rax head/tail nodes, which the post-trailer
-             * ID cross-checks below depend on. */
+             * previous one. Enforcing this makes head_lp reliably the
+             * rax head node, which the post-trailer ID cross-checks
+             * below depend on. */
             streamID this_master;
             streamDecodeID(nodekey, &this_master);
             if (head_lp != NULL && streamCompareID(&this_master, &tail_master) <= 0) {
@@ -3375,7 +3375,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 head_lp = lp;
             }
             tail_master = this_master;
-            tail_lp = lp;
 
             /* Insert the key in the radix tree. */
             int retval = raxTryInsert(s->rax,
@@ -3452,10 +3451,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         } else if (deep_integrity_validation) {
             /* lpGetEdgeStreamID walks the listpack, so only run after
              * deep integrity validation has confirmed it's well-formed. */
-            streamID rax_first_id, rax_last_id;
-            if (!lpGetEdgeStreamID(head_lp, 1, &head_master, &rax_first_id) ||
-                !lpGetEdgeStreamID(tail_lp, 0, &tail_master, &rax_last_id))
-            {
+            streamID rax_first_id;
+            if (!lpGetEdgeStreamID(head_lp, 1, &head_master, &rax_first_id)) {
                 rdbReportCorruptRDB("Stream edge entries unreadable");
                 decrRefCount(o);
                 return NULL;
