@@ -342,8 +342,10 @@ static int isConfigRuntimeModified(const char *name) {
     return found;
 }
 
-/* Empty the runtime-modified set. Called after a successful CONFIG REWRITE. */
-static void clearRuntimeModifiedConfigs(void) {
+/* Empty the runtime-modified set. Called after a successful CONFIG REWRITE,
+ * and also at the end of startup module loading (those marks reflect file-
+ * provided values, not runtime mutations). */
+void clearRuntimeModifiedConfigs(void) {
     dictEmpty(runtimeModifiedConfigs, NULL);
 }
 
@@ -817,7 +819,13 @@ int performModuleConfigSetFromName(sds name, sds value, const char **err) {
         *err = "Config name not found";
         return 0;
     }
-    return performInterfaceSet(config, value, err);
+    int res = performInterfaceSet(config, value, err);
+    /* LOADEX runs after RegisterXxxConfig but before the registered default
+     * has been pushed to the module's privdata, so a "false" res==2 (no-op)
+     * is possible when the LOADEX value matches the privdata's C-default 0.
+     * The user explicitly passed the value, so mark on any successful set. */
+    if (res) markStandardConfigRuntimeModified(config);
+    return res;
 }
 
 /* Find config by name and attempt to set it to its default value. */
@@ -996,8 +1004,7 @@ void configSetCommand(client *c) {
     }
 
     /* All sets succeeded and were applied: mark the configs that actually
-     * changed as runtime-modified, so CONFIG REWRITE in runtime-modified
-     * mode will emit them. Sticky: never cleared once set. */
+     * changed as runtime-modified. */
     for (i = 0; i < config_count; i++) {
         if (config_changed[i]) markStandardConfigRuntimeModified(set_configs[i]);
     }

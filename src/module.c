@@ -13192,6 +13192,10 @@ void moduleLoadFromQueue(void) {
         serverLog(LL_WARNING, "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting");
         exit(1);
     }
+
+    /* Startup module loading shares performModuleConfigSetFromName with MODULE
+     * LOADEX, which marks configs runtime-modified. Drop those marks here. */
+    clearRuntimeModifiedConfigs();
 }
 
 void moduleFreeModuleStructure(struct RedisModule *module) {

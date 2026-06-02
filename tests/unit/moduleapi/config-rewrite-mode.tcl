@@ -59,3 +59,44 @@ start_server {tags {"modules config-rewrite-mode external:skip"} overrides {conf
         assert_match "*timeout 30*" [crm_read_config_file]
     }
 }
+
+start_server {tags {"modules config-rewrite-mode external:skip"} overrides {config-rewrite-mode runtime-modified enable-module-command yes}} {
+    test {runtime-modified - MODULE LOADEX CONFIG values are persisted} {
+        # LOADEX applies module configs through performModuleConfigSetFromName,
+        # which must mark them runtime-modified so REWRITE emits them — else
+        # on restart the module loads with defaults and the user's LOADEX
+        # values are silently lost.
+        r module loadex $testmodule CONFIG moduleconfigs.mutable_bool no \
+                                    CONFIG moduleconfigs.string customstr
+        # Sanity: values are in fact set in-memory after LOADEX.
+        assert_equal {moduleconfigs.mutable_bool no} [r config get moduleconfigs.mutable_bool]
+        assert_equal {moduleconfigs.string customstr} [r config get moduleconfigs.string]
+        r config rewrite
+        set content [crm_read_config_file]
+        assert_match "*loadmodule*moduleconfigs.so*" $content
+        assert_match "*moduleconfigs.mutable_bool no*" $content
+        assert_match "*moduleconfigs.string*customstr*" $content
+    }
+}
+
+# Module loaded via the startup config file (with module-config directives
+# also in the file): the startup load path shares performModuleConfigSetFromName
+# with LOADEX, but startup-loaded values must NOT be marked runtime-modified —
+# otherwise a fresh server with no runtime changes triggers a spurious REWRITE.
+start_server [list \
+        overrides {config-rewrite-mode runtime-modified enable-module-command yes} \
+        config_lines [list \
+            loadmodule [file normalize tests/modules/moduleconfigs.so] \
+            moduleconfigs.mutable_bool no] \
+        tags {"modules config-rewrite-mode external:skip"}] {
+    test {runtime-modified - startup module-config values do not mark runtime-modified} {
+        # Sanity: the startup value landed in memory.
+        assert_equal {moduleconfigs.mutable_bool no} [r config get moduleconfigs.mutable_bool]
+        # No runtime mutations occurred. A REWRITE should be a no-op — the
+        # short-circuit should fire and the file's mtime should not bump.
+        after 1100
+        set mtime_before [file mtime [srv 0 config_file]]
+        r config rewrite
+        assert_equal $mtime_before [file mtime [srv 0 config_file]]
+    }
+}
