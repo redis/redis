@@ -1886,9 +1886,7 @@ int rewriteConfig(char *path, int force_write) {
     newcontent = rewriteConfigGetContentFromState(state);
     retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
 
-    /* On success, drop the runtime-modified tracking state — the file now
-     * reflects every pending change. On failure we keep the state so the
-     * next REWRITE attempt persists what's still pending. */
+    /* On success, drop the runtime-modified tracking state */
     if (retval == 0) {
         clearRuntimeModifiedConfigs();
         server.acl_modified = 0;
@@ -2775,6 +2773,10 @@ int updateRequirePass(const char **err) {
      * additionally is to remember the cleartext password in this
      * case, for backward compatibility with Redis <= 5. */
     ACLUpdateDefaultUserPassword(server.requirepass);
+    /* The default user's ACL just changed; make sure CONFIG REWRITE in
+     * runtime-modified mode re-emits the user list to keep the file
+     * consistent with the in-memory state. */
+    server.acl_modified = 1;
     return 1;
 }
 

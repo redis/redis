@@ -140,6 +140,22 @@ start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewri
     }
 }
 
+start_server [list \
+        overrides {config-rewrite-mode runtime-modified} \
+        config_lines [list user "default on nopass ~* &* +@all"] \
+        tags {"config-rewrite-mode external:skip"}] {
+    test {runtime-modified - CONFIG SET requirepass keeps user default consistent in file} {
+        r config set requirepass newpass
+        r config rewrite
+        set content [crm_read_config_file]
+        assert_match "*requirepass*newpass*" $content
+        # The stale `user default on nopass` line must not survive: either
+        # the rewrite re-emits user default with the new password, or drops
+        # the original line. Either is fine; a passive `nopass` line is not.
+        assert_equal 0 [regexp {(^|\n)user default on nopass} $content]
+    }
+}
+
 start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewrite-mode runtime-modified}} {
     test {runtime-modified - DELUSER of non-existent user does not set acl_modified} {
         set deleted [r acl deluser ghost-user]
