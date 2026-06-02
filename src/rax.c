@@ -529,9 +529,7 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
  * i.e. no rax mutation happened between raxFindLink() and the current
  * raxInsertAt(). Returns 1 if the link is still valid, 0 otherwise.
  * Used only from a debugAssert(). */
-static int raxLinkStillValid(rax *rax, unsigned char *s, size_t len,
-                             raxNodeLink *link)
-{
+static int raxLinkStillValid(rax *rax, unsigned char *s, size_t len, raxNodeLink *link) {
     raxNode *stopnode, **parentlink;
     int splitpos = 0;
     size_t consumed = raxLowWalk(rax,s,len,&stopnode,&parentlink,&splitpos,NULL);
