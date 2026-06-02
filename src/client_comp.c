@@ -653,6 +653,7 @@ int clientCreateCompressionState(client *c, compressionDirection dir) {
 
         if (st->type->init_compress(st, c->compression_level) == -1) {
             compressionStateDestroy(c->compression_state);
+            c->compression_state = NULL;
             return 0;
         }
 
@@ -665,6 +666,7 @@ int clientCreateCompressionState(client *c, compressionDirection dir) {
 
         if (st->type->init_decompress(st) == -1) {
             compressionStateDestroy(c->compression_state);
+            c->compression_state = NULL;
             return 0;
         }
  
