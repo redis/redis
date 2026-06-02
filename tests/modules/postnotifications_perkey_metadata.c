@@ -33,10 +33,7 @@ static RedisModuleKeyMetaClassId meta_class_id = -1;
 static long long fire_count = 0;
 
 /* Key names the job fired for, in order. Module-internal like fire_count.
- * dbsize_log records the DB size observed at the moment each job fired, so a
- * test can tell whether jobs fire between sub-commands (size grows 1,2,3...)
- * or are batched at the end of an execution unit (size already at its final
- * value on every firing). */
+ * dbsize_log records the DB size observed at the moment each job fired. */
 #define FIRELOG_CAP 256
 static char *fire_log[FIRELOG_CAP];
 static long long dbsize_log[FIRELOG_CAP];
