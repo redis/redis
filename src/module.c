@@ -9483,9 +9483,15 @@ void firePostExecutionUnitJobs(void) {
     exitExecutionUnit();
 }
 
-
+/* Drain the keyed post-notification jobs queued during the current call().
+ * Invoked at the tail of every call() (see afterCommand), so callbacks fire
+ * between sub-commands inside MULTI/EXEC.
+ *
+ * Also invoked from the AOF replay loop in loadSingleAppendOnlyFile after
+ * each single command
+ */
 void firePostKeyedNotificationJobs(void) {
-    /* Reentrance guard, avoid recusive calls */
+    /* Reentrance guard, avoid recursive calls */
     if (server.firing_keyed_post_notif_jobs) return;
     if (listLength(modulePostKeyedNotificationJobs) == 0) return;
     server.firing_keyed_post_notif_jobs = 1;
