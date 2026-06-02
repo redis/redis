@@ -524,6 +524,24 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
     return i;
 }
 
+#ifdef DEBUG_ASSERTIONS
+/* Re-walk the tree and verify `link` still matches the current state,
+ * i.e. no rax mutation happened between raxFindLink() and the current
+ * raxInsertAt(). Returns 1 if the link is still valid, 0 otherwise.
+ * Used only from a debugAssert(). */
+static int raxLinkStillValid(rax *rax, unsigned char *s, size_t len,
+                             raxNodeLink *link)
+{
+    raxNode *stopnode, **parentlink;
+    int splitpos = 0;
+    size_t consumed = raxLowWalk(rax,s,len,&stopnode,&parentlink,&splitpos,NULL);
+    return stopnode == link->stopnode &&
+           parentlink == link->parentlink &&
+           consumed == link->consumed &&
+           splitpos == link->splitpos;
+}
+#endif
+
 /* Commit an insert at the position recorded in `link`. The link must
  * have come from an immediately-preceding raxFindLink() on (rax, s, len)
  * with no intervening rax mutation.
@@ -549,6 +567,10 @@ int raxInsertAt(rax *rax, unsigned char *s, size_t len, void *data, void **old, 
                                when h->iscompr. */
     raxNode *h = link->stopnode, **parentlink = link->parentlink;
     size_t dummy, *alloc_size = &dummy;
+
+    /* The link must reflect the current tree: no rax mutation is allowed
+     * between the raxFindLink() that produced it and this commit. */
+    debugAssert(raxLinkStillValid(rax,s,len,link));
 
     if (rax->alloc_size) alloc_size = rax->alloc_size;
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
