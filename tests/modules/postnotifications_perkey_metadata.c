@@ -1,37 +1,18 @@
-/* Test module for RM_AddPostNotificationJobForKey firing across phases.
+/* Test module for RM_AddPostNotificationJobForKey.
  *
- * Used by tests/unit/moduleapi/postnotifications_perkey_aof_repl.tcl. The
- * module exercises the contract that a per-key post-notification callback
- * MUST only touch non-replicated, non-AOF-persisted state — here, module
- * key metadata. This lets the same callback fire on a master, on a replica
- * receiving master-propagated commands, and during AOF replay, with each
- * instance maintaining its per-key state independently.
- *
- * Subscribes to KSN events for STRING / HASH / GENERIC / EXPIRED / EVICTED.
- * For each notification the KSN handler enqueues a per-key job; the job
- * later attaches metadata via RM_SetKeyMeta. A module-internal counter
- * (NOT a Redis key — to avoid AOF / replication pollution) records how
- * many times the per-key job actually ran.
+ * On each KSN event the handler enqueues a per-key job that attaches module
+ * key metadata via RM_SetKeyMeta. Metadata is not in the AOF/RDB and is not
+ * replicated, so its presence after a reload proves the callback re-ran. Keys
+ * with the "probe_" prefix instead enqueue a job that attempts a (forbidden)
+ * RM_Call, to check the runtime refuses it.
  *
  * Commands:
- *   pkmeta.getmeta <key>      - Return the metadata string, or nil.
- *   pkmeta.firecount          - Return the module-internal fire counter.
- *   pkmeta.firelog            - Return the ordered list of key names the
- *                               per-key job fired for since the last reset.
- *                               Lets a test observe firing order / per-key
- *                               granularity without writing to the keyspace.
- *   pkmeta.rmcall_blocked     - Return how many times an RM_Call issued from
- *                               inside a per-key callback was refused by the
- *                               runtime (the no-write contract enforcement).
- *   pkmeta.reset              - Zero the fire counter, the RM_Call-blocked
- *                               counter, and clear the fire log.
- *   pkmeta.try_outside        - Call RM_AddPostNotificationJobForKey from
- *                               outside a KSN handler; reply OK/ERR for the
- *                               negative-coverage test.
- *
- * Keys with the "probe_" prefix register a callback that deliberately tries
- * RM_Call (a contract violation) to verify the runtime refuses it; all other
- * keys register the metadata callback.
+ *   pkmeta.getmeta <key>   - metadata string, or nil
+ *   pkmeta.firecount       - how many times the per-key job ran
+ *   pkmeta.firelog         - key names the job fired for, in order
+ *   pkmeta.rmcall_blocked  - how many RM_Call attempts were refused
+ *   pkmeta.reset           - zero the counters and clear the log
+ *   pkmeta.try_outside     - call the API outside a KSN handler (must fail)
  *
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -48,15 +29,10 @@
 
 static RedisModuleKeyMetaClassId meta_class_id = -1;
 
-/* Module-internal counter — kept out of the keyspace on purpose so it is
- * neither replicated nor AOF-persisted. Tests assert on it to confirm the
- * per-key callback actually ran. */
+/* Module-internal (not a Redis key, so not replicated/persisted). */
 static long long fire_count = 0;
 
-/* Ordered log of the key names the per-key job fired for, recorded in
- * submission/firing order. Also module-internal (not a Redis key), so tests
- * can assert firing order and per-key granularity — e.g. one entry per key on
- * a multi-key command — without the callback ever touching the keyspace. */
+/* Key names the job fired for, in order. Module-internal like fire_count. */
 #define FIRELOG_CAP 256
 static char *fire_log[FIRELOG_CAP];
 static int fire_log_len = 0;
@@ -70,8 +46,7 @@ static void FireLogClear(void) {
     fire_log_len = 0;
 }
 
-/* Counts RM_Call attempts from inside a per-key callback that the runtime
- * refused. Proves the no-write contract is enforced, not merely documented. */
+/* RM_Call attempts from inside a per-key callback that the runtime refused. */
 static long long rmcall_blocked_count = 0;
 
 static void MetaFreeCallback(const char *keyname, uint64_t meta) {
@@ -79,9 +54,7 @@ static void MetaFreeCallback(const char *keyname, uint64_t meta) {
     if (meta != 0) free((char *)meta);
 }
 
-/* Per-key post-notification job: attaches a "notified" string as metadata.
- * Runs at the tail of the originating command (or sub-command for
- * MULTI/EXEC), outside the KSN handler stack. */
+/* Per-key job: attaches a "notified" string as metadata. */
 static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
     REDISMODULE_NOT_USED(pd);
     if (meta_class_id < 0) return;
@@ -111,12 +84,9 @@ static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void 
     RedisModule_CloseKey(k);
 }
 
-/* Per-key job that deliberately violates the contract by issuing an RM_Call.
- * The runtime must refuse it while the per-key queue is draining: RM_Call
- * returns NULL with errno == EINVAL, and no write reaches the keyspace. We only
- * record that the refusal happened — we never observe a reply. The RM_Call here
- * is well-formed (valid command, arity and fmt), so EINVAL can only come from
- * the per-key guard. Registered for "probe_" keys by NotifyCallback. */
+/* Per-key job that issues a (forbidden) RM_Call. The runtime must refuse it:
+ * the well-formed call returns NULL with errno == EINVAL, so EINVAL can only
+ * come from the per-key guard. Registered for "probe_" keys. */
 static void PerKeyRMCallProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
     REDISMODULE_NOT_USED(key);
     REDISMODULE_NOT_USED(pd);
@@ -125,16 +95,12 @@ static void PerKeyRMCallProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, vo
     if (rep == NULL && errno == EINVAL) {
         rmcall_blocked_count++;
     } else if (rep != NULL) {
-        /* Contract enforcement failed to block the call. Free the reply so a
-         * leak doesn't mask the real failure; the test asserts on the count. */
+        /* Call was not blocked; free the reply (test asserts on the count). */
         RedisModule_FreeCallReply(rep);
     }
 }
 
-/* KSN handler: defers SetKeyMeta into a per-key job rather than calling it
- * inline. This is the path under test — the per-key API is what makes the
- * write happen at a safe firing point, including during AOF replay and on
- * a replica receiving propagated commands. */
+/* KSN handler: enqueues a per-key job instead of writing inline. */
 static int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                           RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
@@ -196,8 +162,7 @@ static int ResetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-/* Calls RM_AddPostNotificationJobForKey from outside a KSN handler — must
- * return REDISMODULE_ERR. Used by the negative coverage test. */
+/* Calls the API outside a KSN handler — must return REDISMODULE_ERR. */
 static int TryOutsideCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
     int rc = RedisModule_AddPostNotificationJobForKey(ctx, PerKeyMetadataJob,
