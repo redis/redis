@@ -376,7 +376,6 @@ start_multiple_servers 3 [list overrides $base_conf] {
 
 # Test 2: rebalance with --user but no -a (the bug case)
 start_multiple_servers 3 [list overrides $base_conf] {
-
     set node0 [srv 0 client]
 
     test {Create a 3 node cluster} {
