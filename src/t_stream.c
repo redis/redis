@@ -2035,7 +2035,19 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
                                            boundaries, just the entries. */
 #define STREAM_RWR_HISTORY (1<<2)       /* Only serve consumer local PEL. */
 #define STREAM_RWR_CLAIMED (1<<3)       /* Only serve claimed entries from PEL. */
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount, long long maxsize, size_t emitted_before) {
+size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
+    streamID *start = args->start;
+    streamID *end = args->end;
+    size_t count = args->count;
+    int rev = args->rev;
+    long long min_idle_time = args->min_idle_time;
+    streamCG *group = args->group;
+    streamConsumer *consumer = args->consumer;
+    int flags = args->flags;
+    streamPropInfo *spi = args->spi;
+    unsigned long *propCount = args->propCount;
+    long long maxsize = args->maxsize;
+    size_t emitted_before = args->emitted_before;
     void *arraylen_ptr = NULL;
     size_t arraylen = 0;
     streamIterator si;
@@ -2349,8 +2361,11 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
-        if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
-                                 STREAM_RWR_RAWENTRIES,NULL,NULL,0,0) == 0)
+        streamReplyRangeArgs rawargs = {
+            .start = &thisid, .end = &thisid, .count = 1,
+            .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
+        };
+        if (streamReplyWithRange(c,s,&rawargs) == 0)
         {
             /* Note that we may have a not acknowledged entry in the PEL
              * about a message that's no longer here because was removed
@@ -2725,7 +2740,11 @@ void xrangeGenericCommand(client *c, int rev) {
         if (count == -1) count = 0;
         if (server.memory_tracking_enabled)
             old_alloc = kvobjAllocSize(kv);
-        streamReplyWithRange(c,s,&startid,&endid,count,rev,-1,NULL,NULL,0,NULL,NULL,0,0);
+        streamReplyRangeArgs args = {
+            .start = &startid, .end = &endid, .count = count,
+            .rev = rev, .min_idle_time = -1,
+        };
+        streamReplyWithRange(c,s,&args);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     }
@@ -3096,10 +3115,14 @@ void xreadCommand(client *c) {
                 if (count == 0 || remaining < (size_t)count)
                     stream_count = remaining;
             }
-            total_entries += streamReplyWithRange(c,s,&start,NULL,stream_count,0,
-                                 min_idle_time, groups ? groups[i] : NULL,
-                                 consumer, flags, &spi, &propCount,
-                                 maxsize, total_entries);
+            streamReplyRangeArgs args = {
+                .start = &start, .count = stream_count,
+                .min_idle_time = min_idle_time,
+                .group = groups ? groups[i] : NULL, .consumer = consumer,
+                .flags = flags, .spi = &spi, .propCount = &propCount,
+                .maxsize = maxsize, .emitted_before = total_entries,
+            };
+            total_entries += streamReplyWithRange(c,s,&args);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
@@ -4645,7 +4668,11 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,-1,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL,0,0) == 1);
+                streamReplyRangeArgs rawargs = {
+                .start = &id, .end = &id, .count = 1,
+                .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
+            };
+            serverAssert(streamReplyWithRange(c,o->ptr,&rawargs) == 1);
             }
             arraylen++;
 
@@ -4837,7 +4864,11 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,-1,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL,0,0) == 1);
+            streamReplyRangeArgs rawargs = {
+                .start = &id, .end = &id, .count = 1,
+                .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
+            };
+            serverAssert(streamReplyWithRange(c,o->ptr,&rawargs) == 1);
         }
         arraylen++;
         count--;
@@ -5204,19 +5235,28 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
         start.ms = start.seq = 0;
         end.ms = end.seq = UINT64_MAX;
         addReplyBulkCString(c,"first-entry");
-        emitted = streamReplyWithRange(c,s,&start,&end,1,0,-1,NULL,NULL,
-                                       STREAM_RWR_RAWENTRIES,NULL,NULL,0,0);
+        streamReplyRangeArgs firstargs = {
+            .start = &start, .end = &end, .count = 1,
+            .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
+        };
+        emitted = streamReplyWithRange(c,s,&firstargs);
         if (!emitted) addReplyNull(c);
         addReplyBulkCString(c,"last-entry");
-        emitted = streamReplyWithRange(c,s,&start,&end,1,1,-1,NULL,NULL,
-                                       STREAM_RWR_RAWENTRIES,NULL,NULL,0,0);
+        streamReplyRangeArgs lastargs = {
+            .start = &start, .end = &end, .count = 1, .rev = 1,
+            .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
+        };
+        emitted = streamReplyWithRange(c,s,&lastargs);
         if (!emitted) addReplyNull(c);
     } else {
         /* XINFO STREAM <key> FULL [COUNT <count>] */
 
         /* Stream entries */
         addReplyBulkCString(c,"entries");
-        streamReplyWithRange(c,s,NULL,NULL,count,0,-1,NULL,NULL,0,NULL,NULL,0,0);
+        streamReplyRangeArgs entriesargs = {
+            .count = count, .min_idle_time = -1,
+        };
+        streamReplyWithRange(c,s,&entriesargs);
 
         /* Consumer groups */
         addReplyBulkCString(c,"groups");
