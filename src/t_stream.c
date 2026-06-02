@@ -2762,10 +2762,8 @@ void xreadCommand(client *c) {
     long long min_idle_time = -1; /* -1 means, no IDLE argument given. */
     long long timeout = -1; /* -1 means, no BLOCK argument given. */
     long long count = 0;
-    long long maxcount = 0; /* 0 means, no MAXCOUNT argument given. Caps the
-                               total entries across all streams. */
-    long long maxsize = 0;  /* 0 means, no MAXSIZE argument given. Caps the
-                               total reply size, in bytes, across all streams. */
+    long long maxcount = 0; /* 0 means, no MAXCOUNT argument given. */
+    long long maxsize = 0;  /* 0 means, no MAXSIZE argument given. */
     int streams_count = 0;
     int streams_arg = 0;
     int noack = 0;          /* True if NOACK option was specified. */
