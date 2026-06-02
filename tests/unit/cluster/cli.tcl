@@ -340,7 +340,6 @@ test {Migrate the last slot away from a node using redis-cli} {
 
 # Test 1: rebalance without --user and without -a
 start_multiple_servers 3 [list overrides $base_conf] {
-
     set node0 [srv 0 client]
 
     test {Create a 3 node cluster} {
