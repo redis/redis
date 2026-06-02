@@ -53,7 +53,7 @@ Redis excels in various applications, including:
 - **Distributed Session Store:** Offers flexible session data modeling (string, JSON, hash).
 - **Data Structure Server:** Provides low-level data structures (strings, lists, sets, hashes, sorted sets, JSON, etc.) with high-level semantics (counters, queues, leaderboards, rate limiters) and supports transactions & scripting.
 - **NoSQL Data Store:** Key-value, document, and time series data storage.
-- **Search and Query Engine:** Indexing for hash/JSON documents, supporting vector search, full-text search, geospatial queries, ranking, and aggregations via Redis Query Engine.
+- **Search and Query Engine:** Indexing for hash/JSON documents, supporting vector search, full-text search, geospatial queries, ranking, and aggregations via Redis Search.
 - **Event Store & Message Broker:** Implements queues (lists), priority queues (sorted sets), event deduplication (sets), streams, and pub/sub with probabilistic stream processing capabilities.
 - **Vector Store for GenAI:** Integrates with AI applications (e.g. LangGraph, mem0) for short-term memory, long-term memory, LLM response caching (semantic caching), and retrieval augmented generation (RAG).
 - **Real-Time Analytics:** Powers personalization, recommendations, fraud detection, and risk assessment.
@@ -172,9 +172,10 @@ Redis provides a variety of data types, processing engines, and capabilities to 
 **Important:** Features marked with an asterisk (\*) require Redis to be compiled with the `BUILD_WITH_MODULES=yes` flag when [building Redis from source](#build-redis-from-source)
 
 - [**String:**](https://redis.io/docs/latest/develop/data-types/strings) Sequences of bytes, including text, serialized objects, and binary arrays used for caching, counters, and bitwise operations.
-- [**JSON:**](https://redis.io/docs/latest/develop/data-types/json/) Nested JSON documents that are indexed and searchable using JSONPath expressions and with [Redis Query Engine](https://redis.io/docs/latest/develop/interact/search-and-query/)
+- [**JSON:**](https://redis.io/docs/latest/develop/data-types/json/) Nested JSON documents that are indexed and searchable using JSONPath expressions and with [Redis Search](https://redis.io/docs/latest/develop/ai/search-and-query/)
+- [**Array:**](https://redis.io/docs/latest/develop/data-types/arrays/) Sparse, index-addressable collection of string values
 - [**Hash:**](https://redis.io/docs/latest/develop/data-types/hashes/) Field-value maps used to represent basic objects and store groupings of key-value pairs with support for [hash field expiration (TTL)](https://redis.io/docs/latest/develop/data-types/hashes/#field-expiration)
-- [**Redis Query Engine:**](https://redis.io/docs/latest/develop/interact/search-and-query/) Use Redis as a document database, a vector database, a secondary index, and a search engine. Define indexes for hash and JSON documents and then use a rich query language for vector search, full-text search, geospatial queries, and aggregations.
+- [**Redis Search:**](https://redis.io/docs/latest/develop/ai/search-and-query/) Use Redis as a document database, a vector database, a secondary index, and a search engine. Define indexes for hash and JSON documents and then use a rich query language for vector search, full-text search, geospatial queries, and aggregations.
 - [**List:**](https://redis.io/docs/latest/develop/data-types/lists/) Linked lists of string values used as stacks, queues, and for queue management.
 - [**Set:**](https://redis.io/docs/latest/develop/data-types/sets/) Unordered collection of unique strings used for tracking unique items, relations, and common set operations (intersections, unions, differences).
 - [**Sorted set:**](https://redis.io/docs/latest/develop/data-types/sorted-sets/) Collection of unique strings ordered by an associated score used for leaderboards and rate limiters.
@@ -272,7 +273,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -338,7 +339,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -392,7 +393,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -449,7 +450,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -568,7 +569,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -685,7 +686,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -757,7 +758,6 @@ Tested with the following Docker images:
    export HOMEBREW_PREFIX="$(brew --prefix)"
    export BUILD_WITH_MODULES=yes
    export BUILD_TLS=yes
-   export DISABLE_WERRORS=yes
    PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"

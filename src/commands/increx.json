@@ -1,0 +1,138 @@
+{
+    "INCREX": {
+        "summary": "Increments the numeric value of a key by a number and sets its expiration time. Uses 0 as initial value if the key doesn't exist.",
+        "complexity": "O(1)",
+        "group": "string",
+        "since": "8.8.0",
+        "arity": -2,
+        "function": "increxCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STRING"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "description": "the value of the key after the increment",
+                    "type": "number"
+                },
+                {
+                    "description": "the actual increment",
+                    "type": "number"
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "increment",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "float",
+                        "type": "double",
+                        "token": "BYFLOAT"
+                    },
+                    {
+                        "name": "integer",
+                        "type": "integer",
+                        "token": "BYINT"
+                    }
+                ]
+            },
+            {
+                "name": "saturate",
+                "token": "SATURATE",
+                "type": "pure-token",
+                "optional": true,
+                "summary": "Saturate the result to LBOUND/UBOUND (or the type limits when no explicit bound is given) when out of bounds. Without this option, out-of-bounds operations are rejected and reply [current_value, 0]."
+            },
+            {
+                "name": "lowerbound",
+                "token": "LBOUND",
+                "type": "string",
+                "summary": "Integer when used with BYINT, floating-point when used with BYFLOAT.",
+                "optional": true
+            },
+            {
+                "name": "upperbound",
+                "token": "UBOUND",
+                "type": "string",
+                "summary": "Integer when used with BYINT, floating-point when used with BYFLOAT.",
+                "optional": true
+            },
+            {
+                "name": "expiration",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "seconds",
+                        "type": "integer",
+                        "token": "EX"
+                    },
+                    {
+                        "name": "milliseconds",
+                        "type": "integer",
+                        "token": "PX"
+                    },
+                    {
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
+                        "token": "EXAT"
+                    },
+                    {
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
+                        "token": "PXAT"
+                    },
+                    {
+                        "name": "persist",
+                        "type": "pure-token",
+                        "token": "PERSIST"
+                    }
+                ]
+            },
+            {
+                "name": "enx",
+                "type": "pure-token",
+                "token": "ENX",
+                "optional": true,
+                "summary": "Only set the expiration if the key currently has no TTL. Requires one of EX/PX/EXAT/PXAT; cannot be combined with PERSIST."
+            }
+        ]
+    }
+}

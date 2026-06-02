@@ -22,6 +22,7 @@
 #include "atomicvar.h"
 #include "commands.h"
 #include "object.h"
+#include "sparsearray.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -287,7 +288,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_CONNECTION (1ULL<<18)
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
-#define ACL_CATEGORY_RATE_LIMIT (1ULL<<21)
+#define ACL_CATEGORY_ARRAY (1ULL<<21)
+#ifdef ENABLE_GCRA
+#define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
+#endif
 
 /* Key-spec flags *
  * -------------- */
@@ -796,12 +800,15 @@ typedef enum {
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
-#define NOTIFY_RATE_LIMIT (1<<18)      /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #define NOTIFY_SUBKEYSPACE (1<<19)       /* S, subkey-level keyspace notification */
 #define NOTIFY_SUBKEYEVENT (1<<20)       /* T, subkey-level keyevent notification */
 #define NOTIFY_SUBKEYSPACEITEM (1<<21)   /* I, subkey-level notification per item: channel=key\nsubkey */
 #define NOTIFY_SUBKEYSPACEEVENT (1<<22)  /* V, subkey-level notification: channel=event|key */
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
+#define NOTIFY_ARRAY (1<<23)             /* a, array notification */
+#ifdef ENABLE_GCRA
+#define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
+#endif
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY) /* A flag */
 
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
@@ -863,10 +870,18 @@ typedef enum {
  * by a 64 bit module type ID, which has a 54 bits module-specific signature
  * in order to dispatch the loading to the right module, plus a 10 bits
  * encoding version. */
+/* Code related to GCRA is disabled by default.
+ * Build with -DENABLE_GCRA to compile it back in. */
+
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
-#define OBJ_GCRA 7    /* GCRA object. */
+#define OBJ_ARRAY 7     /* Array object. */
+#ifdef ENABLE_GCRA
+#define OBJ_GCRA 8      /* GCRA object. */
+#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
+#else
 #define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+#endif
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -1124,8 +1139,8 @@ static_assert(offsetof(payloadHeader, payload_len) == 0, "payload_len must be at
  * we store pointers to object and string itself */
 typedef struct __attribute__((__packed__)) bulkStrRef {
     robj *obj; /* pointer to object used for reference count management */
-    unsigned int prefix_cnt;
-    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n */
+    unsigned int prefix_cnt; /* length of prefix; 0 means prefix not yet formatted */
+    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n, lazily filled when writing */
     char crlf[2]; /* \r\n */
 } bulkStrRef;
 
@@ -1662,7 +1677,11 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
+    redisAtomic long long io_reads_processed;   /* Number of read events processed */
+    redisAtomic long long io_writes_processed;  /* Number of write events processed */
 } IOThread;
+
+extern IOThread IOThreads[IO_THREADS_MAX_NUM];
 
 /* Context for streaming replDataBuf to database */
 typedef struct replDataBufToDbCtx {
@@ -2118,6 +2137,8 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+    unsigned long slowlog_max_string_len; /* SLOWLOG max string length of a command's argument logged */
+    int slowlog_max_argc;           /* SLOWLOG max argument count per command logged */
     long long stat_slowlog_count;          /* Total slowlog entries ever pushed */
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
@@ -2140,8 +2161,6 @@ struct redisServer {
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
-    redisAtomic long long stat_io_reads_processed[IO_THREADS_MAX_NUM]; /* Number of read events processed by IO / Main threads */
-    redisAtomic long long stat_io_writes_processed[IO_THREADS_MAX_NUM]; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
@@ -2440,6 +2459,10 @@ struct redisServer {
     /* Stream IDMP parameters */
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
+    /* Array parameters */
+    uint32_t array_slice_size;          /* Slice size for new arrays */
+    uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */
+    uint32_t array_sparse_kmin;         /* Min elements before dense->sparse */
     /* List parameters */
     int list_max_listpack_size;
     int list_compress_depth;
@@ -2637,6 +2660,7 @@ enum {
     PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,     /* Command parsing is incomplete, still waiting for more data */
     PENDING_CMD_FLAG_PREPROCESSED = 1 << 1,   /* This command has passed pre-processing */
     PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
+    PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
@@ -2798,8 +2822,11 @@ typedef enum {
     COMMAND_GROUP_GEO,
     COMMAND_GROUP_STREAM,
     COMMAND_GROUP_BITMAP,
+    COMMAND_GROUP_ARRAY,
     COMMAND_GROUP_MODULE,
+#ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
+#endif
 } redisCommandGroup;
 
 typedef void redisCommandProc(client *c);
@@ -3161,7 +3188,6 @@ void resetClient(client *c, int num_pcmds_to_free);
 void resetClientQbufState(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
-void freeClientPendingCommands(client *c, int num_pcmds_to_free);
 void tryDeferFreeClientObject(client *c, int type, void *ptr);
 void freeClientDeferredObjects(client *c, int free_array);
 void freeClientIODeferredObjects(client *c, int free_array);
@@ -3211,6 +3237,7 @@ void addReplyBigNum(client *c, const char *num, size_t len);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyLongLongFromStr(client *c, robj* str);
+void addReplyUnsignedLongLong(client *c, uint64_t v);
 void addReplyArrayLen(client *c, long length);
 void addReplyMapLen(client *c, long length);
 void addReplySetLen(client *c, long length);
@@ -3223,6 +3250,7 @@ void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
+unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
@@ -3842,6 +3870,9 @@ struct listpackEx *listpackExCreate(void);
 void listpackExAddNew(robj *o, char *field, size_t flen,
                       char *value, size_t vlen, uint64_t expireAt);
 
+/* Array data type. */
+robj *arrayTypeDup(robj *o);
+
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeShardAllChannels(client *c, int notify);
@@ -4258,6 +4289,7 @@ void decrCommand(client *c);
 void incrbyCommand(client *c);
 void decrbyCommand(client *c);
 void incrbyfloatCommand(client *c);
+void increxCommand(client *c);
 void selectCommand(client *c);
 void swapdbCommand(client *c);
 void randomkeyCommand(client *c);
@@ -4507,6 +4539,26 @@ void failoverCommand(client *c);
 void digestCommand(client *c);
 void gcraCommand(client *c);
 void gcraSetValueCommand(client *c);
+
+/* Array commands (t_array.c) */
+void arsetCommand(client *c);
+void argetCommand(client *c);
+void ardelCommand(client *c);
+void ardelrangeCommand(client *c);
+void arlenCommand(client *c);
+void arcountCommand(client *c);
+void argetrangeCommand(client *c);
+void arscanCommand(client *c);
+void argrepCommand(client *c);
+void aropCommand(client *c);
+void arinsertCommand(client *c);
+void arringCommand(client *c);
+void arnextCommand(client *c);
+void arseekCommand(client *c);
+void arlastitemsCommand(client *c);
+void arinfoCommand(client *c);
+void armsetCommand(client *c);
+void armgetCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

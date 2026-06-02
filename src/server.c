@@ -570,6 +570,23 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
+/* dbDictType prefetch callbacks.
+ * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1).
+ * The state machine in memory_prefetch.c calls these hooks to:
+ *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
+ *    the entry holds an out-of-line pointer; embedded kvobjs are already
+ *    in cache from the entry prefetch).
+ *  - Bring kv->ptr into L1 for RAW strings, since addReplyBulk reads it
+ *    immediately after the lookup. */
+static void *dbDictPrefetchEntryKey(const dictEntry *de) {
+    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
+}
+
+static void *dbDictPrefetchEntryValue(const dictEntry *de) {
+    kvobj *kv = dictGetKey(de);
+    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
+}
+
 /* Generic hash table type where keys are Redis Objects, Values
  * dummy pointers. */
 dictType objectKeyPointerValueDictType = {
@@ -633,6 +650,8 @@ dictType dbDictType = {
     .no_value = 1,          /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,      /* simple kvobj (robj) struct */
     .keyFromStoredKey = kvGetKey,    /* get key from stored-key */
+    .prefetchEntryKey = dbDictPrefetchEntryKey,
+    .prefetchEntryValue = dbDictPrefetchEntryValue,
 };
 
 /* Db->expires */
@@ -2876,8 +2895,8 @@ void resetServerStats(void) {
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
     for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
-        atomicSet(server.stat_io_reads_processed[j], 0);
-        atomicSet(server.stat_io_writes_processed[j], 0);
+        atomicSet(IOThreads[j].io_reads_processed, 0);
+        atomicSet(IOThreads[j].io_writes_processed, 0);
     }
     atomicSet(server.stat_client_qbuf_limit_disconnections, 0);
     server.stat_client_outbuf_limit_disconnections = 0;
@@ -6604,8 +6623,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         info = sdscatprintf(info, "# Threads\r\n");
         long long reads, writes;
         for (j = 0; j < server.io_threads_num; j++) {
-            atomicGet(server.stat_io_reads_processed[j], reads);
-            atomicGet(server.stat_io_writes_processed[j], writes);
+            atomicGet(IOThreads[j].io_reads_processed, reads);
+            atomicGet(IOThreads[j].io_writes_processed, writes);
             info = sdscatprintf(info, "io_thread_%d:clients=%d,reads=%lld,writes=%lld\r\n",
                                        j, server.io_threads_clients_num[j], reads, writes);
             stat_total_reads_processed += reads;
@@ -6642,10 +6661,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (!stat_io_ops_processed_calculated) {
             long long reads, writes;
             for (j = 0; j < server.io_threads_num; j++) {
-                atomicGet(server.stat_io_reads_processed[j], reads);
+                atomicGet(IOThreads[j].io_reads_processed, reads);
                 stat_total_reads_processed += reads;
                 if (j != 0) stat_io_reads_processed += reads; /* Skip the main thread */
-                atomicGet(server.stat_io_writes_processed[j], writes);
+                atomicGet(IOThreads[j].io_writes_processed, writes);
                 stat_total_writes_processed += writes;
                 if (j != 0) stat_io_writes_processed += writes; /* Skip the main thread */
             }
@@ -8113,6 +8132,10 @@ int main(int argc, char **argv) {
         sdsfree(options);
     }
     if (server.sentinel_mode) sentinelCheckConfigFile();
+
+    /* Reserve dedicated used_memory slots for main + IO threads (single-writer
+     * fast path). See zmalloc_reserve_thread_slots(). */
+    zmalloc_reserve_thread_slots(server.io_threads_num);
 
     /* Do system checks */
 #ifdef __linux__

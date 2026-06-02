@@ -56,8 +56,13 @@ void vecRelease(vec *v) {
     v->free = NULL;
 }
 
-/* Reset the logical length to zero while preserving allocated storage. */
+/* Reset the logical length to zero while preserving allocated storage.
+ * If a free method is set, it is applied to every element before reset. */
 void vecClear(vec *v) {
+    if (v->free) {
+        for (size_t i = 0; i < v->size; i++)
+            v->free(v->data[i]);
+    }
     v->size = 0;
 }
 
@@ -106,8 +111,14 @@ void vecPush(vec *v, void *value) {
 
 static int vecTestFreeCalls = 0;
 static void vecTestFree(void *ptr) {
-    UNUSED(ptr);
     vecTestFreeCalls++;
+    zfree(ptr);
+}
+
+static int *vecTestNewInt(int v) {
+    int *p = zmalloc(sizeof(int));
+    *p = v;
+    return p;
 }
 
 int vectorTest(int argc, char **argv, int flags)
@@ -175,13 +186,34 @@ int vectorTest(int argc, char **argv, int flags)
     void *vstack2[2];
     vecInit(&v, vstack2, 2);
     vecSetFreeMethod(&v, vecTestFree);
-    vecPush(&v, &one);
-    vecPush(&v, &two);
-    vecPush(&v, &three); /* triggers spill to heap */
+    vecPush(&v, vecTestNewInt(1));
+    vecPush(&v, vecTestNewInt(2));
+    vecPush(&v, vecTestNewInt(3)); /* triggers spill to heap */
     vecTestFreeCalls = 0;
     vecRelease(&v);
     test_cond("vecRelease() invokes free method on each element",
               vecTestFreeCalls == 3);
+
+    /* vecClear: free method is invoked on each element, storage preserved. */
+    vecInit(&v, NULL, 4);
+    vecSetFreeMethod(&v, vecTestFree);
+    vecPush(&v, vecTestNewInt(1));
+    vecPush(&v, vecTestNewInt(2));
+    vecPush(&v, vecTestNewInt(3));
+    heap_data = vecData(&v);
+    vecTestFreeCalls = 0;
+    vecClear(&v);
+    test_cond("vecClear() invokes free method on each element preserving storage",
+              vecTestFreeCalls == 3 && vecSize(&v) == 0 &&
+              vecData(&v) == heap_data && v.cap == 4);
+    /* Push again after clear to verify the vector is still usable. */
+    vecPush(&v, vecTestNewInt(4));
+    test_cond("vecPush() works after vecClear() with free method",
+              vecSize(&v) == 1 && vecData(&v) == heap_data);
+    vecTestFreeCalls = 0;
+    vecRelease(&v);
+    test_cond("vecRelease() after vecClear()+push frees remaining element",
+              vecTestFreeCalls == 1);
 
     vecInit(&v, NULL, 4);
     vecSetFreeMethod(&v, vecTestFree);

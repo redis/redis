@@ -5518,12 +5518,14 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     if (!valid_record || zero != 0) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
+    int64_t actual_deleted = 0;
     entry_count += deleted_count;
     while (entry_count--) {
         if (!p) return 0;
         int64_t fields = master_fields, extra_fields = 3;
         int64_t flags = lpGetIntegerIfValid(p, &valid_record);
         if (!valid_record) return 0;
+        if (flags & STREAM_ITEM_FLAG_DELETED) actual_deleted++;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
         /* entry id */
@@ -5559,6 +5561,9 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
         if (lp_count != fields + extra_fields) return 0;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
     }
+
+    if (actual_deleted != deleted_count)
+        return 0;
 
     if (next)
         return 0;

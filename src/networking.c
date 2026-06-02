@@ -36,7 +36,7 @@ static inline int _clientHasPendingRepliesNonSlave(client *c);
 static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
-static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd);
 static size_t getClientOutputBufferLogicalSize(client *c);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
@@ -552,6 +552,17 @@ static inline int clientIsInPendingRefReplyList(client *c) {
            listFirst(server.clients_with_pending_ref_reply) == &c->pending_ref_reply_node;
 }
 
+/* Format "$<len>\r\n" into str_ref->prefix and set prefix_cnt. Called at write time. */
+unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref) {
+    if (str_ref->prefix_cnt != 0) return str_ref->prefix_cnt;
+    str_ref->prefix[0] = '$';
+    size_t num_len = ll2string(str_ref->prefix + 1, sizeof(str_ref->prefix) - 3, sdslen(str_ref->obj->ptr));
+    str_ref->prefix[num_len + 1] = '\r';
+    str_ref->prefix[num_len + 2] = '\n';
+    str_ref->prefix_cnt = (unsigned int)(num_len + 3);
+    return str_ref->prefix_cnt;
+}
+
 /* Increment reference to object and add pointer to object and
  * pointer to string itself to current reply buffer */
 static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
@@ -560,18 +571,12 @@ static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     bulkStrRef str_ref;
     str_ref.obj = obj;
     incrRefCount(obj); /* Refcount will be decremented in write handler */
-
-    /* Fill prefix with bulk string length: "$<len>\r\n" */
-    str_ref.prefix[0] = '$';
-    size_t num_len = ll2string(str_ref.prefix + 1, sizeof(str_ref.prefix) - 3, len);
-    str_ref.prefix[num_len + 1] = '\r';
-    str_ref.prefix[num_len + 2] = '\n';
-    str_ref.prefix_cnt = num_len + 3;
+    str_ref.prefix_cnt = 0; /* filled at write time */
     str_ref.crlf[0] = '\r';
     str_ref.crlf[1] = '\n';
 
     /* Track output bytes: bulk string prefix + content + trailing CRLF */
-    c->net_output_bytes_curr_cmd += str_ref.prefix_cnt + len + 2;
+    c->net_output_bytes_curr_cmd += digits10(len) + 3 + len + 2;
 
     /* We call it here because this function may affect the reply
      * buffer offset (see function comment) */
@@ -1179,6 +1184,18 @@ void addReplyLongLongFromStr(client *c, robj *str) {
     addReplyProto(c,":",1);
     addReply(c,str);
     addReplyProto(c,"\r\n",2);
+}
+
+/* Reply with unsigned 64-bit value. Uses integer reply when value fits in
+ * signed long long, otherwise big number (RESP3) or bulk string (RESP2). */
+void addReplyUnsignedLongLong(client *c, uint64_t v) {
+    if (v <= (uint64_t)LLONG_MAX) {
+        addReplyLongLong(c, (long long)v);
+    } else {
+        char buf[LONG_STR_SIZE];
+        int len = ull2string(buf, sizeof(buf), v);
+        addReplyBigNum(c, buf, len);
+    }
 }
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
@@ -1813,7 +1830,7 @@ void freeClientArgv(client *c) {
     freeClientArgvInternal(c, 1);
 }
 
-void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
+static inline void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
     /* (-1) means free all pending commands */
     if (num_pcmds_to_free == -1)
         num_pcmds_to_free = c->pending_cmds.len;
@@ -2453,9 +2470,9 @@ static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, c
             reply_iov->iov[reply_iov->iovcnt].iov_len = head->payload_len - offset;
             reply_iov->iov_bytes_len += reply_iov->iov[reply_iov->iovcnt++].iov_len;
         } else {
-            /* BULK_STR_REF - expand to prefix + string + crlf */
+            /* BULK_STR_REF - expand to prefix + string + crlf (format prefix at write time) */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
-            size_t prefix_len = str_ref->prefix_cnt;
+            size_t prefix_len = formatBulkStrRefPrefix(str_ref);
             size_t str_len = sdslen(str_ref->obj->ptr);
 
             /* Add prefix */
@@ -2516,6 +2533,7 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
         } else {
             /* BULK_STR_REF - release object references */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
+            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt is set for writen_len */
 
             size_t writen_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
             if (*remaining < (ssize_t)(writen_len - *sentlen)) {
@@ -2765,7 +2783,7 @@ static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
 int writeToClient(client *c, int handler_installed) {
     if (!(c->io_flags & CLIENT_IO_WRITE_ENABLED)) return C_OK;
     /* Update the number of writes of io threads on server */
-    atomicIncr(server.stat_io_writes_processed[c->running_tid], 1);
+    atomicIncr(IOThreads[c->running_tid].io_writes_processed, 1);
 
     ssize_t nwritten = 0, totwritten = 0;
     const int is_slave = clientTypeIsSlave(c);
@@ -3821,7 +3839,7 @@ void readQueryFromClient(connection *conn) {
     c->stat_total_read_events++;
 
     /* Update the number of reads of io threads on server */
-    atomicIncr(server.stat_io_reads_processed[c->running_tid], 1);
+    atomicIncr(IOThreads[c->running_tid].io_reads_processed, 1);
 
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
@@ -5708,7 +5726,7 @@ static int tryExpandPendingCommandPool(void) {
  * The shared pool is only used when IO threads are inactive to avoid race conditions
  * between multiple clients. Additionally, pool reuse provides minimal benefit in
  * multi-threaded scenarios, so we only use it in single-threaded mode. */
-static void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
+static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
     if (!server.io_threads_active) {
         /* Try to add to shared pool for reuse if argv isn't too large */
         if (likely(pcmd->argv_len < 64)) {
