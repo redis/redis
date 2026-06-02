@@ -10,7 +10,9 @@ proc write_keys_to_master0 {} {
     # master0 has slots 0-5460 by default in a 3-node cluster
     # {06S}->slot 0, {Qi}->slot 1, {5L5}->slot 2
     foreach tag {{06S} {Qi} {5L5}} {
-        populate 5 "${tag}key:" 3
+        for {set i 0} {$i < 5} {incr i} {
+            exec src/redis-cli -c -p [srv 0 port] SET "${tag}key:$i" "value:$i"
+        }
     }
 }
 
