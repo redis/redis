@@ -337,8 +337,6 @@ typedef struct RedisModulePostExecUnitJob {
     int dbid;
 } RedisModulePostExecUnitJob;
 
-/* A per-key post-notification job. Fires at the tail of every call() so each
- * sub-command boundary is observed; jobs fire in submission order. */
 typedef struct RedisModulePostKeyedNotificationJob {
     RedisModule *module;
     RedisModulePostNotifyJobPerKeyFunc callback;
@@ -356,17 +354,13 @@ static list *moduleKeyspaceSubscribers;
 static int moduleKeyspaceSubscribersTypes = 0;
 static int moduleKeyspaceSubscribersWithSubkeysTypes = 0;
 
-/* The module post keyspace jobs list (single-shot jobs, fired once at the end
- * of the outermost execution unit). */
+/* The module post keyspace jobs list. */
 static list *modulePostExecUnitJobs;
 
 /* The module per-key post-notification jobs list (fired at the tail of every
  * call(), so each sub-command boundary inside MULTI/EXEC is observed). */
 static list *modulePostKeyedNotificationJobs;
 
-/* Set once per per-key drain cycle after we've logged a refused RM_Call, so a
- * module that issues commands in a tight loop from its callback warns once
- * rather than flooding the log. Reset at the start of each drain. */
 static int keyedPostNotifRMCallWarned = 0;
 
 /* Data structures related to the exported dictionary data structure. */
@@ -6928,11 +6922,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * commands. */
     if (server.firing_keyed_post_notif_jobs) {
         /* Calling a command from within a per-key post-notification callback is
-         * a misuse of the API, so we report EINVAL. errno alone can't be
-         * distinguished from the other EINVAL cases, so we also log the precise
-         * reason for whoever is debugging the offending module — but only once
-         * per drain cycle, so a callback that loops on RM_Call can't flood the
-         * log. */
+         * a misuse of the API. */
         if (!keyedPostNotifRMCallWarned) {
             serverLog(LL_WARNING,
                       "RM_Call('%s') refused: commands are not allowed from "
@@ -9493,30 +9483,9 @@ void firePostExecutionUnitJobs(void) {
     exitExecutionUnit();
 }
 
-/* Drain the keyed post-notification jobs queued during the current call().
- * Invoked at the tail of every call() (see afterCommand), so callbacks fire
- * between sub-commands inside MULTI/EXEC. Uses server.firing_keyed_post_notif_jobs
- * as a reentrance guard, since the per-call() hook bypasses the execution_nesting
- * gating used by firePostExecutionUnitJobs.
- *
- * Also invoked from the AOF replay loop in loadSingleAppendOnlyFile after
- * each single command (sub-commands inside MULTI/EXEC are drained by
- * afterCommand() since EXEC's processor goes through call()). This is what
- * makes the firing pattern during AOF replay match normal command
- * execution: one drain per single command, one per MULTI/EXEC sub-command.
- *
- * Contract for the callback: it MUST only touch non-replicated,
- * non-AOF-persisted state — module-attached key metadata is the canonical
- * case. The same callback fires on the master, on every replica receiving
- * master-propagated commands, and during AOF replay; consistency relies on
- * each instance running the same callback over the same KSN stream, not
- * on replication of the callback's side-effects. Writes back into the
- * keyspace via RM_Call(..., "!...") would duplicate effects already in the
- * AOF on replay and diverge the replica from its master in steady state.
- * To keep this from happening by accident, RM_Call is refused while this
- * drain is running (server.firing_keyed_post_notif_jobs is set) — see the
- * guard in RM_Call. */
+
 void firePostKeyedNotificationJobs(void) {
+    /* Reentrance guard, avoid recusive calls */
     if (server.firing_keyed_post_notif_jobs) return;
     if (listLength(modulePostKeyedNotificationJobs) == 0) return;
     server.firing_keyed_post_notif_jobs = 1;
@@ -9584,12 +9553,9 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  *  - At the tail of every `call()`, so per-key effects are observable between
  *    MULTI/EXEC sub-commands.
  *  - At the end of the outermost execution unit, alongside the regular
- *    post-notification jobs. This covers the active-expire and eviction
- *    paths (both call `postExecutionUnitOperations` themselves).
+ *    post-notification jobs.
  *  - During AOF replay, at the tail of every replayed command — single
- *    commands and each sub-command of MULTI/EXEC — so per-key state that
- *    lives outside the AOF (e.g. module-attached key metadata) is rebuilt
- *    in the same pattern as during normal execution.
+ *    commands and each sub-command of MULTI/EXEC.
  *
  * Jobs fire in submission order. `key` must be a valid RedisModuleString; the
  * implementation takes its own reference and the caller retains ownership of
@@ -9609,21 +9575,11 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  *    master. The runtime enforces this — RM_Call is refused (returns NULL
  *    with errno == EINVAL and a warning logged, or a `-ERR` call-reply when
  *    CALL_REPLIES_AS_ERRORS is requested) for the whole duration of the
- *    per-key drain. The guard is on
- *    RM_Call specifically (the keyspace-mutation entry point); a module that
- *    bypasses it with lower-level write APIs is still on its own.
- *    With RM_Call refused inside the drain, a per-key callback can no longer
- *    surface a fresh KSN (which is what could have queued a regular
- *    post-notification job mid-drain), so the cross-queue interaction the
- *    drain order used to have to defend against is no longer reachable
- *    through the supported path. The drain order is still keyed-before-regular
- *    at both sites (`afterCommand`, and `postExecutionUnitOperations` reached
- *    directly on the cron-driven active-expire and eviction paths) so the two
- *    queues keep a uniform relative order.
+ *    per-key drain.
  *
  * Return REDISMODULE_OK on success and REDISMODULE_ERR if called outside a
  * keyspace-notification handler. The API is permitted on read-only replicas
- * and during AOF replay, so per-key state stays continuously in sync with
+ * during AOF replay, so per-key state stays continuously in sync with
  * the keyspace events the instance observes. */
 int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *privdata, void (*free_privdata)(void*)) {
 
@@ -9717,10 +9673,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
      * but we do not want to update the cached time */
     enterExecutionUnit(0, 0);
 
-    /* Mark that we are inside a keyspace-notification dispatch. This is the
-     * single-key context that RM_AddPostNotificationJobForKey requires; the
-     * counter form lets nested notifications (a callback that triggers
-     * another KSN) nest cleanly. */
+    /* Mark that we are inside a keyspace-notification dispatch. */
     server.in_keyspace_notification++;
 
     listIter li;
@@ -9789,13 +9742,7 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
     moduleUpdateKeyspaceSubscribersTypes();
 }
 
-/* Drop any post-notification jobs still queued for this module upon unloading.
- * A pending job holds the module pointer and a callback into the module's code;
- * once the module is unloaded that code is gone, so a later drain would call
- * through a dangling pointer. We don't run the callbacks here (the module is
- * going away), we only release the privdata via free_pd and, for keyed jobs,
- * the owned key reference. Covers both the single-shot execution-unit queue and
- * the per-key queue. */
+/* Drop any post-notification jobs still queued for this module upon unloading. */
 void moduleUnregisterPostNotificationJobs(RedisModule *module) {
     listIter li;
     listNode *ln;

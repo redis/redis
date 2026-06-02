@@ -3849,21 +3849,6 @@ void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
-    /* Drain the keyed queue first, then the regular queue, matching the order
-     * on the normal command path: afterCommand drains the keyed queue
-     * unconditionally (so per-key effects are observable between MULTI/EXEC
-     * sub-commands) before calling us, so keyed callbacks run before regular
-     * ones there. Firing keyed-first here too keeps that relative order
-     * uniform across both drain sites — this site and the cron-driven paths
-     * (active-expire in expire.c, eviction in evict.c — both call us directly
-     * after their own enter/exitExecutionUnit).
-     *
-     * A keyed callback cannot queue a regular job behind our back: RM_Call is
-     * refused for the duration of the keyed drain (see the guard in RM_Call),
-     * so it can no longer surface the KSN that would land in another module's
-     * handler and call RM_AddPostNotificationJob. This is the runtime side of
-     * the no-write contract documented on RM_AddPostNotificationJobForKey in
-     * module.c */
     firePostKeyedNotificationJobs();
     firePostExecutionUnitJobs();
 
@@ -4266,10 +4251,7 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
-    /* Fire keyed post-notification jobs first, before any propagation. These
-     * fire after every command (including each sub-command inside MULTI/EXEC),
-     * regardless of execution-unit nesting, so a module can react to a key
-     * before the next sub-command observes it. */
+    /* Fire keyed post-notification jobs first, before any propagation. */
     firePostKeyedNotificationJobs();
 
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
