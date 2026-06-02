@@ -37,7 +37,7 @@
 
 void streamFreeCGGeneric(void *cg, void *s);
 void streamFreeNACK(stream *s, streamNACK *na);
-size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t prior_entries);
+size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 
@@ -2008,7 +2008,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  * The 'maxsize' argument, when non-zero, is a byte budget for the whole command
  * reply (XREAD/XREADGROUP MAXSIZE). Once the accumulated reply size
  * (c->net_output_bytes_curr_cmd) reaches 'maxsize', this function stops emitting
- * further entries. 'prior_entries' is the number of entries already emitted by
+ * further entries. 'emitted_before' is the number of entries already emitted by
  * previous streams in the same command; together with the entries emitted here
  * it implements the "a single oversized message may exceed maxsize" exception:
  * the budget is never enforced before at least one entry has been emitted across
@@ -2035,7 +2035,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
                                            boundaries, just the entries. */
 #define STREAM_RWR_HISTORY (1<<2)       /* Only serve consumer local PEL. */
 #define STREAM_RWR_CLAIMED (1<<3)       /* Only serve claimed entries from PEL. */
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount, long long maxsize, size_t prior_entries) {
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount, long long maxsize, size_t emitted_before) {
     void *arraylen_ptr = NULL;
     size_t arraylen = 0;
     streamIterator si;
@@ -2085,7 +2085,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * another entry once the reply has reached the limit, unless we
              * have not emitted any entry yet across the whole reply (a single
              * oversized entry is always allowed). */
-            if (maxsize && (prior_entries + arraylen) > 0 &&
+            if (maxsize && (emitted_before + arraylen) > 0 &&
                 c->net_output_bytes_curr_cmd >= (size_t)maxsize)
                 break;
 
@@ -2161,7 +2161,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         }
         return streamReplyWithRangeFromConsumerPEL(c,s,start,end,count,
                                                    group, consumer,
-                                                   maxsize, prior_entries);
+                                                   maxsize, emitted_before);
     }
 
     /* Stop here if client only wants claimed entries or count is satisfied. */
@@ -2184,7 +2184,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
          * entry yet across the whole reply (a single oversized entry is always
          * allowed). We break before delivering the entry so it is neither sent
          * nor added to the consumer's PEL. */
-        if (maxsize && (prior_entries + arraylen) > 0 &&
+        if (maxsize && (emitted_before + arraylen) > 0 &&
             c->net_output_bytes_curr_cmd >= (size_t)maxsize)
             break;
 
@@ -2328,7 +2328,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
  * seek into the radix tree of the messages in order to emit the full message
  * to the client. However clients only reach this code path when they are
  * fetching the history of already retrieved messages, which is rare. */
-size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t prior_entries) {
+size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before) {
     raxIterator ri;
     unsigned char startkey[sizeof(streamID)];
     unsigned char endkey[sizeof(streamID)];
@@ -2344,7 +2344,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
         /* Enforce the MAXSIZE byte budget: stop before emitting another entry
          * once the reply has reached the limit, unless nothing has been emitted
          * yet across the whole reply. */
-        if (maxsize && (prior_entries + arraylen) > 0 &&
+        if (maxsize && (emitted_before + arraylen) > 0 &&
             c->net_output_bytes_curr_cmd >= (size_t)maxsize)
             break;
         streamID thisid;

@@ -61,13 +61,15 @@
                 "token": "MAXCOUNT",
                 "name": "maxcount",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "8.10.0"
             },
             {
                 "token": "MAXSIZE",
                 "name": "maxsize",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "8.10.0"
             },
             {
                 "token": "BLOCK",
