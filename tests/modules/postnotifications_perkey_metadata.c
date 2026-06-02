@@ -32,13 +32,21 @@ static RedisModuleKeyMetaClassId meta_class_id = -1;
 /* Module-internal (not a Redis key, so not replicated/persisted). */
 static long long fire_count = 0;
 
-/* Key names the job fired for, in order. Module-internal like fire_count. */
+/* Key names the job fired for, in order. Module-internal like fire_count.
+ * dbsize_log records the DB size observed at the moment each job fired, so a
+ * test can tell whether jobs fire between sub-commands (size grows 1,2,3...)
+ * or are batched at the end of an execution unit (size already at its final
+ * value on every firing). */
 #define FIRELOG_CAP 256
 static char *fire_log[FIRELOG_CAP];
+static long long dbsize_log[FIRELOG_CAP];
 static int fire_log_len = 0;
 
-static void FireLogAppend(const char *name) {
-    if (fire_log_len < FIRELOG_CAP) fire_log[fire_log_len++] = strdup(name);
+static void FireLogAppend(const char *name, long long dbsize) {
+    if (fire_log_len < FIRELOG_CAP) {
+        dbsize_log[fire_log_len] = dbsize;
+        fire_log[fire_log_len++] = strdup(name);
+    }
 }
 
 static void FireLogClear(void) {
@@ -77,7 +85,7 @@ static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void 
         fire_count++;
         size_t klen;
         const char *kname = RedisModule_StringPtrLen(key, &klen);
-        FireLogAppend(kname);
+        FireLogAppend(kname, (long long)RedisModule_DbSize(ctx));
     } else {
         free(new_str);
     }
@@ -147,6 +155,17 @@ static int FireLogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_OK;
 }
 
+/* DB size observed at each firing, in order. */
+static int DbSizeLogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithArray(ctx, fire_log_len);
+    for (int i = 0; i < fire_log_len; i++) {
+        RedisModule_ReplyWithLongLong(ctx, dbsize_log[i]);
+    }
+    return REDISMODULE_OK;
+}
+
 static int RMCallBlockedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -201,6 +220,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.firelog", FireLogCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.dbsizelog", DbSizeLogCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.rmcall_blocked", RMCallBlockedCommand,

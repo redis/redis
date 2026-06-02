@@ -260,6 +260,23 @@ tags "modules external:skip" {
         }
     }
 
+    test "perkey-order: per-key job fires between sub-commands inside MULTI/EXEC" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r flushall
+            r pkmeta.reset
+            r multi
+            r hset oa f v
+            r hset ob f v
+            r hset oc f v
+            r exec
+            assert_equal {oa ob oc} [r pkmeta.firelog]
+            # DB size observed at each firing. If jobs fire between sub-commands
+            # the size grows 1,2,3 as each HSET creates its key; if they were
+            # batched at the end of EXEC every firing would observe all 3 keys.
+            assert_equal {1 2 3} [r pkmeta.dbsizelog]
+        }
+    }
+
     test "perkey-order: multi-key command fires one job per affected key" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             r pkmeta.reset
