@@ -47,6 +47,15 @@ start_server {tags {"config-rewrite-mode external:skip"} overrides {config-rewri
         assert_match "*maxmemory 50mb*" $content
     }
 
+    test {runtime-modified - second consecutive REWRITE with no changes is a no-op} {
+        # First REWRITE persists the timeout/maxmemory changes from the prior
+        # test; file mtime bumps. The dict gets cleared on success.
+        after 1100
+        set mtime_before [crm_config_file_mtime]
+        r config rewrite
+        assert_equal $mtime_before [crm_config_file_mtime]
+    }
+
     test {runtime-modified - SET non-default then SET default overwrites stale line} {
         r config set timeout 30
         r config rewrite

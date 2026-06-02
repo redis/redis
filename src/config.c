@@ -295,6 +295,10 @@ struct standardConfig {
 
 dict *configs = NULL; /* Runtime config values */
 
+/* Set of primary config names modified since the last successful CONFIG REWRITE.
+ * Keys are sds, values NULL. Cleared in clearRuntimeModifiedConfigs. */
+static dict *runtimeModifiedConfigs = NULL;
+
 /* Lookup a config by the provided sds string name, or return NULL
  * if the config does not exist */
 static standardConfig *lookupConfig(const sds name) {
@@ -304,9 +308,9 @@ static standardConfig *lookupConfig(const sds name) {
 
 /* If config is an alias entry, return the corresponding primary; otherwise
  * return config itself. The primary and alias are two separate standardConfig
- * structs with independent flags (see registerConfigValue), so the
- * RUNTIME_MODIFIED_CONFIG bit must always be set on the primary — the rewrite
- * loop skips entries with ALIAS_CONFIG set. */
+ * structs (see registerConfigValue), so runtime-modified tracking must
+ * always key off the primary — the rewrite loop skips entries with
+ * ALIAS_CONFIG set. */
 static standardConfig *resolvePrimaryConfig(standardConfig *config) {
     if (config && (config->flags & ALIAS_CONFIG)) {
         sds key = sdsnew(config->alias);
@@ -317,12 +321,30 @@ static standardConfig *resolvePrimaryConfig(standardConfig *config) {
     return config;
 }
 
-/* Set the RUNTIME_MODIFIED_CONFIG bit on a config, resolving alias entries
- * to the primary first. Single primitive used by every site that needs to
- * mark a config: configSetCommand, the moduleSetXxxConfig helpers, and the
- * by-name wrapper below. */
+/* Mark a config as runtime-modified (resolving alias entries to the primary).
+ * Adds the primary's name to runtimeModifiedConfigs so a subsequent CONFIG
+ * REWRITE in runtime-modified mode will emit it. Primary primitive used by
+ * configSetCommand, the moduleSetXxxConfig helpers, and the by-name wrapper. */
 static void markStandardConfigRuntimeModified(standardConfig *config) {
-    if (config) resolvePrimaryConfig(config)->flags |= RUNTIME_MODIFIED_CONFIG;
+    if (!config) return;
+    standardConfig *primary = resolvePrimaryConfig(config);
+    sds key = sdsnew(primary->name);
+    if (dictAdd(runtimeModifiedConfigs, key, NULL) != DICT_OK)
+        sdsfree(key); /* already present */
+}
+
+/* Returns 1 if the named config has been marked runtime-modified since
+ * the last successful REWRITE. */
+static int isConfigRuntimeModified(const char *name) {
+    sds key = sdsnew(name);
+    int found = dictFind(runtimeModifiedConfigs, key) != NULL;
+    sdsfree(key);
+    return found;
+}
+
+/* Empty the runtime-modified set. Called after a successful CONFIG REWRITE. */
+static void clearRuntimeModifiedConfigs(void) {
+    dictEmpty(runtimeModifiedConfigs, NULL);
 }
 
 /* Mark a config as runtime-modified by name. Used by callers outside config.c
@@ -1828,7 +1850,7 @@ int rewriteConfig(char *path, int force_write) {
          * untouched because we never call rewriteConfigMarkAsProcessed for
          * them, so rewriteConfigRemoveOrphaned won't blank them.
          * Always respect force_write regardless of the rewrite mode. */
-        if (runtime_modified_mode && !(config->flags & RUNTIME_MODIFIED_CONFIG) &&
+        if (runtime_modified_mode && !isConfigRuntimeModified(config->name) &&
             !state->force_write) continue;
         config->interface.rewrite(config, dictGetKey(de), state);
     }
@@ -1863,6 +1885,15 @@ int rewriteConfig(char *path, int force_write) {
      * and write it into the original file. */
     newcontent = rewriteConfigGetContentFromState(state);
     retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
+
+    /* On success, drop the runtime-modified tracking state — the file now
+     * reflects every pending change. On failure we keep the state so the
+     * next REWRITE attempt persists what's still pending. */
+    if (retval == 0) {
+        clearRuntimeModifiedConfigs();
+        server.acl_modified = 0;
+        server.modules_modified = 0;
+    }
 
     sdsfree(newcontent);
     rewriteConfigReleaseState(state);
@@ -3489,6 +3520,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
  * runtime configuration dictionary. */
 void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
+    runtimeModifiedConfigs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
         if (config->interface.init) config->interface.init(config);

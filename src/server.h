@@ -3928,16 +3928,6 @@ int isSubkeyNotifyEnabled(int type);
                                    * a file name containing more configuration like a tls key). In this case we want
                                    * to apply the configuration change even if the new config value is the same as
                                    * the old. */
-#define RUNTIME_MODIFIED_CONFIG (1ULL<<10) /* This config has been modified at runtime via CONFIG SET (or an equivalent
-                                            * out-of-band path such as the REPLICAOF command). Sticky for the lifetime
-                                            * of the process; never cleared once set. Stickiness is required because
-                                            * a line written by a prior REWRITE must be overwritten by subsequent ones:
-                                            * if the user does REPLICAOF <host> <port> -> REWRITE (replicaof line lands
-                                            * in file) -> REPLICAOF NO ONE (back to default) -> REWRITE, the second
-                                            * REWRITE must still emit replicaof so the stale non-default line gets
-                                            * replaced. Without stickiness the file would keep the old master and a
-                                            * restart would silently reattach to it. Read by CONFIG REWRITE when
-                                            * config-rewrite-mode is set to runtime-modified. */
 
 #define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
 #define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
