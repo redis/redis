@@ -2064,6 +2064,11 @@ struct redisServer {
                                  * cron stuff (active expire, eviction) */
     int firing_keyed_post_notif_jobs; /* Re-entrance guard while
                                        * firePostKeyedNotificationJobs is draining. */
+    int has_pending_keyed_post_notif_jobs; /* Fast-path hint: non-zero when at
+                                       * least one keyed post-notification job
+                                       * is queued. Lets the hot command path
+                                       * skip the firePostKeyedNotificationJobs
+                                       * call entirely when nothing is pending. */
     int in_keyspace_notification;     /* >0 while inside a moduleNotifyKeyspaceEvent
                                        * dispatch. Defines the scope from which
                                        * RM_AddPostNotificationJobForKey may be called;

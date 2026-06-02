@@ -1684,7 +1684,8 @@ int loadSingleAppendOnlyFile(char *filename) {
             /* AOF replay bypasses call()/afterCommand(); drain the per-key
              * post-notification queue here so module callbacks fire once per
              * replayed single command*/
-            firePostKeyedNotificationJobs();
+            if (server.has_pending_keyed_post_notif_jobs)
+                firePostKeyedNotificationJobs();
             fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
@@ -1764,7 +1765,8 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
-    firePostKeyedNotificationJobs();
+    if (server.has_pending_keyed_post_notif_jobs)
+        firePostKeyedNotificationJobs();
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;

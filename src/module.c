@@ -9493,7 +9493,12 @@ void firePostExecutionUnitJobs(void) {
 void firePostKeyedNotificationJobs(void) {
     /* Reentrance guard, avoid recursive calls */
     if (server.firing_keyed_post_notif_jobs) return;
-    if (listLength(modulePostKeyedNotificationJobs) == 0) return;
+    if (listLength(modulePostKeyedNotificationJobs) == 0) {
+        /* Clear the fast-path hint in case it was left set (e.g. a module
+         * unload drained the queue via moduleUnregisterPostNotificationJobs). */
+        server.has_pending_keyed_post_notif_jobs = 0;
+        return;
+    }
     server.firing_keyed_post_notif_jobs = 1;
     keyedPostNotifRMCallWarned = 0;
     enterExecutionUnit(0, 0);
@@ -9515,6 +9520,7 @@ void firePostKeyedNotificationJobs(void) {
     }
     exitExecutionUnit();
     server.firing_keyed_post_notif_jobs = 0;
+    server.has_pending_keyed_post_notif_jobs = 0;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -9617,6 +9623,8 @@ int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifyJo
     job->free_pd = free_privdata;
     job->dbid = ctx->client->db->id;
     listAddNodeTail(modulePostKeyedNotificationJobs, job);
+    /* Arm the fast-path hint so the hot command path knows a drain is due. */
+    server.has_pending_keyed_post_notif_jobs = 1;
     return REDISMODULE_OK;
 }
 

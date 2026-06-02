@@ -2973,6 +2973,7 @@ void initServer(void) {
     server.errors_enabled = 1;
     server.execution_nesting = 0;
     server.firing_keyed_post_notif_jobs = 0;
+    server.has_pending_keyed_post_notif_jobs = 0;
     server.in_keyspace_notification = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -3849,7 +3850,8 @@ void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
-    firePostKeyedNotificationJobs();
+    if (server.has_pending_keyed_post_notif_jobs)
+        firePostKeyedNotificationJobs();
     firePostExecutionUnitJobs();
 
     /* If we are at the top-most call() and not inside a an active module
@@ -4252,7 +4254,8 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     /* Fire keyed post-notification jobs first, before any propagation. */
-    firePostKeyedNotificationJobs();
+    if (server.has_pending_keyed_post_notif_jobs)
+        firePostKeyedNotificationJobs();
 
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
