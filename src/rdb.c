@@ -3328,12 +3328,26 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            unsigned char *first = lpFirst(lp);
+            /* Read the first element (count of valid entries). Under shallow
+             * validation (sanitize-dump-payload no) only the header was checked,
+             * so validate the first entry here to reject a corrupt one cleanly. */
+            unsigned char *first = lpValidateFirst(lp);
             if (first == NULL) {
                 /* Serialized listpacks should never be empty, since on
                  * deletion we should remove the radix tree key if the
                  * resulting listpack is empty. */
                 rdbReportCorruptRDB("Empty listpack inside stream");
+                sdsfree(nodekey);
+                decrRefCount(o);
+                zfree(lp);
+                return NULL;
+            }
+            /* Validate the first entry before lpGetIntegerValue() below decodes
+             * it: that decode reads encoding-dependent bytes unchecked and would
+             * read past the listpack on a corrupt entry. */
+            unsigned char *vnext = first;
+            if (!lpValidateNext(lp, &vnext, lp_size)) {
+                rdbReportCorruptRDB("Stream listpack integrity check failed.");
                 sdsfree(nodekey);
                 decrRefCount(o);
                 zfree(lp);
