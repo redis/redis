@@ -310,6 +310,9 @@ test "PING with hostname extension missing null terminator is rejected" {
     set bad_ext [build_hostname_extension $bad_hostname]
     set bad_packet [build_cluster_bus_ping $node1_id $sender_port $sender_cport $bad_ext]
 
+    # Record the log position before injecting the bad packet.
+    set loglines [count_log_lines 0]
+
     set fd [socket $target_host $target_bus_port]
     fconfigure $fd -translation binary -buffering full
     puts -nonewline $fd $bad_packet
@@ -341,6 +344,9 @@ test "PING with hostname extension missing null terminator is rejected" {
     # The malformed extension should be rejected entirely -- the
     # hostname must not contain our payload at all.
     assert_no_match "*AAAA*" $hostname
+
+    # Verify the server logged the proper rejection message.
+    wait_for_log_messages 0 {"*missing null terminator*"} $loglines 50 100
 
     resume_process $node1_pid
 }
