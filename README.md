@@ -702,8 +702,6 @@ Tested with the following Docker images:
 - rockylinux/rockylinux:10.1
 - rockylinux/rockylinux:10.1-minimal
 
-> **Note**: At the time of writing, `redisearch.so` does not build on AlmaLinux/Rocky 10: the bundled clang is LLVM 20 while `INSTALL_RUST_TOOLCHAIN=yes` installs a Rust whose LLVM is 21, which trips `RediSearch`'s cross-language LTO check. This still needs an upstream fix in `RediSearch`. The core `redis-server` and the `redisbloom`, `rejson`, and `redistimeseries` modules build successfully.
-
 1. Prepare the system
 
    For 10.x-minimal, install `sudo` and `dnf` as follows:
@@ -750,6 +748,28 @@ Tested with the following Docker images:
    python3 -m venv /opt/venv
    ```
 
+   Install LLVM 21 so `RediSearch`'s cross-language LTO matches the Rust toolchain's LLVM. AlmaLinux/Rocky 10's default `clang` is LLVM 20, so install the upstream LLVM 21 release and alias the version-suffixed tools `RediSearch` looks for on `PATH`:
+
+   ```sh
+   LLVM_VERSION=21.1.8
+   MAJOR=${LLVM_VERSION%%.*}
+   if [ "$(uname -m)" = "x86_64" ]; then
+     LLVM_ASSET=LLVM-${LLVM_VERSION}-Linux-X64.tar.xz
+   else
+     LLVM_ASSET=LLVM-${LLVM_VERSION}-Linux-ARM64.tar.xz
+   fi
+   sudo mkdir -p /opt/llvm-${LLVM_VERSION}
+   curl -fsSL https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/${LLVM_ASSET} \
+     | sudo tar -xJ -C /opt/llvm-${LLVM_VERSION} --strip-components=1
+   sudo ln -sfn /opt/llvm-${LLVM_VERSION} /opt/llvm
+   for tool in clang clang++ clang-cpp lld ld.lld ld64.lld lld-link llc opt \
+               llvm-ar llvm-nm llvm-ranlib llvm-strip llvm-objcopy llvm-objdump \
+               llvm-readelf llvm-config; do
+     [ -e "/opt/llvm/bin/${tool}" ] && sudo ln -sfn "/opt/llvm/bin/${tool}" "/opt/llvm/bin/${tool}-${MAJOR}"
+   done
+   /opt/llvm/bin/clang-${MAJOR} --version
+   ```
+
 3. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
@@ -773,11 +793,13 @@ Tested with the following Docker images:
 
 5. Build Redis
 
-   Set the necessary environment variables and build Redis:
+   Put LLVM 21 first on `PATH`, set the necessary environment variables, and build Redis. `RediSearch` builds with cross-language LTO (the default) because LLVM 21 now matches the Rust toolchain's LLVM.:
 
    ```sh
    cd /usr/src/redis-<version>
+   export PATH="/opt/llvm/bin:/opt/venv/bin:$PATH"
    export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export IGNORE_MISSING_DEPS=1
    make -j "$(nproc)" all
    ```
 
