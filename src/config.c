@@ -342,11 +342,14 @@ static int isConfigRuntimeModified(const char *name) {
     return found;
 }
 
-/* Empty the runtime-modified set. Called after a successful CONFIG REWRITE,
- * and also at the end of startup module loading (those marks reflect file-
- * provided values, not runtime mutations). */
+/* Empty the runtime-modified set and clear the ACL / module subsystem
+ * dirty flags. Called after a successful CONFIG REWRITE, and at the end
+ * of startup module loading (where the marks reflect file-provided values,
+ * not runtime mutations). */
 void clearRuntimeModifiedConfigs(void) {
     dictEmpty(runtimeModifiedConfigs, NULL);
+    server.acl_modified = 0;
+    server.modules_modified = 0;
 }
 
 /* Mark a config as runtime-modified by name. Used by callers outside config.c
@@ -1894,11 +1897,7 @@ int rewriteConfig(char *path, int force_write) {
     retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
 
     /* On success, drop the runtime-modified tracking state */
-    if (retval == 0) {
-        clearRuntimeModifiedConfigs();
-        server.acl_modified = 0;
-        server.modules_modified = 0;
-    }
+    if (retval == 0) clearRuntimeModifiedConfigs();
 
     sdsfree(newcontent);
     rewriteConfigReleaseState(state);
