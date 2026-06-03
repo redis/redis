@@ -23,7 +23,15 @@ test "PUBLISH with channel_len + message_len overflow is rejected" {
     append packet [binary format I $channel_len]
     append packet [binary format I $message_len]
 
-    set fd [socket $target_host $target_bus_port]
+    if {$::tls} {
+        set fd [::tls::socket \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            $target_host $target_bus_port]
+    } else {
+        set fd [socket $target_host $target_bus_port]
+    }
     fconfigure $fd -translation binary -buffering full
     puts -nonewline $fd $packet
     flush $fd
@@ -58,7 +66,15 @@ test "MODULE with len overflow is rejected" {
     append packet [binary format W 0]           ;# module_id
     append packet [binary format I $module_len] ;# len
 
-    set fd [socket $target_host $target_bus_port]
+    if {$::tls} {
+        set fd [::tls::socket \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            $target_host $target_bus_port]
+    } else {
+        set fd [socket $target_host $target_bus_port]
+    }
     fconfigure $fd -translation binary -buffering full
     puts -nonewline $fd $packet
     flush $fd
