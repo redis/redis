@@ -794,18 +794,24 @@ Tested with the following Docker image:
 
 - alpine:3.23
 
-> **Note**: On Alpine 3.23 this section builds `redis-server`, `redisbloom.so`, `rejson.so`, and `redistimeseries.so`. `redisearch.so` does **not** build on Alpine 3.23 yet because the `RediSearch` source uses Rust 1.94 stabilized features (e.g. `Box::new_zeroed_slice`) while Alpine 3.23 ships Rust 1.91; it is expected to build once Alpine bumps Rust to ≥ 1.94 (Rust 1.95 is already available on `alpine:edge`). The section uses Alpine's packaged `rust` and `cargo` rather than `INSTALL_RUST_TOOLCHAIN=yes`, because the official rust-lang.org musl toolchain is fully statically linked, which prevents the `bindgen` crate (used by `RedisJSON`) from `dlopen`-ing `libclang.so` at build time.
-
 1. Install required dependencies
 
    ```sh
    apk update
-   apk add --no-cache build-base cmake openssl-dev linux-headers bash git \
-     python3 py3-pip py3-virtualenv python3-dev musl-dev \
-     wget curl libtool automake autoconf pkgconf rsync unzip tar xz \
-     clang clang-dev clang-static lld llvm llvm-dev llvm-static \
-     coreutils bsd-compat-headers \
-     rust cargo
+   apk add --no-cache \
+     build-base coreutils linux-headers bsd-compat-headers \
+     openssl openssl-dev cmake bash git wget curl xz unzip tar rsync which \
+     libtool automake autoconf libffi-dev libgcc ncurses-dev xsimd \
+     cargo clang21 clang21-static clang21-libclang llvm21-dev lld21 \
+     python3 py3-pip python3-dev
+   ```
+
+   Install the Python packages required by the `RedisJSON` module build:
+
+   ```sh
+   export PIP_BREAK_SYSTEM_PACKAGES=1
+   pip install --upgrade setuptools pip
+   pip install addict toml jinja2 ramp-packer
    ```
 
 2. Download the Redis source
@@ -830,11 +836,20 @@ Tested with the following Docker image:
 
 4. Build Redis
 
-   Set the necessary environment variables and build Redis. Do **not** set `INSTALL_RUST_TOOLCHAIN=yes` on Alpine — Alpine's packaged `rust` / `cargo` (installed above) are dynamically linked against musl, while the rust-lang.org standalone toolchain that `INSTALL_RUST_TOOLCHAIN=yes` would download is fully static and breaks `bindgen`'s `dlopen`-based `libclang.so` lookup:
+   Set the necessary environment variables, apply the `RedisJSON` Rust-flags patch, and build Redis:
 
    ```sh
    cd /usr/src/redis-<version>
+
    export BUILD_TLS=yes BUILD_WITH_MODULES=yes DISABLE_WERRORS=yes
+   export INSTALL_RUST_TOOLCHAIN=yes LTO=1
+   export RUST_DYN_CRT=1
+   export PATH="/usr/lib/llvm21/bin:$PATH"
+
+   # RedisJSON's bindgen must dlopen libclang.so; drop crt-static from its Rust flags.
+   make -C modules/redisjson get_source
+   sed -i 's/^RUST_FLAGS=$/RUST_FLAGS += -C target-feature=-crt-static/' modules/redisjson/src/Makefile
+
    make -j "$(nproc)" all
    ```
 
