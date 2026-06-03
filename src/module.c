@@ -9481,6 +9481,7 @@ void firePostExecutionUnitJobs(void) {
         zfree(job);
     }
     exitExecutionUnit();
+    server.has_pending_post_unit_jobs = 0;
 }
 
 /* Drain the keyed post-notification jobs queued during the current call().
@@ -9493,12 +9494,6 @@ void firePostExecutionUnitJobs(void) {
 void firePostKeyedNotificationJobs(void) {
     /* Reentrance guard, avoid recursive calls */
     if (server.firing_keyed_post_notif_jobs) return;
-    if (listLength(modulePostKeyedNotificationJobs) == 0) {
-        /* Clear the fast-path hint in case it was left set (e.g. a module
-         * unload drained the queue via moduleUnregisterPostNotificationJobs). */
-        server.has_pending_keyed_post_notif_jobs = 0;
-        return;
-    }
     server.firing_keyed_post_notif_jobs = 1;
     keyedPostNotifRMCallWarned = 0;
     enterExecutionUnit(0, 0);
@@ -9552,6 +9547,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
     job->dbid = ctx->client->db->id;
 
     listAddNodeTail(modulePostExecUnitJobs, job);
+    server.has_pending_post_unit_jobs = 1;
     return REDISMODULE_OK;
 }
 
