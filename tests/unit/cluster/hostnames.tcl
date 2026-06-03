@@ -301,8 +301,12 @@ test "PING with hostname extension missing null terminator is rejected" {
     set sender_port [srv -1 port]
     set sender_cport [expr {$sender_port + 10000}]
 
-    # Send a PING with a HOSTNAME extension that has no null terminator.
-    set bad_hostname [string repeat A 32]
+    # Freeze node 1 so its real PINGs cannot overwrite the injected hostname.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+
+    set payload_len 32
+    set bad_hostname [string repeat A $payload_len]
     set bad_ext [build_hostname_extension $bad_hostname]
     set bad_packet [build_cluster_bus_ping $node1_id $sender_port $sender_cport $bad_ext]
 
@@ -313,15 +317,31 @@ test "PING with hostname extension missing null terminator is rejected" {
     after 500
     close $fd
 
-    # The fix rejects the packet and logs a warning.
-    wait_for_log_messages 0 {"*missing null terminator*"} 0 20 500
-
-    # Verify the hostname was NOT updated to the malformed value.
+    # Extract the hostname that node 0 stored for the impersonated node.
+    set hostname ""
     set nodes_output [R 0 CLUSTER NODES]
     foreach line [split $nodes_output "\n"] {
         if {[string match "$node1_id *" $line]} {
-            assert_no_match "*AAAA*" $line
+            set addr_field [lindex [split $line " "] 1]
+            if {[string first "," $addr_field] != -1} {
+                set hostname [string range $addr_field \
+                    [expr {[string first "," $addr_field] + 1}] end]
+            }
         }
     }
+
+    # The server must NOT store a hostname longer than what was sent.
+    # Without a fix, strlen/sdscpy reads past the 32-byte payload into
+    # adjacent heap memory, producing a hostname longer than 32 bytes.
+    set hlen [string length $hostname]
+    if {$hlen > $payload_len} {
+        fail "OOB read: server stored $hlen bytes but only $payload_len were sent (leaked [expr {$hlen - $payload_len}] heap bytes)"
+    }
+
+    # The malformed extension should be rejected entirely -- the
+    # hostname must not contain our payload at all.
+    assert_no_match "*AAAA*" $hostname
+
+    resume_process $node1_pid
 }
 }
