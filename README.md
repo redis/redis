@@ -798,7 +798,7 @@ Tested with the following Docker images:
    ```sh
    cd /usr/src/redis-<version>
    export PATH="/opt/llvm/bin:/opt/venv/bin:$PATH"
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    export IGNORE_MISSING_DEPS=1
    make -j "$(nproc)" all
    ```
@@ -863,7 +863,7 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src/redis-<version>
 
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes
    export INSTALL_RUST_TOOLCHAIN=yes LTO=1
    export RUST_DYN_CRT=1
    export PATH="/usr/lib/llvm21/bin:$PATH"
@@ -950,7 +950,6 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    export HOMEBREW_PREFIX="$(brew --prefix)"
    export BUILD_WITH_MODULES=yes
    export BUILD_TLS=yes
-   export DISABLE_WERRORS=yes
    export LTO=0
    PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
