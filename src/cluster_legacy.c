@@ -1378,23 +1378,24 @@ clusterNode *createClusterNode(char *nodename, int flags) {
  * failure report from the same sender. 1 is returned if a new failure
  * report is created. */
 int clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
-    list *l = failing->fail_reports;
+    list *l;
     listNode *ln;
     listIter li;
     clusterNodeFailReport *fr;
 
-    /* If a failure report from the same sender already exists, just update
-     * the timestamp. */
+    if (!failing || !sender) return 0;
+    l = failing->fail_reports;
+    if (!l) return 0;
+
     listRewind(l,&li);
     while ((ln = listNext(&li)) != NULL) {
         fr = ln->value;
-        if (fr->node == sender) {
+        if (fr && fr->node == sender) {
             fr->time = mstime();
             return 0;
         }
     }
 
-    /* Otherwise create a new report. */
     fr = zmalloc(sizeof(*fr));
     fr->node = sender;
     fr->time = mstime();
@@ -1408,18 +1409,23 @@ int clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
  * older than the global node timeout, so we don't just trust the number
  * of failure reports from other nodes. */
 void clusterNodeCleanupFailureReports(clusterNode *node) {
-    list *l = node->fail_reports;
-    listNode *ln;
+    list *l;
     listIter li;
-    clusterNodeFailReport *fr;
-    mstime_t maxtime = server.cluster_node_timeout *
-                     CLUSTER_FAIL_REPORT_VALIDITY_MULT;
+    listNode *ln;
+    mstime_t maxtime = server.cluster_node_timeout * CLUSTER_FAIL_REPORT_VALIDITY_MULT;
     mstime_t now = mstime();
 
+    if (!node) return;
+    l = node->fail_reports;
+    if (!l) return;
+
+    /* It's valid to use listDelNode() on the currently returned
+     * element while iterating with listNext(). See adlist.c. */
     listRewind(l,&li);
     while ((ln = listNext(&li)) != NULL) {
-        fr = ln->value;
-        if (now - fr->time > maxtime) listDelNode(l,ln);
+        clusterNodeFailReport *fr = ln->value;
+        if (fr && (now - fr->time > maxtime))
+            listDelNode(l, ln);
     }
 }
 
@@ -1435,20 +1441,22 @@ void clusterNodeCleanupFailureReports(clusterNode *node) {
  * The function returns 1 if the failure report was found and removed.
  * Otherwise 0 is returned. */
 int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
-    list *l = node->fail_reports;
+    list *l;
     listNode *ln;
     listIter li;
     clusterNodeFailReport *fr;
 
-    /* Search for a failure report from this sender. */
+    if (!node || !sender) return 0;
+    l = node->fail_reports;
+    if (!l) return 0;
+
     listRewind(l,&li);
     while ((ln = listNext(&li)) != NULL) {
         fr = ln->value;
-        if (fr->node == sender) break;
+        if (fr && fr->node == sender) break;
     }
-    if (!ln) return 0; /* No failure report from this sender. */
+    if (!ln) return 0;
 
-    /* Remove the failure report. */
     listDelNode(l,ln);
     clusterNodeCleanupFailureReports(node);
     return 1;
@@ -1458,6 +1466,7 @@ int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
  * not including this node, that may have a PFAIL or FAIL state for this
  * node as well. */
 int clusterNodeFailureReportsCount(clusterNode *node) {
+    if (!node || !node->fail_reports) return 0;
     clusterNodeCleanupFailureReports(node);
     return listLength(node->fail_reports);
 }
