@@ -309,7 +309,7 @@ static standardConfig *lookupConfig(const sds name) {
 /* If config is an alias entry, return the corresponding primary; otherwise
  * return config itself. The primary and alias are two separate standardConfig
  * structs (see registerConfigValue), so runtime-modified tracking must
- * always key off the primary — the rewrite loop skips entries with
+ * always key off the primary - the rewrite loop skips entries with
  * ALIAS_CONFIG set. */
 static standardConfig *resolvePrimaryConfig(standardConfig *config) {
     if (config && (config->flags & ALIAS_CONFIG)) {
@@ -321,16 +321,24 @@ static standardConfig *resolvePrimaryConfig(standardConfig *config) {
     return config;
 }
 
-/* Mark a config as runtime-modified (resolving alias entries to the primary).
- * Adds the primary's name to runtimeModifiedConfigs so a subsequent CONFIG
- * REWRITE in runtime-modified mode will emit it. Primary primitive used by
- * configSetCommand, the moduleSetXxxConfig helpers, and the by-name wrapper. */
+/* Mark a standardConfig as runtime-modified (resolving alias entries to the
+ * primary).  Adds the primary's name to runtimeModifiedConfigs so a subsequent
+ * CONFIG REWRITE in runtime-modified mode will emit it. */
 static void markStandardConfigRuntimeModified(standardConfig *config) {
     if (!config) return;
     standardConfig *primary = resolvePrimaryConfig(config);
     sds key = sdsnew(primary->name);
     if (dictAdd(runtimeModifiedConfigs, key, NULL) != DICT_OK)
         sdsfree(key); /* already present */
+}
+
+/* Mark a config as runtime-modified by name. Used by callers outside config.c
+ * that change config-backed state via dedicated commands (e.g. REPLICAOF) and
+ * bypass the standard CONFIG SET path. No-op if the config name is unknown. */
+void markConfigRuntimeModified(const char *name) {
+    sds key = sdsnew(name);
+    markStandardConfigRuntimeModified(lookupConfig(key));
+    sdsfree(key);
 }
 
 /* Returns 1 if the named config has been marked runtime-modified since
@@ -342,23 +350,12 @@ static int isConfigRuntimeModified(const char *name) {
     return found;
 }
 
-/* Empty the runtime-modified set and clear the ACL / module subsystem
- * dirty flags. Called after a successful CONFIG REWRITE, and at the end
- * of startup module loading (where the marks reflect file-provided values,
- * not runtime mutations). */
+/* Empty the runtime-modified set and clear the ACL / module subsystem dirty
+ * flags. */
 void clearRuntimeModifiedConfigs(void) {
     dictEmpty(runtimeModifiedConfigs, NULL);
     server.acl_modified = 0;
     server.modules_modified = 0;
-}
-
-/* Mark a config as runtime-modified by name. Used by callers outside config.c
- * that change config-backed state via dedicated commands (e.g. REPLICAOF) and
- * bypass the standard CONFIG SET path. No-op if the config name is unknown. */
-void markConfigRuntimeModified(const char *name) {
-    sds key = sdsnew(name);
-    markStandardConfigRuntimeModified(lookupConfig(key));
-    sdsfree(key);
 }
 
 /*-----------------------------------------------------------------------------
