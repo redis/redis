@@ -210,31 +210,42 @@ start_server [list overrides {config-rewrite-mode runtime-modified} \
     }
 }
 
-# Sentinel-mode tests live here rather than under tests/sentinel/ because
-# they're about CONFIG REWRITE filtering, not about Sentinel's quorum /
-# failover machinery. The shared 5-sentinel cluster used by tests/sentinel/
-# can't easily be reconfigured per-test, and spawning a 6th would skew the
-# quorum count. A standalone sentinel started with --sentinel is much
-# easier to handle here. We bypass start_server because its readiness
-# check waits for "Server initialized" which Sentinel doesn't log.
+# Spawn a standalone sentinel for the CONFIG REWRITE filtering tests, run
+# the body, and tear it down. Same shape as start_server.
+#
+# These tests live in the unit suite (not tests/sentinel/) because they're
+# about REWRITE behavior, not Sentinel's quorum / failover machinery. The
+# shared 5-sentinel cluster used by the sentinel suite can't easily be
+# reconfigured per-test, and spawning a 6th would skew the quorum count.
+#
+# We bypass start_server because its readiness check waits for
+# "Server initialized" in the log, which Sentinel does not emit. Instead
+# we exec redis-server --sentinel directly, poll until reachable, and tear
+# down via the catch+rethrow pattern so cleanup runs even on test errors.
+proc start_crm_sentinel {code} {
+    set ::crm_sentinel_dir [file normalize [tmpdir "crm-sentinel"]]
+    set ::crm_sentinel_conf [file join $::crm_sentinel_dir "sentinel.conf"]
+    set ::crm_sentinel_log [file join $::crm_sentinel_dir "sentinel.log"]
+    set ::crm_sentinel_port [find_available_port $::baseport $::portcount]
+    set fd [open $::crm_sentinel_conf w]
+    puts $fd "port $::crm_sentinel_port"
+    puts $fd "dir $::crm_sentinel_dir"
+    puts $fd "daemonize yes"
+    puts $fd "logfile \"$::crm_sentinel_log\""
+    puts $fd "config-rewrite-mode runtime-modified"
+    close $fd
 
-set ::crm_sentinel_dir [file normalize [tmpdir "crm-sentinel"]]
-set ::crm_sentinel_conf [file join $::crm_sentinel_dir "sentinel.conf"]
-set ::crm_sentinel_log [file join $::crm_sentinel_dir "sentinel.log"]
-set ::crm_sentinel_port [find_available_port $::baseport $::portcount]
-set fd [open $::crm_sentinel_conf w]
-puts $fd "port $::crm_sentinel_port"
-puts $fd "dir $::crm_sentinel_dir"
-puts $fd "daemonize yes"
-puts $fd "logfile \"$::crm_sentinel_log\""
-puts $fd "config-rewrite-mode runtime-modified"
-close $fd
+    exec src/redis-server $::crm_sentinel_conf --sentinel
+    if {![server_is_up $::host $::crm_sentinel_port 100]} {
+        fail "Sentinel did not come up on port $::crm_sentinel_port"
+    }
+    set ::crm_sentinel_client [redis $::host $::crm_sentinel_port 0 $::tls]
 
-exec src/redis-server $::crm_sentinel_conf --sentinel
-if {![server_is_up $::host $::crm_sentinel_port 100]} {
-    fail "Sentinel did not come up on port $::crm_sentinel_port"
+    set err [catch {uplevel 1 $code} result]
+    catch {$::crm_sentinel_client shutdown nosave}
+    $::crm_sentinel_client close
+    if {$err} { error $result $::errorInfo }
 }
-set ::crm_sentinel_client [redis $::host $::crm_sentinel_port 0 $::tls]
 
 proc crm_read_sentinel_conf {} {
     set fd [open $::crm_sentinel_conf r]
@@ -253,32 +264,31 @@ proc crm_count_sentinel_directive {name} {
     return $n
 }
 
-test {runtime-modified + sentinel - sentinel state always emitted} {
-    $::crm_sentinel_client sentinel monitor mymaster 127.0.0.1 6379 1
-    set content [crm_read_sentinel_conf]
-    assert_match "*sentinel myid*" $content
-    assert_match "*sentinel monitor mymaster 127.0.0.1 6379 1*" $content
-    assert_match "*sentinel current-epoch*" $content
+start_crm_sentinel {
+    test {runtime-modified + sentinel - sentinel state always emitted} {
+        $::crm_sentinel_client sentinel monitor mymaster 127.0.0.1 6379 1
+        set content [crm_read_sentinel_conf]
+        assert_match "*sentinel myid*" $content
+        assert_match "*sentinel monitor mymaster 127.0.0.1 6379 1*" $content
+        assert_match "*sentinel current-epoch*" $content
+    }
+
+    test {runtime-modified + sentinel - general server configs not added by rewrite} {
+        set port_count_before [crm_count_sentinel_directive port]
+        set dir_count_before [crm_count_sentinel_directive dir]
+        set user_count_before [crm_count_sentinel_directive user]
+        set ltip_count_before [crm_count_sentinel_directive latency-tracking-info-percentiles]
+
+        $::crm_sentinel_client sentinel set mymaster down-after-milliseconds 3500
+        $::crm_sentinel_client sentinel remove mymaster
+        $::crm_sentinel_client sentinel monitor mymaster 127.0.0.1 6379 1
+
+        assert_equal $port_count_before [crm_count_sentinel_directive port]
+        assert_equal $dir_count_before [crm_count_sentinel_directive dir]
+        assert_equal $user_count_before [crm_count_sentinel_directive user]
+        assert_equal $ltip_count_before [crm_count_sentinel_directive latency-tracking-info-percentiles]
+    }
 }
-
-test {runtime-modified + sentinel - general server configs not added by rewrite} {
-    set port_count_before [crm_count_sentinel_directive port]
-    set dir_count_before [crm_count_sentinel_directive dir]
-    set user_count_before [crm_count_sentinel_directive user]
-    set ltip_count_before [crm_count_sentinel_directive latency-tracking-info-percentiles]
-
-    $::crm_sentinel_client sentinel set mymaster down-after-milliseconds 3500
-    $::crm_sentinel_client sentinel remove mymaster
-    $::crm_sentinel_client sentinel monitor mymaster 127.0.0.1 6379 1
-
-    assert_equal $port_count_before [crm_count_sentinel_directive port]
-    assert_equal $dir_count_before [crm_count_sentinel_directive dir]
-    assert_equal $user_count_before [crm_count_sentinel_directive user]
-    assert_equal $ltip_count_before [crm_count_sentinel_directive latency-tracking-info-percentiles]
-}
-
-catch {$::crm_sentinel_client shutdown nosave}
-$::crm_sentinel_client close
 
 # FAILOVER mutates server.masterhost without going through replicaofCommand,
 # so it must mark the replicaof config directly. Without that mark, the
