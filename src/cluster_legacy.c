@@ -2839,11 +2839,16 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataFail);
     } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
+        uint32_t ch_len = ntohl(hdr->data.publish.msg.channel_len);
+        uint32_t msg_len = ntohl(hdr->data.publish.msg.message_len);
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        explen += sizeof(clusterMsgDataPublish) -
-                8 +
-                ntohl(hdr->data.publish.msg.channel_len) +
-                ntohl(hdr->data.publish.msg.message_len);
+        explen += sizeof(clusterMsgDataPublish) - 8;
+        if (ch_len > UINT32_MAX - explen || msg_len > UINT32_MAX - explen - ch_len) {
+            serverLog(LL_WARNING, "Received invalid %s packet with overflow in length fields "
+                "(channel_len:%u, message_len:%u)", clusterGetMessageTypeString(type), ch_len, msg_len);
+            return 1;
+        }
+        explen += ch_len + msg_len;
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST ||
                type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK ||
                type == CLUSTERMSG_TYPE_MFSTART)
@@ -2853,9 +2858,15 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataUpdate);
     } else if (type == CLUSTERMSG_TYPE_MODULE) {
+        uint32_t module_len = ntohl(hdr->data.module.msg.len);
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        explen += sizeof(clusterMsgModule) -
-                3 + ntohl(hdr->data.module.msg.len);
+        explen += sizeof(clusterMsgModule) - 3;
+        if (module_len > UINT32_MAX - explen) {
+            serverLog(LL_WARNING, "Received invalid %s packet with overflow in length field "
+                "(len:%u)", clusterGetMessageTypeString(type), module_len);
+            return 1;
+        }
+        explen += module_len;
     } else {
         /* We don't know this type of packet, so we assume it's well formed. */
         explen = totlen;
