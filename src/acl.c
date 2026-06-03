@@ -2535,11 +2535,17 @@ sds ACLLoadFromFile(const char *filename) {
                 continue;
             }
 
+            /* Server and client-side subscription bookkeeping move in lockstep,
+             * so if the server has zero subscriptions (user_channels not
+             * allocated) no client can hold any either. Assert that here since
+             * the block below relies on it to gate validation and re-keying. */
+            serverAssert(user_channels || dictSize(c->pubsub_subscriptions) == 0);
+
             /* Phase 1: Validate provenance entries (read-only, no mutation).
              * Old user pointers are still alive — old_users is freed after
              * the walk — so old_user_ptr->name is safe to dereference. */
-            int must_kill = 0;
             if (user_channels) {
+                int must_kill = 0;
                 dictIterator di;
                 dictEntry *entry;
                 dictInitIterator(&di, c->pubsub_subscriptions);
@@ -2575,18 +2581,17 @@ sds ACLLoadFromFile(const char *filename) {
                     }
                 }
                 dictResetIterator(&di);
-            }
 
+                if (must_kill) {
+                    deauthenticateAndCloseClient(c);
+                    continue;
+                }
 
-            if (must_kill) {
-                deauthenticateAndCloseClient(c);
-                continue;
-            }
-
-            /* Phase 2: Client survived — re-key provenance entries from old
-             * user pointers to new user pointers, then reassign c->user. */
-            if (dictSize(c->pubsub_subscriptions) > 0) {
-                pubsubRekeySubscriptionsForACLLoad(c);
+                /* Phase 2: Client survived — re-key provenance entries from old
+                 * user pointers to new user pointers, then reassign c->user. */
+                if (dictSize(c->pubsub_subscriptions) > 0) {
+                    pubsubRekeySubscriptionsForACLLoad(c);
+                }
             }
             clientSetUser(c, new_current);
         }
