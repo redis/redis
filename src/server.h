@@ -1139,8 +1139,8 @@ static_assert(offsetof(payloadHeader, payload_len) == 0, "payload_len must be at
  * we store pointers to object and string itself */
 typedef struct __attribute__((__packed__)) bulkStrRef {
     robj *obj; /* pointer to object used for reference count management */
-    unsigned int prefix_cnt;
-    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n */
+    unsigned int prefix_cnt; /* length of prefix; 0 means prefix not yet formatted */
+    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n, lazily filled when writing */
     char crlf[2]; /* \r\n */
 } bulkStrRef;
 
@@ -1677,7 +1677,11 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
+    redisAtomic long long io_reads_processed;   /* Number of read events processed */
+    redisAtomic long long io_writes_processed;  /* Number of write events processed */
 } IOThread;
+
+extern IOThread IOThreads[IO_THREADS_MAX_NUM];
 
 /* Context for streaming replDataBuf to database */
 typedef struct replDataBufToDbCtx {
@@ -2157,8 +2161,6 @@ struct redisServer {
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
-    redisAtomic long long stat_io_reads_processed[IO_THREADS_MAX_NUM]; /* Number of read events processed by IO / Main threads */
-    redisAtomic long long stat_io_writes_processed[IO_THREADS_MAX_NUM]; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
@@ -3248,6 +3250,7 @@ void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
+unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);

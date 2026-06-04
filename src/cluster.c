@@ -2107,17 +2107,26 @@ int clusterCanAccessKeysInSlot(int slot) {
     return 0;
 }
 
-/* Return the slot ranges that belong to the current node or its master. */
+/* Return the slot ranges that belong to the current node or its master.
+ * In non-cluster mode, returns the full slot range (0-16383). */
 slotRangeArray *clusterGetLocalSlotRanges(void) {
-    slotRangeArray *slots = NULL;
-
     if (!server.cluster_enabled) {
-        slots = slotRangeArrayCreate(1);
+        slotRangeArray *slots = slotRangeArrayCreate(1);
         slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
         return slots;
     }
 
-    clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
+    return clusterGetNodeSlotRanges(getMyClusterNode());
+}
+
+/* Returns the slot ranges owned by the given node.
+ * If the node is a replica, the master's slot ranges are returned.
+ * Returns an empty array if the node has no slots. */
+slotRangeArray *clusterGetNodeSlotRanges(clusterNode *node) {
+    slotRangeArray *slots = NULL;
+
+    serverAssert(server.cluster_enabled && node != NULL);
+    clusterNode *master = clusterNodeGetMaster(node);
     if (master) {
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
             if (clusterNodeCoversSlot(master, i))

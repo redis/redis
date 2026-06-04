@@ -9758,10 +9758,10 @@ size_t RM_GetClusterSize(void) {
  * is returned.
  *
  * The arguments `ip`, `master_id`, `port` and `flags` can be NULL in case we don't
- * need to populate back certain info. If an `ip` and `master_id` (only populated
+ * need to populate back certain info. If an `ip` and/or `master_id` (only populated
  * if the instance is a slave) are specified, they point to buffers holding
- * at least REDISMODULE_NODE_ID_LEN bytes. The strings written back as `ip`
- * and `master_id` are not null terminated.
+ * at least INET6_ADDRSTRLEN (46) and REDISMODULE_NODE_ID_LEN bytes, respectively.
+ * The strings written back as `ip` and `master_id` are not null terminated.
  *
  * The list of flags reported is the following:
  *
@@ -9806,6 +9806,28 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
     }
     return REDISMODULE_OK;
+}
+
+/* Returns the slot ranges owned by the cluster node identified by `nodeid`.
+ *
+ * An optional `ctx` can be provided to enable auto-memory management.
+ * An empty array is returned if cluster mode is disabled (no cluster nodes
+ * exist) or if no node matches `nodeid`.
+ * If the node is a replica, the slot ranges of its master are returned.
+ *
+ * The returned array must be freed with RM_ClusterFreeSlotRanges(). */
+RedisModuleSlotRangeArray *RM_GetClusterNodeSlotRanges(RedisModuleCtx *ctx, const char *nodeid) {
+    slotRangeArray *slots;
+
+    if (!server.cluster_enabled) {
+        slots = slotRangeArrayCreate(0);
+    } else {
+        clusterNode *node = clusterLookupNode(nodeid, CLUSTER_NAMELEN);
+        slots = node ? clusterGetNodeSlotRanges(node) : slotRangeArrayCreate(0);
+    }
+    
+    if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    return (RedisModuleSlotRangeArray *)slots;
 }
 
 /* Set Redis Cluster flags in order to change the normal behavior of
@@ -10086,8 +10108,9 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
 
     while(1) {
         key = htonu64(expiretime);
-        if (!raxFind(Timers, (unsigned char*)&key,sizeof(key),NULL)) {
-            raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
+        raxNodeLink link;
+        if (!raxFindLink(Timers, (unsigned char*)&key, sizeof(key), NULL, &link)) {
+            raxInsertAt(Timers, (unsigned char*)&key, sizeof(key), timer, NULL, &link);
             break;
         } else {
             expiretime++;
@@ -15576,6 +15599,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);
+    REGISTER_API(GetClusterNodeSlotRanges);
     REGISTER_API(GetClusterNodesList);
     REGISTER_API(FreeClusterNodesList);
     REGISTER_API(CreateTimer);

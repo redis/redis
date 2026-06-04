@@ -11859,13 +11859,6 @@ struct COMMAND_ARG INCREX_increment_Subargs[] = {
 {MAKE_ARG("integer",ARG_TYPE_INTEGER,-1,"BYINT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* INCREX overflow_block argument table */
-struct COMMAND_ARG INCREX_overflow_block_Subargs[] = {
-{MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("reject",ARG_TYPE_PURE_TOKEN,-1,"REJECT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
 /* INCREX expiration argument table */
 struct COMMAND_ARG INCREX_expiration_Subargs[] = {
 {MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -11879,7 +11872,7 @@ struct COMMAND_ARG INCREX_expiration_Subargs[] = {
 struct COMMAND_ARG INCREX_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("increment",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=INCREX_increment_Subargs},
-{MAKE_ARG("overflow-block",ARG_TYPE_ONEOF,-1,"OVERFLOW","Out-of-bounds policy; defaults to FAIL. Missing LBOUND/UBOUND default to the type limits (LLONG_MIN/LLONG_MAX for BYINT, -LDBL_MAX/LDBL_MAX for BYFLOAT).",NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=INCREX_overflow_block_Subargs},
+{MAKE_ARG("saturate",ARG_TYPE_PURE_TOKEN,-1,"SATURATE","Saturate the result to LBOUND/UBOUND (or the type limits when no explicit bound is given) when out of bounds. Without this option, out-of-bounds operations are rejected and reply [current_value, 0].",NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("lowerbound",ARG_TYPE_STRING,-1,"LBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("upperbound",ARG_TYPE_STRING,-1,"UBOUND","Integer when used with BYINT, floating-point when used with BYFLOAT.",NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=INCREX_expiration_Subargs},

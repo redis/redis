@@ -262,3 +262,40 @@ proc check_cluster_node_mark {flag ref_node_index instance_id_to_check} {
     }
     fail "Unable to find instance id in cluster nodes. ID: $instance_id_to_check"
 }
+
+# Build the 2256-byte cluster bus header (CLUSTERMSG_MIN_LEN) common to all
+# message types.  Only the type field and the data that follows differ.
+proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type totlen} {
+    set CLUSTER_NAMELEN 40
+    set NET_IP_STR_LEN 46
+
+    set sender_padded [binary format a${CLUSTER_NAMELEN} $sender_name]
+    set myslots [string repeat \x00 [expr {16384/8}]]
+    set slaveof [string repeat \x00 $CLUSTER_NAMELEN]
+    set myip [string repeat \x00 $NET_IP_STR_LEN]
+    set notused1 [string repeat \x00 30]
+
+    set hdr ""
+    append hdr "RCmb"
+    append hdr [binary format I $totlen]
+    append hdr [binary format S 1]              ;# ver
+    append hdr [binary format S $sender_port]   ;# port
+    append hdr [binary format S $msg_type]      ;# type
+    append hdr [binary format S 0]              ;# count
+    append hdr [binary format W 1]              ;# currentEpoch
+    append hdr [binary format W 2]              ;# configEpoch
+    append hdr [binary format W 0]              ;# offset
+    append hdr $sender_padded                   ;# sender
+    append hdr $myslots                         ;# myslots
+    append hdr $slaveof                         ;# slaveof
+    append hdr $myip                            ;# myip
+    append hdr [binary format S 0]              ;# extensions
+    append hdr $notused1                        ;# notused1
+    append hdr [binary format S 0]              ;# pport
+    append hdr [binary format S $sender_cport]  ;# cport
+    append hdr [binary format S 0]              ;# flags
+    append hdr [binary format c 0]              ;# state
+    append hdr [binary format ccc 0 0 0]        ;# mflags
+
+    return $hdr
+}

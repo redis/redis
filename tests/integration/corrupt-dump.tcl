@@ -280,6 +280,20 @@ test {corrupt payload: listpack too long entry prev len} {
     }
 }
 
+test {corrupt payload: stream listpack entry with corrupt encoding crashes lpFirst} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        # Payload: stream listpack with a valid header but a first entry
+        # whose encoding byte is LP_ENCODING_32BIT_STR (0xF0) declaring a
+        # 0x7FFFFFFF-byte string running past the end of the listpack.
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r RESTORE mystream 0 "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\xF0\xFF\xFF\xFF\x7F\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0C\x00\x00\x00\x00\x00\x00\x00\x00\x00" REPLACE} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Stream listpack integrity check failed*" 0
+        r ping
+    }
+}
+
 test {corrupt payload: stream entry with invalid lp_count causing infinite loop in reverse iteration} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no

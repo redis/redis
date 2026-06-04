@@ -6,6 +6,11 @@ on:
   - cron: '0 0 * * *'
   # Support manual execution
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   coverity:
     if: github.repository == 'redis/redis'
