@@ -468,33 +468,18 @@ Tested with the following Docker images:
 
 1. Prepare the system
 
-   For 8.10-minimal, install `sudo` and `dnf` as follows:
+   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 8.10-minimal, install `dnf` first:
 
    ```sh
-   microdnf install dnf sudo -y
+   microdnf install dnf -y
    ```
 
-   For 8.10 (regular), install sudo as follows:
+   Enable the required repositories and install the base development tools:
 
    ```sh
-   dnf install sudo -y
-   ```
-
-   Clean the package metadata, enable required repositories, and install development tools:
-
-   ```sh
-   sudo dnf clean all
-   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
-   [goreleaser]
-   name=GoReleaser
-   baseurl=https://repo.goreleaser.com/yum/
-   enabled=1
-   gpgcheck=0
-   EOF
-   sudo dnf update -y
-   sudo dnf groupinstall "Development Tools" -y
-   sudo dnf config-manager --set-enabled powertools
-   sudo dnf install -y epel-release
+   dnf groupinstall "Development Tools" -y
+   dnf config-manager --set-enabled powertools
+   dnf install -y epel-release
    ```
 
 2. Install required dependencies
@@ -502,20 +487,14 @@ Tested with the following Docker images:
    Update your package lists and install the necessary development tools and libraries:
 
    ```sh
-   sudo dnf install -y --nobest --skip-broken pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang curl libtool automake autoconf jq systemd-devel
-   ```
-
-   Create a Python virtual environment:
-
-   ```sh
-   python3.11 -m venv /opt/venv
+   dnf install -y pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang libtool automake autoconf jq systemd-devel
    ```
 
    Enable the GCC toolset:
 
    ```sh
-   sudo cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-   echo "source /etc/profile.d/gcc-toolset-13.sh" | sudo tee -a /etc/bashrc
+   cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+   echo "source /etc/profile.d/gcc-toolset-13.sh" >> /etc/bashrc
    ```
 
 3. Install CMake
@@ -587,31 +566,17 @@ Tested with the following Docker images:
 
 1. Prepare the system
 
-   For 9.x-minimal, install `sudo` and `dnf` as follows:
+   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 9-minimal, install `dnf` first:
 
    ```sh
-   microdnf install dnf sudo -y
+   microdnf install dnf -y
    ```
 
-   For 9.x (regular), install sudo as follows:
+   Enable the required repositories (`epel-release` and CRB provide some of the `-devel` packages):
 
    ```sh
-   dnf install sudo -y
-   ```
-
-   Clean the package metadata, enable required repositories, and install development tools:
-
-   ```sh
-   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
-   [goreleaser]
-   name=GoReleaser
-   baseurl=https://repo.goreleaser.com/yum/
-   enabled=1
-   gpgcheck=0
-   EOF
-   sudo dnf clean all
-   sudo dnf makecache
-   sudo dnf update -y
+   dnf install -y epel-release
+   dnf config-manager --set-enabled crb
    ```
 
 2. Install required dependencies
@@ -619,20 +584,14 @@ Tested with the following Docker images:
    Update your package lists and install the necessary development tools and libraries:
 
    ```sh
-   sudo dnf install -y --nobest --skip-broken pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang curl libtool automake autoconf jq systemd-devel
-   ```
-
-   Create a Python virtual environment:
-
-   ```sh
-   python3 -m venv /opt/venv
+   dnf install -y pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang libtool automake autoconf jq systemd-devel
    ```
 
    Enable the GCC toolset:
 
    ```sh
-   sudo cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-   echo "source /etc/profile.d/gcc-toolset-13.sh" | sudo tee -a /etc/bashrc
+   cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+   echo "source /etc/profile.d/gcc-toolset-13.sh" >> /etc/bashrc
    ```
 
 3. Install CMake
@@ -704,33 +663,17 @@ Tested with the following Docker images:
 
 1. Prepare the system
 
-   For 10.x-minimal, install `sudo` and `dnf` as follows:
+   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 10-minimal, install `dnf` first:
 
    ```sh
-   microdnf install dnf sudo -y
+   microdnf install dnf -y
    ```
 
-   For 10.x (regular), install sudo as follows:
+   Enable the required repositories (`epel-release` and CRB provide some of the `-devel` packages):
 
    ```sh
-   dnf install sudo -y
-   ```
-
-   Clean the package metadata, enable required repositories, and update the system:
-
-   ```sh
-   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
-   [goreleaser]
-   name=GoReleaser
-   baseurl=https://repo.goreleaser.com/yum/
-   enabled=1
-   gpgcheck=0
-   EOF
-   sudo dnf clean all
-   sudo dnf makecache
-   sudo dnf update -y
-   sudo dnf install -y epel-release
-   sudo dnf config-manager --set-enabled crb
+   dnf install -y epel-release
+   dnf config-manager --set-enabled crb
    ```
 
 2. Install required dependencies
@@ -738,37 +681,11 @@ Tested with the following Docker images:
    Install the necessary development tools and libraries. AlmaLinux/Rocky 10 ship GCC 14 and CMake 3.30 in the default repositories, which are supported by the Redis build, so no separate compiler/CMake toolset is required:
 
    ```sh
-   sudo dnf groupinstall "Development Tools" -y
-   sudo dnf install -y --nobest --skip-broken pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld curl libtool automake autoconf jq systemd-devel
+   dnf groupinstall "Development Tools" -y
+   dnf install -y pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
-   Create a Python virtual environment:
-
-   ```sh
-   python3 -m venv /opt/venv
-   ```
-
-   Install LLVM 21 so `RediSearch`'s cross-language LTO matches the Rust toolchain's LLVM. AlmaLinux/Rocky 10's default `clang` is LLVM 20, so install the upstream LLVM 21 release and alias the version-suffixed tools `RediSearch` looks for on `PATH`:
-
-   ```sh
-   LLVM_VERSION=21.1.8
-   MAJOR=${LLVM_VERSION%%.*}
-   if [ "$(uname -m)" = "x86_64" ]; then
-     LLVM_ASSET=LLVM-${LLVM_VERSION}-Linux-X64.tar.xz
-   else
-     LLVM_ASSET=LLVM-${LLVM_VERSION}-Linux-ARM64.tar.xz
-   fi
-   sudo mkdir -p /opt/llvm-${LLVM_VERSION}
-   curl -fsSL https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/${LLVM_ASSET} \
-     | sudo tar -xJ -C /opt/llvm-${LLVM_VERSION} --strip-components=1
-   sudo ln -sfn /opt/llvm-${LLVM_VERSION} /opt/llvm
-   for tool in clang clang++ clang-cpp lld ld.lld ld64.lld lld-link llc opt \
-               llvm-ar llvm-nm llvm-ranlib llvm-strip llvm-objcopy llvm-objdump \
-               llvm-readelf llvm-config; do
-     [ -e "/opt/llvm/bin/${tool}" ] && sudo ln -sfn "/opt/llvm/bin/${tool}" "/opt/llvm/bin/${tool}-${MAJOR}"
-   done
-   /opt/llvm/bin/clang-${MAJOR} --version
-   ```
+   On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain that `INSTALL_RUST_TOOLCHAIN=yes` installs. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
 
 3. Download the Redis source
 
@@ -793,11 +710,10 @@ Tested with the following Docker images:
 
 5. Build Redis
 
-   Put LLVM 21 first on `PATH`, set the necessary environment variables, and build Redis. `RediSearch` builds with cross-language LTO (the default) because LLVM 21 now matches the Rust toolchain's LLVM.:
+   Set the necessary environment variables and build Redis. `RediSearch` builds with cross-language LTO (the default) because the `clang`/`lld` 21 installed in step 2 match the Rust toolchain's LLVM. On AlmaLinux, `IGNORE_MISSING_DEPS=1` bypasses the `v8.7.91` dep-checker that does not yet recognize `almalinux` (fixed in `redisearch` v8.8.0; harmless on, and not required for, Rocky Linux 10):
 
    ```sh
    cd /usr/src/redis-<version>
-   export PATH="/opt/llvm/bin:/opt/venv/bin:$PATH"
    export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    export IGNORE_MISSING_DEPS=1
    make -j "$(nproc)" all
