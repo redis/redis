@@ -21,6 +21,34 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.6.4    Released Thu 4 Jun 2026 19:00:00 IST
+================================================================================
+
+Update urgency: `HIGH`: There are critical bugs that may affect a subset of users.
+
+### Bug fixes
+
+- #15175, #Q9262 Redis fails to start on AArch64
+- #15163 `MULTI` queue memory incorrect memory accounting
+- #15115 Under-copy in the Lua debugger
+- #15094 Cluster crash when `CLIENT KILL` unsubscribes `SSUBSCRIBE` client inside `EXEC`
+- #14963 `XREADGROUP`: consumer replication inconsistency
+- #14934 Client output buffer memory tracking not accounting for copy-avoided bulk string references
+- #14970 Sentinel config injection via `SENTINEL SET`
+- #14982 `SCAN` commands: integer overflow in `COUNT` parameter
+- #15073 `CLIENT TRACKING`: self-overlap returning non-zero loop index
+- #15059 Use-after-free
+- #15037 `XINFO STREAM`: wrong value in the per-slot memory tracking
+- #15034, #15081 Issues processing corrupt RDB data
+- #15021 `HEXPIRE`: overflow on fields count
+- #14942 Fix `COMMAND GETKEYS for PFMERGE` with no source keys
+- #15188 `cluster-announce-ip` rejecting hostnames (regression)
+- #14667, #14886 Potential TCP stalls/deadlocks
+- #Q9484 Shard crash during background index scan of JSON documents with vector fields on Active-Active (CRDT) databases (MOD-15542)
+- #Q9635 Severe latency spikes and shard unresponsiveness when `EXPIRE` or `EXPIREAT` operations run concurrently with queries on large indexes (MOD-14930)
+
+
+================================================================================
 Redis 8.6.3    Released Tue 5 May 2026 16:00:00 IST
 ================================================================================
 
