@@ -2974,6 +2974,7 @@ void initServer(void) {
     server.execution_nesting = 0;
     server.firing_keyed_post_notif_jobs = 0;
     server.has_pending_keyed_post_notif_jobs = 0;
+    server.has_pending_post_unit_jobs = 0;
     server.in_keyspace_notification = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -3852,7 +3853,8 @@ void postExecutionUnitOperations(void) {
 
     if (server.has_pending_keyed_post_notif_jobs)
         firePostKeyedNotificationJobs();
-    firePostExecutionUnitJobs();
+    if (server.has_pending_post_unit_jobs)
+        firePostExecutionUnitJobs();
 
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */

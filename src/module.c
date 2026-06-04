@@ -9481,6 +9481,7 @@ void firePostExecutionUnitJobs(void) {
         zfree(job);
     }
     exitExecutionUnit();
+    server.has_pending_post_unit_jobs = 0;
 }
 
 /* Drain the keyed post-notification jobs queued during the current call().
@@ -9546,6 +9547,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
     job->dbid = ctx->client->db->id;
 
     listAddNodeTail(modulePostExecUnitJobs, job);
+    server.has_pending_post_unit_jobs = 1;
     return REDISMODULE_OK;
 }
 
