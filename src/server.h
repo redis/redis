@@ -2069,12 +2069,6 @@ struct redisServer {
                                        * is queued. Lets the hot command path
                                        * skip the firePostKeyedNotificationJobs
                                        * call entirely when nothing is pending. */
-    int has_pending_post_unit_jobs; /* Fast-path hint for the regular
-                                       * (non-keyed) post-notification queue:
-                                       * non-zero when at least one job is
-                                       * queued. Lets postExecutionUnitOperations
-                                       * skip the firePostExecutionUnitJobs call
-                                       * entirely when nothing is pending. */
     int in_keyspace_notification;     /* >0 while inside a moduleNotifyKeyspaceEvent
                                        * dispatch. Defines the scope from which
                                        * RM_AddPostNotificationJobForKey may be called;
@@ -3137,8 +3131,8 @@ void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
-void firePostExecutionUnitJobs(void) __attribute__((noinline,cold));
-void firePostKeyedNotificationJobs(void) __attribute__((noinline,cold));
+void firePostExecutionUnitJobs(void);
+void firePostKeyedNotificationJobs(void);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);

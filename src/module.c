@@ -9481,7 +9481,6 @@ void firePostExecutionUnitJobs(void) {
         zfree(job);
     }
     exitExecutionUnit();
-    server.has_pending_post_unit_jobs = 0;
 }
 
 /* Drain the keyed post-notification jobs queued during the current call().
@@ -9491,7 +9490,7 @@ void firePostExecutionUnitJobs(void) {
  * Also invoked from the AOF replay loop in loadSingleAppendOnlyFile after
  * each single command
  */
-void firePostKeyedNotificationJobs(void) {
+__attribute__((noinline,cold)) void firePostKeyedNotificationJobs(void) {
     /* Reentrance guard, avoid recursive calls */
     if (server.firing_keyed_post_notif_jobs) return;
     server.firing_keyed_post_notif_jobs = 1;
@@ -9547,7 +9546,6 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
     job->dbid = ctx->client->db->id;
 
     listAddNodeTail(modulePostExecUnitJobs, job);
-    server.has_pending_post_unit_jobs = 1;
     return REDISMODULE_OK;
 }
 
