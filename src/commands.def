@@ -9175,7 +9175,7 @@ struct COMMAND_ARG SINTERSTORE_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SISMEMBER key specs */
 keySpec SISMEMBER_Keyspecs[1] = {
-{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 

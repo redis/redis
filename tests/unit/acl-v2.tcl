@@ -408,10 +408,6 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN read foo]
         assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN write foo]
         assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test HSTRLEN nothing foo]
-
-        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER read foo]
-        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER write foo]
-        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test SISMEMBER nothing foo]
     }
 
     # Unlike existence test commands, intersection cardinality commands process the data
@@ -433,6 +429,19 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN command-test ZINTERCARD 2 read read]
         assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test ZINTERCARD 2 write read]
         assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test ZINTERCARD 2 nothing read]
+    }
+
+    # Membership and value-lookup commands reveal the contents of a key (e.g.
+    # whether a specific member exists in a set), not just metadata, so they
+    # carry the access requirement and cannot be satisfied by WRITE alone.
+    test {Membership and value-lookup commands are access commands} {
+        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER read foo]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test SISMEMBER write foo]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test SISMEMBER nothing foo]
+
+        assert_equal "OK" [r ACL DRYRUN command-test SMISMEMBER read foo bar]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN command-test SMISMEMBER write foo bar]
+        assert_match {*has no permissions to access the 'nothing' key*} [r ACL DRYRUN command-test SMISMEMBER nothing foo bar]
     }
 
     test {Test general keyspace commands require some type of permission to execute} {
