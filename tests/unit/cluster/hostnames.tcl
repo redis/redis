@@ -17,43 +17,16 @@ proc get_slot_field {slot_output shard_id node_id attrib_id} {
 }
 
 proc build_cluster_bus_ping {sender_name sender_port sender_cport extensions_data} {
-    set CLUSTER_NAMELEN 40
-    set NET_IP_STR_LEN 46
     set CLUSTERMSG_TYPE_PING 0
     set CLUSTERMSG_FLAG0_EXT_DATA 0x04
+    set CLUSTER_NODE_MASTER 1
 
     set num_extensions [expr {[string length $extensions_data] > 0 ? 1 : 0}]
     set mflags0 [expr {$num_extensions > 0 ? $CLUSTERMSG_FLAG0_EXT_DATA : 0}]
     set totlen [expr {2256 + [string length $extensions_data]}]
 
-    set sender_padded [binary format a${CLUSTER_NAMELEN} $sender_name]
-    set myslots [string repeat \x00 [expr {16384/8}]]
-    set slaveof [string repeat \x00 $CLUSTER_NAMELEN]
-    set myip [string repeat \x00 $NET_IP_STR_LEN]
-    set notused1 [string repeat \x00 30]
-
-    set hdr ""
-    append hdr "RCmb"
-    append hdr [binary format I $totlen]
-    append hdr [binary format S 1]
-    append hdr [binary format S $sender_port]
-    append hdr [binary format S $CLUSTERMSG_TYPE_PING]
-    append hdr [binary format S 0]
-    append hdr [binary format W 1]
-    append hdr [binary format W 2]
-    append hdr [binary format W 0]
-    append hdr $sender_padded
-    append hdr $myslots
-    append hdr $slaveof
-    append hdr $myip
-    append hdr [binary format S $num_extensions]
-    append hdr $notused1
-    append hdr [binary format S 0]
-    append hdr [binary format S $sender_cport]
-    append hdr [binary format S 1]
-    append hdr [binary format c 0]
-    append hdr [binary format ccc $mflags0 0 0]
-
+    set hdr [build_cluster_bus_header $sender_name $sender_port $sender_cport \
+        $CLUSTERMSG_TYPE_PING $totlen $num_extensions $CLUSTER_NODE_MASTER $mflags0]
     append hdr $extensions_data
     return $hdr
 }

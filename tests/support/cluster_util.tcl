@@ -263,9 +263,14 @@ proc check_cluster_node_mark {flag ref_node_index instance_id_to_check} {
     fail "Unable to find instance id in cluster nodes. ID: $instance_id_to_check"
 }
 
-# Build the 2256-byte cluster bus header (CLUSTERMSG_MIN_LEN) common to all
-# message types.  Only the type field and the data that follows differ.
-proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type totlen} {
+# Build the 2256-byte cluster bus header (CLUSTERMSG_MIN_LEN) shared by all
+# message types. The sender identity, type, length, and the
+# extensions/flags/mflags0 fields are supplied by the caller; everything else
+# (epochs, slots, etc.) is fixed boilerplate. The extensions/flags/mflags0
+# fields default to 0 for callers that don't need them (e.g. a PING carrying
+# extension data overrides them). Message-type-specific payload is appended
+# after this header.
+proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type totlen {num_extensions 0} {flags 0} {mflags0 0}} {
     set CLUSTER_NAMELEN 40
     set NET_IP_STR_LEN 46
 
@@ -278,24 +283,24 @@ proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type tot
     set hdr ""
     append hdr "RCmb"
     append hdr [binary format I $totlen]
-    append hdr [binary format S 1]              ;# ver
-    append hdr [binary format S $sender_port]   ;# port
-    append hdr [binary format S $msg_type]      ;# type
-    append hdr [binary format S 0]              ;# count
-    append hdr [binary format W 1]              ;# currentEpoch
-    append hdr [binary format W 2]              ;# configEpoch
-    append hdr [binary format W 0]              ;# offset
-    append hdr $sender_padded                   ;# sender
-    append hdr $myslots                         ;# myslots
-    append hdr $slaveof                         ;# slaveof
-    append hdr $myip                            ;# myip
-    append hdr [binary format S 0]              ;# extensions
-    append hdr $notused1                        ;# notused1
-    append hdr [binary format S 0]              ;# pport
-    append hdr [binary format S $sender_cport]  ;# cport
-    append hdr [binary format S 0]              ;# flags
-    append hdr [binary format c 0]              ;# state
-    append hdr [binary format ccc 0 0 0]        ;# mflags
+    append hdr [binary format S 1]                  ;# ver
+    append hdr [binary format S $sender_port]       ;# port
+    append hdr [binary format S $msg_type]          ;# type
+    append hdr [binary format S 0]                  ;# count
+    append hdr [binary format W 1]                  ;# currentEpoch
+    append hdr [binary format W 2]                  ;# configEpoch
+    append hdr [binary format W 0]                  ;# offset
+    append hdr $sender_padded                       ;# sender
+    append hdr $myslots                             ;# myslots
+    append hdr $slaveof                             ;# slaveof
+    append hdr $myip                                ;# myip
+    append hdr [binary format S $num_extensions]    ;# extensions
+    append hdr $notused1                            ;# notused1
+    append hdr [binary format S 0]                  ;# pport
+    append hdr [binary format S $sender_cport]      ;# cport
+    append hdr [binary format S $flags]             ;# flags
+    append hdr [binary format c 0]                  ;# state
+    append hdr [binary format ccc $mflags0 0 0]     ;# mflags
 
     return $hdr
 }
