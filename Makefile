@@ -30,7 +30,7 @@ GOALS_WITH_ARGS := \
     run:RUN_ARGS \
     build:BUILD_ARGS \
     clean:CLEAN_ARGS \
-    deps:DEPS_ARGS \
+    bootstrap:BOOTSTRAP_ARGS \
     test:TEST_ARGS \
     sync-redis-conf:SYNC_ARGS \
     apply-redis-conf:APPLY_ARGS
@@ -105,9 +105,9 @@ clean:
 build:
 	@scripts/build.sh $(BUILD_ARGS)
 
-# deps [<name> ...|all|.|'*'] — install per-module build/test prereqs.
-deps:
-	@scripts/deps.sh $(DEPS_ARGS)
+# bootstrap [<name> ...|all|.|'*'] — install per-module build/test prereqs.
+bootstrap:
+	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # run [<name> ...|all|.|'*'|none] [ARGS="<redis-server flags>"]
 run:
@@ -160,4 +160,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: install clean build run test deps modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: install clean build run test bootstrap modules-update modules-shallow sync-redis-conf apply-redis-conf tarball

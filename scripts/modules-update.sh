@@ -132,4 +132,4 @@ echo "==> Refreshing redis-gen.conf via sync-redis-conf"
 
 echo
 echo "==> Modules updated: $requested"
-echo "    Next: run 'make deps [<name> ...]' to install per-module build/test deps."
+echo "    Next: run 'make bootstrap [<name> ...]' to install per-module build/test deps."

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# deps.sh — install per-module build/test prerequisites.
+# bootstrap.sh — install per-module build/test prerequisites.
 #
-# Usage:  scripts/deps.sh [<name> ...|all|.|'*']
+# Usage:  scripts/bootstrap.sh [<name> ...|all|.|'*']
 #
-# Top-level entry point is `make deps`. Internally still dispatches to each
-# cloned module's `make -C modules/<name>/src bootstrap` — that's the
-# upstream module convention (we don't control the module's own Makefile,
-# so the inner target name stays `bootstrap`).
+# Top-level entry point is `make bootstrap`. Dispatches to each cloned
+# module's `make -C modules/<name>/src bootstrap` (the upstream module
+# convention).
 # Continues past failures, prints a summary, exits non-zero on any failure.
 #
 # Env: MAKE                       make binary (defaults to `make`)
@@ -72,7 +71,7 @@ done
 echo
 if [ -n "$failed" ]; then
   echo "==> Deps install completed with FAILURES for:$failed"
-  echo "    Re-run 'make deps$failed' after fixing the issues above."
+  echo "    Re-run 'make bootstrap$failed' after fixing the issues above."
   exit 1
 fi
 echo "==> Deps install complete for: $selected"
