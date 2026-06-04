@@ -21,6 +21,28 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.2.7    Released Thu 4 Jun 2026 19:00:00 IST
+================================================================================
+
+Update urgency: `HIGH`: There are critical bugs that may affect a subset of users.
+
+### Bug fixes
+
+- #15175, #Q9262 Redis fails to start on AArch64
+- #14537 `SCAN`: restore original filter order (revert change introduced in 8.2)
+- #14816 setModuleEnumConfig() passing prefixed name to module callbacks
+- #14623 Streams: `XTRIM`/`XADD` with approx mode (`~`) don’t delete entries for `DELREF`/`ACKED` strategies
+- #14552 Streams: Incorrect behavior when using `XDELEX...`ACKED` after `XGROUP DESTROY`
+- #14420 Shutdown blocked client not being properly reset after shutdown cancellation
+- #14415 Potential crash in `lookupKey()` when `executing_client` is NULL
+- #14417 `CLUSTER FORGET` - heap-buffer-overflow
+- #15188 `cluster-announce-ip` rejecting hostnames (regression)
+- #14667, #14886 Potential TCP stalls/deadlocks
+- #Q9484 Shard crash during background index scan of JSON documents with vector fields on Active-Active (CRDT) databases (MOD-15542)
+- #Q9635 Severe latency spikes and shard unresponsiveness when `EXPIRE` or `EXPIREAT` operations run concurrently with queries on large indexes (MOD-14930)
+
+
+================================================================================
 Redis 8.2.6    Released Tue 5 May 2026 16:00:00 IST
 ================================================================================
 
