@@ -1636,7 +1636,8 @@ void sinterstoreCommand(client *c) {
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op,
-                              int cardinality_only, long limit) {
+                              int cardinality_only, long limit)
+{
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator si;
     robj *dstset = NULL;
@@ -1738,7 +1739,6 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
                 if (cardinality_only && limit > 0 && cardinality >= limit) {
-                    cardinality = limit;
                     early_exit = 1;
                     break;
                 }
@@ -1890,21 +1890,18 @@ void sunioncardCommand(client *c) {
     if (approx) {
         /* HLL-based approximate cardinality: use a temporary HLL object
          * with the standard sparse→dense encoding (same as PFADD). */
-        setopsrc *sets = zmalloc(sizeof(setopsrc) * numkeys);
+        robj **sets = zmalloc(sizeof(robj *) * numkeys);
         for (j = 0; j < numkeys; j++) {
             kvobj *setobj = lookupKeyRead(c->db, c->argv[2 + j]);
             if (!setobj) {
-                sets[j].set = NULL;
-                sets[j].oldsize = 0;
+                sets[j] = NULL;
                 continue;
             }
             if (checkType(c, setobj, OBJ_SET)) {
                 zfree(sets);
                 return;
             }
-            sets[j].set = setobj;
-            if (server.memory_tracking_enabled)
-                sets[j].oldsize = kvobjAllocSize(setobj);
+            sets[j] = setobj;
         }
 
         robj *hllobj = createHLLObject();
@@ -1915,16 +1912,15 @@ void sunioncardCommand(client *c) {
         int early_exit = 0;
 
         for (j = 0; j < numkeys && !early_exit; j++) {
-            if (!sets[j].set) continue;
+            if (!sets[j]) continue;
 
             setTypeIterator si;
             char *str;
             size_t len = 0;
             int64_t llval = 0;
-            int encoding;
 
-            setTypeInitIterator(&si, sets[j].set);
-            while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+            setTypeInitIterator(&si, sets[j]);
+            while ((setTypeNext(&si, &str, &len, &llval)) != -1) {
                 int retval = 0;
                 if (str != NULL) {
                     retval = hllAdd(hllobj, (unsigned char *)str, len);
@@ -1953,22 +1949,13 @@ void sunioncardCommand(client *c) {
             setTypeResetIterator(&si);
         }
 
-        if (server.memory_tracking_enabled) {
-            for (j = 0; j < numkeys; j++) {
-                robj *obj = sets[j].set;
-                if (!obj) continue;
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[2 + j]->ptr), obj,
-                                    sets[j].oldsize, kvobjAllocSize(obj));
-            }
-        }
-
         if (!hll_err) {
             uint64_t cardinality = hllCount(hllobj->ptr, NULL);
             if (limit > 0 && cardinality > (uint64_t)limit)
                 cardinality = (uint64_t)limit;
             addReplyLongLong(c, (long long)cardinality);
         } else {
-            addReplyError(c, "-INVALIDOBJ Corrupted HLL object detected");
+            addReplyError(c, "Corrupted HLL object detected");
         }
 
         decrRefCount(hllobj);
