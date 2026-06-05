@@ -1167,5 +1167,19 @@ test {corrupt payload: stream - duplicated consumer PEL entry} {
     }
 }
 
+test {corrupt payload: stream with negative entries_added} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        # Stream with 3 entries (IDs 1-0, 2-0, 3-0) where entries_added is
+        # patched to 0xFFFFFFFF00000000 (exceeds INT64_MAX).  When cast to
+        # signed int64 for display via XINFO, this appears as -4294967296.
+        # The RDB loader must reject entries_added values that overflow.
+        catch {r RESTORE mystream 0 "\x15\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x33\x33\x00\x00\x00\x14\x00\x03\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\x02\x01\x01\x01\x00\x01\x81\x76\x02\x04\x01\x02\x01\x02\x01\x00\x01\x81\x76\x02\x04\x01\xff\x03\x03\x00\x01\x00\x00\x00\x81\xff\xff\xff\xff\x00\x00\x00\x00\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Stream entries_added inconsistent with length*" 0
+    }
+}
+
 } ;# tags
 
