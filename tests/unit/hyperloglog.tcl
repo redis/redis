@@ -371,4 +371,35 @@ start_server {tags {"hll"}} {
         write_big_bulk 2147483648;
         r ping
     } {PONG} {large-memory}
+
+    # Build a raw HLL_ULTRA string: 16-byte header (p in notused[0]) + nregbytes zero registers.
+    proc build_ull_blob {p nregbytes} {
+        set hdr "HYLL"
+        append hdr [binary format c 2]      ;# encoding = HLL_ULTRA
+        append hdr [binary format c $p]     ;# notused[0] = p
+        append hdr [binary format c2 {0 0}] ;# notused[1..2]
+        append hdr [binary format c8 {0 0 0 0 0 0 0 0}] ;# card
+        append hdr [string repeat "\x00" $nregbytes]
+        return $hdr
+    }
+
+    test {ULL: a hand-crafted valid HLL_ULTRA blob validates and reports encoding} {
+        r del ull
+        r set ull [build_ull_blob 13 8192]
+        assert_equal {ultra} [r pfdebug encoding ull]
+    } {} {needs:pfdebug}
+
+    test {ULL: wrong-size HLL_ULTRA blob is rejected as invalid} {
+        r del ullbad
+        r set ullbad [build_ull_blob 13 100]
+        assert_error "*WRONGTYPE*" {r pfadd ullbad x}
+    }
+
+    test {ULL: out-of-range precision is rejected} {
+        r del ullp12 ullp16
+        r set ullp12 [build_ull_blob 12 4096]   ;# p=12 below min, size matches 1<<12
+        r set ullp16 [build_ull_blob 16 65536]  ;# p=16 above max, size matches 1<<16
+        assert_error "*WRONGTYPE*" {r pfadd ullp12 x}
+        assert_error "*WRONGTYPE*" {r pfadd ullp16 x}
+    }
 }

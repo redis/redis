@@ -180,8 +180,9 @@
 
 struct hllhdr {
     char magic[4];      /* "HYLL" */
-    uint8_t encoding;   /* HLL_DENSE or HLL_SPARSE. */
-    uint8_t notused[3]; /* Reserved for future use, must be zero. */
+    uint8_t encoding;   /* HLL_DENSE, HLL_SPARSE, or HLL_ULTRA. */
+    uint8_t notused[3]; /* notused[0] holds the UltraLogLog precision when
+                           encoding==HLL_ULTRA; reserved (zero) otherwise. */
     uint8_t card[8];    /* Cached cardinality, little endian. */
     uint8_t registers[]; /* Data bytes. */
 };
@@ -201,8 +202,16 @@ struct hllhdr {
 #define HLL_DENSE_SIZE (HLL_HDR_SIZE+((HLL_REGISTERS*HLL_BITS+7)/8))
 #define HLL_DENSE 0 /* Dense encoding. */
 #define HLL_SPARSE 1 /* Sparse encoding. */
+#define HLL_ULTRA 2 /* UltraLogLog dense encoding (1 byte/register). */
 #define HLL_RAW 255 /* Only used internally, never exposed. */
-#define HLL_MAX_ENCODING 1
+#define HLL_MAX_ENCODING 2
+/* UltraLogLog precision bounds and per-key precision accessor. */
+#define HLL_ULTRA_P_MIN 13
+#define HLL_ULTRA_P_MAX 15
+#define HLL_ULTRA_GET_P(hdr) ((hdr)->notused[0])
+#define HLL_ULTRA_SET_P(hdr,p) ((hdr)->notused[0] = (uint8_t)(p))
+#define HLL_ULTRA_REGISTERS(p) ((size_t)1 << (p))
+#define HLL_ULTRA_DENSE_SIZE(p) (HLL_HDR_SIZE + HLL_ULTRA_REGISTERS(p))
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
@@ -1628,6 +1637,13 @@ int isHLLObjectOrReply(client *c, robj *o) {
     if (hdr->encoding == HLL_DENSE &&
         stringObjectLen(o) != HLL_DENSE_SIZE) goto invalid;
 
+    /* UltraLogLog: precision must be in range and the string length exact. */
+    if (hdr->encoding == HLL_ULTRA) {
+        int up = HLL_ULTRA_GET_P(hdr);
+        if (up < HLL_ULTRA_P_MIN || up > HLL_ULTRA_P_MAX) goto invalid;
+        if (stringObjectLen(o) != HLL_ULTRA_DENSE_SIZE(up)) goto invalid;
+    }
+
     /* All tests passed. */
     return C_OK;
 
@@ -2092,10 +2108,14 @@ void pfdebugCommand(client *c) {
     }
     /* PFDEBUG ENCODING <key> */
     else if (!strcasecmp(cmd,"encoding")) {
-        char *encodingstr[2] = {"dense","sparse"};
         if (c->argc != 3) goto arityerr;
 
-        addReplyStatus(c,encodingstr[hdr->encoding]);
+        if (hdr->encoding == HLL_DENSE)
+            addReplyStatus(c,"dense");
+        else if (hdr->encoding == HLL_SPARSE)
+            addReplyStatus(c,"sparse");
+        else if (hdr->encoding == HLL_ULTRA)
+            addReplyStatus(c,"ultra");
     }
     /* PFDEBUG TODENSE <key> */
     else if (!strcasecmp(cmd,"todense")) {
