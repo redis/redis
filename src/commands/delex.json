@@ -65,22 +65,26 @@
                     {
                         "name": "ifeq-value",
                         "type": "string",
-                        "token": "IFEQ"
+                        "token": "IFEQ",
+                        "since": "8.4.0"
                     },
                     {
                         "name": "ifne-value",
                         "type": "string",
-                        "token": "IFNE"
+                        "token": "IFNE",
+                        "since": "8.4.0"
                     },
                     {
                         "name": "ifdeq-digest",
                         "type": "integer",
-                        "token": "IFDEQ"
+                        "token": "IFDEQ",
+                        "since": "8.4.0"
                     },
                     {
                         "name": "ifdne-digest",
                         "type": "integer",
-                        "token": "IFDNE"
+                        "token": "IFDNE",
+                        "since": "8.4.0"
                     }
                 ]
             }

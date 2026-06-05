@@ -11591,10 +11591,10 @@ keySpec DELEX_Keyspecs[1] = {
 
 /* DELEX condition argument table */
 struct COMMAND_ARG DELEX_condition_Subargs[] = {
-{MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* DELEX argument table */
