@@ -549,10 +549,18 @@ static inline uint8_t ullPack(uint64_t x) { /* requires x != 0 */
  * registers were updated (cardinality may have changed), else 0. Uses the SAME
  * MurmurHash64A as classic HLL so both encodings see identical hashes. */
 static int ullDenseAdd(uint8_t *registers, int p, unsigned char *ele, size_t elesize) {
+    /* Use the SAME index/count decomposition as classic HLL (see hllPatLen):
+     * the low p bits select the register, the ctz of the rest is the count.
+     * This makes ULL register i refer to the same elements as classic register
+     * i, so rho maps cleanly to u (u = rho + p - 2) and classic<->ULL
+     * conversion and cross-encoding PFMERGE are well-defined. The register-value
+     * distribution is identical to a leading-zero form, so the FGRA estimator
+     * stays calibrated. bit position = ctz(rest) + p - 1. */
     uint64_t hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
-    uint64_t idx = hash >> (64 - p);
-    int nlz = __builtin_clzll(~(~hash << p));
-    uint64_t hp = ullUnpack(registers[idx]) | ((uint64_t)1 << (nlz + p - 1));
+    uint64_t idx = hash & (((uint64_t)1 << p) - 1);
+    uint64_t rest = (hash >> p) | ((uint64_t)1 << (64 - p));
+    int ctz = __builtin_ctzll(rest);            /* = classic rho - 1, in [0,64-p] */
+    uint64_t hp = ullUnpack(registers[idx]) | ((uint64_t)1 << (ctz + p - 1));
     uint8_t newr = ullPack(hp);
     if (newr != registers[idx]) { registers[idx] = newr; return 1; }
     return 0;
