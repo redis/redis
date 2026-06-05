@@ -450,27 +450,27 @@ start_server {tags {"hll"}} {
     test {ULL: PFMERGE of two ultra keys is accurate and idempotent} {
         r config set hll-dense-encoding ultra
         r config set hll-sparse-max-bytes 0
-        r del a b d
-        for {set i 0} {$i < 20000} {incr i} { r pfadd a "x$i" }
-        for {set i 10000} {$i < 30000} {incr i} { r pfadd b "x$i" }
-        r pfmerge d a b
-        assert_equal {ultra} [r pfdebug encoding d]
-        assert {abs([r pfcount d] - 30000) < 30000*0.03}
-        set once [r pfcount d]; r pfmerge d a b; assert_equal $once [r pfcount d]
+        r del a{t} b{t} d{t}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a{t} "x$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b{t} "x$i" }
+        r pfmerge d{t} a{t} b{t}
+        assert_equal {ultra} [r pfdebug encoding d{t}]
+        assert {abs([r pfcount d{t}] - 30000) < 30000*0.03}
+        set once [r pfcount d{t}]; r pfmerge d{t} a{t} b{t}; assert_equal $once [r pfcount d{t}]
         r config set hll-sparse-max-bytes 3000
         r config set hll-dense-encoding classic
     }
 
     test {ULL: cross-encoding PFMERGE (classic + ultra) is correct, result classic} {
-        r del c u d2
+        r del c{t} u{t} d2{t}
         r config set hll-sparse-max-bytes 0
         r config set hll-dense-encoding classic
-        for {set i 0} {$i < 15000} {incr i} { r pfadd c "z$i" }
+        for {set i 0} {$i < 15000} {incr i} { r pfadd c{t} "z$i" }
         r config set hll-dense-encoding ultra
-        for {set i 7500} {$i < 22500} {incr i} { r pfadd u "z$i" }
-        r pfmerge d2 c u
-        assert_equal {dense} [r pfdebug encoding d2]
-        assert {abs([r pfcount d2] - 22500) < 22500*0.04}
+        for {set i 7500} {$i < 22500} {incr i} { r pfadd u{t} "z$i" }
+        r pfmerge d2{t} c{t} u{t}
+        assert_equal {dense} [r pfdebug encoding d2{t}]
+        assert {abs([r pfcount d2{t}] - 22500) < 22500*0.04}
         r config set hll-sparse-max-bytes 3000
         r config set hll-dense-encoding classic
     }
@@ -478,48 +478,48 @@ start_server {tags {"hll"}} {
     test {ULL: multi-key PFCOUNT of two ultra keys} {
         r config set hll-dense-encoding ultra
         r config set hll-sparse-max-bytes 0
-        r del a b
-        for {set i 0} {$i < 20000} {incr i} { r pfadd a "x$i" }
-        for {set i 10000} {$i < 30000} {incr i} { r pfadd b "x$i" }
-        assert {abs([r pfcount a b] - 30000) < 30000*0.04}
+        r del a{t} b{t}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a{t} "x$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b{t} "x$i" }
+        assert {abs([r pfcount a{t} b{t}] - 30000) < 30000*0.04}
         r config set hll-sparse-max-bytes 3000
         r config set hll-dense-encoding classic
     }
 
     test {ULL: multi-key PFCOUNT across mixed encodings} {
-        r del c u
+        r del c{t} u{t}
         r config set hll-sparse-max-bytes 0
         r config set hll-dense-encoding classic
-        for {set i 0} {$i < 15000} {incr i} { r pfadd c "z$i" }
+        for {set i 0} {$i < 15000} {incr i} { r pfadd c{t} "z$i" }
         r config set hll-dense-encoding ultra
-        for {set i 7500} {$i < 22500} {incr i} { r pfadd u "z$i" }
-        assert {abs([r pfcount c u] - 22500) < 22500*0.04}
+        for {set i 7500} {$i < 22500} {incr i} { r pfadd u{t} "z$i" }
+        assert {abs([r pfcount c{t} u{t}] - 22500) < 22500*0.04}
         r config set hll-sparse-max-bytes 3000
         r config set hll-dense-encoding classic
     }
 
     test {ULL: classic-only PFMERGE still works (regression)} {
-        r del e f g
+        r del e{t} f{t} g{t}
         r config set hll-dense-encoding classic
         r config set hll-sparse-max-bytes 0
-        for {set i 0} {$i < 5000} {incr i} { r pfadd e "p$i" }
-        for {set i 2500} {$i < 7500} {incr i} { r pfadd f "p$i" }
-        r pfmerge g e f
-        assert_equal {dense} [r pfdebug encoding g]
-        assert {abs([r pfcount g] - 7500) < 7500*0.05}
+        for {set i 0} {$i < 5000} {incr i} { r pfadd e{t} "p$i" }
+        for {set i 2500} {$i < 7500} {incr i} { r pfadd f{t} "p$i" }
+        r pfmerge g{t} e{t} f{t}
+        assert_equal {dense} [r pfdebug encoding g{t}]
+        assert {abs([r pfcount g{t}] - 7500) < 7500*0.05}
         r config set hll-sparse-max-bytes 3000
     }
 
     test {ULL: mixed PFMERGE into a pre-existing ULL dest works} {
         r config set hll-dense-encoding ultra; r config set hll-sparse-max-bytes 0
-        r del md cs
-        for {set i 0} {$i < 5000} {incr i} { r pfadd md "m$i" }    ;# md becomes ULL
-        assert_equal {ultra} [r pfdebug encoding md]
+        r del md{t} cs{t}
+        for {set i 0} {$i < 5000} {incr i} { r pfadd md{t} "m$i" }    ;# md becomes ULL
+        assert_equal {ultra} [r pfdebug encoding md{t}]
         r config set hll-dense-encoding classic
-        for {set i 2500} {$i < 7500} {incr i} { r pfadd cs "m$i" }  ;# cs is classic
-        r pfmerge md cs                                             ;# ULL dest + classic src
-        assert_equal {dense} [r pfdebug encoding md]
-        assert {abs([r pfcount md] - 7500) < 7500*0.05}
+        for {set i 2500} {$i < 7500} {incr i} { r pfadd cs{t} "m$i" }  ;# cs is classic
+        r pfmerge md{t} cs{t}                                       ;# ULL dest + classic src
+        assert_equal {dense} [r pfdebug encoding md{t}]
+        assert {abs([r pfcount md{t}] - 7500) < 7500*0.05}
         r config set hll-sparse-max-bytes 3000
     }
 
@@ -534,13 +534,13 @@ start_server {tags {"hll"}} {
         append hdr [binary format c2 {0 0}] [binary format c8 {0 0 0 0 0 0 0 0}]
         set b1 $hdr; append b1 [string repeat [binary format c 5] 16384] ;# bytes=5, in [4,7]
         set b2 $hdr; append b2 [string repeat [binary format c 2] 16384] ;# bytes=2, in {1,2,3}
-        r del cb1 cb2
-        r set cb1 $b1
-        r set cb2 $b2
-        assert_equal {ultra} [r pfdebug encoding cb1]
-        r pfadd cb1 elem      ;# ullDenseAdd -> ullUnpack on a crafted byte
-        r pfcount cb1 cb2     ;# all-ULL multi-key -> ullUnpack / ullPack(0) path
-        r pfmerge cb1 cb1 cb2 ;# all-ULL merge -> same
-        assert {[r pfcount cb1] >= 0} ;# returns a sane number, no crash
+        r del cb1{t} cb2{t}
+        r set cb1{t} $b1
+        r set cb2{t} $b2
+        assert_equal {ultra} [r pfdebug encoding cb1{t}]
+        r pfadd cb1{t} elem      ;# ullDenseAdd -> ullUnpack on a crafted byte
+        r pfcount cb1{t} cb2{t}     ;# all-ULL multi-key -> ullUnpack / ullPack(0) path
+        r pfmerge cb1{t} cb1{t} cb2{t} ;# all-ULL merge -> same
+        assert {[r pfcount cb1{t}] >= 0} ;# returns a sane number, no crash
     }
 }
