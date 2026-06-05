@@ -533,6 +533,59 @@ int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
     return hllDenseSet(registers,index,count);
 }
 
+/* ================== UltraLogLog register codec and add  =================== */
+
+/* UltraLogLog register codec (ported from the validated prototype).
+ * Register byte r = 4*u + c (u = leading-bit position, c = 2 flag bits). */
+static inline uint64_t ullUnpack(uint8_t r) {
+    return r < 4 ? 0 : (uint64_t)(4 | (r & 3)) << ((r >> 2) - 2);
+}
+static inline uint8_t ullPack(uint64_t x) { /* requires x != 0 */
+    int u = 63 - __builtin_clzll(x);
+    return (uint8_t)((u << 2) | ((x >> (u - 2)) & 3));
+}
+
+/* Add 'ele' to a ULL dense register array of precision 'p'. Returns 1 if the
+ * registers were updated (cardinality may have changed), else 0. Uses the SAME
+ * MurmurHash64A as classic HLL so both encodings see identical hashes. */
+static int ullDenseAdd(uint8_t *registers, int p, unsigned char *ele, size_t elesize) {
+    uint64_t hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
+    uint64_t idx = hash >> (64 - p);
+    int nlz = __builtin_clzll(~(~hash << p));
+    uint64_t hp = ullUnpack(registers[idx]) | ((uint64_t)1 << (nlz + p - 1));
+    uint8_t newr = ullPack(hp);
+    if (newr != registers[idx]) { registers[idx] = newr; return 1; }
+    return 0;
+}
+
+/* Self-test for the UltraLogLog dense codec + add path. Returns NULL on
+ * success or a static error string describing the first failure. */
+static const char *ullSelfTest(void) {
+    int p = HLL_ULTRA_P_MIN;
+    size_t m = HLL_ULTRA_REGISTERS(p);
+    int N = 100000;
+    uint8_t *regs = zcalloc(m);
+    /* Add enough distinct elements to populate most of the 2^p registers
+     * without making the self-test slow. */
+    for (int i = 0; i < N; i++) {
+        char buf[32]; int len = snprintf(buf,sizeof(buf),"ele%d",i);
+        ullDenseAdd(regs, p, (unsigned char*)buf, len);
+    }
+    for (size_t i = 0; i < m; i++) {
+        if (regs[i] && ullPack(ullUnpack(regs[i])) != regs[i]) {
+            zfree(regs); return "ULL codec round-trip failed";
+        }
+    }
+    for (int i = 0; i < N; i++) {
+        char buf[32]; int len = snprintf(buf,sizeof(buf),"ele%d",i);
+        if (ullDenseAdd(regs, p, (unsigned char*)buf, len) != 0) {
+            zfree(regs); return "ULL add not idempotent";
+        }
+    }
+    zfree(regs);
+    return NULL;
+}
+
 /* Compute the register histogram in the dense representation. */
 void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
     int j;
@@ -1136,6 +1189,8 @@ int hllAdd(robj *o, unsigned char *ele, size_t elesize) {
     switch(hdr->encoding) {
     case HLL_DENSE: return hllDenseAdd(hdr->registers,ele,elesize);
     case HLL_SPARSE: return hllSparseAdd(o,ele,elesize);
+    case HLL_ULTRA:
+        return ullDenseAdd(hdr->registers, HLL_ULTRA_GET_P(hdr), ele, elesize);
     default: return -1; /* Invalid representation. */
     }
 }
@@ -1898,6 +1953,18 @@ void pfmergeCommand(client *c) {
  * Something that is not easy to test from within the outside. */
 #define HLL_TEST_CYCLES 1000
 void pfselftestCommand(client *c) {
+    /* PFSELFTEST ULL — codec round-trip + add idempotence self-test. */
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"ull")) {
+        const char *err = ullSelfTest();
+        if (err) addReplyError(c,err); else addReply(c,shared.ok);
+        return;
+    }
+
+    if (c->argc != 1) {
+        addReplyError(c,"PFSELFTEST takes no arguments or the 'ull' subcommand");
+        return;
+    }
+
     unsigned int j, i;
     sds bitcounters = sdsnewlen(NULL,HLL_DENSE_SIZE);
     struct hllhdr *hdr = (struct hllhdr*) bitcounters, *hdr2;

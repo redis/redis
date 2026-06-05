@@ -402,4 +402,13 @@ start_server {tags {"hll"}} {
         assert_error "*WRONGTYPE*" {r pfadd ullp12 x}
         assert_error "*WRONGTYPE*" {r pfadd ullp16 x}
     }
+
+    test {ULL: PFSELFTEST ULL passes (codec round-trip + add idempotence)} {
+        r pfselftest ull
+    } {OK}
+
+    test {ULL: PFSELFTEST rejects unknown subcommands} {
+        catch {r pfselftest foo} err
+        set err
+    } {ERR*}
 }
