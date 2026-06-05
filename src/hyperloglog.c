@@ -205,13 +205,12 @@ struct hllhdr {
 #define HLL_ULTRA 2 /* UltraLogLog dense encoding (1 byte/register). */
 #define HLL_RAW 255 /* Only used internally, never exposed. */
 #define HLL_MAX_ENCODING 2
-/* UltraLogLog precision bounds and per-key precision accessor. */
-#define HLL_ULTRA_P_MIN 13
-#define HLL_ULTRA_P_MAX 15
+/* UltraLogLog per-key precision accessor. */
 #define HLL_ULTRA_GET_P(hdr) ((hdr)->notused[0])
 #define HLL_ULTRA_SET_P(hdr,p) ((hdr)->notused[0] = (uint8_t)(p))
 #define HLL_ULTRA_REGISTERS(p) ((size_t)1 << (p))
 #define HLL_ULTRA_DENSE_SIZE(p) (HLL_HDR_SIZE + HLL_ULTRA_REGISTERS(p))
+#define HLL_ULTRA_P 14 /* v1: UltraLogLog precision is fixed at 14 (matches classic sparse/dense). p=13/15 are a future follow-up. */
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
@@ -566,6 +565,15 @@ static int ullDenseAdd(uint8_t *registers, int p, unsigned char *ele, size_t ele
     return 0;
 }
 
+/* Apply a classic register (index, rho) to a ULL p=14 dense array. Returns 1
+ * if the register changed. ULL u = rho + HLL_ULTRA_P - 2. */
+static int ullApplyClassicReg(uint8_t *registers, long index, uint8_t rho) {
+    uint64_t hp = ullUnpack(registers[index]) | ((uint64_t)1 << (rho + HLL_ULTRA_P - 2));
+    uint8_t newr = ullPack(hp);
+    if (newr != registers[index]) { registers[index] = newr; return 1; }
+    return 0;
+}
+
 /* ======= UltraLogLog FGRA histogram estimator (ported from validated prototype) =======
  *
  * All constants, tables, helpers, and the estimator are ported verbatim from
@@ -746,7 +754,7 @@ static uint64_t ullCount(struct hllhdr *hdr) {
 /* Self-test for the UltraLogLog dense codec + add path. Returns NULL on
  * success or a static error string describing the first failure. */
 static const char *ullSelfTest(void) {
-    int p = HLL_ULTRA_P_MIN;
+    int p = HLL_ULTRA_P;
     size_t m = HLL_ULTRA_REGISTERS(p);
     int N = 100000;
     uint8_t *regs = zcalloc(m);
@@ -924,6 +932,49 @@ int hllSparseToDense(robj *o) {
     }
 
     /* Free the old representation and set the new one. */
+    sdsfree(o->ptr);
+    o->ptr = dense;
+    return C_OK;
+}
+
+/* Convert the sparse representation of 'o' to a dense UltraLogLog at p=14.
+ * Mirrors hllSparseToDense but writes 1-byte ULL registers. */
+int hllSparseToDenseUltra(robj *o) {
+    sds sparse = o->ptr, dense;
+    struct hllhdr *hdr, *oldhdr = (struct hllhdr*)sparse;
+    int idx = 0, runlen, regval;
+    uint8_t *p_ = (uint8_t*)sparse, *end = p_ + sdslen(sparse);
+    int valid = 1;
+    hdr = (struct hllhdr*) sparse;
+    if (hdr->encoding == HLL_ULTRA) return C_OK;
+    dense = sdsnewlen(NULL, HLL_ULTRA_DENSE_SIZE(HLL_ULTRA_P));
+    hdr = (struct hllhdr*) dense;
+    *hdr = *oldhdr;                 /* copy magic + cached cardinality */
+    hdr->encoding = HLL_ULTRA;
+    HLL_ULTRA_SET_P(hdr, HLL_ULTRA_P);
+    HLL_INVALIDATE_CACHE(hdr);      /* recompute via ullCount (different estimator) */
+    p_ += HLL_HDR_SIZE;
+    while (p_ < end) {
+        if (HLL_SPARSE_IS_ZERO(p_)) {
+            runlen = HLL_SPARSE_ZERO_LEN(p_);
+            if ((runlen + idx) > HLL_REGISTERS) { valid = 0; break; }
+            idx += runlen; p_++;
+        } else if (HLL_SPARSE_IS_XZERO(p_)) {
+            runlen = HLL_SPARSE_XZERO_LEN(p_);
+            if ((runlen + idx) > HLL_REGISTERS) { valid = 0; break; }
+            idx += runlen; p_ += 2;
+        } else {
+            runlen = HLL_SPARSE_VAL_LEN(p_);
+            regval = HLL_SPARSE_VAL_VALUE(p_);
+            if ((runlen + idx) > HLL_REGISTERS) { valid = 0; break; }
+            while (runlen--) {
+                ullApplyClassicReg(hdr->registers, idx, (uint8_t)regval);
+                idx++;
+            }
+            p_++;
+        }
+    }
+    if (!valid || idx != HLL_REGISTERS) { sdsfree(dense); return C_ERR; }
     sdsfree(o->ptr);
     o->ptr = dense;
     return C_OK;
@@ -1183,6 +1234,12 @@ updated:
     return 1;
 
 promote: /* Promote to dense representation. */
+    if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) {
+        if (hllSparseToDenseUltra(o) == C_ERR) return -1;
+        hdr = o->ptr;
+        ullApplyClassicReg(hdr->registers, index, count);
+        return 1; /* object promoted sparse->dense-ultra, so it changed */
+    }
     if (hllSparseToDense(o) == C_ERR) return -1; /* Corrupted HLL. */
     hdr = o->ptr;
 
@@ -1888,10 +1945,10 @@ int isHLLObjectOrReply(client *c, robj *o) {
     if (hdr->encoding == HLL_DENSE &&
         stringObjectLen(o) != HLL_DENSE_SIZE) goto invalid;
 
-    /* UltraLogLog: precision must be in range and the string length exact. */
+    /* UltraLogLog: precision must be exactly HLL_ULTRA_P and the string length exact. */
     if (hdr->encoding == HLL_ULTRA) {
         int up = HLL_ULTRA_GET_P(hdr);
-        if (up < HLL_ULTRA_P_MIN || up > HLL_ULTRA_P_MAX) goto invalid;
+        if (up != HLL_ULTRA_P) goto invalid;
         if (stringObjectLen(o) != HLL_ULTRA_DENSE_SIZE(up)) goto invalid;
     }
 
@@ -2387,7 +2444,13 @@ void pfdebugCommand(client *c) {
 
         if (hdr->encoding == HLL_SPARSE) {
             int64_t oldlen = (int64_t) stringObjectLen(o);
-            if (hllSparseToDense(o) == C_ERR) {
+            int todense_err;
+            if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) {
+                todense_err = hllSparseToDenseUltra(o);
+            } else {
+                todense_err = hllSparseToDense(o);
+            }
+            if (todense_err == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }

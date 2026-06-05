@@ -385,13 +385,13 @@ start_server {tags {"hll"}} {
 
     test {ULL: a hand-crafted valid HLL_ULTRA blob validates and reports encoding} {
         r del ull
-        r set ull [build_ull_blob 13 8192]
+        r set ull [build_ull_blob 14 16384]
         assert_equal {ultra} [r pfdebug encoding ull]
     } {} {needs:pfdebug}
 
     test {ULL: wrong-size HLL_ULTRA blob is rejected as invalid} {
         r del ullbad
-        r set ullbad [build_ull_blob 13 100]
+        r set ullbad [build_ull_blob 14 100]
         assert_error "*WRONGTYPE*" {r pfadd ullbad x}
     }
 
@@ -417,5 +417,33 @@ start_server {tags {"hll"}} {
         r set ua [build_ull_blob 14 16384]
         for {set i 0} {$i < 50000} {incr i} { r pfadd ua "z$i" }
         assert {abs([r pfcount ua] - 50000) < 50000*0.02}
+    }
+
+    test {ULL: PFADD with hll-dense-encoding=ultra promotes to ultra encoding} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del u14
+        assert_equal 1 [r pfadd u14 a b c d e]
+        assert_equal {ultra} [r pfdebug encoding u14]
+        assert {abs([r pfcount u14] - 5) <= 1}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+    test {ULL: default config keeps classic dense (opt-in)} {
+        r del cl
+        r config set hll-sparse-max-bytes 0
+        r pfadd cl a b c
+        assert_equal {dense} [r pfdebug encoding cl]
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL: ultra p=14 promotion stays accurate at scale} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del up14
+        for {set i 0} {$i < 30000} {incr i} { r pfadd up14 "e-$i" }
+        assert_equal {ultra} [r pfdebug encoding up14]
+        assert {abs([r pfcount up14] - 30000) < 30000*0.03}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
     }
 }

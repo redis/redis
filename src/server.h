@@ -700,6 +700,10 @@ typedef enum {
 #define MAXMEMORY_VOLATILE_LRM ((8<<8)|MAXMEMORY_FLAG_LRM)
 #define MAXMEMORY_ALLKEYS_LRM ((9<<8)|MAXMEMORY_FLAG_LRM|MAXMEMORY_FLAG_ALLKEYS)
 
+/* hll-dense-encoding: dense backend chosen when an HLL is promoted sparse->dense */
+#define HLL_DENSE_ENCODING_CLASSIC 0
+#define HLL_DENSE_ENCODING_ULTRA 1
+
 /* Units */
 #define UNIT_SECONDS 0
 #define UNIT_MILLISECONDS 1
@@ -2454,6 +2458,7 @@ struct redisServer {
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
+    int hll_dense_encoding;      /* HLL_DENSE_ENCODING_CLASSIC or _ULTRA */
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
     /* Stream IDMP parameters */
