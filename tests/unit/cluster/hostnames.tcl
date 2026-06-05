@@ -286,7 +286,15 @@ test "PING with hostname extension missing null terminator is rejected" {
     # Record the log position before injecting the bad packet.
     set loglines [count_log_lines 0]
 
-    set fd [socket $target_host $target_bus_port]
+    if {$::tls} {
+        set fd [::tls::socket \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            $target_host $target_bus_port]
+    } else {
+        set fd [socket $target_host $target_bus_port]
+    }
     fconfigure $fd -translation binary -buffering full
     puts -nonewline $fd $bad_packet
     flush $fd
