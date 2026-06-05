@@ -522,4 +522,25 @@ start_server {tags {"hll"}} {
         assert {abs([r pfcount md] - 7500) < 7500*0.05}
         r config set hll-sparse-max-bytes 3000
     }
+
+    test {ULL: crafted invalid register bytes do not trigger codec UB} {
+        # encoding=2 (ultra), p=14 in notused[0], then 16384 register bytes.
+        # Real ULL registers are 0 or >= 52; bytes in [4,7] caused a negative shift
+        # in ullUnpack, and bytes in {1,2,3} could make ullPack(0)/clz(0) in the
+        # all-ULL merge. isHLLObjectOrReply only checks length+precision, so a
+        # crafted blob (RESTORE/RDB) reaches these. Must not crash (UBSan: no abort).
+        set hdr "HYLL"
+        append hdr [binary format c 2] [binary format c 14]
+        append hdr [binary format c2 {0 0}] [binary format c8 {0 0 0 0 0 0 0 0}]
+        set b1 $hdr; append b1 [string repeat [binary format c 5] 16384] ;# bytes=5, in [4,7]
+        set b2 $hdr; append b2 [string repeat [binary format c 2] 16384] ;# bytes=2, in {1,2,3}
+        r del cb1 cb2
+        r set cb1 $b1
+        r set cb2 $b2
+        assert_equal {ultra} [r pfdebug encoding cb1]
+        r pfadd cb1 elem      ;# ullDenseAdd -> ullUnpack on a crafted byte
+        r pfcount cb1 cb2     ;# all-ULL multi-key -> ullUnpack / ullPack(0) path
+        r pfmerge cb1 cb1 cb2 ;# all-ULL merge -> same
+        assert {[r pfcount cb1] >= 0} ;# returns a sane number, no crash
+    }
 }

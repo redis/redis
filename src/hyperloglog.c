@@ -537,7 +537,10 @@ int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
 /* UltraLogLog register codec (ported from the validated prototype).
  * Register byte r = 4*u + c (u = leading-bit position, c = 2 flag bits). */
 static inline uint64_t ullUnpack(uint8_t r) {
-    return r < 4 ? 0 : (uint64_t)(4 | (r & 3)) << ((r >> 2) - 2);
+    /* Guard r < 8 (not just r < 4): for r in [4,7] the shift (r>>2)-2 is -1,
+     * undefined behavior. Real registers are 0 or >= 4*(p-1) (>=48), so this only
+     * rejects crafted/corrupt bytes (treats them as empty), never valid data. */
+    return r < 8 ? 0 : (uint64_t)(4 | (r & 3)) << ((r >> 2) - 2);
 }
 static inline uint8_t ullPack(uint64_t x) { /* requires x != 0 */
     int u = 63 - __builtin_clzll(x);
@@ -2069,7 +2072,7 @@ void pfcountCommand(client *c) {
                 for (int i = 0; i < HLL_REGISTERS; i++) {
                     if (src[i]) {
                         uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
-                        acc[i] = ullPack(merged);
+                        acc[i] = merged ? ullPack(merged) : 0; /* ullPack requires !=0 */
                     }
                 }
             }
@@ -2317,7 +2320,7 @@ void pfmergeCommand(client *c) {
         for (int i = 0; i < HLL_REGISTERS; i++) {
             if (src[i]) {
                 uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
-                acc[i] = ullPack(merged);
+                acc[i] = merged ? ullPack(merged) : 0; /* ullPack requires !=0 */
             }
         }
     }
