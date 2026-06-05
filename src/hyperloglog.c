@@ -558,6 +558,183 @@ static int ullDenseAdd(uint8_t *registers, int p, unsigned char *ele, size_t ele
     return 0;
 }
 
+/* ======= UltraLogLog FGRA histogram estimator (ported from validated prototype) =======
+ *
+ * All constants, tables, helpers, and the estimator are ported verbatim from
+ * /redis-pr-analysis/redis-ull-prototype/bench.c (lines ~127-268).
+ * Math is transcribed exactly — do not refactor the numerics.
+ *
+ * Only indices 10,11,12 (p=13,14,15) are exercised here.
+ */
+
+static double ullEta[4];
+static double ullFtau = 0.8194911375910897;
+static double ullPow2tau, ullPow2mtau, ullPow4mtau, ullMinvTau;
+static double ullEtax, ullEta23x, ullEta13x, ullEta3012xx;
+static double ullP4mtEta23, ullP4mtEta01, ullP4mtEta3, ullP4mtEta1;
+static double ullP2mtEtax, ullPhi1, ullPInit;
+static double ullP2mtEta02, ullP2mtEta13, ullP2mtEta2, ullP2mtEta3;
+static double ullRegContrib[256];
+
+/* lambda_p estimation factors for p=3..26, index p-3.
+ * Verified reference values; regenerate from the closed form in a follow-up. */
+static const double ullEstFactors[24] = {
+    94.59941722950778, 455.6358404615186, 2159.476860400962, 10149.51036338182,
+    47499.52712820488, 221818.76564766388, 1034754.6840013304, 4824374.384717942,
+    2.2486750611989766E7, 1.0479810199493326E8, 4.8837185623048025E8, 2.275794725435168E9,
+    1.0604938814719946E10, 4.9417362104242645E10, 2.30276227770117E11, 1.0730444972228585E12,
+    5.0001829613164E12, 2.329988778511272E13, 1.0857295240912981E14, 5.059288069986326E14,
+    2.3575295235667005E15, 1.0985627213141412E16, 5.119087674515589E16, 2.3853948339571715E17,
+};
+
+/* Initialise FGRA derived constants and the per-byte register-contribution table.
+ * Must be called once before any ullCountRegisters() invocation. */
+static void ullFgraInit(void) {
+    ullEta[0]=4.663135422063788; ullEta[1]=2.1378502137958524;
+    ullEta[2]=2.781144650979996; ullEta[3]=0.9824082545153715;
+    ullPow2tau=pow(2,ullFtau); ullPow2mtau=pow(2,-ullFtau);
+    ullPow4mtau=pow(4,-ullFtau); ullMinvTau=-1.0/ullFtau;
+    ullEtax=ullEta[0]-ullEta[1]-ullEta[2]+ullEta[3];
+    ullEta23x=(ullEta[2]-ullEta[3])/ullEtax;
+    ullEta13x=(ullEta[1]-ullEta[3])/ullEtax;
+    ullEta3012xx=(ullEta[3]*ullEta[0]-ullEta[1]*ullEta[2])/(ullEtax*ullEtax);
+    ullP4mtEta23=ullPow4mtau*(ullEta[2]-ullEta[3]);
+    ullP4mtEta01=ullPow4mtau*(ullEta[0]-ullEta[1]);
+    ullP4mtEta3=ullPow4mtau*ullEta[3];
+    ullP4mtEta1=ullPow4mtau*ullEta[1];
+    ullP2mtEtax=ullPow2mtau*ullEtax;
+    ullPhi1=ullEta[0]/(ullPow2tau*(2*ullPow2tau-1));
+    ullPInit=ullEtax*(ullPow4mtau/(2-ullPow2mtau));
+    ullP2mtEta02=ullPow2mtau*(ullEta[0]-ullEta[2]);
+    ullP2mtEta13=ullPow2mtau*(ullEta[1]-ullEta[3]);
+    ullP2mtEta2=ullPow2mtau*ullEta[2];
+    ullP2mtEta3=ullPow2mtau*ullEta[3];
+    /* ullRegContrib[i] = eta[i%4] * 2^(-TAU*(i/4 + 3)) — regenerated from formula. */
+    for (int i = 0; i < 256; i++)
+        ullRegContrib[i] = ullEta[i & 3] * pow(2, -ullFtau * ((i >> 2) + 3));
+}
+
+/* psiPrime helper (verbatim from prototype). */
+static inline double ullPsiPrime(double z, double z2) {
+    return (z + ullEta23x) * (z2 + ullEta13x) + ullEta3012xx;
+}
+
+/* sigma_f helper (verbatim from prototype). */
+static double ullSigmaF(double z) {
+    if (z <= 0.) return ullEta[3];
+    if (z >= 1.) return INFINITY;
+    double powZ = z, nextPowZ = powZ * powZ, s = 0, powTau = ullEtax;
+    for (;;) {
+        double oldS = s, nn = nextPowZ * nextPowZ;
+        s += powTau * (powZ - nextPowZ) * ullPsiPrime(nextPowZ, nn);
+        if (!(s > oldS)) return s / z;
+        powZ = nextPowZ; nextPowZ = nn; powTau *= ullPow2tau;
+    }
+}
+
+/* phi_f helper (verbatim from prototype). */
+static double ullPhiF(double z, double z2) {
+    if (z <= 0.) return 0.;
+    if (z >= 1.) return ullPhi1;
+    double prevPowZ = z2, powZ = z, nextPowZ = sqrt(powZ);
+    double pp = ullPInit / (1.0 + nextPowZ);
+    double ps = ullPsiPrime(powZ, prevPowZ);
+    double s = nextPowZ * (ps + ps) * pp;
+    for (;;) {
+        prevPowZ = powZ; powZ = nextPowZ;
+        double oldS = s;
+        nextPowZ = sqrt(powZ);
+        double nextPs = ullPsiPrime(powZ, prevPowZ);
+        pp *= ullPow2mtau / (1.0 + nextPowZ);
+        s += nextPowZ * ((nextPs + nextPs) - (powZ + nextPowZ) * ps) * pp;
+        if (!(s > oldS)) return s;
+        ps = nextPs;
+    }
+}
+
+/* smallRange helper (verbatim from prototype). */
+static double ullSmallRange(long c0, long c4, long c8, long c10, long m) {
+    long alpha = m + 3*(c0+c4+c8+c10);
+    long beta  = m - c0 - c4;
+    long gamma = 4*c0 + 2*c4 + 3*c8 + c10;
+    /* compute discriminant in double to avoid 32-bit long overflow at large m */
+    double q = (sqrt((double)beta*beta + 4.0*(double)alpha*gamma) - beta) / (2.0*alpha);
+    double r = q*q; return r*r;
+}
+
+/* largeRange helper (verbatim from prototype). */
+static double ullLargeRange(long c0, long c1, long c2, long c3, long m) {
+    long alpha = m + 3*(c0+c1+c2+c3);
+    long beta  = c0+c1 + 2*(c2+c3);
+    long gamma = m + 2*c0 + c2 - c3;
+    /* compute discriminant in double to avoid 32-bit long overflow at large m */
+    return sqrt((sqrt((double)beta*beta + 4.0*(double)alpha*gamma) - beta) / (2.0*alpha));
+}
+
+/* largeContrib helper (verbatim from prototype). */
+static double ullLargeContrib(int c0, int c1, int c2, int c3, int m, int w) {
+    double z = ullLargeRange(c0, c1, c2, c3, m), rootZ = sqrt(z);
+    double s = ullPhiF(rootZ, z) * (c0+c1+c2+c3);
+    s += z * (1 + rootZ) * (c0*ullEta[0] + c1*ullEta[1] + c2*ullEta[2] + c3*ullEta[3]);
+    s += rootZ * ((c0+c1)*(z*ullP2mtEta02 + ullP2mtEta2) +
+                  (c2+c3)*(z*ullP2mtEta13 + ullP2mtEta3));
+    return s * pow(ullPow2mtau, w) / ((1 + rootZ) * (1 + z));
+}
+
+/* Cardinality estimate from a ULL dense register array (histogram FGRA estimator,
+ * ported from ull_estimate_fgra_hist in the validated prototype).
+ * Returns the estimate rounded to uint64_t via llround(). */
+static uint64_t ullCountRegisters(const uint8_t *registers, int p) {
+    /* Lazy one-time initialisation; safe because command processing is single-threaded. */
+    static int fgra_ready = 0;
+    if (!fgra_ready) { ullFgraInit(); fgra_ready = 1; }
+
+    size_t m = (size_t)1 << p;
+    int off = (p << 2) + 4;
+
+    /* Integer histogram of register bytes — no FP in the hot loop;
+     * 4-way unrolled so the independent increments pipeline (mirrors the #15049 trick). */
+    uint32_t h[256]; memset(h, 0, sizeof(h));
+    const uint8_t *st = registers; size_t i = 0;
+    for (; i + 4 <= m; i += 4) { h[st[i]]++; h[st[i+1]]++; h[st[i+2]]++; h[st[i+3]]++; }
+    for (; i < m; i++) h[st[i]]++;
+
+    double sum = 0;
+    /* Middle range r in [off, 251]: table contribution weighted by count. */
+    for (int r = off; r < 252; r++) if (h[r]) sum += (double)h[r] * ullRegContrib[r - off];
+
+    /* Small-range boundary buckets (r < off): only specific r2 values contribute. */
+    long c0 = 0, c4 = 0, c8 = 0, c10 = 0;
+    for (int r = 0; r < off; r++) {
+        if (!h[r]) continue;
+        int r2 = r - off;
+        if (r2 < -8)       c0  += h[r];
+        else if (r2 == -8) c4  += h[r];
+        else if (r2 == -4) c8  += h[r];
+        else if (r2 == -2) c10 += h[r];
+    }
+    if (c0 || c4 || c8 || c10) {
+        double z = ullSmallRange(c0, c4, c8, c10, (long)m);
+        if (c0)  sum += c0 * ullSigmaF(z);
+        if (c4)  sum += c4 * ullP2mtEtax * ullPsiPrime(z, z*z);
+        if (c8)  sum += c8 * (z * ullP4mtEta01 + ullP4mtEta1);
+        if (c10) sum += c10 * (z * ullP4mtEta23 + ullP4mtEta3);
+    }
+
+    /* Large-range buckets: register bytes 252..255. */
+    long c4w0 = h[252], c4w1 = h[253], c4w2 = h[254], c4w3 = h[255];
+    if (c4w0 || c4w1 || c4w2 || c4w3)
+        sum += ullLargeContrib(c4w0, c4w1, c4w2, c4w3, (int)m, 65 - p);
+
+    double est = ullEstFactors[p - 3] * pow(sum, ullMinvTau);
+    return (uint64_t)llround(est); /* whole estimator pipeline is double, so llround (not llroundl) is the matching precision */
+}
+
+/* Public wrapper: cardinality estimate for a ULL key header. */
+static uint64_t ullCount(struct hllhdr *hdr) {
+    return ullCountRegisters(hdr->registers, HLL_ULTRA_GET_P(hdr));
+}
+
 /* Self-test for the UltraLogLog dense codec + add path. Returns NULL on
  * success or a static error string describing the first failure. */
 static const char *ullSelfTest(void) {
@@ -581,6 +758,14 @@ static const char *ullSelfTest(void) {
         if (ullDenseAdd(regs, p, (unsigned char*)buf, len) != 0) {
             zfree(regs); return "ULL add not idempotent";
         }
+    }
+    /* Accuracy check: estimate N distinct elements, verify relative error < 2%. */
+    uint64_t est = ullCountRegisters(regs, p);
+    double relerr = (est > (uint64_t)N)
+        ? (double)(est - N) / N
+        : (double)(N - est) / N;
+    if (relerr >= 0.02) {
+        zfree(regs); return "ULL estimate out of tolerance";
     }
     zfree(regs);
     return NULL;
@@ -1147,6 +1332,9 @@ double hllTau(double x) {
  * This is useful in order to speedup PFCOUNT when called against multiple
  * keys (no need to work with 6-bit integers encoding). */
 uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
+    /* UltraLogLog uses its own histogram-FGRA estimator, not the HLL formula. */
+    if (hdr->encoding == HLL_ULTRA) return ullCount(hdr);
+
     double m = HLL_REGISTERS;
     double E;
     int j;

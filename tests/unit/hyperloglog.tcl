@@ -411,4 +411,11 @@ start_server {tags {"hll"}} {
         catch {r pfselftest foo} err
         set err
     } {ERR*}
+
+    test {ULL: PFCOUNT on an ultra key is accurate} {
+        r del ua
+        r set ua [build_ull_blob 14 16384]
+        for {set i 0} {$i < 50000} {incr i} { r pfadd ua "z$i" }
+        assert {abs([r pfcount ua] - 50000) < 50000*0.02}
+    }
 }
