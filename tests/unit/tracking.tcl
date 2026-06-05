@@ -1016,6 +1016,49 @@ start_server {tags {"tracking network logreqres:skip"}} {
         r ACL DELUSER usr_b
     }
 
+    test {BCAST in-place ACL SETUSER flushes pending invalidations under old perms} {
+        clean_all
+
+        r ACL SETUSER setu on >setpass ~p:* +@all
+        set tc [redis_deferring_client]
+        $tc AUTH setu setpass
+        $tc read
+
+        $tc HELLO 3
+        $tc read
+
+        $tc CLIENT TRACKING on BCAST PREFIX p:
+        assert_match {*OK*} [$tc read]
+
+        # Modify a key the user can currently read AND revoke that access in
+        # the same event-loop iteration (MULTI/EXEC), so the invalidation is
+        # still pending when the user's permissions are overwritten in place.
+        # Without flushing under the old identity, the pending key would be
+        # re-filtered by the new (stricter) perms in beforeSleep and dropped.
+        $rd_sg MULTI
+        $rd_sg SET p:x{t} 1
+        $rd_sg ACL SETUSER setu resetkeys ~q:*
+        $rd_sg EXEC
+
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list p:x{t}]
+
+        $tc CLIENT TRACKING off
+        $tc read
+        $tc close
+        r ACL DELUSER setu
+    }
+
     $rd_redirection close
     $rd_sg close
     $rd close
@@ -1044,4 +1087,54 @@ start_server {tags {"tracking network"}} {
     test {Coverage: Basic CLIENT GETREDIR} {
         r CLIENT GETREDIR
     } {-1}
+}
+
+# ACL LOAD rewrites the default user in place, so a default-user BCAST client
+# must still get invalidations accumulated under the pre-load permissions.
+set server_path [tmpdir "tracking.acl"]
+set fd [open $server_path/tracking.acl w]
+puts $fd "user default on nopass ~p:* &* +@all"
+close $fd
+start_server [list overrides [list "dir" $server_path "aclfile" "tracking.acl"] tags [list "tracking" "network" "logreqres:skip" "external:skip"]] {
+    test {BCAST ACL LOAD on default user flushes pending invalidations under old perms} {
+        set tc [redis_deferring_client]
+        $tc HELLO 3
+        $tc read
+
+        $tc CLIENT TRACKING on BCAST PREFIX p:
+        assert_match {*OK*} [$tc read]
+
+        # Rewrite the ACL file so the next ACL LOAD revokes default's access
+        # to p:* keys.
+        set fd [open $server_path/tracking.acl w]
+        puts $fd "user default on nopass ~q:* &* +@all"
+        close $fd
+
+        # Modify a p:* key and reload the (now restrictive) ACL in the same
+        # event-loop iteration, so the invalidation is still pending when the
+        # default user is overwritten in place. Without flushing under the old
+        # identity, the pending key would be re-filtered by the new perms in
+        # beforeSleep and dropped.
+        r MULTI
+        r SET p:x{t} 1
+        r ACL LOAD
+        r EXEC
+
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list p:x{t}]
+
+        $tc CLIENT TRACKING off
+        $tc read
+        $tc close
+    }
 }

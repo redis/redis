@@ -3362,6 +3362,7 @@ uint64_t trackingGetTotalKeys(void);
 uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(void);
 void trackingBroadcastPostUserSwitch(client *c, user *old_user);
+void trackingBcastFlushUser(user *u);
 void clientSetUser(client *c, user *new_user);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 

@@ -2155,6 +2155,12 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
      * disconnected if (some of) their channel permissions were revoked. */
     if (u) {
         ACLKillPubsubClientsIfNeeded(tempu, u);
+        /* Deliver pending BCAST tracking invalidations under the user's
+         * current permissions before overwriting them in place below.
+         * Otherwise beforeSleep would re-filter the already accumulated keys
+         * by the new (possibly stricter) permissions and drop invalidations
+         * for keys the client could previously read. */
+        trackingBcastFlushUser(u);
     }
 
     /* Overwrite the user with the temporary user we modified above. */
@@ -2447,6 +2453,14 @@ sds ACLLoadFromFile(const char *filename) {
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
+        /* Deliver pending BCAST tracking invalidations under the pre-load ACL
+         * identities before mutating any user. In particular DefaultUser is
+         * overwritten in place below, which would otherwise cause its pending
+         * invalidations to be re-filtered by the new permissions in
+         * beforeSleep. A whole-table flush is appropriate here since the load
+         * may change many users at once. */
+        trackingBroadcastInvalidationMessages();
+
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
          * default user configuration in the old one. */
