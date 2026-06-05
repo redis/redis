@@ -396,11 +396,11 @@ start_server {tags {"hll"}} {
     }
 
     test {ULL: out-of-range precision is rejected} {
-        r del ullp12 ullp16
-        r set ullp12 [build_ull_blob 12 4096]   ;# p=12 below min, size matches 1<<12
-        r set ullp16 [build_ull_blob 16 65536]  ;# p=16 above max, size matches 1<<16
-        assert_error "*WRONGTYPE*" {r pfadd ullp12 x}
-        assert_error "*WRONGTYPE*" {r pfadd ullp16 x}
+        r del ullp12{t} ullp16{t}
+        r set ullp12{t} [build_ull_blob 12 4096]   ;# p=12 below min, size matches 1<<12
+        r set ullp16{t} [build_ull_blob 16 65536]  ;# p=16 above max, size matches 1<<16
+        assert_error "*WRONGTYPE*" {r pfadd ullp12{t} x}
+        assert_error "*WRONGTYPE*" {r pfadd ullp16{t} x}
     }
 
     test {ULL: PFSELFTEST ULL passes (codec round-trip + add idempotence)} {
