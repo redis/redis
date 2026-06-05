@@ -181,8 +181,9 @@
 struct hllhdr {
     char magic[4];      /* "HYLL" */
     uint8_t encoding;   /* HLL_DENSE, HLL_SPARSE, or HLL_ULTRA. */
-    uint8_t notused[3]; /* notused[0] holds the UltraLogLog precision when
-                           encoding==HLL_ULTRA; reserved (zero) otherwise. */
+    uint8_t ull_precision; /* UltraLogLog precision when encoding==HLL_ULTRA;
+                              zero otherwise. */
+    uint8_t notused[2];    /* Reserved, must be zero. */
     uint8_t card[8];    /* Cached cardinality, little endian. */
     uint8_t registers[]; /* Data bytes. */
 };
@@ -206,8 +207,8 @@ struct hllhdr {
 #define HLL_RAW 255 /* Only used internally, never exposed. */
 #define HLL_MAX_ENCODING 2
 /* UltraLogLog per-key precision accessor. */
-#define HLL_ULTRA_GET_P(hdr) ((hdr)->notused[0])
-#define HLL_ULTRA_SET_P(hdr,p) ((hdr)->notused[0] = (uint8_t)(p))
+#define HLL_ULTRA_GET_P(hdr) ((hdr)->ull_precision)
+#define HLL_ULTRA_SET_P(hdr,p) ((hdr)->ull_precision = (uint8_t)(p))
 #define HLL_ULTRA_REGISTERS(p) ((size_t)1 << (p))
 #define HLL_ULTRA_DENSE_SIZE(p) (HLL_HDR_SIZE + HLL_ULTRA_REGISTERS(p))
 #define HLL_ULTRA_P 14 /* v1: UltraLogLog precision is fixed at 14 (matches classic sparse/dense). p=13/15 are a future follow-up. */
@@ -2344,7 +2345,7 @@ void pfmergeCommand(client *c) {
     hdr = (struct hllhdr*)s;
     memcpy(hdr->magic, "HYLL", 4);
     hdr->encoding = HLL_ULTRA;
-    hdr->notused[1] = 0; hdr->notused[2] = 0;
+    hdr->notused[0] = 0; hdr->notused[1] = 0;
     HLL_ULTRA_SET_P(hdr, HLL_ULTRA_P);
     HLL_INVALIDATE_CACHE(hdr);
     memcpy(hdr->registers, acc, HLL_REGISTERS);
