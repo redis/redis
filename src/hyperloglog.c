@@ -574,6 +574,10 @@ static int ullApplyClassicReg(uint8_t *registers, long index, uint8_t rho) {
     return 0;
 }
 
+/* Classic rho stored in a p=14 ULL register byte (0 if empty).
+ * Inverse of ullApplyClassicReg: rho = (r>>2) - HLL_ULTRA_P + 2 = (r>>2) - 12. */
+static inline int ullRegToRho(uint8_t r) { return r ? ((r >> 2) - HLL_ULTRA_P + 2) : 0; }
+
 /* ======= UltraLogLog FGRA histogram estimator (ported from validated prototype) =======
  *
  * All constants, tables, helpers, and the estimator are ported verbatim from
@@ -2025,30 +2029,80 @@ void pfcountCommand(client *c) {
      * When multiple keys are specified, PFCOUNT actually computes
      * the cardinality of the merge of the N HLLs specified. */
     if (c->argc > 2) {
-        uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
         int j;
+        int has_ull = 0, has_classic = 0;
 
-        /* Compute an HLL with M[i] = MAX(M[i]_j). */
-        memset(max,0,sizeof(max));
-        hdr = (struct hllhdr*) max;
-        hdr->encoding = HLL_RAW; /* Special internal-only encoding. */
-        registers = max + HLL_HDR_SIZE;
+        /* First pass: determine which encodings are present. */
         for (j = 1; j < c->argc; j++) {
-            /* Check type and size. */
             kvobj *o = lookupKeyRead(c->db,c->argv[j]);
-            if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
+            if (o == NULL) continue;
             if (isHLLObjectOrReply(c,o) != C_OK) return;
-
-            /* Merge with this HLL with our 'max' HLL by setting max[i]
-             * to MAX(max[i],hll[i]). */
-            if (hllMerge(registers,o) == C_ERR) {
-                addReplyError(c,invalid_hll_err);
-                return;
-            }
+            hdr = o->ptr;
+            if (hdr->encoding == HLL_ULTRA) has_ull = 1;
+            else has_classic = 1;
         }
 
-        /* Compute cardinality of the resulting set. */
-        addReplyLongLong(c,hllCount(hdr,NULL));
+        if (!has_ull) {
+            /* Classic-only path: unchanged. */
+            uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
+            memset(max,0,sizeof(max));
+            hdr = (struct hllhdr*) max;
+            hdr->encoding = HLL_RAW;
+            registers = max + HLL_HDR_SIZE;
+            for (j = 1; j < c->argc; j++) {
+                kvobj *o = lookupKeyRead(c->db,c->argv[j]);
+                if (o == NULL) continue;
+                if (hllMerge(registers,o) == C_ERR) {
+                    addReplyError(c,invalid_hll_err);
+                    return;
+                }
+            }
+            addReplyLongLong(c,hllCount(hdr,NULL));
+        } else if (!has_classic) {
+            /* All-ULL path: union in ULL domain, estimate with FGRA. */
+            uint8_t *acc = zcalloc(HLL_REGISTERS);
+            for (j = 1; j < c->argc; j++) {
+                kvobj *o = lookupKeyRead(c->db,c->argv[j]);
+                if (o == NULL) continue;
+                struct hllhdr *shdr = o->ptr;
+                uint8_t *src = shdr->registers;
+                for (int i = 0; i < HLL_REGISTERS; i++) {
+                    if (src[i]) {
+                        uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
+                        acc[i] = ullPack(merged);
+                    }
+                }
+            }
+            addReplyLongLong(c, (long long)ullCountRegisters(acc, HLL_ULTRA_P));
+            zfree(acc);
+        } else {
+            /* Mixed path: down-convert ULL to classic rho, merge all into RAW. */
+            uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
+            memset(max,0,sizeof(max));
+            hdr = (struct hllhdr*) max;
+            hdr->encoding = HLL_RAW;
+            registers = max + HLL_HDR_SIZE;
+            for (j = 1; j < c->argc; j++) {
+                kvobj *o = lookupKeyRead(c->db,c->argv[j]);
+                if (o == NULL) continue;
+                struct hllhdr *shdr = o->ptr;
+                if (shdr->encoding == HLL_ULTRA) {
+                    uint8_t *src = shdr->registers;
+                    for (int i = 0; i < HLL_REGISTERS; i++) {
+                        if (src[i]) {
+                            int rho = ullRegToRho(src[i]);
+                            if (rho > registers[i]) registers[i] = (uint8_t)rho;
+                        }
+                    }
+                } else {
+                    if (hllMerge(registers,o) == C_ERR) {
+                        addReplyError(c,invalid_hll_err);
+                        return;
+                    }
+                }
+            }
+            addReplyLongLong(c,hllCount(hdr,NULL));
+        }
         return;
     }
 
@@ -2112,48 +2166,169 @@ void pfcountCommand(client *c) {
 
 /* PFMERGE dest src1 src2 src3 ... srcN => OK */
 void pfmergeCommand(client *c) {
-    uint8_t max[HLL_REGISTERS];
     struct hllhdr *hdr;
     int j;
-    int use_dense = 0; /* Use dense representation as target? */
     size_t oldsize = 0;
 
-    /* Compute an HLL with M[i] = MAX(M[i]_j).
-     * We store the maximum into the max array of registers. We'll write
-     * it to the target variable later. */
-    memset(max,0,sizeof(max));
+    /* First pass: determine which encodings are present among all sources
+     * (including the dest argv[1], which is itself a source). */
+    int has_ull = 0, has_classic = 0;
     for (j = 1; j < c->argc; j++) {
-        /* Check type and size. */
         kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-        if (o == NULL) continue; /* Assume empty HLL for non existing var. */
+        if (o == NULL) continue;
         if (isHLLObjectOrReply(c, o) != C_OK) return;
-
-        /* If at least one involved HLL is dense, use the dense representation
-         * as target ASAP to save time and avoid the conversion step. */
         hdr = o->ptr;
-        if (hdr->encoding == HLL_DENSE) use_dense = 1;
+        if (hdr->encoding == HLL_ULTRA) has_ull = 1;
+        else has_classic = 1;
+    }
 
-        /* Merge with this HLL with our 'max' HLL by setting max[i]
-         * to MAX(max[i],hll[i]). */
-        if (hllMerge(max,o) == C_ERR) {
+    if (!has_ull) {
+        /* Classic-only path: entirely unchanged. */
+        uint8_t max[HLL_REGISTERS];
+        int use_dense = 0;
+        memset(max,0,sizeof(max));
+        for (j = 1; j < c->argc; j++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+            if (o == NULL) continue;
+            hdr = o->ptr;
+            if (hdr->encoding == HLL_DENSE) use_dense = 1;
+            if (hllMerge(max,o) == C_ERR) {
+                addReplyError(c,invalid_hll_err);
+                return;
+            }
+        }
+
+        /* Create / unshare the destination key's value if needed. */
+        dictEntryLink link;
+        kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+        if (kv == NULL) {
+            robj *o = createHLLObject();
+            kv = dbAddByLink(c->db, c->argv[1], &o, &link);
+        } else {
+            kv = dbUnshareStringValue(c->db,c->argv[1],kv);
+        }
+
+        uint64_t oldLen = stringObjectLen(kv);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(kv);
+
+        if (use_dense && hllSparseToDense(kv) == C_ERR) {
             addReplyError(c,invalid_hll_err);
             return;
         }
+
+        if (use_dense) {
+            hdr = kv->ptr;
+            hllDenseCompress(hdr->registers, max);
+        } else {
+            for (j = 0; j < HLL_REGISTERS; j++) {
+                if (max[j] == 0) continue;
+                hdr = kv->ptr;
+                switch (hdr->encoding) {
+                    case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
+                    case HLL_SPARSE: hllSparseSet(kv,j,max[j]); break;
+                }
+            }
+        }
+        hdr = kv->ptr;
+        HLL_INVALIDATE_CACHE(hdr);
+
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        keyModified(c,c->db,c->argv[1],kv,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
+        server.dirty++;
+        addReply(c,shared.ok);
+        return;
     }
 
-    /* Create / unshare the destination key's value if needed. */
+    if (has_ull && has_classic) {
+        /* Mixed path: down-convert ULL to classic rho, merge all into RAW max[].
+         * Result is a CLASSIC dense object (accurate because the classic estimator
+         * is calibrated for rho-only data; the ULL FGRA estimator is not). */
+        uint8_t max[HLL_REGISTERS];
+        memset(max,0,sizeof(max));
+        for (j = 1; j < c->argc; j++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+            if (o == NULL) continue;
+            hdr = o->ptr;
+            if (hdr->encoding == HLL_ULTRA) {
+                uint8_t *src = hdr->registers;
+                for (int i = 0; i < HLL_REGISTERS; i++) {
+                    if (src[i]) {
+                        int rho = ullRegToRho(src[i]);
+                        if (rho > max[i]) max[i] = (uint8_t)rho;
+                    }
+                }
+            } else {
+                if (hllMerge(max,o) == C_ERR) {
+                    addReplyError(c,invalid_hll_err);
+                    return;
+                }
+            }
+        }
+
+        dictEntryLink link;
+        kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+        if (kv == NULL) {
+            robj *o = createHLLObject();
+            kv = dbAddByLink(c->db, c->argv[1], &o, &link);
+        } else {
+            kv = dbUnshareStringValue(c->db,c->argv[1],kv);
+        }
+
+        uint64_t oldLen = stringObjectLen(kv);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(kv);
+
+        /* The mixed result is always classic dense; build a fresh dense object so
+         * it works regardless of the destination's prior encoding (classic sparse/
+         * dense or ultra) -- hllSparseToDense() cannot convert a ULL dest. */
+        sds s = sdsnewlen(NULL, HLL_DENSE_SIZE);
+        struct hllhdr *nh = (struct hllhdr*)s;
+        memcpy(nh->magic, "HYLL", 4);
+        nh->encoding = HLL_DENSE;
+        HLL_INVALIDATE_CACHE(nh);
+        hllDenseCompress(nh->registers, max);
+        sdsfree(kv->ptr);
+        kv->ptr = s;
+        hdr = kv->ptr;
+
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        keyModified(c,c->db,c->argv[1],kv,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
+        server.dirty++;
+        addReply(c,shared.ok);
+        return;
+    }
+
+    /* All-ULL path: union in ULL domain, result is a fresh ULL dense object.
+     * Note: dest (argv[1]) is included in the source scan above, so its current
+     * content is merged into acc before we overwrite it. */
+    uint8_t *acc = zcalloc(HLL_REGISTERS);
+    for (j = 1; j < c->argc; j++) {
+        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+        if (o == NULL) continue;
+        struct hllhdr *shdr = o->ptr;
+        uint8_t *src = shdr->registers;
+        for (int i = 0; i < HLL_REGISTERS; i++) {
+            if (src[i]) {
+                uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
+                acc[i] = ullPack(merged);
+            }
+        }
+    }
+
+    /* Create / unshare the destination key. */
     dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (kv == NULL) {
-        /* Create the key with a string value of the exact length to
-         * hold our HLL data structure. sdsnewlen() when NULL is passed
-         * is guaranteed to return bytes initialized to zero. */
         robj *o = createHLLObject();
         kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
-        /* If key exists we are sure it's of the right type/size
-         * since we checked when merging the different HLLs, so we
-         * don't check again. */
         kv = dbUnshareStringValue(c->db,c->argv[1],kv);
     }
 
@@ -2161,31 +2336,18 @@ void pfmergeCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
 
-    /* Convert the destination object to dense representation if at least
-     * one of the inputs was dense. */
-    if (use_dense && hllSparseToDense(kv) == C_ERR) {
-        addReplyError(c,invalid_hll_err);
-        return;
-    }
-
-    /* Write the resulting HLL to the destination HLL registers and
-     * invalidate the cached value. */
-    if (use_dense) {
-        hdr = kv->ptr;
-        hllDenseCompress(hdr->registers, max);
-    } else {
-        for (j = 0; j < HLL_REGISTERS; j++) {
-            if (max[j] == 0) continue;
-            hdr = kv->ptr;
-            switch (hdr->encoding) {
-                case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
-                case HLL_SPARSE: hllSparseSet(kv,j,max[j]); break;
-            }
-        }
-    }
-    hdr = kv->ptr; /* o->ptr may be different now, as a side effect of
-                     last hllSparseSet() call. */
+    /* Build a fresh ULL dense sds and swap it in, mirroring hllSparseToDenseUltra. */
+    sds s = sdsnewlen(NULL, HLL_ULTRA_DENSE_SIZE(HLL_ULTRA_P));
+    hdr = (struct hllhdr*)s;
+    memcpy(hdr->magic, "HYLL", 4);
+    hdr->encoding = HLL_ULTRA;
+    hdr->notused[1] = 0; hdr->notused[2] = 0;
+    HLL_ULTRA_SET_P(hdr, HLL_ULTRA_P);
     HLL_INVALIDATE_CACHE(hdr);
+    memcpy(hdr->registers, acc, HLL_REGISTERS);
+    zfree(acc);
+    sdsfree(kv->ptr);
+    kv->ptr = s;
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
