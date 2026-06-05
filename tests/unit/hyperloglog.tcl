@@ -543,4 +543,24 @@ start_server {tags {"hll"}} {
         r pfmerge cb1{t} cb1{t} cb2{t} ;# all-ULL merge -> same
         assert {[r pfcount cb1{t}] >= 0} ;# returns a sane number, no crash
     }
+
+    test {ULL: PFDEBUG GETREG returns the ultra registers verbatim} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del ureg
+        r pfadd ureg a b c d e
+        assert_equal {ultra} [r pfdebug encoding ureg]
+        set regs [r pfdebug getreg ureg]
+        assert_equal 16384 [llength $regs]
+        # A valid ULL register byte is 0 (empty) or >= 52 (4*(p-1) at p=14).
+        # The old 6-bit-dense misread would surface small values in [1,51].
+        set nonzero 0
+        foreach v $regs {
+            assert {$v == 0 || $v >= 52}
+            if {$v != 0} {incr nonzero}
+        }
+        assert {$nonzero > 0}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
 }

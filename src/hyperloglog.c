@@ -2548,12 +2548,21 @@ void pfdebugCommand(client *c) {
         }
 
         hdr = o->ptr;
-        addReplyArrayLen(c,HLL_REGISTERS);
-        for (j = 0; j < HLL_REGISTERS; j++) {
-            uint8_t val;
+        if (hdr->encoding == HLL_ULTRA) {
+            /* UltraLogLog registers are one byte each; return them verbatim.
+             * The 6-bit dense unpacking below would misread the 1-byte data. */
+            size_t ull_m = HLL_ULTRA_REGISTERS(HLL_ULTRA_GET_P(hdr));
+            addReplyArrayLen(c,ull_m);
+            for (size_t i = 0; i < ull_m; i++)
+                addReplyLongLong(c,hdr->registers[i]);
+        } else {
+            addReplyArrayLen(c,HLL_REGISTERS);
+            for (j = 0; j < HLL_REGISTERS; j++) {
+                uint8_t val;
 
-            HLL_DENSE_GET_REGISTER(val,hdr->registers,j);
-            addReplyLongLong(c,val);
+                HLL_DENSE_GET_REGISTER(val,hdr->registers,j);
+                addReplyLongLong(c,val);
+            }
         }
     }
     /* PFDEBUG DECODE <key> */
