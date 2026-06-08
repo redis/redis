@@ -1,4 +1,4 @@
-start_server {tags {"bitmap" "bitmap-native" "needs:debug"}} {
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {native bitmap helper exposes type encoding and exact raw bytes} {
         set raw [binary format H* 80400100080000]
 
@@ -49,7 +49,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug"}} {
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
     test {native bitmap survives AOF rewrite as bitmap} {
         r config set appendonly yes
         r config set auto-aof-rewrite-percentage 0
