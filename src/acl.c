@@ -2160,7 +2160,7 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
          * Otherwise beforeSleep would re-filter the already accumulated keys
          * by the new (possibly stricter) permissions and drop invalidations
          * for keys the client could previously read. */
-        trackingBcastFlushUser(u);
+        trackingBroadcastInvalidationMessages(u);
     }
 
     /* Overwrite the user with the temporary user we modified above. */
@@ -2459,7 +2459,7 @@ sds ACLLoadFromFile(const char *filename) {
          * invalidations to be re-filtered by the new permissions in
          * beforeSleep. A whole-table flush is appropriate here since the load
          * may change many users at once. */
-        trackingBroadcastInvalidationMessages();
+        trackingBroadcastInvalidationMessages(NULL);
 
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new

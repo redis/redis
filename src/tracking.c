@@ -754,43 +754,28 @@ void trackingBroadcastPostUserSwitch(client *c, user *old_user) {
     trackingBcastMoveClient(c, old_user);
 }
 
-/* Flush pending BCAST invalidation messages for every prefix where user 'u'
- * has subscribers, under u's *current* permissions. This must be called
- * before an in-place ACL change to 'u' (e.g. ACL SETUSER overwriting the user
- * object), so the keys accumulated under the old permissions go out under the
- * old identity instead of being re-filtered by the new (possibly stricter)
- * permissions in beforeSleep.
- *
- * Since bs->clients is keyed by the user pointer, we iterate the PrefixTable
- * once and only flush the prefixes where 'u' actually has a bucket. */
-void trackingBcastFlushUser(user *u) {
-    if (TrackingTable == NULL || !server.tracking_clients) return;
-
-    raxIterator ri;
-    raxStart(&ri, PrefixTable);
-    raxSeek(&ri, "^", NULL, 0);
-    while(raxNext(&ri)) {
-        bcastState *bs = ri.data;
-        if (raxFind(bs->clients, (unsigned char*)&u, sizeof(u), NULL))
-            trackingBcastInvalidationsForPrefix(bs);
-    }
-    raxStop(&ri);
-}
-
 /* This function will run the prefixes of clients in BCAST mode and
  * keys that were modified about each prefix, and will send the
- * notifications to each client in each prefix. */
-void trackingBroadcastInvalidationMessages(void) {
-    raxIterator ri;
-
+ * notifications to each client in each prefix.
+ *
+ * If 'u' is non-NULL, only prefixes where user 'u' has subscribers are
+ * flushed (bs->clients is keyed by the user pointer). This is used to deliver
+ * pending invalidations under the old identity before an in-place ACL change
+ * to 'u' would otherwise re-filter them by the new permissions. Passing NULL
+ * flushes every prefix. */
+void trackingBroadcastInvalidationMessages(user *u) {
     /* Return ASAP if there is nothing to do here. */
     if (TrackingTable == NULL || !server.tracking_clients) return;
 
+    raxIterator ri;
     raxStart(&ri,PrefixTable);
     raxSeek(&ri,"^",NULL,0);
 
     while(raxNext(&ri)) {
-        trackingBcastInvalidationsForPrefix(ri.data);
+        bcastState *bs = ri.data;
+        if (!u || raxFind(bs->clients, (unsigned char*)&u, sizeof(u), NULL)) {
+            trackingBcastInvalidationsForPrefix(bs);
+        }
     }
     raxStop(&ri);
 }
