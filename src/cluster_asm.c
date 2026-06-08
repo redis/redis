@@ -589,7 +589,7 @@ size_t asmGetImportInputBufferSize(void) {
     return 0;
 }
 
-size_t asmGetMigrateOutputBufferSize(void) {
+size_t asmGetMigrateOutputMemoryUsage(void) {
     if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
@@ -1628,7 +1628,7 @@ void asmSyncWithSource(connection *conn) {
         /* Create RDB channel connection */
         clusterNode *source_node = clusterLookupNode(task->source, CLUSTER_NAMELEN);
         if (!source_node) {
-            task_error_msg = sdscatfmt(sdsempty(), "Source node %.40s was not found", task->source);
+            task_error_msg = sdscatprintf(sdsempty(), "Source node %.40s was not found", task->source);
             goto error;
         }
         char *ip = clusterNodeIp(source_node);

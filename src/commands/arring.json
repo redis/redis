@@ -1,0 +1,57 @@
+{
+    "ARRING": {
+        "summary": "Inserts values into a ring buffer of specified size, wrapping and truncating as needed.",
+        "complexity": "O(M) normally, O(N+M) on ring resize, where N is the maximum of the old and new ring size and M is the number of inserted values",
+        "group": "array",
+        "since": "8.8.0",
+        "arity": -4,
+        "function": "arringCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "The last index where a value was inserted.",
+            "type": "integer"
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "size",
+                "type": "integer"
+            },
+            {
+                "name": "value",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -1,23 +1,23 @@
 {
-    "GCRASETVALUE": {
-        "summary": "An internal command for recording a GCRA TAT value during AOF rewrite and replication.",
-        "complexity": "O(1)",
-        "group": "rate_limit",
+    "ARMSET": {
+        "summary": "Sets multiple index-value pairs in an array.",
+        "complexity": "O(N) where N is the number of pairs",
+        "group": "array",
         "since": "8.8.0",
-        "arity": 3,
-        "function": "gcraSetValueCommand",
+        "arity": -4,
+        "function": "armsetCommand",
         "command_flags": [
             "WRITE",
             "DENYOOM",
             "FAST"
         ],
         "acl_categories": [
-            "RATE_LIMIT"
+            "ARRAY"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "OW",
+                    "RW",
                     "UPDATE"
                 ],
                 "begin_search": {
@@ -35,7 +35,8 @@
             }
         ],
         "reply_schema": {
-            "const": "OK"
+            "description": "Number of new slots that were set (previously empty).",
+            "type": "integer"
         },
         "arguments": [
             {
@@ -44,8 +45,19 @@
                 "key_spec_index": 0
             },
             {
-                "name": "tat",
-                "type": "integer"
+                "name": "data",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "index",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
             }
         ]
     }

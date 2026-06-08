@@ -3126,11 +3126,15 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
 
     if (!s->cgroups_ref)
         s->cgroups_ref = raxNewWithMetadata(0, &s->alloc_size);
-    
-    /* Try to find the list for this stream ID, create it if it doesn't exist */
-    if (!raxFind(s->cgroups_ref, key, sizeof(streamID), (void**)&cglist)) {
+
+    /* Find-or-insert in a single rax walk: raxFindLink stashes the stop
+     * position so raxInsertAt commits without re-walking the tree. */
+    raxNodeLink link;
+    if (!raxFindLink(s->cgroups_ref, key, sizeof(streamID),
+                     (void**)&cglist, &link)) {
         cglist = listCreate();
-        serverAssert(raxInsert(s->cgroups_ref, key, sizeof(streamID), cglist, NULL));
+        serverAssert(raxInsertAt(s->cgroups_ref, key, sizeof(streamID),
+                                 cglist, NULL, &link));
     }
     
     /* Add the consumer group to the list and return the list node */
@@ -3303,7 +3307,8 @@ void streamFreeConsumerGeneric(void *sc, void *s) {
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
     if (s->cgroups == NULL)
         s->cgroups = raxNewWithMetadata(0, &s->alloc_size);
-    if (raxFind(s->cgroups,(unsigned char*)name,namelen,NULL))
+    raxNodeLink link;
+    if (raxFindLink(s->cgroups,(unsigned char*)name,namelen,NULL,&link))
         return NULL;
 
     size_t usable;
@@ -3318,7 +3323,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
-    raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
+    raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
 
@@ -3939,7 +3944,8 @@ void xnackCommand(client *c) {
         streamEncodeID(buf,&ids[j]);
 
         void *result;
-        int found = raxFind(group->pel,buf,sizeof(buf),&result);
+        raxNodeLink link;
+        int found = raxFindLink(group->pel,buf,sizeof(buf),&result,&link);
         if (found) {
             streamNACK *nack = result;
             nackSetDeliveryCount(nack, mode, retrycount);
@@ -3966,7 +3972,7 @@ void xnackCommand(client *c) {
             nack->delivery_count = 0;
             nackSetDeliveryCount(nack, mode, retrycount);
 
-            raxInsert(group->pel, buf, sizeof(buf), nack, NULL);
+            raxInsertAt(group->pel, buf, sizeof(buf), nack, NULL, &link);
             pelListInsertNacked(group, nack);
             nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
         } else {
@@ -5518,12 +5524,14 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     if (!valid_record || zero != 0) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
+    int64_t actual_deleted = 0;
     entry_count += deleted_count;
     while (entry_count--) {
         if (!p) return 0;
         int64_t fields = master_fields, extra_fields = 3;
         int64_t flags = lpGetIntegerIfValid(p, &valid_record);
         if (!valid_record) return 0;
+        if (flags & STREAM_ITEM_FLAG_DELETED) actual_deleted++;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
         /* entry id */
@@ -5559,6 +5567,9 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
         if (lp_count != fields + extra_fields) return 0;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
     }
+
+    if (actual_deleted != deleted_count)
+        return 0;
 
     if (next)
         return 0;
@@ -5937,14 +5948,14 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
         s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     }
 
-    /* Look up the producer */
     idmpProducer *producer = NULL;
-    int found = raxFind(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer);
+    raxNodeLink link;
+    int found = raxFindLink(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer, &link);
     if (!found) {
         /* Create a new producer */
         producer = idmpProducerCreate(&s->alloc_size);
         /* Insert into the rax tree - must succeed since we checked it doesn't exist */
-        serverAssert(raxInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL));
+        serverAssert(raxInsertAt(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL, &link));
     }
 
     return producer;

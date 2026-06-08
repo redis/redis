@@ -23,14 +23,15 @@ This document serves as both a quick start guide to Redis and a detailed resourc
 - [Cloud hosted Redis](#cloud-hosted-redis)
 - [Community](#community)
 - [Build Redis from source](#build-redis-from-source)
-  - [Build and run Redis with all data structures - Ubuntu 20.04 (Focal)](#build-and-run-redis-with-all-data-structures---ubuntu-2004-focal)
   - [Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)](#build-and-run-redis-with-all-data-structures---ubuntu-2204-jammy)
   - [Build and run Redis with all data structures - Ubuntu 24.04 (Noble)](#build-and-run-redis-with-all-data-structures---ubuntu-2404-noble)
-  - [Build and run Redis with all data structures - Debian 11 (Bullseye) / 12 (Bookworm)](#build-and-run-redis-with-all-data-structures---debian-11-bullseye--12-bookworm)
+  - [Build and run Redis with all data structures - Ubuntu 26.04 (Resolute)](#build-and-run-redis-with-all-data-structures---ubuntu-2604-resolute)
+  - [Build and run Redis with all data structures - Debian 12 (Bookworm) / 13 (Trixie)](#build-and-run-redis-with-all-data-structures---debian-12-bookworm--13-trixie)
   - [Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10](#build-and-run-redis-with-all-data-structures---almalinux-810--rocky-linux-810)
-  - [Build and run Redis with all data structures - AlmaLinux 9.5 / Rocky Linux 9.5](#build-and-run-redis-with-all-data-structures---almalinux-95--rocky-linux-95)
-  - [Build and run Redis with all data structures - macOS 13 (Ventura) and macOS 14 (Sonoma)](#build-and-run-redis-with-all-data-structures---macos-13-ventura-and-macos-14-sonoma)
-  - [Build and run Redis with all data structures - macOS 15 (Sequoia)](#build-and-run-redis-with-all-data-structures---macos-15-sequoia)
+  - [Build and run Redis with all data structures - AlmaLinux 9.7+ / Rocky Linux 9.7+](#build-and-run-redis-with-all-data-structures---almalinux-97--rocky-linux-97)
+  - [Build and run Redis with all data structures - AlmaLinux 10.1+ / Rocky Linux 10.1+](#build-and-run-redis-with-all-data-structures---almalinux-101--rocky-linux-101)
+  - [Build and run Redis with all data structures - Alpine 3.23+](#build-and-run-redis-with-all-data-structures---alpine-323)
+  - [Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)](#build-and-run-redis-with-all-data-structures---macos-14-sonoma-15-sequoia-26-tahoe)
   - [Building Redis - flags and general notes](#building-redis---flags-and-general-notes)
   - [Fixing build problems with dependencies or cached build options](#fixing-build-problems-with-dependencies-or-cached-build-options)
   - [Fixing problems building 32 bit binaries](#fixing-problems-building-32-bit-binaries)
@@ -53,7 +54,7 @@ Redis excels in various applications, including:
 - **Distributed Session Store:** Offers flexible session data modeling (string, JSON, hash).
 - **Data Structure Server:** Provides low-level data structures (strings, lists, sets, hashes, sorted sets, JSON, etc.) with high-level semantics (counters, queues, leaderboards, rate limiters) and supports transactions & scripting.
 - **NoSQL Data Store:** Key-value, document, and time series data storage.
-- **Search and Query Engine:** Indexing for hash/JSON documents, supporting vector search, full-text search, geospatial queries, ranking, and aggregations via Redis Query Engine.
+- **Search and Query Engine:** Indexing for hash/JSON documents, supporting vector search, full-text search, geospatial queries, ranking, and aggregations via Redis Search.
 - **Event Store & Message Broker:** Implements queues (lists), priority queues (sorted sets), event deduplication (sets), streams, and pub/sub with probabilistic stream processing capabilities.
 - **Vector Store for GenAI:** Integrates with AI applications (e.g. LangGraph, mem0) for short-term memory, long-term memory, LLM response caching (semantic caching), and retrieval augmented generation (RAG).
 - **Real-Time Analytics:** Powers personalization, recommendations, fraud detection, and risk assessment.
@@ -172,9 +173,10 @@ Redis provides a variety of data types, processing engines, and capabilities to 
 **Important:** Features marked with an asterisk (\*) require Redis to be compiled with the `BUILD_WITH_MODULES=yes` flag when [building Redis from source](#build-redis-from-source)
 
 - [**String:**](https://redis.io/docs/latest/develop/data-types/strings) Sequences of bytes, including text, serialized objects, and binary arrays used for caching, counters, and bitwise operations.
-- [**JSON:**](https://redis.io/docs/latest/develop/data-types/json/) Nested JSON documents that are indexed and searchable using JSONPath expressions and with [Redis Query Engine](https://redis.io/docs/latest/develop/interact/search-and-query/)
+- [**JSON:**](https://redis.io/docs/latest/develop/data-types/json/) Nested JSON documents that are indexed and searchable using JSONPath expressions and with [Redis Search](https://redis.io/docs/latest/develop/ai/search-and-query/)
+- [**Array:**](https://redis.io/docs/latest/develop/data-types/arrays/) Sparse, index-addressable collection of string values
 - [**Hash:**](https://redis.io/docs/latest/develop/data-types/hashes/) Field-value maps used to represent basic objects and store groupings of key-value pairs with support for [hash field expiration (TTL)](https://redis.io/docs/latest/develop/data-types/hashes/#field-expiration)
-- [**Redis Query Engine:**](https://redis.io/docs/latest/develop/interact/search-and-query/) Use Redis as a document database, a vector database, a secondary index, and a search engine. Define indexes for hash and JSON documents and then use a rich query language for vector search, full-text search, geospatial queries, and aggregations.
+- [**Redis Search:**](https://redis.io/docs/latest/develop/ai/search-and-query/) Use Redis as a document database, a vector database, a secondary index, and a search engine. Define indexes for hash and JSON documents and then use a rich query language for vector search, full-text search, geospatial queries, and aggregations.
 - [**List:**](https://redis.io/docs/latest/develop/data-types/lists/) Linked lists of string values used as stacks, queues, and for queue management.
 - [**Set:**](https://redis.io/docs/latest/develop/data-types/sets/) Unordered collection of unique strings used for tracking unique items, relations, and common set operations (intersections, unions, differences).
 - [**Sorted set:**](https://redis.io/docs/latest/develop/data-types/sorted-sets/) Collection of unique strings ordered by an associated score used for leaderboards and rate limiters.
@@ -208,80 +210,6 @@ Fully-managed Redis with real-time performance at scale.
 ## Build Redis from source
 
 This section refers to building Redis from source. If you want to get up and running with Redis quickly without needing to build from source see the [Getting started section](#getting-started).
-
-### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
-
-Tested with the following Docker image:
-
-- ubuntu:20.04
-
-1. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries:
-
-   ```sh
-   apt-get update
-   apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf gcc-10 g++-10 libtool
-   ```
-
-2. Use GCC 10 as the default compiler
-
-   Update the system's default compiler to GCC 10:
-
-   ```sh
-   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 --slave /usr/bin/g++ g++ /usr/bin/g++-10
-   ```
-
-3. Install CMake
-
-   Install CMake using `pip3` and link it for system-wide access:
-
-   ```sh
-   pip3 install cmake==3.31.6
-   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
-   cmake --version
-   ```
-
-   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
-
-4. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
-
-   ```sh
-   cd /usr/src
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
-   ```
-
-5. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-6. Build Redis
-
-   Set the necessary environment variables and compile Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
-   make -j "$(nproc)" all
-   ```
-
-7. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
-   ```
 
 ### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)
 
@@ -338,7 +266,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -392,7 +320,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -403,14 +331,83 @@ Tested with the following Docker image:
    ./src/redis-server redis-full.conf
    ```
 
-### Build and run Redis with all data structures - Debian 11 (Bullseye) / 12 (Bookworm)
+### Build and run Redis with all data structures - Ubuntu 26.04 (Resolute)
+
+Tested with the following Docker image:
+
+- ubuntu:26.04
+
+> **Note**: Ubuntu 26.04 ships CMake 4.x and clang/LLVM 21 in the default repositories. The Redis modules build requires CMake ≤ 3.31.6 and explicitly passes `-fuse-ld=lld`, so a supported CMake must be pinned via `pip3` and `lld`, `llvm`, and `libcrypt-dev` must be installed (the latter is needed to link the `redisearch` module against `libcrypt`).
+
+1. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries. `lld` and `llvm` are required because the modules build invokes clang with `-fuse-ld=lld` and uses `llvm-ar`; `libcrypt-dev` is required to link `redisearch.so`:
+
+   ```sh
+   apt-get update
+   apt-get install -y sudo
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev libcrypt-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang lld llvm automake autoconf libtool
+   ```
+
+2. Install CMake
+
+   Install a supported version of CMake using `pip3` (inside a virtual environment, as Ubuntu enforces PEP 668) and link it for system-wide access:
+
+   ```sh
+   python3 -m venv /opt/cmake-venv
+   /opt/cmake-venv/bin/pip install cmake==3.31.6
+   sudo ln -sf /opt/cmake-venv/bin/cmake /usr/local/bin/cmake
+   cmake --version
+   ```
+
+   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
+
+3. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```sh
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+4. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```sh
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+5. Build Redis
+
+   Set the necessary environment variables and build Redis:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   make -j "$(nproc)" all
+   ```
+
+6. Run Redis
+
+   ```sh
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - Debian 12 (Bookworm) / 13 (Trixie)
 
 Tested with the following Docker images:
 
-- debian:bullseye
-- debian:bullseye-slim
 - debian:bookworm
 - debian:bookworm-slim
+- debian:trixie
+- debian:trixie-slim
 
 1. Install required dependencies
 
@@ -449,7 +446,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -471,33 +468,18 @@ Tested with the following Docker images:
 
 1. Prepare the system
 
-   For 8.10-minimal, install `sudo` and `dnf` as follows:
+   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 8.10-minimal, install `dnf` first:
 
    ```sh
-   microdnf install dnf sudo -y
+   microdnf install dnf -y
    ```
 
-   For 8.10 (regular), install sudo as follows:
+   Enable the required repositories and install the base development tools:
 
    ```sh
-   dnf install sudo -y
-   ```
-
-   Clean the package metadata, enable required repositories, and install development tools:
-
-   ```sh
-   sudo dnf clean all
-   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
-   [goreleaser]
-   name=GoReleaser
-   baseurl=https://repo.goreleaser.com/yum/
-   enabled=1
-   gpgcheck=0
-   EOF
-   sudo dnf update -y
-   sudo dnf groupinstall "Development Tools" -y
-   sudo dnf config-manager --set-enabled powertools
-   sudo dnf install -y epel-release
+   dnf groupinstall "Development Tools" -y
+   dnf config-manager --set-enabled powertools
+   dnf install -y epel-release
    ```
 
 2. Install required dependencies
@@ -505,20 +487,14 @@ Tested with the following Docker images:
    Update your package lists and install the necessary development tools and libraries:
 
    ```sh
-   sudo dnf install -y --nobest --skip-broken pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang curl libtool automake autoconf jq systemd-devel
-   ```
-
-   Create a Python virtual environment:
-
-   ```sh
-   python3.11 -m venv /opt/venv
+   dnf install -y pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang libtool automake autoconf jq systemd-devel
    ```
 
    Enable the GCC toolset:
 
    ```sh
-   sudo cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-   echo "source /etc/profile.d/gcc-toolset-13.sh" | sudo tee -a /etc/bashrc
+   cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+   echo "source /etc/profile.d/gcc-toolset-13.sh" >> /etc/bashrc
    ```
 
 3. Install CMake
@@ -568,7 +544,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -579,42 +555,28 @@ Tested with the following Docker images:
    ./src/redis-server redis-full.conf
    ```
 
-### Build and run Redis with all data structures - AlmaLinux 9.5 / Rocky Linux 9.5
+### Build and run Redis with all data structures - AlmaLinux 9.7+ / Rocky Linux 9.7+
 
 Tested with the following Docker images:
 
-- almalinux:9.5
-- almalinux:9.5-minimal
-- rockylinux/rockylinux:9.5
-- rockylinux/rockylinux:9.5-minimal
+- almalinux:9.7
+- almalinux:9.7-minimal
+- rockylinux/rockylinux:9.7
+- rockylinux/rockylinux:9.7-minimal
 
 1. Prepare the system
 
-   For 9.5-minimal, install `sudo` and `dnf` as follows:
+   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 9-minimal, install `dnf` first:
 
    ```sh
-   microdnf install dnf sudo -y
+   microdnf install dnf -y
    ```
 
-   For 9.5 (regular), install sudo as follows:
+   Enable the required repositories (`epel-release` and CRB provide some of the `-devel` packages):
 
    ```sh
-   dnf install sudo -y
-   ```
-
-   Clean the package metadata, enable required repositories, and install development tools:
-
-   ```sh
-   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
-   [goreleaser]
-   name=GoReleaser
-   baseurl=https://repo.goreleaser.com/yum/
-   enabled=1
-   gpgcheck=0
-   EOF
-   sudo dnf clean all
-   sudo dnf makecache
-   sudo dnf update -y
+   dnf install -y epel-release
+   dnf config-manager --set-enabled crb
    ```
 
 2. Install required dependencies
@@ -622,20 +584,14 @@ Tested with the following Docker images:
    Update your package lists and install the necessary development tools and libraries:
 
    ```sh
-   sudo dnf install -y --nobest --skip-broken pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang curl libtool automake autoconf jq systemd-devel
-   ```
-
-   Create a Python virtual environment:
-
-   ```sh
-   python3 -m venv /opt/venv
+   dnf install -y pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang libtool automake autoconf jq systemd-devel
    ```
 
    Enable the GCC toolset:
 
    ```sh
-   sudo cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-   echo "source /etc/profile.d/gcc-toolset-13.sh" | sudo tee -a /etc/bashrc
+   cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+   echo "source /etc/profile.d/gcc-toolset-13.sh" >> /etc/bashrc
    ```
 
 3. Install CMake
@@ -685,7 +641,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -696,7 +652,160 @@ Tested with the following Docker images:
    ./src/redis-server redis-full.conf
    ```
 
-### Build and run Redis with all data structures - macOS 13 (Ventura) and macOS 14 (Sonoma)
+### Build and run Redis with all data structures - AlmaLinux 10.1+ / Rocky Linux 10.1+
+
+Tested with the following Docker images:
+
+- almalinux:10.1
+- almalinux:10.1-minimal
+- rockylinux/rockylinux:10.1
+- rockylinux/rockylinux:10.1-minimal
+
+1. Prepare the system
+
+   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 10-minimal, install `dnf` first:
+
+   ```sh
+   microdnf install dnf -y
+   ```
+
+   Enable the required repositories (`epel-release` and CRB provide some of the `-devel` packages):
+
+   ```sh
+   dnf install -y epel-release
+   dnf config-manager --set-enabled crb
+   ```
+
+2. Install required dependencies
+
+   Install the necessary development tools and libraries. AlmaLinux/Rocky 10 ship GCC 14 and CMake 3.30 in the default repositories, which are supported by the Redis build, so no separate compiler/CMake toolset is required:
+
+   ```sh
+   dnf groupinstall "Development Tools" -y
+   dnf install -y pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
+   ```
+
+   On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain that `INSTALL_RUST_TOOLCHAIN=yes` installs. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
+
+3. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```sh
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+4. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```sh
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+5. Build Redis
+
+   Set the necessary environment variables and build Redis. `RediSearch` builds with cross-language LTO (the default) because the `clang`/`lld` 21 installed in step 2 match the Rust toolchain's LLVM. On AlmaLinux, `IGNORE_MISSING_DEPS=1` bypasses the `v8.7.91` dep-checker that does not yet recognize `almalinux` (fixed in `redisearch` v8.8.0; harmless on, and not required for, Rocky Linux 10):
+
+   ```sh
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export IGNORE_MISSING_DEPS=1
+   make -j "$(nproc)" all
+   ```
+
+6. Run Redis
+
+   ```sh
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - Alpine 3.23+
+
+Tested with the following Docker image:
+
+- alpine:3.23
+
+1. Install required dependencies
+
+   ```sh
+   apk update
+   apk add --no-cache \
+     build-base coreutils linux-headers bsd-compat-headers \
+     openssl openssl-dev cmake bash git wget curl xz unzip tar rsync which \
+     libtool automake autoconf libffi-dev libgcc ncurses-dev xsimd \
+     cargo clang21 clang21-static clang21-libclang llvm21-dev lld21 \
+     python3 py3-pip python3-dev
+   ```
+
+   Install the Python packages required by the `RedisJSON` module build:
+
+   ```sh
+   export PIP_BREAK_SYSTEM_PACKAGES=1
+   pip install --upgrade setuptools pip
+   pip install addict toml jinja2 ramp-packer
+   ```
+
+2. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```sh
+   mkdir -p /usr/src
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+3. Extract the source archive
+
+   ```sh
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+4. Build Redis
+
+   Set the necessary environment variables, apply the `RedisJSON` Rust-flags patch, and build Redis:
+
+   ```sh
+   cd /usr/src/redis-<version>
+
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes
+   export INSTALL_RUST_TOOLCHAIN=yes LTO=1
+   export RUST_DYN_CRT=1
+   export PATH="/usr/lib/llvm21/bin:$PATH"
+
+   # RedisJSON's bindgen must dlopen libclang.so; drop crt-static from its Rust flags.
+   make -C modules/redisjson get_source
+   sed -i 's/^RUST_FLAGS=$/RUST_FLAGS += -C target-feature=-crt-static/' modules/redisjson/src/Makefile
+
+   make -j "$(nproc)" all
+   ```
+
+5. Run Redis
+
+   ```sh
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)
+
+The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
+
+> **Note**: Three RediSearch-specific build constraints apply on macOS and are handled in the steps below:
+> - The cross-language LTO that RediSearch enables by default requires Linux; its build script aborts on macOS with `Error: LTO is only supported on Linux`. Step 6 sets `LTO=0` to disable it.
+> - RediSearch's Rust workspace uses edition 2024 and features stabilized in Rust 1.94, so the Rust toolchain in step 3 is pinned to `1.94.0`. Older Rust fails with `feature edition2024 is required`.
+> - RediSearch's CMake build calls `libtool -static` (BSD libtool syntax). Step 6's `PATH` does **not** prepend `$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin`, so macOS's `/usr/bin/libtool` is used for that step.
 
 1. Install Homebrew
 
@@ -723,7 +832,7 @@ Tested with the following Docker images:
    Rust is required to build the JSON package.
 
    ```sh
-   RUST_INSTALLER=rust-1.80.1-$(if [ "$(uname -m)" = "arm64" ]; then echo "aarch64"; else echo "x86_64"; fi)-apple-darwin
+   RUST_INSTALLER=rust-1.94.0-$(if [ "$(uname -m)" = "arm64" ]; then echo "aarch64"; else echo "x86_64"; fi)-apple-darwin
    wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
    tar -xf ${RUST_INSTALLER}.tar.xz
    (cd ${RUST_INSTALLER} && sudo ./install.sh)
@@ -757,7 +866,7 @@ Tested with the following Docker images:
    export HOMEBREW_PREFIX="$(brew --prefix)"
    export BUILD_WITH_MODULES=yes
    export BUILD_TLS=yes
-   export DISABLE_WERRORS=yes
+   export LTO=0
    PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
@@ -773,10 +882,6 @@ Tested with the following Docker images:
    export LANG=en_US.UTF-8
    build_dir/bin/redis-server redis-full.conf
    ```
-
-### Build and run Redis with all data structures - macOS 15 (Sequoia)
-
-Support and instructions will be provided at a later date.
 
 ### Building Redis - flags and general notes
 

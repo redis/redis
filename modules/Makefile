@@ -11,7 +11,7 @@ all: prepare_source
 get_source:
 	$(call submake,$@)
 
-prepare_source: get_source handle-werrors setup_environment
+prepare_source: get_source setup_environment
 
 clean:
 	$(call submake,$@)
@@ -25,7 +25,7 @@ pristine:
 install:
 	$(call submake,$@)
 
-setup_environment: install-rust handle-werrors
+setup_environment: install-rust
 
 clean_environment: uninstall-rust
 
@@ -74,17 +74,4 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 	fi
 endif
 
-handle-werrors: get_source
-ifeq ($(DISABLE_WERRORS),yes)
-	@echo "Disabling -Werror for all modules"
-	@for dir in $(SUBDIRS); do \
-		echo "Processing $$dir"; \
-		find $$dir/src -type f \
-			\( -name "Makefile" \
-			-o -name "*.mk" \
-			-o -name "CMakeLists.txt" \) \
-			-exec sed -i 's/-Werror//g' {} +; \
-	done
-endif
-
-.PHONY: all clean distclean install $(SUBDIRS) setup_environment clean_environment install-rust uninstall-rust handle-werrors
+.PHONY: all clean distclean install $(SUBDIRS) setup_environment clean_environment install-rust uninstall-rust

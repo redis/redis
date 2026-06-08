@@ -472,7 +472,7 @@ static void cliLegacyIntegrateHelp(void) {
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
-            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
+            entry->element[3]->type != REDIS_REPLY_INTEGER) break;
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -2735,8 +2735,10 @@ static int parseOptions(int argc, char **argv) {
         } else if ((!strcmp(argv[i],"-a") || !strcmp(argv[i],"--pass"))
                    && !lastarg)
         {
+            sdsfree(config.conn_info.auth);
             config.conn_info.auth = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
+            sdsfree(config.conn_info.user);
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-cli",&config.conn_info,&config.tls);
@@ -5109,8 +5111,8 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     char **argv = NULL;
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
-    if (config.conn_info.auth) c += 2;
-    if (config.conn_info.user) c += 1;
+    if (config.conn_info.auth)
+        c += config.conn_info.user ? 3 : 2;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
     argv = zcalloc(argc * sizeof(char *));

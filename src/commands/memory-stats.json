@@ -38,6 +38,12 @@
                 "clients.normal": {
                     "type": "integer"
                 },
+                "clients.normal.shared": {
+                    "type": "integer"
+                },
+                "clients.normal.unshared": {
+                    "type": "integer"
+                },
                 "cluster.links": {
                     "type": "integer"
                 },

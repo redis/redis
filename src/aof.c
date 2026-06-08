@@ -2467,6 +2467,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+#ifdef ENABLE_GCRA
 int rewriteGCRAObject(rio *r, robj *key, robj *o) {
     long long val;
     getLongLongFromGCRAObject(o, &val);
@@ -2478,6 +2479,7 @@ int rewriteGCRAObject(rio *r, robj *key, robj *o) {
     if (rioWriteBulkLongLong(r,val) == 0) return 0;
     return 1;
 }
+#endif
 
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
@@ -2515,6 +2517,116 @@ werr:
     return 0;
 }
 
+/* Write unsigned 64-bit integer as bulk string.
+ * Unlike rioWriteBulkLongLong which uses signed representation,
+ * this correctly handles values >= 2^63 (e.g., array indices). */
+static int rioWriteBulkUnsignedLongLong(rio *r, uint64_t value) {
+    char buf[24];
+    int len = ull2string(buf, sizeof(buf), value);
+    return rioWriteBulkString(r, buf, len);
+}
+
+/* Helper to emit a single array element for AOF rewrite.
+ * Returns 0 on error, 1 on success. Updates count and items. */
+static int aofEmitArrayElement(rio *r, robj *key, uint64_t idx, void *v,
+                               long long *count, long long *items) {
+    if (*count == 0) {
+        int cmd_items = (*items > AOF_REWRITE_ITEMS_PER_CMD/2) ?
+            AOF_REWRITE_ITEMS_PER_CMD/2 : *items;  /* pairs of idx+val */
+        if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+            !rioWriteBulkString(r,"ARMSET",6) ||
+            !rioWriteBulkObject(r,key))
+        {
+            return 0;
+        }
+    }
+
+    /* Write index (unsigned to handle indices >= 2^63) */
+    if (!rioWriteBulkUnsignedLongLong(r, idx)) return 0;
+
+    /* Write value - inline types use scratch space, arString aliases directly. */
+    char buf[AR_INLINE_BUFSIZE];
+    size_t len;
+    const char *data = arDecode(v, buf, sizeof(buf), &len);
+    if (!rioWriteBulkString(r, data, len)) return 0;
+
+    if (++(*count) == AOF_REWRITE_ITEMS_PER_CMD/2) *count = 0;
+    (*items)--;
+    return 1;
+}
+
+/* Helper to emit all elements from a slice for AOF rewrite. */
+static int aofEmitSliceElements(rio *r, robj *key, arSlice *s, uint64_t slice_id,
+                                uint32_t slice_size, long long *count, long long *items) {
+    if (s->encoding == AR_SLICE_DENSE) {
+        for (uint32_t i = 0; i < s->layout.dense.winsize; i++) {
+            void *v = s->layout.dense.items[i];
+            if (arIsEmpty(v)) continue;
+            uint64_t idx = arMakeIdx(slice_id, s->layout.dense.offset + i, slice_size);
+            if (!aofEmitArrayElement(r, key, idx, v, count, items)) return 0;
+        }
+    } else {
+        /* Sparse slice */
+        uint16_t *offsets = s->layout.sparse.offsets;
+        void **values = s->layout.sparse.values;
+        for (uint32_t i = 0; i < s->count; i++) {
+            uint64_t idx = arMakeIdx(slice_id, offsets[i], slice_size);
+            if (!aofEmitArrayElement(r, key, idx, values[i], count, items)) return 0;
+        }
+    }
+    return 1;
+}
+
+/* Emit the commands needed to rebuild an array object.
+ * The function returns 0 on error, 1 on success. */
+int rewriteArrayObject(rio *r, robj *key, robj *o) {
+    redisArray *ar = o->ptr;
+    long long count = 0, items = ar->count;
+    if (items == 0) return 1;
+
+    /* Iterate through all slices, handling both flat directory mode and
+     * superdir mode. This mirrors the iteration logic in rdb.c. */
+    if (ar->superdir) {
+        /* Superdir mode: iterate through blocks */
+        for (uint32_t bi = 0; bi < ar->sdir_len; bi++) {
+            arSDirEntry *e = ar->superdir + bi;
+            uint64_t block_base = e->block_id * AR_SUPER_BLOCK_SLOTS;
+
+            for (uint32_t si = 0; si < AR_SUPER_BLOCK_SLOTS; si++) {
+                arSlice *s = e->slots[si];
+                if (!s) continue;
+                uint64_t slice_id = block_base + si;
+                if (!aofEmitSliceElements(r, key, s, slice_id, ar->slice_size,
+                                          &count, &items)) return 0;
+            }
+        }
+    } else {
+        /* Flat directory mode */
+        for (uint64_t slice_id = 0; slice_id <= ar->dir_highest_used && slice_id < ar->dir_alloc; slice_id++) {
+            arSlice *s = ar->dir[slice_id];
+            if (!s) continue;
+            if (!aofEmitSliceElements(r, key, s, slice_id, ar->slice_size,
+                                      &count, &items)) return 0;
+        }
+    }
+
+    /* If insert_idx is set, emit ARSEEK command to restore it.
+     * When insert_idx == UINT64_MAX-1, we emit ARSEEK UINT64_MAX which
+     * correctly sets insert_idx back to UINT64_MAX-1 (terminal state). */
+    if (ar->insert_idx != AR_INSERT_IDX_NONE) {
+        /* ARSEEK key insert_idx+1 (ARSEEK sets position for next insert) */
+        if (!rioWriteBulkCount(r,'*',3) ||
+            !rioWriteBulkString(r,"ARSEEK",6) ||
+            !rioWriteBulkObject(r,key) ||
+            !rioWriteBulkUnsignedLongLong(r, ar->insert_idx + 1))
+        {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
     /* Save the key and associated value */
     if (o->type == OBJ_STRING) {
@@ -2534,8 +2646,12 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rewriteHashObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_STREAM) {
         if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
+#ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         if (rewriteGCRAObject(r,key,o) == 0) return C_ERR;
+#endif
+    } else if (o->type == OBJ_ARRAY) {
+        if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {

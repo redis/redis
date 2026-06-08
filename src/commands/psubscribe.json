@@ -11,7 +11,8 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
-            "SENTINEL"
+            "SENTINEL",
+            "DENYOOM"
         ],
         "arguments": [
             {
