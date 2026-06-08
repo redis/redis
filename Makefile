@@ -1,5 +1,18 @@
 # Top level makefile, the real stuff is at ./src/Makefile and in ./modules/Makefile
 
+# macOS ships GNU Make 3.81 — too old for the bundled modules' build system
+# (`deps/readies/mk/main` refuses < 4.0). On Darwin with an old make, route
+# $(MAKE) to `gmake` from `brew install make`. Linux is untouched.
+ifeq ($(shell uname -s),Darwin)
+ifeq ($(shell expr $(firstword $(subst ., ,$(MAKE_VERSION))) \< 4),1)
+GMAKE := $(shell command -v gmake 2>/dev/null)
+ifeq ($(GMAKE),)
+$(error GNU Make >= 4.0 required on macOS (have $(MAKE_VERSION)). Run `brew install make`.)
+endif
+MAKE := $(GMAKE)
+endif
+endif
+
 SUBDIRS = src
 ifeq ($(BUILD_WITH_MODULES), yes)
 	ifeq ($(MAKECMDGOALS),32bit)
@@ -31,6 +44,7 @@ GOALS_WITH_ARGS := \
     build:BUILD_ARGS \
     clean:CLEAN_ARGS \
     bootstrap:BOOTSTRAP_ARGS \
+    deploy:DEPLOY_ARGS \
     test:TEST_ARGS \
     sync-redis-conf:SYNC_ARGS \
     apply-redis-conf:APPLY_ARGS
@@ -109,6 +123,13 @@ build:
 bootstrap:
 	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
+# deploy [<name> ...|all|.|'*'|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
+#   Install Redis core + selected modules (default: every cloned module).
+#   Same end-state as `make install`, but with positional module selection
+#   and explicit PREFIX/DESTDIR forwarding.
+deploy:
+	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
+
 # run [<name> ...|all|.|'*'|none] [ARGS="<redis-server flags>"]
 run:
 	@ARGS='$(ARGS)' scripts/run.sh $(RUN_ARGS)
@@ -160,4 +181,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: install clean build run test bootstrap modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
