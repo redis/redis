@@ -86,6 +86,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 #define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
+#define OBJ_ENCODING_BITMAP_ROARING 14 /* Encoded as a Roaring bitmap */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -165,10 +166,21 @@ robj *createStreamObject(void);
 robj *createGCRAObject(long long value);
 robj *createModuleObject(struct RedisModuleType *mt, void *value);
 robj *createArrayObject(void);
+robj *createBitmapObject(void);
+robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
+robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len);
+robj *dupBitmapObject(const robj *o);
+void freeBitmapObject(robj *o);
+size_t bitmapObjectLen(const robj *o);
+size_t bitmapObjectAllocSize(const robj *o);
+size_t bitmapObjectCardinality(const robj *o);
+sds bitmapObjectMaterialize(const robj *o);
+sds bitmapObjectSerialize(const robj *o);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(struct client *c, robj *o, int type);
+int checkStringOrBitmapType(struct client *c, robj *o);
 int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);

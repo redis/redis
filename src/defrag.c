@@ -1202,6 +1202,9 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        /* CRoaring owns its nested allocations. The explicit branch keeps
+         * active defrag from treating native bitmaps as an unknown type. */
     } else {
         serverPanic("Unknown object type");
     }

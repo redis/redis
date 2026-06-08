@@ -730,6 +730,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_ARRAY:
         return rdbSaveType(rdb,RDB_TYPE_ARRAY);
+    case OBJ_BITMAP:
+        return rdbSaveType(rdb,RDB_TYPE_BITMAP);
     default:
         serverPanic("Unknown object type");
     }
@@ -1560,6 +1562,27 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
             }
         }
+    } else if (o->type == OBJ_BITMAP) {
+        sds payload = bitmapObjectSerialize(o);
+
+        if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_ROARING)) == -1) {
+            sdsfree(payload);
+            return -1;
+        }
+        nwritten += n;
+
+        if ((n = rdbSaveLen(rdb, bitmapObjectLen(o))) == -1) {
+            sdsfree(payload);
+            return -1;
+        }
+        nwritten += n;
+
+        if ((n = rdbSaveRawString(rdb, (unsigned char *)payload, sdslen(payload))) == -1) {
+            sdsfree(payload);
+            return -1;
+        }
+        nwritten += n;
+        sdsfree(payload);
     } else {
         serverPanic("Unknown object type");
     }
@@ -3881,6 +3904,33 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             arSet(ar, idx, v);
+        }
+    } else if (rdbtype == RDB_TYPE_BITMAP) {
+        uint64_t encoding, byte_len;
+        sds payload;
+
+        if ((encoding = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+        if (encoding != RDB_BITMAP_ENCODING_ROARING) {
+            rdbReportCorruptRDB("Unknown bitmap RDB encoding %llu",
+                (unsigned long long)encoding);
+            return NULL;
+        }
+
+        if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+        if (byte_len > SIZE_MAX) {
+            rdbReportCorruptRDB("Bitmap byte length too large: %llu",
+                (unsigned long long)byte_len);
+            return NULL;
+        }
+
+        payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
+        if (payload == NULL) return NULL;
+
+        o = createBitmapObjectFromPortable((size_t)byte_len, payload, sdslen(payload));
+        sdsfree(payload);
+        if (o == NULL) {
+            rdbReportCorruptRDB("Invalid bitmap Roaring payload");
+            return NULL;
         }
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);

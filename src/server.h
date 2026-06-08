@@ -876,11 +876,12 @@ typedef enum {
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 #define OBJ_ARRAY 7     /* Array object. */
+#define OBJ_BITMAP 8    /* Bitmap object. */
 #ifdef ENABLE_GCRA
-#define OBJ_GCRA 8      /* GCRA object. */
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
+#define OBJ_GCRA 9      /* GCRA object. */
+#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
 #else
-#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
 #endif
 
 /* NOTE: adding a new object requires changes in the following places:
@@ -3511,6 +3512,7 @@ int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
 int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 
 /* Child info */
 void openChildInfoPipe(void);

@@ -123,6 +123,12 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
+void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
+    sds raw = bitmapObjectMaterialize(o);
+    mixDigest(digest, raw, sdslen(raw));
+    sdsfree(raw);
+}
+
 #ifdef ENABLE_GCRA
 void mixGCRAObjectDigest(unsigned char *digest, robj *o) {
     char buf[LONG_STR_SIZE];
@@ -293,6 +299,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 mixDigest(digest, data, vlen);
             }
         }
+    } else if (o->type == OBJ_BITMAP) {
+        mixBitmapObjectDigest(digest, o);
     } else {
         serverPanic("Unknown object type");
     }
@@ -424,6 +432,10 @@ void debugCommand(client *c) {
 "    Server will sleep before flushing the AOF, this is used for testing.",
 "ASSERT",
 "    Crash by assertion failed.",
+"BITMAP-FORCE-ROARING <key>",
+"    Convert a string key to native bitmap Roaring encoding for tests.",
+"BITMAP-RAW <key>",
+"    Return the raw byte materialization of a native bitmap key.",
 "CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
@@ -958,6 +970,40 @@ NULL
     {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-force-roaring") &&
+               c->argc == 3)
+    {
+        kvobj *kv = lookupKeyWriteOrReply(c, c->argv[2], shared.nokeyerr);
+        if (kv == NULL) return;
+        if (kv->type == OBJ_BITMAP) {
+            addReply(c, shared.ok);
+            return;
+        }
+        if (checkType(c, kv, OBJ_STRING)) return;
+
+        robj *decoded = getDecodedObject(kv);
+        robj *bitmap = createBitmapObjectFromString((unsigned char *)decoded->ptr,
+                                                    sdslen(decoded->ptr));
+        decrRefCount(decoded);
+        if (bitmap == NULL) {
+            addReplyError(c, "string is too large for native bitmap Roaring encoding");
+            return;
+        }
+
+        dbReplaceValue(c->db, c->argv[2], &bitmap, 1);
+        keyModified(c, c->db, c->argv[2], bitmap, 1);
+        notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", c->argv[2], c->db->id);
+        KSN_INVALIDATE_KVOBJ(bitmap);
+        server.dirty++;
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-raw") &&
+               c->argc == 3)
+    {
+        kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
+        if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
+
+        sds raw = bitmapObjectMaterialize(kv);
+        addReplyBulkSds(c, raw);
     } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
                c->argc == 3)
     {
