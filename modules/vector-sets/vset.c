@@ -49,9 +49,9 @@
  *       operations destroying the object, we need to wait that all the
  *       background threads working with this object finished their work.
  *    B) When we modify the HNSW nodes bypassing the normal locking
- *       provided by the HNSW library. This only happens when we update
- *       an existing node attribute so far, in VSETATTR and when we call
- *       VADD to update a node with the SETATTR option.
+ *       provided by the HNSW library. This happens when we update an
+ *       existing node attribute (VSETATTR, VADD with SETATTR) or when
+ *       we delete a node from the graph (VREM).
  *
  *  3. Often during read operations performed by Redis commands in the
  *     main thread (VCARD, VEMB, VRANDMEMBER, ...) we don't acquire any
@@ -1249,6 +1249,10 @@ int VREM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!node) {
         return RedisModule_ReplyWithBool(ctx, 0);
     }
+
+    /* Background VSIM operations read the nodes we are about to free,
+     * so wait for background operations before deleting from the graph. */
+    vectorSetWaitAllBackgroundClients(vset, 0);
 
     /* Remove from dictionary */
     RedisModule_DictDel(vset->dict, element, NULL);
