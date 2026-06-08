@@ -33,6 +33,7 @@
 #include "estore.h"
 #include "chk.h"
 #include "fast_float_strtod.h"
+#include "bitmap_roaring.h"
 
 #include <time.h>
 #include <signal.h>
@@ -7983,6 +7984,7 @@ int main(int argc, char **argv) {
     if (exec_name == NULL) exec_name = argv[0];
     server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
+    bitmapRoaringInit();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
