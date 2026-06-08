@@ -70,7 +70,7 @@ stream *streamNew(void) {
     size_t usable;
     stream *s = zmalloc_usable(sizeof(*s), &usable);
     s->alloc_size = usable;
-    s->rax = raxNewWithMetadata(0, &s->alloc_size);
+    s->rax = raxNewEx(0, &s->alloc_size, sizeof(streamID));
     s->length = 0;
     s->first_id.ms = 0;
     s->first_id.seq = 0;
@@ -232,7 +232,7 @@ robj *streamDup(robj *o) {
     new_s->iids_duplicates = s->iids_duplicates;
 
     if (s->idmp_producers != NULL) {
-        new_s->idmp_producers = raxNewWithMetadata(0, &new_s->alloc_size);
+        new_s->idmp_producers = raxNewEx(0, &new_s->alloc_size, 0);
 
         raxIterator ri_prod;
         raxStart(&ri_prod, s->idmp_producers);
@@ -307,7 +307,7 @@ robj *streamDup(robj *o) {
             new_s->alloc_size += usable;
             new_consumer->name = sdsdup(consumer->name);
             new_s->alloc_size += sdsAllocSize(new_consumer->name);
-            new_consumer->pel = raxNewWithMetadata(0, &new_s->alloc_size);
+            new_consumer->pel = raxNewEx(0, &new_s->alloc_size, sizeof(streamID));
             raxInsert(new_cg->consumers,(unsigned char *)new_consumer->name,
                         sdslen(new_consumer->name), new_consumer, NULL);
             new_consumer->seen_time = consumer->seen_time;
@@ -627,7 +627,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             s->alloc_size -= lp_bytes;
             s->alloc_size += lpBytes(lp);
             if (ri.data != lp)
-                raxSetData(ri.node, lp);
+                raxIteratorSetData(&ri, lp);
             lp = NULL;
         }
     }
@@ -1024,7 +1024,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         /* Update the node with the new pointer. */
-        raxSetData(ri.node,lp);
+        raxIteratorSetData(&ri,lp);
 
         /* If the node is eligible for removal but we couldn't remove it due to delete strategy
          * constraints (we need to check each entry individually), continue to the next node
@@ -3125,7 +3125,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
 
     if (!s->cgroups_ref)
-        s->cgroups_ref = raxNewWithMetadata(0, &s->alloc_size);
+        s->cgroups_ref = raxNewEx(0, &s->alloc_size, sizeof(streamID));
 
     /* Find-or-insert in a single rax walk: raxFindLink stashes the stop
      * position so raxInsertAt commits without re-walking the tree. */
@@ -3306,7 +3306,7 @@ void streamFreeConsumerGeneric(void *sc, void *s) {
  * consumer group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
     if (s->cgroups == NULL)
-        s->cgroups = raxNewWithMetadata(0, &s->alloc_size);
+        s->cgroups = raxNewEx(0, &s->alloc_size, 0);
     raxNodeLink link;
     if (raxFindLink(s->cgroups,(unsigned char*)name,namelen,NULL,&link))
         return NULL;
@@ -3314,11 +3314,11 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     size_t usable;
     streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
     s->alloc_size += usable;
-    cg->pel = raxNewWithMetadata(0, &s->alloc_size);
+    cg->pel = raxNewEx(0, &s->alloc_size, sizeof(streamID));
     cg->pel_time_head = NULL;
     cg->pel_time_tail = NULL;
     cg->pel_nack_tail = NULL;
-    cg->consumers = raxNewWithMetadata(0, &s->alloc_size);
+    cg->consumers = raxNewEx(0, &s->alloc_size, 0);
     cg->last_id.ms = 0;
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
@@ -3396,7 +3396,7 @@ streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *ke
     s->alloc_size += usable;
     consumer->name = sdsdup(name);
     s->alloc_size += sdsAllocSize(consumer->name);
-    consumer->pel = raxNewWithMetadata(0, &s->alloc_size);
+    consumer->pel = raxNewEx(0, &s->alloc_size, sizeof(streamID));
     consumer->active_time = -1;
     consumer->seen_time = commandTimeSnapshot();
     if (dirty) server.dirty++;
@@ -5945,7 +5945,7 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len) {
     /* Create the producers rax tree if it doesn't exist */
     if (s->idmp_producers == NULL) {
-        s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
+        s->idmp_producers = raxNewEx(0, &s->alloc_size, 0);
     }
 
     idmpProducer *producer = NULL;

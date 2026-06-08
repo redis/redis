@@ -10944,7 +10944,7 @@ RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
     size_t usable;
     RedisModuleDict *d = zmalloc_usable(sizeof(*d), &usable);
     d->alloc_size = usable;
-    d->rax = raxNewWithMetadata(0, &d->alloc_size);
+    d->rax = raxNewEx(0, &d->alloc_size, 0);
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_DICT,d);
     return d;
 }
@@ -13074,8 +13074,8 @@ void moduleInitModulesSystem(void) {
         exit(1);
     }
 
-    /* Create the timers radix tree. */
-    Timers = raxNew();
+    /* Create the timers radix tree. Key is a uint64_t timer ID (BE). */
+    Timers = raxNewEx(0, NULL, sizeof(uint64_t));
 
     /* Setup the event listeners data structures. */
     RedisModule_EventListeners = listCreate();
@@ -15245,7 +15245,7 @@ RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModule
         if (valueCB) {
             ret = valueCB(ctx, ri.data, ri.key, ri.key_len, &newdata);
             if (newdata)
-                raxSetData(ri.node, ri.data=newdata);
+                raxIteratorSetData(&ri, newdata);
         }
 
         /* Check if we need to interrupt defragmentation.

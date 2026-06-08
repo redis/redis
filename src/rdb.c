@@ -886,7 +886,7 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
 
     /* Create the producers rax tree. */
-    s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
+    s->idmp_producers = raxNewEx(0, &s->alloc_size, 0);
     if (s->idmp_producers == NULL) {
         return -1;
     }
