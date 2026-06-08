@@ -1,6 +1,7 @@
 # Primitive tests on cluster-enabled redis using redis-cli
 
 source tests/support/cli.tcl
+source tests/support/cluster_util.tcl
 
 # make sure the test infra won't use SELECT
 set old_singledb $::singledb
@@ -339,30 +340,13 @@ test {Migrate the last slot away from a node using redis-cli} {
 # when --user is specified without -a (no password).
 
 # Test 1: rebalance without --user and without -a
-start_multiple_servers 3 [list overrides $base_conf] {
-    set node0 [srv 0 client]
-
-    test {Create a 3 node cluster} {
-        exec src/redis-cli --cluster-yes --cluster create \
-                           127.0.0.1:[srv 0 port] \
-                           127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port]
-
-        wait_for_condition 1000 50 {
-            [CI 0 cluster_state] eq {ok} &&
-            [CI 1 cluster_state] eq {ok} &&
-            [CI 2 cluster_state] eq {ok}
-        } else {
-            fail "Cluster doesn't stabilize"
-        }
-    }
-
+start_cluster 3 0 {} {
     test {Write keys to master 0 slots} {
         write_keys_to_master0
     }
 
     test {Rebalance without --user and without -a should succeed} {
-        set master0_id [$node0 CLUSTER MYID]
+        set master0_id [R 0 CLUSTER MYID]
         catch {
             exec src/redis-cli --cluster-yes --cluster rebalance \
                                127.0.0.1:[srv 0 port] \
@@ -371,31 +355,13 @@ start_multiple_servers 3 [list overrides $base_conf] {
         } e
         assert_no_match "*CROSSSLOT*" $e
     }
-
-} ;# stop servers
+}
 
 # Test 2: rebalance with --user but no -a (the bug case)
-start_multiple_servers 3 [list overrides $base_conf] {
-    set node0 [srv 0 client]
-
-    test {Create a 3 node cluster} {
-        exec src/redis-cli --cluster-yes --cluster create \
-                           127.0.0.1:[srv 0 port] \
-                           127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port]
-
-        wait_for_condition 1000 50 {
-            [CI 0 cluster_state] eq {ok} &&
-            [CI 1 cluster_state] eq {ok} &&
-            [CI 2 cluster_state] eq {ok}
-        } else {
-            fail "Cluster doesn't stabilize"
-        }
-    }
-
+start_cluster 3 0 {} {
     test {Set up ACL user for testing} {
-        foreach client [list $node0 [srv -1 client] [srv -2 client]] {
-            $client ACL SETUSER testuser on nopass +@all ~*
+        for {set i 0} {$i < 3} {incr i} {
+            R $i ACL SETUSER testuser on nopass +@all ~*
         }
     }
 
@@ -404,9 +370,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test {Rebalance with --user but no -a should not CROSSSLOT} {
-        # This used to fail with CROSSSLOT because the empty string
-        # argument in MIGRATE was treated as a key with slot 0
-        set master0_id [$node0 CLUSTER MYID]
+        set master0_id [R 0 CLUSTER MYID]
         catch {
             exec src/redis-cli --cluster-yes --cluster rebalance \
                                127.0.0.1:[srv 0 port] \
@@ -416,32 +380,13 @@ start_multiple_servers 3 [list overrides $base_conf] {
         } e
         assert_no_match "*CROSSSLOT*" $e
     }
-
-} ;# stop servers
+}
 
 # Test 3: rebalance with --user and -a
-start_multiple_servers 3 [list overrides $base_conf] {
-
-    set node0 [srv 0 client]
-
-    test {Create a 3 node cluster} {
-        exec src/redis-cli --cluster-yes --cluster create \
-                           127.0.0.1:[srv 0 port] \
-                           127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port]
-
-        wait_for_condition 1000 50 {
-            [CI 0 cluster_state] eq {ok} &&
-            [CI 1 cluster_state] eq {ok} &&
-            [CI 2 cluster_state] eq {ok}
-        } else {
-            fail "Cluster doesn't stabilize"
-        }
-    }
-
+start_cluster 3 0 {} {
     test {Set up ACL user for testing} {
-        foreach client [list $node0 [srv -1 client] [srv -2 client]] {
-            $client ACL SETUSER testuser2 on >testpass +@all ~*
+        for {set i 0} {$i < 3} {incr i} {
+            R $i ACL SETUSER testuser2 on >testpass +@all ~*
         }
     }
 
@@ -450,7 +395,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test {Rebalance with --user and -a should succeed} {
-        set master0_id [$node0 CLUSTER MYID]
+        set master0_id [R 0 CLUSTER MYID]
         catch {
             exec src/redis-cli --cluster-yes --cluster rebalance \
                                127.0.0.1:[srv 0 port] \
@@ -462,8 +407,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
         } e
         assert_no_match "*CROSSSLOT*" $e
     }
-
-} ;# stop servers
+}
 
 foreach ip_or_localhost {127.0.0.1 localhost} {
 
