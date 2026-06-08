@@ -389,7 +389,7 @@ static inline int roaring_hamming(uint64_t x) {
 #endif
 
 // Allow unaligned memory access
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)
 #define CROARING_ALLOW_UNALIGNED __attribute__((no_sanitize("alignment")))
 #else
 #define CROARING_ALLOW_UNALIGNED
