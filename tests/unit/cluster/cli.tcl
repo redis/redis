@@ -341,11 +341,9 @@ test {Migrate the last slot away from a node using redis-cli} {
 
 # Test 1: rebalance without --user and without -a
 start_cluster 3 0 {} {
-    test {Write keys to master 0 slots} {
-        write_keys_to_master0
-    }
-
     test {Rebalance without --user and without -a should succeed} {
+        write_keys_to_master0
+        
         set master0_id [R 0 CLUSTER MYID]
         catch {
             exec src/redis-cli --cluster-yes --cluster rebalance \
