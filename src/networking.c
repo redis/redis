@@ -1336,28 +1336,43 @@ void addReplyBulk(client *c, robj *obj) {
     addReplyBulkWithFlag(c, obj, 1);
 }
 
+/* Size of the on-stack scratch buffer used by the addReplyBulkCBuffer fast path. */
+#define ADDREPLY_BULK_STACKBUF 256
+/* Bytes reserved in that buffer for framing on top of the payload: the bulk
+ * header ('$' + length digits + "\r\n") plus the trailing "\r\n". Only payloads
+ * that fit the buffer take the fast path, so the length never exceeds 3 digits
+ * and the true worst case is 8 bytes ('$' + 3 + "\r\n" + "\r\n"); 16 leaves a
+ * safe margin. */
+#define ADDREPLY_BULK_FRAME_OVERHEAD 16
+
 /* Add a C buffer as bulk reply.
  *
- * Fast path: assemble "$N\r\n<payload>\r\n" into a stack buffer and emit
- * via a single _addReplyToBufferOrList call. Reuses the existing helper's
- * full safety chain (replica/push/CLOSE/encoded/overflow), but pays one
- * per-call branch chain instead of three. Slow path covers payloads too
- * large for the stack buffer. */
+ * Fast path: assemble the whole "$<len>\r\n<payload>\r\n" frame in a stack
+ * buffer and emit it via a single _addReplyToBufferOrList call instead of three
+ * (header, payload, trailing CRLF). The helper keeps full ownership of the
+ * replica/push/CLOSE/encoded/overflow safety chain; this only collapses the
+ * three per-call passes into one. Payloads too large for the stack buffer fall
+ * through to the original three-call slow path. */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     if (_prepareClientToWrite(c) != C_OK) return;
-    char buf[256];
-    if (likely(len + 16 <= sizeof(buf))) {
+    char buf[ADDREPLY_BULK_STACKBUF];
+    /* Subtraction form (not "len + N <= sizeof") so a huge len can't wrap. */
+    if (likely(len <= sizeof(buf) - ADDREPLY_BULK_FRAME_OVERHEAD)) {
         char *dst = buf;
         if (likely(len < OBJ_SHARED_BULKHDR_LEN)) {
             const size_t hl = OBJ_SHARED_HDR_STRLEN(len);
-            memcpy(dst, shared.bulkhdr[len]->ptr, hl); dst += hl;
+            memcpy(dst, shared.bulkhdr[len]->ptr, hl);
+            dst += hl;
         } else {
             *dst++ = '$';
-            dst += ll2string(dst, sizeof(buf) - 16, (long long)len);
-            *dst++ = '\r'; *dst++ = '\n';
+            dst += ll2string(dst, sizeof(buf) - ADDREPLY_BULK_FRAME_OVERHEAD, (long long)len);
+            *dst++ = '\r';
+            *dst++ = '\n';
         }
-        memcpy(dst, p, len); dst += len;
-        *dst++ = '\r'; *dst++ = '\n';
+        memcpy(dst, p, len);
+        dst += len;
+        *dst++ = '\r';
+        *dst++ = '\n';
         _addReplyToBufferOrList(c, buf, dst - buf);
         return;
     }
