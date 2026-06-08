@@ -20,9 +20,14 @@
  * Set Commands
  *----------------------------------------------------------------------------*/
 
+/* When estimating cardinality with HLL and a LIMIT is set, this is the minimum
+ * number of additional elements to process between two hllCount() checks. */
+#define HLL_CHECK_INTERVAL_FLOOR 1024
+
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op,
-                              int cardinality_only, long limit);
+                              int cardinality_only, long limit,
+                              int approx_cardinality_only);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a listpack
@@ -855,7 +860,7 @@ void spopWithCountCommand(client *c) {
      * the number of elements inside the set: simply return the whole set. */
     if (count >= size) {
         /* We just return the entire set */
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION,0,0);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION,0,0,0);
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
@@ -1636,11 +1641,19 @@ void sinterstoreCommand(client *c) {
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op,
-                              int cardinality_only, long limit)
+                              int cardinality_only, long limit,
+                              int approx_cardinality_only)
 {
+    /* Approximate cardinality is only ever requested for SUNIONCARD, i.e. a
+     * non-storing UNION that returns a count. */
+    serverAssert(!approx_cardinality_only ||
+                 (op == SET_OP_UNION && cardinality_only && dstkey == NULL));
+
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator si;
     robj *dstset = NULL;
+    robj *hllobj = NULL; /* Used only for approximate (HLL) cardinality. */
+    int hll_err = 0;
     int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
     size_t len = 0;
@@ -1648,7 +1661,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int encoding;
     int j, diff_algo = 1;
     long cardinality = 0;
-    int sameset = 0; 
+    int sameset = 0;
 
     for (j = 0; j < setnum; j++) {
         kvobj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1719,28 +1732,66 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* We need a temp set object to store our union/diff. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
-     * this set object will be the resulting object to set into the target key*/
-    if (dstset_encoding == OBJ_ENCODING_INTSET) {
+    /* For approximate cardinality we accumulate into a temporary HLL object
+     * (standard sparse→dense encoding, same as PFADD) instead of a real set. */
+    if (approx_cardinality_only) {
+        hllobj = createHLLObject();
+    } else if (dstset_encoding == OBJ_ENCODING_INTSET) {
+        /* We need a temp set object to store our union/diff. If the dstkey
+         * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
+         * this set object will be the resulting object to set into the target key*/
         dstset = createIntsetObject();
     } else {
         dstset = createSetObject();
     }
 
     if (op == SET_OP_UNION) {
-        /* Union is trivial, just add every element of every set to the
-         * temporary set. */
+        /* Union is trivial, just add every element of every set to either the
+         * temporary set (exact) or a temporary HLL (approximate). */
         int early_exit = 0;
+        long elements_processed = 0;
+        long check_after = limit; /* For approx: first check after `limit` elements. */
         for (j = 0; j < setnum && !early_exit; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
-                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
-                if (cardinality_only && limit > 0 && cardinality >= limit) {
+                if (!approx_cardinality_only) {
+                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    if (cardinality_only && limit > 0 && cardinality >= limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                    continue;
+                }
+
+                /* Approximate path: feed the element into the HLL. The estimate
+                 * is only ever read, so we can stop early once it is confidently
+                 * at/above the requested LIMIT. */
+                int retval;
+                if (str != NULL) {
+                    retval = hllAdd(hllobj, (unsigned char *)str, len);
+                } else {
+                    char buf[LONG_STR_SIZE];
+                    size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
+                    retval = hllAdd(hllobj, (unsigned char *)buf, slen);
+                }
+                if (retval == -1) {
+                    hll_err = 1;
                     early_exit = 1;
                     break;
+                }
+
+                elements_processed++;
+                if (limit > 0 && elements_processed >= check_after) {
+                    uint64_t est = hllCount(hllobj->ptr, NULL);
+                    if (est >= (uint64_t)limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                    long remaining = (long)limit - (long)est;
+                    check_after = elements_processed +
+                        (remaining > HLL_CHECK_INTERVAL_FLOOR ? remaining : HLL_CHECK_INTERVAL_FLOOR);
                 }
             }
             setTypeResetIterator(&si);
@@ -1809,7 +1860,16 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
-    if (cardinality_only) {
+    if (approx_cardinality_only) {
+        if (!hll_err) {
+            uint64_t card = hllCount(hllobj->ptr, NULL);
+            if (limit > 0 && card > (uint64_t)limit) card = (uint64_t)limit;
+            addReplyLongLong(c, (long long)card);
+        } else {
+            addReplyError(c, "Corrupted HLL object detected");
+        }
+        decrRefCount(hllobj);
+    } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
@@ -1850,10 +1910,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* SUNION key [key ...] */
 void sunionCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION,0,0);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION,0,0,0);
 }
-
-#define HLL_CHECK_INTERVAL_FLOOR 1024
 
 /* SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
 void sunioncardCommand(client *c) {
@@ -1887,100 +1945,25 @@ void sunioncardCommand(client *c) {
         }
     }
 
-    if (approx) {
-        /* HLL-based approximate cardinality: use a temporary HLL object
-         * with the standard sparse→dense encoding (same as PFADD). */
-        robj **sets = zmalloc(sizeof(robj *) * numkeys);
-        for (j = 0; j < numkeys; j++) {
-            kvobj *setobj = lookupKeyRead(c->db, c->argv[2 + j]);
-            if (!setobj) {
-                sets[j] = NULL;
-                continue;
-            }
-            if (checkType(c, setobj, OBJ_SET)) {
-                zfree(sets);
-                return;
-            }
-            sets[j] = setobj;
-        }
-
-        robj *hllobj = createHLLObject();
-        int hll_err = 0;
-
-        long elements_processed = 0;
-        long check_after = limit; /* First check after `limit` elements. */
-        int early_exit = 0;
-
-        for (j = 0; j < numkeys && !early_exit; j++) {
-            if (!sets[j]) continue;
-
-            setTypeIterator si;
-            char *str;
-            size_t len = 0;
-            int64_t llval = 0;
-
-            setTypeInitIterator(&si, sets[j]);
-            while ((setTypeNext(&si, &str, &len, &llval)) != -1) {
-                int retval = 0;
-                if (str != NULL) {
-                    retval = hllAdd(hllobj, (unsigned char *)str, len);
-                } else {
-                    char buf[LONG_STR_SIZE];
-                    size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
-                    retval = hllAdd(hllobj, (unsigned char *)buf, slen);
-                }
-                if (retval == -1) {
-                    hll_err = 1;
-                    early_exit = 1;
-                    break;
-                }
-
-                elements_processed++;
-                if (limit > 0 && elements_processed >= check_after) {
-                    uint64_t est = hllCount(hllobj->ptr, NULL);
-                    if (est >= (uint64_t)limit) {
-                        early_exit = 1;
-                        break;
-                    }
-                    long remaining = (long)limit - (long)est;
-                    check_after = elements_processed + (remaining > HLL_CHECK_INTERVAL_FLOOR ? remaining : HLL_CHECK_INTERVAL_FLOOR);
-                }
-            }
-            setTypeResetIterator(&si);
-        }
-
-        if (!hll_err) {
-            uint64_t cardinality = hllCount(hllobj->ptr, NULL);
-            if (limit > 0 && cardinality > (uint64_t)limit)
-                cardinality = (uint64_t)limit;
-            addReplyLongLong(c, (long long)cardinality);
-        } else {
-            addReplyError(c, "Corrupted HLL object detected");
-        }
-
-        decrRefCount(hllobj);
-        zfree(sets);
-        return;
-    }
-
-    /* Exact path: delegate to the generic union/diff function. */
+    /* Both the exact and approximate (HLL) cardinality are computed by the
+     * generic union function; `approx` selects between them. */
     sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
-                             SET_OP_UNION, 1, limit);
+                             SET_OP_UNION, 1, limit, approx);
 }
 
 /* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION,0,0);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION,0,0,0);
 }
 
 /* SDIFF key [key ...] */
 void sdiffCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF,0,0);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF,0,0,0);
 }
 
 /* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0,0);
 }
 
 void sscanCommand(client *c) {
