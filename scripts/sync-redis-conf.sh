@@ -48,12 +48,28 @@ REDIS_GEN_CONF="${REDIS_GEN_CONF:-redis-gen.conf}"
 PREFIX="${PREFIX:-$PWD}"
 PREFIX="${PREFIX%/}"
 
+# When PREFIX is left at the default (REPO_ROOT) we're in dev mode: the
+# manifest stubs are treated as repo-relative and PREFIX just absolutizes
+# them. When PREFIX is set to anything else, it IS the directory the .so
+# files live in — the script appends nothing, just the basename from the
+# manifest stub. So `PREFIX=/opt/foo/modules` writes paths like
+# `/opt/foo/modules/redisbloom.so`.
+INSTALL_MODE=0
+if [ "$PREFIX" != "${PWD%/}" ]; then
+  INSTALL_MODE=1
+fi
+
 # Translate a manifest `loadmodule:` value into the path written to the
 # generated conf:
-#   ./modules/foo/foo.so   →  $PREFIX/modules/foo/foo.so   (leading '.' → PREFIX)
-#   modules/foo/foo.so     →  $PREFIX/modules/foo/foo.so   (no leading '.': prepend)
-#   /abs/path/foo.so       →  /abs/path/foo.so             (already absolute)
+#   install mode               →  $PREFIX/<basename>    (PREFIX = modules dir)
+#   dev mode, ./modules/...    →  $PREFIX/modules/...   (leading '.' → PREFIX)
+#   dev mode, modules/...      →  $PREFIX/modules/...   (no leading '.': prepend)
+#   dev mode, /abs/path/...    →  /abs/path/...         (already absolute)
 resolve_so_path() {
+  if [ "$INSTALL_MODE" = "1" ]; then
+    printf '%s\n' "$PREFIX/$(basename "$1")"
+    return
+  fi
   case "$1" in
     /*)  printf '%s\n' "$1" ;;
     ./*) printf '%s\n' "$PREFIX${1#.}" ;;
@@ -151,7 +167,7 @@ for name in $requested; do
   so="$(lookup_so "$name")"
   if [ -z "$so" ]; then
     bad_manifest="${bad_manifest}${bad_manifest:+ }${name}"
-  elif [ -f "$so" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; then
+  elif [ -f "$(resolve_so_path "$so")" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; then
     active="${active}${active:+ }${name}"
   else
     missing="${missing}${missing:+ }${name}"
@@ -309,11 +325,17 @@ EOF
       continue
     fi
     so_full="$(resolve_so_path "$so")"
-    if [ -f "$so" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; then
+    # Check existence at the path we're about to write into the conf, so the
+    # generated file is a truthful manifest of what redis-server can load.
+    if [ -f "$so_full" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; then
       printf "loadmodule %s\n" "$so_full"
+    elif [ "$INSTALL_MODE" = "1" ]; then
+      printf "# %s: not installed (%s absent — run 'make deploy %s PREFIX=%s')\n" \
+        "$name" "$so_full" "$name" "$PREFIX"
+      printf "# loadmodule %s\n" "$so_full"
     else
       printf "# %s: not built (%s absent — run 'make build %s')\n" \
-        "$name" "$so" "$name"
+        "$name" "$so_full" "$name"
       printf "# loadmodule %s\n" "$so_full"
     fi
   done
@@ -324,8 +346,10 @@ EOF
   for name in $requested; do
     so="$(lookup_so "$name")"
     conf="modules/$name/src/module.conf"
+    so_full=""
+    [ -n "$so" ] && so_full="$(resolve_so_path "$so")"
     printf "# >>> BEGIN module: %s <<<\n" "$name"
-    if [ -n "$so" ] && { [ -f "$so" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; }; then
+    if [ -n "$so_full" ] && { [ -f "$so_full" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; }; then
       if [ -f "$conf" ]; then
         strip_block "$PRIVATE_BEGIN" "$PRIVATE_END" "$conf"
       else
@@ -348,5 +372,21 @@ trap - EXIT
 echo "==> Wrote $REDIS_GEN_CONF"
 echo "    requested:    $requested_display"
 echo "    active:       $active_display"
-echo "    missing .so:  $missing_display"
 echo "    bad manifest: $bad_display"
+
+# Make absent .so files loud. Color only on TTYs so log/CI output stays clean.
+if [ -n "$missing" ]; then
+  if [ -t 1 ]; then
+    bold=$'\033[1m'; yellow=$'\033[33m'; reset=$'\033[0m'
+  else
+    bold=""; yellow=""; reset=""
+  fi
+  printf '\n%s%sWARNING: missing .so for: %s%s\n' "$bold" "$yellow" "$missing" "$reset"
+  if [ "$INSTALL_MODE" = "1" ]; then
+    printf '%s         run: make deploy %s PREFIX=%s%s\n\n' "$yellow" "$missing" "$PREFIX" "$reset"
+  else
+    printf '%s         run: make build %s%s\n\n' "$yellow" "$missing" "$reset"
+  fi
+else
+  echo "    missing .so:  <none>"
+fi
