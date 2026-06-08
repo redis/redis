@@ -357,17 +357,12 @@ start_cluster 3 0 {} {
 
 # Test 2: rebalance with --user but no -a (the bug case)
 start_cluster 3 0 {} {
-    test {Set up ACL user for testing} {
+    test {Rebalance with --user but no -a should not CROSSSLOT} {
         for {set i 0} {$i < 3} {incr i} {
             R $i ACL SETUSER testuser on nopass +@all ~*
         }
-    }
-
-    test {Write keys to master 0 slots} {
         write_keys_to_master0
-    }
 
-    test {Rebalance with --user but no -a should not CROSSSLOT} {
         set master0_id [R 0 CLUSTER MYID]
         catch {
             exec src/redis-cli --cluster-yes --cluster rebalance \
@@ -382,17 +377,12 @@ start_cluster 3 0 {} {
 
 # Test 3: rebalance with --user and -a
 start_cluster 3 0 {} {
-    test {Set up ACL user for testing} {
+    test {Rebalance with --user and -a should succeed} {
         for {set i 0} {$i < 3} {incr i} {
             R $i ACL SETUSER testuser2 on >testpass +@all ~*
         }
-    }
-
-    test {Write keys to master 0 slots} {
         write_keys_to_master0
-    }
 
-    test {Rebalance with --user and -a should succeed} {
         set master0_id [R 0 CLUSTER MYID]
         catch {
             exec src/redis-cli --cluster-yes --cluster rebalance \
