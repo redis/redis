@@ -25,6 +25,10 @@
 #ifndef CROARING_INCLUDE_PORTABILITY_H_
 #define CROARING_INCLUDE_PORTABILITY_H_
 
+#ifndef __has_include
+#define __has_include(x) 0
+#endif
+
 // Users who need _GNU_SOURCE should define it?
 // #ifndef _GNU_SOURCE
 // #define _GNU_SOURCE 1
@@ -405,15 +409,13 @@ static inline int roaring_hamming(uint64_t x) {
 #include <sys/byteorder.h>
 #else  // defined(__APPLE__) || defined(__FreeBSD__)
 
-#ifdef __has_include
-#if __has_include(<endian.h>)
+#if __has_include(<endian.h>) || defined(__linux__)
 #include <endian.h>
-#endif  //__has_include(<endian.h>)
-#endif  //__has_include
+#endif  // __has_include(<endian.h>) || defined(__linux__)
 
 #endif  // defined(__APPLE__) || defined(__FreeBSD__)
 
-#ifndef !defined(__BYTE_ORDER__) || !defined(__ORDER_LITTLE_ENDIAN__)
+#if !defined(__BYTE_ORDER__) || !defined(__ORDER_LITTLE_ENDIAN__)
 #define CROARING_IS_BIG_ENDIAN 0
 #endif
 
@@ -436,17 +438,12 @@ static inline int roaring_hamming(uint64_t x) {
 #include <libkern/OSByteOrder.h>
 #define croaring_htobe64(x) OSSwapInt64(x)
 
-#elif defined(__has_include) && \
-    __has_include(              \
-        <byteswap.h>)  && (defined(__linux__) || defined(__FreeBSD__))  // CROARING_IS_BIG_ENDIAN
+#elif defined(__linux__)  // CROARING_IS_BIG_ENDIAN
 #include <byteswap.h>
-#if defined(__linux__)
 #define croaring_htobe64(x) bswap_64(x)
-#elif defined(__FreeBSD__)
+#elif defined(__FreeBSD__)  // CROARING_IS_BIG_ENDIAN
+#include <sys/endian.h>
 #define croaring_htobe64(x) bswap64(x)
-#else
-#warning "Unknown platform, report as an error"
-#endif
 
 #else  // CROARING_IS_BIG_ENDIAN
 // Gets compiled to bswap or equivalent on most compilers.
@@ -467,24 +464,28 @@ static inline int roaring_hamming(uint64_t x) {
 #define CROARING_ATOMIC_IMPL_CPP 2
 #define CROARING_ATOMIC_IMPL_C 3
 #define CROARING_ATOMIC_IMPL_C_WINDOWS 4
+#define CROARING_ATOMIC_IMPL_GCC 5
 
 // If the use has forced a specific implementation, use that, otherwise,
 // figure out the best implementation we can use.
 #if !defined(CROARING_ATOMIC_IMPL)
 #if defined(__cplusplus) && __cplusplus >= 201103L
-#ifdef __has_include
 #if __has_include(<atomic>)
 #define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_CPP
 #endif  //__has_include(<atomic>)
-#else
-   // We lack __has_include to check:
-#define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_CPP
-#endif  //__has_include
 #elif __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
+#if __has_include(<stdatomic.h>)
 #define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_C
-#elif CROARING_REGULAR_VISUAL_STUDIO
+#endif  // __has_include(<stdatomic.h>)
+#endif
+#endif  // !defined(CROARING_ATOMIC_IMPL)
+
+#if !defined(CROARING_ATOMIC_IMPL)
+#if CROARING_REGULAR_VISUAL_STUDIO
    // https://www.technetworkhub.com/c11-atomics-in-visual-studio-2022-version-17/
 #define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_C_WINDOWS
+#elif defined(__GNUC__) || defined(__clang__)
+#define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_GCC
 #endif
 #endif  // !defined(CROARING_ATOMIC_IMPL)
 
@@ -561,6 +562,20 @@ static inline uint32_t croaring_refcount_get(const croaring_refcount_t *val) {
     // > operations. In other words, you will not end up with only one portion
     // > of the variable updated; all bits are updated in an atomic fashion.
     return *val;
+}
+#elif CROARING_ATOMIC_IMPL == CROARING_ATOMIC_IMPL_GCC
+typedef uint32_t croaring_refcount_t;
+
+static inline void croaring_refcount_inc(croaring_refcount_t *val) {
+    __sync_add_and_fetch(val, 1);
+}
+
+static inline bool croaring_refcount_dec(croaring_refcount_t *val) {
+    return __sync_sub_and_fetch(val, 1) == 0;
+}
+
+static inline uint32_t croaring_refcount_get(const croaring_refcount_t *val) {
+    return __sync_fetch_and_add((croaring_refcount_t *)val, 0);
 }
 #elif CROARING_ATOMIC_IMPL == CROARING_ATOMIC_IMPL_NONE
 #include <assert.h>
