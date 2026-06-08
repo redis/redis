@@ -222,7 +222,7 @@ sds auxShardIdGetter(clusterNode *n, sds s) {
 }
 
 int auxShardIdPresent(clusterNode *n) {
-    return strlen(n->shard_id);
+    return strnlen(n->shard_id, CLUSTER_NAMELEN);
 }
 
 int auxHumanNodenameSetter(clusterNode *n, void *value, int length) {
@@ -2820,7 +2820,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
                 uint16_t extlen = getPingExtLength(ext);
-                if (extlen % 8 != 0) {
+                if (extlen < sizeof(clusterMsgPingExt) || extlen % 8 != 0) {
                     serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
                         clusterGetMessageTypeString(type), (int) extlen);
                     return 1;
@@ -2831,6 +2831,42 @@ int clusterProcessPacket(clusterLink *link) {
                         (unsigned long long) totlen);
                     return 1;
                 }
+                uint16_t exttype = ntohs(ext->type);
+                uint32_t datalen = extlen - sizeof(clusterMsgPingExt);
+                if (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME ||
+                    exttype == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
+                    char *str = (char *) ext->ext;
+                    if (datalen == 0 || str[datalen - 1] != '\0') {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with missing null terminator in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
+                    if (datalen < sizeof(clusterMsgPingExtForgottenNode)) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with truncated extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_SHARDID) {
+                    char *str = (char *) ext->ext;
+                    if (datalen < sizeof(clusterMsgPingExtShardId) ||
+                        verifyClusterNodeId(str, CLUSTER_NAMELEN) != C_OK)
+                    {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with invalid shard id in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_INTERNALSECRET) {
+                    if (datalen < sizeof(clusterMsgPingExtInternalSecret)) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with truncated extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                }
                 explen += extlen;
                 ext = getNextPingExt(ext);
             }
@@ -2839,11 +2875,16 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataFail);
     } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
+        uint32_t ch_len = ntohl(hdr->data.publish.msg.channel_len);
+        uint32_t msg_len = ntohl(hdr->data.publish.msg.message_len);
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        explen += sizeof(clusterMsgDataPublish) -
-                8 +
-                ntohl(hdr->data.publish.msg.channel_len) +
-                ntohl(hdr->data.publish.msg.message_len);
+        explen += sizeof(clusterMsgDataPublish) - 8;
+        if (ch_len > UINT32_MAX - explen || msg_len > UINT32_MAX - explen - ch_len) {
+            serverLog(LL_WARNING, "Received invalid %s packet with overflow in length fields "
+                "(channel_len:%u, message_len:%u)", clusterGetMessageTypeString(type), ch_len, msg_len);
+            return 1;
+        }
+        explen += ch_len + msg_len;
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST ||
                type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK ||
                type == CLUSTERMSG_TYPE_MFSTART)
@@ -2853,9 +2894,15 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataUpdate);
     } else if (type == CLUSTERMSG_TYPE_MODULE) {
+        uint32_t module_len = ntohl(hdr->data.module.msg.len);
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        explen += sizeof(clusterMsgModule) -
-                3 + ntohl(hdr->data.module.msg.len);
+        explen += sizeof(clusterMsgModule) - 3;
+        if (module_len > UINT32_MAX - explen) {
+            serverLog(LL_WARNING, "Received invalid %s packet with overflow in length field "
+                "(len:%u)", clusterGetMessageTypeString(type), module_len);
+            return 1;
+        }
+        explen += module_len;
     } else {
         /* We don't know this type of packet, so we assume it's well formed. */
         explen = totlen;

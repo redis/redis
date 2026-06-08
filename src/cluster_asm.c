@@ -1628,7 +1628,7 @@ void asmSyncWithSource(connection *conn) {
         /* Create RDB channel connection */
         clusterNode *source_node = clusterLookupNode(task->source, CLUSTER_NAMELEN);
         if (!source_node) {
-            task_error_msg = sdscatfmt(sdsempty(), "Source node %.40s was not found", task->source);
+            task_error_msg = sdscatprintf(sdsempty(), "Source node %.40s was not found", task->source);
             goto error;
         }
         char *ip = clusterNodeIp(source_node);

@@ -7209,7 +7209,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
 
     uint64_t id = 0;
     for (int j = 0; j < 9; j++) {
-        char *p = strchr(cset,name[j]);
+        const char *p = strchr(cset,name[j]);
         if (!p) return 0;
         unsigned long pos = p-cset;
         id = (id << 6) | pos;
@@ -9758,10 +9758,10 @@ size_t RM_GetClusterSize(void) {
  * is returned.
  *
  * The arguments `ip`, `master_id`, `port` and `flags` can be NULL in case we don't
- * need to populate back certain info. If an `ip` and `master_id` (only populated
+ * need to populate back certain info. If an `ip` and/or `master_id` (only populated
  * if the instance is a slave) are specified, they point to buffers holding
- * at least REDISMODULE_NODE_ID_LEN bytes. The strings written back as `ip`
- * and `master_id` are not null terminated.
+ * at least INET6_ADDRSTRLEN (46) and REDISMODULE_NODE_ID_LEN bytes, respectively.
+ * The strings written back as `ip` and `master_id` are not null terminated.
  *
  * The list of flags reported is the following:
  *
@@ -10108,8 +10108,9 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
 
     while(1) {
         key = htonu64(expiretime);
-        if (!raxFind(Timers, (unsigned char*)&key,sizeof(key),NULL)) {
-            raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
+        raxNodeLink link;
+        if (!raxFindLink(Timers, (unsigned char*)&key, sizeof(key), NULL, &link)) {
+            raxInsertAt(Timers, (unsigned char*)&key, sizeof(key), timer, NULL, &link);
             break;
         } else {
             expiretime++;

@@ -1329,9 +1329,23 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     serverPanic("Unknown object type");
 }
 
+/* Returns the size in bytes consumed by the object header, key and value in RAM.
+ * Note that the returned value is accurate approximation of the actual allocated
+ * size. For performance reasons it accumulates requested size instead in several
+ * cases (e.g. kvobj allocation, type 5 sds, listpacks, etc) but it does so in a
+ * self-consistent way.
+ */
 size_t kvobjAllocSize(kvobj *o) {
-    /* All kv-objects has at least kvobj header and embedded key */
-    size_t asize = zmalloc_size(kvobjGetAllocPtr(o));
+    debugServerAssert(o->iskvobj);
+    size_t asize = sizeof(kvobj);
+    /* Add metadata size */
+    asize += getNumMeta(o->metabits) * sizeof(uint64_t);
+    /* Add embedded key size */
+    asize += 1; /* embedded key header size */
+    asize += sdsAllocSize(kvobjGetKey(o));
+    /* Add embedded string size */
+    if (o->encoding == OBJ_ENCODING_EMBSTR)
+        asize += sdsAllocSize(o->ptr);
 
     if (o->type == OBJ_STRING) {
         asize += stringObjectAllocSize(o);
