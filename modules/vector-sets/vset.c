@@ -838,7 +838,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    unsigned int found;
+    int found;
     if (ground_truth) {
         found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
                     distances, slot, 0,
@@ -865,7 +865,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     long long arraylen = 0;
-    for (unsigned int i = 0; i < found && i < count; i++) {
+    for (int i = 0; i < found && (unsigned long)i < count; i++) {
         if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
