@@ -42,12 +42,35 @@ modules="$(resolve_modules "$*" "$cloned" "redis none")"
 # ---------------------------------------------------------------------------
 echo "==> Building before deploy (delegating to scripts/build.sh)"
 echo
+# Build artifacts always go to the dev tree — PREFIX is irrelevant to the
+# build phase. Two scrubs needed before handing off to build.sh:
+#   1. PREFIX env shadow — so anything reading $PREFIX in build.sh / scripts
+#      it spawns sees the empty value.
+#   2. MAKEFLAGS — when the user runs `make deploy PREFIX=…`, the parent
+#      make smuggles PREFIX through MAKEFLAGS, and any recursive `make` we
+#      spawn would re-apply it as a command-line variable (which beats env).
+#      Strip just the PREFIX=… token from MAKEFLAGS so the rest (e.g. -j8)
+#      still propagates normally.
+# Our local $PREFIX (in this script's scope) is untouched and reused for
+# the copy + apply-redis-conf phases below.
+build_makeflags="$(printf '%s' " ${MAKEFLAGS:-} " | sed -E 's/ PREFIX=[^ ]*/ /g; s/^ *//; s/ *$//')"
+
 # If $modules is empty (`none` token) we still want Redis core built — feed
 # the literal "redis" token in that case so build.sh builds core only.
+# Tolerate a non-zero exit from build.sh: it returns 1 when any one module
+# fails to build, but other modules may have succeeded (or have artifacts left
+# over from prior successful builds). The per-module existence check in
+# phase 2 below filters out modules that genuinely don't have a .so to copy,
+# so we'd rather install what's available than bail out wholesale.
+build_rc=0
 if [ -z "$modules" ]; then
-  "$SCRIPT_DIR/build.sh" redis
+  MAKEFLAGS="$build_makeflags" PREFIX="" "$SCRIPT_DIR/build.sh" redis || build_rc=$?
 else
-  "$SCRIPT_DIR/build.sh" $modules
+  MAKEFLAGS="$build_makeflags" PREFIX="" "$SCRIPT_DIR/build.sh" $modules || build_rc=$?
+fi
+if [ "$build_rc" != 0 ]; then
+  echo
+  echo "==> WARNING: build.sh reported failures (exit $build_rc) — continuing to install what's available"
 fi
 
 # ---------------------------------------------------------------------------
