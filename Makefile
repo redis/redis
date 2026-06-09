@@ -1,17 +1,5 @@
 # Top level makefile, the real stuff is at ./src/Makefile and in ./modules/Makefile
 
-# macOS ships GNU Make 3.81 — too old for the bundled modules' build system
-# (`deps/readies/mk/main` refuses < 4.0). On Darwin with an old make, route
-# $(MAKE) to `gmake` from `brew install make`. Linux is untouched.
-ifeq ($(shell uname -s),Darwin)
-ifeq ($(shell expr $(firstword $(subst ., ,$(MAKE_VERSION))) \< 4),1)
-GMAKE := $(shell command -v gmake 2>/dev/null)
-ifeq ($(GMAKE),)
-$(error GNU Make >= 4.0 required on macOS (have $(MAKE_VERSION)). Run `brew install make`.)
-endif
-MAKE := $(GMAKE)
-endif
-endif
 
 SUBDIRS = src
 ifeq ($(BUILD_WITH_MODULES), yes)
