@@ -1661,6 +1661,10 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int j, diff_algo = 1;
     long cardinality = 0;
     int sameset = 0;
+    /* Memory tracking is only needed for SET_OP_DIFF. UNION just iterates the
+     * source sets; it never calls dictFind/dictAdd/dictDelete on a passed key,
+     * so it can't advance a rehash and change a source set's allocation size. */
+    int must_track_memory = (op != SET_OP_UNION && server.memory_tracking_enabled);
 
     for (j = 0; j < setnum; j++) {
         kvobj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1691,7 +1695,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             dstset_encoding = OBJ_ENCODING_HT;
         }
         sets[j].set = setobj;
-        if (server.memory_tracking_enabled)
+        if (must_track_memory)
             sets[j].oldsize = kvobjAllocSize(setobj);
         if (j > 0 && sets[0].set == sets[j].set) {
             sameset = 1; 
@@ -1847,7 +1851,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (cardinality == 0) break;
         }
     }
-    if (server.memory_tracking_enabled) {
+    if (must_track_memory) {
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
             if (!obj) continue;
