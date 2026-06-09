@@ -839,6 +839,16 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
     return p;
 }
 
+static unsigned char *getObjectReadOnlyStringOrBitmap(robj *o, long *len, char *llbuf, sds *materialized) {
+    *materialized = NULL;
+    if (o != NULL && o->type == OBJ_BITMAP) {
+        *materialized = bitmapObjectMaterialize(o);
+        if (len) *len = (long)sdslen(*materialized);
+        return (unsigned char*)*materialized;
+    }
+    return getObjectReadOnlyString(o, len, llbuf);
+}
+
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     char *err = "bit is not an integer or out of range";
@@ -856,6 +866,33 @@ void setbitCommand(client *c) {
     /* Bits can only be set or cleared... */
     if (on & ~1) {
         addReplyError(c,err);
+        return;
+    }
+
+    kvobj *bitmap = lookupKeyWrite(c->db, c->argv[1]);
+    if (bitmap != NULL && bitmap->type == OBJ_BITMAP) {
+        size_t oldlen = bitmapObjectLen(bitmap);
+        size_t oldAllocSize = 0;
+
+        byte = bitoffset >> 3;
+        bitval = bitmapObjectGetBit(bitmap, bitoffset);
+        if ((size_t)byte >= oldlen || (!!bitval != on)) {
+            if (server.memory_tracking_enabled)
+                oldAllocSize = kvobjAllocSize(bitmap);
+            if (bitmapObjectSetBit(bitmap, bitoffset, on) != C_OK) {
+                addReplyError(c, "bit offset is not representable in native bitmap encoding");
+                return;
+            }
+            if (oldlen != bitmapObjectLen(bitmap))
+                updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(bitmap));
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), bitmap, oldAllocSize, kvobjAllocSize(bitmap));
+            keyModified(c,c->db,c->argv[1],bitmap,1);
+            notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+            server.dirty++;
+        }
+
+        addReply(c, bitval ? shared.cone : shared.czero);
         return;
     }
 
@@ -903,11 +940,13 @@ void getbitCommand(client *c) {
         return;
 
     kvobj *kv = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
-    if (kv == NULL || checkType(c,kv,OBJ_STRING)) return;
+    if (kv == NULL || checkStringOrBitmapType(c,kv)) return;
 
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
-    if (sdsEncodedObject(kv)) {
+    if (kv->type == OBJ_BITMAP) {
+        bitval = bitmapObjectGetBit(kv, bitoffset);
+    } else if (sdsEncodedObject(kv)) {
         if (byte < sdslen(kv->ptr))
             bitval = ((uint8_t*)kv->ptr)[byte] & (1 << bit);
     } else {
@@ -1237,6 +1276,7 @@ void bitopCommand(client *c) {
     robj *targetkey = c->argv[2];
     unsigned long op, j, numkeys;
     robj **objects;      /* Array of source objects. */
+    sds *materialized;   /* Native bitmap sources materialized as strings. */
     unsigned char **src; /* Array of source strings pointers. */
     unsigned long *len, maxlen = 0; /* Array of length of src strings,
                                        and max len. */
@@ -1284,6 +1324,7 @@ void bitopCommand(client *c) {
     src = zmalloc(sizeof(unsigned char*) * numkeys);
     len = zmalloc(sizeof(long) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
+    materialized = zcalloc(sizeof(sds) * numkeys);
     for (j = 0; j < numkeys; j++) {
         kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
         /* Handle non-existing keys as empty strings. */
@@ -1294,21 +1335,30 @@ void bitopCommand(client *c) {
             minlen = 0;
             continue;
         }
-        /* Return an error if one of the keys is not a string. */
-        if (checkType(c, kv, OBJ_STRING)) {
+        /* Return an error if one of the keys is not a string or bitmap. */
+        if (checkStringOrBitmapType(c, kv)) {
             unsigned long i;
             for (i = 0; i < j; i++) {
                 if (objects[i])
                     decrRefCount(objects[i]);
+                sdsfree(materialized[i]);
             }
             zfree(src);
             zfree(len);
             zfree(objects);
+            zfree(materialized);
             return;
         }
-        objects[j] = getDecodedObject(kv);
-        src[j] = objects[j]->ptr;
-        len[j] = sdslen(objects[j]->ptr);
+        if (kv->type == OBJ_BITMAP) {
+            objects[j] = NULL;
+            materialized[j] = bitmapObjectMaterialize(kv);
+            src[j] = (unsigned char*)materialized[j];
+            len[j] = sdslen(materialized[j]);
+        } else {
+            objects[j] = getDecodedObject(kv);
+            src[j] = objects[j]->ptr;
+            len[j] = sdslen(objects[j]->ptr);
+        }
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
@@ -1594,10 +1644,12 @@ void bitopCommand(client *c) {
     for (j = 0; j < numkeys; j++) {
         if (objects[j])
             decrRefCount(objects[j]);
+        sdsfree(materialized[j]);
     }
     zfree(src);
     zfree(len);
     zfree(objects);
+    zfree(materialized);
 
     /* Store the computed value into the target key */
     if (maxlen) {
@@ -1620,6 +1672,7 @@ void bitcountCommand(client *c) {
     long strlen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
+    sds materialized = NULL;
     int isbit = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
@@ -1639,8 +1692,8 @@ void bitcountCommand(client *c) {
         }
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c, o, OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o,&strlen,llbuf);
+        if (checkStringOrBitmapType(c, o)) return;
+        p = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
         long long totlen = strlen;
 
         /* Make sure we will not overflow */
@@ -1649,7 +1702,7 @@ void bitcountCommand(client *c) {
         /* Convert negative indexes */
         if (start < 0 && end < 0 && start > end) {
             addReply(c,shared.czero);
-            return;
+            goto cleanup;
         }
         if (isbit) totlen <<= 3;
         if (start < 0) start = totlen+start;
@@ -1668,8 +1721,8 @@ void bitcountCommand(client *c) {
     } else if (c->argc == 2) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c, o, OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o,&strlen,llbuf);
+        if (checkStringOrBitmapType(c, o)) return;
+        p = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
         /* The whole string. */
         start = 0;
         end = strlen-1;
@@ -1682,7 +1735,7 @@ void bitcountCommand(client *c) {
     /* Return 0 for non existing keys. */
     if (o == NULL) {
         addReply(c, shared.czero);
-        return;
+        goto cleanup;
     }
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
@@ -1709,6 +1762,9 @@ void bitcountCommand(client *c) {
         }
         addReplyLongLong(c,count);
     }
+
+cleanup:
+    sdsfree(materialized);
 }
 
 /* BITPOS key bit [start [end [BIT|BYTE]]] */
@@ -1718,6 +1774,7 @@ void bitposCommand(client *c) {
     long bit, strlen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
+    sds materialized = NULL;
     int isbit = 0, end_given = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
@@ -1750,8 +1807,8 @@ void bitposCommand(client *c) {
 
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c, o, OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o, &strlen, llbuf);
+        if (checkStringOrBitmapType(c, o)) return;
+        p = getObjectReadOnlyStringOrBitmap(o, &strlen, llbuf, &materialized);
 
         /* Make sure we will not overflow */
         long long totlen = strlen;
@@ -1780,8 +1837,8 @@ void bitposCommand(client *c) {
     } else if (c->argc == 3) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c,o,OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o,&strlen,llbuf);
+        if (checkStringOrBitmapType(c,o)) return;
+        p = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
 
         /* The whole string. */
         start = 0;
@@ -1797,7 +1854,7 @@ void bitposCommand(client *c) {
      * If the user is looking for the first set bit, return -1. */
     if (o == NULL) {
         addReplyLongLong(c, bit ? -1 : 0);
-        return;
+        goto cleanup;
     }
 
     /* For empty ranges (start > end) we return -1 as an empty range does
@@ -1845,11 +1902,14 @@ void bitposCommand(client *c) {
          * is not a single "0" bit. */
         if (end_given && bit == 0 && pos == (long long)bytes<<3) {
             addReplyLongLong(c,-1);
-            return;
+            goto cleanup;
         }
         if (pos != -1) pos += (long long)start<<3; /* Adjust for the bytes we skipped. */
         addReplyLongLong(c,pos);
     }
+
+cleanup:
+    sdsfree(materialized);
 }
 
 /* BITFIELD key subcommand-1 arg ... subcommand-2 arg ... subcommand-N ...
@@ -1886,6 +1946,9 @@ void bitfieldGeneric(client *c, int flags) {
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
     uint64_t highest_write_offset = 0;
+    int native_bitmap_write = 0;
+    dictEntryLink native_bitmap_link = NULL;
+    robj *native_bitmap_string = NULL;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -1959,9 +2022,9 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (readonly) {
         /* Lookup for read is ok if key doesn't exit, but errors
-         * if it's not a string. */
+         * if it's not a string or bitmap. */
         o = lookupKeyRead(c->db,c->argv[1]);
-        if (o != NULL && checkType(c,o,OBJ_STRING)) {
+        if (o != NULL && checkStringOrBitmapType(c,o)) {
             zfree(ops);
             return;
         }
@@ -1974,10 +2037,27 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* Lookup by making room up to the farthest bit reached by
          * this operation. */
-        if ((o = lookupStringForBitCommand(c,
-            highest_write_offset,&strOldSize,&strGrowSize)) == NULL) {
-            zfree(ops);
-            return;
+        o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            sds raw = bitmapObjectMaterialize(o);
+            size_t byte = highest_write_offset >> 3;
+
+            strOldSize = sdslen(raw);
+            raw = sdsgrowzero(raw, byte + 1);
+            strGrowSize = sdslen(raw) - strOldSize;
+            native_bitmap_string = createObject(OBJ_STRING, raw);
+            native_bitmap_write = 1;
+            o = native_bitmap_string;
+        } else {
+            if (o != NULL && checkType(c,o,OBJ_STRING)) {
+                zfree(ops);
+                return;
+            }
+            if ((o = lookupStringForBitCommand(c,
+                highest_write_offset,&strOldSize,&strGrowSize)) == NULL) {
+                zfree(ops);
+                return;
+            }
         }
     }
 
@@ -2071,9 +2151,10 @@ void bitfieldGeneric(client *c, int flags) {
             long strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
+            sds materialized = NULL;
 
             if (o != NULL)
-                src = getObjectReadOnlyString(o,&strlen,llbuf);
+                src = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
@@ -2098,21 +2179,29 @@ void bitfieldGeneric(client *c, int flags) {
                                             thisop->bits);
                 addReplyLongLong(c,val);
             }
+            sdsfree(materialized);
         }
     }
 
     if (changes) {
-
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
+        if (native_bitmap_write) {
+            robj *updated = createBitmapObjectFromString(o->ptr, sdslen(o->ptr));
+            serverAssert(updated != NULL);
+            dbReplaceValueWithLink(c->db, c->argv[1], &updated, native_bitmap_link);
+            o = updated;
+        } else {
+            /* If this is not a new key (old size not 0) and size changed, then
+             * update the keysizes histogram. Otherwise, the histogram already
+             * updated in lookupStringForBitCommand() by calling dbAdd(). */
+            if ((strOldSize > 0) && (strGrowSize != 0))
+                updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
+        }
         
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
     }
+    if (native_bitmap_string) decrRefCount(native_bitmap_string);
     zfree(ops);
 }
 
