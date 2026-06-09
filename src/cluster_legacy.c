@@ -222,7 +222,7 @@ sds auxShardIdGetter(clusterNode *n, sds s) {
 }
 
 int auxShardIdPresent(clusterNode *n) {
-    return strlen(n->shard_id);
+    return strnlen(n->shard_id, CLUSTER_NAMELEN);
 }
 
 int auxHumanNodenameSetter(clusterNode *n, void *value, int length) {
@@ -2820,7 +2820,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
                 uint16_t extlen = getPingExtLength(ext);
-                if (extlen % 8 != 0) {
+                if (extlen < sizeof(clusterMsgPingExt) || extlen % 8 != 0) {
                     serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
                         clusterGetMessageTypeString(type), (int) extlen);
                     return 1;
@@ -2830,6 +2830,42 @@ int clusterProcessPacket(clusterLink *link) {
                         "total packet length (%lld)", clusterGetMessageTypeString(type),
                         (unsigned long long) totlen);
                     return 1;
+                }
+                uint16_t exttype = ntohs(ext->type);
+                uint32_t datalen = extlen - sizeof(clusterMsgPingExt);
+                if (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME ||
+                    exttype == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
+                    char *str = (char *) ext->ext;
+                    if (datalen == 0 || str[datalen - 1] != '\0') {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with missing null terminator in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
+                    if (datalen < sizeof(clusterMsgPingExtForgottenNode)) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with truncated extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_SHARDID) {
+                    char *str = (char *) ext->ext;
+                    if (datalen < sizeof(clusterMsgPingExtShardId) ||
+                        verifyClusterNodeId(str, CLUSTER_NAMELEN) != C_OK)
+                    {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with invalid shard id in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_INTERNALSECRET) {
+                    if (datalen < sizeof(clusterMsgPingExtInternalSecret)) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with truncated extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
                 }
                 explen += extlen;
                 ext = getNextPingExt(ext);

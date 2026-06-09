@@ -7209,7 +7209,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
 
     uint64_t id = 0;
     for (int j = 0; j < 9; j++) {
-        char *p = strchr(cset,name[j]);
+        const char *p = strchr(cset,name[j]);
         if (!p) return 0;
         unsigned long pos = p-cset;
         id = (id << 6) | pos;

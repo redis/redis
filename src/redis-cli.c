@@ -5111,8 +5111,8 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     char **argv = NULL;
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
-    if (config.conn_info.auth) c += 2;
-    if (config.conn_info.user) c += 1;
+    if (config.conn_info.auth)
+        c += config.conn_info.user ? 3 : 2;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
     argv = zcalloc(argc * sizeof(char *));

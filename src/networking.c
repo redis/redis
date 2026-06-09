@@ -682,7 +682,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         if (s[0] != '-') {
             incrementErrorCount("ERR", 3);
         } else {
-            char *spaceloc = memchr(s, ' ', len < 32 ? len : 32);
+            const char *spaceloc = memchr(s, ' ', len < 32 ? len : 32);
             if (spaceloc) {
                 const size_t errEndPos = (size_t)(spaceloc - s);
                 incrementErrorCount(s+1, errEndPos-1);
