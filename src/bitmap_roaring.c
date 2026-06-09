@@ -559,6 +559,31 @@ size_t bitmapObjectCardinality(const robj *o) {
     return (size_t)roaring_bitmap_get_cardinality(bitmap->roaring);
 }
 
+int bitmapObjectGetBit(const robj *o, uint64_t bitoffset) {
+    bitmapObject *bitmap = getBitmapObject(o);
+
+    if (bitoffset > UINT32_MAX) return 0;
+    if ((bitoffset >> 3) >= bitmap->byte_len) return 0;
+    return roaring_bitmap_contains(bitmap->roaring, (uint32_t)bitoffset);
+}
+
+int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    size_t byte = bitoffset >> 3;
+
+    if (bitoffset > UINT32_MAX || byte >= BITMAP_OBJECT_MAX_BYTES) return C_ERR;
+
+    if (byte + 1 > bitmap->byte_len)
+        bitmap->byte_len = byte + 1;
+
+    if (on)
+        roaring_bitmap_add(bitmap->roaring, (uint32_t)bitoffset);
+    else
+        roaring_bitmap_remove(bitmap->roaring, (uint32_t)bitoffset);
+
+    return C_OK;
+}
+
 sds bitmapObjectMaterialize(const robj *o) {
     bitmapObject *bitmap = getBitmapObject(o);
     sds raw = sdsnewlen(NULL, bitmap->byte_len);
