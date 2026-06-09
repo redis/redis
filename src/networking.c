@@ -506,7 +506,16 @@ static size_t _addBulkStrRefToBuffer(client *c, const void *payload, size_t len)
     return result;
 }
 
-void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
+/* Append 'iovcnt' ordered segments as a single logical reply. The replica-reject,
+ * push-postpone and buffer-then-list spillover chain runs once for the whole batch
+ * instead of once per segment, and each segment's bytes are copied at most once
+ * (into the static buffer, or spilled to the reply list once the buffer fills) so
+ * callers can hand a payload over by reference instead of pre-assembling it.
+ *
+ * Spillover is implicit: once any segment overflows into the reply list,
+ * _addReplyPayloadToBuffer short-circuits to 0 (list non-empty) for the remaining
+ * segments, routing the whole tail to the list in order. */
+static void _addReplyIOVToBufferOrList(client *c, const struct iovec *iov, int iovcnt) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
@@ -520,9 +529,11 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
         return;
     }
 
-    c->net_output_bytes_curr_cmd += len;
-    /* We call it here because this function may affect the reply
-     * buffer offset (see function comment) */
+    size_t total = 0;
+    for (int i = 0; i < iovcnt; i++) total += iov[i].iov_len;
+    c->net_output_bytes_curr_cmd += total;
+    /* We call it here because this may affect the reply buffer offset (see the
+     * reqres function comment); it is idempotent per request. */
     reqresSaveClientReplyOffset(c);
 
     /* If we're processing a push message into the current client (i.e. executing PUBLISH
@@ -534,68 +545,27 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     if ((c->flags & CLIENT_PUSHING) && c == server.current_client &&
         server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
     {
-        _addReplyPayloadToList(c,server.pending_push_messages,s,len,PLAIN_REPLY);
-        return;
-    }
-
-    size_t reply_len = _addReplyPayloadToBuffer(c, s, len, PLAIN_REPLY);
-    if (len > reply_len)
-        _addReplyPayloadToList(c, c->reply, s + reply_len, len - reply_len, PLAIN_REPLY);
-}
-
-/* One segment of a multi-part reply, used by _addReplyListToBufferOrList. */
-typedef struct strreply {
-    const char *s;
-    size_t l;
-} strreply;
-
-/* Vectored form of _addReplyToBufferOrList: append 'n' ordered segments as a
- * single logical reply, running the replica-reject / push-postpone / buffer-
- * then-list spillover chain once for the whole batch instead of once per
- * segment. Each segment is copied at most once (into the static buffer, or
- * spilled to the reply list once the buffer fills), so callers can hand the
- * payload over by reference instead of pre-assembling it in a scratch buffer.
- *
- * Spillover is handled implicitly: once any segment overflows into the reply
- * list, _addReplyPayloadToBuffer short-circuits to 0 (list non-empty) for the
- * remaining segments, routing the whole tail to the list in order. */
-static void _addReplyListToBufferOrList(client *c, const strreply *replies, int n) {
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
-
-    if (unlikely(clientTypeIsSlave(c))) {
-        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
-        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
-                                        cmdname ? cmdname : "<unknown>");
-        return;
-    }
-
-    size_t total = 0;
-    for (int i = 0; i < n; i++) total += replies[i].l;
-    c->net_output_bytes_curr_cmd += total;
-
-    /* Called once for the whole batch; idempotent per request (see function). */
-    reqresSaveClientReplyOffset(c);
-
-    /* Postpone push messages emitted while processing the current client's
-     * command, mirroring _addReplyToBufferOrList. */
-    if ((c->flags & CLIENT_PUSHING) && c == server.current_client &&
-        server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
-    {
-        for (int i = 0; i < n; i++)
-            if (replies[i].l)
+        for (int i = 0; i < iovcnt; i++)
+            if (iov[i].iov_len)
                 _addReplyPayloadToList(c, server.pending_push_messages,
-                                       replies[i].s, replies[i].l, PLAIN_REPLY);
+                                       iov[i].iov_base, iov[i].iov_len, PLAIN_REPLY);
         return;
     }
 
-    for (int i = 0; i < n; i++) {
-        const char *s = replies[i].s;
-        size_t len = replies[i].l;
+    for (int i = 0; i < iovcnt; i++) {
+        const char *s = iov[i].iov_base;
+        size_t len = iov[i].iov_len;
         if (!len) continue;
         size_t reply_len = _addReplyPayloadToBuffer(c, s, len, PLAIN_REPLY);
         if (len > reply_len)
             _addReplyPayloadToList(c, c->reply, s + reply_len, len - reply_len, PLAIN_REPLY);
     }
+}
+
+/* Append a single contiguous reply segment (thin wrapper over the vectored form). */
+void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
+    struct iovec iov = { .iov_base = (void *)s, .iov_len = len };
+    _addReplyIOVToBufferOrList(c, &iov, 1);
 }
 
 /* Check if the client's pending_ref_reply_node is currently linked in the list.
@@ -1393,14 +1363,14 @@ void addReplyBulk(client *c, robj *obj) {
 
 /* Add a C buffer as bulk reply.
  *
- * Assemble the "$<len>\r\n" header on the stack and emit the header, payload,
- * and trailing CRLF as a single vectored append (_addReplyListToBufferOrList)
- * instead of three separate _addReplyToBufferOrList calls. The payload is never
- * copied into a scratch buffer — it is handed to the helper by reference — so
- * this collapses the three per-call passes into one for payloads of any size. */
+ * Assemble the "$<len>\r\n" header on the stack and emit the header, payload and
+ * trailing CRLF as a single vectored append. The payload is handed over by
+ * reference rather than copied into a scratch buffer, so this collapses the
+ * three per-call passes into one for payloads of any size. */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     if (_prepareClientToWrite(c) != C_OK) return;
-    char hdr[LONG_STR_SIZE + 3]; /* '$' + up to LONG_STR_SIZE digits + "\r\n" */
+    /* '$' + up to 20 digits (64-bit) + "\r\n"; LONG_STR_SIZE already budgets the NUL. */
+    char hdr[LONG_STR_SIZE + 3];
     char *h = hdr;
     if (likely(len < OBJ_SHARED_BULKHDR_LEN)) {
         const size_t hl = OBJ_SHARED_HDR_STRLEN(len);
@@ -1408,16 +1378,17 @@ void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
         h += hl;
     } else {
         *h++ = '$';
-        h += ll2string(h, sizeof(hdr) - 3, (long long)len);
+        /* Room left after '$', reserving the 2 trailing bytes for "\r\n". */
+        h += ll2string(h, sizeof(hdr) - (size_t)(h - hdr) - 2, (long long)len);
         *h++ = '\r';
         *h++ = '\n';
     }
-    strreply replies[3] = {
-        { hdr, (size_t)(h - hdr) },
-        { (const char *)p, len },
-        { "\r\n", 2 },
+    struct iovec iov[3] = {
+        { .iov_base = hdr,         .iov_len = (size_t)(h - hdr) },
+        { .iov_base = (void *)p,   .iov_len = len },
+        { .iov_base = (void *)"\r\n", .iov_len = 2 },
     };
-    _addReplyListToBufferOrList(c, replies, 3);
+    _addReplyIOVToBufferOrList(c, iov, sizeof(iov) / sizeof(iov[0]));
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
