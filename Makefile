@@ -124,11 +124,19 @@ bootstrap:
 	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # deploy [<name> ...|all|.|'*'|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
-#   Install Redis core + selected modules (default: every cloned module).
-#   Same end-state as `make install`, but with positional module selection
-#   and explicit PREFIX/DESTDIR forwarding.
+#   Install Redis core + selected modules (default: every cloned module),
+#   then auto-rewrite redis.conf so its `loadmodule` lines point at the
+#   installed .so paths. PREFIX defaults to /usr/local (same as `make install`).
+#   apply-redis-conf is called with PREFIX=$(PREFIX)/lib/redis/modules — the
+#   actual modules directory `make install` / `make deploy` write to.
+deploy: PREFIX ?= /usr/local
 deploy:
 	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
+	@echo
+	@echo "==> Updating redis.conf for installed layout (PREFIX=$(PREFIX)/lib/redis/modules)"
+	@$(MAKE) --no-print-directory apply-redis-conf \
+	    PREFIX='$(PREFIX)/lib/redis/modules' \
+	    MODULES='$(DEPLOY_ARGS)'
 
 # run [<name> ...|all|.|'*'|none] [ARGS="<redis-server flags>"]
 run:
