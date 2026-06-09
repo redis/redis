@@ -1270,15 +1270,14 @@ static int tlsHasPendingData(struct aeEventLoop *el) {
 }
 
 static int tlsProcessPendingData(struct aeEventLoop *el) {
-    listIter li;
-    listNode *ln;
-
     list *pending_list = el->privdata[1];
     if (!pending_list) return 0;
     int processed = listLength(pending_list);
-    listRewind(pending_list,&li);
-    while((ln = listNext(&li))) {
+    for (int i = 0; i < processed; i++) {
+        listNode *ln = listFirst(pending_list);
+        if (!ln) break;
         tls_connection *conn = listNodeValue(ln);
+        tlsPendingRemove(conn);
         tlsHandleEvent(conn, AE_READABLE);
     }
     return processed;
