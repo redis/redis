@@ -1653,7 +1653,6 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     setTypeIterator si;
     robj *dstset = NULL;
     robj *hllobj = NULL; /* Used only for approximate (HLL) cardinality. */
-    int hll_err = 0;
     int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
     size_t len = 0;
@@ -1776,11 +1775,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                     size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
                     retval = hllAdd(hllobj, (unsigned char *)buf, slen);
                 }
-                if (retval == -1) {
-                    hll_err = 1;
-                    early_exit = 1;
-                    break;
-                }
+                /* hllAdd() only fails on a corrupted HLL header, which cannot
+                 * happen for an HLL we just created ourselves. */
+                serverAssert(retval != -1);
 
                 elements_processed++;
                 if (limit > 0 && elements_processed >= check_after) {
@@ -1861,13 +1858,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     /* Output the content of the resulting set, if not in STORE mode */
     if (approx_cardinality_only) {
-        if (!hll_err) {
-            uint64_t card = hllCount(hllobj->ptr, NULL);
-            if (limit > 0 && card > (uint64_t)limit) card = (uint64_t)limit;
-            addReplyLongLong(c, (long long)card);
-        } else {
-            addReplyError(c, "Corrupted HLL object detected");
-        }
+        uint64_t card = hllCount(hllobj->ptr, NULL);
+        if (limit > 0 && card > (uint64_t)limit) card = (uint64_t)limit;
+        addReplyLongLong(c, (long long)card);
         decrRefCount(hllobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
