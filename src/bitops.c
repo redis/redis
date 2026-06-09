@@ -31,6 +31,11 @@
 
 #ifdef HAVE_AVX2
 #define BITOP_USE_AVX2 (__builtin_cpu_supports("avx2"))
+/* Minimum byte-length before dispatching to bitopCommandAVX. The AVX2
+ * function cannot be inlined (target("avx2") attribute) so each call pays
+ * a vzeroupper + constant-setup overhead.  For short strings that overhead
+ * exceeds the SIMD gain, making the scalar word-at-a-time path faster. */
+#define BITOP_AVX2_MIN_LEN 1024
 #else
 #define BITOP_USE_AVX2 0
 #endif
@@ -1335,7 +1340,7 @@ void bitopCommand(client *c) {
 #endif
 
 #if defined(HAVE_AVX2)
-        if (!useAVX && BITOP_USE_AVX2) {
+        if (!useAVX && BITOP_USE_AVX2 && (minlen >= BITOP_AVX2_MIN_LEN)) {
             j = bitopCommandAVX(src, res, op, numkeys, minlen);
 
             serverAssert(minlen >= j);
