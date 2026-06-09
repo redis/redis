@@ -980,13 +980,13 @@ int tlsHasPendingData() {
 }
 
 int tlsProcessPendingData() {
-    listIter li;
-    listNode *ln;
-
     int processed = listLength(pending_list);
-    listRewind(pending_list,&li);
-    while((ln = listNext(&li))) {
+    for (int i = 0; i < processed; i++) {
+        listNode *ln = listFirst(pending_list);
+        if (!ln) break;
         tls_connection *conn = listNodeValue(ln);
+        listDelNode(pending_list, conn->pending_list_node);
+        conn->pending_list_node = NULL;
         tlsHandleEvent(conn, AE_READABLE);
     }
     return processed;
