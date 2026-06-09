@@ -174,6 +174,8 @@ void freeBitmapObject(robj *o);
 size_t bitmapObjectLen(const robj *o);
 size_t bitmapObjectAllocSize(const robj *o);
 size_t bitmapObjectCardinality(const robj *o);
+int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
+int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
 sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectSerialize(const robj *o);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
