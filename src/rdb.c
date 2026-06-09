@@ -3459,7 +3459,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             if ((int64_t)cg_offset != SCG_INVALID_ENTRIES_READ &&
-                (cg_offset > (uint64_t)LLONG_MAX || cg_offset > s->entries_added)) {
+                (cg_offset > (uint64_t)LLONG_MAX || cg_offset > s->entries_added))
+            {
                 rdbReportCorruptRDB("Stream cgroup entries_read inconsistent with entries_added");
                 sdsfree(cgname);
                 decrRefCount(o);
