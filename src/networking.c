@@ -514,8 +514,12 @@ static size_t _addBulkStrRefToBuffer(client *c, const void *payload, size_t len)
  *
  * Spillover is implicit: once any segment overflows into the reply list,
  * _addReplyPayloadToBuffer short-circuits to 0 (list non-empty) for the remaining
- * segments, routing the whole tail to the list in order. */
-static void _addReplyIOVToBufferOrList(client *c, const struct iovec *iov, int iovcnt) {
+ * segments, routing the whole tail to the list in order.
+ *
+ * always_inline so the single-segment wrapper below scalarizes its on-stack iovec
+ * and stays branch-for-branch identical to a direct append on the hot reply path. */
+static inline __attribute__((always_inline))
+void _addReplyIOVToBufferOrList(client *c, const struct iovec *iov, int iovcnt) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
