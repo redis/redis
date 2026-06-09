@@ -3458,6 +3458,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 cg_offset = streamEstimateDistanceFromFirstEverEntry(s,&cg_id);
             }
 
+            if ((int64_t)cg_offset != SCG_INVALID_ENTRIES_READ &&
+                (cg_offset > (uint64_t)LLONG_MAX || cg_offset > s->entries_added)) {
+                rdbReportCorruptRDB("Stream cgroup entries_read inconsistent with entries_added");
+                sdsfree(cgname);
+                decrRefCount(o);
+                return NULL;
+            }
+
             streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,cg_offset);
             if (cgroup == NULL) {
                 rdbReportCorruptRDB("Duplicated consumer group name %s",
