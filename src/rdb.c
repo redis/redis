@@ -3926,7 +3926,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
         if (payload == NULL) return NULL;
 
-        o = createBitmapObjectFromPortable((size_t)byte_len, payload, sdslen(payload));
+        if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+        o = createBitmapObjectFromPortable((size_t)byte_len, payload, sdslen(payload),
+                                           deep_integrity_validation);
         sdsfree(payload);
         if (o == NULL) {
             rdbReportCorruptRDB("Invalid bitmap Roaring payload");

@@ -875,7 +875,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
 #endif
         case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
-        case OBJ_BITMAP: break;
+        case OBJ_BITMAP: dismissBitmapObject(o, size_hint); break;
         default: break;
     }
 #else
