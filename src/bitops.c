@@ -805,17 +805,20 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client.
- * 
+ *
+ * The caller provides 'o' and 'link' from a single lookupKeyWriteWithLink()
+ * call, so command paths that first probe for a native bitmap don't pay a
+ * second keyspace lookup.
+ *
  * (Must provide all the arguments to the function)
  */
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
+                                       kvobj *o, dictEntryLink link,
                                        size_t *strOldSize, size_t *strGrowSize,
                                        int *created)
 {
-    dictEntryLink link;
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
-    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
@@ -899,7 +902,8 @@ void setbitCommand(client *c) {
         return;
     }
 
-    kvobj *bitmap = lookupKeyWrite(c->db, c->argv[1]);
+    dictEntryLink link;
+    kvobj *bitmap = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (bitmap != NULL && bitmap->type == OBJ_BITMAP) {
         size_t oldlen = bitmapObjectLen(bitmap);
         size_t oldAllocSize = 0;
@@ -928,8 +932,8 @@ void setbitCommand(client *c) {
 
     size_t strOldSize, strGrowSize;
     int created = 0;
-    kvobj *o = lookupStringForBitCommand(c, bitoffset, &strOldSize,
-                                         &strGrowSize, &created);
+    kvobj *o = lookupStringForBitCommand(c, bitoffset, bitmap, link,
+                                         &strOldSize, &strGrowSize, &created);
     if (o == NULL) return;
 
     /* Get current values */
@@ -2118,12 +2122,9 @@ void bitfieldGeneric(client *c, int flags) {
             native_bitmap_write = 1;
             o = native_bitmap_string;
         } else {
-            if (o != NULL && checkType(c,o,OBJ_STRING)) {
-                zfree(ops);
-                return;
-            }
             if ((o = lookupStringForBitCommand(c,
-                highest_write_offset,&strOldSize,&strGrowSize,&string_created)) == NULL) {
+                highest_write_offset,o,native_bitmap_link,
+                &strOldSize,&strGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
             }
