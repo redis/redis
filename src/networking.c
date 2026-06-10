@@ -1379,22 +1379,26 @@ void addReplyBulk(client *c, robj *obj) {
  * three per-call passes into one for payloads of any size. */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     if (_prepareClientToWrite(c) != C_OK) return;
+    const char *hdr;
+    size_t hdr_len;
     /* '$' + up to 20 digits (64-bit) + "\r\n"; LONG_STR_SIZE already budgets the NUL. */
-    char hdr[LONG_STR_SIZE + 3];
-    char *h = hdr;
+    char hdrbuf[LONG_STR_SIZE + 3];
     if (likely(len < OBJ_SHARED_BULKHDR_LEN)) {
-        const size_t hl = OBJ_SHARED_HDR_STRLEN(len);
-        memcpy(h, shared.bulkhdr[len]->ptr, hl);
-        h += hl;
+        /* Point straight at the shared "$<len>\r\n" object — no copy needed. */
+        hdr = shared.bulkhdr[len]->ptr;
+        hdr_len = OBJ_SHARED_HDR_STRLEN(len);
     } else {
+        char *h = hdrbuf;
         *h++ = '$';
         /* Room left after '$', reserving the 2 trailing bytes for "\r\n". */
-        h += ll2string(h, sizeof(hdr) - (size_t)(h - hdr) - 2, (long long)len);
+        h += ll2string(h, sizeof(hdrbuf) - (size_t)(h - hdrbuf) - 2, (long long)len);
         *h++ = '\r';
         *h++ = '\n';
+        hdr = hdrbuf;
+        hdr_len = (size_t)(h - hdrbuf);
     }
     replySegment seg[3] = {
-        { hdr,    (size_t)(h - hdr) },
+        { hdr,    hdr_len },
         { p,      len },
         { "\r\n", 2 },
     };
