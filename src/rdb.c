@@ -3328,12 +3328,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            unsigned char *first = lpFirst(lp);
-            if (first == NULL) {
-                /* Serialized listpacks should never be empty, since on
-                 * deletion we should remove the radix tree key if the
-                 * resulting listpack is empty. */
-                rdbReportCorruptRDB("Empty listpack inside stream");
+            /* Under shallow validation (sanitize-dump-payload no) only the
+             * listpack header was checked, so validate the first entry here:
+             * reject an empty listpack, and ensure the entry is well-formed
+             * before lpGetIntegerValue() below decodes it unchecked. */
+            unsigned char *first, *next;
+            first = next = lpValidateFirst(lp);
+            if (first == NULL || !lpValidateNext(lp, &next, lp_size)) {
+                rdbReportCorruptRDB("Stream listpack integrity check failed.");
                 sdsfree(nodekey);
                 decrRefCount(o);
                 zfree(lp);
@@ -3407,6 +3409,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
+        if (s->entries_added > (uint64_t)LLONG_MAX || s->entries_added < s->length) {
+            rdbReportCorruptRDB("Stream entries_added inconsistent with length");
+            decrRefCount(o);
+            return NULL;
+        }
+
         /* Consumer groups loading */
         uint64_t cgroups_count = rdbLoadLen(rdb,NULL);
         if (cgroups_count == RDB_LENERR) {
@@ -3448,6 +3456,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             } else {
                 cg_offset = streamEstimateDistanceFromFirstEverEntry(s,&cg_id);
+            }
+
+            if ((int64_t)cg_offset != SCG_INVALID_ENTRIES_READ &&
+                (cg_offset > (uint64_t)LLONG_MAX || cg_offset > s->entries_added))
+            {
+                rdbReportCorruptRDB("Stream cgroup entries_read inconsistent with entries_added");
+                sdsfree(cgname);
+                decrRefCount(o);
+                return NULL;
             }
 
             streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,cg_offset);

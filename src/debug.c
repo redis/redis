@@ -1448,6 +1448,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
     GET_SET_RETURN(uc->uc_mcontext.pc, eip);
+    #elif defined(__loongarch_lp64) /* Linux LoongArch64 */
+    GET_SET_RETURN(uc->uc_mcontext.__pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
@@ -1781,6 +1783,50 @@ void logRegisters(ucontext_t *uc) {
 	      (unsigned long) uc->uc_mcontext.fault_address
 		      );
 	      logStackContent((void**)uc->uc_mcontext.arm_sp);
+    #elif defined(__loongarch_lp64) /* Linux LoongArch64 */
+    serverLog(LL_WARNING,
+        "\n"
+        "ra:%016llx tp:%016llx\nsp:%016llx a0:%016llx\n"
+        "a1:%016llx a2:%016llx\na3:%016llx a4:%016llx\n"
+        "a5:%016llx a6:%016llx\na7:%016llx t0:%016llx\n"
+        "t1:%016llx t2:%016llx\nt3:%016llx t4:%016llx\n"
+        "t5:%016llx t6:%016llx\nt7:%016llx t8:%016llx\n"
+        "fp:%016llx s0:%016llx\ns1:%016llx s2:%016llx\n"
+        "s3:%016llx s4:%016llx\ns5:%016llx s6:%016llx\n"
+        "s7:%016llx s8:%016llx\npc:%016llx\n",
+        (unsigned long long) uc->uc_mcontext.__gregs[1],
+        (unsigned long long) uc->uc_mcontext.__gregs[2],
+        (unsigned long long) uc->uc_mcontext.__gregs[3],
+        (unsigned long long) uc->uc_mcontext.__gregs[4],
+        (unsigned long long) uc->uc_mcontext.__gregs[5],
+        (unsigned long long) uc->uc_mcontext.__gregs[6],
+        (unsigned long long) uc->uc_mcontext.__gregs[7],
+        (unsigned long long) uc->uc_mcontext.__gregs[8],
+        (unsigned long long) uc->uc_mcontext.__gregs[9],
+        (unsigned long long) uc->uc_mcontext.__gregs[10],
+        (unsigned long long) uc->uc_mcontext.__gregs[11],
+        (unsigned long long) uc->uc_mcontext.__gregs[12],
+        (unsigned long long) uc->uc_mcontext.__gregs[13],
+        (unsigned long long) uc->uc_mcontext.__gregs[14],
+        (unsigned long long) uc->uc_mcontext.__gregs[15],
+        (unsigned long long) uc->uc_mcontext.__gregs[16],
+        (unsigned long long) uc->uc_mcontext.__gregs[17],
+        (unsigned long long) uc->uc_mcontext.__gregs[18],
+        (unsigned long long) uc->uc_mcontext.__gregs[19],
+        (unsigned long long) uc->uc_mcontext.__gregs[20],
+        (unsigned long long) uc->uc_mcontext.__gregs[22],
+        (unsigned long long) uc->uc_mcontext.__gregs[23],
+        (unsigned long long) uc->uc_mcontext.__gregs[24],
+        (unsigned long long) uc->uc_mcontext.__gregs[25],
+        (unsigned long long) uc->uc_mcontext.__gregs[26],
+        (unsigned long long) uc->uc_mcontext.__gregs[27],
+        (unsigned long long) uc->uc_mcontext.__gregs[28],
+        (unsigned long long) uc->uc_mcontext.__gregs[29],
+        (unsigned long long) uc->uc_mcontext.__gregs[30],
+        (unsigned long long) uc->uc_mcontext.__gregs[31],
+        (unsigned long long) uc->uc_mcontext.__pc
+    );
+    logStackContent((void**)uc->uc_mcontext.__gregs[3]);
     #else
 	NOT_SUPPORTED();
     #endif

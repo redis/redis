@@ -627,6 +627,26 @@ proc wait_load_handlers_disconnected {{level 0}} {
 
 proc K { x y } { set x } 
 
+# Send count commands on a deferring client, draining replies in batches to
+# avoid TCP deadlock when deferred replies accumulate.
+proc deferred_batch {rd count cmd_script {batch_size 1000}} {
+    set pending 0
+    for {set idx 0} {$idx < $count} {incr idx} {
+        uplevel 1 [list set i $idx]
+        uplevel 1 $cmd_script
+        incr pending
+        if {$pending == $batch_size} {
+            for {set reply_idx 0} {$reply_idx < $pending} {incr reply_idx} {
+                $rd read
+            }
+            set pending 0
+        }
+    }
+    for {set reply_idx 0} {$reply_idx < $pending} {incr reply_idx} {
+        $rd read
+    }
+}
+
 # Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
     set n [llength $list]

@@ -1307,7 +1307,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     if (ri.data != lp)
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
     s->length++;
-    s->entries_added++;
+    if (s->entries_added < (uint64_t)LLONG_MAX)
+        s->entries_added++;
     s->last_id = id;
     if (s->length == 1) s->first_id = id;
     if (added_id) *added_id = id;
@@ -3843,7 +3844,8 @@ void streamFreeConsumerGeneric(void *sc, void *s) {
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
     if (s->cgroups == NULL)
         s->cgroups = raxNewWithMetadata(0, &s->alloc_size);
-    if (raxFind(s->cgroups,(unsigned char*)name,namelen,NULL))
+    raxNodeLink link;
+    if (raxFindLink(s->cgroups,(unsigned char*)name,namelen,NULL,&link))
         return NULL;
 
     size_t usable;
@@ -3859,7 +3861,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
-    raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
+    raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
 
@@ -6455,14 +6457,14 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
         s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     }
 
-    /* Look up the producer */
     idmpProducer *producer = NULL;
-    int found = raxFind(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer);
+    raxNodeLink link;
+    int found = raxFindLink(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer, &link);
     if (!found) {
         /* Create a new producer */
         producer = idmpProducerCreate(&s->alloc_size);
         /* Insert into the rax tree - must succeed since we checked it doesn't exist */
-        serverAssert(raxInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL));
+        serverAssert(raxInsertAt(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL, &link));
     }
 
     return producer;

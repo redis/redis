@@ -90,6 +90,36 @@ int testClusterGetLocalSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_OK;
 }
 
+/* Test command for RedisModule_GetClusterNodeSlotRanges */
+int testGetClusterNodeSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char *nodeid = RedisModule_StringPtrLen(argv[1], NULL);
+
+    static int use_auto_memory = 0;
+    use_auto_memory = !use_auto_memory;
+
+    RedisModuleSlotRangeArray *slots;
+    if (use_auto_memory) {
+        RedisModule_AutoMemory(ctx);
+        slots = RedisModule_GetClusterNodeSlotRanges(ctx, nodeid);
+    } else {
+        slots = RedisModule_GetClusterNodeSlotRanges(NULL, nodeid);
+    }
+
+    RedisModule_ReplyWithArray(ctx, slots->num_ranges);
+    for (int i = 0; i < slots->num_ranges; i++) {
+        RedisModule_ReplyWithArray(ctx, 2);
+        RedisModule_ReplyWithLongLong(ctx, slots->ranges[i].start);
+        RedisModule_ReplyWithLongLong(ctx, slots->ranges[i].end);
+    }
+    if (!use_auto_memory)
+        RedisModule_ClusterFreeSlotRanges(NULL, slots);
+    return REDISMODULE_OK;
+}
+
 /* Helper function to check if a slot range array contains a given slot. */
 int slotRangeArrayContains(RedisModuleSlotRangeArray *sra, unsigned int slot) {
     for (int i = 0; i < sra->num_ranges; i++)
@@ -560,6 +590,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.cluster_get_local_slot_ranges", testClusterGetLocalSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.get_cluster_node_slot_ranges", testGetClusterNodeSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.get_last_deleted_key", getLastDeletedKey, "", 0, 0, 0) == REDISMODULE_ERR)
