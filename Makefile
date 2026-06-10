@@ -1,5 +1,13 @@
 # Top level makefile, the real stuff is at ./src/Makefile and in ./modules/Makefile
 
+# Explicitly export $(MAKE) so recipe shells (scripts/build.sh, deploy.sh, ...)
+# can read it as $MAKE and use the same make binary the user invoked. GNU make
+# only auto-propagates MAKE to recursive `$(MAKE) -C ...` sub-makes — recipes
+# that are shell scripts get an EMPTY $MAKE env var by default. Without this,
+# `MAKE_BIN="${MAKE:-make}"` in scripts falls back to PATH-lookup of `make`,
+# which can resolve to Apple's stock /usr/bin/make 3.81 in non-interactive
+# recipe shells (different PATH ordering than the user's interactive shell).
+export MAKE
 
 SUBDIRS = src
 ifeq ($(BUILD_WITH_MODULES), yes)
