@@ -221,9 +221,11 @@ static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
     if (container == NULL) return;
 
     if (type == SHARED_CONTAINER_TYPE) {
-        shared_container_t *shared = CAST_shared(container);
-        bitmapObjectDismissContainer(shared->container, shared->typecode);
-        dismissMemory(shared, sizeof(*shared));
+        /* Shared containers exist only when CRoaring copy-on-write is in use,
+         * which Redis never enables. If one ever appears it may be referenced
+         * by another live bitmap, and a fork child that dismisses pages another
+         * object still has to serialize would corrupt that object's output, so
+         * leave shared containers alone. */
         return;
     }
 
@@ -256,11 +258,14 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
     bitmapObject *bitmap = getBitmapObject(o);
     roaring_array_t *array = &bitmap->roaring->high_low_container;
 
-    UNUSED(size_hint);
-
-    for (int32_t i = 0; i < array->size; i++) {
-        bitmapObjectDismissContainer(
-            (container_t *)array->containers[i], array->typecodes[i]);
+    /* Iterate the container directory only when the average container payload
+     * is likely to span whole pages, like the other complex types (see
+     * dismissObject()). */
+    if (array->size > 0 && size_hint / (size_t)array->size >= server.page_size) {
+        for (int32_t i = 0; i < array->size; i++) {
+            bitmapObjectDismissContainer(
+                (container_t *)array->containers[i], array->typecodes[i]);
+        }
     }
 
     dismissMemory(array->containers,
@@ -269,6 +274,165 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
                        sizeof(*array->typecodes)));
     dismissMemory(bitmap->roaring, sizeof(*bitmap->roaring));
     dismissMemory(bitmap, sizeof(*bitmap));
+}
+
+/* --- Active defrag support ---
+ *
+ * Every allocation CRoaring makes for a bitmap goes through the zmalloc-backed
+ * memory hook installed in bitmapRoaringInit(), so active defrag can relocate
+ * each one with activeDefragAlloc(). The walk mirrors dismissBitmapObject():
+ * the wrapper struct, the roaring bitmap struct, the container directory
+ * (containers/keys/typecodes share one allocation), and every container with
+ * its payload buffer. */
+
+/* CRoaring requests this alignment for bitset container word buffers in the
+ * portable build Redis uses (see align_size in CRoaring's
+ * bitset_container_create(); the SIMD-gated 64-byte case is compiled out by
+ * ROARING_DISABLE_X64). bitmapRoaringAlignedMalloc() over-allocates by
+ * alignment - 1 + sizeof(void *), so re-deriving an aligned offset inside a
+ * relocated block always fits. */
+#define BITMAP_ROARING_BITSET_WORDS_ALIGNMENT 32
+
+static void bitmapObjectDefragBitsetWords(bitset_container_t *bitset) {
+    void *base, *newbase;
+    uintptr_t aligned;
+    size_t old_off, new_off;
+
+    if (bitset->words == NULL) return;
+    base = bitmapRoaringAlignedAllocBase(bitset->words);
+    newbase = activeDefragAlloc(base);
+    if (newbase == NULL) return;
+
+    /* The relocation copied the block verbatim, so the words still sit at
+     * their old offset; re-derive the aligned offset for the new base address
+     * and slide the words when the two differ. */
+    old_off = (size_t)((char *)bitset->words - (char *)base);
+    aligned = ((uintptr_t)newbase + sizeof(void *) +
+               (BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1)) &
+              ~((uintptr_t)BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1);
+    new_off = (size_t)(aligned - (uintptr_t)newbase);
+    if (new_off != old_off)
+        memmove((char *)newbase + new_off, (char *)newbase + old_off,
+                sizeof(uint64_t) * BITSET_CONTAINER_SIZE_IN_WORDS);
+    ((void **)aligned)[-1] = newbase;
+    bitset->words = (uint64_t *)aligned;
+}
+
+/* Defrag one container; returns the moved container pointer, or NULL if the
+ * container struct itself did not move (its payload may still have moved). */
+static container_t *bitmapObjectDefragContainer(container_t *container,
+                                                uint8_t type) {
+    void *moved;
+
+    if (container == NULL) return NULL;
+
+    if (type == SHARED_CONTAINER_TYPE) {
+        /* Shared containers exist only when CRoaring copy-on-write is in use,
+         * which Redis never enables; one could be referenced by another live
+         * bitmap, so relocating it from here would corrupt the other owner.
+         * Leave them alone. */
+        return NULL;
+    }
+
+    switch (type) {
+    case ARRAY_CONTAINER_TYPE: {
+        array_container_t *array = CAST_array(container);
+        uint16_t *values;
+        if ((moved = activeDefragAlloc(array)) != NULL)
+            array = (array_container_t *)moved;
+        if (array->array != NULL &&
+            (values = activeDefragAlloc(array->array)) != NULL)
+            array->array = values;
+        return (container_t *)moved;
+    }
+    case BITSET_CONTAINER_TYPE: {
+        bitset_container_t *bitset = CAST_bitset(container);
+        if ((moved = activeDefragAlloc(bitset)) != NULL)
+            bitset = (bitset_container_t *)moved;
+        bitmapObjectDefragBitsetWords(bitset);
+        return (container_t *)moved;
+    }
+    case RUN_CONTAINER_TYPE: {
+        run_container_t *run = CAST_run(container);
+        rle16_t *runs;
+        if ((moved = activeDefragAlloc(run)) != NULL)
+            run = (run_container_t *)moved;
+        if (run->runs != NULL &&
+            (runs = activeDefragAlloc(run->runs)) != NULL)
+            run->runs = runs;
+        return (container_t *)moved;
+    }
+    default:
+        serverPanic("Unknown roaring bitmap container type");
+    }
+}
+
+size_t bitmapObjectContainerCount(const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    return (size_t)bitmap->roaring->high_low_container.size;
+}
+
+/* Relocate the wrapper struct, roaring struct and container directory, and
+ * refresh o->ptr. Container payloads are handled separately so the walk can
+ * be split into incremental steps. */
+static roaring_array_t *bitmapObjectDefragTopLevel(robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o), *newbitmap;
+    roaring_bitmap_t *newroaring;
+    roaring_array_t *array;
+
+    if ((newbitmap = activeDefragAlloc(bitmap)) != NULL)
+        o->ptr = bitmap = newbitmap;
+    if ((newroaring = activeDefragAlloc(bitmap->roaring)) != NULL)
+        bitmap->roaring = newroaring;
+
+    array = &bitmap->roaring->high_low_container;
+    if (array->containers != NULL) {
+        container_t **newblock = activeDefragAlloc(array->containers);
+        if (newblock != NULL) {
+            /* containers, keys and typecodes share one allocation, laid out
+             * in that order (see CRoaring's realloc_array()). */
+            array->containers = newblock;
+            array->keys = (uint16_t *)(array->containers + array->allocation_size);
+            array->typecodes = (uint8_t *)(array->keys + array->allocation_size);
+        }
+    }
+    return array;
+}
+
+void defragBitmapObject(robj *o) {
+    roaring_array_t *array = bitmapObjectDefragTopLevel(o);
+    container_t *moved;
+
+    for (int32_t i = 0; i < array->size; i++) {
+        moved = bitmapObjectDefragContainer((container_t *)array->containers[i],
+                                            array->typecodes[i]);
+        if (moved != NULL) array->containers[i] = moved;
+    }
+}
+
+/* Incremental defrag step for bitmaps queued with defragLater(): 'cursor' is
+ * the next container index to process (0 also relocates the top-level
+ * allocations). Containers may shift between steps if the bitmap is written
+ * concurrently; that only makes the walk skip or revisit a few containers,
+ * which is harmless for defrag. Returns the new cursor, 0 when done. */
+unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor) {
+    roaring_array_t *array;
+    container_t *moved;
+    long iterations = 0;
+
+    if (cursor == 0)
+        array = bitmapObjectDefragTopLevel(o);
+    else
+        array = &getBitmapObject(o)->roaring->high_low_container;
+
+    while (cursor < (unsigned long)array->size) {
+        moved = bitmapObjectDefragContainer(
+            (container_t *)array->containers[cursor], array->typecodes[cursor]);
+        if (moved != NULL) array->containers[cursor] = moved;
+        cursor++;
+        if (++iterations >= 128) return cursor;
+    }
+    return 0;
 }
 
 size_t bitmapObjectCardinality(const robj *o) {
