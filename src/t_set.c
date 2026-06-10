@@ -1735,14 +1735,10 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* For approximate cardinality we accumulate into a temporary HLL object
-     * (standard sparse→dense encoding, same as PFADD) instead of a real set. */
-    if (approx_cardinality_only) {
-        hllobj = createHLLObject();
-    } else if (dstset_encoding == OBJ_ENCODING_INTSET) {
-        /* We need a temp set object to store our union/diff. If the dstkey
-         * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
-         * this set object will be the resulting object to set into the target key*/
+    /* We need a temp set object to store our union/diff. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
+     * this set object will be the resulting object to set into the target key*/
+    if (dstset_encoding == OBJ_ENCODING_INTSET) {
         dstset = createIntsetObject();
     } else {
         dstset = createSetObject();
@@ -1750,7 +1746,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to either the
-         * temporary set (exact) or a temporary HLL (approximate). */
+         * temporary set (exact) or, for approximate cardinality, a temporary
+         * HLL object (standard sparse→dense encoding, same as PFADD). */
+        if (approx_cardinality_only) hllobj = createHLLObject();
         int early_exit = 0;
         long elements_processed = 0;
         long check_after = limit; /* For approx: first check after `limit` elements. */
@@ -1861,12 +1859,13 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
-    if (approx_cardinality_only) {
-        uint64_t card = hllCount(hllobj->ptr, NULL);
-        if (limit > 0 && card > (uint64_t)limit) card = (uint64_t)limit;
-        addReplyLongLong(c, (long long)card);
-        decrRefCount(hllobj);
-    } else if (cardinality_only) {
+    if (cardinality_only) {
+        if (approx_cardinality_only) {
+            cardinality = hllCount(hllobj->ptr, NULL);
+            if (limit > 0 && cardinality > limit)
+                cardinality = limit;
+            decrRefCount(hllobj);
+        }
         addReplyLongLong(c, cardinality);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
