@@ -2445,7 +2445,7 @@ void copyCommand(client *c) {
             if (!newobj) return;
             break;
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
-        case OBJ_BITMAP: newobj = dupBitmapObject(o); break;
+        case OBJ_BITMAP: newobj = bitmapTypeDup(o); break;
         default:
             addReplyError(c, "unknown type object");
             return;

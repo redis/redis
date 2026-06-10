@@ -134,7 +134,7 @@ robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t le
     return o;
 }
 
-robj *dupBitmapObject(const robj *o) {
+robj *bitmapTypeDup(const robj *o) {
     bitmapObject *src = getBitmapObject(o);
     bitmapObject *dst = zmalloc(sizeof(*dst));
     dst->byte_len = src->byte_len;
