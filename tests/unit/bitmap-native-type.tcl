@@ -1,3 +1,5 @@
+set testmodule [file normalize tests/modules/misc.so]
+
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {native bitmap helper exposes type encoding and exact raw bytes} {
         set raw [binary format H* 80400100080000]
@@ -26,6 +28,50 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r type bitmap:copy-target] bitmap
         assert_equal [r object encoding bitmap:copy-target] bitmap-roaring
         assert_equal [r debug bitmap-raw bitmap:copy-target] $raw
+    }
+
+    test {native bitmap rejects generic string commands without materializing} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:string-boundary $raw
+        r debug bitmap-force-roaring bitmap:string-boundary
+
+        foreach command {
+            {get bitmap:string-boundary}
+            {getex bitmap:string-boundary}
+            {getdel bitmap:string-boundary}
+            {getset bitmap:string-boundary replacement}
+            {strlen bitmap:string-boundary}
+            {getrange bitmap:string-boundary 0 -1}
+            {setrange bitmap:string-boundary 0 x}
+            {append bitmap:string-boundary x}
+            {incr bitmap:string-boundary}
+            {decr bitmap:string-boundary}
+            {incrby bitmap:string-boundary 2}
+            {decrby bitmap:string-boundary 2}
+            {incrbyfloat bitmap:string-boundary 1.25}
+            {set bitmap:string-boundary replacement get}
+        } {
+            assert_error {WRONGTYPE*} {r {*}$command}
+            assert_equal bitmap [r type bitmap:string-boundary]
+            assert_equal bitmap-roaring [r object encoding bitmap:string-boundary]
+            assert_equal $raw [r debug bitmap-raw bitmap:string-boundary]
+        }
+    }
+
+    test {legacy string bitmaps keep normal string command behavior} {
+        set raw [binary format H* 8040]
+
+        r set bitmap:legacy-boundary $raw
+        assert_equal string [r type bitmap:legacy-boundary]
+        assert_equal $raw [r get bitmap:legacy-boundary]
+        assert_equal 2 [r strlen bitmap:legacy-boundary]
+        assert_equal 2 [r bitcount bitmap:legacy-boundary]
+        assert_equal 1 [r setbit bitmap:legacy-boundary 0 0]
+        assert_equal string [r type bitmap:legacy-boundary]
+        assert_equal [binary format H* 0040] [r get bitmap:legacy-boundary]
+        assert_equal 3 [r append bitmap:legacy-boundary x]
+        assert_equal [binary format H* 004078] [r get bitmap:legacy-boundary]
     }
 
     test {native bitmap dump restore and debug reload preserve bitmap objects} {
@@ -64,6 +110,29 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         assert_equal [s lazyfreed_objects] 1
     } {} {needs:config-resetstat}
+}
+
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:skip" "cluster:skip"}} {
+    r module load $testmodule
+
+    test {module key API exposes bitmap without string access} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:module-boundary $raw
+        r set bitmap:module-string $raw
+        r debug bitmap-force-roaring bitmap:module-boundary
+
+        assert_equal {bitmap 7 0 0} [r test.key_string_api bitmap:module-boundary]
+        assert_equal {string 7 1 1} [r test.key_string_api bitmap:module-string]
+        assert_equal bitmap [r type bitmap:module-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
+        assert_equal string [r type bitmap:module-string]
+        assert_equal $raw [r get bitmap:module-string]
+    }
+
+    test "Unload the module - misc" {
+        assert_equal {OK} [r module unload misc]
+    }
 }
 
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
