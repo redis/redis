@@ -58,6 +58,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitpos bitmap:native:read 0]
         assert_equal 9 [r bitpos bitmap:native:read 1 8 -1 bit]
         assert_equal {1 1 1} [r bitfield_ro bitmap:native:read GET u1 0 GET u1 9 GET u1 36]
+        assert_error {ERR BITFIELD_RO only supports the GET subcommand} {
+            r bitfield_ro bitmap:native:read SET u8 0 255
+        }
 
         assert_equal bitmap [r type bitmap:native:read]
         assert_equal bitmap-roaring [r object encoding bitmap:native:read]
