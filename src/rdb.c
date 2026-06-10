@@ -1563,13 +1563,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             }
         }
     } else if (o->type == OBJ_BITMAP) {
+        /* RDB_TYPE_BITMAP implies the Roaring portable payload; a future
+         * on-disk format change takes a new RDB type id, like the other core
+         * types, instead of an in-payload format discriminator. */
         sds payload = bitmapObjectSerialize(o);
-
-        if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_ROARING)) == -1) {
-            sdsfree(payload);
-            return -1;
-        }
-        nwritten += n;
 
         if ((n = rdbSaveLen(rdb, bitmapObjectLen(o))) == -1) {
             sdsfree(payload);
@@ -3906,15 +3903,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             arSet(ar, idx, v);
         }
     } else if (rdbtype == RDB_TYPE_BITMAP) {
-        uint64_t encoding, byte_len;
+        uint64_t byte_len;
         sds payload;
-
-        if ((encoding = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
-        if (encoding != RDB_BITMAP_ENCODING_ROARING) {
-            rdbReportCorruptRDB("Unknown bitmap RDB encoding %llu",
-                (unsigned long long)encoding);
-            return NULL;
-        }
 
         if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
         if (byte_len > SIZE_MAX) {
