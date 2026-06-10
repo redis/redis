@@ -3,22 +3,6 @@
 
 #include <roaring/memory.h>
 
-static void *bitmapRoaringMalloc(size_t size) {
-    return zmalloc(size);
-}
-
-static void *bitmapRoaringRealloc(void *ptr, size_t size) {
-    return zrealloc(ptr, size);
-}
-
-static void *bitmapRoaringCalloc(size_t nmemb, size_t size) {
-    return zcalloc_num(nmemb, size);
-}
-
-static void bitmapRoaringFree(void *ptr) {
-    zfree(ptr);
-}
-
 static int bitmapRoaringNormalizeAlignment(size_t *alignment) {
     size_t normalized;
 
@@ -61,10 +45,10 @@ static void bitmapRoaringAlignedFree(void *ptr) {
 
 void bitmapRoaringInit(void) {
     roaring_memory_t memory_hook = {
-        .malloc = bitmapRoaringMalloc,
-        .realloc = bitmapRoaringRealloc,
-        .calloc = bitmapRoaringCalloc,
-        .free = bitmapRoaringFree,
+        .malloc = zmalloc,
+        .realloc = zrealloc,
+        .calloc = zcalloc_num,
+        .free = zfree,
         .aligned_malloc = bitmapRoaringAlignedMalloc,
         .aligned_free = bitmapRoaringAlignedFree,
     };
