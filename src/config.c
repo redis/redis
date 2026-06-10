@@ -3211,6 +3211,8 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("bitmap-roaring-enabled", NULL, MODIFIABLE_CONFIG, server.bitmap_roaring_enabled, 0, NULL, NULL),
+    createBoolConfig("bitmap-roaring-auto-convert", NULL, MODIFIABLE_CONFIG, server.bitmap_roaring_auto_convert, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -3358,6 +3360,8 @@ standardConfig static_configs[] = {
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
     createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
+    createSizeTConfig("bitmap-roaring-min-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.bitmap_roaring_min_bytes, 1024*1024, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("bitmap-roaring-min-saving", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.bitmap_roaring_min_saving, 4096, MEMORY_CONFIG, NULL, NULL),
     createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, MEMORY_CONFIG | PERCENT_CONFIG, NULL, applyClientMaxMemoryUsage),
 
     /* Other configs */

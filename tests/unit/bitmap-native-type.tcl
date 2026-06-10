@@ -1,6 +1,94 @@
 set testmodule [file normalize tests/modules/misc.so]
+set ::sparse_public_offset 65536
+set ::sparse_public_len 8193
+
+proc configure_native_bitmap_creation {{auto no} {minbytes 1} {minsaving 0}} {
+    r config set bitmap-roaring-enabled yes
+    r config set bitmap-roaring-auto-convert $auto
+    r config set bitmap-roaring-min-bytes $minbytes
+    r config set bitmap-roaring-min-saving $minsaving
+}
 
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
+    test {native bitmap creation configs default to opt-in behavior} {
+        assert_equal no [lindex [r config get bitmap-roaring-enabled] 1]
+        assert_equal no [lindex [r config get bitmap-roaring-auto-convert] 1]
+    }
+
+    test {SETBIT keeps creating strings when native bitmap creation is disabled} {
+        configure_native_bitmap_creation no 1 0
+        r config set bitmap-roaring-enabled no
+
+        assert_equal 0 [r setbit bitmap:public:disabled $::sparse_public_offset 1]
+        assert_equal string [r type bitmap:public:disabled]
+        assert_equal $::sparse_public_len [r strlen bitmap:public:disabled]
+        assert_equal 1 [r getbit bitmap:public:disabled $::sparse_public_offset]
+    }
+
+    test {SETBIT creates native bitmap for eligible missing sparse keys} {
+        configure_native_bitmap_creation no 1 0
+
+        assert_equal 0 [r setbit bitmap:public:create $::sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap:public:create]
+        assert_equal bitmap-roaring [r object encoding bitmap:public:create]
+        assert_equal 1 [r getbit bitmap:public:create $::sparse_public_offset]
+        assert_equal 1 [r bitcount bitmap:public:create]
+        assert_equal $::sparse_public_len [string length [r debug bitmap-raw bitmap:public:create]]
+        assert_error {WRONGTYPE*} {r get bitmap:public:create}
+    }
+
+    test {native bitmap creation respects byte and saving thresholds} {
+        r del bitmap:public:min-bytes bitmap:public:min-saving
+
+        configure_native_bitmap_creation no 100 0
+        assert_equal 0 [r setbit bitmap:public:min-bytes 80 1]
+        assert_equal string [r type bitmap:public:min-bytes]
+        assert_equal 11 [r strlen bitmap:public:min-bytes]
+
+        configure_native_bitmap_creation no 1 100000
+        assert_equal 0 [r setbit bitmap:public:min-saving $::sparse_public_offset 1]
+        assert_equal string [r type bitmap:public:min-saving]
+        assert_equal $::sparse_public_len [r strlen bitmap:public:min-saving]
+    }
+
+    test {auto-convert defaults off for existing string bitmaps} {
+        configure_native_bitmap_creation no 1 0
+
+        r set bitmap:public:auto-off ""
+        assert_equal 0 [r setbit bitmap:public:auto-off $::sparse_public_offset 1]
+        assert_equal string [r type bitmap:public:auto-off]
+        assert_equal $::sparse_public_len [r strlen bitmap:public:auto-off]
+    }
+
+    test {auto-convert opt-in converts growing string bitmaps and keeps TTL} {
+        configure_native_bitmap_creation yes 1 0
+
+        r set bitmap:public:auto-on ""
+        r pexpire bitmap:public:auto-on 60000
+        assert_equal 0 [r setbit bitmap:public:auto-on $::sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap:public:auto-on]
+        assert_equal bitmap-roaring [r object encoding bitmap:public:auto-on]
+        assert_equal 1 [r getbit bitmap:public:auto-on $::sparse_public_offset]
+        assert {[r pttl bitmap:public:auto-on] > 0}
+    }
+
+    test {public native bitmaps cover the bitmap command surface} {
+        configure_native_bitmap_creation no 1 0
+
+        assert_equal 0 [r setbit bitmap:public:commands $::sparse_public_offset 1]
+        assert_equal 1 [r getbit bitmap:public:commands $::sparse_public_offset]
+        assert_equal 1 [r bitcount bitmap:public:commands]
+        assert_equal $::sparse_public_offset [r bitpos bitmap:public:commands 1]
+        assert_equal [list 1] [r bitfield_ro bitmap:public:commands GET u1 $::sparse_public_offset]
+
+        set next_offset [expr {$::sparse_public_offset + 1}]
+        assert_equal [list 0] [r bitfield bitmap:public:commands SET u1 $next_offset 1]
+        assert_equal bitmap [r type bitmap:public:commands]
+        assert_equal 2 [r bitcount bitmap:public:commands]
+        assert_equal $::sparse_public_len [r bitop or bitmap:public:commands:copy bitmap:public:commands]
+        assert_equal string [r type bitmap:public:commands:copy]
+    }
+
     test {native bitmap helper exposes type encoding and exact raw bytes} {
         set raw [binary format H* 80400100080000]
 
@@ -93,6 +181,23 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r type bitmap:restored] bitmap
         assert_equal [r debug bitmap-raw bitmap:restored] $raw
     }
+
+    test {public-created native bitmaps survive debug reload} {
+        configure_native_bitmap_creation yes 1 0
+
+        r setbit bitmap:public:reload:direct $::sparse_public_offset 1
+        r set bitmap:public:reload:auto ""
+        r setbit bitmap:public:reload:auto $::sparse_public_offset 1
+        set digest_before [debug_digest]
+
+        r debug reload
+
+        assert_equal [debug_digest] $digest_before
+        assert_equal bitmap [r type bitmap:public:reload:direct]
+        assert_equal bitmap [r type bitmap:public:reload:auto]
+        assert_equal 1 [r getbit bitmap:public:reload:direct $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:reload:auto $::sparse_public_offset]
+    }
 }
 
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:skip" "cluster:skip"}} {
@@ -138,5 +243,64 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         assert_equal [r type bitmap:aof] bitmap
         assert_equal [r object encoding bitmap:aof] bitmap-roaring
         assert_equal [r debug bitmap-raw bitmap:aof] $raw
+    }
+
+    test {public-created native bitmaps survive AOF rewrite as bitmap} {
+        r flushall
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        configure_native_bitmap_creation yes 1 0
+
+        r setbit bitmap:public:aof:direct $::sparse_public_offset 1
+        r set bitmap:public:aof:auto ""
+        r setbit bitmap:public:aof:auto $::sparse_public_offset 1
+        set digest_before [debug_digest]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        assert_equal [debug_digest] $digest_before
+        assert_equal bitmap [r type bitmap:public:aof:direct]
+        assert_equal bitmap [r type bitmap:public:aof:auto]
+        assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
+    }
+}
+
+start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+
+        test {native bitmap public creation replicates deterministic type transitions} {
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+
+            $master config set bitmap-roaring-enabled yes
+            $master config set bitmap-roaring-auto-convert yes
+            $master config set bitmap-roaring-min-bytes 1
+            $master config set bitmap-roaring-min-saving 0
+            $replica config set bitmap-roaring-enabled no
+            $replica config set bitmap-roaring-auto-convert no
+
+            $master setbit bitmap:public:repl:direct $::sparse_public_offset 1
+            $master set bitmap:public:repl:auto ""
+            $master setbit bitmap:public:repl:auto $::sparse_public_offset 1
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
+            assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
+            assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
+        }
     }
 }

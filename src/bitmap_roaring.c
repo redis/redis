@@ -335,6 +335,11 @@ sds bitmapObjectMaterialize(const robj *o) {
     return raw;
 }
 
+size_t bitmapObjectSerializedSize(const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    return roaring_bitmap_portable_size_in_bytes(bitmap->roaring);
+}
+
 sds bitmapObjectSerialize(const robj *o) {
     bitmapObject *bitmap = getBitmapObject(o);
     size_t len = roaring_bitmap_portable_size_in_bytes(bitmap->roaring);
