@@ -2427,6 +2427,10 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
+    int bitmap_roaring_enabled;     /* Allow public commands to create native Roaring bitmaps. */
+    int bitmap_roaring_auto_convert;/* Convert eligible string bitmaps after bitmap writes. */
+    size_t bitmap_roaring_min_bytes; /* Minimum logical byte length for Roaring selection. */
+    size_t bitmap_roaring_min_saving;/* Minimum serialized byte saving for Roaring selection. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */
