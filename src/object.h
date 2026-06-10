@@ -168,7 +168,7 @@ robj *createModuleObject(struct RedisModuleType *mt, void *value);
 robj *createArrayObject(void);
 robj *createBitmapObject(void);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
-robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len);
+robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len, int deep_validate);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
 size_t bitmapObjectLen(const robj *o);
