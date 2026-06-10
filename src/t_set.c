@@ -24,10 +24,18 @@
  * number of additional elements to process between two hllCount() checks. */
 #define HLL_CHECK_INTERVAL_FLOOR 1024
 
+/* Compute the UNION or DIFF (per 'op') of the 'setnum' sets named in 'setkeys'.
+ *   dstkey          - if non-NULL, store the result into this key (…STORE) and
+ *                     reply with its cardinality; otherwise reply to the client.
+ *   cardinality_only - reply only with the result cardinality (SUNIONCARD),
+ *                      without materializing the elements to the client.
+ *   approx           - with cardinality_only, return an approximate cardinality
+ *                      computed with a HyperLogLog (UNION only).
+ *   limit            - with cardinality_only, stop once the cardinality reaches
+ *                      'limit' (0 means no limit). */
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op,
-                              int cardinality_only, long limit,
-                              int approx_cardinality_only);
+                              int cardinality_only, int approx, long limit);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a listpack
@@ -1641,12 +1649,11 @@ void sinterstoreCommand(client *c) {
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op,
-                              int cardinality_only, long limit,
-                              int approx_cardinality_only)
+                              int cardinality_only, int approx, long limit)
 {
     /* Approximate cardinality is only ever requested for SUNIONCARD, i.e. a
      * non-storing UNION that returns a count. */
-    serverAssert(!approx_cardinality_only ||
+    serverAssert(!approx ||
                  (op == SET_OP_UNION && cardinality_only && dstkey == NULL));
 
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
@@ -1748,7 +1755,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         /* Union is trivial, just add every element of every set to either the
          * temporary set (exact) or, for approximate cardinality, a temporary
          * HLL object (standard sparse→dense encoding, same as PFADD). */
-        if (approx_cardinality_only) hllobj = createHLLObject();
+        if (approx) hllobj = createHLLObject();
         int early_exit = 0;
         long elements_processed = 0;
         long check_after = limit; /* For approx: first check after `limit` elements. */
@@ -1757,7 +1764,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
-                if (!approx_cardinality_only) {
+                if (!approx) {
                     cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
                     if (cardinality_only && limit > 0 && cardinality >= limit) {
                         early_exit = 1;
@@ -1860,7 +1867,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     /* Output the content of the resulting set, if not in STORE mode */
     if (cardinality_only) {
-        if (approx_cardinality_only) {
+        if (approx) {
             cardinality = hllCount(hllobj->ptr, NULL);
             if (limit > 0 && cardinality > limit)
                 cardinality = limit;
@@ -1944,7 +1951,7 @@ void sunioncardCommand(client *c) {
     /* Both the exact and approximate (HLL) cardinality are computed by the
      * generic union function; `approx` selects between them. */
     sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
-                             SET_OP_UNION, 1, limit, approx);
+                             SET_OP_UNION, 1, approx, limit);
 }
 
 /* SUNIONSTORE destination key [key ...] */
