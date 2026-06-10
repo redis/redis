@@ -539,9 +539,7 @@ void _addReplySegmentsToBufferOrList(client *c, const replySegment *seg, int nse
         return;
     }
 
-    size_t total = 0;
-    for (int i = 0; i < nseg; i++) total += seg[i].len;
-    c->net_output_bytes_curr_cmd += total;
+    for (int i = 0; i < nseg; i++) c->net_output_bytes_curr_cmd += seg[i].len;
     /* We call it here because this may affect the reply buffer offset (see the
      * reqres function comment); it is idempotent per request. */
     reqresSaveClientReplyOffset(c);
