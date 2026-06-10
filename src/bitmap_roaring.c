@@ -1,6 +1,10 @@
 #include "server.h"
 #include "bitmap_roaring.h"
 
+#include <roaring/containers/array.h>
+#include <roaring/containers/bitset.h>
+#include <roaring/containers/containers.h>
+#include <roaring/containers/run.h>
 #include <roaring/memory.h>
 #include <roaring/roaring.h>
 
@@ -55,6 +59,11 @@ static void *bitmapRoaringAlignedMalloc(size_t alignment, size_t size) {
 static void bitmapRoaringAlignedFree(void *ptr) {
     if (ptr == NULL) return;
     zfree(((void **)ptr)[-1]);
+}
+
+static size_t bitmapRoaringAlignedAllocSize(void *ptr) {
+    if (ptr == NULL) return 0;
+    return zmalloc_size(((void **)ptr)[-1]);
 }
 
 void bitmapRoaringInit(void) {
@@ -146,10 +155,49 @@ size_t bitmapObjectLen(const robj *o) {
     return getBitmapObject(o)->byte_len;
 }
 
+static size_t bitmapObjectContainerAllocSize(container_t *container, uint8_t type) {
+    if (container == NULL) return 0;
+
+    if (type == SHARED_CONTAINER_TYPE) {
+        shared_container_t *shared = CAST_shared(container);
+        return zmalloc_size(shared) +
+               bitmapObjectContainerAllocSize(shared->container, shared->typecode);
+    }
+
+    switch (type) {
+    case ARRAY_CONTAINER_TYPE: {
+        array_container_t *array = CAST_array(container);
+        return zmalloc_size(array) +
+               (array->array ? zmalloc_size(array->array) : 0);
+    }
+    case BITSET_CONTAINER_TYPE: {
+        bitset_container_t *bitset = CAST_bitset(container);
+        return zmalloc_size(bitset) +
+               bitmapRoaringAlignedAllocSize(bitset->words);
+    }
+    case RUN_CONTAINER_TYPE: {
+        run_container_t *run = CAST_run(container);
+        return zmalloc_size(run) +
+               (run->runs ? zmalloc_size(run->runs) : 0);
+    }
+    default:
+        serverPanic("Unknown roaring bitmap container type");
+    }
+}
+
 size_t bitmapObjectAllocSize(const robj *o) {
     bitmapObject *bitmap = getBitmapObject(o);
-    return zmalloc_size(bitmap) +
-           roaring_bitmap_portable_size_in_bytes(bitmap->roaring);
+    roaring_array_t *array = &bitmap->roaring->high_low_container;
+    size_t size = zmalloc_size(bitmap) + zmalloc_size(bitmap->roaring);
+
+    if (array->containers != NULL) size += zmalloc_size(array->containers);
+
+    for (int32_t i = 0; i < array->size; i++) {
+        size += bitmapObjectContainerAllocSize(
+            (container_t *)array->containers[i], array->typecodes[i]);
+    }
+
+    return size;
 }
 
 size_t bitmapObjectCardinality(const robj *o) {
