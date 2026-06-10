@@ -111,11 +111,23 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     return o;
 }
 
-robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len) {
+robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len, int deep_validate) {
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
     roaring_bitmap_t *roaring = roaring_bitmap_portable_deserialize_safe(buf, len);
     if (roaring == NULL) return NULL;
+
+    /* The safe deserializer bounds the reads but does not verify structural
+     * invariants (sorted array containers, sorted non-overlapping runs);
+     * CRoaring documents bitmaps from untrusted input as unsafe to use until
+     * roaring_bitmap_internal_validate passes. */
+    if (deep_validate) {
+        const char *reason = NULL;
+        if (!roaring_bitmap_internal_validate(roaring, &reason)) {
+            roaring_bitmap_free(roaring);
+            return NULL;
+        }
+    }
 
     if (roaring_bitmap_get_cardinality(roaring) != 0) {
         uint32_t max = roaring_bitmap_maximum(roaring);
