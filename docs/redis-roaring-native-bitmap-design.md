@@ -3,9 +3,11 @@
 This document captures the Step 1 design baseline for adding Roaring
 compression as part of a native Redis bitmap value type. Step numbers refer to
 the plan phases in `docs/redis-roaring-pr-breakdown.md` (numbered Step 0-10;
-GitHub PR numbers in this fork are offset by one from plan phases). Step 1
-intentionally adds no command or storage behavior changes; it documents the
-expected semantics and adds oracle tests that later steps can reuse.
+GitHub PR numbers in this fork drift from plan phases because issues and pull
+requests share one number counter - see the breakdown document for the current
+mapping). Step 1 intentionally adds no command or storage behavior changes; it
+documents the expected semantics and adds oracle tests that later steps can
+reuse.
 
 ## Goals
 
@@ -130,7 +132,12 @@ stress:
   an in-payload flags byte.
 - Which commands, if any, should offer explicit native bitmap to string
   materialization? Generic string commands should not silently materialize by
-  default.
+  default. Decided in Step 5: no dedicated conversion command. `BITOP` already
+  provides an explicit, copying escape hatch because `BITOP` destinations are
+  always stored as plain strings, and plain `SET` overwrites a native bitmap
+  key with a string like any other type. Generic string commands keep
+  returning `WRONGTYPE`. Revisit only if upstream review asks for a dedicated
+  command.
 - What is the RDB opcode and AOF rewrite representation for compressed native
   bitmaps, and which PR lands it before public creation?
 - Should replication send native bitmap payloads directly, or should it use a
