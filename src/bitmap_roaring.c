@@ -56,14 +56,19 @@ static void *bitmapRoaringAlignedMalloc(size_t alignment, size_t size) {
     return (void *)aligned;
 }
 
+static void *bitmapRoaringAlignedAllocBase(void *ptr) {
+    if (ptr == NULL) return NULL;
+    return ((void **)ptr)[-1];
+}
+
 static void bitmapRoaringAlignedFree(void *ptr) {
     if (ptr == NULL) return;
-    zfree(((void **)ptr)[-1]);
+    zfree(bitmapRoaringAlignedAllocBase(ptr));
 }
 
 static size_t bitmapRoaringAlignedAllocSize(void *ptr) {
     if (ptr == NULL) return 0;
-    return zmalloc_size(((void **)ptr)[-1]);
+    return zmalloc_size(bitmapRoaringAlignedAllocBase(ptr));
 }
 
 void bitmapRoaringInit(void) {
@@ -210,6 +215,60 @@ size_t bitmapObjectAllocSize(const robj *o) {
     }
 
     return size;
+}
+
+static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
+    if (container == NULL) return;
+
+    if (type == SHARED_CONTAINER_TYPE) {
+        shared_container_t *shared = CAST_shared(container);
+        bitmapObjectDismissContainer(shared->container, shared->typecode);
+        dismissMemory(shared, sizeof(*shared));
+        return;
+    }
+
+    switch (type) {
+    case ARRAY_CONTAINER_TYPE: {
+        array_container_t *array = CAST_array(container);
+        dismissMemory(array->array,
+                      (size_t)array->capacity * sizeof(*array->array));
+        dismissMemory(array, sizeof(*array));
+        break;
+    }
+    case BITSET_CONTAINER_TYPE: {
+        bitset_container_t *bitset = CAST_bitset(container);
+        dismissMemory(bitmapRoaringAlignedAllocBase(bitset->words), 0);
+        dismissMemory(bitset, sizeof(*bitset));
+        break;
+    }
+    case RUN_CONTAINER_TYPE: {
+        run_container_t *run = CAST_run(container);
+        dismissMemory(run->runs, (size_t)run->capacity * sizeof(*run->runs));
+        dismissMemory(run, sizeof(*run));
+        break;
+    }
+    default:
+        serverPanic("Unknown roaring bitmap container type");
+    }
+}
+
+void dismissBitmapObject(robj *o, size_t size_hint) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    roaring_array_t *array = &bitmap->roaring->high_low_container;
+
+    UNUSED(size_hint);
+
+    for (int32_t i = 0; i < array->size; i++) {
+        bitmapObjectDismissContainer(
+            (container_t *)array->containers[i], array->typecodes[i]);
+    }
+
+    dismissMemory(array->containers,
+                  (size_t)array->allocation_size *
+                      (sizeof(*array->containers) + sizeof(*array->keys) +
+                       sizeof(*array->typecodes)));
+    dismissMemory(bitmap->roaring, sizeof(*bitmap->roaring));
+    dismissMemory(bitmap, sizeof(*bitmap));
 }
 
 size_t bitmapObjectCardinality(const robj *o) {
