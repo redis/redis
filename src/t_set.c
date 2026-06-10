@@ -123,9 +123,8 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
              * If not, add it to the listpack,
              * else return 0. */
             unsigned char *lp = set->ptr;
-            unsigned char *p = lpFirst(lp);
-            if (p != NULL)
-                p = lpFindInteger(lp, p, llval, 0);
+            unsigned char *p = NULL;
+            p = lpFindInteger(lp, p, llval, 0);
             if (p != NULL) {
                 /* Already a member. */
                 return 0;

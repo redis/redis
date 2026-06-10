@@ -938,10 +938,10 @@ static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p,
                                    void *user, unsigned char *value, long long ll) {
     (void) lp;
     (void) p;
-    int64_t vll = *(int64_t *) user;                                
+    int64_t vll = *(int64_t *) user;
 
     if (value == NULL) {
-        if(ll == vll) return 0;
+        if (ll == vll) return 0;
     }
     return 1;
 }
