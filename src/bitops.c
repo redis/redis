@@ -916,6 +916,16 @@ static robj *tryCreateRoaringBitmapForSetBit(client *c, uint64_t bitoffset,
     return bitmap;
 }
 
+/* True when some power of two p satisfies oldlen < p <= newlen. */
+static int sizeCrossedPowerOfTwo(size_t oldlen, size_t newlen) {
+    size_t p = 1;
+    while (p <= oldlen) {
+        if (p > SIZE_MAX / 2) return 0;
+        p <<= 1;
+    }
+    return p <= newlen;
+}
+
 static int tryConvertStringBitmapAfterSetBit(client *c, robj **oref,
                                              int created, size_t strGrowSize)
 {
@@ -928,6 +938,17 @@ static int tryConvertStringBitmapAfterSetBit(client *c, robj **oref,
 
     size_t len = sdslen(o->ptr);
     if (len < server.bitmap_roaring_min_bytes) return 0;
+
+    /* Amortize conversion attempts: the trial encode below is O(len), so a
+     * dense bitmap growing one write at a time must not pay it on every
+     * growing write. Attempt when the key first reaches min-bytes
+     * eligibility, then again only when the logical length crosses a power
+     * of two, which keeps the total trial work linear in the final length
+     * over a key's growth. */
+    size_t oldlen = len - strGrowSize;
+    if (oldlen >= server.bitmap_roaring_min_bytes &&
+        !sizeCrossedPowerOfTwo(oldlen, len))
+        return 0;
 
     robj *bitmap = createBitmapObjectFromString(o->ptr, len);
     if (bitmap == NULL) return 0;
@@ -1021,7 +1042,10 @@ void setbitCommand(client *c) {
         robj *created_bitmap = tryCreateRoaringBitmapForSetBit(c, bitoffset,
                                                                on);
         if (created_bitmap != NULL) {
-            kvobj *created = dbAdd(c->db, c->argv[1], &created_bitmap);
+            /* The link from the lookup above is still valid: building the
+             * trial bitmap never touches the keyspace dict. */
+            dbAddByLink(c->db, c->argv[1], &created_bitmap, &link);
+            kvobj *created = created_bitmap;
             keyModified(c,c->db,c->argv[1],created,1);
             notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
             server.dirty++;
