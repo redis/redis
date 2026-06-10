@@ -1172,10 +1172,13 @@ test {corrupt payload: bitmap with unsorted array container} {
     # are reversed to {9,5,1}. That stays within deserialization bounds but
     # violates the sorted-array invariant, so only deep sanitization
     # (roaring_bitmap_internal_validate) rejects it.
+    # Payload layout: type byte 0x1e (RDB_TYPE_BITMAP), logical byte length,
+    # string-encoded Roaring portable blob, 2-byte RDB version, 8-byte CRC
+    # (stale here; checksum validation is skipped above).
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
-        set valid_payload    [binary format H* 1e0102163a3000000100000000000200100000000100050009000f00d99cd8753e567cc5]
-        set unsorted_payload [binary format H* 1e0102163a3000000100000000000200100000000900050001000f00d99cd8753e567cc5]
+        set valid_payload    [binary format H* 1e02163a3000000100000000000200100000000100050009000f00d99cd8753e567cc5]
+        set unsorted_payload [binary format H* 1e02163a3000000100000000000200100000000900050001000f00d99cd8753e567cc5]
 
         r config set sanitize-dump-payload yes
         r restore bitmap:valid 0 $valid_payload
