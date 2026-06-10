@@ -1,16 +1,18 @@
 # Redis Roaring Native Bitmap Design Notes
 
-This document captures the PR1 design baseline for adding Roaring compression as
-part of a native Redis bitmap value type. PR1 intentionally adds no command or
-storage behavior changes; it documents the expected semantics and adds oracle
-tests that later PRs can reuse.
+This document captures the Step 1 design baseline for adding Roaring
+compression as part of a native Redis bitmap value type. Step numbers refer to
+the plan phases in `docs/redis-roaring-pr-breakdown.md` (numbered Step 0-10;
+GitHub PR numbers in this fork are offset by one from plan phases). Step 1
+intentionally adds no command or storage behavior changes; it documents the
+expected semantics and adds oracle tests that later steps can reuse.
 
 ## Goals
 
 - Keep the existing Redis bitmap command surface: `SETBIT`, `GETBIT`,
   `BITCOUNT`, `BITPOS`, `BITOP`, `BITFIELD`, and `BITFIELD_RO`.
-- Add a native `OBJ_BITMAP` type in later PRs for values that opt in to bitmap
-  conversion.
+- Add a native `OBJ_BITMAP` type in later steps for values that opt in to
+  bitmap conversion.
 - Allow native bitmap values to use a Roaring-backed internal encoding.
 - Preserve all existing behavior for legacy bitmap values that remain
   `OBJ_STRING`.
@@ -21,10 +23,10 @@ tests that later PRs can reuse.
 
 ## Non-Goals
 
-- PR1 does not vendor CRoaring.
-- PR1 does not add `OBJ_BITMAP`, new encodings, configs, RDB/AOF formats, or
+- Step 1 does not vendor CRoaring.
+- Step 1 does not add `OBJ_BITMAP`, new encodings, configs, RDB/AOF formats, or
   command handlers.
-- PR1 does not enable public commands to create native bitmap values. Public
+- Step 1 does not enable public commands to create native bitmap values. Public
   creation must wait until persistence, introspection, active defrag, and bitmap
   command coverage are already in place.
 - Redis core does not import legacy redis-roaring module RDB payloads. Migration
@@ -45,19 +47,19 @@ is explicitly allowed to become a native bitmap.
 
 ## Behavior Matrix
 
-| Operation class | Legacy `OBJ_STRING` bitmap | Native `OBJ_BITMAP` target behavior | First implementation PR |
+| Operation class | Legacy `OBJ_STRING` bitmap | Native `OBJ_BITMAP` target behavior | First implementation step |
 | --- | --- | --- | --- |
-| `TYPE` | Returns `string`. | Returns `bitmap`. | PR3 |
-| `OBJECT ENCODING` | Existing string encodings. | Bitmap encoding name, such as `bitmap-roaring`. | PR3 |
-| `SETBIT` / `GETBIT` | Existing Redis behavior. | Same bitmap-observable behavior. | PR4 |
-| `BITCOUNT` / `BITPOS` | Existing Redis behavior. | Same bitmap-observable behavior, initially via fallback if needed. | PR4 / PR6 |
-| `BITFIELD` / `BITFIELD_RO` | Existing Redis behavior. | Same bitmap-observable behavior, initially via fallback if needed. | PR4 / PR8 |
-| `BITOP` | Existing Redis behavior. | Accept mixed legacy/native sources, initially via fallback if needed. | PR4 / PR9 |
-| `GET`, `APPEND`, `SETRANGE`, `GETRANGE`, `STRLEN` | Existing string behavior. | `WRONGTYPE`, unless a command explicitly gains bitmap support. | PR7 |
-| RDB / AOF / replication | Existing string persistence. | Native bitmap persistence before public creation. | PR3 |
-| `DUMP` / `RESTORE` | Existing string payloads. | Native bitmap payload behavior before public creation. | PR3 |
-| `TYPE`, `SCAN ... TYPE`, `COPY` | Existing string behavior. | Explicit bitmap type handling before public creation. | PR3 |
-| Modules observing Redis types | Existing string behavior. | Explicit module API/type handling before public creation. | PR3 / PR7 |
+| `TYPE` | Returns `string`. | Returns `bitmap`. | Step 3 |
+| `OBJECT ENCODING` | Existing string encodings. | Bitmap encoding name, such as `bitmap-roaring`. | Step 3 |
+| `SETBIT` / `GETBIT` | Existing Redis behavior. | Same bitmap-observable behavior. | Step 4 |
+| `BITCOUNT` / `BITPOS` | Existing Redis behavior. | Same bitmap-observable behavior, initially via fallback if needed. | Step 4 / Step 7 |
+| `BITFIELD` / `BITFIELD_RO` | Existing Redis behavior. | Same bitmap-observable behavior, initially via fallback if needed. | Step 4 / Step 8 |
+| `BITOP` | Existing Redis behavior. | Accept mixed legacy/native sources, initially via fallback if needed. | Step 4 / Step 9 |
+| `GET`, `APPEND`, `SETRANGE`, `GETRANGE`, `STRLEN` | Existing string behavior. | `WRONGTYPE`, unless a command explicitly gains bitmap support. | Step 5 |
+| RDB / AOF / replication | Existing string persistence. | Native bitmap persistence before public creation. | Step 3 |
+| `DUMP` / `RESTORE` | Existing string payloads. | Native bitmap payload behavior before public creation. | Step 3 |
+| `TYPE`, `SCAN ... TYPE`, `COPY` | Existing string behavior. | Explicit bitmap type handling before public creation. | Step 3 |
+| Modules observing Redis types | Existing string behavior. | Explicit module API/type handling before public creation. | Step 3 / Step 5 |
 
 ## Native Bitmap Exposure Gate
 
@@ -73,13 +75,23 @@ Required before public creation or auto-conversion:
 - Free, copy, memory usage, and active defrag handling for bitmap objects.
 - Direct or materialization fallback support for every existing bitmap command
   that can observe a key Redis created itself.
+- Type transitions (creation and conversion) propagate explicitly and
+  deterministically to replicas and AOF. Conversion decisions must be pure
+  functions of replicated logical state (logical byte length, cardinality);
+  replicas never re-derive type decisions from local config, allocator
+  measurements such as `zmalloc_size()`, or build differences.
+
+The gate also carries a test bar (legacy-string oracle parity, conversion
+invariants, save/load + replication + AOF round-trips, corrupt-`RESTORE`
+coverage) and a performance bar (no unbounded event-loop stalls from
+materialization fallbacks or conversion-eligibility checks).
 
 Until this gate is satisfied, native bitmap values should be reachable only by
 test-only helpers or internal fixtures that also exercise these safety paths.
 
 ## Encoding Selection Sketch
 
-Later PRs should keep the first configuration surface small and high-signal:
+Later steps should keep the first configuration surface small and high-signal:
 
 - `bitmap-roaring-enabled`
 - optional `bitmap-roaring-auto-convert`
@@ -88,14 +100,17 @@ Later PRs should keep the first configuration surface small and high-signal:
 
 The selected thresholds should be justified with benchmark data before they are
 made default behavior. Native conversion should be opt-in and should remain
-disabled until the exposure gate is satisfied.
+disabled until the exposure gate is satisfied. Defaults shipped before the
+Step 10 benchmark report exist only as provisional values, and
+`bitmap-roaring-auto-convert` stays `no` until that report exists and the
+Step 0 auto-convert question is answered upstream.
 
 ## Oracle Test Strategy
 
-PR1 adds a legacy-string oracle harness under `tests/support`. Today the harness
-has only one active mode, `legacy-string`, because no native bitmap type exists
-yet. Later PRs can add a native mode to the same harness and compare
-bitmap-observable command results across both modes.
+Step 1 adds a legacy-string oracle harness under `tests/support`. Today the
+harness has only one active mode, `legacy-string`, because no native bitmap
+type exists yet. Later steps can add a native mode to the same harness and
+compare bitmap-observable command results across both modes.
 
 The initial corpus focuses on cases redis-roaring-style implementations commonly
 stress:
@@ -108,14 +123,21 @@ stress:
 ## Open Questions
 
 - Should native Redis bitmaps keep Redis string bitmap offset limits, or should
-  the new type introduce a documented 64-bit bitmap index model?
+  the new type introduce a documented 64-bit bitmap index model? This decision
+  is owned by Step 1 and must be answered before the Step 3 RDB payload and
+  object type id are submitted upstream; a later 64-bit variant would take a
+  new RDB type id (for example `RDB_TYPE_BITMAP_64`) per core convention, not
+  an in-payload flags byte.
 - Which commands, if any, should offer explicit native bitmap to string
   materialization? Generic string commands should not silently materialize by
   default.
 - What is the RDB opcode and AOF rewrite representation for compressed native
   bitmaps, and which PR lands it before public creation?
 - Should replication send native bitmap payloads directly, or should it use a
-  command sequence until the persistence format is stable?
+  command sequence until the persistence format is stable? Whatever the
+  mechanism, type-transition decisions must be pure functions of replicated
+  logical state and propagate explicitly (see the exposure gate); replicas
+  must never re-derive them from local config or allocator state.
 - What debug or test-only hook should force native bitmap conversion without
   exposing production-only command surface area?
 - Which Redis module APIs need a new bitmap type contract, and which should
