@@ -200,15 +200,30 @@ size_t bitmapObjectAllocSize(const robj *o) {
     return size;
 }
 
-size_t bitmapObjectCardinality(const robj *o) {
+uint64_t bitmapObjectCardinality(const robj *o) {
     bitmapObject *bitmap = getBitmapObject(o);
-    return (size_t)roaring_bitmap_get_cardinality(bitmap->roaring);
+    return roaring_bitmap_get_cardinality(bitmap->roaring);
+}
+
+uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
+                                      uint64_t end)
+{
+    bitmapObject *bitmap = getBitmapObject(o);
+    uint64_t bit_len = (uint64_t)bitmap->byte_len << 3;
+
+    if (start >= end || start >= bit_len) return 0;
+    if (end > bit_len) end = bit_len;
+    return roaring_bitmap_range_cardinality(bitmap->roaring, start, end);
+}
+
+int bitmapObjectCanRepresentBit(uint64_t bitoffset) {
+    return bitoffset <= UINT32_MAX;
 }
 
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset) {
     bitmapObject *bitmap = getBitmapObject(o);
 
-    if (bitoffset > UINT32_MAX) return 0;
+    if (!bitmapObjectCanRepresentBit(bitoffset)) return 0;
     if ((bitoffset >> 3) >= bitmap->byte_len) return 0;
     return roaring_bitmap_contains(bitmap->roaring, (uint32_t)bitoffset);
 }
@@ -217,7 +232,8 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     bitmapObject *bitmap = getBitmapObject(o);
     size_t byte = bitoffset >> 3;
 
-    if (bitoffset > UINT32_MAX || byte >= BITMAP_OBJECT_MAX_BYTES) return C_ERR;
+    if (!bitmapObjectCanRepresentBit(bitoffset) || byte >= BITMAP_OBJECT_MAX_BYTES)
+        return C_ERR;
 
     if (byte + 1 > bitmap->byte_len)
         bitmap->byte_len = byte + 1;
