@@ -1,9 +1,12 @@
-# Helpers for comparing legacy string bitmap behavior with future native bitmap
-# behavior. PR1 only registers the legacy-string mode because OBJ_BITMAP does
-# not exist yet.
+# Helpers for comparing legacy string bitmap behavior with native bitmap
+# behavior. Each registered mode replays the same scenario steps in its own
+# keyspace and the replies must match exactly. The native-roaring mode floors
+# the selection thresholds so eligible writes actually create native bitmaps;
+# scenarios observe only bitmap-level behavior (never TYPE or OBJECT
+# ENCODING), which is exactly the parity the exposure gate demands.
 
 namespace eval bitmap_oracle {
-    variable modes {legacy-string}
+    variable modes {legacy-string native-roaring}
 }
 
 proc bitmap_oracle::modes {} {
@@ -19,6 +22,15 @@ proc bitmap_oracle::set_modes {new_modes} {
 proc bitmap_oracle::mode_setup {client mode} {
     switch -- $mode {
         legacy-string {
+            $client config set bitmap-roaring-enabled no
+            $client config set bitmap-roaring-auto-convert no
+            return
+        }
+        native-roaring {
+            $client config set bitmap-roaring-enabled yes
+            $client config set bitmap-roaring-auto-convert yes
+            $client config set bitmap-roaring-min-bytes 1
+            $client config set bitmap-roaring-min-saving 0
             return
         }
         default {

@@ -72,6 +72,30 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert {[r pttl bitmap:public:auto-on] > 0}
     }
 
+    test {auto-convert attempts are amortized on power-of-two growth} {
+        r del bitmap:public:amortize
+
+        # Trial conversions are O(length), so failed attempts back off until
+        # the logical length crosses the next power of two. Force a failed
+        # attempt with an unreachable min-saving, then check that growth
+        # inside the same power-of-two window is not re-evaluated even after
+        # min-saving becomes reachable, while crossing the boundary is.
+        configure_native_bitmap_creation yes 1 1000000000
+        r set bitmap:public:amortize ""
+        assert_equal 0 [r setbit bitmap:public:amortize 1000 1]
+        assert_equal string [r type bitmap:public:amortize]
+
+        r config set bitmap-roaring-min-saving 0
+        assert_equal 0 [r setbit bitmap:public:amortize 1010 1]
+        assert_equal string [r type bitmap:public:amortize]
+
+        assert_equal 0 [r setbit bitmap:public:amortize 4096 1]
+        assert_equal bitmap [r type bitmap:public:amortize]
+        assert_equal 1 [r getbit bitmap:public:amortize 1000]
+        assert_equal 1 [r getbit bitmap:public:amortize 1010]
+        assert_equal 1 [r getbit bitmap:public:amortize 4096]
+    }
+
     test {public native bitmaps cover the bitmap command surface} {
         configure_native_bitmap_creation no 1 0
 
@@ -369,6 +393,37 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
+        }
+
+        test {plain SETBIT on an existing native bitmap replicates as a command} {
+            # After the explicit RESTORE transition, later writes replicate
+            # as plain SETBITs against the same type on both sides.
+            $master setbit bitmap:public:repl:direct 12345 1
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+        }
+
+        test {native bitmaps survive a full resync as bitmaps} {
+            # Detach and wipe the replica, then reattach: the keys now arrive
+            # through the RDB-over-the-wire full sync path instead of the
+            # command stream.
+            $replica replicaof no one
+            $replica flushall
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not restarted."
+            }
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
         }
     }
 }
