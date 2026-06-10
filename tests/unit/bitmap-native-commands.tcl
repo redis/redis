@@ -42,6 +42,20 @@ proc assert_native_bitop_matches_string {name op source_bitsets} {
     }
 }
 
+proc assert_native_bitmap_command_matches_string {name raw command} {
+    set string_key "bitmap:native:read-edge:$name:string"
+    set native_key "bitmap:native:read-edge:$name:native"
+    r set $string_key $raw
+    r set $native_key $raw
+    r debug bitmap-force-roaring $native_key
+
+    set string_cmd [lreplace $command 1 1 $string_key]
+    set native_cmd [lreplace $command 1 1 $native_key]
+    assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
+    assert_equal bitmap [r type $native_key]
+    assert_equal bitmap-roaring [r object encoding $native_key]
+}
+
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {native bitmap read commands preserve type encoding and bytes} {
         set raw [binary format H* 80400100080000]
@@ -115,6 +129,44 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         seed_native_bitmap bitmap:native:countpos:single-zero {0}
         assert_equal 1 [r bitpos bitmap:native:countpos:single-zero 0]
+    }
+
+    test {native bitmap BITCOUNT and BITPOS match string edge ranges} {
+        set raw [binary format H* ff00f0800100007f]
+        set commands {
+            {bitcount key}
+            {bitcount key 0 -1}
+            {bitcount key 1 4}
+            {bitcount key -4 -2}
+            {bitcount key 3 44 bit}
+            {bitcount key 4 4 bit}
+            {bitcount key -20 -1 bit}
+            {bitpos key 1}
+            {bitpos key 0}
+            {bitpos key 1 1 5}
+            {bitpos key 0 1 5}
+            {bitpos key 1 4 39 bit}
+            {bitpos key 0 4 39 bit}
+            {bitpos key 0 -8 -1 bit}
+        }
+
+        set idx 0
+        foreach command $commands {
+            assert_native_bitmap_command_matches_string "mixed:$idx" $raw $command
+            incr idx
+        }
+
+        set all_ones [binary format H* ffff]
+        foreach command {
+            {bitpos key 0}
+            {bitpos key 0 0 1}
+            {bitpos key 0 1}
+            {bitpos key 0 2}
+            {bitpos key 0 0 15 bit}
+        } {
+            assert_native_bitmap_command_matches_string "ones:$idx" $all_ones $command
+            incr idx
+        }
     }
 
     test {BITFIELD writes native bitmap values through materialization fallback} {
