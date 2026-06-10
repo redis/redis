@@ -1653,8 +1653,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 {
     /* Approximate cardinality is only ever requested for SUNIONCARD, i.e. a
      * non-storing UNION that returns a count. */
-    serverAssert(!approx ||
-                 (op == SET_OP_UNION && cardinality_only && dstkey == NULL));
+    serverAssert(!approx || (op == SET_OP_UNION && cardinality_only && dstkey == NULL));
 
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator si;
