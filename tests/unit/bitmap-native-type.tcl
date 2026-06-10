@@ -162,6 +162,74 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 004078] [r get bitmap:legacy-boundary]
     }
 
+    test {plain SET overwrites a native bitmap key with a string} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:set-overwrite $raw
+        r debug bitmap-force-roaring bitmap:set-overwrite
+        assert_equal bitmap [r type bitmap:set-overwrite]
+
+        # Generic overwrite is the intended plain replacement path: SET
+        # replaces a native bitmap like it replaces any other type, while
+        # implicit string reads stay WRONGTYPE.
+        r set bitmap:set-overwrite replacement
+        assert_equal string [r type bitmap:set-overwrite]
+        assert_equal replacement [r get bitmap:set-overwrite]
+    }
+
+    test {native bitmap stays opaque to additional string read surfaces} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:surface $raw
+        r set bitmap:surface:string $raw
+        r debug bitmap-force-roaring bitmap:surface
+
+        # MGET reports non-string keys as nil, native bitmaps included.
+        assert_equal [list {} $raw] [r mget bitmap:surface bitmap:surface:string]
+        # SUBSTR is the legacy alias of GETRANGE and stays WRONGTYPE.
+        assert_error {WRONGTYPE*} {r substr bitmap:surface 0 -1}
+        # LCS refuses non-string keys with its dedicated error.
+        assert_error {*must contain string values*} {r lcs bitmap:surface bitmap:surface:string}
+
+        assert_equal bitmap [r type bitmap:surface]
+        assert_equal $raw [r debug bitmap-raw bitmap:surface]
+    }
+
+    test {SORT BY and GET patterns treat native bitmaps as missing values} {
+        r del bitmap:sort:list
+        r rpush bitmap:sort:list a b
+        r set weight_a 2
+        r set weight_b 1
+        r set data_a string-a
+        r set data_b string-b
+
+        assert_equal {b a} [r sort bitmap:sort:list BY weight_* GET #]
+        assert_equal {string-b string-a} [r sort bitmap:sort:list BY weight_* GET data_*]
+
+        # lookupKeyByPattern() only dereferences OBJ_STRING values, so a
+        # native bitmap weight or data target behaves exactly like a
+        # missing key: no weight for BY (sorts as 0), nil for GET, and no
+        # materialization back to a string.
+        r debug bitmap-force-roaring weight_a
+        r debug bitmap-force-roaring data_a
+        assert_equal {a b} [r sort bitmap:sort:list BY weight_* GET #]
+        assert_equal [list {} string-b] [r sort bitmap:sort:list BY weight_* GET data_*]
+        assert_equal bitmap [r type weight_a]
+        assert_equal bitmap [r type data_a]
+    }
+
+    test {Lua scripts observe native bitmaps through normal type checks} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:lua $raw
+        r debug bitmap-force-roaring bitmap:lua
+
+        assert_equal 1 [r eval {return redis.call('getbit', KEYS[1], 0)} 1 bitmap:lua]
+        assert_equal 4 [r eval {return redis.call('bitcount', KEYS[1])} 1 bitmap:lua]
+        assert_error {*WRONGTYPE*} {r eval {return redis.call('get', KEYS[1])} 1 bitmap:lua}
+        assert_equal bitmap [r type bitmap:lua]
+    }
+
     test {native bitmap dump restore and debug reload preserve bitmap objects} {
         set raw [binary format H* f0000000000000010000]
 
