@@ -1129,10 +1129,10 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
             # Recreate src{t} before each command, leaving it mid-rehash.
             # We add one member per SADD on purpose: a single SADD with many
             # members would pre-size the dict and skip rehashing. A set's dict
-            # is only rehashed by operations on it ~1 step per add, so stopping
-            # just past the 1024 expand boundary leaves the rehash unfinished.
+            # is only rehashed by operations on it, so stopping shortly after an
+            # expand boundary (here 256) leaves the rehash unfinished.
             r DEL "src{t}"
-            for {set i 0} {$i < 1100} {incr i} { r SADD "src{t}" "s-$i" }
+            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
             assert_encoding hashtable "src{t}"
 
             r {*}$cmd
