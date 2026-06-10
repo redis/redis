@@ -171,6 +171,7 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
 robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len, int deep_validate);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
+void dismissBitmapObject(robj *o, size_t size_hint);
 size_t bitmapObjectLen(const robj *o);
 size_t bitmapObjectAllocSize(const robj *o);
 size_t bitmapObjectCardinality(const robj *o);
