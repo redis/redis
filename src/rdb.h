@@ -94,8 +94,6 @@
 #define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 28) || (t) == 30)
 #endif
 
-#define RDB_BITMAP_ENCODING_ROARING 1
-
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_KEY_META   243   /* Key metadata (module metadata classes). */
 #define RDB_OPCODE_SLOT_INFO  244   /* Individual slot info, such as slot id and size (cluster mode only). */
