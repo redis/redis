@@ -7413,6 +7413,16 @@ int redisFork(int purpose) {
         openChildInfoPipe();
     }
 
+    /* Let multi-threaded modules bring their background threads to a safe point
+     * before we fork(): a thread holding a lock (e.g. the allocator lock) at
+     * fork() time would deadlock the child the first time it takes that lock.
+     * Handlers run synchronously on the main thread and bound their own wait;
+     * returning is their acknowledgement. Modules resume on FORK_CHILD_BORN
+     * (fork happened) or FORK_CHILD_CANCELLED (fork did not happen). */
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_PRE,
+                          NULL);
+
     int childpid;
     long long start = ustime();
     if ((childpid = fork()) == 0) {
@@ -7440,6 +7450,11 @@ int redisFork(int purpose) {
         if (childpid == -1) {
             int fork_errno = errno;
             if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
+            /* The fork we prepared for did not happen; let modules resume the
+             * background threads they quiesced on FORK_CHILD_PRE. */
+            moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                                  REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED,
+                                  NULL);
             errno = fork_errno;
             return -1;
         }
