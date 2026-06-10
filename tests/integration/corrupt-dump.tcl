@@ -1167,5 +1167,33 @@ test {corrupt payload: stream - duplicated consumer PEL entry} {
     }
 }
 
+test {corrupt payload: bitmap with unsorted array container} {
+    # Native bitmap (Roaring) DUMP of {1,5,9}; the array container's values
+    # are reversed to {9,5,1}. That stays within deserialization bounds but
+    # violates the sorted-array invariant, so only deep sanitization
+    # (roaring_bitmap_internal_validate) rejects it.
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        set valid_payload    [binary format H* 1e0102163a3000000100000000000200100000000100050009000f00d99cd8753e567cc5]
+        set unsorted_payload [binary format H* 1e0102163a3000000100000000000200100000000900050001000f00d99cd8753e567cc5]
+
+        r config set sanitize-dump-payload yes
+        r restore bitmap:valid 0 $valid_payload
+        assert_equal [r type bitmap:valid] bitmap
+        assert_equal [r debug bitmap-raw bitmap:valid] [binary format H* 4440]
+
+        catch { r restore bitmap:corrupt 0 $unsorted_payload } err
+        assert_match "*Bad data format*" $err
+
+        # Without deep sanitization the payload deserializes within bounds and
+        # is accepted; the structural check is deep-only, like listpack deep
+        # validation.
+        r config set sanitize-dump-payload no
+        r restore bitmap:shallow 0 $unsorted_payload
+        assert_equal [r type bitmap:shallow] bitmap
+        r del bitmap:shallow
+    }
+}
+
 } ;# tags
 
