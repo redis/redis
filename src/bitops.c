@@ -553,6 +553,33 @@ int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
     return value;
 }
 
+static uint64_t getUnsignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
+                                                    uint64_t bits)
+{
+    uint64_t bitval, j, value = 0;
+
+    for (j = 0; j < bits; j++) {
+        bitval = bitmapObjectGetBit(o, offset);
+        value = (value << 1) | bitval;
+        offset++;
+    }
+    return value;
+}
+
+static int64_t getSignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
+                                                 uint64_t bits)
+{
+    int64_t value;
+    union {uint64_t u; int64_t i;} conv;
+
+    conv.u = getUnsignedBitfieldFromBitmapObject(o, offset, bits);
+    value = conv.i;
+
+    if (bits < 64 && (value & ((uint64_t)1 << (bits-1))))
+        value |= ((uint64_t)-1) << bits;
+    return value;
+}
+
 /* The following two functions detect overflow of a value in the context
  * of storing it as an unsigned or signed integer with the specified
  * number of bits. The functions both take the value and a possible increment.
@@ -1693,7 +1720,12 @@ void bitcountCommand(client *c) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
         if (checkStringOrBitmapType(c, o)) return;
-        p = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            strlen = bitmapObjectLen(o);
+            p = NULL;
+        } else {
+            p = getObjectReadOnlyString(o,&strlen,llbuf);
+        }
         long long totlen = strlen;
 
         /* Make sure we will not overflow */
@@ -1710,6 +1742,24 @@ void bitcountCommand(client *c) {
         if (start < 0) start = 0;
         if (end < 0) end = 0;
         if (end >= totlen) end = totlen-1;
+
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            if (start > end) {
+                addReply(c,shared.czero);
+            } else {
+                uint64_t range_start, range_end;
+                if (isbit) {
+                    range_start = start;
+                    range_end = end + 1;
+                } else {
+                    range_start = (uint64_t)start << 3;
+                    range_end = ((uint64_t)end + 1) << 3;
+                }
+                addReplyLongLong(c,bitmapObjectRangeCardinality(o,range_start,range_end));
+            }
+            return;
+        }
+
         if (isbit && start <= end) {
             /* Before converting bit offset to byte offset, create negative masks
              * for the edges. */
@@ -1722,7 +1772,15 @@ void bitcountCommand(client *c) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
         if (checkStringOrBitmapType(c, o)) return;
-        p = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
+        if (o == NULL) {
+            addReply(c, shared.czero);
+            return;
+        }
+        if (o->type == OBJ_BITMAP) {
+            addReplyLongLong(c,bitmapObjectCardinality(o));
+            return;
+        }
+        p = getObjectReadOnlyString(o,&strlen,llbuf);
         /* The whole string. */
         start = 0;
         end = strlen-1;
@@ -2039,6 +2097,11 @@ void bitfieldGeneric(client *c, int flags) {
          * this operation. */
         o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
         if (o != NULL && o->type == OBJ_BITMAP) {
+            if (!bitmapObjectCanRepresentBit(highest_write_offset)) {
+                zfree(ops);
+                addReplyError(c, "bit offset is not representable in native bitmap encoding");
+                return;
+            }
             sds raw = bitmapObjectMaterialize(o);
             size_t byte = highest_write_offset >> 3;
 
@@ -2147,6 +2210,19 @@ void bitfieldGeneric(client *c, int flags) {
             }
         } else {
             /* GET */
+            if (o != NULL && o->type == OBJ_BITMAP) {
+                if (thisop->sign) {
+                    int64_t val = getSignedBitfieldFromBitmapObject(o,
+                            thisop->offset,thisop->bits);
+                    addReplyLongLong(c,val);
+                } else {
+                    uint64_t val = getUnsignedBitfieldFromBitmapObject(o,
+                            thisop->offset,thisop->bits);
+                    addReplyLongLong(c,val);
+                }
+                continue;
+            }
+
             unsigned char buf[9];
             long strlen = 0;
             unsigned char *src = NULL;

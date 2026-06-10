@@ -141,6 +141,17 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {1} [r bitfield_ro bitmap:native:bitfield:signed GET i5 0]
     }
 
+    test {BITFIELD rejects native bitmap writes past the roaring offset range} {
+        seed_native_bitmap bitmap:native:bitfield:limit {}
+
+        assert_error {*ERR bit offset is not representable in native bitmap encoding*} {
+            r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
+        }
+        assert_equal bitmap [r type bitmap:native:bitfield:limit]
+        assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
+        assert_equal "" [r debug bitmap-raw bitmap:native:bitfield:limit]
+    }
+
     test {BITOP accepts native bitmap sources and stores string destinations} {
         r set bitmap:native:bitop:a [binary format H* f000]
         r debug bitmap-force-roaring bitmap:native:bitop:a
