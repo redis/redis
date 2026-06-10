@@ -808,8 +808,9 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * 
  * (Must provide all the arguments to the function)
  */
-static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit, 
-                                       size_t *strOldSize, size_t *strGrowSize) 
+static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
+                                       size_t *strOldSize, size_t *strGrowSize,
+                                       int *created)
 {
     dictEntryLink link;
     size_t byte = maxbit >> 3;
@@ -820,11 +821,13 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAddByLink(c->db,c->argv[1],&o,&link);
+        *created = 1;
         *strGrowSize = byte + 1;
         *strOldSize = 0;
     } else {
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         *strOldSize  = sdslen(o->ptr);
+        *created = 0;
         if (server.memory_tracking_enabled)
             oldAllocSize = kvobjAllocSize(o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
@@ -924,7 +927,9 @@ void setbitCommand(client *c) {
     }
 
     size_t strOldSize, strGrowSize;
-    kvobj *o = lookupStringForBitCommand(c, bitoffset, &strOldSize, &strGrowSize);
+    int created = 0;
+    kvobj *o = lookupStringForBitCommand(c, bitoffset, &strOldSize,
+                                         &strGrowSize, &created);
     if (o == NULL) return;
 
     /* Get current values */
@@ -945,10 +950,10 @@ void setbitCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
 
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
+        /* If this is not a new key and size changed, then update the
+         * keysizes histogram. Otherwise, the histogram already
          * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
+        if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
     }
 
@@ -2001,6 +2006,7 @@ void bitfieldGeneric(client *c, int flags) {
     int j, numops = 0, changes = 0;
     size_t strOldSize = 0, strGrowSize = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
+    int string_created = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
     uint64_t highest_write_offset = 0;
@@ -2117,7 +2123,7 @@ void bitfieldGeneric(client *c, int flags) {
                 return;
             }
             if ((o = lookupStringForBitCommand(c,
-                highest_write_offset,&strOldSize,&strGrowSize)) == NULL) {
+                highest_write_offset,&strOldSize,&strGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
             }
@@ -2266,10 +2272,10 @@ void bitfieldGeneric(client *c, int flags) {
             dbReplaceValueWithLink(c->db, c->argv[1], &updated, native_bitmap_link);
             o = updated;
         } else {
-            /* If this is not a new key (old size not 0) and size changed, then
-             * update the keysizes histogram. Otherwise, the histogram already
+            /* If this is not a new key and size changed, then update the
+             * keysizes histogram. Otherwise, the histogram already
              * updated in lookupStringForBitCommand() by calling dbAdd(). */
-            if ((strOldSize > 0) && (strGrowSize != 0))
+            if (!string_created && strGrowSize != 0)
                 updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
         }
         
