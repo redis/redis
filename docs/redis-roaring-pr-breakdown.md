@@ -7,10 +7,11 @@ command API.
 Source plan: https://gist.github.com/aviggiano/66a88ee2d3d074df39a4228b4acec1a3
 
 Plan phases are numbered "Step 0" through "Step 10", not "PR N". The stacked
-GitHub PR numbers in this fork are offset from the plan numbering (this
-document is GitHub PR #1, so plan phase N lands as GitHub PR N+1), and using
-"PR N" for both invites confusion. GitHub PR numbers are written as "PR #N"
-where one is meant.
+GitHub PR numbers in this fork drift from the plan numbering because issues
+and pull requests share one number counter (as of this revision: Step 1 =
+PR #2, Step 2 = PR #3, Step 3 = PR #4, Step 4 = PR #5, Step 5 = PR #8,
+Step 6 = PR #9), and using "PR N" for both invites confusion. GitHub PR
+numbers are written as "PR #N" where one is meant.
 
 ## Exposure Gate
 
@@ -158,7 +159,14 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
 - Audit `SORT ... BY`/`GET` patterns, module/string APIs, and Lua script
   surfaces that read values as strings.
 - Decide whether Redis needs an explicit bitmap-to-string conversion escape
-  hatch; keep it out of implicit generic string command behavior.
+  hatch; keep it out of implicit generic string command behavior. Decision:
+  no dedicated conversion command. `BITOP` already provides an explicit,
+  copying escape hatch because `BITOP` destinations are always stored as
+  plain strings (for example `BITOP OR dest src` materializes a native
+  bitmap `src` into a string `dest`), and plain `SET` overwrites a native
+  bitmap key with a string like any other type. Generic string commands keep
+  returning `WRONGTYPE`. Revisit only if upstream review asks for a
+  dedicated command.
 
 ## Step 6: Minimal Configs and Public Native Bitmap Creation
 
