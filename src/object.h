@@ -185,6 +185,7 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
 sds bitmapObjectMaterialize(const robj *o);
 size_t bitmapObjectSerializedSize(const robj *o);
 sds bitmapObjectSerialize(const robj *o);
+int bitmapObjectEndianRoundtripCheck(const robj *o);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
