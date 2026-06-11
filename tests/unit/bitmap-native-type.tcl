@@ -47,6 +47,23 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r type bitmap:restored] bitmap
         assert_equal [r debug bitmap-raw bitmap:restored] $raw
     }
+
+    test {native bitmap unlink uses lazyfree for many roaring containers} {
+        r config resetstat
+        for {set i 0} {$i < 80} {incr i} {
+            r setbit bitmap:lazy [expr {$i * 65536}] 1
+        }
+        r debug bitmap-force-roaring bitmap:lazy
+        assert_equal [r type bitmap:lazy] bitmap
+
+        assert_equal [r unlink bitmap:lazy] 1
+        wait_for_condition 50 100 {
+            [s lazyfree_pending_objects] == 0
+        } else {
+            fail "lazyfree isn't done"
+        }
+        assert_equal [s lazyfreed_objects] 1
+    } {} {needs:config-resetstat}
 }
 
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
