@@ -216,6 +216,18 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
 - Benchmark memory, latency, disk size, rewrite time, load time, and peak memory.
 - Use benchmark data to justify the provisional Step 6 config defaults, or
   revise them.
+- Known deferred-perf items the benchmark suite must cover explicitly:
+  - `BITOP` string sources convert through per-bit insertion (batched via
+    `add_many`) instead of the old materialize-plus-SIMD word loops; dense
+    mixed inputs need a measured comparison and possibly a density heuristic.
+  - `bitmapObjectAllocSize()` walks every container with `zmalloc_size()`
+    where stream/array cache an `alloc_size` field; under
+    `memory_tracking_enabled` every native bitmap write pays that walk, so
+    either benchmark it as acceptable or add the cached field.
+  - When any `BITOP` source exceeds the 512MB native cap (raised
+    `proto-max-bulk-len` only), the bytewise fallback reads native sources
+    one byte at a time through the roaring lookup path instead of
+    materializing each source once.
 - Keep redis-roaring migration tooling separate from Redis core.
 - Export redis-roaring keys from old Redis with module loaded.
 - Import into new Redis using native Redis bitmap-compatible representation.

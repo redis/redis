@@ -139,13 +139,24 @@ stress:
   returning `WRONGTYPE`. Revisit only if upstream review asks for a dedicated
   command.
 - What is the RDB opcode and AOF rewrite representation for compressed native
-  bitmaps, and which PR lands it before public creation?
+  bitmaps, and which PR lands it before public creation? Decided in Step 3:
+  RDB uses a dedicated `RDB_TYPE_BITMAP` id carrying the portable Roaring
+  payload (a future format variant takes a new RDB type id, not an in-payload
+  flags byte), and AOF rewrite emits `RESTORE <key> 0 <DUMP payload> REPLACE`
+  for native bitmap values. Both land before Step 6 public creation.
 - Should replication send native bitmap payloads directly, or should it use a
-  command sequence until the persistence format is stable? Whatever the
-  mechanism, type-transition decisions must be pure functions of replicated
-  logical state and propagate explicitly (see the exposure gate); replicas
-  must never re-derive them from local config or allocator state.
+  command sequence until the persistence format is stable? Decided in Step 6:
+  type transitions replicate as an explicit
+  `RESTORE <key> <ttl> <DUMP payload> REPLACE [ABSTTL]` rewrite of the
+  triggering command, so type-transition decisions stay pure functions of
+  replicated logical state and propagate explicitly (see the exposure gate);
+  replicas never re-derive them from local config or allocator state.
+  Post-transition writes replicate verbatim against the same type on both
+  sides.
 - What debug or test-only hook should force native bitmap conversion without
-  exposing production-only command surface area?
+  exposing production-only command surface area? Decided in Step 3:
+  `DEBUG BITMAP-FORCE-ROARING <key>` (with `DEBUG BITMAP-RAW` for byte-exact
+  reads); it propagates its effect as the same RESTORE rewrite used by
+  SETBIT-triggered conversions, since replicas may refuse DEBUG entirely.
 - Which Redis module APIs need a new bitmap type contract, and which should
   observe native bitmap values only as non-string values?
