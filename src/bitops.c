@@ -882,6 +882,114 @@ static unsigned char *getObjectReadOnlyStringOrBitmap(robj *o, long *len, char *
     return getObjectReadOnlyString(o, len, llbuf);
 }
 
+static int bitmapRoaringSelectionEnabled(client *c) {
+    return server.bitmap_roaring_enabled && !mustObeyClient(c);
+}
+
+static int bitmapObjectMeetsRoaringThresholds(size_t byte_len,
+                                              size_t serialized_len)
+{
+    if (byte_len < server.bitmap_roaring_min_bytes) return 0;
+    if (serialized_len > byte_len) return 0;
+    return byte_len - serialized_len >= server.bitmap_roaring_min_saving;
+}
+
+static robj *tryCreateRoaringBitmapForSetBit(client *c, uint64_t bitoffset,
+                                             int on)
+{
+    if (!bitmapRoaringSelectionEnabled(c)) return NULL;
+    if (!bitmapObjectCanRepresentBit(bitoffset)) return NULL;
+
+    robj *bitmap = createBitmapObject();
+    if (bitmapObjectSetBit(bitmap, bitoffset, on) != C_OK) {
+        decrRefCount(bitmap);
+        return NULL;
+    }
+
+    if (!bitmapObjectMeetsRoaringThresholds(bitmapObjectLen(bitmap),
+                                            bitmapObjectSerializedSize(bitmap)))
+    {
+        decrRefCount(bitmap);
+        return NULL;
+    }
+
+    return bitmap;
+}
+
+/* True when some power of two p satisfies oldlen < p <= newlen. */
+static int sizeCrossedPowerOfTwo(size_t oldlen, size_t newlen) {
+    size_t p = 1;
+    while (p <= oldlen) {
+        if (p > SIZE_MAX / 2) return 0;
+        p <<= 1;
+    }
+    return p <= newlen;
+}
+
+static int tryConvertStringBitmapAfterSetBit(client *c, robj **oref,
+                                             int created, size_t strGrowSize)
+{
+    robj *o = *oref;
+
+    if (!bitmapRoaringSelectionEnabled(c)) return 0;
+    if (!server.bitmap_roaring_auto_convert) return 0;
+    if (created || strGrowSize == 0) return 0;
+    if (o->type != OBJ_STRING || !sdsEncodedObject(o)) return 0;
+
+    size_t len = sdslen(o->ptr);
+    if (len < server.bitmap_roaring_min_bytes) return 0;
+
+    /* Amortize conversion attempts: the trial encode below is O(len), so a
+     * dense bitmap growing one write at a time must not pay it on every
+     * growing write. Attempt when the key first reaches min-bytes
+     * eligibility, then again only when the logical length crosses a power
+     * of two, which keeps the total trial work linear in the final length
+     * over a key's growth. */
+    size_t oldlen = len - strGrowSize;
+    if (oldlen >= server.bitmap_roaring_min_bytes &&
+        !sizeCrossedPowerOfTwo(oldlen, len))
+        return 0;
+
+    robj *bitmap = createBitmapObjectFromString(o->ptr, len);
+    if (bitmap == NULL) return 0;
+
+    if (!bitmapObjectMeetsRoaringThresholds(len,
+                                            bitmapObjectSerializedSize(bitmap)))
+    {
+        decrRefCount(bitmap);
+        return 0;
+    }
+
+    setKey(c, c->db, c->argv[1], &bitmap, SETKEY_KEEPTTL);
+    *oref = bitmap;
+    return 1;
+}
+
+static void propagateBitmapRestore(client *c, robj *bitmap) {
+    rio payload;
+    robj *argv[6];
+    long long expire = getExpire(c->db, c->argv[1]->ptr, bitmap);
+    int has_expire = expire != -1;
+    int argc = has_expire ? 6 : 5;
+
+    createDumpPayload(&payload, bitmap, c->argv[1], c->db->id, 0);
+
+    argv[0] = createStringObject("RESTORE", 7);
+    argv[1] = c->argv[1];
+    argv[2] = has_expire ? createStringObjectFromLongLong(expire) :
+                            shared.integers[0];
+    argv[3] = createObject(OBJ_STRING, payload.io.buffer.ptr);
+    argv[4] = createStringObject("REPLACE", 7);
+    if (has_expire) argv[5] = shared.absttl;
+
+    alsoPropagate(c->db->id, argv, argc, PROPAGATE_AOF | PROPAGATE_REPL);
+
+    decrRefCount(argv[0]);
+    if (has_expire) decrRefCount(argv[2]);
+    decrRefCount(argv[3]);
+    decrRefCount(argv[4]);
+}
+
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     char *err = "bit is not an integer or out of range";
@@ -930,6 +1038,26 @@ void setbitCommand(client *c) {
         return;
     }
 
+    if (bitmap == NULL) {
+        robj *created_bitmap = tryCreateRoaringBitmapForSetBit(c, bitoffset,
+                                                               on);
+        if (created_bitmap != NULL) {
+            /* The link from the lookup above is still valid: building the
+             * trial bitmap never touches the keyspace dict. */
+            dbAddByLink(c->db, c->argv[1], &created_bitmap, &link);
+            kvobj *created = created_bitmap;
+            keyModified(c,c->db,c->argv[1],created,1);
+            notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+            server.dirty++;
+
+            preventCommandPropagation(c);
+            propagateBitmapRestore(c, created);
+
+            addReply(c, shared.czero);
+            return;
+        }
+    }
+
     size_t strOldSize, strGrowSize;
     int created = 0;
     kvobj *o = lookupStringForBitCommand(c, bitoffset, bitmap, link,
@@ -950,15 +1078,22 @@ void setbitCommand(client *c) {
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
-        keyModified(c,c->db,c->argv[1],o,1);
-        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty++;
 
         /* If this is not a new key and size changed, then update the
          * keysizes histogram. Otherwise, the histogram already
          * updated in lookupStringForBitCommand() by calling dbAdd(). */
         if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
+
+        if (tryConvertStringBitmapAfterSetBit(c, &o, created, strGrowSize)) {
+            preventCommandPropagation(c);
+            propagateBitmapRestore(c, o);
+        } else {
+            keyModified(c,c->db,c->argv[1],o,1);
+        }
+
+        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
     }
 
     /* Return original value. */
