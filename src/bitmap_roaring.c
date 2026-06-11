@@ -583,6 +583,64 @@ uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
     return roaring_bitmap_range_cardinality(bitmap->roaring, start, end);
 }
 
+static long long bitmapObjectFirstSetBit(bitmapObject *bitmap, uint64_t start,
+                                         uint64_t end)
+{
+    roaring_uint32_iterator_t it;
+
+    if (start >= end || start > UINT32_MAX) return -1;
+
+    roaring_iterator_init(bitmap->roaring, &it);
+    if (!roaring_uint32_iterator_move_equalorlarger(&it, (uint32_t)start))
+        return -1;
+    if ((uint64_t)it.current_value >= end) return -1;
+    return it.current_value;
+}
+
+static long long bitmapObjectFirstClearBit(bitmapObject *bitmap,
+                                           uint64_t start, uint64_t end,
+                                           int end_given)
+{
+    roaring_uint32_iterator_t it;
+    uint64_t pos = start;
+
+    if (start >= end) return -1;
+    if (start > UINT32_MAX) return end_given ? -1 : (long long)start;
+
+    roaring_iterator_init(bitmap->roaring, &it);
+    if (!roaring_uint32_iterator_move_equalorlarger(&it, (uint32_t)start))
+        return (long long)start;
+
+    while (pos < end && it.has_value) {
+        roaring_uint32_range_closed_t range;
+
+        if ((uint64_t)it.current_value >= end) return (long long)pos;
+        if ((uint64_t)it.current_value > pos) return (long long)pos;
+        if (roaring_uint32_iterator_read_ranges(&it, &range, 1) == 0)
+            break;
+        if ((uint64_t)range.min > pos) return (long long)pos;
+
+        uint64_t range_end = (uint64_t)range.max + 1;
+        if (range_end > pos) pos = range_end;
+    }
+
+    if (pos < end) return (long long)pos;
+    return end_given ? -1 : (long long)end;
+}
+
+long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start,
+                             uint64_t end, int end_given)
+{
+    bitmapObject *bitmap = getBitmapObject(o);
+    uint64_t bit_len = (uint64_t)bitmap->byte_len << 3;
+
+    if (start >= end || start >= bit_len) return -1;
+    if (end > bit_len) end = bit_len;
+
+    return bit ? bitmapObjectFirstSetBit(bitmap, start, end) :
+                 bitmapObjectFirstClearBit(bitmap, start, end, end_given);
+}
+
 int bitmapObjectCanRepresentBit(uint64_t bitoffset) {
     return bitoffset <= UINT32_MAX;
 }

@@ -872,16 +872,6 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
     return p;
 }
 
-static unsigned char *getObjectReadOnlyStringOrBitmap(robj *o, long *len, char *llbuf, sds *materialized) {
-    *materialized = NULL;
-    if (o != NULL && o->type == OBJ_BITMAP) {
-        *materialized = bitmapObjectMaterialize(o);
-        if (len) *len = (long)sdslen(*materialized);
-        return (unsigned char*)*materialized;
-    }
-    return getObjectReadOnlyString(o, len, llbuf);
-}
-
 static int bitmapRoaringSelectionEnabled(client *c) {
     return server.bitmap_roaring_enabled && !mustObeyClient(c);
 }
@@ -1836,22 +1826,60 @@ void bitopCommand(client *c) {
     addReplyLongLong(c,maxlen); /* Return the output string length in bytes. */
 }
 
+typedef struct bitRange {
+    long long start;
+    long long end;
+    uint64_t bit_start;
+    uint64_t bit_end;
+    unsigned char first_byte_neg_mask;
+    unsigned char last_byte_neg_mask;
+} bitRange;
+
+static void normalizeBitRange(bitRange *range, long strlen, int isbit) {
+    long long totlen = strlen;
+
+    serverAssert(totlen <= LLONG_MAX >> 3);
+    if (isbit) totlen <<= 3;
+
+    if (range->start < 0) range->start = totlen+range->start;
+    if (range->end < 0) range->end = totlen+range->end;
+    if (range->start < 0) range->start = 0;
+    if (range->end < 0) range->end = 0;
+    if (range->end >= totlen) range->end = totlen-1;
+
+    range->first_byte_neg_mask = 0;
+    range->last_byte_neg_mask = 0;
+    range->bit_start = 0;
+    range->bit_end = 0;
+    if (range->start > range->end) return;
+
+    if (isbit) {
+        range->bit_start = range->start;
+        range->bit_end = range->end + 1;
+        range->first_byte_neg_mask = ~((1<<(8-(range->start&7)))-1) & 0xFF;
+        range->last_byte_neg_mask = (1<<(7-(range->end&7)))-1;
+        range->start >>= 3;
+        range->end >>= 3;
+    } else {
+        range->bit_start = (uint64_t)range->start << 3;
+        range->bit_end = ((uint64_t)range->end + 1) << 3;
+    }
+}
+
 /* BITCOUNT key [start end [BIT|BYTE]] */
 void bitcountCommand(client *c) {
     kvobj *o;
-    long long start, end;
     long strlen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
-    sds materialized = NULL;
+    bitRange range;
     int isbit = 0;
-    unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
-        if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&range.start,NULL) != C_OK)
             return;
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&range.end,NULL) != C_OK)
             return;
         if (c->argc == 5) {
             if (!strcasecmp(c->argv[4]->ptr,"bit")) isbit = 1;
@@ -1870,47 +1898,19 @@ void bitcountCommand(client *c) {
         } else {
             p = getObjectReadOnlyString(o,&strlen,llbuf);
         }
-        long long totlen = strlen;
-
-        /* Make sure we will not overflow */
-        serverAssert(totlen <= LLONG_MAX >> 3);
-
-        /* Convert negative indexes */
-        if (start < 0 && end < 0 && start > end) {
+        if (range.start < 0 && range.end < 0 && range.start > range.end) {
             addReply(c,shared.czero);
-            goto cleanup;
-        }
-        if (isbit) totlen <<= 3;
-        if (start < 0) start = totlen+start;
-        if (end < 0) end = totlen+end;
-        if (start < 0) start = 0;
-        if (end < 0) end = 0;
-        if (end >= totlen) end = totlen-1;
-
-        if (o != NULL && o->type == OBJ_BITMAP) {
-            if (start > end) {
-                addReply(c,shared.czero);
-            } else {
-                uint64_t range_start, range_end;
-                if (isbit) {
-                    range_start = start;
-                    range_end = end + 1;
-                } else {
-                    range_start = (uint64_t)start << 3;
-                    range_end = ((uint64_t)end + 1) << 3;
-                }
-                addReplyLongLong(c,bitmapObjectRangeCardinality(o,range_start,range_end));
-            }
             return;
         }
+        normalizeBitRange(&range, strlen, isbit);
 
-        if (isbit && start <= end) {
-            /* Before converting bit offset to byte offset, create negative masks
-             * for the edges. */
-            first_byte_neg_mask = ~((1<<(8-(start&7)))-1) & 0xFF;
-            last_byte_neg_mask = (1<<(7-(end&7)))-1;
-            start >>= 3;
-            end >>= 3;
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            if (range.start > range.end) {
+                addReply(c,shared.czero);
+            } else {
+                addReplyLongLong(c,bitmapObjectRangeCardinality(o,range.bit_start,range.bit_end));
+            }
+            return;
         }
     } else if (c->argc == 2) {
         /* Lookup, check for type. */
@@ -1926,8 +1926,9 @@ void bitcountCommand(client *c) {
         }
         p = getObjectReadOnlyString(o,&strlen,llbuf);
         /* The whole string. */
-        start = 0;
-        end = strlen-1;
+        range.start = 0;
+        range.end = strlen-1;
+        normalizeBitRange(&range, strlen, 0);
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -1937,48 +1938,43 @@ void bitcountCommand(client *c) {
     /* Return 0 for non existing keys. */
     if (o == NULL) {
         addReply(c, shared.czero);
-        goto cleanup;
+        return;
     }
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * zero can be returned is: start > end. */
-    if (start > end) {
+    if (range.start > range.end) {
         addReply(c,shared.czero);
     } else {
-        long bytes = (long)(end-start+1);
+        long bytes = (long)(range.end-range.start+1);
         long long count;
 
         /* Use the best available popcount implementation */
-        count = redisPopcountAuto(p+start, bytes);
+        count = redisPopcountAuto(p+range.start, bytes);
 
-        if (first_byte_neg_mask != 0 || last_byte_neg_mask != 0) {
+        if (range.first_byte_neg_mask != 0 || range.last_byte_neg_mask != 0) {
             unsigned char firstlast[2] = {0, 0};
             /* We may count bits of first byte and last byte which are out of
             * range. So we need to subtract them. Here we use a trick. We set
             * bits in the range to zero. So these bit will not be excluded. */
-            if (first_byte_neg_mask != 0) firstlast[0] = p[start] & first_byte_neg_mask;
-            if (last_byte_neg_mask != 0) firstlast[1] = p[end] & last_byte_neg_mask;
+            if (range.first_byte_neg_mask != 0) firstlast[0] = p[range.start] & range.first_byte_neg_mask;
+            if (range.last_byte_neg_mask != 0) firstlast[1] = p[range.end] & range.last_byte_neg_mask;
 
             /* Use the same popcount implementation for consistency */
             count -= redisPopcountAuto(firstlast, 2);
         }
         addReplyLongLong(c,count);
     }
-
-cleanup:
-    sdsfree(materialized);
 }
 
 /* BITPOS key bit [start [end [BIT|BYTE]]] */
 void bitposCommand(client *c) {
     kvobj *o;
-    long long start, end;
     long bit, strlen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
-    sds materialized = NULL;
+    bitRange range;
     int isbit = 0, end_given = 0;
-    unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
      * or clear bits. */
@@ -1991,7 +1987,7 @@ void bitposCommand(client *c) {
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5 || c->argc == 6) {
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&range.start,NULL) != C_OK)
             return;
         if (c->argc == 6) {
             if (!strcasecmp(c->argv[5]->ptr,"bit")) isbit = 1;
@@ -2002,7 +1998,7 @@ void bitposCommand(client *c) {
             }
         }
         if (c->argc >= 5) {
-            if (getLongLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
+            if (getLongLongFromObjectOrReply(c,c->argv[4],&range.end,NULL) != C_OK)
                 return;
             end_given = 1;
         }
@@ -2010,41 +2006,33 @@ void bitposCommand(client *c) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
         if (checkStringOrBitmapType(c, o)) return;
-        p = getObjectReadOnlyStringOrBitmap(o, &strlen, llbuf, &materialized);
-
-        /* Make sure we will not overflow */
-        long long totlen = strlen;
-        serverAssert(totlen <= LLONG_MAX >> 3);
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            strlen = bitmapObjectLen(o);
+            p = NULL;
+        } else {
+            p = getObjectReadOnlyString(o,&strlen,llbuf);
+        }
 
         if (c->argc < 5) {
-            if (isbit) end = (totlen<<3) + 7;
-            else end = totlen-1;
+            if (isbit) range.end = ((long long)strlen<<3) + 7;
+            else range.end = strlen-1;
         }
-
-        if (isbit) totlen <<= 3;
-        /* Convert negative indexes */
-        if (start < 0) start = totlen+start;
-        if (end < 0) end = totlen+end;
-        if (start < 0) start = 0;
-        if (end < 0) end = 0;
-        if (end >= totlen) end = totlen-1;
-        if (isbit && start <= end) {
-            /* Before converting bit offset to byte offset, create negative masks
-             * for the edges. */
-            first_byte_neg_mask = ~((1<<(8-(start&7)))-1) & 0xFF;
-            last_byte_neg_mask = (1<<(7-(end&7)))-1;
-            start >>= 3;
-            end >>= 3;
-        }
+        normalizeBitRange(&range, strlen, isbit);
     } else if (c->argc == 3) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
         if (checkStringOrBitmapType(c,o)) return;
-        p = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            strlen = bitmapObjectLen(o);
+            p = NULL;
+        } else {
+            p = getObjectReadOnlyString(o,&strlen,llbuf);
+        }
 
         /* The whole string. */
-        start = 0;
-        end = strlen-1;
+        range.start = 0;
+        range.end = strlen-1;
+        normalizeBitRange(&range, strlen, 0);
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -2056,42 +2044,51 @@ void bitposCommand(client *c) {
      * If the user is looking for the first set bit, return -1. */
     if (o == NULL) {
         addReplyLongLong(c, bit ? -1 : 0);
-        goto cleanup;
+        return;
+    }
+
+    if (o->type == OBJ_BITMAP) {
+        if (range.start > range.end)
+            addReplyLongLong(c, -1);
+        else
+            addReplyLongLong(c, bitmapObjectBitpos(o, bit, range.bit_start,
+                                                   range.bit_end, end_given));
+        return;
     }
 
     /* For empty ranges (start > end) we return -1 as an empty range does
      * not contain a 0 nor a 1. */
-    if (start > end) {
+    if (range.start > range.end) {
         addReplyLongLong(c, -1);
     } else {
-        long bytes = end-start+1;
+        long bytes = range.end-range.start+1;
         long long pos;
         unsigned char tmpchar;
-        if (first_byte_neg_mask) {
-            if (bit) tmpchar = p[start] & ~first_byte_neg_mask;
-            else tmpchar = p[start] | first_byte_neg_mask;
+        if (range.first_byte_neg_mask) {
+            if (bit) tmpchar = p[range.start] & ~range.first_byte_neg_mask;
+            else tmpchar = p[range.start] | range.first_byte_neg_mask;
             /* Special case, there is only one byte */
-            if (last_byte_neg_mask && bytes == 1) {
-                if (bit) tmpchar = tmpchar & ~last_byte_neg_mask;
-                else tmpchar = tmpchar | last_byte_neg_mask;
+            if (range.last_byte_neg_mask && bytes == 1) {
+                if (bit) tmpchar = tmpchar & ~range.last_byte_neg_mask;
+                else tmpchar = tmpchar | range.last_byte_neg_mask;
             }
             pos = redisBitpos(&tmpchar,1,bit);
             /* If there are no more bytes or we get valid pos, we can exit early */
             if (bytes == 1 || (pos != -1 && pos != 8)) goto result;
-            start++;
+            range.start++;
             bytes--;
         }
         /* If the last byte has not bits in the range, we should exclude it */
-        long curbytes = bytes - (last_byte_neg_mask ? 1 : 0);
+        long curbytes = bytes - (range.last_byte_neg_mask ? 1 : 0);
         if (curbytes > 0) {
-            pos = redisBitpos(p+start,curbytes,bit);
+            pos = redisBitpos(p+range.start,curbytes,bit);
             /* If there is no more bytes or we get valid pos, we can exit early */
             if (bytes == curbytes || (pos != -1 && pos != (long long)curbytes<<3)) goto result;
-            start += curbytes;
+            range.start += curbytes;
             bytes -= curbytes;
         }
-        if (bit) tmpchar = p[end] & ~last_byte_neg_mask;
-        else tmpchar = p[end] | last_byte_neg_mask;
+        if (bit) tmpchar = p[range.end] & ~range.last_byte_neg_mask;
+        else tmpchar = p[range.end] | range.last_byte_neg_mask;
         pos = redisBitpos(&tmpchar,1,bit);
 
     result:
@@ -2104,14 +2101,11 @@ void bitposCommand(client *c) {
          * is not a single "0" bit. */
         if (end_given && bit == 0 && pos == (long long)bytes<<3) {
             addReplyLongLong(c,-1);
-            goto cleanup;
+            return;
         }
-        if (pos != -1) pos += (long long)start<<3; /* Adjust for the bytes we skipped. */
+        if (pos != -1) pos += (long long)range.start<<3; /* Adjust for the bytes we skipped. */
         addReplyLongLong(c,pos);
     }
-
-cleanup:
-    sdsfree(materialized);
 }
 
 /* BITFIELD key subcommand-1 arg ... subcommand-2 arg ... subcommand-N ...
