@@ -10,8 +10,9 @@ Plan phases are numbered "Step 0" through "Step 10", not "PR N". The stacked
 GitHub PR numbers in this fork drift from the plan numbering because issues
 and pull requests share one number counter (as of this revision: Step 1 =
 PR #2, Step 2 = PR #3, Step 3 = PR #4, Step 4 = PR #5, Step 5 = PR #8,
-Step 6 = PR #9), and using "PR N" for both invites confusion. GitHub PR
-numbers are written as "PR #N" where one is meant.
+Step 6 = PR #9, Step 7 = PR #10, Step 8 = PR #11, Step 9 = PR #12), and
+using "PR N" for both invites confusion. GitHub PR numbers are written as
+"PR #N" where one is meant.
 
 ## Exposure Gate
 
