@@ -1,5 +1,6 @@
 #include "server.h"
 #include "bitmap_roaring.h"
+#include "endianconv.h"
 
 #include <roaring/containers/array.h>
 #include <roaring/containers/bitset.h>
@@ -22,7 +23,10 @@ static bitmapObject *getBitmapObject(const robj *o) {
     return o->ptr;
 }
 
-#if (BYTE_ORDER == BIG_ENDIAN)
+/* The converter below is compiled on every architecture, even though the
+ * save/load call sites only need it on big-endian hosts: DEBUG
+ * BITMAP-ENDIAN-CHECK round-trips payloads through it so the parser gets CI
+ * coverage on little-endian builds instead of shipping untested. */
 static uint16_t bitmapPortableRead16(const char *p, int from_little_endian) {
     uint16_t v;
     memcpy(&v, p, sizeof(v));
@@ -124,7 +128,6 @@ static int bitmapPortableConvertEndian(char *buf, size_t len, int from_little_en
 
     return pos == len ? C_OK : C_ERR;
 }
-#endif
 
 static int bitmapRoaringNormalizeAlignment(size_t *alignment) {
     size_t normalized;
@@ -206,15 +209,25 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     bitmapObject *bitmap = getBitmapObject(o);
     bitmap->byte_len = len;
 
+    /* Batch insertions through add_many: this conversion runs on every
+     * eligible SETBIT growth once auto-convert is enabled, and per-bit
+     * roaring_bitmap_add dominates the cost on dense inputs. */
+    uint32_t pending[1024];
+    size_t npending = 0;
+
     for (size_t byte = 0; byte < len; byte++) {
         unsigned char value = buf[byte];
         while (value) {
             int bit = __builtin_ctz(value);
-            uint32_t offset = (uint32_t)(byte * 8 + (7 - bit));
-            roaring_bitmap_add(bitmap->roaring, offset);
+            pending[npending++] = (uint32_t)(byte * 8 + (7 - bit));
             value &= value - 1;
+            if (npending == sizeof(pending) / sizeof(pending[0])) {
+                roaring_bitmap_add_many(bitmap->roaring, npending, pending);
+                npending = 0;
+            }
         }
     }
+    if (npending) roaring_bitmap_add_many(bitmap->roaring, npending, pending);
 
     roaring_bitmap_run_optimize(bitmap->roaring);
     roaring_bitmap_shrink_to_fit(bitmap->roaring);
@@ -587,4 +600,24 @@ sds bitmapObjectSerialize(const robj *o) {
     serverAssert(bitmapPortableConvertEndian(payload, len, 0) == C_OK);
 #endif
     return payload;
+}
+
+/* DEBUG BITMAP-ENDIAN-CHECK: the serialized payload is little-endian on every
+ * host, so swapping it to the opposite endianness and back must parse cleanly
+ * in both directions and reproduce the original bytes. Big-endian hosts start
+ * from their already-converted payload, little-endian hosts start from the
+ * native one, so the parser is exercised either way. */
+int bitmapObjectEndianRoundtripCheck(const robj *o) {
+    sds payload = bitmapObjectSerialize(o);
+    size_t len = sdslen(payload);
+    sds swapped = sdsnewlen(payload, len);
+    int first_from_le = (BYTE_ORDER == BIG_ENDIAN);
+
+    int ok = bitmapPortableConvertEndian(swapped, len, first_from_le) == C_OK &&
+             bitmapPortableConvertEndian(swapped, len, !first_from_le) == C_OK &&
+             memcmp(swapped, payload, len) == 0;
+
+    sdsfree(swapped);
+    sdsfree(payload);
+    return ok ? C_OK : C_ERR;
 }
