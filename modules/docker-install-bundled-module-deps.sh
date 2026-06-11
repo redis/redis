@@ -14,12 +14,24 @@ set -euo pipefail
 
 ROOT="${ROOT:-/workspace}"
 MANIFEST="${MODULES_MANIFEST:-$ROOT/modules/modules.yaml}"
+MANIFEST_LIB="${MANIFEST_LIB:-$ROOT/scripts/lib/manifest.sh}"
 ME="docker-install-bundled-module-deps.sh"
 
 if [ ! -f "$MANIFEST" ]; then
 	echo "$ME: missing manifest: $MANIFEST" >&2
 	exit 1
 fi
+
+if [ ! -f "$MANIFEST_LIB" ]; then
+	echo "$ME: missing manifest reader: $MANIFEST_LIB" >&2
+	exit 1
+fi
+
+# Reuse the single source-of-truth YAML reader instead of re-parsing here.
+# manifest_modules() reads $MODULES_MANIFEST_FILE, so point it at our manifest.
+MODULES_MANIFEST_FILE="$MANIFEST"
+# shellcheck source=../scripts/lib/manifest.sh
+. "$MANIFEST_LIB"
 
 strict_fail() {
 	case "${DOCKER_STRICT:-}" in
@@ -28,22 +40,9 @@ strict_fail() {
 	esac
 }
 
-module_names() {
-	awk '
-		/^modules:/ { m = 1; next }
-		m && /^  - name:/ {
-			line = $0
-			sub(/^  - name:[[:space:]]*/, "", line)
-			sub(/[[:space:]]+#.*$/, "", line)
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-			if (line != "") print line
-		}
-	' "$MANIFEST"
-}
-
 _tmp="$(mktemp)" || { echo "$ME: ERROR: mktemp failed" >&2; exit 1; }
 trap 'rm -f "$_tmp"' EXIT
-module_names >"$_tmp"
+manifest_modules >"$_tmp"
 if [ ! -s "$_tmp" ]; then
 	echo "$ME: WARNING: no module names parsed from $MANIFEST (expected '  - name:' under 'modules:')" >&2
 fi

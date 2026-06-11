@@ -23,21 +23,21 @@ The authoritative pin list is [modules.yaml](modules.yaml). To bump a
 module, edit its `ref:` there and run `make modules-update <name>`.
 
 
-### 1. First-time provisioning — `make modules-update` + `make deps`
+### 1. First-time provisioning — `make modules-update` + `make bootstrap`
 
 `modules-update` clones every module listed in [modules.yaml](modules.yaml)
-into `modules/<name>/src/` at its pinned ref. `deps` then runs each
+into `modules/<name>/src/` at its pinned ref. `bootstrap` then runs each
 module's `.install/install_script.sh` to install OS packages, set up a
 Python venv, and pull in any module-specific toolchain (e.g. Rust for
 `redisjson`).
 
 ```bash
 make modules-update    # clone all modules from modules.yaml
-make deps              # install per-module deps for every cloned module
+make bootstrap         # install per-module deps for every cloned module
 ```
 
 Pass module names to either step to scope it: `make modules-update redisbloom redisjson` /
-`make deps redisbloom redisjson`. Use `make deps` on its own to re-run just
+`make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
 the dependency install.
 
 ### 2. Build — `make build`
@@ -47,7 +47,7 @@ the build, regenerates `redis-gen.conf` so the runtime config reflects
 what was actually built.
 
 ```bash
-make build                         # Redis + all module
+make build all                     # Redis + all modules
 make build redis                   # Redis only
 make build redistimeseries         # Redis + one module
 ```
@@ -102,7 +102,7 @@ positionally — Make reserves `:` for rule syntax. See
 ```bash
 # One-time:
 make modules-update
-make deps
+make bootstrap
 make build
 
 # Day to day:

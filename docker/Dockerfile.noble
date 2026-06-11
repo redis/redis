@@ -52,5 +52,6 @@ RUN apt-get update && \
 # mounted at runtime via `-v $PWD:/workspace`. See README § "Build and run
 # Redis with all data structures - Ubuntu 24.04 (Noble)".
 COPY modules /workspace/modules
+COPY scripts/lib/manifest.sh /workspace/scripts/lib/manifest.sh
 RUN chmod +x /workspace/modules/docker-install-bundled-module-deps.sh && \
     /workspace/modules/docker-install-bundled-module-deps.sh
