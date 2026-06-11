@@ -230,6 +230,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_native_bitmap_write_matches_string grow-after-failed-high-write \
             [binary format H* 00] \
             {bitfield key SET u1 0 1 OVERFLOW FAIL SET u2 47 5}
+
+        assert_native_bitmap_write_matches_string grow-after-fail-only-high-write \
+            [binary format H* 00] \
+            {bitfield key OVERFLOW FAIL SET u2 47 5}
     }
 
     test {BITFIELD rejects native bitmap writes past the roaring offset range} {

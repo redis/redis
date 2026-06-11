@@ -2420,13 +2420,14 @@ void bitfieldGeneric(client *c, int flags) {
         }
     }
 
+    if (native_bitmap_write && strGrowSize) {
+        int bit = bitmapObjectGetBit(o, highest_write_offset);
+        int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
+        serverAssert(ret == C_OK);
+    }
+
     if (changes) {
         if (native_bitmap_write) {
-            if (strGrowSize) {
-                int bit = bitmapObjectGetBit(o, highest_write_offset);
-                int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
-                serverAssert(ret == C_OK);
-            }
             if (strOldSize != bitmapObjectLen(o))
                 updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
             if (server.memory_tracking_enabled)
