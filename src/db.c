@@ -1759,6 +1759,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     NULL, /* module type is special */
     "stream",
     "array",
+    "bitmap",
 #ifdef ENABLE_GCRA
     "gcra"
 #endif
@@ -2444,6 +2445,7 @@ void copyCommand(client *c) {
             if (!newobj) return;
             break;
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
+        case OBJ_BITMAP: newobj = bitmapTypeDup(o); break;
         default:
             addReplyError(c, "unknown type object");
             return;

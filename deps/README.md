@@ -6,6 +6,9 @@ should be provided by the operating system.
 * **linenoise** is a readline replacement. It is developed by the same authors of Redis but is managed as a separated project and updated as needed.
 * **lua** is Lua 5.1 with minor changes for security and additional libraries.
 * **hdr_histogram** Used for per-command latency tracking histograms.
+* **CRoaring** is the C implementation of Roaring bitmaps used by native Redis
+  bitmap encodings. Redis vendors the C headers and source from upstream and
+  builds it only through the Redis dependency Makefile.
 
 How to upgrade the above dependencies
 ===
@@ -103,4 +106,33 @@ We use a customized version based on master branch commit e4448cf6d1cd08fff51981
 1. Compare all changes under /hdr_histogram directory to upstream master commit e4448cf6d1cd08fff519812d3b1e58bd5a94ac42
 2. Copy updated files from newer version onto files in /hdr_histogram.
 3. Apply the changes from 1 above to the updated files.
+
+CRoaring
+---
+
+Updated source can be found here: https://github.com/RoaringBitmap/CRoaring
+Redis currently vendors CRoaring v4.7.0.
+
+1. Replace `deps/croaring/include` with upstream `include`.
+2. Replace `deps/croaring/src` with upstream C source/header files from `src`;
+   Redis does not use upstream CMake files.
+3. Update `deps/croaring/LICENSE`, `AUTHORS`, `README.md`, and `SECURITY.md`.
+4. Check whether upstream added, removed, or renamed C sources and mirror the
+   source list in `deps/croaring/Makefile`.
+5. Re-apply the local Redis changes below unless upstream has independently
+   fixed them; they exist to keep CI green on platforms upstream does not
+   exercise the same way.
+
+Local changes compared to pristine upstream v4.7.0, all confined to
+`include/roaring/portability.h`:
+
+* Added a `__has_include` polyfill (`#ifndef __has_include` /
+  `#define __has_include(x) 0`) for compilers without the builtin.
+* Fixed upstream's malformed `#ifndef !defined(__BYTE_ORDER__) || ...` guard
+  to a proper `#if !defined(...)` form and reworked the endian/byteswap
+  include chain around it.
+* Added a `CROARING_ATOMIC_IMPL_GCC` fallback using `__sync` builtins for
+  toolchains without C11 atomics.
+* Gated `CROARING_ALLOW_UNALIGNED` to
+  `defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)`.
 

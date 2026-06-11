@@ -1,0 +1,586 @@
+set testmodule [file normalize tests/modules/misc.so]
+set ::sparse_public_offset 65536
+set ::sparse_public_len 8193
+
+proc configure_native_bitmap_creation {{auto no} {minbytes 1} {minsaving 0}} {
+    r config set bitmap-roaring-enabled yes
+    r config set bitmap-roaring-auto-convert $auto
+    r config set bitmap-roaring-min-bytes $minbytes
+    r config set bitmap-roaring-min-saving $minsaving
+}
+
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
+    test {native bitmap creation configs default to opt-in behavior} {
+        assert_equal no [lindex [r config get bitmap-roaring-enabled] 1]
+        assert_equal no [lindex [r config get bitmap-roaring-auto-convert] 1]
+    }
+
+    test {SETBIT keeps creating strings when native bitmap creation is disabled} {
+        configure_native_bitmap_creation no 1 0
+        r config set bitmap-roaring-enabled no
+
+        assert_equal 0 [r setbit bitmap:public:disabled $::sparse_public_offset 1]
+        assert_equal string [r type bitmap:public:disabled]
+        assert_equal $::sparse_public_len [r strlen bitmap:public:disabled]
+        assert_equal 1 [r getbit bitmap:public:disabled $::sparse_public_offset]
+    }
+
+    test {SETBIT creates native bitmap for eligible missing sparse keys} {
+        configure_native_bitmap_creation no 1 0
+
+        assert_equal 0 [r setbit bitmap:public:create $::sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap:public:create]
+        assert_equal bitmap-roaring [r object encoding bitmap:public:create]
+        assert_equal 1 [r getbit bitmap:public:create $::sparse_public_offset]
+        assert_equal 1 [r bitcount bitmap:public:create]
+        assert_equal $::sparse_public_len [string length [r debug bitmap-raw bitmap:public:create]]
+        assert_error {WRONGTYPE*} {r get bitmap:public:create}
+    }
+
+    test {native bitmap creation respects byte and saving thresholds} {
+        r del bitmap:public:min-bytes bitmap:public:min-saving
+
+        configure_native_bitmap_creation no 100 0
+        assert_equal 0 [r setbit bitmap:public:min-bytes 80 1]
+        assert_equal string [r type bitmap:public:min-bytes]
+        assert_equal 11 [r strlen bitmap:public:min-bytes]
+
+        configure_native_bitmap_creation no 1 100000
+        assert_equal 0 [r setbit bitmap:public:min-saving $::sparse_public_offset 1]
+        assert_equal string [r type bitmap:public:min-saving]
+        assert_equal $::sparse_public_len [r strlen bitmap:public:min-saving]
+    }
+
+    test {auto-convert defaults off for existing string bitmaps} {
+        configure_native_bitmap_creation no 1 0
+
+        r set bitmap:public:auto-off ""
+        assert_equal 0 [r setbit bitmap:public:auto-off $::sparse_public_offset 1]
+        assert_equal string [r type bitmap:public:auto-off]
+        assert_equal $::sparse_public_len [r strlen bitmap:public:auto-off]
+    }
+
+    test {auto-convert opt-in converts growing string bitmaps and keeps TTL} {
+        configure_native_bitmap_creation yes 1 0
+
+        r set bitmap:public:auto-on ""
+        r pexpire bitmap:public:auto-on 60000
+        assert_equal 0 [r setbit bitmap:public:auto-on $::sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap:public:auto-on]
+        assert_equal bitmap-roaring [r object encoding bitmap:public:auto-on]
+        assert_equal 1 [r getbit bitmap:public:auto-on $::sparse_public_offset]
+        assert {[r pttl bitmap:public:auto-on] > 0}
+    }
+
+    test {auto-convert attempts are amortized on power-of-two growth} {
+        r del bitmap:public:amortize
+
+        # Trial conversions are O(length), so failed attempts back off until
+        # the logical length crosses the next power of two. Force a failed
+        # attempt with an unreachable min-saving, then check that growth
+        # inside the same power-of-two window is not re-evaluated even after
+        # min-saving becomes reachable, while crossing the boundary is.
+        configure_native_bitmap_creation yes 1 1000000000
+        r set bitmap:public:amortize ""
+        assert_equal 0 [r setbit bitmap:public:amortize 1000 1]
+        assert_equal string [r type bitmap:public:amortize]
+
+        r config set bitmap-roaring-min-saving 0
+        assert_equal 0 [r setbit bitmap:public:amortize 1010 1]
+        assert_equal string [r type bitmap:public:amortize]
+
+        assert_equal 0 [r setbit bitmap:public:amortize 4096 1]
+        assert_equal bitmap [r type bitmap:public:amortize]
+        assert_equal 1 [r getbit bitmap:public:amortize 1000]
+        assert_equal 1 [r getbit bitmap:public:amortize 1010]
+        assert_equal 1 [r getbit bitmap:public:amortize 4096]
+    }
+
+    test {WATCH aborts the transaction when SETBIT auto-converts the key} {
+        configure_native_bitmap_creation yes 1 0
+
+        r del bitmap:public:watch
+        r set bitmap:public:watch ""
+        r watch bitmap:public:watch
+        assert_equal 0 [r setbit bitmap:public:watch $::sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap:public:watch]
+        r multi
+        r ping
+        assert_equal {} [r exec]
+    }
+
+    test {native bitmap creation and conversion emit documented keyspace events} {
+        configure_native_bitmap_creation no 1 0
+        r del bitmap:public:notify bitmap:public:notify:conv
+
+        r config set notify-keyspace-events E\$ocn
+        set rd [redis_deferring_client]
+        $rd psubscribe __keyevent@9__:*
+        $rd read
+
+        # Direct native creation: same event sequence as a legacy creating
+        # SETBIT ("new" then "setbit") - the type difference is invisible
+        # at the notification surface.
+        r setbit bitmap:public:notify $::sparse_public_offset 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
+
+        # Auto-convert: the converting SETBIT additionally emits the
+        # overwrite pair from setKey() before the trailing "setbit", so for
+        # subscribers and modules the conversion is an observable type
+        # change rather than a silent in-place mutation.
+        configure_native_bitmap_creation yes 1 0
+        r set bitmap:public:notify:conv ""
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify:conv} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:public:notify:conv} [$rd read]
+        r setbit bitmap:public:notify:conv $::sparse_public_offset 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:overwritten bitmap:public:notify:conv} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
+
+        $rd close
+        r config set notify-keyspace-events {}
+    }
+
+    test {public native bitmaps cover the bitmap command surface} {
+        configure_native_bitmap_creation no 1 0
+
+        assert_equal 0 [r setbit bitmap:public:commands $::sparse_public_offset 1]
+        assert_equal 1 [r getbit bitmap:public:commands $::sparse_public_offset]
+        assert_equal 1 [r bitcount bitmap:public:commands]
+        assert_equal $::sparse_public_offset [r bitpos bitmap:public:commands 1]
+        assert_equal [list 1] [r bitfield_ro bitmap:public:commands GET u1 $::sparse_public_offset]
+
+        set next_offset [expr {$::sparse_public_offset + 1}]
+        assert_equal [list 0] [r bitfield bitmap:public:commands SET u1 $next_offset 1]
+        assert_equal bitmap [r type bitmap:public:commands]
+        assert_equal 2 [r bitcount bitmap:public:commands]
+        assert_equal $::sparse_public_len [r bitop or bitmap:public:commands:copy bitmap:public:commands]
+        assert_equal string [r type bitmap:public:commands:copy]
+    }
+
+    test {native bitmap helper exposes type encoding and exact raw bytes} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:raw $raw
+        assert_equal [r debug bitmap-force-roaring bitmap:raw] OK
+        assert_equal [r type bitmap:raw] bitmap
+        assert_equal [r object encoding bitmap:raw] bitmap-roaring
+        assert_equal [r debug bitmap-raw bitmap:raw] $raw
+        assert_error {WRONGTYPE*} {r get bitmap:raw}
+    }
+
+    test {native bitmap scan type and copy preserve bitmap objects} {
+        set raw [binary format H* 010204000000]
+
+        r set bitmap:copy-source $raw
+        r set bitmap:string-peer value
+        r debug bitmap-force-roaring bitmap:copy-source
+
+        # SCAN gives no guarantee that one page covers the keyspace, so walk
+        # the cursor to completion before asserting membership.
+        set keys {}
+        set cursor 0
+        while 1 {
+            set scan_reply [r scan $cursor type bitmap]
+            set cursor [lindex $scan_reply 0]
+            foreach key [lindex $scan_reply 1] { lappend keys $key }
+            if {$cursor == 0} break
+        }
+        assert {[lsearch -exact $keys bitmap:copy-source] >= 0}
+        assert {[lsearch -exact $keys bitmap:string-peer] == -1}
+
+        assert_equal [r copy bitmap:copy-source bitmap:copy-target] 1
+        assert_equal [r type bitmap:copy-target] bitmap
+        assert_equal [r object encoding bitmap:copy-target] bitmap-roaring
+        assert_equal [r debug bitmap-raw bitmap:copy-target] $raw
+    }
+
+    test {native bitmap rejects generic string commands without materializing} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:string-boundary $raw
+        r debug bitmap-force-roaring bitmap:string-boundary
+
+        foreach command {
+            {get bitmap:string-boundary}
+            {getex bitmap:string-boundary}
+            {getdel bitmap:string-boundary}
+            {getset bitmap:string-boundary replacement}
+            {strlen bitmap:string-boundary}
+            {getrange bitmap:string-boundary 0 -1}
+            {setrange bitmap:string-boundary 0 x}
+            {append bitmap:string-boundary x}
+            {incr bitmap:string-boundary}
+            {decr bitmap:string-boundary}
+            {incrby bitmap:string-boundary 2}
+            {decrby bitmap:string-boundary 2}
+            {incrbyfloat bitmap:string-boundary 1.25}
+            {set bitmap:string-boundary replacement get}
+        } {
+            assert_error {WRONGTYPE*} {r {*}$command}
+            assert_equal bitmap [r type bitmap:string-boundary]
+            assert_equal bitmap-roaring [r object encoding bitmap:string-boundary]
+            assert_equal $raw [r debug bitmap-raw bitmap:string-boundary]
+        }
+    }
+
+    test {legacy string bitmaps keep normal string command behavior} {
+        set raw [binary format H* 8040]
+
+        r set bitmap:legacy-boundary $raw
+        assert_equal string [r type bitmap:legacy-boundary]
+        assert_equal $raw [r get bitmap:legacy-boundary]
+        assert_equal 2 [r strlen bitmap:legacy-boundary]
+        assert_equal 2 [r bitcount bitmap:legacy-boundary]
+        assert_equal 1 [r setbit bitmap:legacy-boundary 0 0]
+        assert_equal string [r type bitmap:legacy-boundary]
+        assert_equal [binary format H* 0040] [r get bitmap:legacy-boundary]
+        assert_equal 3 [r append bitmap:legacy-boundary x]
+        assert_equal [binary format H* 004078] [r get bitmap:legacy-boundary]
+    }
+
+    test {plain SET overwrites a native bitmap key with a string} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:set-overwrite $raw
+        r debug bitmap-force-roaring bitmap:set-overwrite
+        assert_equal bitmap [r type bitmap:set-overwrite]
+
+        # Generic overwrite is the intended plain replacement path: SET
+        # replaces a native bitmap like it replaces any other type, while
+        # implicit string reads stay WRONGTYPE.
+        r set bitmap:set-overwrite replacement
+        assert_equal string [r type bitmap:set-overwrite]
+        assert_equal replacement [r get bitmap:set-overwrite]
+    }
+
+    test {existence-conditional writes treat native bitmaps as existing keys} {
+        set raw [binary format H* 80400100080000]
+
+        r del bitmap:nx-boundary bitmap:nx-other
+        r set bitmap:nx-boundary $raw
+        r debug bitmap-force-roaring bitmap:nx-boundary
+
+        # NX-style writes check only existence, never type: a native bitmap
+        # counts as existing and stays untouched.
+        assert_equal 0 [r setnx bitmap:nx-boundary value]
+        assert_equal 0 [r msetnx bitmap:nx-boundary value bitmap:nx-other other]
+        assert_equal 0 [r exists bitmap:nx-other]
+        assert_equal bitmap [r type bitmap:nx-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:nx-boundary]
+
+        # SET ... XX overwrites a native bitmap like plain SET does.
+        assert_equal OK [r set bitmap:nx-boundary replacement xx]
+        assert_equal string [r type bitmap:nx-boundary]
+        assert_equal replacement [r get bitmap:nx-boundary]
+    }
+
+    test {native bitmap stays opaque to additional string read surfaces} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:surface $raw
+        r set bitmap:surface:string $raw
+        r debug bitmap-force-roaring bitmap:surface
+
+        # MGET reports non-string keys as nil, native bitmaps included.
+        assert_equal [list {} $raw] [r mget bitmap:surface bitmap:surface:string]
+        # SUBSTR is the legacy alias of GETRANGE and stays WRONGTYPE.
+        assert_error {WRONGTYPE*} {r substr bitmap:surface 0 -1}
+        # LCS refuses non-string keys with its dedicated error.
+        assert_error {*must contain string values*} {r lcs bitmap:surface bitmap:surface:string}
+
+        assert_equal bitmap [r type bitmap:surface]
+        assert_equal $raw [r debug bitmap-raw bitmap:surface]
+    }
+
+    test {SORT BY and GET patterns treat native bitmaps as missing values} {
+        r del bitmap:sort:list
+        r rpush bitmap:sort:list a b
+        r set weight_a 2
+        r set weight_b 1
+        r set data_a string-a
+        r set data_b string-b
+
+        assert_equal {b a} [r sort bitmap:sort:list BY weight_* GET #]
+        assert_equal {string-b string-a} [r sort bitmap:sort:list BY weight_* GET data_*]
+
+        # lookupKeyByPattern() only dereferences OBJ_STRING values, so a
+        # native bitmap weight or data target behaves exactly like a
+        # missing key: no weight for BY (sorts as 0), nil for GET, and no
+        # materialization back to a string.
+        r debug bitmap-force-roaring weight_a
+        r debug bitmap-force-roaring data_a
+        assert_equal {a b} [r sort bitmap:sort:list BY weight_* GET #]
+        assert_equal [list {} string-b] [r sort bitmap:sort:list BY weight_* GET data_*]
+        assert_equal bitmap [r type weight_a]
+        assert_equal bitmap [r type data_a]
+
+        # The hash-field pattern branch ("BY pat->field") takes a separate
+        # lookup path that requires OBJ_HASH; a native bitmap in pattern
+        # position behaves like a missing key there too.
+        r del wh_a wh_b
+        r hset wh_b f 1
+        r set wh_a placeholder
+        r debug bitmap-force-roaring wh_a
+        assert_equal {a b} [r sort bitmap:sort:list BY wh_*->f GET #]
+        assert_equal [list {} 1] [r sort bitmap:sort:list BY wh_*->f GET wh_*->f]
+        assert_equal bitmap [r type wh_a]
+    }
+
+    test {Lua scripts observe native bitmaps through normal type checks} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:lua $raw
+        r debug bitmap-force-roaring bitmap:lua
+
+        assert_equal 1 [r eval {return redis.call('getbit', KEYS[1], 0)} 1 bitmap:lua]
+        assert_equal 4 [r eval {return redis.call('bitcount', KEYS[1])} 1 bitmap:lua]
+        assert_error {*WRONGTYPE*} {r eval {return redis.call('get', KEYS[1])} 1 bitmap:lua}
+        assert_equal bitmap [r type bitmap:lua]
+    }
+
+    test {native bitmap dump restore and debug reload preserve bitmap objects} {
+        set raw [binary format H* f0000000000000010000]
+
+        r set bitmap:persist $raw
+        r debug bitmap-force-roaring bitmap:persist
+
+        set payload [r dump bitmap:persist]
+        r restore bitmap:restored 0 $payload
+        assert_equal [r type bitmap:restored] bitmap
+        assert_equal [r object encoding bitmap:restored] bitmap-roaring
+        assert_equal [r debug bitmap-raw bitmap:restored] $raw
+
+        r debug reload
+        assert_equal [r type bitmap:persist] bitmap
+        assert_equal [r object encoding bitmap:persist] bitmap-roaring
+        assert_equal [r debug bitmap-raw bitmap:persist] $raw
+        assert_equal [r type bitmap:restored] bitmap
+        assert_equal [r debug bitmap-raw bitmap:restored] $raw
+    }
+
+    test {native bitmap RDB payload endianness conversion round-trips} {
+        # Build one bitmap holding all three container kinds so the converter
+        # walks every payload section. Each 65536-bit chunk is 8192 bytes:
+        # chunk 0: 4800 consecutive set bits -> run container
+        # chunk 1: alternating bits, cardinality 8000 -> bitset container
+        # chunk 2: 64 isolated bits -> array container
+        # chunk 3: another run container, lifting the container count to the
+        #          CRoaring offset-header threshold so the offsets section is
+        #          present alongside the run bitmap.
+        set raw [string repeat [binary format H* ff] 600]
+        append raw [string repeat [binary format H* 00] 7592]
+        append raw [string repeat [binary format H* aa] 2000]
+        append raw [string repeat [binary format H* 00] 6192]
+        for {set i 0} {$i < 64} {incr i} {
+            append raw [binary format H* 80][string repeat [binary format H* 00] 15]
+        }
+        append raw [string repeat [binary format H* 00] 7168]
+        append raw [string repeat [binary format H* ff] 600]
+
+        r set bitmap:endian $raw
+        r debug bitmap-force-roaring bitmap:endian
+        assert_equal OK [r debug bitmap-endian-check bitmap:endian]
+        assert_equal [r debug bitmap-raw bitmap:endian] $raw
+
+        # An array-only bitmap spanning two containers serializes with the
+        # no-run cookie, covering the other header layout.
+        set sparse [binary format H* 80]
+        append sparse [string repeat [binary format H* 00] 8191]
+        append sparse [binary format H* 80]
+        r set bitmap:endian-sparse $sparse
+        r debug bitmap-force-roaring bitmap:endian-sparse
+        assert_equal OK [r debug bitmap-endian-check bitmap:endian-sparse]
+        assert_equal [r debug bitmap-raw bitmap:endian-sparse] $sparse
+    }
+
+    test {native bitmap unlink uses lazyfree for many roaring containers} {
+        r config resetstat
+        for {set i 0} {$i < 80} {incr i} {
+            r setbit bitmap:lazy [expr {$i * 65536}] 1
+        }
+        r debug bitmap-force-roaring bitmap:lazy
+        assert_equal [r type bitmap:lazy] bitmap
+
+        assert_equal [r unlink bitmap:lazy] 1
+        wait_for_condition 50 100 {
+            [s lazyfree_pending_objects] == 0
+        } else {
+            fail "lazyfree isn't done"
+        }
+        assert_equal [s lazyfreed_objects] 1
+    } {} {needs:config-resetstat}
+
+    test {public-created native bitmaps survive debug reload} {
+        configure_native_bitmap_creation yes 1 0
+
+        r setbit bitmap:public:reload:direct $::sparse_public_offset 1
+        r set bitmap:public:reload:auto ""
+        r setbit bitmap:public:reload:auto $::sparse_public_offset 1
+        set digest_before [debug_digest]
+
+        r debug reload
+
+        assert_equal [debug_digest] $digest_before
+        assert_equal bitmap [r type bitmap:public:reload:direct]
+        assert_equal bitmap [r type bitmap:public:reload:auto]
+        assert_equal 1 [r getbit bitmap:public:reload:direct $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:reload:auto $::sparse_public_offset]
+    }
+}
+
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:skip" "cluster:skip"}} {
+    r module load $testmodule
+
+    test {module key API exposes bitmap without string access} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:module-boundary $raw
+        r set bitmap:module-string $raw
+        r debug bitmap-force-roaring bitmap:module-boundary
+
+        assert_equal {bitmap 7 0 0} [r test.key_string_api bitmap:module-boundary]
+        assert_equal {string 7 1 1} [r test.key_string_api bitmap:module-string]
+        assert_equal bitmap [r type bitmap:module-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
+        assert_equal string [r type bitmap:module-string]
+        assert_equal $raw [r get bitmap:module-string]
+    }
+
+    test "Unload the module - misc" {
+        assert_equal {OK} [r module unload misc]
+    }
+}
+
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
+    test {native bitmap survives AOF rewrite as bitmap} {
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        waitForBgrewriteaof r
+
+        set raw [binary format H* 80000000000000000001]
+
+        r set bitmap:aof $raw
+        r debug bitmap-force-roaring bitmap:aof
+        set digest_before [debug_digest]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        assert_equal [debug_digest] $digest_before
+        assert_equal [r type bitmap:aof] bitmap
+        assert_equal [r object encoding bitmap:aof] bitmap-roaring
+        assert_equal [r debug bitmap-raw bitmap:aof] $raw
+    }
+
+    test {public-created native bitmaps survive AOF rewrite as bitmap} {
+        r flushall
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        configure_native_bitmap_creation yes 1 0
+
+        r setbit bitmap:public:aof:direct $::sparse_public_offset 1
+        r set bitmap:public:aof:auto ""
+        r setbit bitmap:public:aof:auto $::sparse_public_offset 1
+        set digest_before [debug_digest]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        assert_equal [debug_digest] $digest_before
+        assert_equal bitmap [r type bitmap:public:aof:direct]
+        assert_equal bitmap [r type bitmap:public:aof:auto]
+        assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
+    }
+}
+
+start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+
+        test {native bitmap public creation replicates deterministic type transitions} {
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+
+            $master config set bitmap-roaring-enabled yes
+            $master config set bitmap-roaring-auto-convert yes
+            $master config set bitmap-roaring-min-bytes 1
+            $master config set bitmap-roaring-min-saving 0
+            $replica config set bitmap-roaring-enabled no
+            $replica config set bitmap-roaring-auto-convert no
+
+            $master setbit bitmap:public:repl:direct $::sparse_public_offset 1
+            $master set bitmap:public:repl:auto ""
+            $master setbit bitmap:public:repl:auto $::sparse_public_offset 1
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
+            assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
+            assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
+        }
+
+        test {plain SETBIT on an existing native bitmap replicates as a command} {
+            # After the explicit RESTORE transition, later writes replicate
+            # as plain SETBITs against the same type on both sides.
+            $master setbit bitmap:public:repl:direct 12345 1
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+        }
+
+        test {native bitmaps survive a full resync as bitmaps} {
+            # Detach and wipe the replica, then reattach: the keys now arrive
+            # through the RDB-over-the-wire full sync path instead of the
+            # command stream.
+            $replica replicaof no one
+            $replica flushall
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not restarted."
+            }
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
+        }
+
+        test {DEBUG BITMAP-FORCE-ROARING replicates the conversion as RESTORE} {
+            set raw [binary format H* 80400100080000]
+
+            $master set bitmap:public:repl:debug $raw
+            wait_for_ofs_sync $master $replica
+            assert_equal string [$replica type bitmap:public:repl:debug]
+
+            # The replica still has bitmap-roaring configs off and could even
+            # run with debug commands disabled: the conversion must arrive as
+            # the RESTORE effect, never as a replayed DEBUG command.
+            $master debug bitmap-force-roaring bitmap:public:repl:debug
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:debug]
+            assert_equal bitmap-roaring [$replica object encoding bitmap:public:repl:debug]
+            assert_equal $raw [$replica debug bitmap-raw bitmap:public:repl:debug]
+            assert_equal [$master debug digest] [$replica debug digest]
+        }
+    }
+}
