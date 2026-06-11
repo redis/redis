@@ -896,17 +896,20 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client.
- * 
+ *
+ * The caller provides 'o' and 'link' from a single lookupKeyWriteWithLink()
+ * call, so command paths that first probe for a native bitmap don't pay a
+ * second keyspace lookup.
+ *
  * (Must provide all the arguments to the function)
  */
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
+                                       kvobj *o, dictEntryLink link,
                                        size_t *strOldSize, size_t *strGrowSize,
                                        int *created)
 {
-    dictEntryLink link;
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
-    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
@@ -960,16 +963,6 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
     return p;
 }
 
-static unsigned char *getObjectReadOnlyStringOrBitmap(robj *o, long *len, char *llbuf, sds *materialized) {
-    *materialized = NULL;
-    if (o != NULL && o->type == OBJ_BITMAP) {
-        *materialized = bitmapObjectMaterialize(o);
-        if (len) *len = (long)sdslen(*materialized);
-        return (unsigned char*)*materialized;
-    }
-    return getObjectReadOnlyString(o, len, llbuf);
-}
-
 static int bitmapRoaringSelectionEnabled(client *c) {
     return server.bitmap_roaring_enabled && !mustObeyClient(c);
 }
@@ -1004,6 +997,16 @@ static robj *tryCreateRoaringBitmapForSetBit(client *c, uint64_t bitoffset,
     return bitmap;
 }
 
+/* True when some power of two p satisfies oldlen < p <= newlen. */
+static int sizeCrossedPowerOfTwo(size_t oldlen, size_t newlen) {
+    size_t p = 1;
+    while (p <= oldlen) {
+        if (p > SIZE_MAX / 2) return 0;
+        p <<= 1;
+    }
+    return p <= newlen;
+}
+
 static int tryConvertStringBitmapAfterSetBit(client *c, robj **oref,
                                              int created, size_t strGrowSize)
 {
@@ -1016,6 +1019,17 @@ static int tryConvertStringBitmapAfterSetBit(client *c, robj **oref,
 
     size_t len = sdslen(o->ptr);
     if (len < server.bitmap_roaring_min_bytes) return 0;
+
+    /* Amortize conversion attempts: the trial encode below is O(len), so a
+     * dense bitmap growing one write at a time must not pay it on every
+     * growing write. Attempt when the key first reaches min-bytes
+     * eligibility, then again only when the logical length crosses a power
+     * of two, which keeps the total trial work linear in the final length
+     * over a key's growth. */
+    size_t oldlen = len - strGrowSize;
+    if (oldlen >= server.bitmap_roaring_min_bytes &&
+        !sizeCrossedPowerOfTwo(oldlen, len))
+        return 0;
 
     robj *bitmap = createBitmapObjectFromString(o->ptr, len);
     if (bitmap == NULL) return 0;
@@ -1077,7 +1091,8 @@ void setbitCommand(client *c) {
         return;
     }
 
-    kvobj *bitmap = lookupKeyWrite(c->db, c->argv[1]);
+    dictEntryLink link;
+    kvobj *bitmap = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (bitmap != NULL && bitmap->type == OBJ_BITMAP) {
         size_t oldlen = bitmapObjectLen(bitmap);
         size_t oldAllocSize = 0;
@@ -1108,7 +1123,10 @@ void setbitCommand(client *c) {
         robj *created_bitmap = tryCreateRoaringBitmapForSetBit(c, bitoffset,
                                                                on);
         if (created_bitmap != NULL) {
-            kvobj *created = dbAdd(c->db, c->argv[1], &created_bitmap);
+            /* The link from the lookup above is still valid: building the
+             * trial bitmap never touches the keyspace dict. */
+            dbAddByLink(c->db, c->argv[1], &created_bitmap, &link);
+            kvobj *created = created_bitmap;
             keyModified(c,c->db,c->argv[1],created,1);
             notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
             server.dirty++;
@@ -1123,8 +1141,8 @@ void setbitCommand(client *c) {
 
     size_t strOldSize, strGrowSize;
     int created = 0;
-    kvobj *o = lookupStringForBitCommand(c, bitoffset, &strOldSize,
-                                         &strGrowSize, &created);
+    kvobj *o = lookupStringForBitCommand(c, bitoffset, bitmap, link,
+                                         &strOldSize, &strGrowSize, &created);
     if (o == NULL) return;
 
     /* Get current values */
@@ -2205,6 +2223,14 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
+static int getBitfieldLastBit(uint64_t offset, int bits, uint64_t *last) {
+    uint64_t width = (uint64_t)bits - 1;
+
+    if (offset > UINT64_MAX - width) return C_ERR;
+    *last = offset + width;
+    return C_OK;
+}
+
 /* This implements both the BITFIELD command and the BITFIELD_RO command
  * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
  * GET subcommand is allowed, other subcommands will return an error. */
@@ -2219,6 +2245,7 @@ void bitfieldGeneric(client *c, int flags) {
     int readonly = 1;
     uint64_t highest_write_offset = 0;
     int native_bitmap_write = 0;
+    dictEntryLink native_bitmap_link = NULL;
     size_t oldAllocSize = 0;
 
     for (j = 2; j < c->argc; j++) {
@@ -2268,9 +2295,16 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (opcode != BITFIELDOP_GET) {
+            uint64_t last_bit;
+
+            if (getBitfieldLastBit(bitoffset,bits,&last_bit) != C_OK) {
+                addReplyError(c,"bit offset is not an integer or out of range");
+                zfree(ops);
+                return;
+            }
             readonly = 0;
-            if (highest_write_offset < bitoffset + bits - 1)
-                highest_write_offset = bitoffset + bits - 1;
+            if (highest_write_offset < last_bit)
+                highest_write_offset = last_bit;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -2307,8 +2341,10 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         /* Lookup by making room up to the farthest bit reached by
-         * this operation. */
-        o = lookupKeyWrite(c->db,c->argv[1]);
+         * this operation. The link is reused by the string path below so the
+         * keyspace dict is probed only once; the native path mutates the
+         * bitmap in place and does not need it. */
+        o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
         if (o != NULL && o->type == OBJ_BITMAP) {
             if (!bitmapObjectCanRepresentBit(highest_write_offset)) {
                 zfree(ops);
@@ -2323,12 +2359,9 @@ void bitfieldGeneric(client *c, int flags) {
             if (server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(o);
         } else {
-            if (o != NULL && checkType(c,o,OBJ_STRING)) {
-                zfree(ops);
-                return;
-            }
             if ((o = lookupStringForBitCommand(c,
-                highest_write_offset,&strOldSize,&strGrowSize,&string_created)) == NULL) {
+                highest_write_offset,o,native_bitmap_link,
+                &strOldSize,&strGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
             }
@@ -2460,10 +2493,9 @@ void bitfieldGeneric(client *c, int flags) {
             long strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
-            sds materialized = NULL;
 
             if (o != NULL)
-                src = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
+                src = getObjectReadOnlyString(o,&strlen,llbuf);
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
@@ -2488,7 +2520,6 @@ void bitfieldGeneric(client *c, int flags) {
                                             thisop->bits);
                 addReplyLongLong(c,val);
             }
-            sdsfree(materialized);
         }
     }
 
