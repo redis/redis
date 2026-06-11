@@ -517,6 +517,27 @@ void setSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, int64_t
     setUnsignedBitfield(p,offset,bits,uv);
 }
 
+static int setUnsignedBitfieldInBitmapObject(robj *o, uint64_t offset,
+                                             uint64_t bits, uint64_t value)
+{
+    uint64_t j;
+
+    for (j = 0; j < bits; j++) {
+        int bitval = (value & ((uint64_t)1 << (bits - 1 - j))) != 0;
+        if (bitmapObjectSetBit(o, offset, bitval) != C_OK)
+            return C_ERR;
+        offset++;
+    }
+    return C_OK;
+}
+
+static int setSignedBitfieldInBitmapObject(robj *o, uint64_t offset,
+                                           uint64_t bits, int64_t value)
+{
+    uint64_t uv = value; /* Casting will add UINT64_MAX + 1 if v is negative. */
+    return setUnsignedBitfieldInBitmapObject(o, offset, bits, uv);
+}
+
 uint64_t getUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
     uint64_t byte, bit, byteval, bitval, j, value = 0;
 
@@ -2126,8 +2147,7 @@ void bitfieldGeneric(client *c, int flags) {
     int readonly = 1;
     uint64_t highest_write_offset = 0;
     int native_bitmap_write = 0;
-    dictEntryLink native_bitmap_link = NULL;
-    robj *native_bitmap_string = NULL;
+    size_t oldAllocSize = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -2216,22 +2236,20 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* Lookup by making room up to the farthest bit reached by
          * this operation. */
-        o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
+        o = lookupKeyWrite(c->db,c->argv[1]);
         if (o != NULL && o->type == OBJ_BITMAP) {
             if (!bitmapObjectCanRepresentBit(highest_write_offset)) {
                 zfree(ops);
                 addReplyError(c, "bit offset is not representable in native bitmap encoding");
                 return;
             }
-            sds raw = bitmapObjectMaterialize(o);
             size_t byte = highest_write_offset >> 3;
 
-            strOldSize = sdslen(raw);
-            raw = sdsgrowzero(raw, byte + 1);
-            strGrowSize = sdslen(raw) - strOldSize;
-            native_bitmap_string = createObject(OBJ_STRING, raw);
+            strOldSize = bitmapObjectLen(o);
+            strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
             native_bitmap_write = 1;
-            o = native_bitmap_string;
+            if (server.memory_tracking_enabled)
+                oldAllocSize = kvobjAllocSize(o);
         } else {
             if (o != NULL && checkType(c,o,OBJ_STRING)) {
                 zfree(ops);
@@ -2266,8 +2284,13 @@ void bitfieldGeneric(client *c, int flags) {
                 int64_t oldval, newval, wrapped, retval;
                 int overflow;
 
-                oldval = getSignedBitfield(o->ptr,thisop->offset,
-                        thisop->bits);
+                if (native_bitmap_write) {
+                    oldval = getSignedBitfieldFromBitmapObject(o,
+                            thisop->offset,thisop->bits);
+                } else {
+                    oldval = getSignedBitfield(o->ptr,thisop->offset,
+                            thisop->bits);
+                }
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
                     overflow = checkSignedBitfieldOverflow(oldval,
@@ -2286,11 +2309,17 @@ void bitfieldGeneric(client *c, int flags) {
                  * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
-                    setSignedBitfield(o->ptr,thisop->offset,
-                                      thisop->bits,newval);
-
-                    if (strGrowSize || (oldval != newval))
+                    if (strGrowSize || (oldval != newval)) {
+                        if (native_bitmap_write) {
+                            int ret = setSignedBitfieldInBitmapObject(o,
+                                    thisop->offset,thisop->bits,newval);
+                            serverAssert(ret == C_OK);
+                        } else {
+                            setSignedBitfield(o->ptr,thisop->offset,
+                                              thisop->bits,newval);
+                        }
                         changes++;
+                    }
                 } else {
                     addReplyNull(c);
                 }
@@ -2300,8 +2329,13 @@ void bitfieldGeneric(client *c, int flags) {
                 uint64_t oldval, newval, retval, wrapped = 0;
                 int overflow;
 
-                oldval = getUnsignedBitfield(o->ptr,thisop->offset,
-                        thisop->bits);
+                if (native_bitmap_write) {
+                    oldval = getUnsignedBitfieldFromBitmapObject(o,
+                            thisop->offset,thisop->bits);
+                } else {
+                    oldval = getUnsignedBitfield(o->ptr,thisop->offset,
+                            thisop->bits);
+                }
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
                     newval = oldval + thisop->i64;
@@ -2320,11 +2354,17 @@ void bitfieldGeneric(client *c, int flags) {
                  * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
-                    setUnsignedBitfield(o->ptr,thisop->offset,
-                                        thisop->bits,newval);
-
-                    if (strGrowSize || (oldval != newval))
+                    if (strGrowSize || (oldval != newval)) {
+                        if (native_bitmap_write) {
+                            int ret = setUnsignedBitfieldInBitmapObject(o,
+                                    thisop->offset,thisop->bits,newval);
+                            serverAssert(ret == C_OK);
+                        } else {
+                            setUnsignedBitfield(o->ptr,thisop->offset,
+                                                thisop->bits,newval);
+                        }
                         changes++;
+                    }
                 } else {
                     addReplyNull(c);
                 }
@@ -2382,10 +2422,16 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (changes) {
         if (native_bitmap_write) {
-            robj *updated = createBitmapObjectFromString(o->ptr, sdslen(o->ptr));
-            serverAssert(updated != NULL);
-            dbReplaceValueWithLink(c->db, c->argv[1], &updated, native_bitmap_link);
-            o = updated;
+            if (strGrowSize) {
+                int bit = bitmapObjectGetBit(o, highest_write_offset);
+                int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
+                serverAssert(ret == C_OK);
+            }
+            if (strOldSize != bitmapObjectLen(o))
+                updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
+                                    oldAllocSize, kvobjAllocSize(o));
         } else {
             /* If this is not a new key and size changed, then update the
              * keysizes histogram. Otherwise, the histogram already
@@ -2398,7 +2444,6 @@ void bitfieldGeneric(client *c, int flags) {
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
     }
-    if (native_bitmap_string) decrRefCount(native_bitmap_string);
     zfree(ops);
 }
 
