@@ -415,6 +415,15 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         # carries key metadata, so it must not emit a duplicate KEYMETA.SET.
         set keymeta_count [regexp -all {KEYMETA\.SET} $aof_content]
         assert_equal $keymeta_count 4
+
+        # Skipping the KEYMETA.SET is only correct if the metadata really is
+        # inside the RESTORE payload: load the rewritten AOF back (the module
+        # stays loaded, so class registration survives) and verify the bitmap
+        # key still carries its metadata.
+        r debug loadaof
+        assert_equal bitmap [r type bitmapkey]
+        assert_equal "bitmap_meta" [r keymeta.get [cname 1] bitmapkey]
+        assert_equal "metadata_c1" [r keymeta.get [cname 1] key1]
     } {} {external:skip}
 
     # ========================================================================
