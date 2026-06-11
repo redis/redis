@@ -174,6 +174,26 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:64bit:max
     }
 
+    test {implicit SETBIT rejects unrepresentable native offsets without changing keys} {
+        set one_past_native_max [expr {$::native_max_offset + 1}]
+        r config set bitmap-native-mode implicit
+        r del bitmap:64bit:implicit:max:new bitmap:64bit:implicit:max:string
+
+        assert_error {*not representable*} {
+            r setbit bitmap:64bit:implicit:max:new $one_past_native_max 1
+        }
+        assert_equal 0 [r exists bitmap:64bit:implicit:max:new]
+
+        set raw [binary format H* 80]
+        r set bitmap:64bit:implicit:max:string $raw
+        assert_error {*not representable*} {
+            r setbit bitmap:64bit:implicit:max:string $one_past_native_max 1
+        }
+        assert_equal string [r type bitmap:64bit:implicit:max:string]
+        assert_equal $raw [r get bitmap:64bit:implicit:max:string]
+        r config set bitmap-native-mode explicit
+    }
+
     test {string bitmaps keep the proto-max-bulk-len write bound but read 64-bit offsets} {
         r del bitmap:string:bounds
         r config set bitmap-native-mode explicit

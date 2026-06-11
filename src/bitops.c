@@ -1012,6 +1012,12 @@ void setbitCommand(client *c) {
     }
 
     if (bitmapNativeImplicitMode(c)) {
+        if ((bitmap == NULL || bitmap->type == OBJ_STRING) &&
+            !bitmapObjectCanRepresentBit(bitoffset))
+        {
+            addReplyError(c, "bit offset is not representable in native bitmap encoding");
+            return;
+        }
         if (bitmap == NULL) {
             /* Implicit mode: newly created bitmap keys are native. The link
              * from the lookup above is still valid: building the bitmap never
