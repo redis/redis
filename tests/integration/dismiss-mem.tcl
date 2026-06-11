@@ -55,6 +55,13 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
             r arset sparse_array [expr {$i * 5000}] $bigstr
         }
 
+        # bitmap: alternating bits force a large bitset container, and the
+        # distant bit keeps a second sparse container in the Roaring directory.
+        r set bigbitmap [binary format H* [string repeat aa 8192]]
+        r setbit bigbitmap 100000 1
+        r debug bitmap-force-roaring bigbitmap
+        assert_equal bitmap [r type bigbitmap]
+
         set digest [debug_digest]
         # Test both RDB (yes) and AOF (no) rewrite paths.
         foreach preamble {yes no} {
