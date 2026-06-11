@@ -1202,6 +1202,15 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        /* All CRoaring allocations flow through the zmalloc memory hook, so
+         * they can be relocated like any other nested allocation. Bitmaps
+         * with many containers are queued for incremental defrag like other
+         * multi-allocation types; small ones are processed in one shot. */
+        if (bitmapObjectContainerCount(ob) > server.active_defrag_max_scan_fields)
+            defragLater(ctx, ob);
+        else
+            defragBitmapObject(ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1322,6 +1331,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
+        } else if (ob->type == OBJ_BITMAP) {
+            *cursor = bitmapObjectDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }
