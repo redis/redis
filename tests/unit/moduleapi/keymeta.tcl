@@ -379,6 +379,10 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         r hset hashkey field1 val1
         r keymeta.set [cname 4] hashkey "hash_meta"
 
+        r set bitmapkey [binary format H* 80400100080000]
+        r debug bitmap-force-roaring bitmapkey
+        r keymeta.set [cname 1] bitmapkey "bitmap_meta"
+
         # Trigger AOF rewrite
         r bgrewriteaof
         waitForBgrewriteaof r
@@ -402,11 +406,13 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         assert_match "*KEYMETA.SET*[cname 2]*key2*metadata_c2*" $aof_content
         assert_match "*KEYMETA.SET*[cname 3]*key2*metadata_c3*" $aof_content
         assert_match "*KEYMETA.SET*[cname 4]*hashkey*hash_meta*" $aof_content
+        assert_match "*RESTORE*bitmapkey*" $aof_content
 
         # Verify the RESP format is correct by checking for the command structure
         # The AOF should contain: *4 (array of 4 elements)
         assert_match "*\$11*KEYMETA.SET*" $aof_content
-        # Count how many KEYMETA.SET commands are in the AOF
+        # Bitmap rewrite uses RESTORE with an embedded DUMP payload that already
+        # carries key metadata, so it must not emit a duplicate KEYMETA.SET.
         set keymeta_count [regexp -all {KEYMETA\.SET} $aof_content]
         assert_equal $keymeta_count 4
     } {} {external:skip}
