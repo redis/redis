@@ -72,6 +72,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitpos bitmap:native:read 0]
         assert_equal 9 [r bitpos bitmap:native:read 1 8 -1 bit]
         assert_equal {1 1 1} [r bitfield_ro bitmap:native:read GET u1 0 GET u1 9 GET u1 36]
+        assert_error {ERR BITFIELD_RO only supports the GET subcommand} {
+            r bitfield_ro bitmap:native:read SET u8 0 255
+        }
 
         assert_equal bitmap [r type bitmap:native:read]
         assert_equal bitmap-roaring [r object encoding bitmap:native:read]
@@ -199,6 +202,13 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_error {*ERR bit offset is not representable in native bitmap encoding*} {
             r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
         }
+        set old_proto [config_get_set proto-max-bulk-len 1073741824]
+        set e [catch {
+            r bitfield bitmap:native:bitfield:limit SET u1 4294967296 1
+        } err]
+        r config set proto-max-bulk-len $old_proto
+        assert {$e == 1}
+        assert_match {*ERR bit offset is not representable in native bitmap encoding*} $err
         assert_equal bitmap [r type bitmap:native:bitfield:limit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
         assert_equal "" [r debug bitmap-raw bitmap:native:bitfield:limit]

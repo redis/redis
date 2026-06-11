@@ -72,6 +72,30 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert {[r pttl bitmap:public:auto-on] > 0}
     }
 
+    test {auto-convert attempts are amortized on power-of-two growth} {
+        r del bitmap:public:amortize
+
+        # Trial conversions are O(length), so failed attempts back off until
+        # the logical length crosses the next power of two. Force a failed
+        # attempt with an unreachable min-saving, then check that growth
+        # inside the same power-of-two window is not re-evaluated even after
+        # min-saving becomes reachable, while crossing the boundary is.
+        configure_native_bitmap_creation yes 1 1000000000
+        r set bitmap:public:amortize ""
+        assert_equal 0 [r setbit bitmap:public:amortize 1000 1]
+        assert_equal string [r type bitmap:public:amortize]
+
+        r config set bitmap-roaring-min-saving 0
+        assert_equal 0 [r setbit bitmap:public:amortize 1010 1]
+        assert_equal string [r type bitmap:public:amortize]
+
+        assert_equal 0 [r setbit bitmap:public:amortize 4096 1]
+        assert_equal bitmap [r type bitmap:public:amortize]
+        assert_equal 1 [r getbit bitmap:public:amortize 1000]
+        assert_equal 1 [r getbit bitmap:public:amortize 1010]
+        assert_equal 1 [r getbit bitmap:public:amortize 4096]
+    }
+
     test {public native bitmaps cover the bitmap command surface} {
         configure_native_bitmap_creation no 1 0
 
@@ -107,8 +131,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r set bitmap:string-peer value
         r debug bitmap-force-roaring bitmap:copy-source
 
-        set scan_reply [r scan 0 type bitmap]
-        set keys [lindex $scan_reply 1]
+        # SCAN gives no guarantee that one page covers the keyspace, so walk
+        # the cursor to completion before asserting membership.
+        set keys {}
+        set cursor 0
+        while 1 {
+            set scan_reply [r scan $cursor type bitmap]
+            set cursor [lindex $scan_reply 0]
+            foreach key [lindex $scan_reply 1] { lappend keys $key }
+            if {$cursor == 0} break
+        }
         assert {[lsearch -exact $keys bitmap:copy-source] >= 0}
         assert {[lsearch -exact $keys bitmap:string-peer] == -1}
 
@@ -162,6 +194,74 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 004078] [r get bitmap:legacy-boundary]
     }
 
+    test {plain SET overwrites a native bitmap key with a string} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:set-overwrite $raw
+        r debug bitmap-force-roaring bitmap:set-overwrite
+        assert_equal bitmap [r type bitmap:set-overwrite]
+
+        # Generic overwrite is the intended plain replacement path: SET
+        # replaces a native bitmap like it replaces any other type, while
+        # implicit string reads stay WRONGTYPE.
+        r set bitmap:set-overwrite replacement
+        assert_equal string [r type bitmap:set-overwrite]
+        assert_equal replacement [r get bitmap:set-overwrite]
+    }
+
+    test {native bitmap stays opaque to additional string read surfaces} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:surface $raw
+        r set bitmap:surface:string $raw
+        r debug bitmap-force-roaring bitmap:surface
+
+        # MGET reports non-string keys as nil, native bitmaps included.
+        assert_equal [list {} $raw] [r mget bitmap:surface bitmap:surface:string]
+        # SUBSTR is the legacy alias of GETRANGE and stays WRONGTYPE.
+        assert_error {WRONGTYPE*} {r substr bitmap:surface 0 -1}
+        # LCS refuses non-string keys with its dedicated error.
+        assert_error {*must contain string values*} {r lcs bitmap:surface bitmap:surface:string}
+
+        assert_equal bitmap [r type bitmap:surface]
+        assert_equal $raw [r debug bitmap-raw bitmap:surface]
+    }
+
+    test {SORT BY and GET patterns treat native bitmaps as missing values} {
+        r del bitmap:sort:list
+        r rpush bitmap:sort:list a b
+        r set weight_a 2
+        r set weight_b 1
+        r set data_a string-a
+        r set data_b string-b
+
+        assert_equal {b a} [r sort bitmap:sort:list BY weight_* GET #]
+        assert_equal {string-b string-a} [r sort bitmap:sort:list BY weight_* GET data_*]
+
+        # lookupKeyByPattern() only dereferences OBJ_STRING values, so a
+        # native bitmap weight or data target behaves exactly like a
+        # missing key: no weight for BY (sorts as 0), nil for GET, and no
+        # materialization back to a string.
+        r debug bitmap-force-roaring weight_a
+        r debug bitmap-force-roaring data_a
+        assert_equal {a b} [r sort bitmap:sort:list BY weight_* GET #]
+        assert_equal [list {} string-b] [r sort bitmap:sort:list BY weight_* GET data_*]
+        assert_equal bitmap [r type weight_a]
+        assert_equal bitmap [r type data_a]
+    }
+
+    test {Lua scripts observe native bitmaps through normal type checks} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:lua $raw
+        r debug bitmap-force-roaring bitmap:lua
+
+        assert_equal 1 [r eval {return redis.call('getbit', KEYS[1], 0)} 1 bitmap:lua]
+        assert_equal 4 [r eval {return redis.call('bitcount', KEYS[1])} 1 bitmap:lua]
+        assert_error {*WRONGTYPE*} {r eval {return redis.call('get', KEYS[1])} 1 bitmap:lua}
+        assert_equal bitmap [r type bitmap:lua]
+    }
+
     test {native bitmap dump restore and debug reload preserve bitmap objects} {
         set raw [binary format H* f0000000000000010000]
 
@@ -181,6 +281,58 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r type bitmap:restored] bitmap
         assert_equal [r debug bitmap-raw bitmap:restored] $raw
     }
+
+    test {native bitmap RDB payload endianness conversion round-trips} {
+        # Build one bitmap holding all three container kinds so the converter
+        # walks every payload section. Each 65536-bit chunk is 8192 bytes:
+        # chunk 0: 4800 consecutive set bits -> run container
+        # chunk 1: alternating bits, cardinality 8000 -> bitset container
+        # chunk 2: 64 isolated bits -> array container
+        # chunk 3: another run container, lifting the container count to the
+        #          CRoaring offset-header threshold so the offsets section is
+        #          present alongside the run bitmap.
+        set raw [string repeat [binary format H* ff] 600]
+        append raw [string repeat [binary format H* 00] 7592]
+        append raw [string repeat [binary format H* aa] 2000]
+        append raw [string repeat [binary format H* 00] 6192]
+        for {set i 0} {$i < 64} {incr i} {
+            append raw [binary format H* 80][string repeat [binary format H* 00] 15]
+        }
+        append raw [string repeat [binary format H* 00] 7168]
+        append raw [string repeat [binary format H* ff] 600]
+
+        r set bitmap:endian $raw
+        r debug bitmap-force-roaring bitmap:endian
+        assert_equal OK [r debug bitmap-endian-check bitmap:endian]
+        assert_equal [r debug bitmap-raw bitmap:endian] $raw
+
+        # An array-only bitmap spanning two containers serializes with the
+        # no-run cookie, covering the other header layout.
+        set sparse [binary format H* 80]
+        append sparse [string repeat [binary format H* 00] 8191]
+        append sparse [binary format H* 80]
+        r set bitmap:endian-sparse $sparse
+        r debug bitmap-force-roaring bitmap:endian-sparse
+        assert_equal OK [r debug bitmap-endian-check bitmap:endian-sparse]
+        assert_equal [r debug bitmap-raw bitmap:endian-sparse] $sparse
+    }
+
+    test {native bitmap unlink uses lazyfree for many roaring containers} {
+        r config resetstat
+        for {set i 0} {$i < 80} {incr i} {
+            r setbit bitmap:lazy [expr {$i * 65536}] 1
+        }
+        r debug bitmap-force-roaring bitmap:lazy
+        assert_equal [r type bitmap:lazy] bitmap
+
+        assert_equal [r unlink bitmap:lazy] 1
+        wait_for_condition 50 100 {
+            [s lazyfree_pending_objects] == 0
+        } else {
+            fail "lazyfree isn't done"
+        }
+        assert_equal [s lazyfreed_objects] 1
+    } {} {needs:config-resetstat}
 
     test {public-created native bitmaps survive debug reload} {
         configure_native_bitmap_creation yes 1 0
@@ -301,6 +453,37 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
+        }
+
+        test {plain SETBIT on an existing native bitmap replicates as a command} {
+            # After the explicit RESTORE transition, later writes replicate
+            # as plain SETBITs against the same type on both sides.
+            $master setbit bitmap:public:repl:direct 12345 1
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+        }
+
+        test {native bitmaps survive a full resync as bitmaps} {
+            # Detach and wipe the replica, then reattach: the keys now arrive
+            # through the RDB-over-the-wire full sync path instead of the
+            # command stream.
+            $replica replicaof no one
+            $replica flushall
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not restarted."
+            }
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
         }
     }
 }

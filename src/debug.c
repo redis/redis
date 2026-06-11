@@ -432,6 +432,8 @@ void debugCommand(client *c) {
 "    Server will sleep before flushing the AOF, this is used for testing.",
 "ASSERT",
 "    Crash by assertion failed.",
+"BITMAP-ENDIAN-CHECK <key>",
+"    Verify the native bitmap RDB payload endianness conversion round-trips.",
 "BITMAP-FORCE-ROARING <key>",
 "    Convert a string key to native bitmap Roaring encoding for tests.",
 "BITMAP-RAW <key>",
@@ -1004,6 +1006,17 @@ NULL
 
         sds raw = bitmapObjectMaterialize(kv);
         addReplyBulkSds(c, raw);
+    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-endian-check") &&
+               c->argc == 3)
+    {
+        kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
+        if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
+
+        if (bitmapObjectEndianRoundtripCheck(kv) != C_OK) {
+            addReplyError(c, "bitmap endianness round-trip mismatch");
+            return;
+        }
+        addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
                c->argc == 3)
     {
