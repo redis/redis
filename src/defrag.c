@@ -24,6 +24,23 @@
 
 #ifdef HAVE_DEFRAG
 
+typedef struct {
+    size_t allocated;
+    size_t active;
+    size_t resident;
+    size_t frag_bytes;
+    float frag_pct;
+    size_t frag_rss_bytes;
+    float frag_rss_pct;
+} allocatorFragInfo;
+
+struct {
+    uint64_t total_time;
+    uint64_t total_reallocated;
+    uint64_t num_cycles;
+    int sum_cpu_pct;
+} defragStats;
+
 #define DEFRAG_CYCLE_US 500 /* Standard duration of defrag cycle (in microseconds) */
 
 typedef enum { DEFRAG_NOT_DONE = 0,
@@ -1227,32 +1244,25 @@ static void dbKeysScanCallback(void *privdata, const dictEntry *de, dictEntryLin
  * fragmentation ratio in order to decide if a defrag action should be taken
  * or not, a false detection can cause the defragmenter to waste a lot of CPU
  * without the possibility of getting any results. */
-float getAllocatorFragmentation(size_t *out_frag_bytes) {
-    size_t resident, active, allocated, frag_smallbins_bytes;
-    zmalloc_get_allocator_info(1, &allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+void getAllocatorFragmentation(allocatorFragInfo *info) {
+    zmalloc_get_allocator_info(1, &info->allocated, &info->active, &info->resident, NULL, NULL, &info->frag_bytes);
 
     if (server.lua_arena != UINT_MAX) {
         size_t lua_resident, lua_active, lua_allocated, lua_frag_smallbins_bytes;
         zmalloc_get_allocator_info_by_arena(server.lua_arena, 0, &lua_allocated, &lua_active, &lua_resident, &lua_frag_smallbins_bytes);
-        resident -= lua_resident;
-        active -= lua_active;
-        allocated -= lua_allocated;
-        frag_smallbins_bytes -= lua_frag_smallbins_bytes;
+        info->resident -= lua_resident;
+        info->active -= lua_active;
+        info->allocated -= lua_allocated;
+        info->frag_bytes -= lua_frag_smallbins_bytes;
     }
 
     /* Calculate the fragmentation ratio as the proportion of wasted memory in small
      * bins (which are defraggable) relative to the total allocated memory (including large bins).
      * This is because otherwise, if most of the memory usage is large bins, we may show high percentage,
      * despite the fact it's not a lot of memory for the user. */
-    float frag_pct = (float)frag_smallbins_bytes / allocated * 100;
-    float rss_pct = ((float)resident / allocated)*100 - 100;
-    size_t rss_bytes = resident - allocated;
-    if(out_frag_bytes)
-        *out_frag_bytes = frag_smallbins_bytes;
-    serverLog(LL_DEBUG,
-        "allocated=%zu, active=%zu, resident=%zu, frag=%.2f%% (%.2f%% rss), frag_bytes=%zu (%zu rss)",
-        allocated, active, resident, frag_pct, rss_pct, frag_smallbins_bytes, rss_bytes);
-    return frag_pct;
+    info->frag_pct = (float)info->frag_bytes / info->allocated * 100;
+    info->frag_rss_pct = ((float)info->resident / info->allocated)*100 - 100;
+    info->frag_rss_bytes = info->resident - info->allocated;
 }
 #else
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
@@ -1388,17 +1398,17 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
 
 /* decide if defrag is needed, and at what CPU effort to invest in it */
 void computeDefragCycles(void) {
-    size_t frag_bytes;
-    float frag_pct = getAllocatorFragmentation(&frag_bytes);
+    allocatorFragInfo info;
+    getAllocatorFragmentation(&info);
     /* If we're not already running, and below the threshold, exit. */
     if (!server.active_defrag_running) {
-        if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
+        if(info.frag_pct < server.active_defrag_threshold_lower || info.frag_bytes < server.active_defrag_ignore_bytes)
             return;
     }
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current
      * fragmentation and configurations. */
-    int cpu_pct = INTERPOLATE(frag_pct,
+    int cpu_pct = INTERPOLATE(info.frag_pct,
             server.active_defrag_threshold_lower,
             server.active_defrag_threshold_upper,
             server.active_defrag_cycle_min,
@@ -1415,15 +1425,12 @@ void computeDefragCycles(void) {
         server.active_defrag_configuration_changed)
     {
         server.active_defrag_configuration_changed = 0;
-        if (defragIsRunning()) {
-            serverLog(LL_VERBOSE, "Changing active defrag CPU, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
-                      frag_pct, frag_bytes, cpu_pct);
-        } else {
-            serverLog(LL_VERBOSE,
-                "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
-                frag_pct, frag_bytes, cpu_pct);
-        }
         server.active_defrag_running = cpu_pct;
+
+        if (!defragIsRunning()) {
+            defragStats.sum_cpu_pct += cpu_pct;
+            defragStats.num_cycles++;
+        }
     }
 }
 
@@ -1714,17 +1721,16 @@ static void endDefragCycle(int normal_termination) {
     listRelease(defrag.remaining_stages);
     defrag.remaining_stages = NULL;
 
-    size_t frag_bytes;
-    float frag_pct = getAllocatorFragmentation(&frag_bytes);
-    serverLog(LL_VERBOSE, "Active defrag done in %dms, reallocated=%d, frag=%.0f%%, frag_bytes=%zu",
-              (int)elapsedMs(defrag.start_cycle), (int)(server.stat_active_defrag_hits - defrag.start_defrag_hits),
-              frag_pct, frag_bytes);
+    defragStats.total_time += elapsedMs(defrag.start_cycle);
+    defragStats.total_reallocated += server.stat_active_defrag_hits - defrag.start_defrag_hits;
 
     server.stat_total_active_defrag_time += elapsedUs(server.stat_last_active_defrag_time);
     server.stat_last_active_defrag_time = 0;
     server.active_defrag_running = 0;
 
-    updateDefragDecayRate(frag_pct);
+    allocatorFragInfo info;
+    getAllocatorFragmentation(&info);
+    updateDefragDecayRate(info.frag_pct);
     moduleDefragEnd();
 
     /* Immediately check to see if we should start another defrag cycle. */
@@ -1965,7 +1971,9 @@ static void beginDefragCycle(void) {
     defrag.start_cycle = getMonotonicUs();
     defrag.start_defrag_hits = server.stat_active_defrag_hits;
     defrag.start_defrag_misses = server.stat_active_defrag_misses;
-    defrag.start_frag_pct = getAllocatorFragmentation(NULL);
+    allocatorFragInfo info;
+    getAllocatorFragmentation(&info);
+    defrag.start_frag_pct = info.frag_pct;
     defrag.timeproc_end_time = 0;
     defrag.timeproc_overage_us = 0;
     defrag.timeproc_id = aeCreateTimeEvent(server.el, 0, activeDefragTimeProc, NULL, NULL);
@@ -1983,6 +1991,38 @@ void activeDefragCycle(void) {
     computeDefragCycles();
 
     if (server.active_defrag_running > 0 && !defragIsRunning()) beginDefragCycle();
+}
+
+void activeDefragCycleLogStats(void) {
+    if (!server.active_defrag_running || !defragStats.num_cycles)
+        return;
+    allocatorFragInfo info;
+    getAllocatorFragmentation(&info);
+    serverLog(LL_DEBUG, 
+        "Active defrag: "
+        "cycles_started=%d, "
+        "total_time=%dms, "
+        "total_reallocated=%d, "
+        "avg_cpu_pct=%d%%, "
+        "allocated=%zu, "
+        "active=%zu, "
+        "resident=%zu, "
+        "frag_pct=%.2f%%, "
+        "frag_bytes=%zu, "
+        "frag_rss_pct=%.2f%%, "
+        "frag_rss_bytes=%zu",
+        (int)defragStats.num_cycles,
+        (int)defragStats.total_time,
+        (int)defragStats.total_reallocated,
+        defragStats.sum_cpu_pct / (int)defragStats.num_cycles,
+        info.allocated,
+        info.active,
+        info.resident,
+        info.frag_pct,
+        info.frag_bytes,
+        info.frag_rss_pct,
+        info.frag_rss_bytes);
+    memset(&defragStats, 0, sizeof(defragStats));
 }
 
 #else /* HAVE_DEFRAG */
@@ -2012,6 +2052,9 @@ robj *activeDefragStringOb(robj *ob) {
 }
 
 void defragWhileBlocked(void) {
+}
+
+void activeDefragCycleLogStats(void) {
 }
 
 #endif

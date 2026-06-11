@@ -1315,6 +1315,9 @@ void databasesCron(void) {
 
     /* Defrag keys gradually. */
     activeDefragCycle();
+    run_with_period(1000) {
+        activeDefragCycleLogStats();
+    }
 
     /* Handle active-trim */
     if (server.cluster_enabled)
