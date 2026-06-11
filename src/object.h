@@ -183,6 +183,7 @@ int bitmapObjectCanRepresentBit(uint64_t bitoffset);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
 sds bitmapObjectMaterialize(const robj *o);
+size_t bitmapObjectSerializedSize(const robj *o);
 sds bitmapObjectSerialize(const robj *o);
 int bitmapObjectEndianRoundtripCheck(const robj *o);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
