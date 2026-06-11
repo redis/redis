@@ -26,9 +26,12 @@ static bitmapObject *getBitmapObject(const robj *o) {
 /* Build a roaring bitmap from raw bitmap string bytes. Batch insertions
  * through add_many: this conversion runs on every eligible SETBIT growth once
  * auto-convert is enabled and on every string BITOP source, and per-bit
- * roaring_bitmap_add dominates the cost on dense inputs. */
+ * roaring_bitmap_add dominates the cost on dense inputs. The optimize pass is
+ * only worth paying for bitmaps that are kept (run_optimize/shrink_to_fit walk
+ * every container); BITOP operand temporaries are freed within the command, so
+ * their callers pass optimize=0. */
 static roaring_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *buf,
-                                                       size_t len)
+                                                       size_t len, int optimize)
 {
     roaring_bitmap_t *roaring = roaring_bitmap_create();
     serverAssert(roaring != NULL);
@@ -50,8 +53,10 @@ static roaring_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *buf,
     }
     if (npending) roaring_bitmap_add_many(roaring, npending, pending);
 
-    roaring_bitmap_run_optimize(roaring);
-    roaring_bitmap_shrink_to_fit(roaring);
+    if (optimize) {
+        roaring_bitmap_run_optimize(roaring);
+        roaring_bitmap_shrink_to_fit(roaring);
+    }
     return roaring;
 }
 
@@ -239,7 +244,7 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
 
     bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
-    bitmap->roaring = bitmapObjectRoaringFromString(buf, len);
+    bitmap->roaring = bitmapObjectRoaringFromString(buf, len, 1);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -754,7 +759,7 @@ static int bitmapObjectPrepareBitopSources(robj **objects,
             serverAssert(o->type == OBJ_STRING);
             sources[i].owned =
                 bitmapObjectRoaringFromString((unsigned char *)o->ptr,
-                                              sdslen(o->ptr));
+                                              sdslen(o->ptr), 0);
             if (sources[i].owned == NULL) return C_ERR;
             sources[i].roaring = sources[i].owned;
         }
@@ -889,7 +894,8 @@ sds bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
         serverPanic("Unknown native bitmap BITOP");
     }
 
-    roaring_bitmap_run_optimize(result);
+    /* No run_optimize on the result: it is materialized to a flat string and
+     * freed right away, so container-conversion work would buy nothing. */
     raw = bitmapObjectMaterializeRoaring(result, maxlen);
     roaring_bitmap_free(result);
     bitmapObjectReleaseBitopSources(sources, numkeys);
