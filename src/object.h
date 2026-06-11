@@ -172,6 +172,9 @@ robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t le
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
 void dismissBitmapObject(robj *o, size_t size_hint);
+void defragBitmapObject(robj *o);
+unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
+size_t bitmapObjectContainerCount(const robj *o);
 typedef enum bitmapBitop {
     BITMAP_BITOP_AND = 0,
     BITMAP_BITOP_OR,
@@ -195,6 +198,7 @@ sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys, size_t maxlen);
 size_t bitmapObjectSerializedSize(const robj *o);
 sds bitmapObjectSerialize(const robj *o);
+int bitmapObjectEndianRoundtripCheck(const robj *o);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);

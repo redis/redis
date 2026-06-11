@@ -122,6 +122,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitpos bitmap:native:read 0]
         assert_equal 9 [r bitpos bitmap:native:read 1 8 -1 bit]
         assert_equal {1 1 1} [r bitfield_ro bitmap:native:read GET u1 0 GET u1 9 GET u1 36]
+        assert_error {ERR BITFIELD_RO only supports the GET subcommand} {
+            r bitfield_ro bitmap:native:read SET u8 0 255
+        }
 
         assert_equal bitmap [r type bitmap:native:read]
         assert_equal bitmap-roaring [r object encoding bitmap:native:read]
@@ -219,7 +222,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {BITFIELD writes native bitmap values through materialization fallback} {
+    test {BITFIELD writes native bitmap values through the direct write path} {
         r set bitmap:native:bitfield [binary format H* 00]
         r debug bitmap-force-roaring bitmap:native:bitfield
 
@@ -277,6 +280,13 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_error {*ERR bit offset is not representable in native bitmap encoding*} {
             r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
         }
+        set old_proto [config_get_set proto-max-bulk-len 1073741824]
+        set e [catch {
+            r bitfield bitmap:native:bitfield:limit SET u1 4294967296 1
+        } err]
+        r config set proto-max-bulk-len $old_proto
+        assert {$e == 1}
+        assert_match {*ERR bit offset is not representable in native bitmap encoding*} $err
         assert_equal bitmap [r type bitmap:native:bitfield:limit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
         assert_equal "" [r debug bitmap-raw bitmap:native:bitfield:limit]
@@ -391,6 +401,34 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         for {set i 0} {$i < 12} {incr i} {
             assert_native_bitop_raws_match_string "fuzz:not:$i" \
                 not [list [randstring 0 128]] {0}
+        }
+    }
+
+    test {BITOP mixed native and missing-key sources match string results} {
+        r config set bitmap-roaring-enabled no
+        r config set bitmap-roaring-auto-convert no
+
+        set a [binary format H* f0f0]
+        set c [binary format H* 0f]
+
+        foreach op {and or xor diff diff1 andor one} {
+            r del bitop:miss:string:dest bitop:miss:native:dest
+            r del bitop:miss:string:a bitop:miss:string:gone bitop:miss:string:c
+            r del bitop:miss:native:a bitop:miss:native:gone bitop:miss:native:c
+
+            r set bitop:miss:string:a $a
+            r set bitop:miss:string:c $c
+            r set bitop:miss:native:a $a
+            r set bitop:miss:native:c $c
+            r debug bitmap-force-roaring bitop:miss:native:a
+
+            set string_reply [r bitop $op bitop:miss:string:dest \
+                bitop:miss:string:a bitop:miss:string:gone bitop:miss:string:c]
+            set native_reply [r bitop $op bitop:miss:native:dest \
+                bitop:miss:native:a bitop:miss:native:gone bitop:miss:native:c]
+            assert_equal $string_reply $native_reply
+            assert_equal [bitmap_raw_or_empty bitop:miss:string:dest] \
+                [bitmap_raw_or_empty bitop:miss:native:dest]
         }
     }
 }

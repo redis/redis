@@ -1,5 +1,6 @@
 #include "server.h"
 #include "bitmap_roaring.h"
+#include "endianconv.h"
 
 #include <roaring/containers/array.h>
 #include <roaring/containers/bitset.h>
@@ -7,6 +8,7 @@
 #include <roaring/containers/run.h>
 #include <roaring/memory.h>
 #include <roaring/roaring.h>
+#include <roaring/roaring_array.h>
 
 typedef struct bitmapObject {
     size_t byte_len;
@@ -21,25 +23,142 @@ static bitmapObject *getBitmapObject(const robj *o) {
     return o->ptr;
 }
 
+/* Build a roaring bitmap from raw bitmap string bytes. Batch insertions
+ * through add_many: this conversion runs on every eligible SETBIT growth once
+ * auto-convert is enabled and on every string BITOP source, and per-bit
+ * roaring_bitmap_add dominates the cost on dense inputs. */
 static roaring_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *buf,
                                                        size_t len)
 {
     roaring_bitmap_t *roaring = roaring_bitmap_create();
     serverAssert(roaring != NULL);
 
+    uint32_t pending[1024];
+    size_t npending = 0;
+
     for (size_t byte = 0; byte < len; byte++) {
         unsigned char value = buf[byte];
         while (value) {
             int bit = __builtin_ctz(value);
-            uint32_t offset = (uint32_t)(byte * 8 + (7 - bit));
-            roaring_bitmap_add(roaring, offset);
+            pending[npending++] = (uint32_t)(byte * 8 + (7 - bit));
             value &= value - 1;
+            if (npending == sizeof(pending) / sizeof(pending[0])) {
+                roaring_bitmap_add_many(roaring, npending, pending);
+                npending = 0;
+            }
         }
     }
+    if (npending) roaring_bitmap_add_many(roaring, npending, pending);
 
     roaring_bitmap_run_optimize(roaring);
     roaring_bitmap_shrink_to_fit(roaring);
     return roaring;
+}
+
+/* The converter below is compiled on every architecture, even though the
+ * save/load call sites only need it on big-endian hosts: DEBUG
+ * BITMAP-ENDIAN-CHECK round-trips payloads through it so the parser gets CI
+ * coverage on little-endian builds instead of shipping untested. */
+static uint16_t bitmapPortableRead16(const char *p, int from_little_endian) {
+    uint16_t v;
+    memcpy(&v, p, sizeof(v));
+    return from_little_endian ? intrev16(v) : v;
+}
+
+static uint32_t bitmapPortableRead32(const char *p, int from_little_endian) {
+    uint32_t v;
+    memcpy(&v, p, sizeof(v));
+    return from_little_endian ? intrev32(v) : v;
+}
+
+/* CRoaring's portable format is host-endian despite being byte-compatible with
+ * the Roaring format on little-endian hosts. Redis RDB payloads must be
+ * architecture-portable, so big-endian builds translate the CRoaring payload to
+ * little-endian before saving and back to host-endian before deserializing. */
+static int bitmapPortableConvertEndian(char *buf, size_t len, int from_little_endian) {
+    size_t pos = 0;
+
+    if (len < sizeof(uint32_t)) return C_ERR;
+    uint32_t cookie = bitmapPortableRead32(buf, from_little_endian);
+    memrev32(buf);
+    pos += sizeof(uint32_t);
+
+    int32_t size;
+    int hasrun;
+    if ((cookie & 0xFFFF) == SERIAL_COOKIE) {
+        size = (int32_t)((cookie >> 16) + 1);
+        hasrun = 1;
+    } else if (cookie == SERIAL_COOKIE_NO_RUNCONTAINER) {
+        if (len - pos < sizeof(uint32_t)) return C_ERR;
+        size = (int32_t)bitmapPortableRead32(buf + pos, from_little_endian);
+        memrev32(buf + pos);
+        pos += sizeof(uint32_t);
+        hasrun = 0;
+    } else {
+        return C_ERR;
+    }
+    if (size < 0 || size > (1 << 16)) return C_ERR;
+
+    char *runmap = NULL;
+    if (hasrun) {
+        size_t runmap_len = ((size_t)size + 7) / 8;
+        if (len - pos < runmap_len) return C_ERR;
+        runmap = buf + pos;
+        pos += runmap_len;
+    }
+
+    size_t keycard_len = (size_t)size * 2 * sizeof(uint16_t);
+    if (len - pos < keycard_len) return C_ERR;
+    char *keycards = buf + pos;
+    pos += keycard_len;
+
+    if ((!hasrun) || (size >= NO_OFFSET_THRESHOLD)) {
+        size_t offsets_len = (size_t)size * sizeof(uint32_t);
+        if (len - pos < offsets_len) return C_ERR;
+        for (int32_t i = 0; i < size; i++)
+            memrev32(buf + pos + (size_t)i * sizeof(uint32_t));
+        pos += offsets_len;
+    }
+
+    for (int32_t i = 0; i < size; i++) {
+        char *key = keycards + (size_t)i * 2 * sizeof(uint16_t);
+        char *cardp = key + sizeof(uint16_t);
+        uint32_t cardinality = (uint32_t)bitmapPortableRead16(cardp, from_little_endian) + 1;
+        int isbitmap = cardinality > DEFAULT_MAX_SIZE;
+        int isrun = 0;
+
+        memrev16(key);
+        memrev16(cardp);
+
+        if (hasrun && (runmap[i / 8] & (1 << (i % 8)))) {
+            isbitmap = 0;
+            isrun = 1;
+        }
+
+        if (isbitmap) {
+            size_t words_len = BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
+            if (len - pos < words_len) return C_ERR;
+            for (size_t j = 0; j < BITSET_CONTAINER_SIZE_IN_WORDS; j++)
+                memrev64(buf + pos + j * sizeof(uint64_t));
+            pos += words_len;
+        } else if (isrun) {
+            if (len - pos < sizeof(uint16_t)) return C_ERR;
+            uint16_t runs = bitmapPortableRead16(buf + pos, from_little_endian);
+            memrev16(buf + pos);
+            pos += sizeof(uint16_t);
+            if (runs > (len - pos) / (2 * sizeof(uint16_t))) return C_ERR;
+            for (uint32_t j = 0; j < (uint32_t)runs * 2; j++)
+                memrev16(buf + pos + (size_t)j * sizeof(uint16_t));
+            pos += (size_t)runs * 2 * sizeof(uint16_t);
+        } else {
+            if (cardinality > (len - pos) / sizeof(uint16_t)) return C_ERR;
+            for (uint32_t j = 0; j < cardinality; j++)
+                memrev16(buf + pos + (size_t)j * sizeof(uint16_t));
+            pos += (size_t)cardinality * sizeof(uint16_t);
+        }
+    }
+
+    return pos == len ? C_OK : C_ERR;
 }
 
 static int bitmapRoaringNormalizeAlignment(size_t *alignment) {
@@ -130,7 +249,21 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
 robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len, int deep_validate) {
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
-    roaring_bitmap_t *roaring = roaring_bitmap_portable_deserialize_safe(buf, len);
+    const char *portable = buf;
+    sds converted = NULL;
+#if (BYTE_ORDER == BIG_ENDIAN)
+    converted = sdsnewlen(buf, len);
+    if (bitmapPortableConvertEndian(converted, len, 1) != C_OK) {
+        sdsfree(converted);
+        return NULL;
+    }
+    portable = converted;
+#else
+    if (roaring_bitmap_portable_deserialize_size(buf, len) != len) return NULL;
+#endif
+
+    roaring_bitmap_t *roaring = roaring_bitmap_portable_deserialize_safe(portable, len);
+    sdsfree(converted);
     if (roaring == NULL) return NULL;
 
     /* The safe deserializer bounds the reads but does not verify structural
@@ -232,9 +365,11 @@ static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
     if (container == NULL) return;
 
     if (type == SHARED_CONTAINER_TYPE) {
-        shared_container_t *shared = CAST_shared(container);
-        bitmapObjectDismissContainer(shared->container, shared->typecode);
-        dismissMemory(shared, sizeof(*shared));
+        /* Shared containers exist only when CRoaring copy-on-write is in use,
+         * which Redis never enables. If one ever appears it may be referenced
+         * by another live bitmap, and a fork child that dismisses pages another
+         * object still has to serialize would corrupt that object's output, so
+         * leave shared containers alone. */
         return;
     }
 
@@ -267,11 +402,14 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
     bitmapObject *bitmap = getBitmapObject(o);
     roaring_array_t *array = &bitmap->roaring->high_low_container;
 
-    UNUSED(size_hint);
-
-    for (int32_t i = 0; i < array->size; i++) {
-        bitmapObjectDismissContainer(
-            (container_t *)array->containers[i], array->typecodes[i]);
+    /* Iterate the container directory only when the average container payload
+     * is likely to span whole pages, like the other complex types (see
+     * dismissObject()). */
+    if (array->size > 0 && size_hint / (size_t)array->size >= server.page_size) {
+        for (int32_t i = 0; i < array->size; i++) {
+            bitmapObjectDismissContainer(
+                (container_t *)array->containers[i], array->typecodes[i]);
+        }
     }
 
     dismissMemory(array->containers,
@@ -280,6 +418,165 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
                        sizeof(*array->typecodes)));
     dismissMemory(bitmap->roaring, sizeof(*bitmap->roaring));
     dismissMemory(bitmap, sizeof(*bitmap));
+}
+
+/* --- Active defrag support ---
+ *
+ * Every allocation CRoaring makes for a bitmap goes through the zmalloc-backed
+ * memory hook installed in bitmapRoaringInit(), so active defrag can relocate
+ * each one with activeDefragAlloc(). The walk mirrors dismissBitmapObject():
+ * the wrapper struct, the roaring bitmap struct, the container directory
+ * (containers/keys/typecodes share one allocation), and every container with
+ * its payload buffer. */
+
+/* CRoaring requests this alignment for bitset container word buffers in the
+ * portable build Redis uses (see align_size in CRoaring's
+ * bitset_container_create(); the SIMD-gated 64-byte case is compiled out by
+ * ROARING_DISABLE_X64). bitmapRoaringAlignedMalloc() over-allocates by
+ * alignment - 1 + sizeof(void *), so re-deriving an aligned offset inside a
+ * relocated block always fits. */
+#define BITMAP_ROARING_BITSET_WORDS_ALIGNMENT 32
+
+static void bitmapObjectDefragBitsetWords(bitset_container_t *bitset) {
+    void *base, *newbase;
+    uintptr_t aligned;
+    size_t old_off, new_off;
+
+    if (bitset->words == NULL) return;
+    base = bitmapRoaringAlignedAllocBase(bitset->words);
+    newbase = activeDefragAlloc(base);
+    if (newbase == NULL) return;
+
+    /* The relocation copied the block verbatim, so the words still sit at
+     * their old offset; re-derive the aligned offset for the new base address
+     * and slide the words when the two differ. */
+    old_off = (size_t)((char *)bitset->words - (char *)base);
+    aligned = ((uintptr_t)newbase + sizeof(void *) +
+               (BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1)) &
+              ~((uintptr_t)BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1);
+    new_off = (size_t)(aligned - (uintptr_t)newbase);
+    if (new_off != old_off)
+        memmove((char *)newbase + new_off, (char *)newbase + old_off,
+                sizeof(uint64_t) * BITSET_CONTAINER_SIZE_IN_WORDS);
+    ((void **)aligned)[-1] = newbase;
+    bitset->words = (uint64_t *)aligned;
+}
+
+/* Defrag one container; returns the moved container pointer, or NULL if the
+ * container struct itself did not move (its payload may still have moved). */
+static container_t *bitmapObjectDefragContainer(container_t *container,
+                                                uint8_t type) {
+    void *moved;
+
+    if (container == NULL) return NULL;
+
+    if (type == SHARED_CONTAINER_TYPE) {
+        /* Shared containers exist only when CRoaring copy-on-write is in use,
+         * which Redis never enables; one could be referenced by another live
+         * bitmap, so relocating it from here would corrupt the other owner.
+         * Leave them alone. */
+        return NULL;
+    }
+
+    switch (type) {
+    case ARRAY_CONTAINER_TYPE: {
+        array_container_t *array = CAST_array(container);
+        uint16_t *values;
+        if ((moved = activeDefragAlloc(array)) != NULL)
+            array = (array_container_t *)moved;
+        if (array->array != NULL &&
+            (values = activeDefragAlloc(array->array)) != NULL)
+            array->array = values;
+        return (container_t *)moved;
+    }
+    case BITSET_CONTAINER_TYPE: {
+        bitset_container_t *bitset = CAST_bitset(container);
+        if ((moved = activeDefragAlloc(bitset)) != NULL)
+            bitset = (bitset_container_t *)moved;
+        bitmapObjectDefragBitsetWords(bitset);
+        return (container_t *)moved;
+    }
+    case RUN_CONTAINER_TYPE: {
+        run_container_t *run = CAST_run(container);
+        rle16_t *runs;
+        if ((moved = activeDefragAlloc(run)) != NULL)
+            run = (run_container_t *)moved;
+        if (run->runs != NULL &&
+            (runs = activeDefragAlloc(run->runs)) != NULL)
+            run->runs = runs;
+        return (container_t *)moved;
+    }
+    default:
+        serverPanic("Unknown roaring bitmap container type");
+    }
+}
+
+size_t bitmapObjectContainerCount(const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    return (size_t)bitmap->roaring->high_low_container.size;
+}
+
+/* Relocate the wrapper struct, roaring struct and container directory, and
+ * refresh o->ptr. Container payloads are handled separately so the walk can
+ * be split into incremental steps. */
+static roaring_array_t *bitmapObjectDefragTopLevel(robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o), *newbitmap;
+    roaring_bitmap_t *newroaring;
+    roaring_array_t *array;
+
+    if ((newbitmap = activeDefragAlloc(bitmap)) != NULL)
+        o->ptr = bitmap = newbitmap;
+    if ((newroaring = activeDefragAlloc(bitmap->roaring)) != NULL)
+        bitmap->roaring = newroaring;
+
+    array = &bitmap->roaring->high_low_container;
+    if (array->containers != NULL) {
+        container_t **newblock = activeDefragAlloc(array->containers);
+        if (newblock != NULL) {
+            /* containers, keys and typecodes share one allocation, laid out
+             * in that order (see CRoaring's realloc_array()). */
+            array->containers = newblock;
+            array->keys = (uint16_t *)(array->containers + array->allocation_size);
+            array->typecodes = (uint8_t *)(array->keys + array->allocation_size);
+        }
+    }
+    return array;
+}
+
+void defragBitmapObject(robj *o) {
+    roaring_array_t *array = bitmapObjectDefragTopLevel(o);
+    container_t *moved;
+
+    for (int32_t i = 0; i < array->size; i++) {
+        moved = bitmapObjectDefragContainer((container_t *)array->containers[i],
+                                            array->typecodes[i]);
+        if (moved != NULL) array->containers[i] = moved;
+    }
+}
+
+/* Incremental defrag step for bitmaps queued with defragLater(): 'cursor' is
+ * the next container index to process (0 also relocates the top-level
+ * allocations). Containers may shift between steps if the bitmap is written
+ * concurrently; that only makes the walk skip or revisit a few containers,
+ * which is harmless for defrag. Returns the new cursor, 0 when done. */
+unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor) {
+    roaring_array_t *array;
+    container_t *moved;
+    long iterations = 0;
+
+    if (cursor == 0)
+        array = bitmapObjectDefragTopLevel(o);
+    else
+        array = &getBitmapObject(o)->roaring->high_low_container;
+
+    while (cursor < (unsigned long)array->size) {
+        moved = bitmapObjectDefragContainer(
+            (container_t *)array->containers[cursor], array->typecodes[cursor]);
+        if (moved != NULL) array->containers[cursor] = moved;
+        cursor++;
+        if (++iterations >= 128) return cursor;
+    }
+    return 0;
 }
 
 uint64_t bitmapObjectCardinality(const robj *o) {
@@ -466,6 +763,16 @@ static int bitmapObjectPrepareBitopSources(robj **objects,
 }
 
 static roaring_bitmap_t *bitmapObjectCopyBitopSource(bitmapBitopSource *source) {
+    /* Roarings built from string sources are owned temporaries that no later
+     * operand reads again (every caller seeds the accumulator from this
+     * source exactly once), so steal them instead of deep-copying. */
+    if (source->owned != NULL) {
+        roaring_bitmap_t *stolen = source->owned;
+        source->owned = NULL;
+        source->roaring = NULL;
+        return stolen;
+    }
+
     roaring_bitmap_t *copy = source->roaring != NULL ?
         roaring_bitmap_copy(source->roaring) : roaring_bitmap_create();
     serverAssert(copy != NULL);
@@ -601,5 +908,28 @@ sds bitmapObjectSerialize(const robj *o) {
     sds payload = sdsnewlen(SDS_NOINIT, len);
     size_t written = roaring_bitmap_portable_serialize(bitmap->roaring, payload);
     serverAssert(written == len);
+#if (BYTE_ORDER == BIG_ENDIAN)
+    serverAssert(bitmapPortableConvertEndian(payload, len, 0) == C_OK);
+#endif
     return payload;
+}
+
+/* DEBUG BITMAP-ENDIAN-CHECK: the serialized payload is little-endian on every
+ * host, so swapping it to the opposite endianness and back must parse cleanly
+ * in both directions and reproduce the original bytes. Big-endian hosts start
+ * from their already-converted payload, little-endian hosts start from the
+ * native one, so the parser is exercised either way. */
+int bitmapObjectEndianRoundtripCheck(const robj *o) {
+    sds payload = bitmapObjectSerialize(o);
+    size_t len = sdslen(payload);
+    sds swapped = sdsnewlen(payload, len);
+    int first_from_le = (BYTE_ORDER == BIG_ENDIAN);
+
+    int ok = bitmapPortableConvertEndian(swapped, len, first_from_le) == C_OK &&
+             bitmapPortableConvertEndian(swapped, len, !first_from_le) == C_OK &&
+             memcmp(swapped, payload, len) == 0;
+
+    sdsfree(swapped);
+    sdsfree(payload);
+    return ok ? C_OK : C_ERR;
 }
