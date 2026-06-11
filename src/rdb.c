@@ -3328,12 +3328,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            unsigned char *first = lpFirst(lp);
-            if (first == NULL) {
-                /* Serialized listpacks should never be empty, since on
-                 * deletion we should remove the radix tree key if the
-                 * resulting listpack is empty. */
-                rdbReportCorruptRDB("Empty listpack inside stream");
+            /* Under shallow validation (sanitize-dump-payload no) only the
+             * listpack header was checked, so validate the first entry here:
+             * reject an empty listpack, and ensure the entry is well-formed
+             * before lpGetIntegerValue() below decodes it unchecked. */
+            unsigned char *first, *next;
+            first = next = lpValidateFirst(lp);
+            if (first == NULL || !lpValidateNext(lp, &next, lp_size)) {
+                rdbReportCorruptRDB("Stream listpack integrity check failed.");
                 sdsfree(nodekey);
                 decrRefCount(o);
                 zfree(lp);
