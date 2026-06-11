@@ -52,6 +52,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
         set corpus {
             {single-zero {0}}
             {byte-boundaries {0 7 8 15}}
+            {word-boundaries {15 16 31 32 63 64 127 128}}
             {container-boundaries {4095 4096 65535 65536 131071}}
             {large-sparse {1 1000 100000 1000000}}
         }

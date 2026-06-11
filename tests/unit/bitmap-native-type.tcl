@@ -96,6 +96,52 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r getbit bitmap:public:amortize 4096]
     }
 
+    test {WATCH aborts the transaction when SETBIT auto-converts the key} {
+        configure_native_bitmap_creation yes 1 0
+
+        r del bitmap:public:watch
+        r set bitmap:public:watch ""
+        r watch bitmap:public:watch
+        assert_equal 0 [r setbit bitmap:public:watch $::sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap:public:watch]
+        r multi
+        r ping
+        assert_equal {} [r exec]
+    }
+
+    test {native bitmap creation and conversion emit documented keyspace events} {
+        configure_native_bitmap_creation no 1 0
+        r del bitmap:public:notify bitmap:public:notify:conv
+
+        r config set notify-keyspace-events E\$ocn
+        set rd [redis_deferring_client]
+        $rd psubscribe __keyevent@9__:*
+        $rd read
+
+        # Direct native creation: same event sequence as a legacy creating
+        # SETBIT ("new" then "setbit") - the type difference is invisible
+        # at the notification surface.
+        r setbit bitmap:public:notify $::sparse_public_offset 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
+
+        # Auto-convert: the converting SETBIT additionally emits the
+        # overwrite pair from setKey() before the trailing "setbit", so for
+        # subscribers and modules the conversion is an observable type
+        # change rather than a silent in-place mutation.
+        configure_native_bitmap_creation yes 1 0
+        r set bitmap:public:notify:conv ""
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify:conv} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:public:notify:conv} [$rd read]
+        r setbit bitmap:public:notify:conv $::sparse_public_offset 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:overwritten bitmap:public:notify:conv} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
+
+        $rd close
+        r config set notify-keyspace-events {}
+    }
+
     test {public native bitmaps cover the bitmap command surface} {
         configure_native_bitmap_creation no 1 0
 
@@ -209,6 +255,27 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal replacement [r get bitmap:set-overwrite]
     }
 
+    test {existence-conditional writes treat native bitmaps as existing keys} {
+        set raw [binary format H* 80400100080000]
+
+        r del bitmap:nx-boundary bitmap:nx-other
+        r set bitmap:nx-boundary $raw
+        r debug bitmap-force-roaring bitmap:nx-boundary
+
+        # NX-style writes check only existence, never type: a native bitmap
+        # counts as existing and stays untouched.
+        assert_equal 0 [r setnx bitmap:nx-boundary value]
+        assert_equal 0 [r msetnx bitmap:nx-boundary value bitmap:nx-other other]
+        assert_equal 0 [r exists bitmap:nx-other]
+        assert_equal bitmap [r type bitmap:nx-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:nx-boundary]
+
+        # SET ... XX overwrites a native bitmap like plain SET does.
+        assert_equal OK [r set bitmap:nx-boundary replacement xx]
+        assert_equal string [r type bitmap:nx-boundary]
+        assert_equal replacement [r get bitmap:nx-boundary]
+    }
+
     test {native bitmap stays opaque to additional string read surfaces} {
         set raw [binary format H* 80400100080000]
 
@@ -248,6 +315,17 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [list {} string-b] [r sort bitmap:sort:list BY weight_* GET data_*]
         assert_equal bitmap [r type weight_a]
         assert_equal bitmap [r type data_a]
+
+        # The hash-field pattern branch ("BY pat->field") takes a separate
+        # lookup path that requires OBJ_HASH; a native bitmap in pattern
+        # position behaves like a missing key there too.
+        r del wh_a wh_b
+        r hset wh_b f 1
+        r set wh_a placeholder
+        r debug bitmap-force-roaring wh_a
+        assert_equal {a b} [r sort bitmap:sort:list BY wh_*->f GET #]
+        assert_equal [list {} 1] [r sort bitmap:sort:list BY wh_*->f GET wh_*->f]
+        assert_equal bitmap [r type wh_a]
     }
 
     test {Lua scripts observe native bitmaps through normal type checks} {
@@ -484,6 +562,25 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
+        }
+
+        test {DEBUG BITMAP-FORCE-ROARING replicates the conversion as RESTORE} {
+            set raw [binary format H* 80400100080000]
+
+            $master set bitmap:public:repl:debug $raw
+            wait_for_ofs_sync $master $replica
+            assert_equal string [$replica type bitmap:public:repl:debug]
+
+            # The replica still has bitmap-roaring configs off and could even
+            # run with debug commands disabled: the conversion must arrive as
+            # the RESTORE effect, never as a replayed DEBUG command.
+            $master debug bitmap-force-roaring bitmap:public:repl:debug
+            wait_for_ofs_sync $master $replica
+
+            assert_equal bitmap [$replica type bitmap:public:repl:debug]
+            assert_equal bitmap-roaring [$replica object encoding bitmap:public:repl:debug]
+            assert_equal $raw [$replica debug bitmap-raw bitmap:public:repl:debug]
+            assert_equal [$master debug digest] [$replica debug digest]
         }
     }
 }
