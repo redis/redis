@@ -1386,7 +1386,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
 #define INTERPOLATE(x, x1, x2, y1, y2) ( (y1) + ((x)-(x1)) * ((y2)-(y1)) / ((x2)-(x1)) )
 #define LIMIT(y, min, max) ((y)<(min)? min: ((y)>(max)? max: (y)))
 
-/* ===== Defrag-check tick-local cache ================================
+/* ===== Defrag-check single-consumer cache ===========================
  *
  * Background: getAllocatorFragmentation() forces a jemalloc epoch refresh
  * (cross-thread stats sync via IPIs) plus a walk over every arena's
@@ -1399,17 +1399,28 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
  * so the second call's result is computed and then discarded.
  *
  * Fix: cronUpdateMemoryStats() publishes the (Lua-arena-subtracted) values
- * it just measured into a tick-local cache.  computeDefragCycles() reads
- * from the cache at its top; on hit, it makes the threshold decision on
- * the cached value and returns early; on miss (cache stale or near
- * threshold), it falls through to the original expensive call unchanged.
+ * it just measured into the cache.  computeDefragCycles() reads from the
+ * cache at its top; on hit, it makes the threshold decision on the cached
+ * value and returns early; on miss (cache stale or near threshold), it
+ * falls through to the original expensive call unchanged.
  *
- * The cache is invalidated near the end of serverCron() so it is only
- * ever valid within the current cron tick.  Out-of-cron callers
- * (endDefragCycle's recursive activeDefragCycle() call from a defrag
- * time event, defragWhileBlocked() from a long Lua script / RDB load)
- * arrive at a stale cache and fall through — safe by construction, no
- * staleness window to reason about.
+ * Invalidation has two rules — both required for the cache to be safe:
+ *
+ *   (1) Consume-once: defragCheckCacheConsume() ALWAYS sets the cache
+ *       to the stale sentinel (-1) before returning, whether it returns
+ *       a hit or a miss.  This bounds staleness: any second consumer
+ *       arriving before the next publish sees -1 and falls through to
+ *       a real measurement.  Critical for the defragWhileBlocked() path
+ *       during long AOF/RDB loads, where the function can fire many
+ *       times per cronUpdateMemoryStats() publish window.
+ *
+ *   (2) Cron-exit invalidate: serverCron() (and any future periodic-cron
+ *       function that calls Publish) invalidates near its exit to cover
+ *       the produce-but-no-consume case — defrag disabled by config,
+ *       or active_defrag_running > 0 so the pre-check is bypassed.
+ *       Without this, a value published this tick could leak past the
+ *       tick boundary into a defrag time-event running between cron
+ *       iterations.
  *
  * Single-threaded by Redis's main-thread invariant; no synchronization
  * needed. */
@@ -1429,9 +1440,15 @@ void defragCheckCachePublish(size_t frag_bytes, size_t allocated) {
 
 int defragCheckCacheConsume(int64_t *out_frag_pct_x100, size_t *out_frag_bytes) {
     int64_t pct_x100 = server.defrag_check_cache.frag_pct_x100;
-    /* Note: tick-local cache — we do NOT invalidate here so the value
-     * remains usable by any additional in-cron consumer.  serverCron()
-     * invalidates at the end of the tick. */
+    /* Consume-once: invalidate immediately so a subsequent consumer
+     * (e.g. defragWhileBlocked() firing repeatedly during a long AOF
+     * load before the next cronUpdateMemoryStats() publish, or any
+     * future in-tick reader) cannot reuse the same value and miss a
+     * memory-state change.  serverCron() also calls
+     * defragCheckCacheInvalidate() at tick exit to cover the
+     * produce-but-no-consume case (e.g. defrag disabled by config or
+     * active_defrag_running > 0 so the pre-check is bypassed). */
+    server.defrag_check_cache.frag_pct_x100 = -1;
     if (pct_x100 < 0) return 0;
     *out_frag_pct_x100 = pct_x100;
     *out_frag_bytes    = server.defrag_check_cache.frag_bytes;
@@ -1456,8 +1473,11 @@ void computeDefragCycles(void) {
      * (cronUpdateMemoryStats() and computeDefragCycles() run on the
      * same main-thread tick with no preemption between them), so the
      * check mirrors the original post-call threshold check exactly,
-     * with no safety margin.  Staleness on out-of-cron paths
-     * (defragWhileBlocked, endDefragCycle's recursive call) is
+     * with no safety margin.  Consume invalidates the cache
+     * immediately, so a second consumer arriving before the next
+     * publish falls through to a real measurement — this bounds
+     * staleness on the defragWhileBlocked() / endDefragCycle paths.
+     * Out-of-cron staleness is
      * eliminated by serverCron()'s tick-exit invalidation: those
      * callers always observe a stale cache and fall through. */
     if (!server.active_defrag_running) {
