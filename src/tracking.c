@@ -653,6 +653,9 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
         vec *user_clients = ri.data;
 
         sds proto = trackingBuildBroadcastReply(u, NULL, bs->keys);
+        /* If no keys are visible to this user: NOLOOP replies are
+         * strictly a subset, so they are empty too. Nothing to send. */
+        if (!proto) continue;
 
         for (size_t j = 0; j < vecSize(user_clients); j++) {
             client *c = vecGet(user_clients, j);
@@ -660,12 +663,10 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
             if (c->flags & CLIENT_TRACKING_NOLOOP) {
                 sds adhoc = trackingBuildBroadcastReply(u, c, bs->keys);
                 if (!adhoc) continue;
-                sendTrackingMessage(c, adhoc,
-                                    sdslen(adhoc), 1);
+                sendTrackingMessage(c, adhoc, sdslen(adhoc), 1);
                 sdsfree(adhoc);
                 continue;
             }
-            if (!proto) continue;
 
             sendTrackingMessage(c, proto, sdslen(proto), 1);
         }
