@@ -997,6 +997,13 @@ NULL
         notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", c->argv[2], c->db->id);
         KSN_INVALIDATE_KVOBJ(bitmap);
         server.dirty++;
+
+        /* Propagate the conversion effect, not the DEBUG command: replicas
+         * may run with debug commands disabled (the production default), and
+         * type transitions must replicate as RESTORE per the determinism
+         * strategy shared with SETBIT auto-convert. */
+        preventCommandPropagation(c);
+        bitmapPropagateRestore(c, c->argv[2], bitmap);
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-raw") &&
                c->argc == 3)

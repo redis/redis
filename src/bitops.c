@@ -1046,17 +1046,23 @@ static int tryConvertStringBitmapAfterSetBit(client *c, robj **oref,
     return 1;
 }
 
-static void propagateBitmapRestore(client *c, robj *bitmap) {
+/* Propagate a string-to-native-bitmap type transition as RESTORE ... REPLACE
+ * [ABSTTL] instead of the triggering command: the conversion decision must
+ * stay a pure function of replicated logical state, never re-derived from
+ * replica-local config or allocator behavior. Shared with the test-only
+ * DEBUG BITMAP-FORCE-ROARING, whose verbatim DEBUG propagation would
+ * otherwise be dropped by replicas running with debug commands disabled. */
+void bitmapPropagateRestore(client *c, robj *key, robj *bitmap) {
     rio payload;
     robj *argv[6];
-    long long expire = getExpire(c->db, c->argv[1]->ptr, bitmap);
+    long long expire = getExpire(c->db, key->ptr, bitmap);
     int has_expire = expire != -1;
     int argc = has_expire ? 6 : 5;
 
-    createDumpPayload(&payload, bitmap, c->argv[1], c->db->id, 0);
+    createDumpPayload(&payload, bitmap, key, c->db->id, 0);
 
     argv[0] = createStringObject("RESTORE", 7);
-    argv[1] = c->argv[1];
+    argv[1] = key;
     argv[2] = has_expire ? createStringObjectFromLongLong(expire) :
                             shared.integers[0];
     argv[3] = createObject(OBJ_STRING, payload.io.buffer.ptr);
@@ -1132,7 +1138,7 @@ void setbitCommand(client *c) {
             server.dirty++;
 
             preventCommandPropagation(c);
-            propagateBitmapRestore(c, created);
+            bitmapPropagateRestore(c, c->argv[1], created);
 
             addReply(c, shared.czero);
             return;
@@ -1168,7 +1174,7 @@ void setbitCommand(client *c) {
 
         if (tryConvertStringBitmapAfterSetBit(c, &o, created, strGrowSize)) {
             preventCommandPropagation(c);
-            propagateBitmapRestore(c, o);
+            bitmapPropagateRestore(c, c->argv[1], o);
         } else {
             keyModified(c,c->db,c->argv[1],o,1);
         }
