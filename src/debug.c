@@ -124,7 +124,19 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
 }
 
 void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
+    /* Bitmaps that fit a string representation digest their flat logical
+     * bytes. Larger bitmaps cannot be materialized; digest the logical length
+     * and the canonical little-endian serialized payload instead. Masters and
+     * replicas hold the same representation for every key (type transitions
+     * replicate as RESTORE), so either form compares reliably across a
+     * replication pair. */
     sds raw = bitmapObjectMaterialize(o);
+    if (raw == NULL) {
+        char buf[LONG_STR_SIZE];
+        int len = ll2string(buf, sizeof(buf), (long long)bitmapObjectLen(o));
+        mixDigest(digest, buf, len);
+        raw = bitmapObjectSerialize(o);
+    }
     mixDigest(digest, raw, sdslen(raw));
     sdsfree(raw);
 }
@@ -434,8 +446,6 @@ void debugCommand(client *c) {
 "    Crash by assertion failed.",
 "BITMAP-ENDIAN-CHECK <key>",
 "    Verify the native bitmap RDB payload endianness conversion round-trips.",
-"BITMAP-FORCE-ROARING <key>",
-"    Convert a string key to native bitmap Roaring encoding for tests.",
 "BITMAP-RAW <key>",
 "    Return the raw byte materialization of a native bitmap key.",
 "CHANGE-REPL-ID",
@@ -972,43 +982,6 @@ NULL
     {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-force-roaring") &&
-               c->argc == 3)
-    {
-        kvobj *kv = lookupKeyWriteOrReply(c, c->argv[2], shared.nokeyerr);
-        if (kv == NULL) return;
-        if (kv->type == OBJ_BITMAP) {
-            addReply(c, shared.ok);
-            return;
-        }
-        if (checkType(c, kv, OBJ_STRING)) return;
-
-        robj *decoded = getDecodedObject(kv);
-        robj *bitmap = createBitmapObjectFromString((unsigned char *)decoded->ptr,
-                                                    sdslen(decoded->ptr));
-        decrRefCount(decoded);
-        if (bitmap == NULL) {
-            addReplyError(c, "string is too large for native bitmap Roaring encoding");
-            return;
-        }
-
-        dbReplaceValue(c->db, c->argv[2], &bitmap, 1);
-        keyModified(c, c->db, c->argv[2], bitmap, 1);
-        server.dirty++;
-
-        /* Propagate the conversion effect, not the DEBUG command: replicas
-         * may run with debug commands disabled (the production default), and
-         * type transitions must replicate as RESTORE per the determinism
-         * strategy shared with SETBIT auto-convert. The payload must be
-         * built before the keyspace notification below: module subscribers
-         * may mutate or delete the key, which is exactly why
-         * KSN_INVALIDATE_KVOBJ nulls the local pointer afterwards. */
-        preventCommandPropagation(c);
-        bitmapPropagateRestore(c, c->argv[2], bitmap);
-
-        notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", c->argv[2], c->db->id);
-        KSN_INVALIDATE_KVOBJ(bitmap);
-        addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-raw") &&
                c->argc == 3)
     {
@@ -1016,6 +989,10 @@ NULL
         if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
 
         sds raw = bitmapObjectMaterialize(kv);
+        if (raw == NULL) {
+            addReplyError(c, "bitmap length exceeds proto-max-bulk-len, cannot materialize");
+            return;
+        }
         addReplyBulkSds(c, raw);
     } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-endian-check") &&
                c->argc == 3)

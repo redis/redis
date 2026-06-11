@@ -664,6 +664,15 @@ typedef enum {
 #define SANITIZE_DUMP_YES 1
 #define SANITIZE_DUMP_CLIENTS 2
 
+/* Native bitmap creation mode: with EXPLICIT (the default) native bitmaps
+ * enter the keyspace only through BITMAP CONVERT, through BITOP when at least
+ * one source is already a native bitmap, or through RESTORE; with IMPLICIT
+ * every bitmap-command write creates native bitmaps and converts existing
+ * string values it writes to. Replicated and AOF-replayed commands never make
+ * this decision locally: masters propagate type transitions as RESTORE. */
+#define BITMAP_NATIVE_MODE_EXPLICIT 0
+#define BITMAP_NATIVE_MODE_IMPLICIT 1
+
 /* Enable protected config/command */
 #define PROTECTED_ACTION_ALLOWED_NO 0
 #define PROTECTED_ACTION_ALLOWED_YES 1
@@ -2427,10 +2436,7 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
-    int bitmap_roaring_enabled;     /* Allow public commands to create native Roaring bitmaps. */
-    int bitmap_roaring_auto_convert;/* Convert eligible string bitmaps after bitmap writes. */
-    size_t bitmap_roaring_min_bytes; /* Minimum logical byte length for Roaring selection. */
-    size_t bitmap_roaring_min_saving;/* Minimum serialized byte saving for Roaring selection. */
+    int bitmap_native_mode;         /* BITMAP_NATIVE_MODE_*: when bitmap writes create native bitmaps. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */
@@ -4494,6 +4500,7 @@ void functionRestoreCommand(client *c);
 void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
+void bitmapCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);

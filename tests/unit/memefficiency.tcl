@@ -1236,7 +1236,7 @@ run_solo {defrag} {
                 $rd read
             }
             set template_raw [r get bitmap:template]
-            r debug bitmap-force-roaring bitmap:template
+            r bitmap convert bitmap:template
             assert_equal bitmap [r type bitmap:template]
             set template_dump [r dump bitmap:template]
 
@@ -1271,7 +1271,7 @@ run_solo {defrag} {
             assert_equal $expected_bits [r bitcount bigbitmap1]
             set expected_raw [r get bigbitmap1]
 
-            r debug bitmap-force-roaring bigbitmap1
+            r bitmap convert bigbitmap1
             assert_equal bitmap [r type bigbitmap1]
 
             # Free every other restored bitmap to punch holes into the

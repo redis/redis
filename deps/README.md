@@ -123,8 +123,9 @@ Redis currently vendors CRoaring v4.7.0.
    fixed them; they exist to keep CI green on platforms upstream does not
    exercise the same way.
 
-Local changes compared to pristine upstream v4.7.0, all confined to
-`include/roaring/portability.h`:
+Local changes compared to pristine upstream v4.7.0:
+
+In `include/roaring/portability.h`:
 
 * Added a `__has_include` polyfill (`#ifndef __has_include` /
   `#define __has_include(x) 0`) for compilers without the builtin.
@@ -135,4 +136,13 @@ Local changes compared to pristine upstream v4.7.0, all confined to
   toolchains without C11 atomics.
 * Gated `CROARING_ALLOW_UNALIGNED` to
   `defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)`.
+
+In `src/roaring64.c` and the added `include/roaring/roaring64_internal.h`:
+
+* Moved the private `struct roaring64_bitmap_s` definition out of
+  `roaring64.c` into the new shared internal header (plus small leaf-decoding
+  helpers) so `src/bitmap_roaring.c` can walk every allocation behind a
+  64-bit bitmap for MEMORY USAGE accounting, fork-child page dismissal and
+  active defragmentation, exactly like it does for the 32-bit
+  `roaring_bitmap_t` whose layout upstream exposes publicly.
 
