@@ -86,6 +86,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 #define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
+#define OBJ_ENCODING_BITMAP_ROARING 14 /* Encoded as a Roaring bitmap */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -165,10 +166,44 @@ robj *createStreamObject(void);
 robj *createGCRAObject(long long value);
 robj *createModuleObject(struct RedisModuleType *mt, void *value);
 robj *createArrayObject(void);
+robj *createBitmapObject(void);
+robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
+robj *createBitmapObjectFromPortable(size_t byte_len, const char *buf, size_t len, int deep_validate);
+robj *bitmapTypeDup(const robj *o);
+void freeBitmapObject(robj *o);
+void dismissBitmapObject(robj *o, size_t size_hint);
+void defragBitmapObject(robj *o);
+unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
+size_t bitmapObjectContainerCount(const robj *o);
+typedef enum bitmapBitop {
+    BITMAP_BITOP_AND = 0,
+    BITMAP_BITOP_OR,
+    BITMAP_BITOP_XOR,
+    BITMAP_BITOP_NOT,
+    BITMAP_BITOP_DIFF,
+    BITMAP_BITOP_DIFF1,
+    BITMAP_BITOP_ANDOR,
+    BITMAP_BITOP_ONE
+} bitmapBitop;
+size_t bitmapObjectLen(const robj *o);
+size_t bitmapObjectAllocSize(const robj *o);
+uint64_t bitmapObjectCardinality(const robj *o);
+uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start, uint64_t end);
+long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
+int bitmapObjectCanRepresentBit(uint64_t bitoffset);
+unsigned char bitmapObjectGetByte(const robj *o, size_t byte);
+int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
+int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
+sds bitmapObjectMaterialize(const robj *o);
+sds bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys, size_t maxlen);
+size_t bitmapObjectSerializedSize(const robj *o);
+sds bitmapObjectSerialize(const robj *o);
+int bitmapObjectEndianRoundtripCheck(const robj *o);
 int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(struct client *c, robj *o, int type);
+int checkStringOrBitmapType(struct client *c, robj *o);
 int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);

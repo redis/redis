@@ -4258,6 +4258,7 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
+    case OBJ_BITMAP: return REDISMODULE_KEYTYPE_BITMAP;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }

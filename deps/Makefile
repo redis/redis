@@ -61,6 +61,7 @@ distclean:
 	-(cd fpconv && $(MAKE) clean) > /dev/null || true
 	-(cd tre && $(MAKE) clean) > /dev/null || true
 	-(cd xxhash && $(MAKE) clean) > /dev/null || true
+	-(cd croaring && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -107,6 +108,12 @@ xxhash: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 	cd xxhash && $(MAKE) lib CFLAGS="$(XXHASH_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 .PHONY: xxhash
+
+croaring: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd croaring && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO="$(ENABLE_LTO)"
+
+.PHONY: croaring
 
 ifeq ($(uname_S),SunOS)
 	# Make isinf() available

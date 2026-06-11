@@ -876,11 +876,12 @@ typedef enum {
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 #define OBJ_ARRAY 7     /* Array object. */
+#define OBJ_BITMAP 8    /* Bitmap object. */
 #ifdef ENABLE_GCRA
-#define OBJ_GCRA 8      /* GCRA object. */
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
+#define OBJ_GCRA 9      /* GCRA object. */
+#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
 #else
-#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
 #endif
 
 /* NOTE: adding a new object requires changes in the following places:
@@ -2426,6 +2427,10 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
+    int bitmap_roaring_enabled;     /* Allow public commands to create native Roaring bitmaps. */
+    int bitmap_roaring_auto_convert;/* Convert eligible string bitmaps after bitmap writes. */
+    size_t bitmap_roaring_min_bytes; /* Minimum logical byte length for Roaring selection. */
+    size_t bitmap_roaring_min_saving;/* Minimum serialized byte saving for Roaring selection. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */
@@ -3511,6 +3516,8 @@ int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
 int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
+void bitmapPropagateRestore(client *c, robj *key, robj *bitmap);
 
 /* Child info */
 void openChildInfoPipe(void);
