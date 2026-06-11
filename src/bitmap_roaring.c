@@ -21,6 +21,27 @@ static bitmapObject *getBitmapObject(const robj *o) {
     return o->ptr;
 }
 
+static roaring_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *buf,
+                                                       size_t len)
+{
+    roaring_bitmap_t *roaring = roaring_bitmap_create();
+    serverAssert(roaring != NULL);
+
+    for (size_t byte = 0; byte < len; byte++) {
+        unsigned char value = buf[byte];
+        while (value) {
+            int bit = __builtin_ctz(value);
+            uint32_t offset = (uint32_t)(byte * 8 + (7 - bit));
+            roaring_bitmap_add(roaring, offset);
+            value &= value - 1;
+        }
+    }
+
+    roaring_bitmap_run_optimize(roaring);
+    roaring_bitmap_shrink_to_fit(roaring);
+    return roaring;
+}
+
 static int bitmapRoaringNormalizeAlignment(size_t *alignment) {
     size_t normalized;
 
@@ -97,22 +118,12 @@ robj *createBitmapObject(void) {
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     if (len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
-    robj *o = createBitmapObject();
-    bitmapObject *bitmap = getBitmapObject(o);
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
+    bitmap->roaring = bitmapObjectRoaringFromString(buf, len);
 
-    for (size_t byte = 0; byte < len; byte++) {
-        unsigned char value = buf[byte];
-        while (value) {
-            int bit = __builtin_ctz(value);
-            uint32_t offset = (uint32_t)(byte * 8 + (7 - bit));
-            roaring_bitmap_add(bitmap->roaring, offset);
-            value &= value - 1;
-        }
-    }
-
-    roaring_bitmap_run_optimize(bitmap->roaring);
-    roaring_bitmap_shrink_to_fit(bitmap->roaring);
+    robj *o = createObject(OBJ_BITMAP, bitmap);
+    o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
 }
 
@@ -349,6 +360,22 @@ int bitmapObjectCanRepresentBit(uint64_t bitoffset) {
     return bitoffset <= UINT32_MAX;
 }
 
+unsigned char bitmapObjectGetByte(const robj *o, size_t byte) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    uint64_t bitoffset = (uint64_t)byte << 3;
+    unsigned char value = 0;
+
+    if (byte >= bitmap->byte_len) return 0;
+    if (!bitmapObjectCanRepresentBit(bitoffset)) return 0;
+
+    for (int bit = 0; bit < 8; bit++) {
+        uint32_t offset = (uint32_t)(bitoffset + bit);
+        if (roaring_bitmap_contains(bitmap->roaring, offset))
+            value |= (1 << (7 - bit));
+    }
+    return value;
+}
+
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset) {
     bitmapObject *bitmap = getBitmapObject(o);
 
@@ -375,21 +402,191 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     return C_OK;
 }
 
-sds bitmapObjectMaterialize(const robj *o) {
-    bitmapObject *bitmap = getBitmapObject(o);
-    sds raw = sdsnewlen(NULL, bitmap->byte_len);
-
+static sds bitmapObjectMaterializeRoaring(const roaring_bitmap_t *roaring,
+                                          size_t byte_len)
+{
+    sds raw = sdsnewlen(NULL, byte_len);
     roaring_uint32_iterator_t it;
-    roaring_iterator_init(bitmap->roaring, &it);
+
+    roaring_iterator_init(roaring, &it);
     while (it.has_value) {
         uint32_t offset = it.current_value;
         size_t byte = offset >> 3;
         int bit = 7 - (offset & 7);
-        serverAssert(byte < bitmap->byte_len);
+        serverAssert(byte < byte_len);
         raw[byte] |= (1 << bit);
         roaring_uint32_iterator_advance(&it);
     }
 
+    return raw;
+}
+
+sds bitmapObjectMaterialize(const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    return bitmapObjectMaterializeRoaring(bitmap->roaring, bitmap->byte_len);
+}
+
+typedef struct bitmapBitopSource {
+    const roaring_bitmap_t *roaring;
+    roaring_bitmap_t *owned;
+} bitmapBitopSource;
+
+static void bitmapObjectReleaseBitopSources(bitmapBitopSource *sources,
+                                            size_t numkeys)
+{
+    for (size_t i = 0; i < numkeys; i++) {
+        if (sources[i].owned != NULL)
+            roaring_bitmap_free(sources[i].owned);
+    }
+}
+
+static int bitmapObjectPrepareBitopSources(robj **objects,
+                                           bitmapBitopSource *sources,
+                                           size_t numkeys)
+{
+    for (size_t i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+
+        sources[i].roaring = NULL;
+        sources[i].owned = NULL;
+        if (o == NULL) continue;
+
+        if (o->type == OBJ_BITMAP) {
+            sources[i].roaring = getBitmapObject(o)->roaring;
+        } else {
+            serverAssert(o->type == OBJ_STRING);
+            sources[i].owned =
+                bitmapObjectRoaringFromString((unsigned char *)o->ptr,
+                                              sdslen(o->ptr));
+            if (sources[i].owned == NULL) return C_ERR;
+            sources[i].roaring = sources[i].owned;
+        }
+    }
+    return C_OK;
+}
+
+static roaring_bitmap_t *bitmapObjectCopyBitopSource(bitmapBitopSource *source) {
+    roaring_bitmap_t *copy = source->roaring != NULL ?
+        roaring_bitmap_copy(source->roaring) : roaring_bitmap_create();
+    serverAssert(copy != NULL);
+    return copy;
+}
+
+static roaring_bitmap_t *bitmapObjectUnionBitopSources(bitmapBitopSource *sources,
+                                                       size_t start,
+                                                       size_t numkeys)
+{
+    roaring_bitmap_t *result = roaring_bitmap_create();
+    serverAssert(result != NULL);
+
+    for (size_t i = start; i < numkeys; i++) {
+        if (sources[i].roaring != NULL)
+            roaring_bitmap_or_inplace(result, sources[i].roaring);
+    }
+    return result;
+}
+
+static roaring_bitmap_t *bitmapObjectExactlyOneBitopSources(bitmapBitopSource *sources,
+                                                            size_t numkeys)
+{
+    roaring_bitmap_t *result = bitmapObjectCopyBitopSource(&sources[0]);
+    roaring_bitmap_t *multiple = roaring_bitmap_create();
+    serverAssert(multiple != NULL);
+
+    for (size_t i = 1; i < numkeys; i++) {
+        roaring_bitmap_t *both;
+
+        if (sources[i].roaring == NULL) continue;
+
+        both = roaring_bitmap_and(result, sources[i].roaring);
+        serverAssert(both != NULL);
+        roaring_bitmap_or_inplace(multiple, both);
+        roaring_bitmap_free(both);
+
+        roaring_bitmap_xor_inplace(result, sources[i].roaring);
+        roaring_bitmap_andnot_inplace(result, multiple);
+    }
+
+    roaring_bitmap_free(multiple);
+    return result;
+}
+
+sds bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
+                       size_t maxlen)
+{
+    bitmapBitopSource *sources;
+    roaring_bitmap_t *result = NULL;
+    sds raw;
+
+    serverAssert(numkeys > 0);
+    if (maxlen > BITMAP_OBJECT_MAX_BYTES) return NULL;
+
+    sources = zcalloc(sizeof(*sources) * numkeys);
+    if (bitmapObjectPrepareBitopSources(objects, sources, numkeys) != C_OK) {
+        bitmapObjectReleaseBitopSources(sources, numkeys);
+        zfree(sources);
+        return NULL;
+    }
+
+    switch (op) {
+    case BITMAP_BITOP_AND:
+        result = bitmapObjectCopyBitopSource(&sources[0]);
+        for (size_t i = 1; i < numkeys; i++) {
+            if (sources[i].roaring != NULL)
+                roaring_bitmap_and_inplace(result, sources[i].roaring);
+            else
+                roaring_bitmap_clear(result);
+        }
+        break;
+    case BITMAP_BITOP_OR:
+        result = bitmapObjectCopyBitopSource(&sources[0]);
+        for (size_t i = 1; i < numkeys; i++) {
+            if (sources[i].roaring != NULL)
+                roaring_bitmap_or_inplace(result, sources[i].roaring);
+        }
+        break;
+    case BITMAP_BITOP_XOR:
+        result = bitmapObjectCopyBitopSource(&sources[0]);
+        for (size_t i = 1; i < numkeys; i++) {
+            if (sources[i].roaring != NULL)
+                roaring_bitmap_xor_inplace(result, sources[i].roaring);
+        }
+        break;
+    case BITMAP_BITOP_NOT:
+        result = bitmapObjectCopyBitopSource(&sources[0]);
+        roaring_bitmap_flip_inplace(result, 0, (uint64_t)maxlen << 3);
+        break;
+    case BITMAP_BITOP_DIFF:
+        result = bitmapObjectCopyBitopSource(&sources[0]);
+        for (size_t i = 1; i < numkeys; i++) {
+            if (sources[i].roaring != NULL)
+                roaring_bitmap_andnot_inplace(result, sources[i].roaring);
+        }
+        break;
+    case BITMAP_BITOP_DIFF1:
+        result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
+        if (sources[0].roaring != NULL)
+            roaring_bitmap_andnot_inplace(result, sources[0].roaring);
+        break;
+    case BITMAP_BITOP_ANDOR:
+        result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
+        if (sources[0].roaring != NULL)
+            roaring_bitmap_and_inplace(result, sources[0].roaring);
+        else
+            roaring_bitmap_clear(result);
+        break;
+    case BITMAP_BITOP_ONE:
+        result = bitmapObjectExactlyOneBitopSources(sources, numkeys);
+        break;
+    default:
+        serverPanic("Unknown native bitmap BITOP");
+    }
+
+    roaring_bitmap_run_optimize(result);
+    raw = bitmapObjectMaterializeRoaring(result, maxlen);
+    roaring_bitmap_free(result);
+    bitmapObjectReleaseBitopSources(sources, numkeys);
+    zfree(sources);
     return raw;
 }
 

@@ -42,6 +42,41 @@ proc assert_native_bitop_matches_string {name op source_bitsets} {
     }
 }
 
+proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {alias_index -1}} {
+    set string_dest "bitmap:native:bitop:$name:string:dest"
+    set native_dest "bitmap:native:bitop:$name:native:dest"
+    set string_sources {}
+    set native_sources {}
+
+    r config set bitmap-roaring-enabled no
+    r config set bitmap-roaring-auto-convert no
+
+    for {set i 0} {$i < [llength $source_raws]} {incr i} {
+        set string_key "bitmap:native:bitop:$name:string:src:$i"
+        set native_key "bitmap:native:bitop:$name:native:src:$i"
+        r set $string_key [lindex $source_raws $i]
+        r set $native_key [lindex $source_raws $i]
+        if {[lsearch -exact $native_indexes $i] >= 0} {
+            r debug bitmap-force-roaring $native_key
+        }
+        lappend string_sources $string_key
+        lappend native_sources $native_key
+    }
+
+    if {$alias_index >= 0} {
+        set string_dest [lindex $string_sources $alias_index]
+        set native_dest [lindex $native_sources $alias_index]
+    }
+
+    set string_reply [r bitop $op $string_dest {*}$string_sources]
+    set native_reply [r bitop $op $native_dest {*}$native_sources]
+    assert_equal $string_reply $native_reply
+    assert_equal [bitmap_raw_or_empty $string_dest] [bitmap_raw_or_empty $native_dest]
+    if {[r exists $native_dest]} {
+        assert_equal string [r type $native_dest]
+    }
+}
+
 proc assert_native_bitmap_command_matches_string {name raw command} {
     set string_key "bitmap:native:read-edge:$name:string"
     set native_key "bitmap:native:read-edge:$name:native"
@@ -293,5 +328,69 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $string_reply $native_reply
         assert_equal [r get bitmap:native:bitop:alias:string:dest] [r get bitmap:native:bitop:alias:native:dest]
         assert_equal string [r type bitmap:native:bitop:alias:native:dest]
+    }
+
+    test {BITOP mixed native and string sources match string results for all operations} {
+        set a [binary format H* f000ff]
+        set b [binary format H* 0f0f]
+        set c [binary format H* 33000080]
+        set raws [list $a $b $c]
+
+        foreach op {and or xor diff diff1 andor one} {
+            assert_native_bitop_raws_match_string "mixed:$op" $op $raws {0 2}
+        }
+        assert_native_bitop_raws_match_string mixed:not not [list $a] {0}
+    }
+
+    test {BITOP mixed native source destination aliasing matches string results} {
+        set a [binary format H* aa5500]
+        set b [binary format H* 0ff0]
+        set c [binary format H* 330000f0]
+        set raws [list $a $b $c]
+
+        foreach {op alias_index native_indexes} {
+            and   0 {0 2}
+            or    1 {1 2}
+            xor   2 {0 2}
+            diff  0 {0 2}
+            diff1 1 {1 2}
+            andor 2 {0 2}
+            one   0 {0 2}
+        } {
+            assert_native_bitop_raws_match_string "alias:$op:$alias_index" \
+                $op $raws $native_indexes $alias_index
+        }
+
+        assert_native_bitop_raws_match_string alias:not not [list $a] {0} 0
+    }
+
+    test {BITOP mixed native fuzz matches native-conversion-disabled strings} {
+        foreach op {and or xor diff diff1 andor one} {
+            set min_args 1
+            if {$op eq "diff" || $op eq "diff1" || $op eq "andor"} {
+                set min_args 2
+            }
+
+            for {set i 0} {$i < 12} {incr i} {
+                set raws {}
+                set native_indexes {}
+                set count [expr {$min_args + [randomInt 4]}]
+
+                for {set j 0} {$j < $count} {incr j} {
+                    lappend raws [randstring 0 128]
+                    if {[expr {($i + $j) % 2}] == 0} {
+                        lappend native_indexes $j
+                    }
+                }
+
+                assert_native_bitop_raws_match_string "fuzz:$op:$i" \
+                    $op $raws $native_indexes
+            }
+        }
+
+        for {set i 0} {$i < 12} {incr i} {
+            assert_native_bitop_raws_match_string "fuzz:not:$i" \
+                not [list [randstring 0 128]] {0}
+        }
     }
 }
