@@ -1185,6 +1185,10 @@ test {corrupt payload: bitmap with unsorted array container} {
         assert_equal [r type bitmap:valid] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid] [binary format H* 4440]
 
+        set trailing_payload [binary format H* 1e02173a300000010000000000020010000000010005000900000f00d99cd8753e567cc5]
+        catch { r restore bitmap:trailing 0 $trailing_payload } err
+        assert_match "*Bad data format*" $err
+
         catch { r restore bitmap:corrupt 0 $unsorted_payload } err
         assert_match "*Bad data format*" $err
 
@@ -1199,4 +1203,3 @@ test {corrupt payload: bitmap with unsorted array container} {
 }
 
 } ;# tags
-
