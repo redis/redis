@@ -2001,6 +2001,14 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
+static int getBitfieldLastBit(uint64_t offset, int bits, uint64_t *last) {
+    uint64_t width = (uint64_t)bits - 1;
+
+    if (offset > UINT64_MAX - width) return C_ERR;
+    *last = offset + width;
+    return C_OK;
+}
+
 /* This implements both the BITFIELD command and the BITFIELD_RO command
  * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
  * GET subcommand is allowed, other subcommands will return an error. */
@@ -2065,9 +2073,16 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (opcode != BITFIELDOP_GET) {
+            uint64_t last_bit;
+
+            if (getBitfieldLastBit(bitoffset,bits,&last_bit) != C_OK) {
+                addReplyError(c,"bit offset is not an integer or out of range");
+                zfree(ops);
+                return;
+            }
             readonly = 0;
-            if (highest_write_offset < bitoffset + bits - 1)
-                highest_write_offset = bitoffset + bits - 1;
+            if (highest_write_offset < last_bit)
+                highest_write_offset = last_bit;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -2234,10 +2249,9 @@ void bitfieldGeneric(client *c, int flags) {
             long strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
-            sds materialized = NULL;
 
             if (o != NULL)
-                src = getObjectReadOnlyStringOrBitmap(o,&strlen,llbuf,&materialized);
+                src = getObjectReadOnlyString(o,&strlen,llbuf);
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
@@ -2262,7 +2276,6 @@ void bitfieldGeneric(client *c, int flags) {
                                             thisop->bits);
                 addReplyLongLong(c,val);
             }
-            sdsfree(materialized);
         }
     }
 
