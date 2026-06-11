@@ -734,19 +734,89 @@ void printBits(unsigned char *p, unsigned long count) {
  * Bits related string commands: GETBIT, SETBIT, BITCOUNT, BITOP.
  * -------------------------------------------------------------------------- */
 
-#define BITOP_AND   0
-#define BITOP_OR    1
-#define BITOP_XOR   2
-#define BITOP_NOT   3
-#define BITOP_DIFF  4 /* DIFF(X, A1, A2, ..., An) = X & !(A1 | A2 | ... | An) */
-#define BITOP_DIFF1 5 /* DIFF1(X, A1, A2, ..., An) = !X & (A1 | A2 | ... | An) */
-#define BITOP_ANDOR 6 /* ANDOR(X, A1, A2, ..., An) = X & (A1 | A2 | ... | An) */
+#define BITOP_AND   BITMAP_BITOP_AND
+#define BITOP_OR    BITMAP_BITOP_OR
+#define BITOP_XOR   BITMAP_BITOP_XOR
+#define BITOP_NOT   BITMAP_BITOP_NOT
+#define BITOP_DIFF  BITMAP_BITOP_DIFF /* DIFF(X, A1, A2, ..., An) = X & !(A1 | A2 | ... | An) */
+#define BITOP_DIFF1 BITMAP_BITOP_DIFF1 /* DIFF1(X, A1, A2, ..., An) = !X & (A1 | A2 | ... | An) */
+#define BITOP_ANDOR BITMAP_BITOP_ANDOR /* ANDOR(X, A1, A2, ..., An) = X & (A1 | A2 | ... | An) */
 
 /* ONE(A1, A2, ..., An) = X.
  * If X[i] is the i-th bit of X then:
  * X[i] == 1 if and only if there is m such that:
  * Am[i] == 1 and Al[i] == 0 for all l != m. */
-#define BITOP_ONE   7
+#define BITOP_ONE   BITMAP_BITOP_ONE
+
+static unsigned char bitopObjectByte(robj *o, size_t len, size_t byte_index) {
+    if (o == NULL || len <= byte_index) return 0;
+    if (o->type == OBJ_BITMAP) return bitmapObjectGetByte(o, byte_index);
+    return ((unsigned char*)o->ptr)[byte_index];
+}
+
+static sds bitopObjectsBytewise(unsigned long op, robj **objects, size_t *len,
+                                unsigned long numkeys, size_t maxlen)
+{
+    sds res = sdsnewlen(NULL, maxlen);
+    unsigned char output, byte, disjunction, common_bits;
+
+    for (size_t j = 0; j < maxlen; j++) {
+        output = bitopObjectByte(objects[0], len[0], j);
+        if (op == BITOP_NOT) output = ~output;
+        disjunction = 0;
+        common_bits = 0;
+
+        for (unsigned long i = 1; i < numkeys; i++) {
+            int skip = 0;
+
+            byte = bitopObjectByte(objects[i], len[i], j);
+            switch(op) {
+            case BITOP_AND:
+                output &= byte;
+                skip = (output == 0);
+                break;
+            case BITOP_OR:
+                output |= byte;
+                skip = (output == 0xff);
+                break;
+            case BITOP_XOR: output ^= byte; break;
+            case BITOP_DIFF:
+            case BITOP_DIFF1:
+            case BITOP_ANDOR:
+                disjunction |= byte;
+                skip = (disjunction == 0xff);
+                break;
+            case BITOP_ONE:
+                common_bits |= (output & byte);
+                output ^= byte;
+                output &= ~common_bits;
+                skip = (common_bits == 0xff);
+                break;
+            default:
+                break;
+            }
+
+            if (skip) break;
+        }
+
+        switch(op) {
+        case BITOP_DIFF:
+            res[j] = (output & ~disjunction);
+            break;
+        case BITOP_DIFF1:
+            res[j] = (~output & disjunction);
+            break;
+        case BITOP_ANDOR:
+            res[j] = (output & disjunction);
+            break;
+        default:
+            res[j] = output;
+            break;
+        }
+    }
+
+    return res;
+}
 
 #define BITFIELDOP_GET 0
 #define BITFIELDOP_SET 1
@@ -1458,12 +1528,11 @@ void bitopCommand(client *c) {
     robj *targetkey = c->argv[2];
     unsigned long op, j, numkeys;
     robj **objects;      /* Array of source objects. */
-    sds *materialized;   /* Native bitmap sources materialized as strings. */
     unsigned char **src; /* Array of source strings pointers. */
-    unsigned long *len, maxlen = 0; /* Array of length of src strings,
-                                       and max len. */
-    unsigned long minlen = 0;    /* Min len among the input keys. */
+    size_t *len, maxlen = 0; /* Array of length of src strings, and max len. */
+    size_t minlen = 0;    /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
+    int has_native_bitmap = 0;
 
     /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
@@ -1504,9 +1573,8 @@ void bitopCommand(client *c) {
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);
-    len = zmalloc(sizeof(long) * numkeys);
+    len = zmalloc(sizeof(*len) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
-    materialized = zcalloc(sizeof(sds) * numkeys);
     for (j = 0; j < numkeys; j++) {
         kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
         /* Handle non-existing keys as empty strings. */
@@ -1521,21 +1589,19 @@ void bitopCommand(client *c) {
         if (checkStringOrBitmapType(c, kv)) {
             unsigned long i;
             for (i = 0; i < j; i++) {
-                if (objects[i])
+                if (objects[i] && objects[i]->type == OBJ_STRING)
                     decrRefCount(objects[i]);
-                sdsfree(materialized[i]);
             }
             zfree(src);
             zfree(len);
             zfree(objects);
-            zfree(materialized);
             return;
         }
         if (kv->type == OBJ_BITMAP) {
-            objects[j] = NULL;
-            materialized[j] = bitmapObjectMaterialize(kv);
-            src[j] = (unsigned char*)materialized[j];
-            len[j] = sdslen(materialized[j]);
+            objects[j] = kv;
+            src[j] = NULL;
+            len[j] = bitmapObjectLen(kv);
+            has_native_bitmap = 1;
         } else {
             objects[j] = getDecodedObject(kv);
             src[j] = objects[j]->ptr;
@@ -1547,13 +1613,20 @@ void bitopCommand(client *c) {
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
-        unsigned char output, byte, disjunction, common_bits;
-        unsigned long i;
-        int useAVX = 0;
+        if (has_native_bitmap) {
+            res = (unsigned char*)bitmapObjectsBitop((bitmapBitop)op, objects,
+                                                     numkeys, maxlen);
+            if (res == NULL)
+                res = (unsigned char*)bitopObjectsBytewise(op, objects, len,
+                                                           numkeys, maxlen);
+        } else {
+            res = (unsigned char*) sdsnewlen(NULL,maxlen);
+            unsigned char output, byte, disjunction, common_bits;
+            unsigned long i;
+            int useAVX = 0;
 
-        /* Number of bytes processed from each source key */
-        j = 0;
+            /* Number of bytes processed from each source key */
+            j = 0;
 
 #if defined(HAVE_AVX512)
         if (BITOP_USE_AVX512 && (minlen >= 10000) && (numkeys >= 8)) {
@@ -1822,16 +1895,15 @@ void bitopCommand(client *c) {
                 break;
             }
         }
+        }
     }
     for (j = 0; j < numkeys; j++) {
-        if (objects[j])
+        if (objects[j] && objects[j]->type == OBJ_STRING)
             decrRefCount(objects[j]);
-        sdsfree(materialized[j]);
     }
     zfree(src);
     zfree(len);
     zfree(objects);
-    zfree(materialized);
 
     /* Store the computed value into the target key */
     if (maxlen) {

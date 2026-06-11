@@ -175,15 +175,27 @@ void dismissBitmapObject(robj *o, size_t size_hint);
 void defragBitmapObject(robj *o);
 unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
 size_t bitmapObjectContainerCount(const robj *o);
+typedef enum bitmapBitop {
+    BITMAP_BITOP_AND = 0,
+    BITMAP_BITOP_OR,
+    BITMAP_BITOP_XOR,
+    BITMAP_BITOP_NOT,
+    BITMAP_BITOP_DIFF,
+    BITMAP_BITOP_DIFF1,
+    BITMAP_BITOP_ANDOR,
+    BITMAP_BITOP_ONE
+} bitmapBitop;
 size_t bitmapObjectLen(const robj *o);
 size_t bitmapObjectAllocSize(const robj *o);
 uint64_t bitmapObjectCardinality(const robj *o);
 uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start, uint64_t end);
 long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
 int bitmapObjectCanRepresentBit(uint64_t bitoffset);
+unsigned char bitmapObjectGetByte(const robj *o, size_t byte);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
 sds bitmapObjectMaterialize(const robj *o);
+sds bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys, size_t maxlen);
 size_t bitmapObjectSerializedSize(const robj *o);
 sds bitmapObjectSerialize(const robj *o);
 int bitmapObjectEndianRoundtripCheck(const robj *o);
