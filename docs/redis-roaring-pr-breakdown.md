@@ -4,6 +4,47 @@ This branch tracks the proposed breakdown for adding a native Redis bitmap
 value type that can use Roaring compression behind the existing Redis bitmap
 command API.
 
+## Upstream-Alignment Update (supersedes decisions recorded below)
+
+The upstream issue discussion (redis/redis#15296) converged on a different
+surface than several decisions recorded in the step narratives below. The
+implementation now follows the upstream consensus; where the text below
+contradicts this section, this section wins:
+
+- **64-bit indexing**: native bitmaps store a CRoaring `roaring64_bitmap_t`
+  and always accept 64-bit bit offsets (up to 2^63-9; logical lengths up to
+  2^60-1 bytes). The "fixed 512MB cap" and 32-bit `roaring_bitmap_t` choice
+  recorded under Steps 1-3 are superseded. The RDB payload is the Roaring
+  64-bit portable format under the same `RDB_TYPE_BITMAP` id (the 32-bit
+  format never shipped).
+- **Offset semantics split**: read-only commands accept 64-bit offsets
+  against either representation (bits past the end read as 0); write
+  commands accept 64-bit offsets only against native bitmaps, while string
+  writes keep the proto-max-bulk-len bound and its out-of-range error.
+- **Two-mode opt-in**: the `bitmap-roaring-{enabled,auto-convert,min-bytes,
+  min-saving}` configs are replaced by a single `bitmap-native-mode` enum
+  (`explicit`, the default, or `implicit`). Explicit mode never creates
+  native bitmaps from plain writes; implicit mode creates new bitmap-command
+  keys as native and converts string values that bitmap writes touch,
+  unconditionally (the size/saving thresholds and conversion amortization
+  are gone along with the trial encodes they amortized).
+- **Explicit conversion command**: `BITMAP CONVERT <key> [NATIVE|STRING]`
+  replaces both the "no new command" Step 5 escape-hatch decision and the
+  test-only `DEBUG BITMAP-FORCE-ROARING`. The BITOP-copy escape hatch is
+  gone (see next point); `BITMAP CONVERT key STRING` is the supported path
+  back to a string, valid while the logical length fits proto-max-bulk-len.
+- **BITOP destination rule**: a BITOP destination is native when at least
+  one source is native (both modes), and always native in implicit mode.
+  The operation runs entirely in roaring space (no materialization), so
+  64-bit sources work; only `BITOP NOT`, which is inherently dense, is
+  rejected when the source's logical length exceeds proto-max-bulk-len.
+  When the destination type decision depends on the local mode (all-string
+  sources, implicit mode) the result propagates as an explicit RESTORE.
+
+The determinism invariant is unchanged and now covers the new paths: type
+transitions always reach replicas and the AOF as explicit RESTOREs of the
+resulting value, never as the triggering command.
+
 Source plan: https://gist.github.com/aviggiano/66a88ee2d3d074df39a4228b4acec1a3
 
 Plan phases are numbered "Step 0" through "Step 10", not "PR N". The stacked
