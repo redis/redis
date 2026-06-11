@@ -1902,6 +1902,38 @@ struct malloc_stats {
     size_t lua_allocator_frag_smallbins_bytes;
 };
 
+/* Tick-local cache used by computeDefragCycles() to avoid duplicating the
+ * expensive jemalloc fragmentation measurement that cronUpdateMemoryStats()
+ * already performs for its own purposes earlier in the same cron tick.
+ *
+ * Lifecycle (single-threaded by Redis's main-thread invariant):
+ *   - Producer: defragCheckCachePublish() — called from
+ *     cronUpdateMemoryStats() after its zmalloc_get_allocator_info() call,
+ *     mirroring getAllocatorFragmentation()'s Lua-arena subtraction so the
+ *     cached value matches the real measurement exactly.
+ *   - Consumer: defragCheckCacheConsume() — called from computeDefragCycles();
+ *     returns 1 on cache hit, 0 on miss. Does NOT invalidate; the value
+ *     remains valid for the rest of the current cron tick so any
+ *     additional in-cron consumer can also benefit.
+ *   - Invalidation: defragCheckCacheInvalidate() — called near the end of
+ *     serverCron() (the tick-boundary invalidation point) and at startup.
+ *     Out-of-cron callers (defrag time-event recursion via endDefragCycle,
+ *     or defragWhileBlocked) see a stale (-1) value and fall through to
+ *     the original expensive measurement — safe by construction.
+ *
+ * Sentinel: frag_pct_x100 < 0 means stale/invalid. */
+struct defragCheckCache {
+    int64_t frag_pct_x100;  /* frag_pct expressed as percentage * 100; -1 = stale */
+    size_t  frag_bytes;     /* defrag-relevant small-bins fragmentation in bytes */
+    /* Observability counters. INFO MEMORY exposes them as
+     *   defrag_check_cache_hits  : consumer found a valid value
+     *   defrag_check_cache_skips : valid value was below threshold, so
+     *                              computeDefragCycles() returned early
+     *                              (no expensive getAllocatorFragmentation() call) */
+    long long hits;
+    long long skips;
+};
+
 /*-----------------------------------------------------------------------------
  * TLS Context Configuration
  *----------------------------------------------------------------------------*/
@@ -2143,6 +2175,7 @@ struct redisServer {
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
+    struct defragCheckCache defrag_check_cache; /* see struct defragCheckCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
@@ -3730,6 +3763,9 @@ void exitExecutionUnit(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 void defragWhileBlocked(void);
+void defragCheckCachePublish(size_t frag_bytes, size_t allocated);
+int  defragCheckCacheConsume(int64_t *out_frag_pct_x100, size_t *out_frag_bytes);
+void defragCheckCacheInvalidate(void);
 unsigned int getLRUClock(void);
 unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);
