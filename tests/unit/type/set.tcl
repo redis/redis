@@ -334,8 +334,13 @@ foreach type {single multiple single_multiple} {
         set exact [r sunioncard 2 bigset1{t} bigset2{t}]
         set approx_val [r sunioncard 2 bigset1{t} bigset2{t} APPROX]
 
+        # HyperLogLog's relative standard error is ~0.81% (1.04/sqrt(16384
+        # registers)); the union of these sets estimates to ~0.3% off here. The
+        # 0.9% bound sits just above the standard error - tight enough to flag a
+        # real drift in the estimate while leaving headroom over the observed
+        # error.
         set error_pct [expr {abs($approx_val - $exact) * 100.0 / $exact}]
-        assert {$error_pct < 5.0}
+        assert {$error_pct < 0.9}
 
         set approx_limited [r sunioncard 2 bigset1{t} bigset2{t} APPROX LIMIT 5000]
         assert_equal 5000 $approx_limited
