@@ -2682,8 +2682,11 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
 
-    /* If modules metadata is available */
-    if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
+    /* Bitmap AOF rewrite uses RESTORE with a DUMP payload, and that payload
+     * already includes key metadata. Emitting KEYMETA.SET after RESTORE would
+     * replay the same metadata twice on load. */
+    if (o->type != OBJ_BITMAP &&
+        (getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
         return C_ERR;
 
     return C_OK;
