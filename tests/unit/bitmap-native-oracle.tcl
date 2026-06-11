@@ -1,8 +1,8 @@
 source tests/support/bitmap_oracle.tcl
 
 start_server {tags {"bitmap" "bitmap-oracle"}} {
-    test {bitmap native oracle exposes legacy-string baseline mode} {
-        assert_equal [bitmap_oracle::modes] {legacy-string}
+    test {bitmap native oracle exposes legacy and native modes} {
+        assert_equal [bitmap_oracle::modes] {legacy-string native-roaring}
     }
 
     test {bitmap native oracle records sparse SETBIT behavior} {
@@ -33,6 +33,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
     }
 
     test {legacy bitmap strings keep string command behavior} {
+        bitmap_oracle::mode_setup r legacy-string
         set key bitmap:legacy-boundary{t}
         r del $key
 
@@ -47,6 +48,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
     }
 
     test {legacy bitmap corpus covers sparse and boundary offsets} {
+        bitmap_oracle::mode_setup r legacy-string
         set corpus {
             {single-zero {0}}
             {byte-boundaries {0 7 8 15}}
@@ -74,6 +76,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
     }
 
     test {legacy bitmap deterministic sparse fuzz corpus} {
+        bitmap_oracle::mode_setup r legacy-string
         for {set j 0} {$j < 16} {incr j} {
             set key "bitmap:fuzz:$j{t}"
             r del $key
