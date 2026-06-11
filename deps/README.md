@@ -6,6 +6,9 @@ should be provided by the operating system.
 * **linenoise** is a readline replacement. It is developed by the same authors of Redis but is managed as a separated project and updated as needed.
 * **lua** is Lua 5.1 with minor changes for security and additional libraries.
 * **hdr_histogram** Used for per-command latency tracking histograms.
+* **CRoaring** is the C implementation of Roaring bitmaps used by native Redis
+  bitmap encodings. Redis vendors the C headers and source from upstream and
+  builds it only through the Redis dependency Makefile.
 
 How to upgrade the above dependencies
 ===
@@ -103,4 +106,17 @@ We use a customized version based on master branch commit e4448cf6d1cd08fff51981
 1. Compare all changes under /hdr_histogram directory to upstream master commit e4448cf6d1cd08fff519812d3b1e58bd5a94ac42
 2. Copy updated files from newer version onto files in /hdr_histogram.
 3. Apply the changes from 1 above to the updated files.
+
+CRoaring
+---
+
+Updated source can be found here: https://github.com/RoaringBitmap/CRoaring
+Redis currently vendors CRoaring v4.7.0.
+
+1. Replace `deps/croaring/include` with upstream `include`.
+2. Replace `deps/croaring/src` with upstream C source/header files from `src`;
+   Redis does not use upstream CMake files.
+3. Update `deps/croaring/LICENSE`, `AUTHORS`, `README.md`, and `SECURITY.md`.
+4. Check whether upstream added, removed, or renamed C sources and mirror the
+   source list in `deps/croaring/Makefile`.
 
