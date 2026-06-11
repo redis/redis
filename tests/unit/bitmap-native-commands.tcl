@@ -56,6 +56,21 @@ proc assert_native_bitmap_command_matches_string {name raw command} {
     assert_equal bitmap-roaring [r object encoding $native_key]
 }
 
+proc assert_native_bitmap_write_matches_string {name raw command} {
+    set string_key "bitmap:native:write-edge:$name:string"
+    set native_key "bitmap:native:write-edge:$name:native"
+    r set $string_key $raw
+    r set $native_key $raw
+    r debug bitmap-force-roaring $native_key
+
+    set string_cmd [lreplace $command 1 1 $string_key]
+    set native_cmd [lreplace $command 1 1 $native_key]
+    assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
+    assert_equal [r get $string_key] [r debug bitmap-raw $native_key]
+    assert_equal bitmap [r type $native_key]
+    assert_equal bitmap-roaring [r object encoding $native_key]
+}
+
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {native bitmap read commands preserve type encoding and bytes} {
         set raw [binary format H* 80400100080000]
@@ -172,7 +187,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {BITFIELD writes native bitmap values through materialization fallback} {
+    test {BITFIELD writes native bitmap values through the direct write path} {
         r set bitmap:native:bitfield [binary format H* 00]
         r debug bitmap-force-roaring bitmap:native:bitfield
 
@@ -194,6 +209,34 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:native:bitfield:signed]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:signed]
         assert_equal {1} [r bitfield_ro bitmap:native:bitfield:signed GET i5 0]
+    }
+
+    test {native bitmap BITFIELD direct paths match string edge cases} {
+        set raw [binary format H* 0102030400]
+        set commands {
+            {bitfield key GET u4 0 GET i6 9 GET u12 17}
+            {bitfield_ro key GET u4 0 GET i6 9 GET u12 17}
+            {bitfield key SET u5 3 17 GET u13 0 SET i6 16 -8 GET i6 16}
+            {bitfield key INCRBY u8 4 7 GET u12 0}
+            {bitfield key OVERFLOW SAT INCRBY i5 9 20 GET i5 9}
+            {bitfield key OVERFLOW WRAP INCRBY u4 #1 20 GET u8 0}
+            {bitfield key OVERFLOW FAIL SET u2 10 5 GET u2 10}
+            {bitfield key SET u1 47 0 GET u1 47}
+        }
+
+        set idx 0
+        foreach command $commands {
+            assert_native_bitmap_write_matches_string $idx $raw $command
+            incr idx
+        }
+
+        assert_native_bitmap_write_matches_string grow-after-failed-high-write \
+            [binary format H* 00] \
+            {bitfield key SET u1 0 1 OVERFLOW FAIL SET u2 47 5}
+
+        assert_native_bitmap_write_matches_string grow-after-fail-only-high-write \
+            [binary format H* 00] \
+            {bitfield key OVERFLOW FAIL SET u2 47 5}
     }
 
     test {BITFIELD rejects native bitmap writes past the roaring offset range} {
