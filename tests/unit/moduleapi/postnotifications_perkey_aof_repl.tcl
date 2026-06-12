@@ -321,11 +321,8 @@ tags "modules external:skip" {
     }
 }
 
-# Expiry / eviction: the keyed job must fire when a key disappears, which is the
-# real metadata-cleanup use case. The drain now runs at the keyspace-notification
-# tail, so for lazy expire that point is INSIDE the read command's key lookup —
-# these tests pin that path. The job sees an already-removed key, so it records
-# via pkmeta.empty_firecount / pkmeta.empty_firelog rather than attaching metadata.
+# Expiry / eviction: the per-key job must fire when a key disappears — the real
+# metadata-cleanup use case.
 tags "modules external:skip" {
     test "perkey-expire: lazy expire on read fires the per-key job (drain mid-read)" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
@@ -360,15 +357,10 @@ tags "modules external:skip" {
     }
 }
 
-# Pointer-safety guard. The per-key job's RM_SetKeyMeta first-attach REALLOCATES
-# the key's kvobj. The job must therefore run only after the triggering command
-# has fully returned (the afterCommand / postExecutionUnitOperations drain) —
-# never from inside the command's own keyspace-notification dispatch, where the
-# command still holds a cached object pointer across its notify and would
-# dereference a freed kvobj. SMOVE is the sharp case: it caches `srcset`, fires
-# "srem", then derefs `srcset` again (setTypeSize / keyModified). This test pins
-# that the drain placement is safe; it crashes (heap-use-after-free under ASAN)
-# if the drain is ever moved into the notification dispatch.
+# Pointer-safety guard: the per-key job's first RM_SetKeyMeta attach reallocates
+# the key's kvobj, so the job must run only after the triggering command has
+# fully returned (the afterCommand / postExecutionUnitOperations drain).
+# SMOVE reproduces the crash if the drain runs inside the command's own notification.
 tags "modules external:skip" {
     test "perkey-ptr-safety: SMOVE first metadata attach must not UAF the source set" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
