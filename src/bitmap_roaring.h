@@ -8,7 +8,8 @@
  * in BITCOUNT/BITPOS works on signed bit totals), which caps the length at
  * 2^60-1 bytes and therefore the highest addressable bit offset at 2^63-9.
  * Legacy string bitmaps stay bounded by proto-max-bulk-len. */
-#define BITMAP_OBJECT_MAX_BYTES ((uint64_t)(INT64_MAX >> 3))
+#define BITMAP_OBJECT_MAX_BYTES_RAW (INT64_MAX >> 3)
+#define BITMAP_OBJECT_MAX_BYTES ((uint64_t)BITMAP_OBJECT_MAX_BYTES_RAW)
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
 
 void bitmapRoaringInit(void);

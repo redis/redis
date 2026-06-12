@@ -291,7 +291,9 @@ robj *createBitmapObject(void) {
 }
 
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
+#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+#endif
 
     bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
