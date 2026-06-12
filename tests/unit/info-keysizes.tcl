@@ -1125,6 +1125,7 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
             {SUNIONCARD 2 driver{t} src{t} APPROX}
             {SDIFF driver{t} src{t}}
             {SDIFFSTORE dst{t} driver{t} src{t}}
+            {SDIFFCARD 2 driver{t} src{t}}
         } {
             # Recreate src{t} before each command, leaving it mid-rehash.
             # We add one member per SADD on purpose: a single SADD with many
