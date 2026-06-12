@@ -9,6 +9,7 @@
  */
 
 #include "server.h"
+#include "bitmap_roaring.h"
 #include "ctype.h"
 
 #ifdef HAVE_AVX2
@@ -1884,10 +1885,13 @@ void bitopCommand(client *c) {
 }
 
 typedef struct bitRange {
+    /* Raw START/END arguments normalized to byte or bit coordinates. */
     long long start;
     long long end;
+    /* Half-open bit interval used by native bitmap range operations. */
     uint64_t bit_start;
     uint64_t bit_end;
+    /* Bits to ignore in the first/last byte for byte-backed BITPOS ranges. */
     unsigned char first_byte_neg_mask;
     unsigned char last_byte_neg_mask;
 } bitRange;
@@ -2218,6 +2222,7 @@ void bitfieldGeneric(client *c, int flags) {
     uint64_t highest_write_offset = 0;
     int native_bitmap_write = 0;
     int native_transition = 0;
+    int native_len_extended = 0;
     dictEntryLink native_bitmap_link = NULL;
     size_t oldAllocSize = 0;
 
@@ -2526,9 +2531,11 @@ void bitfieldGeneric(client *c, int flags) {
     }
 
     if (native_bitmap_write && strGrowSize) {
+        uint64_t oldlen = bitmapObjectLen(o);
         int bit = bitmapObjectGetBit(o, highest_write_offset);
         int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
         serverAssert(ret == C_OK);
+        native_len_extended = oldlen != bitmapObjectLen(o);
     }
 
     /* A created or converted native value must reach replicas and the AOF
@@ -2539,10 +2546,10 @@ void bitfieldGeneric(client *c, int flags) {
     if (native_transition) {
         preventCommandPropagation(c);
         bitmapPropagateRestore(c, c->argv[1], o);
-        if (!changes) server.dirty++;
+        if (!changes && !native_len_extended) server.dirty++;
     }
 
-    if (changes) {
+    if (changes || native_len_extended) {
         if (native_bitmap_write) {
             if (strOldSize != bitmapObjectLen(o))
                 updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
@@ -2559,7 +2566,7 @@ void bitfieldGeneric(client *c, int flags) {
         
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty += changes;
+        server.dirty += changes ? changes : 1;
     }
     zfree(ops);
 }

@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitmap_roaring.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"

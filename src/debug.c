@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitmap_roaring.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"

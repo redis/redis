@@ -12,6 +12,7 @@
  */
 
 #include "server.h"
+#include "bitmap_roaring.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "cluster_asm.h"

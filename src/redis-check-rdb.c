@@ -91,8 +91,6 @@ char *rdb_type_string[] = {
     "array",
 #ifdef ENABLE_GCRA
     "gcra",
-#else
-    "",
 #endif
     "bitmap",
 };
