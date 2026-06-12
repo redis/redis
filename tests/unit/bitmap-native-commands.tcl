@@ -22,6 +22,14 @@ proc bitmap_logical_raw {key} {
     return [r get $key]
 }
 
+proc assert_bitmap_has_exact_bits {key bits} {
+    set unique [lsort -integer -unique $bits]
+    assert_equal [llength $unique] [r bitcount $key]
+    foreach bit $unique {
+        assert_equal 1 [r getbit $key $bit]
+    }
+}
+
 proc assert_native_bitop_matches_string {name op source_bitsets} {
     set string_dest "bitmap:native:bitop:$name:string:dest"
     set native_dest "bitmap:native:bitop:$name:native:dest"
@@ -45,6 +53,61 @@ proc assert_native_bitop_matches_string {name op source_bitsets} {
         # At least one native source makes the destination native.
         assert_equal bitmap [r type $native_dest]
         assert_equal string [r type $string_dest]
+    }
+}
+
+proc assert_native_bitop_bitset_case {name op source_bitsets expected_bits {missing_indexes {}} {alias_index -1} {dest_seed __none__}} {
+    set string_dest "bitmap:native:bitop:case:$name:string:dest"
+    set native_dest "bitmap:native:bitop:case:$name:native:dest"
+    set string_sources {}
+    set native_sources {}
+    set string_source_raws {}
+    set native_source_raws {}
+
+    r config set bitmap-native-mode explicit
+
+    if {$dest_seed eq "__none__"} {
+        r del $string_dest $native_dest
+    } else {
+        seed_string_bitmap $string_dest $dest_seed
+        seed_native_bitmap $native_dest $dest_seed
+    }
+
+    for {set i 0} {$i < [llength $source_bitsets]} {incr i} {
+        set string_key "bitmap:native:bitop:case:$name:string:src:$i"
+        set native_key "bitmap:native:bitop:case:$name:native:src:$i"
+        if {[lsearch -exact $missing_indexes $i] >= 0} {
+            r del $string_key $native_key
+        } else {
+            seed_string_bitmap $string_key [lindex $source_bitsets $i]
+            seed_native_bitmap $native_key [lindex $source_bitsets $i]
+        }
+        lappend string_sources $string_key
+        lappend native_sources $native_key
+        lappend string_source_raws [bitmap_logical_raw $string_key]
+        lappend native_source_raws [bitmap_logical_raw $native_key]
+    }
+
+    if {$alias_index >= 0} {
+        set string_dest [lindex $string_sources $alias_index]
+        set native_dest [lindex $native_sources $alias_index]
+    }
+
+    set string_reply [r bitop $op $string_dest {*}$string_sources]
+    set native_reply [r bitop $op $native_dest {*}$native_sources]
+    assert_equal $string_reply $native_reply
+    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    assert_bitmap_has_exact_bits $string_dest $expected_bits
+    assert_bitmap_has_exact_bits $native_dest $expected_bits
+    if {[r exists $native_dest]} {
+        assert_equal bitmap [r type $native_dest]
+        assert_equal bitmap-roaring [r object encoding $native_dest]
+    }
+
+    for {set i 0} {$i < [llength $source_bitsets]} {incr i} {
+        if {$i == $alias_index} continue
+        assert_equal [lindex $string_source_raws $i] [bitmap_logical_raw [lindex $string_sources $i]]
+        assert_equal [lindex $native_source_raws $i] [bitmap_logical_raw [lindex $native_sources $i]]
     }
 }
 
@@ -399,6 +462,97 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_native_bitop_matches_string andor ANDOR [list $a $b $c]
         assert_native_bitop_matches_string one ONE [list $a $b $c]
         assert_native_bitop_matches_string not NOT [list $a]
+    }
+
+    test {BITOP current operations cover redis-roaring algebra cases} {
+        set cases {
+            {diff:missing-all diff {{} {}} {} {0 1}}
+            {diff:basic diff {{1 2 3 4 5} {3 4 5 6 7}} {1 2}}
+            {diff:multi-subtract diff {{1 2 3 4 5 6 7 8} {2 3} {5 6}} {1 4 7 8}}
+            {diff:three-subtractors diff {{1 2 3 4 5 6 7 8 9 10} {1 2} {3 4} {5 6}} {7 8 9 10}}
+            {diff:subset diff {{1 2 3} {1 2 3 4 5}} {}}
+            {diff:disjoint diff {{1 2 3} {7 8 9}} {1 2 3}}
+            {diff:missing-first diff {{} {1 2 3}} {} {0}}
+            {diff:missing-subtractor diff {{1 2 3 4} {}} {1 2 3 4} {1}}
+            {diff:overlap-subtractors diff {{1 2 3 4 5 6} {2 3 4} {3 4 5}} {1 6}}
+            {diff:overwrite-dest diff {{5 6 7} {6}} {5 7} {} -1 {99 100}}
+            {diff:large-values diff {{1000 2000 3000 4000} {2000 3000}} {1000 4000}}
+            {diff:chained-equivalent diff {{1 2 3 4 5} {3 4} {1}} {2 5}}
+            {diff:dest-first-source diff {{1 2 3 4 5 6} {3 4 5}} {1 2 6} {} 0}
+            {diff:dest-middle-source diff {{1 2 3 4 5 6 7 8} {2 3 4} {6 7}} {1 5 8} {} 1}
+            {diff:dest-last-source diff {{10 20 30 40 50} {20 30} {40}} {10 50} {} 2}
+            {diff:dest-first-empty-result diff {{7 8 9} {7 8 9 10 11}} {} {} 0}
+
+            {diff1:missing-all diff1 {{} {}} {} {0 1}}
+            {diff1:basic diff1 {{3 4 5} {1 2 3 4 5 6 7}} {1 2 6 7}}
+            {diff1:multi-source diff1 {{2 3 5 6} {1 2 3 4} {5 6 7 8}} {1 4 7 8}}
+            {diff1:three-sources diff1 {{1 2 5 6 9 10} {1 2 3} {4 5 6} {7 8 9}} {3 4 7 8}}
+            {diff1:subset diff1 {{1 2 3 4 5} {2 3 4}} {}}
+            {diff1:disjoint diff1 {{1 2 3} {7 8 9}} {7 8 9}}
+            {diff1:missing-first diff1 {{} {5 6 7 8}} {5 6 7 8} {0}}
+            {diff1:missing-y diff1 {{1 2 3 4} {}} {} {1}}
+            {diff1:all-y-missing diff1 {{10 20 30} {} {}} {} {1 2}}
+            {diff1:overlap-y diff1 {{3 4 5} {1 2 3 4} {4 5 6 7}} {1 2 6 7}}
+            {diff1:overwrite-dest diff1 {{5 6} {5 6 7 8}} {7 8} {} -1 {99 100}}
+            {diff1:large-values diff1 {{2000 3000} {1000 2000 3000 4000}} {1000 4000}}
+            {diff1:chained-equivalent diff1 {{1} {1 2 5}} {2 5}}
+            {diff1:dest-x-source diff1 {{3 4 5} {1 2 3 4 5 6}} {1 2 6} {} 0}
+            {diff1:dest-first-y diff1 {{2 3 4} {1 2 3 4 5 6} {6 7 8}} {1 5 6 7 8} {} 1}
+            {diff1:dest-middle-y diff1 {{5 10 15} {1 5 10} {10 15 20} {15 20 25}} {1 20 25} {} 2}
+            {diff1:dest-last-y diff1 {{20 30} {10 20 30} {30 40 50}} {10 40 50} {} 2}
+            {diff1:dest-y-empty-result diff1 {{7 8 9 10 11} {7 8 9}} {} {} 1}
+            {diff1:equal-x-y diff1 {{100 200 300} {100 200 300}} {}}
+            {diff1:y-union-equals-x diff1 {{1 2 3 4 5 6} {1 2 3} {4 5 6}} {}}
+            {diff1:four-y diff1 {{5 10 15 20 25 30} {1 5} {10 11} {15 16} {20 21}} {1 11 16 21}}
+
+            {andor:basic andor {{1 2 3 4} {3 4 5 6}} {3 4}}
+            {andor:three andor {{1 2 3} {2 3 4} {3 4 5}} {2 3}}
+            {andor:disjoint andor {{1 2} {3 4} {5 6}} {}}
+            {andor:missing-middle andor {{1 2 3} {} {2 3 4}} {2 3} {1}}
+            {andor:missing-first andor {{} {1 2 3} {2 3 4}} {} {0}}
+            {andor:many andor {{1 2 3 4 5} {2 3} {3 4} {4 5} {5 6} {6 7} {7 8} {8 9} {9 10} {10 11}} {2 3 4 5}}
+            {andor:overwrite-dest andor {{1 2} {1}} {1} {} -1 {100 200}}
+            {andor:dest-first-source andor {{1 2 3 10 20} {2 3 4 10 30} {3 4 5 10 40}} {2 3 10} {} 0}
+
+            {one:single one {{1 3 5}} {1 3 5}}
+            {one:non-overlap one {{1 3 5} {2 4 6}} {1 2 3 4 5 6}}
+            {one:overlap one {{1 2 3} {3 4 5}} {1 2 4 5}}
+            {one:three one {{0 4 5 6} {1 5 6} {2 3 5 6 7}} {0 1 2 3 4 7}}
+            {one:all-same one {{10 20 30} {10 20 30} {10 20 30}} {}}
+            {one:missing-middle one {{1 2 3} {} {3 4 5}} {1 2 4 5} {1}}
+            {one:complex-overlap one {{1 2 3 4 5} {2 3 4 6 7} {3 4 5 7 8} {4 5 6 8 9}} {1 9}}
+            {one:large-values one {{1000000 2000000} {2000000 3000000}} {1000000 3000000}}
+            {one:overwrite-dest one {{1 2} {2 3}} {1 3} {} -1 {100 200 300}}
+        }
+
+        foreach case $cases {
+            set missing_indexes {}
+            set alias_index -1
+            set dest_seed __none__
+            lassign $case name op sources expected missing_indexes alias_index dest_seed
+            assert_native_bitop_bitset_case $name $op $sources $expected $missing_indexes $alias_index $dest_seed
+        }
+    }
+
+    test {BITOP current operation syntax errors are preserved on native paths} {
+        seed_native_bitmap bitmap:native:bitop:syntax:a {1}
+        seed_native_bitmap bitmap:native:bitop:syntax:b {2}
+
+        assert_error {ERR syntax error} {
+            r bitop noop bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a bitmap:native:bitop:syntax:b
+        }
+        assert_error {ERR BITOP NOT*} {
+            r bitop not bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a bitmap:native:bitop:syntax:b
+        }
+        assert_error {ERR BITOP DIFF*} {
+            r bitop diff bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a
+        }
+        assert_error {ERR BITOP DIFF1*} {
+            r bitop diff1 bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a
+        }
+        assert_error {ERR BITOP ANDOR*} {
+            r bitop andor bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a
+        }
     }
 
     test {BITOP handles native bitmap empty sources and destination aliasing} {
