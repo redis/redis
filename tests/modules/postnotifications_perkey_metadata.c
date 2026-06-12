@@ -54,6 +54,24 @@ static void FireLogClear(void) {
 /* RM_Call attempts from inside a per-key callback that the runtime refused. */
 static long long rmcall_blocked_count = 0;
 
+/* Firings the job observed on an already-removed key (expired or evicted): the
+ * key is gone by the time the job runs, so it can't attach metadata, but the
+ * job DID fire. Recorded separately so the live-key fire_count/fire_log
+ * assertions are unaffected, and expire/evict coverage has something to assert. */
+static long long empty_fire_count = 0;
+static char *empty_fire_log[FIRELOG_CAP];
+static int empty_fire_log_len = 0;
+
+static void EmptyFireLogAppend(const char *name) {
+    if (empty_fire_log_len < FIRELOG_CAP)
+        empty_fire_log[empty_fire_log_len++] = strdup(name);
+}
+
+static void EmptyFireLogClear(void) {
+    for (int i = 0; i < empty_fire_log_len; i++) free(empty_fire_log[i]);
+    empty_fire_log_len = 0;
+}
+
 static void MetaFreeCallback(const char *keyname, uint64_t meta) {
     REDISMODULE_NOT_USED(keyname);
     if (meta != 0) free((char *)meta);
@@ -67,6 +85,12 @@ static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void 
     RedisModuleKey *k = RedisModule_OpenKey(ctx, key, REDISMODULE_WRITE);
     if (!k) return;
     if (RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
+        /* Key already removed (expired/evicted). Can't attach metadata, but the
+         * per-key job fired for it — record so expire/evict tests can assert. */
+        empty_fire_count++;
+        size_t klen;
+        const char *kname = RedisModule_StringPtrLen(key, &klen);
+        EmptyFireLogAppend(kname);
         RedisModule_CloseKey(k);
         return;
     }
@@ -169,12 +193,33 @@ static int RMCallBlockedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithLongLong(ctx, rmcall_blocked_count);
 }
 
+/* How many times the per-key job fired for an already-removed (expired/evicted)
+ * key. */
+static int EmptyFireCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, empty_fire_count);
+}
+
+/* Names of the keys the per-key job fired for while they were already removed. */
+static int EmptyFireLogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithArray(ctx, empty_fire_log_len);
+    for (int i = 0; i < empty_fire_log_len; i++) {
+        RedisModule_ReplyWithCString(ctx, empty_fire_log[i]);
+    }
+    return REDISMODULE_OK;
+}
+
 static int ResetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     fire_count = 0;
     rmcall_blocked_count = 0;
+    empty_fire_count = 0;
     FireLogClear();
+    EmptyFireLogClear();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -206,7 +251,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
                       REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_EXPIRED |
-                      REDISMODULE_NOTIFY_EVICTED;
+                      REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_SET;
     if (RedisModule_SubscribeToKeyspaceEvents(ctx, notifyFlags, NotifyCallback) != REDISMODULE_OK)
         return REDISMODULE_ERR;
 
@@ -223,6 +268,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.rmcall_blocked", RMCallBlockedCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.empty_firecount", EmptyFireCountCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.empty_firelog", EmptyFireLogCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.reset", ResetCommand,
@@ -242,5 +293,6 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
         meta_class_id = -1;
     }
     FireLogClear();
+    EmptyFireLogClear();
     return REDISMODULE_OK;
 }
