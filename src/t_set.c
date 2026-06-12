@@ -118,7 +118,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             return success;
         }
 
-        if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        else if (set->encoding == OBJ_ENCODING_LISTPACK) {
             /* Check if the integer is already in the listpack.
              * If not, add it to the listpack,
              * else return 0. */
