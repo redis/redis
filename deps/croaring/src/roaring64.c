@@ -16,6 +16,11 @@
 #include <roaring/roaring_array.h>
 // containers.h last to avoid conflict with ROARING_CONTAINER_T.
 #include <roaring/containers/containers.h>
+// Local Redis patch: the bitmap struct definition lives in a shared internal
+// header so the embedding application can walk every allocation for memory
+// accounting, fork-child page dismissal and active defragmentation. Included
+// after containers.h because the struct needs container_t.
+#include <roaring/roaring64_internal.h>
 
 #define CROARING_ALIGN_BUF(buf, alignment)          \
     (char *)(((uintptr_t)(buf) + ((alignment)-1)) & \
@@ -34,13 +39,8 @@ namespace api {
 // TODO: Copy on write.
 // TODO: Error on failed allocation.
 
-typedef struct roaring64_bitmap_s {
-    art_t art;
-    uint8_t flags;
-    uint64_t first_free;
-    uint64_t capacity;
-    container_t **containers;
-} roaring64_bitmap_t;
+// struct roaring64_bitmap_s is defined in roaring64_internal.h (local Redis
+// patch; upstream defines it privately here).
 
 // Leaf type of the ART used to keep the high 48 bits of each entry.
 // Low 8 bits: typecode

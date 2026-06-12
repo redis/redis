@@ -78,10 +78,10 @@ if 0 {
     r setbit bitmap 7 1
     r setbit bitmap 100 1
     r setbit bitmap 4095 1
-    r debug bitmap-force-roaring bitmap
+    r bitmap convert bitmap
     r setrange bitmapbig 0 [string repeat "\xff" 1024]
     r setbit bitmapbig 100000 1
-    r debug bitmap-force-roaring bitmapbig
+    r bitmap convert bitmapbig
 
     # create bigger objects with 10 items (more than a single ziplist / listpack)
     generate_collections big 10
