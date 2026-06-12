@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitmap_roaring.h"
 #include "vector.h"
 #include "cluster.h"
 #include "atomicvar.h"

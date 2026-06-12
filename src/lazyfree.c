@@ -1,4 +1,5 @@
 #include "server.h"
+#include "bitmap_roaring.h"
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
@@ -212,6 +213,8 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         return arCount(ar);
     } else if (obj->type == OBJ_BITMAP) {
         size_t containers = bitmapObjectContainerCount(obj);
+        /* Each Roaring container owns at least one allocation for the container
+         * and often another for its payload, plus top-level bitmap metadata. */
         return containers == 0 ? 1 : containers * 2 + 2;
     } else {
         return 1; /* Everything else is a single allocation. */

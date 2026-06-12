@@ -1172,22 +1172,27 @@ test {corrupt payload: bitmap with unsorted array container} {
     # are reversed to {9,5,1}. That stays within deserialization bounds but
     # violates the sorted-array invariant, so only deep sanitization
     # (roaring64_bitmap_internal_validate) rejects it.
-    # Payload layout: type byte 0x1e (RDB_TYPE_BITMAP), logical byte length,
+    # Payload layout: type byte RDB_TYPE_BITMAP, logical byte length,
     # string-encoded Roaring 64-bit portable blob (u64 bucket count, then per
     # bucket a u32 high key and an embedded 32-bit portable bitmap), 2-byte
     # RDB version, 8-byte CRC (stale in the corrupted variants; checksum
     # validation is skipped above).
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
-        set valid_payload    [binary format H* 1e02220100000000000000000000003a3000000100000000000200100000000100050009000f00f002b03d7aeda905]
-        set unsorted_payload [binary format H* 1e02220100000000000000000000003a3000000100000000000200100000000900050001000f00f002b03d7aeda905]
+        r setbit bitmap:type-probe 1 1
+        r bitmap convert bitmap:type-probe
+        binary scan [r dump bitmap:type-probe] H2 bitmap_type
+        r del bitmap:type-probe
+
+        set valid_payload    [binary format H* ${bitmap_type}02220100000000000000000000003a3000000100000000000200100000000100050009000f00f002b03d7aeda905]
+        set unsorted_payload [binary format H* ${bitmap_type}02220100000000000000000000003a3000000100000000000200100000000900050001000f00f002b03d7aeda905]
 
         r config set sanitize-dump-payload yes
         r restore bitmap:valid 0 $valid_payload
         assert_equal [r type bitmap:valid] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid] [binary format H* 4440]
 
-        set trailing_payload [binary format H* 1e02230100000000000000000000003a300000010000000000020010000000010005000900000f00f002b03d7aeda905]
+        set trailing_payload [binary format H* ${bitmap_type}02230100000000000000000000003a300000010000000000020010000000010005000900000f00f002b03d7aeda905]
         catch { r restore bitmap:trailing 0 $trailing_payload } err
         assert_match "*Bad data format*" $err
 
