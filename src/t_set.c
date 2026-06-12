@@ -2011,7 +2011,7 @@ void sdiffcardCommand(client *c) {
     }
 
     sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
-                             SET_OP_DIFF, 1, limit);
+                             SET_OP_DIFF, 1, 0, limit);
 }
 
 void sscanCommand(client *c) {

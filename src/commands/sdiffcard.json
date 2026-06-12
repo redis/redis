@@ -3,7 +3,7 @@
         "summary": "Returns the number of members of the difference between the first set and all successive sets.",
         "complexity": "O(N) where N is the total number of elements in all given sets.",
         "group": "set",
-        "since": "8.8.0",
+        "since": "8.10.0",
         "arity": -3,
         "function": "sdiffcardCommand",
         "get_keys_function": "sdiffcardGetKeys",
