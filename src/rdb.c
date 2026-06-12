@@ -3907,17 +3907,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         sds payload;
 
         if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
-        if (byte_len > SIZE_MAX) {
-            rdbReportCorruptRDB("Bitmap byte length too large: %llu",
-                (unsigned long long)byte_len);
-            return NULL;
-        }
 
         payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
         if (payload == NULL) return NULL;
 
         if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-        o = createBitmapObjectFromPortable((size_t)byte_len, payload, sdslen(payload),
+        /* Logical byte lengths beyond BITMAP_OBJECT_MAX_BYTES are rejected
+         * inside createBitmapObjectFromPortable() like any other malformed
+         * payload. */
+        o = createBitmapObjectFromPortable(byte_len, payload, sdslen(payload),
                                            deep_integrity_validation);
         sdsfree(payload);
         if (o == NULL) {

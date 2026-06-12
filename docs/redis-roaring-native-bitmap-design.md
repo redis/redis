@@ -1,5 +1,14 @@
 # Redis Roaring Native Bitmap Design Notes
 
+> **Upstream-alignment update**: the implementation has moved to 64-bit
+> indexing (`roaring64_bitmap_t`, offsets up to 2^63-9), a single two-mode
+> `bitmap-native-mode` config (`explicit`/`implicit`) replacing the
+> threshold-based selection configs, an explicit `BITMAP CONVERT` command,
+> and native BITOP destinations whenever a source is native (always, in
+> implicit mode). See the "Upstream-Alignment Update" section of
+> `docs/redis-roaring-pr-breakdown.md` for the full list; where this
+> document's behavior matrix disagrees, that section wins.
+
 This document captures the Step 1 design baseline for adding Roaring
 compression as part of a native Redis bitmap value type. Step numbers refer to
 the plan phases in `docs/redis-roaring-pr-breakdown.md` (numbered Step 0-10;
