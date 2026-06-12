@@ -1871,20 +1871,16 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* For cardinality-only mode, clamp to the limit. This handles cases
-     * where early termination was not possible (e.g. DIFF algo 2). */
-    if (cardinality_only && limit > 0 && cardinality > limit) {
-        cardinality = limit;
-    }
-
     /* Output the content of the resulting set, if not in STORE mode */
     if (cardinality_only) {
         if (approx) {
             cardinality = hllCount(hllobj->ptr, NULL);
-            if (limit > 0 && cardinality > limit)
-                cardinality = limit;
             decrRefCount(hllobj);
         }
+        /* DIFF algo 2 (no early termination) and the HLL estimate
+         * can overshoot the limit, so clamp the final count. */
+        if (limit > 0 && cardinality > limit)
+            cardinality = limit;
         addReplyLongLong(c, cardinality);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
@@ -2010,8 +2006,7 @@ void sdiffcardCommand(client *c) {
         }
     }
 
-    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
-                             SET_OP_DIFF, 1, 0, limit);
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL, SET_OP_DIFF, 1, 0, limit);
 }
 
 void sscanCommand(client *c) {
