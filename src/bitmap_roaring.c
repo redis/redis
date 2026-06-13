@@ -88,8 +88,8 @@ static void bitmapRoaringFree(void *ptr) {
 }
 
 /* Build a roaring bitmap from raw bitmap string bytes. Batch insertions
- * through add_many: this conversion runs on every implicit-mode write that
- * converts a string and on every string BITOP source, and per-bit
+ * through add_many: this conversion runs on every bitmap-default-roaring write
+ * that converts a string and on every string BITOP source, and per-bit
  * roaring64_bitmap_add dominates the cost on dense inputs. The optimize pass
  * is only worth paying for bitmaps that are kept (run_optimize/shrink_to_fit
  * walk every container); BITOP operand temporaries are freed within the
