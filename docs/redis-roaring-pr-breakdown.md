@@ -203,14 +203,15 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
 - Audit `SORT ... BY`/`GET` patterns, module/string APIs, and Lua script
   surfaces that read values as strings.
 - Decide whether Redis needs an explicit bitmap-to-string conversion escape
-  hatch; keep it out of implicit generic string command behavior. Decision:
-  no dedicated conversion command. `BITOP` already provides an explicit,
-  copying escape hatch because `BITOP` destinations are always stored as
-  plain strings (for example `BITOP OR dest src` materializes a native
-  bitmap `src` into a string `dest`), and plain `SET` overwrites a native
-  bitmap key with a string like any other type. Generic string commands keep
-  returning `WRONGTYPE`. Revisit only if upstream review asks for a
-  dedicated command.
+  hatch; keep it out of generic string command behavior. Decision:
+  `BITMAP CONVERT <key> [NATIVE|STRING]` is the explicit conversion command,
+  and `BITMAP CONVERT <key> STRING` is the supported path back to a legacy
+  string while the logical length fits proto-max-bulk-len. `BITOP` is not a
+  string materialization escape hatch; destinations are native whenever any
+  source is native, and are also native for string-only sources when
+  `bitmap-default-roaring yes` is set. Plain `SET` overwrites a native bitmap
+  key with a string like any other type. Generic string commands keep returning
+  `WRONGTYPE`.
 
 ## Step 6: Minimal Configs and Public Native Bitmap Creation
 
@@ -223,9 +224,12 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
   before writing.
 - The size/saving thresholds and trial encodes are intentionally omitted from
   the current design.
-- Enable direct `OBJ_BITMAP` creation for eligible large sparse `SETBIT` cases.
-- Enable configured auto-conversion only after persistence, introspection,
-  active defrag, and bitmap command coverage are already in place.
+- Enable public bitmap writes to create `OBJ_BITMAP` values only through the
+  configured default-Roaring path: with `bitmap-default-roaring yes`, missing
+  bitmap-command keys are native and existing string values are converted before
+  writes.
+- Propagate all default-Roaring type transitions as explicit RESTOREs so
+  replicas and AOF replay never re-derive the representation choice locally.
 - Add tests proving converted keys survive save/load, AOF rewrite, replication,
   and the full existing bitmap command surface.
 

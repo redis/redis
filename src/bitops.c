@@ -1019,9 +1019,9 @@ void setbitCommand(client *c) {
             return;
         }
         if (bitmap == NULL) {
-            /* Implicit mode: newly created bitmap keys are native. The link
-             * from the lookup above is still valid: building the bitmap never
-             * touches the keyspace dict. */
+            /* bitmap-default-roaring yes: newly created bitmap keys are native.
+             * The link from the lookup above is still valid: building the
+             * bitmap never touches the keyspace dict. */
             robj *created_bitmap = createBitmapObject();
             serverAssert(bitmapObjectSetBit(created_bitmap, bitoffset, on) == C_OK);
             dbAddByLink(c->db, c->argv[1], &created_bitmap, &link);
@@ -1040,7 +1040,7 @@ void setbitCommand(client *c) {
             return;
         }
         if (bitmap->type == OBJ_STRING) {
-            /* Implicit mode: a write against an existing string value
+            /* bitmap-default-roaring yes: a write against an existing string value
              * converts it to a native bitmap first, so the write itself is
              * not bounded by the string representation. The converted bitmap
              * holds the original content, so the old bit value is read from

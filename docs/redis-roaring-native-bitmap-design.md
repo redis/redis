@@ -113,10 +113,10 @@ current design.
 
 ## Oracle Test Strategy
 
-Step 1 adds a legacy-string oracle harness under `tests/support`. Today the
-harness has only one active mode, `legacy-string`, because no native bitmap
-type exists yet. Later steps can add a native mode to the same harness and
-compare bitmap-observable command results across both modes.
+Step 1 added a legacy-string oracle harness under `tests/support`. Later steps
+extended it with a `native-roaring` mode backed by `bitmap-default-roaring yes`,
+so scenarios now compare bitmap-observable command results across both
+representations.
 
 The initial corpus focuses on cases redis-roaring-style implementations commonly
 stress:
@@ -136,12 +136,14 @@ stress:
   an in-payload flags byte.
 - Which commands, if any, should offer explicit native bitmap to string
   materialization? Generic string commands should not silently materialize by
-  default. Decided in Step 5: no dedicated conversion command. `BITOP` already
-  provides an explicit, copying escape hatch because `BITOP` destinations are
-  always stored as plain strings, and plain `SET` overwrites a native bitmap
-  key with a string like any other type. Generic string commands keep
-  returning `WRONGTYPE`. Revisit only if upstream review asks for a dedicated
-  command.
+  default. Decided in the upstream-aligned surface: `BITMAP CONVERT <key>
+  [NATIVE|STRING]` is the explicit conversion command, and
+  `BITMAP CONVERT <key> STRING` is the supported path back to a legacy string
+  while the logical length fits proto-max-bulk-len. `BITOP` is not a string
+  materialization escape hatch; destinations follow the native destination rule
+  recorded in `docs/redis-roaring-pr-breakdown.md`. Plain `SET` overwrites a
+  native bitmap key with a string like any other type. Generic string commands
+  keep returning `WRONGTYPE`.
 - What is the RDB opcode and AOF rewrite representation for compressed native
   bitmaps, and which PR lands it before public creation? Decided in Step 3:
   RDB uses a dedicated `RDB_TYPE_BITMAP` id carrying the portable Roaring
