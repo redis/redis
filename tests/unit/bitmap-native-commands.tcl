@@ -64,7 +64,7 @@ proc assert_native_bitop_bitset_case {name op source_bitsets expected_bits {miss
     set string_source_raws {}
     set native_source_raws {}
 
-    r config set bitmap-native-mode explicit
+    r config set bitmap-default-roaring no
 
     if {$dest_seed eq "__none__"} {
         r del $string_dest $native_dest
@@ -117,7 +117,7 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
     set string_sources {}
     set native_sources {}
 
-    r config set bitmap-native-mode explicit
+    r config set bitmap-default-roaring no
 
     for {set i 0} {$i < [llength $source_raws]} {incr i} {
         set string_key "bitmap:native:bitop:$name:string:src:$i"
@@ -606,7 +606,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_native_bitop_raws_match_string alias:not not [list $a] {0} 0
     }
 
-    test {BITOP mixed native fuzz matches explicit-mode strings} {
+    test {BITOP mixed native fuzz matches bitmap-default-roaring no strings} {
         foreach op {and or xor diff diff1 andor one} {
             set min_args 1
             if {$op eq "diff" || $op eq "diff1" || $op eq "andor"} {
@@ -637,7 +637,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     }
 
     test {BITOP mixed native and missing-key sources match string results} {
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         set a [binary format H* f0f0]
         set c [binary format H* 0f]
@@ -667,7 +667,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         # The empty-accumulator seeding branches (sources[0] == NULL) are
         # distinct code paths: AND/ANDOR clear the result, DIFF1 skips the
         # andnot, and the generic copy falls back to an empty roaring.
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         set a [binary format H* f0f0]
         set c [binary format H* 0f]
@@ -694,7 +694,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     }
 
     test {BITOP duplicate sources match string results on the native path} {
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         set a [binary format H* aa5500]
         set s [binary format H* 0ff0]
