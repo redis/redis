@@ -147,12 +147,6 @@ configEnum sanitize_dump_payload_enum[] = {
     {NULL, 0}
 };
 
-configEnum bitmap_native_mode_enum[] = {
-    {"explicit", BITMAP_NATIVE_MODE_EXPLICIT},
-    {"implicit", BITMAP_NATIVE_MODE_IMPLICIT},
-    {NULL, 0}
-};
-
 configEnum protected_action_enum[] = {
     {"no", PROTECTED_ACTION_ALLOWED_NO},
     {"yes", PROTECTED_ACTION_ALLOWED_YES},
@@ -3217,7 +3211,7 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
-    createEnumConfig("bitmap-native-mode", NULL, MODIFIABLE_CONFIG, bitmap_native_mode_enum, server.bitmap_native_mode, BITMAP_NATIVE_MODE_EXPLICIT, NULL, NULL),
+    createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
