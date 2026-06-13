@@ -912,14 +912,13 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 }
 
 /* Public commands create native bitmaps, or convert string values they write
- * to, only in implicit mode and never while obeying a master or the AOF: the
- * representation decision must stay a pure function of replicated logical
- * state, so masters propagate every type transition as an explicit RESTORE
- * (see bitmapPropagateRestore()) instead of letting replicas re-derive it
- * from their local configuration. */
-static int bitmapNativeImplicitMode(client *c) {
-    return server.bitmap_native_mode == BITMAP_NATIVE_MODE_IMPLICIT &&
-           !mustObeyClient(c);
+ * to, only when bitmap-default-roaring is enabled and never while obeying a
+ * master or the AOF: the representation decision must stay a pure function
+ * of replicated logical state, so masters propagate every type transition as
+ * an explicit RESTORE (see bitmapPropagateRestore()) instead of letting
+ * replicas re-derive it from their local configuration. */
+static int bitmapDefaultRoaringEnabled(client *c) {
+    return server.bitmap_default_roaring && !mustObeyClient(c);
 }
 
 /* Convert a string value of any encoding into a native bitmap object holding
@@ -1012,7 +1011,7 @@ void setbitCommand(client *c) {
         return;
     }
 
-    if (bitmapNativeImplicitMode(c)) {
+    if (bitmapDefaultRoaringEnabled(c)) {
         if ((bitmap == NULL || bitmap->type == OBJ_STRING) &&
             !bitmapObjectCanRepresentBit(bitoffset))
         {
@@ -1543,9 +1542,9 @@ void bitopCommand(client *c) {
 
     /* The destination is a native bitmap when at least one source already is
      * one (a property of the replicated dataset, identical on replicas), or
-     * when this server runs in implicit mode (a local decision, propagated as
-     * the explicit result below). Otherwise it stays a string. */
-    native_dest = has_native_bitmap || (maxlen && bitmapNativeImplicitMode(c));
+     * when bitmap-default-roaring is enabled on this server (a local decision,
+     * propagated as the explicit result below). Otherwise it stays a string. */
+    native_dest = has_native_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c));
 
     /* Compute the bit operation, if at least one source is not empty. */
     if (maxlen) {
@@ -1861,11 +1860,11 @@ void bitopCommand(client *c) {
             server.dirty++;
             if (!has_native_bitmap) {
                 /* The native destination type came from this server's
-                 * implicit mode, not from the source types, so replicas and
-                 * the AOF receive the explicit result instead of re-running
-                 * the command against their own configuration. The payload
-                 * is queued before the keyspace notification: module
-                 * subscribers may mutate or delete the key. */
+                 * bitmap-default-roaring setting, not from the source types,
+                 * so replicas and the AOF receive the explicit result instead
+                 * of re-running the command against their own configuration.
+                 * The payload is queued before the keyspace notification:
+                 * module subscribers may mutate or delete the key. */
                 preventCommandPropagation(c);
                 bitmapPropagateRestore(c, targetkey, res_bitmap);
             }
@@ -2324,22 +2323,22 @@ void bitfieldGeneric(client *c, int flags) {
          * bitmap in place and does not need it. */
         o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
 
-        /* Implicit mode: newly created bitmap keys are native, and a write
-         * against an existing string value converts it first, so neither is
-         * bounded by the string representation. The transition reaches
-         * replicas and the AOF as an explicit RESTORE of the final state.
-         * The offset bound is validated before the transition so a rejected
-         * command leaves the keyspace untouched. */
-        int implicit_native = bitmapNativeImplicitMode(c) &&
+        /* When bitmap-default-roaring is enabled, newly created bitmap keys
+         * are native, and a write against an existing string value converts it
+         * first, so neither is bounded by the string representation. The
+         * transition reaches replicas and the AOF as an explicit RESTORE of
+         * the final state. The offset bound is validated before the transition
+         * so a rejected command leaves the keyspace untouched. */
+        int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
-        if ((implicit_native || (o != NULL && o->type == OBJ_BITMAP)) &&
+        if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
             !bitmapObjectCanRepresentBit(highest_write_offset))
         {
             zfree(ops);
             addReplyError(c, "bit offset is not representable in native bitmap encoding");
             return;
         }
-        if (implicit_native) {
+        if (default_roaring) {
             if (o == NULL) {
                 robj *created_bitmap = createBitmapObject();
                 dbAddByLink(c->db, c->argv[1], &created_bitmap, &native_bitmap_link);
@@ -2582,10 +2581,10 @@ void bitfieldroCommand(client *c) {
 /* BITMAP CONVERT key [NATIVE|STRING]
  *
  * Explicitly convert a bitmap key between the legacy string representation
- * and the native compressed one. This is the opt-in path of the default
- * explicit mode: users move individual keys to native bitmaps (or back)
- * without changing how writes behave globally. Converting to the type the
- * key already has is a no-op that still replies OK. */
+ * and the native compressed one. This is the opt-in path while
+ * bitmap-default-roaring is disabled: users move individual keys to native
+ * bitmaps (or back) without changing how writes behave globally. Converting
+ * to the type the key already has is a no-op that still replies OK. */
 static void bitmapConvertCommand(client *c) {
     int to_native = 1;
 

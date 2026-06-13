@@ -7,12 +7,12 @@ set ::sparse_public_len 8193
 set ::native_max_offset 9223372036854775799
 
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
-    test {native bitmap mode defaults to explicit} {
-        assert_equal explicit [lindex [r config get bitmap-native-mode] 1]
+    test {bitmap-default-roaring defaults to no} {
+        assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
 
-    test {explicit mode: SETBIT keeps creating strings} {
-        r config set bitmap-native-mode explicit
+    test {bitmap-default-roaring no: SETBIT keeps creating strings} {
+        r config set bitmap-default-roaring no
 
         assert_equal 0 [r setbit bitmap:public:disabled $::sparse_public_offset 1]
         assert_equal string [r type bitmap:public:disabled]
@@ -20,8 +20,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r getbit bitmap:public:disabled $::sparse_public_offset]
     }
 
-    test {implicit mode: SETBIT creates native bitmaps for missing keys} {
-        r config set bitmap-native-mode implicit
+    test {bitmap-default-roaring yes: SETBIT creates native bitmaps for missing keys} {
+        r config set bitmap-default-roaring yes
 
         assert_equal 0 [r setbit bitmap:public:create $::sparse_public_offset 1]
         assert_equal bitmap [r type bitmap:public:create]
@@ -30,11 +30,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitcount bitmap:public:create]
         assert_equal $::sparse_public_len [string length [r debug bitmap-raw bitmap:public:create]]
         assert_error {WRONGTYPE*} {r get bitmap:public:create}
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
-    test {implicit mode: SETBIT converts existing string values and keeps TTL} {
-        r config set bitmap-native-mode implicit
+    test {bitmap-default-roaring yes: SETBIT converts existing string values and keeps TTL} {
+        r config set bitmap-default-roaring yes
 
         r set bitmap:public:auto-on ""
         r pexpire bitmap:public:auto-on 60000
@@ -43,14 +43,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap-roaring [r object encoding bitmap:public:auto-on]
         assert_equal 1 [r getbit bitmap:public:auto-on $::sparse_public_offset]
         assert {[r pttl bitmap:public:auto-on] > 0}
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
-    test {implicit mode: conversion preserves existing string content} {
+    test {bitmap-default-roaring yes: conversion preserves existing string content} {
         r del bitmap:public:content
         # Plain SET always writes a string, in either mode; only bitmap
         # command writes convert.
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r set bitmap:public:content [binary format H* f00f]
         assert_equal string [r type bitmap:public:content]
 
@@ -59,11 +59,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r setbit bitmap:public:content 0 0]
         assert_equal bitmap [r type bitmap:public:content]
         assert_equal [binary format H* 700f] [r debug bitmap-raw bitmap:public:content]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
-    test {implicit mode: BITFIELD creates and converts native bitmaps} {
-        r config set bitmap-native-mode implicit
+    test {bitmap-default-roaring yes: BITFIELD creates and converts native bitmaps} {
+        r config set bitmap-default-roaring yes
         r del bitmap:public:bf:new bitmap:public:bf:conv
 
         assert_equal {0} [r bitfield bitmap:public:bf:new SET u8 0 255]
@@ -75,11 +75,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {2} [r bitfield bitmap:public:bf:conv INCRBY u8 0 1]
         assert_equal bitmap [r type bitmap:public:bf:conv]
         assert_equal [binary format H* 02] [r debug bitmap-raw bitmap:public:bf:conv]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
     test {BITMAP CONVERT converts strings to native bitmaps and back} {
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         set raw [binary format H* 80400100080000]
 
         r del bitmap:convert
@@ -120,9 +120,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {BITMAP CONVERT STRING rejects bitmaps longer than proto-max-bulk-len} {
         r del bitmap:convert:huge
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitmap:convert:huge 99999999999 1
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         assert_equal bitmap [r type bitmap:convert:huge]
         assert_error {*exceeds proto-max-bulk-len*} {r bitmap convert bitmap:convert:huge STRING}
         assert_equal bitmap [r type bitmap:convert:huge]
@@ -132,10 +132,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {native bitmaps accept 64-bit offsets across the command surface} {
         r del bitmap:64bit
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         set big_offset 99999999999
         assert_equal 0 [r setbit bitmap:64bit $big_offset 1]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         assert_equal 1 [r getbit bitmap:64bit $big_offset]
         assert_equal 0 [r getbit bitmap:64bit [expr {$big_offset - 1}]]
@@ -152,9 +152,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {native bitmaps accept offsets up to 2^63-9 and reject beyond} {
         r del bitmap:64bit:max
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         assert_equal 0 [r setbit bitmap:64bit:max $::native_max_offset 1]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         assert_equal 1 [r getbit bitmap:64bit:max $::native_max_offset]
         assert_equal 1 [r bitcount bitmap:64bit:max]
@@ -174,9 +174,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:64bit:max
     }
 
-    test {implicit SETBIT rejects unrepresentable native offsets without changing keys} {
+    test {bitmap-default-roaring SETBIT rejects unrepresentable native offsets without changing keys} {
         set one_past_native_max [expr {$::native_max_offset + 1}]
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r del bitmap:64bit:implicit:max:new bitmap:64bit:implicit:max:string
 
         assert_error {*not representable*} {
@@ -191,12 +191,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         assert_equal string [r type bitmap:64bit:implicit:max:string]
         assert_equal $raw [r get bitmap:64bit:implicit:max:string]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
     test {string bitmaps keep the proto-max-bulk-len write bound but read 64-bit offsets} {
         r del bitmap:string:bounds
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         r set bitmap:string:bounds [binary format H* 80]
 
         # Writes beyond the string bound keep the legacy out-of-range error.
@@ -216,8 +216,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitcount bitmap:string:bounds]
     }
 
-    test {WATCH aborts the transaction when implicit mode converts the key} {
-        r config set bitmap-native-mode implicit
+    test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
+        r config set bitmap-default-roaring yes
 
         r del bitmap:public:watch
         r set bitmap:public:watch ""
@@ -227,11 +227,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r multi
         r ping
         assert_equal {} [r exec]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
     test {native bitmap creation and conversion emit documented keyspace events} {
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         r del bitmap:public:notify bitmap:public:notify:conv bitmap:public:notify:cmd
 
         r config set notify-keyspace-events E\$ocn
@@ -239,28 +239,28 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         $rd psubscribe __keyevent@9__:*
         $rd read
 
-        # Direct native creation in implicit mode: same event sequence as a
+        # Direct native creation in bitmap-default-roaring yes: same event sequence as a
         # legacy creating SETBIT ("new" then "setbit") - the type difference
         # is invisible at the notification surface.
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitmap:public:notify $::sparse_public_offset 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
 
-        # Implicit conversion: the converting SETBIT additionally emits the
+        # bitmap-default-roaring conversion: the converting SETBIT additionally emits the
         # overwrite pair from setKey() before the trailing "setbit", so for
         # subscribers and modules the conversion is an observable type
         # change rather than a silent in-place mutation.
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         r set bitmap:public:notify:conv ""
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify:conv} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:public:notify:conv} [$rd read]
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitmap:public:notify:conv $::sparse_public_offset 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:overwritten bitmap:public:notify:conv} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         # Explicit conversion emits the overwrite pair only.
         r set bitmap:public:notify:cmd ""
@@ -275,7 +275,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     }
 
     test {public native bitmaps cover the bitmap command surface} {
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
 
         assert_equal 0 [r setbit bitmap:public:commands $::sparse_public_offset 1]
         assert_equal 1 [r getbit bitmap:public:commands $::sparse_public_offset]
@@ -290,11 +290,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $::sparse_public_len [r bitop or bitmap:public:commands:copy bitmap:public:commands]
         assert_equal bitmap [r type bitmap:public:commands:copy]
         assert_equal 2 [r bitcount bitmap:public:commands:copy]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
-    test {BITOP destination follows the source types in explicit mode} {
-        r config set bitmap-native-mode explicit
+    test {BITOP destination follows the source types with bitmap-default-roaring no} {
+        r config set bitmap-default-roaring no
         r del bitop:dest:s1 bitop:dest:s2 bitop:dest:n1 bitop:dest:out
 
         r set bitop:dest:s1 [binary format H* f0]
@@ -314,24 +314,24 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* ff] [r debug bitmap-raw bitop:dest:out]
     }
 
-    test {BITOP destination is always native in implicit mode} {
-        r config set bitmap-native-mode explicit
+    test {BITOP destination is always native with bitmap-default-roaring yes} {
+        r config set bitmap-default-roaring no
         r del bitop:imp:s1 bitop:imp:s2 bitop:imp:out
         r set bitop:imp:s1 [binary format H* cc]
         r set bitop:imp:s2 [binary format H* aa]
 
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         assert_equal 1 [r bitop xor bitop:imp:out bitop:imp:s1 bitop:imp:s2]
         assert_equal bitmap [r type bitop:imp:out]
         assert_equal [binary format H* 66] [r debug bitmap-raw bitop:imp:out]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 
     test {BITOP NOT rejects oversized native bitmap sources} {
         r del bitop:not:huge bitop:not:out
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitop:not:huge 99999999999 1
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         assert_error {*BITOP NOT*proto-max-bulk-len*} {
             r bitop not bitop:not:out bitop:not:huge
@@ -342,11 +342,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {BITOP with 64-bit native sources computes in roaring space} {
         r del bitop:64:a bitop:64:b bitop:64:out
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitop:64:a 99999999999 1
         r setbit bitop:64:a 5 1
         r setbit bitop:64:b 99999999999 1
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         assert_equal 12500000000 [r bitop xor bitop:64:out bitop:64:a bitop:64:b]
         assert_equal bitmap [r type bitop:64:out]
@@ -562,10 +562,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {64-bit native bitmaps survive dump restore and debug reload} {
         r del bitmap:persist:64
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitmap:persist:64 99999999999 1
         r setbit bitmap:persist:64 7 1
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
 
         set payload [r dump bitmap:persist:64]
         r restore bitmap:restored:64 0 $payload
@@ -622,11 +622,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         # Bits in distinct high-32 buckets force the 64-bit framing to walk
         # several embedded 32-bit bitmaps.
         r del bitmap:endian:64
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         r setbit bitmap:endian:64 7 1
         r setbit bitmap:endian:64 99999999999 1
         r setbit bitmap:endian:64 999999999999 1
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         assert_equal OK [r debug bitmap-endian-check bitmap:endian:64]
         assert_equal 3 [r bitcount bitmap:endian:64]
         r del bitmap:endian:64
@@ -634,11 +634,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {native bitmap unlink uses lazyfree for many roaring containers} {
         r config resetstat
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
         for {set i 0} {$i < 80} {incr i} {
             r setbit bitmap:lazy [expr {$i * 65536}] 1
         }
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
         assert_equal [r type bitmap:lazy] bitmap
 
         assert_equal [r unlink bitmap:lazy] 1
@@ -651,7 +651,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     } {} {needs:config-resetstat}
 
     test {public-created native bitmaps survive debug reload} {
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
 
         r setbit bitmap:public:reload:direct $::sparse_public_offset 1
         r set bitmap:public:reload:auto ""
@@ -665,7 +665,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:public:reload:auto]
         assert_equal 1 [r getbit bitmap:public:reload:direct $::sparse_public_offset]
         assert_equal 1 [r getbit bitmap:public:reload:auto $::sparse_public_offset]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 }
 
@@ -718,7 +718,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         r flushall
         r config set appendonly yes
         r config set auto-aof-rewrite-percentage 0
-        r config set bitmap-native-mode implicit
+        r config set bitmap-default-roaring yes
 
         r setbit bitmap:public:aof:direct $::sparse_public_offset 1
         r set bitmap:public:aof:auto ""
@@ -737,7 +737,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
         assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
         assert_equal 1 [r getbit bitmap:public:aof:64 99999999999]
-        r config set bitmap-native-mode explicit
+        r config set bitmap-default-roaring no
     }
 }
 
@@ -756,11 +756,11 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
                 fail "Replication not started."
             }
 
-            # The replica stays in explicit mode: type decisions must arrive
+            # The replica stays in bitmap-default-roaring no: type decisions must arrive
             # from the master as explicit RESTOREs, never be re-derived from
             # replica-local configuration.
-            $master config set bitmap-native-mode implicit
-            $replica config set bitmap-native-mode explicit
+            $master config set bitmap-default-roaring yes
+            $replica config set bitmap-default-roaring no
 
             $master setbit bitmap:public:repl:direct $::sparse_public_offset 1
             $master set bitmap:public:repl:auto ""
@@ -790,30 +790,30 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
         }
 
         test {BITOP destinations replicate deterministically across modes} {
-            # String-only sources with an implicit-mode master: the native
+            # String-only sources with a bitmap-default-roaring yes master: the native
             # destination decision is master-local, so the result arrives as
             # a RESTORE and the replica converges although it would have
             # produced a string itself.
             $master del bitop:repl:s1 bitop:repl:s2 bitop:repl:out
             $master set bitop:repl:s1 [binary format H* f0]
             $master set bitop:repl:s2 [binary format H* 0f]
-            $master config set bitmap-native-mode implicit
+            $master config set bitmap-default-roaring yes
             $master bitop or bitop:repl:out bitop:repl:s1 bitop:repl:s2
             wait_for_ofs_sync $master $replica
             assert_equal bitmap [$replica type bitop:repl:out]
             assert_equal [$master debug digest] [$replica debug digest]
 
-            # The reverse mismatch: explicit-mode master with an
-            # implicit-mode replica. The replica obeys the replicated BITOP
+            # The reverse mismatch: a bitmap-default-roaring no master with a
+            # bitmap-default-roaring yes replica. The replica obeys the replicated BITOP
             # verbatim and must not natify its destination.
-            $master config set bitmap-native-mode explicit
-            $replica config set bitmap-native-mode implicit
+            $master config set bitmap-default-roaring no
+            $replica config set bitmap-default-roaring yes
             $master bitop and bitop:repl:out2 bitop:repl:s1 bitop:repl:s2
             wait_for_ofs_sync $master $replica
             assert_equal string [$master type bitop:repl:out2]
             assert_equal string [$replica type bitop:repl:out2]
             assert_equal [$master debug digest] [$replica debug digest]
-            $replica config set bitmap-native-mode explicit
+            $replica config set bitmap-default-roaring no
         }
 
         test {native bitmaps survive a full resync as bitmaps} {
@@ -843,7 +843,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
         test {BITMAP CONVERT replicates the conversion as RESTORE} {
             set raw [binary format H* 80400100080000]
 
-            $master config set bitmap-native-mode explicit
+            $master config set bitmap-default-roaring no
             $master set bitmap:public:repl:conv $raw
             wait_for_ofs_sync $master $replica
             assert_equal string [$replica type bitmap:public:repl:conv]

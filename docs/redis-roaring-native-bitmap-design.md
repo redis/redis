@@ -1,11 +1,12 @@
 # Redis Roaring Native Bitmap Design Notes
 
 > **Upstream-alignment update**: the implementation has moved to 64-bit
-> indexing (`roaring64_bitmap_t`, offsets up to 2^63-9), a single two-mode
-> `bitmap-native-mode` config (`explicit`/`implicit`) replacing the
-> threshold-based selection configs, an explicit `BITMAP CONVERT` command,
-> and native BITOP destinations whenever a source is native (always, in
-> implicit mode). See the "Upstream-Alignment Update" section of
+> indexing (`roaring64_bitmap_t`, offsets up to 2^63-9), a single
+> `bitmap-default-roaring` boolean config replacing the threshold-based
+> selection configs, an explicit `BITMAP CONVERT` command, and native BITOP
+> destinations whenever a source is native (and always when
+> `bitmap-default-roaring yes` is set). See the "Upstream-Alignment Update"
+> section of
 > `docs/redis-roaring-pr-breakdown.md` for the full list; where this
 > document's behavior matrix disagrees, that section wins.
 
@@ -102,19 +103,13 @@ test-only helpers or internal fixtures that also exercise these safety paths.
 
 ## Encoding Selection Sketch
 
-Later steps should keep the first configuration surface small and high-signal:
-
-- `bitmap-roaring-enabled`
-- optional `bitmap-roaring-auto-convert`
-- `bitmap-roaring-min-bytes`
-- `bitmap-roaring-min-saving`
-
-The selected thresholds should be justified with benchmark data before they are
-made default behavior. Native conversion should be opt-in and should remain
-disabled until the exposure gate is satisfied. Defaults shipped before the
-Step 10 benchmark report exist only as provisional values, and
-`bitmap-roaring-auto-convert` stays `no` until that report exists and the
-Step 0 auto-convert question is answered upstream.
+This original threshold-based sketch is superseded by the upstream-aligned
+surface: a single `bitmap-default-roaring yes|no` flag, defaulting to `no`.
+When it is `no`, bitmap writes keep creating strings unless conversion is
+explicit. When it is `yes`, bitmap write commands create missing keys as
+native Roaring bitmaps and convert existing string values before writing. The
+size/saving thresholds and trial encodes are intentionally omitted from the
+current design.
 
 ## Oracle Test Strategy
 
