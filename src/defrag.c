@@ -1452,6 +1452,7 @@ int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
      * exit to cover the produce-but-no-consume case. */
     defragFragCacheInvalidate();
     if (bytes == 0) return 0;
+    server.defrag_frag_cache.hits++;
     *out_frag_pct   = server.defrag_frag_cache.frag_pct;
     *out_frag_bytes = bytes;
     return 1;
@@ -1471,13 +1472,16 @@ void computeDefragCycles(void) {
      * check below operates on whichever source provided the values. */
     size_t frag_bytes;
     float frag_pct;
-    if (!defragFragCacheTake(&frag_pct, &frag_bytes)) {
+    int cache_hit = defragFragCacheTake(&frag_pct, &frag_bytes);
+    if (!cache_hit) {
         frag_pct = getAllocatorFragmentation(&frag_bytes);
     }
     /* If we're not already running, and below the threshold, exit. */
     if (!server.active_defrag_running) {
-        if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
+        if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes) {
+            if (cache_hit) server.defrag_frag_cache.skips++;
             return;
+        }
     }
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current

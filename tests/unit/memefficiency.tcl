@@ -323,6 +323,67 @@ run_solo {defrag} {
             r script flush sync
         } {OK}
 
+        test "Active defrag check-cache: skip path when below threshold: $type" {
+            # Verifies the defrag-side fragmentation cache mechanism:
+            #   (A) we SKIP the expensive getAllocatorFragmentation() call
+            #       when the cached value is below the threshold, and
+            #   (C) the cache mechanism is actually wired up (consume is
+            #       being called every cron tick).
+            # The (B) "don't skip when we shouldn't" path is exercised by
+            # the "Active defrag main dictionary" test above: that test
+            # forces real fragmentation > threshold, the fall-through
+            # measurement runs, and defrag engages — which it could not
+            # do if the cache incorrectly skipped.
+            r flushdb
+            r config set hz 100
+            r config set activedefrag yes
+            # threshold-lower very high and ignore-bytes very high so the
+            # cached value is guaranteed below both skip conditions every
+            # tick (the skip path fires). With this config defrag never
+            # engages, so the cache continues to be consumed and the
+            # counters move predictably.
+            r config set active-defrag-threshold-lower 99
+            r config set active-defrag-ignore-bytes 1gb
+
+            # Let cron run for a few ticks so the producer/consumer pair fires.
+            after 300
+            set stats1 [r debug defrag-frag-cache-stats]
+            regexp {defrag_frag_cache_hits:(\d+)} $stats1 -> hits1
+            regexp {defrag_frag_cache_skips:(\d+)} $stats1 -> skips1
+            after 500
+            set stats2 [r debug defrag-frag-cache-stats]
+            regexp {defrag_frag_cache_hits:(\d+)} $stats2 -> hits2
+            regexp {defrag_frag_cache_skips:(\d+)} $stats2 -> skips2
+
+            # (C) Mechanism is alive: hits accumulated.
+            assert_morethan $hits2 $hits1
+            # (A) Skip path was taken on every hit in this configuration.
+            assert_morethan $skips2 $skips1
+            # Every hit led to a skip (hits delta == skips delta) because
+            # the cached value was below both threshold and ignore-bytes
+            # on every tick.
+            assert_equal [expr {$hits2 - $hits1}] [expr {$skips2 - $skips1}]
+        }
+
+        test "Active defrag check-cache: frozen when activedefrag is off: $type" {
+            # When activedefrag is disabled, activeDefragCycle() returns
+            # early before computeDefragCycles() runs — so the cache is
+            # never consumed, hits and skips must not grow.
+            r config set activedefrag no
+
+            after 300
+            set stats1 [r debug defrag-frag-cache-stats]
+            regexp {defrag_frag_cache_hits:(\d+)} $stats1 -> hits1
+            regexp {defrag_frag_cache_skips:(\d+)} $stats1 -> skips1
+            after 500
+            set stats2 [r debug defrag-frag-cache-stats]
+            regexp {defrag_frag_cache_hits:(\d+)} $stats2 -> hits2
+            regexp {defrag_frag_cache_skips:(\d+)} $stats2 -> skips2
+
+            assert_equal $hits1 $hits2
+            assert_equal $skips1 $skips2
+        }
+
         test "Active defrag big keys: $type" {
             r flushdb
             r config set hz 100

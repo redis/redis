@@ -1929,6 +1929,8 @@ struct defragFragCache {
     float  frag_pct;        /* defrag-relevant small-bins fragmentation percentage */
     size_t frag_bytes;      /* defrag-relevant small-bins fragmentation in bytes;
                              * 0 is the stale sentinel. */
+    long long hits;         /* Take found a valid cached value (DEBUG only) */
+    long long skips;        /* cache-hit value led to a defrag skip (DEBUG only) */
 };
 
 /*-----------------------------------------------------------------------------

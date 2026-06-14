@@ -445,6 +445,8 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
+"DEFRAG-FRAG-CACHE-STATS",
+"    Return hits/skips counters for the defrag-side fragmentation cache.",
 "HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> [full]",
@@ -990,6 +992,18 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
+    } else if (!strcasecmp(c->argv[1]->ptr,"defrag-frag-cache-stats")) {
+        /* Internal counters for the defrag-side fragmentation cache.
+         * Not exposed via INFO by design — this is a testing/diagnostic
+         * surface only. See struct defragFragCache in server.h. */
+        sds stats = sdsempty();
+        stats = sdscatprintf(stats,
+            "defrag_frag_cache_hits:%lld\r\n"
+            "defrag_frag_cache_skips:%lld\r\n",
+            server.defrag_frag_cache.hits,
+            server.defrag_frag_cache.skips);
+        addReplyVerbatim(c,stats,sdslen(stats),"txt");
+        sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();
