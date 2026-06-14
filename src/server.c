@@ -1517,15 +1517,13 @@ void cronUpdateMemoryStats(void) {
          * Publishing with allocated==0 leaves the cache invalid
          * (sentinel set inside the publish) — defrag should decide on
          * real data or none. */
-        {
-            size_t pub_frag  = server.cron_malloc_stats.allocator_frag_smallbins_bytes;
-            size_t pub_alloc = server.cron_malloc_stats.allocator_allocated;
-            if (pub_alloc > 0 && server.lua_arena != UINT_MAX) {
-                pub_frag  -= server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes;
-                pub_alloc -= server.cron_malloc_stats.lua_allocator_allocated;
-            }
-            defragFragCachePut(pub_frag, pub_alloc);
+        size_t frag  = server.cron_malloc_stats.allocator_frag_smallbins_bytes;
+        size_t alloc = server.cron_malloc_stats.allocator_allocated;
+        if (alloc > 0 && server.lua_arena != UINT_MAX) {
+            frag  -= server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes;
+            alloc -= server.cron_malloc_stats.lua_allocator_allocated;
         }
+        defragFragCachePut(frag, alloc);
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident)
