@@ -89,10 +89,10 @@ char *rdb_type_string[] = {
     "stream-v4",
     "stream-v5",
     "array",
+    "bitmap",
 #ifdef ENABLE_GCRA
     "gcra",
 #endif
-    "bitmap",
 };
 
 /* Show a few stats collected into 'rdbstate' */
