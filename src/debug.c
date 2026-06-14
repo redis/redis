@@ -446,7 +446,7 @@ void debugCommand(client *c) {
 "ASSERT",
 "    Crash by assertion failed.",
 "BITMAP-ENDIAN-CHECK <key>",
-"    Verify the native bitmap RDB payload endianness conversion round-trips.",
+"    Verify the native bitmap serialized payload endianness conversion round-trips.",
 "BITMAP-RAW <key>",
 "    Return the raw byte materialization of a native bitmap key.",
 "CHANGE-REPL-ID",
