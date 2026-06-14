@@ -1907,25 +1907,25 @@ struct malloc_stats {
  * already performs for its own purposes earlier in the same cron tick.
  *
  * Lifecycle (single-threaded by Redis's main-thread invariant):
- *   - Producer: defragCheckCachePublish() — called from
+ *   - Producer: defragFragCachePut() — called from
  *     cronUpdateMemoryStats() after its zmalloc_get_allocator_info() call,
  *     mirroring getAllocatorFragmentation()'s Lua-arena subtraction so the
  *     cached value matches the real measurement exactly.
- *   - Consumer: defragCheckCacheConsume() — called from
+ *   - Consumer: defragFragCacheTake() — called from
  *     computeDefragCycles(); returns 1 on cache hit (populating the out
  *     params with frag_pct/frag_bytes equivalent to what
  *     getAllocatorFragmentation() would have produced), 0 on miss.
  *     ALWAYS invalidates the cache before returning (consume-once
  *     contract) so a subsequent consumer in the same tick window
  *     falls through to a fresh measurement.
- *   - Invalidation: defragCheckCacheInvalidate() — also called near the
+ *   - Invalidation: defragFragCacheInvalidate() — also called near the
  *     end of serverCron() (the tick-boundary invalidation point) and at
  *     startup, to cover the produce-but-no-consume case.
  *
  * Sentinel: frag_bytes == 0 means stale/invalid. In a running server with
  * allocated memory the small-bins fragmentation can never legitimately be
  * exactly zero, so this is unambiguous. */
-struct defragCheckCache {
+struct defragFragCache {
     float  frag_pct;        /* defrag-relevant small-bins fragmentation percentage */
     size_t frag_bytes;      /* defrag-relevant small-bins fragmentation in bytes;
                              * 0 is the stale sentinel. */
@@ -2172,7 +2172,7 @@ struct redisServer {
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
-    struct defragCheckCache defrag_check_cache; /* see struct defragCheckCache. */
+    struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
@@ -3760,9 +3760,9 @@ void exitExecutionUnit(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 void defragWhileBlocked(void);
-void defragCheckCachePublish(size_t frag_bytes, size_t allocated);
-int  defragCheckCacheConsume(float *out_frag_pct, size_t *out_frag_bytes);
-void defragCheckCacheInvalidate(void);
+void defragFragCachePut(size_t frag_bytes, size_t allocated);
+int  defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes);
+void defragFragCacheInvalidate(void);
 unsigned int getLRUClock(void);
 unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);

@@ -1408,7 +1408,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
  *
  * Invalidation has two rules — both required for the cache to be safe:
  *
- *   (1) Consume-once: defragCheckCacheConsume() ALWAYS invalidates the
+ *   (1) Consume-once: defragFragCacheTake() ALWAYS invalidates the
  *       cache before returning, whether it returns hit or miss.  Bounds
  *       staleness: a second consumer arriving before the next publish
  *       sees the stale sentinel and falls through to a real measurement.
@@ -1426,39 +1426,39 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
  *
  * Single-threaded by Redis's main-thread invariant; no synchronization
  * needed. */
-void defragCheckCachePublish(size_t frag_bytes, size_t allocated) {
+void defragFragCachePut(size_t frag_bytes, size_t allocated) {
     /* allocated == 0 (cold start) or frag_bytes == 0 (no fragmentation —
      * shouldn't happen in a running server, but we still treat it as
      * "nothing useful to cache") both reduce to leaving the cache stale. */
     if (allocated == 0 || frag_bytes == 0) {
-        server.defrag_check_cache.frag_bytes = 0;
+        server.defrag_frag_cache.frag_bytes = 0;
         return;
     }
-    server.defrag_check_cache.frag_pct =
+    server.defrag_frag_cache.frag_pct =
         (float)((double)frag_bytes / (double)allocated * 100.0);
     /* frag_bytes is the validity indicator; store it last so any concurrent
      * (impossible today, but documents intent) reader sees a coherent
      * value. */
-    server.defrag_check_cache.frag_bytes = frag_bytes;
+    server.defrag_frag_cache.frag_bytes = frag_bytes;
 }
 
-int defragCheckCacheConsume(float *out_frag_pct, size_t *out_frag_bytes) {
-    size_t bytes = server.defrag_check_cache.frag_bytes;
+int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
+    size_t bytes = server.defrag_frag_cache.frag_bytes;
     /* Consume-once: invalidate immediately so a subsequent consumer
      * (e.g. defragWhileBlocked() firing repeatedly during a long AOF
      * load before the next cronUpdateMemoryStats() publish) cannot
      * reuse the same value and miss a memory-state change.
-     * serverCron() also calls defragCheckCacheInvalidate() at tick
+     * serverCron() also calls defragFragCacheInvalidate() at tick
      * exit to cover the produce-but-no-consume case. */
-    server.defrag_check_cache.frag_bytes = 0;
+    server.defrag_frag_cache.frag_bytes = 0;
     if (bytes == 0) return 0;
-    *out_frag_pct   = server.defrag_check_cache.frag_pct;
+    *out_frag_pct   = server.defrag_frag_cache.frag_pct;
     *out_frag_bytes = bytes;
     return 1;
 }
 
-void defragCheckCacheInvalidate(void) {
-    server.defrag_check_cache.frag_bytes = 0;
+void defragFragCacheInvalidate(void) {
+    server.defrag_frag_cache.frag_bytes = 0;
 }
 
 /* decide if defrag is needed, and at what CPU effort to invest in it */
@@ -1471,7 +1471,7 @@ void computeDefragCycles(void) {
      * check below operates on whichever source provided the values. */
     size_t frag_bytes;
     float frag_pct;
-    if (!defragCheckCacheConsume(&frag_pct, &frag_bytes)) {
+    if (!defragFragCacheTake(&frag_pct, &frag_bytes)) {
         frag_pct = getAllocatorFragmentation(&frag_bytes);
     }
     /* If we're not already running, and below the threshold, exit. */
@@ -2098,16 +2098,16 @@ robj *activeDefragStringOb(robj *ob) {
 void defragWhileBlocked(void) {
 }
 
-void defragCheckCachePublish(size_t frag_bytes, size_t allocated) {
+void defragFragCachePut(size_t frag_bytes, size_t allocated) {
     UNUSED(frag_bytes); UNUSED(allocated);
 }
 
-int defragCheckCacheConsume(float *out_frag_pct, size_t *out_frag_bytes) {
+int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
     UNUSED(out_frag_pct); UNUSED(out_frag_bytes);
     return 0;
 }
 
-void defragCheckCacheInvalidate(void) {
+void defragFragCacheInvalidate(void) {
 }
 
 #endif
