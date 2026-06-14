@@ -117,8 +117,33 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             if (success) maybeConvertIntset(set);
             return success;
         }
+    }
 
-        else if (set->encoding == OBJ_ENCODING_LISTPACK) {
+    if (set->encoding == OBJ_ENCODING_HT) {
+        if (!str) {
+            /* Convert int to string. */
+            len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+            str = tmpbuf;
+            str_is_sds = 0;
+        }
+        serverAssert(str);
+        /* Avoid duping the string if it is an sds string. */
+        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
+        dict *ht = set->ptr;
+        dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
+        if (link == NULL) {
+            /* Key doesn't already exist in the set. Add it but dup the key. */
+            if (sdsval == str) sdsval = sdsdup(sdsval);
+            dictSetKeyAtLink(ht, sdsval, &bucket, 1);
+            *htGetMetadataSize(ht) += sdsAllocSize(sdsval);
+            return 1;
+        } else if (sdsval != str) {
+            /* String is already a member. Free our temporary sds copy. */
+            sdsfree(sdsval);
+            return 0;
+        }
+    } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        if(!str) {
             /* Check if the integer is already in the listpack.
              * If not, add it to the listpack,
              * else return 0. */
@@ -138,36 +163,20 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             {
                 lp = lpAppendInteger(lp, llval);
                 set->ptr = lp;
-                return 1;
             } else {
                 /* Size limit is reached. Convert to hashtable. */
                 setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
+                /* Convert int to string. */
+                len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+                str = tmpbuf;
+                str_is_sds = 0;
+                sds newval = sdsnewlen(str,len);
+                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
+                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
             }
-        }
-        /* Convert int to string. */
-        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
-        str = tmpbuf;
-        str_is_sds = 0;
-    }
-
-    serverAssert(str);
-    if (set->encoding == OBJ_ENCODING_HT) {
-        /* Avoid duping the string if it is an sds string. */
-        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
-        dict *ht = set->ptr;
-        dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
-        if (link == NULL) {
-            /* Key doesn't already exist in the set. Add it but dup the key. */
-            if (sdsval == str) sdsval = sdsdup(sdsval);
-            dictSetKeyAtLink(ht, sdsval, &bucket, 1);
-            *htGetMetadataSize(ht) += sdsAllocSize(sdsval);
             return 1;
-        } else if (sdsval != str) {
-            /* String is already a member. Free our temporary sds copy. */
-            sdsfree(sdsval);
-            return 0;
         }
-    } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
+        serverAssert(str);
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
         if (p != NULL)
