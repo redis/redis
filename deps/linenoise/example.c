@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
         /* Do something with the string. */
         if (line[0] != '\0' && line[0] != '/') {
             printf("echo: '%s'\n", line);
-            linenoiseHistoryAdd(line); /* Add to the history. */
+            linenoiseHistoryAdd(line, 0); /* Add to the history. */
             linenoiseHistorySave("history.txt"); /* Save the history on disk. */
         } else if (!strncmp(line,"/historylen",11)) {
             /* The "/historylen" command will change the history len. */
