@@ -1919,7 +1919,7 @@ struct malloc_stats {
 struct defragFragCache {
     float  frag_pct;            /* defrag-relevant small-bins fragmentation percentage */
     size_t frag_bytes;          /* defrag-relevant small-bins fragmentation in bytes */
-    int    publish_cronloops;   /* server.cronloops at publish; -1 = never published */
+    int    cronloops;           /* server.cronloops at publish; -1 = never published */
     long long hits;             /* Take found a valid cached value (DEBUG only) */
     long long skips;            /* cache-hit value led to a defrag skip (DEBUG only) */
 };

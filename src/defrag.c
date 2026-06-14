@@ -1401,7 +1401,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
  * Fix: cronUpdateMemoryStats() publishes the (Lua-arena-subtracted) values
  * it just measured into a small tick-local cache, alongside the current
  * server.cronloops value as a freshness stamp. computeDefragCycles() takes
- * from the cache at its top — on hit (publish_cronloops == server.cronloops)
+ * from the cache at its top — on hit (cronloops == server.cronloops)
  * it uses the cached values for its single threshold check, on miss it
  * falls back to a fresh getAllocatorFragmentation() call. Either way the
  * threshold check (further down, unchanged) runs once on (frag_pct,
@@ -1410,7 +1410,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
  * Freshness/invalidation: server.cronloops advances at the top of both
  * serverCron() and whileBlockedCron(), so any value published in a
  * previous tick is automatically stale on the next tick's Take — no
- * explicit invalidate call needed. Cold start (publish_cronloops == -1
+ * explicit invalidate call needed. Cold start (cronloops == -1
  * from initServerConfig) likewise reports miss until the first publish.
  *
  * Single-threaded by Redis's main-thread invariant; no synchronization
@@ -1420,11 +1420,11 @@ void defragFragCachePut(size_t frag_bytes, size_t allocated) {
     server.defrag_frag_cache.frag_pct =
         (float)((double)frag_bytes / (double)allocated * 100.0);
     server.defrag_frag_cache.frag_bytes = frag_bytes;
-    server.defrag_frag_cache.publish_cronloops = server.cronloops;
+    server.defrag_frag_cache.cronloops = server.cronloops;
 }
 
 int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
-    if (server.defrag_frag_cache.publish_cronloops != server.cronloops)
+    if (server.defrag_frag_cache.cronloops != server.cronloops)
         return 0;
     server.defrag_frag_cache.hits++;
     *out_frag_pct   = server.defrag_frag_cache.frag_pct;
