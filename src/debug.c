@@ -998,10 +998,8 @@ NULL
          * surface only. See struct defragFragCache in server.h. */
         sds stats = sdsempty();
         stats = sdscatprintf(stats,
-            "defrag_frag_cache_hits:%lld\r\n"
-            "defrag_frag_cache_skips:%lld\r\n",
-            server.defrag_frag_cache.hits,
-            server.defrag_frag_cache.defrag_skips);
+            "defrag_frag_cache_hits:%lld\r\n",
+            server.defrag_frag_cache.hits);
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {

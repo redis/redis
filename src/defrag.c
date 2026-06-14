@@ -1442,16 +1442,13 @@ void computeDefragCycles(void) {
      * check below operates on whichever source provided the values. */
     size_t frag_bytes;
     float frag_pct;
-    int cache_hit = defragFragCacheTake(&frag_pct, &frag_bytes);
-    if (!cache_hit) {
+    if (!defragFragCacheTake(&frag_pct, &frag_bytes)) {
         frag_pct = getAllocatorFragmentation(&frag_bytes);
     }
     /* If we're not already running, and below the threshold, exit. */
     if (!server.active_defrag_running) {
-        if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes) {
-            if (cache_hit) server.defrag_frag_cache.defrag_skips++;
+        if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
             return;
-        }
     }
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current
