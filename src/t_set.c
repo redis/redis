@@ -132,16 +132,13 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             if (success) maybeConvertIntset(set);
             return success;
         }
+        /* Convert int to string. */
+        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+        str = tmpbuf;
+        str_is_sds = 0;
     }
-
+    serverAssert(str);
     if (set->encoding == OBJ_ENCODING_HT) {
-        if (!str) {
-            /* Convert int to string. */
-            len = ll2string(tmpbuf, sizeof tmpbuf, llval);
-            str = tmpbuf;
-            str_is_sds = 0;
-        }
-        serverAssert(str);
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
@@ -158,51 +155,26 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             return 0;
         }
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
-        if(!str) {
-            /* Check if the integer is already in the listpack.
-             * If not, add it to the listpack,
-             * else return 0. */
-            unsigned char *lp = set->ptr;
-            unsigned char *p = NULL;
-            p = lpFindInteger(lp, p, llval, 0);
-            if (p != NULL) {
-                /* Already a member. */
-                return 0;
-            }
-            size_t encgrow = lpEntrySizeInteger((long long)llval);
-            uint32_t declen = sdigits10(llval);
-            /* Not found */
-            if (lpLength(lp) < server.set_max_listpack_entries &&
-                declen <= server.set_max_listpack_value &&
-                lpSafeToAdd(lp, encgrow)) 
-            {
-                lp = lpAppendInteger(lp, llval);
-                set->ptr = lp;
-            } else {
-                /* Size limit is reached. Convert to hashtable. */
-                setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
-                /* Convert int to string. */
-                len = ll2string(tmpbuf, sizeof tmpbuf, llval);
-                str = tmpbuf;
-                str_is_sds = 0;
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
-            }
-            return 1;
-        }
-        serverAssert(str);
         unsigned char *lp = set->ptr;
-        unsigned char *p = lpFirst(lp);
-        if (p != NULL)
+        unsigned char *p = NULL;
+        if(str == tmpbuf) {
+            /* This came in as integer */
+            p = lpFindInteger(lp, p, llval, 0);
+        } else {
             p = lpFind(lp, p, (unsigned char*)str, len, 0);
+        }
         if (p == NULL) {
             /* Not found.  */
             if (lpLength(lp) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 lpSafeToAdd(lp, len))
             {
-                lp = lpAppend(lp, (unsigned char*)str, len);
+                if (str == tmpbuf) {
+                    /* This came in as integer */
+                    lp = lpAppendInteger(lp, llval);
+                } else {
+                    lp = lpAppend(lp, (unsigned char*)str, len);
+                }
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
