@@ -81,11 +81,9 @@
 #define RDB_TYPE_STREAM_LISTPACKS_4 26        /* Stream with IDMP support */
 #define RDB_TYPE_STREAM_LISTPACKS_5 27        /* Stream with XNACK support (NACKed entries) */
 #define RDB_TYPE_ARRAY 28                     /* Array data type */
-#ifdef ENABLE_GCRA
-#define RDB_TYPE_GCRA 29                      /* GCRA object */
-#define RDB_TYPE_BITMAP 30                    /* Bitmap object */
-#else
 #define RDB_TYPE_BITMAP 29                    /* Bitmap object */
+#ifdef ENABLE_GCRA
+#define RDB_TYPE_GCRA 30                      /* GCRA object */
 #endif
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
