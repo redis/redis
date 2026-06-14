@@ -6518,8 +6518,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "maxmemory_policy:%s\r\n", evict_policy,
             "allocator_frag_ratio:%.2f\r\n", mh->allocator_frag,
             "allocator_frag_bytes:%zu\r\n", mh->allocator_frag_bytes,
-            "defrag_check_cache_hits:%lld\r\n", server.defrag_check_cache.hits,
-            "defrag_check_cache_skips:%lld\r\n", server.defrag_check_cache.skips,
             "allocator_rss_ratio:%.2f\r\n", mh->allocator_rss,
             "allocator_rss_bytes:%zd\r\n", mh->allocator_rss_bytes,
             "rss_overhead_ratio:%.2f\r\n", mh->rss_extra,

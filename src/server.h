@@ -1911,27 +1911,24 @@ struct malloc_stats {
  *     cronUpdateMemoryStats() after its zmalloc_get_allocator_info() call,
  *     mirroring getAllocatorFragmentation()'s Lua-arena subtraction so the
  *     cached value matches the real measurement exactly.
- *   - Consumer: defragCheckCacheConsume() — called from computeDefragCycles();
- *     returns 1 on cache hit, 0 on miss. Does NOT invalidate; the value
- *     remains valid for the rest of the current cron tick so any
- *     additional in-cron consumer can also benefit.
- *   - Invalidation: defragCheckCacheInvalidate() — called near the end of
- *     serverCron() (the tick-boundary invalidation point) and at startup.
- *     Out-of-cron callers (defrag time-event recursion via endDefragCycle,
- *     or defragWhileBlocked) see a stale (-1) value and fall through to
- *     the original expensive measurement — safe by construction.
+ *   - Consumer: defragCheckCacheConsume() — called from
+ *     computeDefragCycles(); returns 1 on cache hit (populating the out
+ *     params with frag_pct/frag_bytes equivalent to what
+ *     getAllocatorFragmentation() would have produced), 0 on miss.
+ *     ALWAYS invalidates the cache before returning (consume-once
+ *     contract) so a subsequent consumer in the same tick window
+ *     falls through to a fresh measurement.
+ *   - Invalidation: defragCheckCacheInvalidate() — also called near the
+ *     end of serverCron() (the tick-boundary invalidation point) and at
+ *     startup, to cover the produce-but-no-consume case.
  *
- * Sentinel: frag_pct_x100 < 0 means stale/invalid. */
+ * Sentinel: frag_bytes == 0 means stale/invalid. In a running server with
+ * allocated memory the small-bins fragmentation can never legitimately be
+ * exactly zero, so this is unambiguous. */
 struct defragCheckCache {
-    int64_t frag_pct_x100;  /* frag_pct expressed as percentage * 100; -1 = stale */
-    size_t  frag_bytes;     /* defrag-relevant small-bins fragmentation in bytes */
-    /* Observability counters. INFO MEMORY exposes them as
-     *   defrag_check_cache_hits  : consumer found a valid value
-     *   defrag_check_cache_skips : valid value was below threshold, so
-     *                              computeDefragCycles() returned early
-     *                              (no expensive getAllocatorFragmentation() call) */
-    long long hits;
-    long long skips;
+    float  frag_pct;        /* defrag-relevant small-bins fragmentation percentage */
+    size_t frag_bytes;      /* defrag-relevant small-bins fragmentation in bytes;
+                             * 0 is the stale sentinel. */
 };
 
 /*-----------------------------------------------------------------------------
@@ -3764,7 +3761,7 @@ void resetServerStats(void);
 void activeDefragCycle(void);
 void defragWhileBlocked(void);
 void defragCheckCachePublish(size_t frag_bytes, size_t allocated);
-int  defragCheckCacheConsume(int64_t *out_frag_pct_x100, size_t *out_frag_bytes);
+int  defragCheckCacheConsume(float *out_frag_pct, size_t *out_frag_bytes);
 void defragCheckCacheInvalidate(void);
 unsigned int getLRUClock(void);
 unsigned int LRU_CLOCK(void);

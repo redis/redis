@@ -1395,114 +1395,85 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
  *   1. by cronUpdateMemoryStats() to refresh INFO MEMORY allocator_* fields
  *   2. by computeDefragCycles() (immediately after, same tick) to decide
  *      whether to engage active defrag
- * The decision in (2) is almost always "no engagement" on real workloads,
- * so the second call's result is computed and then discarded.
+ * Both calls compute the same numbers; the second one's result is
+ * almost always discarded by the threshold check below.
  *
  * Fix: cronUpdateMemoryStats() publishes the (Lua-arena-subtracted) values
- * it just measured into the cache.  computeDefragCycles() reads from the
- * cache at its top; on hit, it makes the threshold decision on the cached
- * value and returns early; on miss (cache stale or near threshold), it
- * falls through to the original expensive call unchanged.
+ * it just measured into a small tick-local cache.  computeDefragCycles()
+ * takes from the cache at its top — on hit it uses the cached values for
+ * its single threshold check, on miss it falls back to a fresh
+ * getAllocatorFragmentation() call.  Either way the threshold check
+ * (further down, unchanged) runs once on (frag_pct, frag_bytes) regardless
+ * of source.
  *
  * Invalidation has two rules — both required for the cache to be safe:
  *
- *   (1) Consume-once: defragCheckCacheConsume() ALWAYS sets the cache
- *       to the stale sentinel (-1) before returning, whether it returns
- *       a hit or a miss.  This bounds staleness: any second consumer
- *       arriving before the next publish sees -1 and falls through to
- *       a real measurement.  Critical for the defragWhileBlocked() path
- *       during long AOF/RDB loads, where the function can fire many
- *       times per cronUpdateMemoryStats() publish window.
+ *   (1) Consume-once: defragCheckCacheConsume() ALWAYS invalidates the
+ *       cache before returning, whether it returns hit or miss.  Bounds
+ *       staleness: a second consumer arriving before the next publish
+ *       sees the stale sentinel and falls through to a real measurement.
+ *       Critical for the defragWhileBlocked() path during long AOF/RDB
+ *       loads, where the function can fire many times per
+ *       cronUpdateMemoryStats() publish window.
  *
- *   (2) Cron-exit invalidate: serverCron() (and any future periodic-cron
- *       function that calls Publish) invalidates near its exit to cover
- *       the produce-but-no-consume case — defrag disabled by config,
- *       or active_defrag_running > 0 so the pre-check is bypassed.
- *       Without this, a value published this tick could leak past the
- *       tick boundary into a defrag time-event running between cron
+ *   (2) Cron-exit invalidate: serverCron() invalidates near its exit to
+ *       cover the produce-but-no-consume case — e.g. defrag disabled by
+ *       config, or active_defrag_running > 0 so the engagement-side
+ *       branches act on freshly-published values directly.  Without
+ *       this, a value published this tick could leak past the tick
+ *       boundary into a defrag time-event running between cron
  *       iterations.
  *
  * Single-threaded by Redis's main-thread invariant; no synchronization
  * needed. */
 void defragCheckCachePublish(size_t frag_bytes, size_t allocated) {
-    if (allocated == 0) {
-        /* Allocator hasn't reported usable numbers yet (cold start). */
-        server.defrag_check_cache.frag_pct_x100 = -1;
+    /* allocated == 0 (cold start) or frag_bytes == 0 (no fragmentation —
+     * shouldn't happen in a running server, but we still treat it as
+     * "nothing useful to cache") both reduce to leaving the cache stale. */
+    if (allocated == 0 || frag_bytes == 0) {
+        server.defrag_check_cache.frag_bytes = 0;
         return;
     }
-    /* Write frag_bytes first; only set the validity field (frag_pct_x100)
-     * last.  Same-thread context means this isn't a memory-ordering
-     * concern in practice, but it documents the intended invariant. */
+    server.defrag_check_cache.frag_pct =
+        (float)((double)frag_bytes / (double)allocated * 100.0);
+    /* frag_bytes is the validity indicator; store it last so any concurrent
+     * (impossible today, but documents intent) reader sees a coherent
+     * value. */
     server.defrag_check_cache.frag_bytes = frag_bytes;
-    server.defrag_check_cache.frag_pct_x100 =
-        (int64_t)((double)frag_bytes / (double)allocated * 10000.0);
 }
 
-int defragCheckCacheConsume(int64_t *out_frag_pct_x100, size_t *out_frag_bytes) {
-    int64_t pct_x100 = server.defrag_check_cache.frag_pct_x100;
+int defragCheckCacheConsume(float *out_frag_pct, size_t *out_frag_bytes) {
+    size_t bytes = server.defrag_check_cache.frag_bytes;
     /* Consume-once: invalidate immediately so a subsequent consumer
      * (e.g. defragWhileBlocked() firing repeatedly during a long AOF
-     * load before the next cronUpdateMemoryStats() publish, or any
-     * future in-tick reader) cannot reuse the same value and miss a
-     * memory-state change.  serverCron() also calls
-     * defragCheckCacheInvalidate() at tick exit to cover the
-     * produce-but-no-consume case (e.g. defrag disabled by config or
-     * active_defrag_running > 0 so the pre-check is bypassed). */
-    server.defrag_check_cache.frag_pct_x100 = -1;
-    if (pct_x100 < 0) return 0;
-    *out_frag_pct_x100 = pct_x100;
-    *out_frag_bytes    = server.defrag_check_cache.frag_bytes;
-    server.defrag_check_cache.hits++;
+     * load before the next cronUpdateMemoryStats() publish) cannot
+     * reuse the same value and miss a memory-state change.
+     * serverCron() also calls defragCheckCacheInvalidate() at tick
+     * exit to cover the produce-but-no-consume case. */
+    server.defrag_check_cache.frag_bytes = 0;
+    if (bytes == 0) return 0;
+    *out_frag_pct   = server.defrag_check_cache.frag_pct;
+    *out_frag_bytes = bytes;
     return 1;
 }
 
 void defragCheckCacheInvalidate(void) {
-    server.defrag_check_cache.frag_pct_x100 = -1;
     server.defrag_check_cache.frag_bytes = 0;
-    /* hits/skips are cumulative — do not reset on invalidate. */
 }
 
 /* decide if defrag is needed, and at what CPU effort to invest in it */
 void computeDefragCycles(void) {
-    /* Fast path: if defrag is not already running, try to make the
-     * threshold decision using the cached value the producer published
-     * earlier this cron tick.  This skips the expensive
-     * getAllocatorFragmentation() call entirely on most ticks.
-     *
-     * The cached value is microseconds-fresh on the normal cron path
-     * (cronUpdateMemoryStats() and computeDefragCycles() run on the
-     * same main-thread tick with no preemption between them), so the
-     * check mirrors the original post-call threshold check exactly,
-     * with no safety margin.  Consume invalidates the cache
-     * immediately, so a second consumer arriving before the next
-     * publish falls through to a real measurement — this bounds
-     * staleness on the defragWhileBlocked() / endDefragCycle paths.
-     * Out-of-cron staleness is
-     * eliminated by serverCron()'s tick-exit invalidation: those
-     * callers always observe a stale cache and fall through. */
-    if (!server.active_defrag_running) {
-        int64_t cached_pct_x100;
-        size_t  cached_frag_bytes;
-        if (defragCheckCacheConsume(&cached_pct_x100, &cached_frag_bytes)) {
-            int threshold_x100 = server.active_defrag_threshold_lower * 100;
-            if (cached_pct_x100   < threshold_x100 ||
-                cached_frag_bytes < server.active_defrag_ignore_bytes) {
-                /* Cached value is below threshold (or bytes-floor) — skip
-                 * the expensive getAllocatorFragmentation() entirely.
-                 * This is the common case on workloads where defrag
-                 * doesn't engage. */
-                server.defrag_check_cache.skips++;
-                return;
-            }
-            /* Cached value is at or above threshold; fall through to
-             * fresh measurement so the engagement decision is on real
-             * data. */
-        }
-        /* Cache miss: fall through to the expensive call. */
-    }
-
+    /* Try the tick-local cache first.  On hit, (frag_pct, frag_bytes)
+     * are populated from the value the producer published earlier this
+     * cron tick — saving a redundant getAllocatorFragmentation() call.
+     * On miss (cache stale, cold start, or invalidated by a previous
+     * consume), fall back to a fresh measurement.  The single threshold
+     * check below operates on whichever source provided the values. */
     size_t frag_bytes;
-    float frag_pct = getAllocatorFragmentation(&frag_bytes);
+    float frag_pct;
+    if (!defragCheckCacheConsume(&frag_pct, &frag_bytes)) {
+        frag_pct = getAllocatorFragmentation(&frag_bytes);
+    }
     /* If we're not already running, and below the threshold, exit. */
     if (!server.active_defrag_running) {
         if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
@@ -2131,8 +2102,8 @@ void defragCheckCachePublish(size_t frag_bytes, size_t allocated) {
     UNUSED(frag_bytes); UNUSED(allocated);
 }
 
-int defragCheckCacheConsume(int64_t *out_frag_pct_x100, size_t *out_frag_bytes) {
-    UNUSED(out_frag_pct_x100); UNUSED(out_frag_bytes);
+int defragCheckCacheConsume(float *out_frag_pct, size_t *out_frag_bytes) {
+    UNUSED(out_frag_pct); UNUSED(out_frag_bytes);
     return 0;
 }
 
