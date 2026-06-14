@@ -1913,6 +1913,9 @@ void whileBlockedCron(void) {
         atomicSet(server.shutdown_asap, 0);
         atomicSet(server.last_sig_received, 0);
     }
+
+    /* Tick-exit invalidation, mirroring serverCron(). */
+    defragFragCacheInvalidate();
 }
 
 static void sendGetackToReplicas(void) {
