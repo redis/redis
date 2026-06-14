@@ -9402,6 +9402,33 @@ struct COMMAND_ARG SUNION_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** SUNIONCARD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SUNIONCARD history */
+#define SUNIONCARD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SUNIONCARD tips */
+#define SUNIONCARD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SUNIONCARD key specs */
+keySpec SUNIONCARD_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
+};
+#endif
+
+/* SUNIONCARD argument table */
+struct COMMAND_ARG SUNIONCARD_Args[] = {
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("approx",ARG_TYPE_PURE_TOKEN,-1,"APPROX",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /********** SUNIONSTORE ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -12558,6 +12585,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("srem","Removes one or more members from a set. Deletes the set if the last member was removed.","O(N) where N is the number of members to be removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SREM_History,1,SREM_Tips,0,sremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SREM_Keyspecs,1,NULL,2),.args=SREM_Args},
 {MAKE_CMD("sscan","Iterates over members of a set.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SSCAN_History,0,SSCAN_Tips,1,sscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SSCAN_Keyspecs,1,NULL,4),.args=SSCAN_Args},
 {MAKE_CMD("sunion","Returns the union of multiple sets.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNION_History,0,SUNION_Tips,1,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SUNION_Keyspecs,1,NULL,1),.args=SUNION_Args},
+{MAKE_CMD("sunioncard","Returns the number of members of the union of multiple sets.","O(N) where N is the total number of elements in all given sets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNIONCARD_History,0,SUNIONCARD_Tips,0,sunioncardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SUNIONCARD_Keyspecs,1,sunioncardGetKeys,4),.args=SUNIONCARD_Args},
 {MAKE_CMD("sunionstore","Stores the union of multiple sets in a key.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNIONSTORE_History,0,SUNIONSTORE_Tips,0,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SUNIONSTORE_Keyspecs,2,NULL,2),.args=SUNIONSTORE_Args},
 /* sorted_set */
 {MAKE_CMD("bzmpop","Removes and returns a member by score from one or more sorted sets. Blocks until a member is available otherwise. Deletes the sorted set if the last element was popped.","O(K) + O(M*log(N)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,"sorted_set",COMMAND_GROUP_SORTED_SET,BZMPOP_History,0,BZMPOP_Tips,0,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,BZMPOP_Keyspecs,1,blmpopGetKeys,5),.args=BZMPOP_Args},
