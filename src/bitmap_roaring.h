@@ -3,11 +3,10 @@
 
 #include "sds.h"
 #include "object.h"
+#include "rio.h"
 
 #include <stdint.h>
 #include <sys/types.h>
-
-typedef struct _rio rio;
 
 /* Native bitmaps support 64-bit indexing. The logical byte length must stay
  * representable as a non-negative signed 64-bit bit count (range arithmetic
