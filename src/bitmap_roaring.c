@@ -491,10 +491,11 @@ size_t bitmapObjectContainerCount(const robj *o) {
 static uint16_t bitmapRdbRead16(const char *p, int from_little_endian) {
     uint16_t v;
     memcpy(&v, p, sizeof(v));
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-    return from_little_endian ? v : intrev16(v);
-#else
+#if (BYTE_ORDER == BIG_ENDIAN)
     return from_little_endian ? intrev16(v) : v;
+#else
+    UNUSED(from_little_endian);
+    return v;
 #endif
 }
 
