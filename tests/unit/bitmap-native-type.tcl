@@ -583,7 +583,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:persist:64 bitmap:restored:64
     }
 
-    test {native bitmap RDB payload endianness conversion round-trips} {
+    test {native bitmap serialized payload endianness conversion round-trips} {
         # Build one bitmap holding all three container kinds so the converter
         # walks every payload section. Each 65536-bit chunk is 8192 bytes:
         # chunk 0: 4800 consecutive set bits -> run container

@@ -5,6 +5,9 @@
 #include "object.h"
 
 #include <stdint.h>
+#include <sys/types.h>
+
+typedef struct _rio rio;
 
 /* Native bitmaps support 64-bit indexing. The logical byte length must stay
  * representable as a non-negative signed 64-bit bit count (range arithmetic
@@ -19,6 +22,8 @@ void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
 robj *createBitmapObjectFromPortable(uint64_t byte_len, const char *buf, size_t len, int deep_validate);
+ssize_t bitmapObjectSaveRdb(rio *rdb, const robj *o);
+robj *createBitmapObjectFromRdb(rio *rdb, int deep_validate);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
 void dismissBitmapObject(robj *o, size_t size_hint);
