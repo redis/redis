@@ -1844,13 +1844,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     server.el_cron_duration = getMonotonicUs() - cron_start;
 
-    /* End-of-tick invalidation for the defrag-side fragmentation cache.
-     * The cache is valid only within the current cron tick — out-of-cron
-     * callers (defragWhileBlocked during long Lua/RDB load, or
-     * endDefragCycle's recursive activeDefragCycle from a defrag time
-     * event) see -1 and fall through to a fresh measurement. */
-    defragFragCacheInvalidate();
-
     return 1000/server.hz;
 }
 
@@ -1913,9 +1906,6 @@ void whileBlockedCron(void) {
         atomicSet(server.shutdown_asap, 0);
         atomicSet(server.last_sig_received, 0);
     }
-
-    /* Tick-exit invalidation, mirroring serverCron(). */
-    defragFragCacheInvalidate();
 }
 
 static void sendGetackToReplicas(void) {
@@ -2400,10 +2390,11 @@ void initServerConfig(void) {
                                       updated later after loading the config.
                                       This value may be used before the server
                                       is initialized. */
-    defragFragCacheInvalidate();  /* Mark defrag-side fragmentation cache as
-                                      stale so the first computeDefragCycles()
-                                      call falls through to a real measurement
-                                      until cronUpdateMemoryStats() publishes. */
+    /* Mark defrag-side fragmentation cache as stale so the first
+     * computeDefragCycles() call falls through to a real measurement
+     * until cronUpdateMemoryStats() publishes. -1 is unreachable by
+     * server.cronloops (which starts at 0 and only advances). */
+    server.defrag_frag_cache.publish_cronloops = -1;
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;

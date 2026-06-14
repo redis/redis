@@ -1907,30 +1907,21 @@ struct malloc_stats {
  * already performs for its own purposes earlier in the same cron tick.
  *
  * Lifecycle (single-threaded by Redis's main-thread invariant):
- *   - Producer: defragFragCachePut() — called from
- *     cronUpdateMemoryStats() after its zmalloc_get_allocator_info() call,
- *     mirroring getAllocatorFragmentation()'s Lua-arena subtraction so the
- *     cached value matches the real measurement exactly.
- *   - Consumer: defragFragCacheTake() — called from
- *     computeDefragCycles(); returns 1 on cache hit (populating the out
- *     params with frag_pct/frag_bytes equivalent to what
- *     getAllocatorFragmentation() would have produced), 0 on miss.
- *     ALWAYS invalidates the cache before returning (consume-once
- *     contract) so a subsequent consumer in the same tick window
- *     falls through to a fresh measurement.
- *   - Invalidation: defragFragCacheInvalidate() — also called near the
- *     end of serverCron() (the tick-boundary invalidation point) and at
- *     startup, to cover the produce-but-no-consume case.
- *
- * Sentinel: frag_bytes == 0 means stale/invalid. In a running server with
- * allocated memory the small-bins fragmentation can never legitimately be
- * exactly zero, so this is unambiguous. */
+ *   - Producer: defragFragCachePut() — called from cronUpdateMemoryStats()
+ *     after its zmalloc_get_allocator_info() call. Records server.cronloops
+ *     at publish time alongside the (Lua-subtracted) values.
+ *   - Consumer: defragFragCacheTake() — called from computeDefragCycles().
+ *     Returns 1 only when the recorded cronloops matches server.cronloops
+ *     (same tick); returns 0 otherwise. No explicit invalidation needed —
+ *     both serverCron() and whileBlockedCron() advance server.cronloops at
+ *     entry, so any value published in a previous tick is automatically
+ *     stale on the next entry. */
 struct defragFragCache {
-    float  frag_pct;        /* defrag-relevant small-bins fragmentation percentage */
-    size_t frag_bytes;      /* defrag-relevant small-bins fragmentation in bytes;
-                             * 0 is the stale sentinel. */
-    long long hits;         /* Take found a valid cached value (DEBUG only) */
-    long long skips;        /* cache-hit value led to a defrag skip (DEBUG only) */
+    float  frag_pct;            /* defrag-relevant small-bins fragmentation percentage */
+    size_t frag_bytes;          /* defrag-relevant small-bins fragmentation in bytes */
+    int    publish_cronloops;   /* server.cronloops at publish; -1 = never published */
+    long long hits;             /* Take found a valid cached value (DEBUG only) */
+    long long skips;            /* cache-hit value led to a defrag skip (DEBUG only) */
 };
 
 /*-----------------------------------------------------------------------------
@@ -3764,7 +3755,6 @@ void activeDefragCycle(void);
 void defragWhileBlocked(void);
 void defragFragCachePut(size_t frag_bytes, size_t allocated);
 int  defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes);
-void defragFragCacheInvalidate(void);
 unsigned int getLRUClock(void);
 unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);
