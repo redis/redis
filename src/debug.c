@@ -1001,7 +1001,7 @@ NULL
             "defrag_frag_cache_hits:%lld\r\n"
             "defrag_frag_cache_skips:%lld\r\n",
             server.defrag_frag_cache.hits,
-            server.defrag_frag_cache.skips);
+            server.defrag_frag_cache.defrag_skips);
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {

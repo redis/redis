@@ -1449,7 +1449,7 @@ void computeDefragCycles(void) {
     /* If we're not already running, and below the threshold, exit. */
     if (!server.active_defrag_running) {
         if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes) {
-            if (cache_hit) server.defrag_frag_cache.skips++;
+            if (cache_hit) server.defrag_frag_cache.defrag_skips++;
             return;
         }
     }

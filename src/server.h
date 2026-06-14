@@ -1921,7 +1921,7 @@ struct defragFragCache {
     size_t frag_bytes;          /* defrag-relevant small-bins fragmentation in bytes */
     int    cronloops;           /* server.cronloops at publish; -1 = never published */
     long long hits;             /* Take found a valid cached value (DEBUG only) */
-    long long skips;            /* cache-hit value led to a defrag skip (DEBUG only) */
+    long long defrag_skips;     /* cache-hit value led to skipping defrag (DEBUG only) */
 };
 
 /*-----------------------------------------------------------------------------
