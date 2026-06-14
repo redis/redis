@@ -634,27 +634,82 @@ static container_t *bitmapContainerFromRdbPayload(uint8_t typecode,
     return container;
 }
 
-static int bitmapRoaringReserveContainers(roaring64_bitmap_t *r,
-                                          uint64_t count)
+static int bitmapRoaringResizeContainerArray(roaring64_bitmap_t *r,
+                                             uint64_t capacity)
 {
-    if (count == 0) return C_OK;
-    if (count > SIZE_MAX / sizeof(container_t *)) return C_ERR;
+    if (capacity == 0) {
+        bitmapRoaringFree(r->containers);
+        r->containers = NULL;
+        r->capacity = 0;
+        return C_OK;
+    }
 
-    r->containers = roaring_calloc((size_t)count, sizeof(container_t *));
-    if (r->containers == NULL) return C_ERR;
-    r->capacity = count;
-    r->first_free = 0;
+    if (capacity > SIZE_MAX / sizeof(*r->containers)) return C_ERR;
+
+    size_t old_capacity = (size_t)r->capacity;
+    size_t bytes = (size_t)capacity * sizeof(*r->containers);
+    /* ztryrealloc() frees the original pointer on this overflow guard, so
+     * reject it before calling while the bitmap is still internally valid. */
+    if (bytes >= SIZE_MAX / 2) return C_ERR;
+
+    size_t old_size = r->containers && bitmapRoaringAllocSizeTracker ?
+        zmalloc_size(r->containers) : 0;
+    container_t **containers = ztryrealloc(r->containers, bytes);
+    if (containers == NULL) return C_ERR;
+
+    if (capacity > r->capacity) {
+        memset(containers + old_capacity, 0,
+               ((size_t)capacity - old_capacity) * sizeof(*containers));
+    }
+
+    if (bitmapRoaringAllocSizeTracker) {
+        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker,
+                                    old_size, zmalloc_size(containers));
+    }
+    r->containers = containers;
+    r->capacity = capacity;
     return C_OK;
 }
 
-static roaring64_leaf_t bitmapRoaringAppendContainer(roaring64_bitmap_t *r,
-                                                     container_t *container,
-                                                     uint8_t typecode)
+static int bitmapRoaringEnsureContainerCapacity(roaring64_bitmap_t *r,
+                                                uint64_t min_capacity)
 {
-    serverAssert(r->first_free < r->capacity);
+    if (min_capacity <= r->capacity) return C_OK;
+
+    uint64_t capacity = r->capacity == 0 ? 2 : r->capacity;
+    while (capacity < min_capacity) {
+        if (capacity < 1024) {
+            if (capacity > UINT64_MAX / 2) return C_ERR;
+            capacity *= 2;
+        } else {
+            uint64_t increase = capacity / 4;
+            if (increase == 0 || capacity > UINT64_MAX - increase)
+                return C_ERR;
+            capacity += increase;
+        }
+    }
+
+    return bitmapRoaringResizeContainerArray(r, capacity);
+}
+
+static void bitmapRoaringTryShrinkContainerArray(roaring64_bitmap_t *r) {
+    if (r->first_free < r->capacity)
+        (void)bitmapRoaringResizeContainerArray(r, r->first_free);
+}
+
+static int bitmapRoaringAppendContainer(roaring64_bitmap_t *r,
+                                        container_t *container,
+                                        uint8_t typecode,
+                                        roaring64_leaf_t *leaf)
+{
+    if (r->first_free == UINT64_MAX) return C_ERR;
+    if (bitmapRoaringEnsureContainerCapacity(r, r->first_free + 1) != C_OK)
+        return C_ERR;
+
     uint64_t index = r->first_free++;
     r->containers[index] = container;
-    return (index << 8) | typecode;
+    *leaf = (index << 8) | typecode;
+    return C_OK;
 }
 
 ssize_t bitmapObjectSaveRdb(rio *rdb, const robj *o) {
@@ -727,8 +782,6 @@ robj *createBitmapObjectFromRdb(rio *rdb, int deep_validate) {
     size_t *prev = bitmapRoaringPushAllocSizeTracker(&roaring_alloc_size);
     roaring = roaring64_bitmap_create();
     if (roaring == NULL) goto fail;
-    if (bitmapRoaringReserveContainers(roaring, container_count) != C_OK)
-        goto fail;
 
     uint64_t previous_high48 = 0;
     int have_previous_high48 = 0;
@@ -759,8 +812,12 @@ robj *createBitmapObjectFromRdb(rio *rdb, int deep_validate) {
 
         art_key_chunk_t key[ART_KEY_BYTES];
         bitmapArtKeyFromHigh48(high48, key);
-        roaring64_leaf_t leaf =
-            bitmapRoaringAppendContainer(roaring, container, typecode);
+        roaring64_leaf_t leaf;
+        if (bitmapRoaringAppendContainer(roaring, container, typecode,
+                                         &leaf) != C_OK) {
+            container_free(container, typecode);
+            goto fail;
+        }
         art_insert(&roaring->art, key, (art_val_t)leaf);
     }
 
@@ -768,6 +825,7 @@ robj *createBitmapObjectFromRdb(rio *rdb, int deep_validate) {
         uint64_t max = roaring64_bitmap_maximum(roaring);
         if (max >= byte_len * 8) goto fail;
     }
+    bitmapRoaringTryShrinkContainerArray(roaring);
 
     bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = byte_len;
