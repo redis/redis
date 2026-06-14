@@ -157,7 +157,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = NULL;
-        if(str == tmpbuf) {
+        if (str == tmpbuf) {
             /* This came in as integer */
             p = lpFindInteger(lp, p, llval, 0);
         } else {
