@@ -1,6 +1,7 @@
 #include "server.h"
 #include "bitmap_roaring.h"
 #include "endianconv.h"
+#include "rdb.h"
 
 #include <roaring/containers/array.h>
 #include <roaring/containers/bitset.h>
@@ -485,6 +486,362 @@ size_t bitmapObjectContainerCount(const robj *o) {
         art_iterator_next(&it);
     }
     return count;
+}
+
+static uint16_t bitmapRdbRead16(const char *p, int from_little_endian) {
+    uint16_t v;
+    memcpy(&v, p, sizeof(v));
+#if (BYTE_ORDER == BIG_ENDIAN)
+    return from_little_endian ? intrev16(v) : v;
+#else
+    UNUSED(from_little_endian);
+    return v;
+#endif
+}
+
+#define BITMAP_RDB_MAX_HIGH48 UINT64_C(0xffffffffffff)
+#define BITMAP_RDB_MAX_CONTAINER_CARDINALITY (1 << 16)
+#define BITMAP_RDB_CONTAINER_BYTES (1 << 13)
+
+static int bitmapContainerPayloadLenValid(uint8_t typecode, uint64_t cardinality,
+                                          const char *payload, size_t payload_len)
+{
+    if (cardinality == 0 || cardinality > BITMAP_RDB_MAX_CONTAINER_CARDINALITY)
+        return C_ERR;
+
+    switch (typecode) {
+    case ARRAY_CONTAINER_TYPE:
+        return payload_len == cardinality * sizeof(uint16_t) ? C_OK : C_ERR;
+    case BITSET_CONTAINER_TYPE:
+        return payload_len == BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t) ?
+            C_OK : C_ERR;
+    case RUN_CONTAINER_TYPE: {
+        if (payload_len < sizeof(uint16_t)) return C_ERR;
+        uint16_t runs = bitmapRdbRead16(payload, 1);
+        if (runs == 0) return C_ERR;
+        size_t expected = sizeof(uint16_t) + (size_t)runs * sizeof(rle16_t);
+        return payload_len == expected ? C_OK : C_ERR;
+    }
+    default:
+        return C_ERR;
+    }
+}
+
+static int bitmapContainerConvertEndian(char *payload, size_t payload_len,
+                                        uint8_t typecode, int from_little_endian)
+{
+#if (BYTE_ORDER == BIG_ENDIAN)
+    switch (typecode) {
+    case ARRAY_CONTAINER_TYPE:
+        for (size_t i = 0; i < payload_len / sizeof(uint16_t); i++)
+            memrev16(payload + i * sizeof(uint16_t));
+        break;
+    case BITSET_CONTAINER_TYPE:
+        for (size_t i = 0; i < BITSET_CONTAINER_SIZE_IN_WORDS; i++)
+            memrev64(payload + i * sizeof(uint64_t));
+        break;
+    case RUN_CONTAINER_TYPE: {
+        if (payload_len < sizeof(uint16_t)) return C_ERR;
+        uint16_t runs = bitmapRdbRead16(payload, from_little_endian);
+        if (payload_len != sizeof(uint16_t) + (size_t)runs * sizeof(rle16_t))
+            return C_ERR;
+
+        memrev16(payload);
+        for (size_t i = 0; i < (size_t)runs * 2; i++)
+            memrev16(payload + sizeof(uint16_t) + i * sizeof(uint16_t));
+        break;
+    }
+    default:
+        return C_ERR;
+    }
+#else
+    UNUSED(payload);
+    UNUSED(payload_len);
+    UNUSED(typecode);
+    UNUSED(from_little_endian);
+#endif
+    return C_OK;
+}
+
+static container_t *bitmapContainerFromRdbPayload(uint8_t typecode,
+                                                  uint64_t cardinality,
+                                                  char *payload,
+                                                  size_t payload_len,
+                                                  int deep_validate)
+{
+    if (bitmapContainerPayloadLenValid(typecode, cardinality, payload,
+                                       payload_len) != C_OK)
+        return NULL;
+
+    if (bitmapContainerConvertEndian(payload, payload_len, typecode, 1) != C_OK)
+        return NULL;
+
+    container_t *container = NULL;
+    switch (typecode) {
+    case ARRAY_CONTAINER_TYPE: {
+        array_container_t *array =
+            array_container_create_given_capacity((int32_t)cardinality);
+        if (array == NULL) return NULL;
+        if ((size_t)array_container_read((int32_t)cardinality, array,
+                                         payload) != payload_len) {
+            array_container_free(array);
+            return NULL;
+        }
+        container = (container_t *)array;
+        break;
+    }
+    case BITSET_CONTAINER_TYPE: {
+        bitset_container_t *bitset = bitset_container_create();
+        if (bitset == NULL) return NULL;
+        if ((size_t)bitset_container_read((int32_t)cardinality, bitset,
+                                          payload) != payload_len) {
+            bitset_container_free(bitset);
+            return NULL;
+        }
+        container = (container_t *)bitset;
+        break;
+    }
+    case RUN_CONTAINER_TYPE: {
+        uint16_t runs = bitmapRdbRead16(payload, 0);
+        run_container_t *run = run_container_create_given_capacity(runs);
+        if (run == NULL) return NULL;
+        if ((size_t)run_container_read((int32_t)cardinality, run,
+                                       payload) != payload_len) {
+            run_container_free(run);
+            return NULL;
+        }
+        container = (container_t *)run;
+        break;
+    }
+    default:
+        return NULL;
+    }
+
+    int actual_cardinality = container_get_cardinality(container, typecode);
+    if (actual_cardinality < 0 || (uint64_t)actual_cardinality != cardinality) {
+        container_free(container, typecode);
+        return NULL;
+    }
+
+    if (deep_validate) {
+        const char *reason = NULL;
+        if (!container_internal_validate(container, typecode, &reason)) {
+            container_free(container, typecode);
+            return NULL;
+        }
+    }
+
+    return container;
+}
+
+static int bitmapRoaringResizeContainerArray(roaring64_bitmap_t *r,
+                                             uint64_t capacity)
+{
+    if (capacity == 0) {
+        bitmapRoaringFree(r->containers);
+        r->containers = NULL;
+        r->capacity = 0;
+        return C_OK;
+    }
+
+    if (capacity > SIZE_MAX / sizeof(*r->containers)) return C_ERR;
+
+    size_t old_capacity = (size_t)r->capacity;
+    size_t bytes = (size_t)capacity * sizeof(*r->containers);
+    /* ztryrealloc() frees the original pointer on this overflow guard, so
+     * reject it before calling while the bitmap is still internally valid. */
+    if (bytes >= SIZE_MAX / 2) return C_ERR;
+
+    size_t old_size = r->containers && bitmapRoaringAllocSizeTracker ?
+        zmalloc_size(r->containers) : 0;
+    container_t **containers = ztryrealloc(r->containers, bytes);
+    if (containers == NULL) return C_ERR;
+
+    if (capacity > r->capacity) {
+        memset(containers + old_capacity, 0,
+               ((size_t)capacity - old_capacity) * sizeof(*containers));
+    }
+
+    if (bitmapRoaringAllocSizeTracker) {
+        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker,
+                                    old_size, zmalloc_size(containers));
+    }
+    r->containers = containers;
+    r->capacity = capacity;
+    return C_OK;
+}
+
+static int bitmapRoaringEnsureContainerCapacity(roaring64_bitmap_t *r,
+                                                uint64_t min_capacity)
+{
+    if (min_capacity <= r->capacity) return C_OK;
+
+    uint64_t capacity = r->capacity == 0 ? 2 : r->capacity;
+    while (capacity < min_capacity) {
+        if (capacity < 1024) {
+            if (capacity > UINT64_MAX / 2) return C_ERR;
+            capacity *= 2;
+        } else {
+            uint64_t increase = capacity / 4;
+            if (increase == 0 || capacity > UINT64_MAX - increase)
+                return C_ERR;
+            capacity += increase;
+        }
+    }
+
+    return bitmapRoaringResizeContainerArray(r, capacity);
+}
+
+static void bitmapRoaringTryShrinkContainerArray(roaring64_bitmap_t *r) {
+    if (r->first_free < r->capacity)
+        (void)bitmapRoaringResizeContainerArray(r, r->first_free);
+}
+
+static int bitmapRoaringAppendContainer(roaring64_bitmap_t *r,
+                                        container_t *container,
+                                        uint8_t typecode,
+                                        roaring64_leaf_t *leaf)
+{
+    if (r->first_free == UINT64_MAX) return C_ERR;
+    if (bitmapRoaringEnsureContainerCapacity(r, r->first_free + 1) != C_OK)
+        return C_ERR;
+
+    uint64_t index = r->first_free++;
+    r->containers[index] = container;
+    *leaf = (index << 8) | typecode;
+    return C_OK;
+}
+
+ssize_t bitmapObjectSaveRdb(rio *rdb, const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    roaring64_bitmap_t *roaring = bitmap->roaring;
+    ssize_t n, nwritten = 0;
+
+    if ((n = rdbSaveLen(rdb, bitmap->byte_len)) == -1) return -1;
+    nwritten += n;
+
+    if ((n = rdbSaveLen(rdb, bitmapObjectContainerCount(o))) == -1) return -1;
+    nwritten += n;
+
+    art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
+    while (it.value != NULL) {
+        roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
+        uint8_t typecode = roaring64_leaf_typecode(leaf);
+        container_t *container = roaring->containers[roaring64_leaf_index(leaf)];
+        uint64_t high48 = bitmapArtKeyToHigh48(it.key);
+        int cardinality = container_get_cardinality(container, typecode);
+        int32_t payload_len = container_size_in_bytes(container, typecode);
+
+        serverAssert(cardinality > 0);
+        serverAssert(payload_len >= 0);
+
+        if ((n = rdbSaveLen(rdb, high48)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb, typecode)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb, (uint64_t)cardinality)) == -1) return -1;
+        nwritten += n;
+
+        sds payload = sdsnewlen(SDS_NOINIT, (size_t)payload_len);
+        int32_t written = container_write(container, typecode, payload);
+        serverAssert(written == payload_len);
+        if (bitmapContainerConvertEndian(payload, (size_t)payload_len,
+                                         typecode, 0) != C_OK) {
+            sdsfree(payload);
+            return -1;
+        }
+
+        if ((n = rdbSaveRawString(rdb, (unsigned char *)payload,
+                                  (size_t)payload_len)) == -1) {
+            sdsfree(payload);
+            return -1;
+        }
+        nwritten += n;
+        sdsfree(payload);
+
+        art_iterator_next(&it);
+    }
+
+    return nwritten;
+}
+
+robj *createBitmapObjectFromRdb(rio *rdb, int deep_validate) {
+    uint64_t byte_len, container_count;
+    roaring64_bitmap_t *roaring = NULL;
+    sds payload = NULL;
+
+    if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+    if ((container_count = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+
+    uint64_t max_containers = byte_len == 0 ? 0 :
+        ((byte_len - 1) / BITMAP_RDB_CONTAINER_BYTES) + 1;
+    if (container_count > max_containers) return NULL;
+
+    size_t roaring_alloc_size = 0;
+    size_t *prev = bitmapRoaringPushAllocSizeTracker(&roaring_alloc_size);
+    roaring = roaring64_bitmap_create();
+    if (roaring == NULL) goto fail;
+
+    uint64_t previous_high48 = 0;
+    int have_previous_high48 = 0;
+    for (uint64_t i = 0; i < container_count; i++) {
+        uint64_t high48, raw_typecode, cardinality;
+        size_t payload_len;
+
+        if ((high48 = rdbLoadLen(rdb, NULL)) == RDB_LENERR) goto fail;
+        if (high48 > BITMAP_RDB_MAX_HIGH48) goto fail;
+        if (have_previous_high48 && high48 <= previous_high48) goto fail;
+        previous_high48 = high48;
+        have_previous_high48 = 1;
+
+        if ((raw_typecode = rdbLoadLen(rdb, NULL)) == RDB_LENERR) goto fail;
+        if (raw_typecode > UINT8_MAX) goto fail;
+        uint8_t typecode = (uint8_t)raw_typecode;
+
+        if ((cardinality = rdbLoadLen(rdb, NULL)) == RDB_LENERR) goto fail;
+
+        payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
+        if (payload == NULL) goto fail;
+
+        container_t *container = bitmapContainerFromRdbPayload(
+            typecode, cardinality, payload, payload_len, deep_validate);
+        sdsfree(payload);
+        payload = NULL;
+        if (container == NULL) goto fail;
+
+        art_key_chunk_t key[ART_KEY_BYTES];
+        bitmapArtKeyFromHigh48(high48, key);
+        roaring64_leaf_t leaf;
+        if (bitmapRoaringAppendContainer(roaring, container, typecode,
+                                         &leaf) != C_OK) {
+            container_free(container, typecode);
+            goto fail;
+        }
+        art_insert(&roaring->art, key, (art_val_t)leaf);
+    }
+
+    if (roaring64_bitmap_get_cardinality(roaring) != 0) {
+        uint64_t max = roaring64_bitmap_maximum(roaring);
+        if (max >= byte_len * 8) goto fail;
+    }
+    bitmapRoaringTryShrinkContainerArray(roaring);
+
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+    bitmap->byte_len = byte_len;
+    bitmap->alloc_size = zmalloc_size(bitmap) + roaring_alloc_size;
+    bitmap->roaring = roaring;
+    bitmapRoaringPopAllocSizeTracker(prev);
+
+    robj *o = createObject(OBJ_BITMAP, bitmap);
+    o->encoding = OBJ_ENCODING_BITMAP_ROARING;
+    return o;
+
+fail:
+    sdsfree(payload);
+    if (roaring != NULL) roaring64_bitmap_free(roaring);
+    bitmapRoaringPopAllocSizeTracker(prev);
+    return NULL;
 }
 
 static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
