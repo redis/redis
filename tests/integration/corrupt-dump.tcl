@@ -1179,8 +1179,32 @@ test {corrupt payload: bitmap with unsorted array container} {
         r debug set-skip-checksum-validation 1
         r setbit bitmap:type-probe 1 1
         r bitmap convert bitmap:type-probe
-        binary scan [r dump bitmap:type-probe] H2 bitmap_type
+        set bitmap_probe_dump [r dump bitmap:type-probe]
+        binary scan $bitmap_probe_dump H2 bitmap_type
         r del bitmap:type-probe
+
+        proc bitmap_rdb_len {len} {
+            if {$len < 64} {
+                return [binary format c $len]
+            } elseif {$len < 16384} {
+                return [binary format cc [expr {(($len >> 8) & 0x3f) | 0x40}] [expr {$len & 0xff}]]
+            } elseif {$len <= 0xffffffff} {
+                return [binary format cI 0x80 $len]
+            } else {
+                return [binary format cW 0x81 $len]
+            }
+        }
+
+        set huge_byte_len [expr {(1 << 60) - 1}]
+        set huge_container_count [expr {(($huge_byte_len - 1) / 8192) + 1}]
+        set huge_count_payload [binary format H* ${bitmap_type}]
+        append huge_count_payload [bitmap_rdb_len $huge_byte_len]
+        append huge_count_payload [bitmap_rdb_len $huge_container_count]
+        append huge_count_payload [string range $bitmap_probe_dump end-9 end]
+
+        catch { r restore bitmap:huge-count 0 $huge_count_payload } err
+        assert_match "*Bad data format*" $err
+        assert_equal PONG [r ping]
 
         set valid_payload    [binary format H* ${bitmap_type}0201000203060100050009000f006d1435120f203a9e]
         set unsorted_payload [binary format H* ${bitmap_type}0201000203060900050001000f006d1435120f203a9e]
