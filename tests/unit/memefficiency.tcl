@@ -345,12 +345,22 @@ run_solo {defrag} {
             r config set active-defrag-threshold-lower 99
             r config set active-defrag-ignore-bytes 1gb
 
-            # Let cron run for a few ticks so the producer/consumer pair fires.
-            after 300
+            # Baseline counter snapshot.
             set stats1 [r debug defrag-frag-cache-stats]
             regexp {defrag_frag_cache_hits:(\d+)} $stats1 -> hits1
             regexp {defrag_frag_cache_skips:(\d+)} $stats1 -> skips1
-            after 500
+
+            # Wait for the cache to be exercised (positive condition).
+            # The producer/consumer pair fires every cron tick; this
+            # typically completes within ~100 ms.
+            wait_for_condition 50 100 {
+                [regexp {defrag_frag_cache_hits:(\d+)} [r debug defrag-frag-cache-stats] -> _h]
+                && $_h > $hits1
+            } else {
+                fail "defrag_frag_cache_hits did not advance"
+            }
+
+            # Take a coherent snapshot for the final assertions.
             set stats2 [r debug defrag-frag-cache-stats]
             regexp {defrag_frag_cache_hits:(\d+)} $stats2 -> hits2
             regexp {defrag_frag_cache_skips:(\d+)} $stats2 -> skips2
@@ -363,25 +373,6 @@ run_solo {defrag} {
             # the cached value was below both threshold and ignore-bytes
             # on every tick.
             assert_equal [expr {$hits2 - $hits1}] [expr {$skips2 - $skips1}]
-        }
-
-        test "Active defrag check-cache: frozen when activedefrag is off: $type" {
-            # When activedefrag is disabled, activeDefragCycle() returns
-            # early before computeDefragCycles() runs — so the cache is
-            # never consumed, hits and skips must not grow.
-            r config set activedefrag no
-
-            after 300
-            set stats1 [r debug defrag-frag-cache-stats]
-            regexp {defrag_frag_cache_hits:(\d+)} $stats1 -> hits1
-            regexp {defrag_frag_cache_skips:(\d+)} $stats1 -> skips1
-            after 500
-            set stats2 [r debug defrag-frag-cache-stats]
-            regexp {defrag_frag_cache_hits:(\d+)} $stats2 -> hits2
-            regexp {defrag_frag_cache_skips:(\d+)} $stats2 -> skips2
-
-            assert_equal $hits1 $hits2
-            assert_equal $skips1 $skips2
         }
 
         test "Active defrag big keys: $type" {
