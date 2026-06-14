@@ -560,6 +560,28 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r debug bitmap-raw bitmap:restored] $raw
     }
 
+    test {native bitmap RDB restores run containers without capacity bloat} {
+        set raw ""
+        for {set i 0} {$i < 32} {incr i} {
+            append raw [string repeat [binary format H* ff] 600]
+            append raw [string repeat [binary format H* 00] 7592]
+        }
+
+        r del bitmap:rdb-run:a bitmap:rdb-run:b
+        r set bitmap:rdb-run:a $raw
+        r bitmap convert bitmap:rdb-run:a
+        set original_usage [r memory usage bitmap:rdb-run:a]
+
+        r restore bitmap:rdb-run:b 0 [r dump bitmap:rdb-run:a]
+        assert_equal bitmap [r type bitmap:rdb-run:b]
+        assert_equal $raw [r debug bitmap-raw bitmap:rdb-run:b]
+
+        set restored_usage [r memory usage bitmap:rdb-run:b]
+        assert_lessthan_equal $restored_usage [expr {$original_usage + 8192}] \
+            "restored_usage=$restored_usage original_usage=$original_usage"
+        r del bitmap:rdb-run:a bitmap:rdb-run:b
+    }
+
     test {64-bit native bitmaps survive dump restore and debug reload} {
         r del bitmap:persist:64
         r config set bitmap-default-roaring yes
@@ -583,7 +605,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:persist:64 bitmap:restored:64
     }
 
-    test {native bitmap RDB payload endianness conversion round-trips} {
+    test {native bitmap serialized payload endianness conversion round-trips} {
         # Build one bitmap holding all three container kinds so the converter
         # walks every payload section. Each 65536-bit chunk is 8192 bytes:
         # chunk 0: 4800 consecutive set bits -> run container

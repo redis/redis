@@ -1170,29 +1170,51 @@ test {corrupt payload: stream - duplicated consumer PEL entry} {
 test {corrupt payload: bitmap with unsorted array container} {
     # Native bitmap (Roaring) DUMP of {1,5,9}; the array container's values
     # are reversed to {9,5,1}. That stays within deserialization bounds but
-    # violates the sorted-array invariant, so only deep sanitization
-    # (roaring64_bitmap_internal_validate) rejects it.
+    # violates the sorted-array invariant, so only deep sanitization rejects it.
     # Payload layout: type byte RDB_TYPE_BITMAP, logical byte length,
-    # string-encoded Roaring 64-bit portable blob (u64 bucket count, then per
-    # bucket a u32 high key and an embedded 32-bit portable bitmap), 2-byte
-    # RDB version, 8-byte CRC (stale in the corrupted variants; checksum
-    # validation is skipped above).
+    # container count, then per container high48/type/cardinality/raw payload,
+    # 2-byte RDB version, 8-byte CRC (stale in the corrupted variants;
+    # checksum validation is skipped above).
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         r setbit bitmap:type-probe 1 1
         r bitmap convert bitmap:type-probe
-        binary scan [r dump bitmap:type-probe] H2 bitmap_type
+        set bitmap_probe_dump [r dump bitmap:type-probe]
+        binary scan $bitmap_probe_dump H2 bitmap_type
         r del bitmap:type-probe
 
-        set valid_payload    [binary format H* ${bitmap_type}02220100000000000000000000003a3000000100000000000200100000000100050009000f00f002b03d7aeda905]
-        set unsorted_payload [binary format H* ${bitmap_type}02220100000000000000000000003a3000000100000000000200100000000900050001000f00f002b03d7aeda905]
+        proc bitmap_rdb_len {len} {
+            if {$len < 64} {
+                return [binary format c $len]
+            } elseif {$len < 16384} {
+                return [binary format cc [expr {(($len >> 8) & 0x3f) | 0x40}] [expr {$len & 0xff}]]
+            } elseif {$len <= 0xffffffff} {
+                return [binary format cI 0x80 $len]
+            } else {
+                return [binary format cW 0x81 $len]
+            }
+        }
+
+        set huge_byte_len [expr {(1 << 60) - 1}]
+        set huge_container_count [expr {(($huge_byte_len - 1) / 8192) + 1}]
+        set huge_count_payload [binary format H* ${bitmap_type}]
+        append huge_count_payload [bitmap_rdb_len $huge_byte_len]
+        append huge_count_payload [bitmap_rdb_len $huge_container_count]
+        append huge_count_payload [string range $bitmap_probe_dump end-9 end]
+
+        catch { r restore bitmap:huge-count 0 $huge_count_payload } err
+        assert_match "*Bad data format*" $err
+        assert_equal PONG [r ping]
+
+        set valid_payload    [binary format H* ${bitmap_type}0201000203060100050009000f006d1435120f203a9e]
+        set unsorted_payload [binary format H* ${bitmap_type}0201000203060900050001000f006d1435120f203a9e]
 
         r config set sanitize-dump-payload yes
         r restore bitmap:valid 0 $valid_payload
         assert_equal [r type bitmap:valid] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid] [binary format H* 4440]
 
-        set trailing_payload [binary format H* ${bitmap_type}02230100000000000000000000003a300000010000000000020010000000010005000900000f00f002b03d7aeda905]
+        set trailing_payload [binary format H* ${bitmap_type}020100020307010005000900000f006d1435120f203a9e]
         catch { r restore bitmap:trailing 0 $trailing_payload } err
         assert_match "*Bad data format*" $err
 
