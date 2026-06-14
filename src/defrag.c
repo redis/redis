@@ -1450,7 +1450,7 @@ int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
      * reuse the same value and miss a memory-state change.
      * serverCron() also calls defragFragCacheInvalidate() at tick
      * exit to cover the produce-but-no-consume case. */
-    server.defrag_frag_cache.frag_bytes = 0;
+    defragFragCacheInvalidate();
     if (bytes == 0) return 0;
     *out_frag_pct   = server.defrag_frag_cache.frag_pct;
     *out_frag_bytes = bytes;
