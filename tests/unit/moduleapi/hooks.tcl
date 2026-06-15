@@ -318,4 +318,33 @@ tags "modules external:skip" {
             r ping
         }
     }
+
+    start_server {} {
+        r module load $testmodule
+        r module load [file normalize tests/modules/fork.so]
+        # avoid spurious RDB-save forks polluting the fork-child counters
+        r config set save ""
+
+        test {Test ForkChild PRE and BORN hooks fire around a fork} {
+            r fork.create 0 0
+            assert {[r hooks.event_count fork-child-pre] >= 1}
+            assert {[r hooks.event_count fork-child-born] >= 1}
+            # the child exits immediately; DIED fires once the parent reaps it
+            wait_for_condition 50 100 {
+                [r hooks.event_count fork-child-died] >= 1
+            } else {
+                fail "fork-child-died hook did not fire"
+            }
+        }
+
+        test {Test ForkChild CANCELLED hook fires when a fork is rejected} {
+            set before [r hooks.event_count fork-child-cancelled]
+            # second fork is rejected while the first child is still alive
+            r fork.create 0 5000000
+            catch {r fork.create 0 0} e
+            assert_match {*Fork failed*} $e
+            assert {[r hooks.event_count fork-child-cancelled] > $before}
+            r fork.kill
+        }
+    }
 }

@@ -7404,24 +7404,28 @@ void closeChildUnusedResourceAfterFork(void) {
 
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
+    /* Let multi-threaded modules reach a fork-safe point: a background thread
+     * holding a lock (e.g. the allocator lock) at fork() time would deadlock the
+     * child. Handlers run synchronously and resume on FORK_CHILD_BORN/CANCELLED.
+     * Fired before the exclusivity check below so a handler that itself forks is
+     * caught there rather than racing into a second mutually-exclusive child. */
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_PRE,
+                          NULL);
+
     if (isMutuallyExclusiveChildType(purpose)) {
         if (hasActiveChildProcess()) {
+            /* Child already running (possibly started by the PRE handler): the
+             * fork won't happen, so let modules resume. */
+            moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                                  REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED,
+                                  NULL);
             errno = EEXIST;
             return -1;
         }
 
         openChildInfoPipe();
     }
-
-    /* Let multi-threaded modules bring their background threads to a safe point
-     * before we fork(): a thread holding a lock (e.g. the allocator lock) at
-     * fork() time would deadlock the child the first time it takes that lock.
-     * Handlers run synchronously on the main thread and bound their own wait;
-     * returning is their acknowledgement. Modules resume on FORK_CHILD_BORN
-     * (fork happened) or FORK_CHILD_CANCELLED (fork did not happen). */
-    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                          REDISMODULE_SUBEVENT_FORK_CHILD_PRE,
-                          NULL);
 
     int childpid;
     long long start = ustime();
