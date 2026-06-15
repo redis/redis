@@ -39,6 +39,7 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
+#include <sys/resource.h>
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -2143,6 +2144,8 @@ struct redisServer {
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
+    struct rusage cron_rusage_self;       /* sampled in serverCron(). */
+    struct rusage cron_rusage_children;   /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */

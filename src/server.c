@@ -1500,6 +1500,8 @@ void cronUpdateMemoryStats(void) {
                                    NULL,
                                    &server.cron_malloc_stats.allocator_muzzy,
                                    &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
+        getrusage(RUSAGE_SELF, &server.cron_rusage_self);
+        getrusage(RUSAGE_CHILDREN, &server.cron_rusage_children);
         if (server.lua_arena != UINT_MAX) {
             zmalloc_get_allocator_info_by_arena(server.lua_arena,
                                                 0,
@@ -6324,6 +6326,7 @@ static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const c
  * on memory corruption problems. */
 sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     sds info = sdsempty();
+    info = sdsMakeRoomFor(info, 4096);
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
     int sections = 0;
@@ -6886,19 +6889,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     if (all_sections || (dictFind(section_dict,"cpu") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
 
-        struct rusage self_ru, c_ru;
-        getrusage(RUSAGE_SELF, &self_ru);
-        getrusage(RUSAGE_CHILDREN, &c_ru);
+        struct rusage *self_ru = &server.cron_rusage_self;
+        struct rusage *c_ru = &server.cron_rusage_children;
         info = sdscatprintf(info,
         "# CPU\r\n"
         "used_cpu_sys:%ld.%06ld\r\n"
         "used_cpu_user:%ld.%06ld\r\n"
         "used_cpu_sys_children:%ld.%06ld\r\n"
         "used_cpu_user_children:%ld.%06ld\r\n",
-        (long)self_ru.ru_stime.tv_sec, (long)self_ru.ru_stime.tv_usec,
-        (long)self_ru.ru_utime.tv_sec, (long)self_ru.ru_utime.tv_usec,
-        (long)c_ru.ru_stime.tv_sec, (long)c_ru.ru_stime.tv_usec,
-        (long)c_ru.ru_utime.tv_sec, (long)c_ru.ru_utime.tv_usec);
+        (long)self_ru->ru_stime.tv_sec, (long)self_ru->ru_stime.tv_usec,
+        (long)self_ru->ru_utime.tv_sec, (long)self_ru->ru_utime.tv_usec,
+        (long)c_ru->ru_stime.tv_sec, (long)c_ru->ru_stime.tv_usec,
+        (long)c_ru->ru_utime.tv_sec, (long)c_ru->ru_utime.tv_usec);
 #ifdef RUSAGE_THREAD
         struct rusage m_ru;
         getrusage(RUSAGE_THREAD, &m_ru);
