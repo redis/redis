@@ -3092,3 +3092,39 @@ start_server {tags "cluster external:skip"} {
     }
 }
 }
+
+# redis-cli --cluster reshard/rebalance with --cluster-atomic-slot-migration.
+#
+# 3 masters, no replicas. continuous_slot_allocation distributes slots as:
+#   node 0: 0-5461     (5462 slots)
+#   node 1: 5462-10922 (5461 slots)
+#   node 2: 10923-16383 (5461 slots)
+set testmodule [file normalize tests/modules/atomicslotmigration.so]
+start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000]] {
+    set id0 [R 0 cluster myid]
+    set id1 [R 1 cluster myid]
+
+    test "redis-cli --cluster reshard --cluster-atomic-slot-migration" {
+        # Move the lowest 1000 slots (0-999) from node 0 to node 1 using ASM.
+        exec src/redis-cli --cluster reshard 127.0.0.1:[get_port 0] \
+            --cluster-from $id0 --cluster-to $id1 \
+            --cluster-slots 1000 --cluster-yes \
+            --cluster-atomic-slot-migration
+        wait_for_asm_done
+
+        assert_equal {{1000 5461}} [R 0 asm.cluster_get_local_slot_ranges]
+        assert_equal {{0 999} {5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
+    }
+
+    test "redis-cli --cluster rebalance --cluster-atomic-slot-migration" {
+        # Rebalance distributes 16384 slots evenly across the 3 nodes.
+        # (0-999) will be moved back to node 0.
+        exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] \
+            --cluster-yes --cluster-atomic-slot-migration
+        wait_for_asm_done
+
+        assert_equal {{0 5461}} [R 0 asm.cluster_get_local_slot_ranges]
+        assert_equal {{5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
+        assert_equal {{10923 16383}} [R 2 asm.cluster_get_local_slot_ranges]
+    }
+}
