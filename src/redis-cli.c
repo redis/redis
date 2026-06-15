@@ -3947,11 +3947,11 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"fix", clusterManagerCommandFix, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners,fix-with-unreachable-masters"},
     {"reshard", clusterManagerCommandReshard, -1, "<host:port> or <host> <port> - separated by either colon or space",
-     "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>,"
+     "from <arg>,to <arg>,slots <arg>,yes,timeout <ms>,pipeline <arg>,"
      "replace,atomic-slot-migration"},
     {"rebalance", clusterManagerCommandRebalance, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
-     "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace,atomic-slot-migration"},
+     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace,atomic-slot-migration"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
@@ -5487,7 +5487,7 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
 
     /* Poll until completed/canceled/timeout, print each state change. */
     int timeout = config.cluster_manager_command.timeout;
-    time_t start_time = time(NULL);
+    long long start_time = mstime();
     char prev_state[128] = "";
     char errbuf[256];
     int success = 0;
@@ -5544,11 +5544,11 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
         freeReplyObject(st);
 
         /* Check if timeout */
-        if (timeout > 0 && (time(NULL) - start_time) >= timeout) {
+        if (timeout > 0 && (mstime() - start_time) >= timeout) {
             redisReply *c = CLUSTER_MANAGER_COMMAND(target, "CLUSTER MIGRATION CANCEL ID %s", task_id);
             if (c) freeReplyObject(c);
             if (err != NULL) {
-                snprintf(errbuf, sizeof(errbuf), "timed out after %d seconds, task %s cancelled", timeout, task_id);
+                snprintf(errbuf, sizeof(errbuf), "timed out after %d ms, task %s cancelled", timeout, task_id);
                 *err = zstrdup(errbuf);
             }
             break;
