@@ -2390,11 +2390,7 @@ void initServerConfig(void) {
                                       updated later after loading the config.
                                       This value may be used before the server
                                       is initialized. */
-    /* Mark defrag-side fragmentation cache as stale so the first
-     * computeDefragCycles() call falls through to a real measurement
-     * until cronUpdateMemoryStats() publishes. -1 is unreachable by
-     * server.cronloops (which starts at 0 and only advances). */
-    server.defrag_frag_cache.cronloops = -1;
+    server.defrag_frag_cache.cronloops = -1; /* Mark the defrag fragmentation cache as stale */
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;

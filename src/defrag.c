@@ -1386,35 +1386,8 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
 #define INTERPOLATE(x, x1, x2, y1, y2) ( (y1) + ((x)-(x1)) * ((y2)-(y1)) / ((x2)-(x1)) )
 #define LIMIT(y, min, max) ((y)<(min)? min: ((y)>(max)? max: (y)))
 
-/* ===== Defrag-check single-consumer cache ===========================
- *
- * Background: getAllocatorFragmentation() forces a jemalloc epoch refresh
- * (cross-thread stats sync via IPIs) plus a walk over every arena's
- * small-bin slabs.  On systems with many threads and/or arenas the call
- * is non-trivial and ends up being made TWICE per cron tick:
- *   1. by cronUpdateMemoryStats() to refresh INFO MEMORY allocator_* fields
- *   2. by computeDefragCycles() (immediately after, same tick) to decide
- *      whether to engage active defrag
- * Both calls compute the same numbers; the second one's result is
- * almost always discarded by the threshold check below.
- *
- * Fix: cronUpdateMemoryStats() publishes the (Lua-arena-subtracted) values
- * it just measured into a small tick-local cache, alongside the current
- * server.cronloops value as a freshness stamp. computeDefragCycles() takes
- * from the cache at its top — on hit (cronloops == server.cronloops)
- * it uses the cached values for its single threshold check, on miss it
- * falls back to a fresh getAllocatorFragmentation() call. Either way the
- * threshold check (further down, unchanged) runs once on (frag_pct,
- * frag_bytes) regardless of source.
- *
- * Freshness/invalidation: server.cronloops advances at the top of both
- * serverCron() and whileBlockedCron(), so any value published in a
- * previous tick is automatically stale on the next tick's Take — no
- * explicit invalidate call needed. Cold start (cronloops == -1
- * from initServerConfig) likewise reports miss until the first publish.
- *
- * Single-threaded by Redis's main-thread invariant; no synchronization
- * needed. */
+/* Publish (Lua-subtracted) frag values with the current cronloops stamp.
+ * See struct defragFragCache in server.h for the cache rationale. */
 void defragFragCachePut(size_t frag_bytes, size_t allocated) {
     if (allocated == 0) return;          /* avoid divide-by-zero */
     server.defrag_frag_cache.frag_pct =

@@ -361,7 +361,6 @@ run_solo {defrag} {
             } else {
                 fail "defrag_frag_cache_hits did not advance"
             }
-            assert_morethan $hits2 $hits1
         }
 
         test "Active defrag big keys: $type" {
