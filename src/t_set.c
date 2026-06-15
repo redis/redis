@@ -137,6 +137,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         str = tmpbuf;
         str_is_sds = 0;
     }
+    
     serverAssert(str);
     if (set->encoding == OBJ_ENCODING_HT) {
         /* Avoid duping the string if it is an sds string. */
