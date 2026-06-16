@@ -146,6 +146,28 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert {[r debug digest-value bitmap:digest:short] ne [r debug digest-value bitmap:digest:long]}
     }
 
+    test {DEBUG DIGEST for native bitmaps ignores roaring container encoding} {
+        r del bitmap:digest:converted bitmap:digest:setbit
+        set raw [binary format H* [string repeat ff 1024]]
+
+        r set bitmap:digest:converted $raw
+        assert_equal OK [r bitmap convert bitmap:digest:converted]
+
+        r config set bitmap-default-roaring yes
+        for {set bit 0} {$bit < 8192} {incr bit} {
+            r setbit bitmap:digest:setbit $bit 1
+        }
+        r config set bitmap-default-roaring no
+
+        assert_equal bitmap [r type bitmap:digest:converted]
+        assert_equal bitmap [r type bitmap:digest:setbit]
+        assert_equal $raw [r debug bitmap-raw bitmap:digest:converted]
+        assert_equal $raw [r debug bitmap-raw bitmap:digest:setbit]
+        set converted_digest [r debug digest-value bitmap:digest:converted]
+        set setbit_digest [r debug digest-value bitmap:digest:setbit]
+        assert_equal $converted_digest $setbit_digest
+    }
+
     test {native bitmaps accept 64-bit offsets across the command surface} {
         r del bitmap:64bit
         r config set bitmap-default-roaring yes
