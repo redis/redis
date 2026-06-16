@@ -2993,7 +2993,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-use-empty-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;
-        } else if (!strcmp(argv[i],"--cluster-atomic-slot-migration")) {
+        } else if (!strcmp(argv[i],"--cluster-use-atomic-slot-migration")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_ASM;
         } else if (!strcmp(argv[i],"--cluster-search-multiple-owners")) {
@@ -3948,10 +3948,10 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "search-multiple-owners,fix-with-unreachable-masters"},
     {"reshard", clusterManagerCommandReshard, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "from <arg>,to <arg>,slots <arg>,yes,timeout <ms>,pipeline <arg>,"
-     "replace,atomic-slot-migration"},
+     "replace,use-atomic-slot-migration"},
     {"rebalance", clusterManagerCommandRebalance, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
-     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace,atomic-slot-migration"},
+     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace,use-atomic-slot-migration"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
@@ -5485,10 +5485,13 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
     sds task_id = sdsnewlen(reply->str, reply->len);
     freeReplyObject(reply);
 
-    /* Poll until completed/canceled/timeout, print each state change. */
+    /* Print a message to inform the user the migration has started. */
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET))
+        printf("Waiting for migration task %s to complete ", task_id);
+
+    /* Poll until completed/canceled/timeout. */
     int timeout = config.cluster_manager_command.timeout;
     long long start_time = mstime();
-    char prev_state[128] = "";
     char errbuf[256];
     int success = 0;
     while (1) {
@@ -5519,12 +5522,11 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
             freeReplyObject(st);
             break;
         }
-        /* Print a line only when the state has changed. */
-        if (!(opts & CLUSTER_MANAGER_OPT_QUIET) && strcmp(state, prev_state) != 0) {
-            printf("    Task %s: %s\n", task_id, state);
+        /* Heartbeat: print a dot each second so the user can see the
+         * migration is still in progress. */
+        if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) {
+            printf(".");
             fflush(stdout);
-            strncpy(prev_state, state, sizeof(prev_state) - 1);
-            prev_state[sizeof(prev_state) - 1] = '\0';
         }
         if (!strcmp(state, "completed")) {
             freeReplyObject(st);
@@ -5555,6 +5557,7 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
         }
         sleep(1);
     }
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) printf("\n");
     sdsfree(task_id);
 
     /* Update the node logical config. */
