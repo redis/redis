@@ -5431,11 +5431,48 @@ static int clusterManagerSlotIntCompare(const void *s1, const void *s2) {
     return (*(const int *)s1) - (*(const int *)s2);
 }
 
+/* CLUSTER MIGRATION task states */
+#define CLUSTER_ASM_NONE        0
+#define CLUSTER_ASM_IN_PROGRESS 1
+#define CLUSTER_ASM_CANCELED    2
+#define CLUSTER_ASM_COMPLETED   3
+
+/* Query the ASM task 'task_id' on 'node' via CLUSTER MIGRATION STATUS.
+ * Returns positive value if the task was found, 0 if not found,
+ * and -1 on other errors otherwise. */
+static int clusterManagerAsmTaskState(clusterManagerNode *node, sds task_id, char **err) {
+    redisReply *st = CLUSTER_MANAGER_COMMAND(node,
+        "CLUSTER MIGRATION STATUS ID %s", task_id);
+    if (!clusterManagerCheckRedisReply(node, st, err)) {
+        if (st) freeReplyObject(st);
+        return -1;
+    }
+
+    int state = CLUSTER_ASM_NONE;
+    if (st->type == REDIS_REPLY_ARRAY && st->elements > 0) {
+        redisReply *m = st->element[0];
+        for (size_t i = 0; i + 1 < m->elements; i += 2) {
+            redisReply *k = m->element[i], *v = m->element[i + 1];
+            if (k->type != REDIS_REPLY_STRING || v->type != REDIS_REPLY_STRING)
+                continue;
+            if (!strcmp(k->str, "state")) {
+                if (!strcmp(v->str, "canceled")) state = CLUSTER_ASM_CANCELED;
+                else if (!strcmp(v->str, "completed")) state = CLUSTER_ASM_COMPLETED;
+                else state = CLUSTER_ASM_IN_PROGRESS; /* Redis will retry even failed. */
+                break;
+            }
+        }
+    }
+    freeReplyObject(st);
+    return state;
+}
+
 /* Atomically move the given 'slots' to 'target' using ASM instead of
  * per-key MIGRATE. The slots are merged into contiguous ranges and
  * sent via "CLUSTER MIGRATION IMPORT <start end start end ...>".
- * The task is then polled until completion, and each state change is printed
- * unless CLUSTER_MANAGER_OPT_QUIET is set in 'opts'.
+ * The task is then polled until both the target and the source report
+ * completion. A heartbeat dot is printed each second unless
+ * CLUSTER_MANAGER_OPT_QUIET is set in 'opts'.
  *
  * The source node is resolved by the target from its cluster topology.
  * '--cluster-timeout' limits the wait; 0 means wait forever.
@@ -5487,7 +5524,7 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
 
     /* Print a message to inform the user the migration has started. */
     if (!(opts & CLUSTER_MANAGER_OPT_QUIET))
-        printf("Waiting for migration task %s to complete ", task_id);
+        printf("Waiting for migration task %s to complete", task_id);
 
     /* Poll until completed/canceled/timeout. */
     int timeout = config.cluster_manager_command.timeout;
@@ -5495,55 +5532,24 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
     char errbuf[256];
     int success = 0;
     while (1) {
-        redisReply *st = CLUSTER_MANAGER_COMMAND(target, "CLUSTER MIGRATION STATUS ID %s", task_id);
-        if (!clusterManagerCheckRedisReply(target, st, err)) {
-            if (st) freeReplyObject(st);
-            break;
-        }
-        char *state = NULL, *last_error = NULL;
-        if (st->type == REDIS_REPLY_ARRAY && st->elements > 0) {
-            redisReply *m = st->element[0];
-            for (size_t i = 0; i + 1 < m->elements; i += 2) {
-                redisReply *k = m->element[i], *v = m->element[i + 1];
-                if (k->type != REDIS_REPLY_STRING || v->type != REDIS_REPLY_STRING)
-                    continue;
+        int dst_state = clusterManagerAsmTaskState(target, task_id, err);
+        int src_state = clusterManagerAsmTaskState(source, task_id, err);
 
-                if (!strcmp(k->str, "state"))
-                    state = v->str;
-                else if (!strcmp(k->str, "last_error"))
-                    last_error = v->str;
-            }
-        }
-        if (state == NULL) {
-            if (err != NULL) {
-                snprintf(errbuf, sizeof(errbuf), "task %s not found", task_id);
-                *err = zstrdup(errbuf);
-            }
-            freeReplyObject(st);
-            break;
-        }
-        /* Heartbeat: print a dot each second so the user can see the
-         * migration is still in progress. */
-        if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) {
-            printf(".");
-            fflush(stdout);
-        }
-        if (!strcmp(state, "completed")) {
-            freeReplyObject(st);
+        if (src_state == -1 || dst_state == -1) break; /* Handle reply errors. */
+
+        /* The migration is only considered successful when both the target
+         * and the source report "completed" */
+        if (dst_state == CLUSTER_ASM_COMPLETED && src_state == CLUSTER_ASM_COMPLETED) {
             success = 1;
             break;
         }
-        /* "failed" is not terminal, redis can retry it automatically.
-         * Only "canceled" stops us. */
-        if (!strcmp(state, "canceled")) {
-            if (err != NULL) {
-                snprintf(errbuf, sizeof(errbuf), "task %s canceled: %s", task_id, last_error ? last_error : "(none)");
-                *err = zstrdup(errbuf);
-            }
-            freeReplyObject(st);
+
+        /* If either the target or the source reports "canceled", we stop
+         * waiting and declare the migration as failed. */
+        if (dst_state == CLUSTER_ASM_CANCELED || src_state == CLUSTER_ASM_CANCELED) {
+            if (err != NULL) *err = zstrdup("atomic slot migration is canceled");
             break;
         }
-        freeReplyObject(st);
 
         /* Check if timeout */
         if (timeout > 0 && (mstime() - start_time) >= timeout) {
@@ -5554,6 +5560,13 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
                 *err = zstrdup(errbuf);
             }
             break;
+        }
+
+        /* Heartbeat: print a dot each second so the user can see the
+         * migration is still in progress. */
+        if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) {
+            printf(".");
+            fflush(stdout);
         }
         sleep(1);
     }
