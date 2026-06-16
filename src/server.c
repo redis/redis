@@ -4421,7 +4421,11 @@ int processCommand(client *c) {
 
     /* only run command filter if not reprocessing command */
     if (!client_reprocessing_command) {
-        moduleCallCommandFilters(c);
+        /* Command was aborted by a filter */
+        if (moduleCallCommandFilters(c) != REDISMODULE_OK) {
+            rejectCommandFormat(c, "command is aborted on module command filter");
+            return C_OK;
+        }
         reqresAppendRequest(c);
     }
 

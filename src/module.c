@@ -363,6 +363,7 @@ typedef struct RedisModuleCommandFilterCtx {
     int argv_len;
     int argc;
     client *c;
+    int aborted;
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -6900,7 +6901,13 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
 
     /* Call command filters */
-    moduleCallCommandFilters(c);
+    if (moduleCallCommandFilters(c) != REDISMODULE_OK) {
+        /* Command was aborted by a filter */
+        errno = ECANCELED;
+        sds msg = sdsnew("command is aborted on module command filter");
+        reply = callReplyCreateError(msg, ctx);
+        goto cleanup;
+    }
 
     /* Lookup command now, after filters had a chance to make modifications
      * if necessary.
@@ -11738,8 +11745,8 @@ int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *fi
     return REDISMODULE_OK;
 }
 
-void moduleCallCommandFilters(client *c) {
-    if (listLength(moduleCommandFilters) == 0) return;
+int moduleCallCommandFilters(client *c) {
+    if (listLength(moduleCommandFilters) == 0) return REDISMODULE_OK;
 
     listIter li;
     listNode *ln;
@@ -11749,7 +11756,8 @@ void moduleCallCommandFilters(client *c) {
         .argv = c->argv,
         .argv_len = c->argv_len,
         .argc = c->argc,
-        .c = c
+        .c = c,
+        .aborted = 0
     };
 
     while((ln = listNext(&li))) {
@@ -11774,7 +11782,7 @@ void moduleCallCommandFilters(client *c) {
 
     /* Update pending command if it exists. */
     pendingCommand *pcmd = c->current_pending_cmd;
-    if (pcmd) {
+    if (!filter.aborted && pcmd) {
         pcmd->argv = filter.argv;
         pcmd->argc = filter.argc;
         pcmd->argv_len = filter.argv_len;
@@ -11786,6 +11794,8 @@ void moduleCallCommandFilters(client *c) {
         getKeysFreeResult(&pcmd->keys_result);
         pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
     }
+
+    return filter.aborted ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
 /* Return the number of arguments a filtered command has.  The number of
@@ -11864,6 +11874,15 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 /* Get Client ID for client that issued the command we are filtering */
 unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
     return fctx->c->id;
+}
+
+/* Set the abort status of the current command.
+ * This function can be called by a command filter to set whether
+ * the command should be aborted or allowed to continue.
+ */
+int RM_CommandFilterAbortCommand(RedisModuleCommandFilterCtx *fctx, int abort_flag) {
+    fctx->aborted = abort_flag;
+    return REDISMODULE_OK;
 }
 
 /* For a given pointer allocated via RedisModule_Alloc() or
@@ -15654,6 +15673,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
     REGISTER_API(CommandFilterGetClientId);
+    REGISTER_API(CommandFilterAbortCommand);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);
