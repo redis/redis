@@ -124,17 +124,25 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
-void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
-    /* Digest native bitmaps by logical length plus canonical serialized
-     * payload. Avoid materializing sparse high-offset bitmaps into raw bytes:
-     * that can allocate up to proto-max-bulk-len for DEBUG DIGEST. */
+static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end,
+                                       void *privdata) {
+    unsigned char *digest = privdata;
     char buf[LONG_STR_SIZE];
-    int len = ll2string(buf, sizeof(buf), (long long)bitmapObjectLen(o));
-    mixDigest(digest, buf, len);
 
-    sds payload = bitmapObjectSerialize(o);
-    mixDigest(digest, payload, sdslen(payload));
-    sdsfree(payload);
+    int len = ull2string(buf, sizeof(buf), start);
+    mixDigest(digest, buf, len);
+    len = ull2string(buf, sizeof(buf), end);
+    mixDigest(digest, buf, len);
+}
+
+void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
+    /* Digest native bitmaps by logical length plus canonical set-bit ranges.
+     * This avoids materializing sparse high-offset bitmaps and keeps the
+     * digest independent from CRoaring's history-dependent container choices. */
+    char buf[LONG_STR_SIZE];
+    int len = ull2string(buf, sizeof(buf), bitmapObjectLen(o));
+    mixDigest(digest, buf, len);
+    bitmapObjectVisitSetBitRanges(o, mixBitmapObjectRangeDigest, digest);
 }
 
 #ifdef ENABLE_GCRA
