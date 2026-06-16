@@ -206,6 +206,9 @@ void forkChildCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, vo
         case REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED: keyname = "fork-child-cancelled"; break;
     }
     if (keyname) LogNumericEvent(ctx, keyname, 0);
+
+    /* A nested RM_Fork from within FORK_CHILD_PRE must be rejected. */
+    if (sub == REDISMODULE_SUBEVENT_FORK_CHILD_PRE) assert(RedisModule_Fork(NULL, NULL) == -1);
 }
 
 void loadingCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
