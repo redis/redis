@@ -277,6 +277,25 @@ tags "modules external:skip" {
         }
     }
 
+    test "perkey-order: per-key job fires between commands inside a script (EVAL)" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r flushall
+            r pkmeta.reset
+            # Three HSETs from inside a single script. The per-key drain runs
+            # after each redis.call() returns (scriptCall in script.c), so each
+            # firing observes the db growing 1,2,3 — proving firing happens
+            # between script commands, not batched at the script's end.
+            r eval {
+                redis.call('hset', KEYS[1], 'f', 'v')
+                redis.call('hset', KEYS[2], 'f', 'v')
+                redis.call('hset', KEYS[3], 'f', 'v')
+                return 'ok'
+            } 3 ea eb ec
+            assert_equal {ea eb ec} [r pkmeta.firelog]
+            assert_equal {1 2 3} [r pkmeta.dbsizelog]
+        }
+    }
+
     test "perkey-order: multi-key command fires one job per affected key" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             r pkmeta.reset
