@@ -328,23 +328,31 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
+/* A queued module post-notification job. A single queue holds both flavors:
+ *  - Regular jobs (RM_AddPostNotificationJob): key == NULL, `callback` is used.
+ *    They fire once at the end of the outermost execution unit and may write to
+ *    the keyspace (RM_Call).
+ *  - Per-key jobs (RM_AddPostNotificationJobForKey): key != NULL, `key_callback`
+ *    is used and receives the bound key. They may NOT write to the keyspace
+ *    (RM_Call is refused while they run). If the registering module opted into
+ *    REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS, fire_between_subcommands is
+ *    set and the job also fires at the tail of every call() (between MULTI/EXEC
+ *    sub-commands) and during AOF replay; otherwise it fires only at end of unit. */
 typedef struct RedisModulePostExecUnitJob {
     /* The module subscribed to the event */
     RedisModule *module;
-    RedisModulePostNotifyJobFunc callback;
+    union {
+        RedisModulePostNotifyJobFunc callback;           /* key == NULL */
+        RedisModulePostNotifyJobPerKeyFunc key_callback; /* key != NULL */
+    };
+    RedisModuleString *key; /* NULL for a regular job; an owned reference for a
+                             * per-key job, freed after the callback runs. */
     void *pd;
     void (*free_pd)(void*);
     int dbid;
+    int fire_between_subcommands; /* Per-key job that opted into firing between
+                                   * sub-commands and during AOF replay. */
 } RedisModulePostExecUnitJob;
-
-typedef struct RedisModulePostKeyedNotificationJob {
-    RedisModule *module;
-    RedisModulePostNotifyJobPerKeyFunc callback;
-    RedisModuleString *key; /* Owned reference; freed after the callback runs. */
-    void *pd;
-    void (*free_pd)(void*);
-    int dbid;
-} RedisModulePostKeyedNotificationJob;
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
@@ -354,12 +362,10 @@ static list *moduleKeyspaceSubscribers;
 static int moduleKeyspaceSubscribersTypes = 0;
 static int moduleKeyspaceSubscribersWithSubkeysTypes = 0;
 
-/* The module post keyspace jobs list. */
+/* The module post-notification jobs list. Holds both regular jobs
+ * (RM_AddPostNotificationJob) and per-key jobs (RM_AddPostNotificationJobForKey);
+ * see RedisModulePostExecUnitJob for how the two are distinguished and drained. */
 static list *modulePostExecUnitJobs;
-
-/* The module per-key post-notification jobs list (fired at the tail of every
- * call(), so each sub-command boundary inside MULTI/EXEC is observed). */
-static list *modulePostKeyedNotificationJobs;
 
 static int keyedPostNotifRMCallWarned = 0;
 
@@ -2560,7 +2566,16 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
  * By default, Redis will not fire key-space notifications that happened inside
  * a key-space notification callback. This flag allows to change this behavior
  * and fire nested key-space notifications. Notice: if enabled, the module
- * should protected itself from infinite recursion. */
+ * should protected itself from infinite recursion.
+ *
+ * REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS:
+ * Declare that the module's per-key post-notification jobs (registered via
+ * RM_AddPostNotificationJobForKey) must fire at the tail of every call(),
+ * including between sub-commands inside MULTI/EXEC, rather than only once at
+ * the end of the outer execution unit. By default (flag unset) keyed jobs fire
+ * only at the end of the execution unit - the same point as RM_AddPostNotificationJob -
+ * which keeps them off the per-command hot path. Enable this only if the module
+ * relies on per-key effects being observable between sibling sub-commands. */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
 }
@@ -9458,63 +9473,72 @@ int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type) {
     return (moduleKeyspaceSubscribersWithSubkeysTypes & type) != 0;
 }
 
+/* Run a single queued post-notification job and free it (including the job's
+ * owned key reference for per-key jobs). Per-key jobs (key != NULL) run under
+ * the no-write guard that makes RM_Call refuse for the duration of the
+ * callback, and are passed the bound key. */
+static void executePostExecUnitJob(RedisModulePostExecUnitJob *job) {
+    RedisModuleCtx ctx;
+    moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
+    selectDb(ctx.client, job->dbid);
+
+    if (job->key) {
+        server.firing_keyed_post_notif_jobs = 1;
+        job->key_callback(&ctx, job->key, job->pd);
+        server.firing_keyed_post_notif_jobs = 0;
+        decrRefCount(job->key);
+    } else {
+        job->callback(&ctx, job->pd);
+    }
+    if (job->free_pd) job->free_pd(job->pd);
+
+    moduleFreeContext(&ctx);
+    zfree(job);
+}
+
 void firePostExecutionUnitJobs(void) {
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
      * recursive calls to firePostExecutionUnitJobs.
      * This is a special case where we need to increase 'execution_nesting'
      * but we do not want to update the cached time */
+    keyedPostNotifRMCallWarned = 0;
     enterExecutionUnit(0, 0);
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
         listDelNode(modulePostExecUnitJobs, ln);
-
-        RedisModuleCtx ctx;
-        moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
-        selectDb(ctx.client, job->dbid);
-
-        job->callback(&ctx, job->pd);
-        if (job->free_pd) job->free_pd(job->pd);
-
-        moduleFreeContext(&ctx);
-        zfree(job);
+        executePostExecUnitJob(job);
     }
     exitExecutionUnit();
 }
 
-/* Drain the keyed post-notification jobs queued during the current call().
- * Invoked at the tail of every call() (see afterCommand), so callbacks fire
- * between sub-commands inside MULTI/EXEC.
+/* Fire only the per-key jobs that opted into between-sub-command firing
+ * (REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS), draining them from the shared
+ * queue and leaving regular jobs (and lazy per-key jobs) for the
+ * end-of-execution-unit drain in firePostExecutionUnitJobs. Invoked at the tail
+ * of every call() (see afterCommand), so per-key effects are observable between
+ * MULTI/EXEC sub-commands, and from the AOF replay loop after each replayed
+ * single command.
  *
- * Also invoked from the AOF replay loop in loadSingleAppendOnlyFile after
- * each single command
- */
-__attribute__((noinline,cold)) void firePostKeyedNotificationJobs(void) {
-    /* Reentrance guard, avoid recursive calls */
-    if (server.firing_keyed_post_notif_jobs) return;
-    server.firing_keyed_post_notif_jobs = 1;
+ * Per-key callbacks may not touch the keyspace (RM_Call is refused), so they
+ * cannot trigger notifications and cannot enqueue further jobs; the queue is
+ * stable across the scan and capturing the next node up front is safe. */
+__attribute__((noinline,cold)) void firePerKeyJobsBetweenSubcommands(void) {
     keyedPostNotifRMCallWarned = 0;
     enterExecutionUnit(0, 0);
-    while (listLength(modulePostKeyedNotificationJobs) > 0) {
-        listNode *ln = listFirst(modulePostKeyedNotificationJobs);
-        RedisModulePostKeyedNotificationJob *job = listNodeValue(ln);
-        listDelNode(modulePostKeyedNotificationJobs, ln);
-
-        RedisModuleCtx ctx;
-        moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
-        selectDb(ctx.client, job->dbid);
-
-        job->callback(&ctx, job->key, job->pd);
-        if (job->free_pd) job->free_pd(job->pd);
-        decrRefCount(job->key);
-
-        moduleFreeContext(&ctx);
-        zfree(job);
+    listNode *ln = listFirst(modulePostExecUnitJobs);
+    while (ln) {
+        listNode *next = listNextNode(ln);
+        RedisModulePostExecUnitJob *job = listNodeValue(ln);
+        if (job->fire_between_subcommands) {
+            listDelNode(modulePostExecUnitJobs, ln);
+            executePostExecUnitJob(job);
+        }
+        ln = next;
     }
     exitExecutionUnit();
-    server.firing_keyed_post_notif_jobs = 0;
-    server.has_pending_keyed_post_notif_jobs = 0;
+    server.fire_keyed_jobs_between_subcommands = 0;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -9541,9 +9565,11 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
+    job->key = NULL;
     job->pd = privdata;
     job->free_pd = free_privdata;
     job->dbid = ctx->client->db->id;
+    job->fire_between_subcommands = 0;
 
     listAddNodeTail(modulePostExecUnitJobs, job);
     return REDISMODULE_OK;
@@ -9555,13 +9581,15 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  * `key`, so multi-key commands such as MSET (which emit one notification per
  * key) may register one job per affected key.
  *
- * Firing schedule (superset of `RM_AddPostNotificationJob`):
- *  - At the tail of every `call()`, so per-key effects are observable between
- *    MULTI/EXEC sub-commands.
- *  - At the end of the outermost execution unit, alongside the regular
- *    post-notification jobs.
- *  - During AOF replay, at the tail of every replayed command — single
- *    commands and each sub-command of MULTI/EXEC.
+ * Firing schedule:
+ *  - By default, at the end of the outermost execution unit, alongside the
+ *    regular post-notification jobs (`RM_AddPostNotificationJob`). This keeps
+ *    keyed jobs off the per-command hot path entirely.
+ *  - If the module set `REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS`, jobs
+ *    additionally fire at the tail of every `call()`, so per-key effects are
+ *    observable between MULTI/EXEC sub-commands, and — during AOF replay — at
+ *    the tail of every replayed command (single commands and each sub-command
+ *    of MULTI/EXEC). Enable this only when that ordering is actually required.
  *
  * Jobs fire in submission order. `key` must be a valid RedisModuleString; the
  * implementation takes its own reference and the caller retains ownership of
@@ -9580,8 +9608,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc 
  *    amplifies the AOF; on a replica it diverges the replica from its
  *    master. The runtime enforces this — RM_Call is refused (returns NULL
  *    with errno == EINVAL and a warning logged, or a `-ERR` call-reply when
- *    CALL_REPLIES_AS_ERRORS is requested) for the whole duration of the
- *    per-key drain.
+ *    CALL_REPLIES_AS_ERRORS is requested) while a per-key callback runs.
  *
  * Return REDISMODULE_OK on success and REDISMODULE_ERR if called outside a
  * keyspace-notification handler. The API is permitted on read-only replicas
@@ -9608,17 +9635,25 @@ int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifyJo
       return REDISMODULE_ERR;
     }
 
-    RedisModulePostKeyedNotificationJob *job = zmalloc(sizeof(*job));
+    /* Per-key jobs share the regular post-notification queue; the key marks the
+     * job as per-key and is passed to the callback when it runs. */
+    RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
-    job->callback = callback;
+    job->key_callback = callback;
     job->key = key;
     incrRefCount(job->key);
     job->pd = privdata;
     job->free_pd = free_privdata;
     job->dbid = ctx->client->db->id;
-    listAddNodeTail(modulePostKeyedNotificationJobs, job);
-    /* Arm the fast-path hint so the hot command path knows a drain is due. */
-    server.has_pending_keyed_post_notif_jobs = 1;
+    /* Modules that opted in get the job fired between sub-commands (at the tail
+     * of every call(), via the afterCommand hook) and during AOF replay.
+     * Otherwise it fires only at the end of the execution unit, like a regular
+     * post-notification job. */
+    job->fire_between_subcommands =
+        (ctx->module->options & REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS) ? 1 : 0;
+    listAddNodeTail(modulePostExecUnitJobs, job);
+    if (job->fire_between_subcommands)
+        server.fire_keyed_jobs_between_subcommands = 1;
     return REDISMODULE_OK;
 }
 
@@ -9760,17 +9795,8 @@ void moduleUnregisterPostNotificationJobs(RedisModule *module) {
         RedisModulePostExecUnitJob *job = ln->value;
         if (job->module != module) continue;
         if (job->free_pd) job->free_pd(job->pd);
+        if (job->key) decrRefCount(job->key);
         listDelNode(modulePostExecUnitJobs, ln);
-        zfree(job);
-    }
-
-    listRewind(modulePostKeyedNotificationJobs, &li);
-    while ((ln = listNext(&li))) {
-        RedisModulePostKeyedNotificationJob *job = ln->value;
-        if (job->module != module) continue;
-        if (job->free_pd) job->free_pd(job->pd);
-        decrRefCount(job->key);
-        listDelNode(modulePostKeyedNotificationJobs, ln);
         zfree(job);
     }
 }
@@ -13210,7 +13236,6 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribers = listCreate();
 
     modulePostExecUnitJobs = listCreate();
-    modulePostKeyedNotificationJobs = listCreate();
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();

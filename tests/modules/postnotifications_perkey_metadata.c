@@ -241,6 +241,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, "pkmeta", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    /* Opt into per-key job firing between sub-commands (the behavior this
+     * module's tests assert). Without this flag, keyed jobs only fire at the
+     * end of the execution unit. */
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS);
+
     RedisModuleKeyMetaClassConfig config = {0};
     config.version = REDISMODULE_KEY_META_VERSION;
     config.flags = (1 << REDISMODULE_META_ALLOW_IGNORE);

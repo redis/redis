@@ -343,10 +343,18 @@ typedef uint64_t RedisModuleTimerID;
  * If enabled, the module is responsible to break endless loop. */
 #define REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS    (1<<3)
 
+/* Declare that the module's per-key post-notification jobs (registered via
+ * RedisModule_AddPostNotificationJobForKey) must fire at the tail of every
+ * call() - including between sub-commands inside MULTI/EXEC - rather than only
+ * once at the end of the outer execution unit. When unset, keyed jobs fire only
+ * at the end of the execution unit (the same point as RedisModule_AddPostNotificationJob),
+ * which keeps them entirely off the per-command hot path. */
+#define REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS    (1<<4)
+
 /* Next option flag, must be updated when adding new module flags above!
  * This flag should not be used directly by the module.
  * Use RedisModule_GetModuleOptionsAll instead. */
-#define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
+#define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<5)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 

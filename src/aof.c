@@ -1681,11 +1681,12 @@ int loadSingleAppendOnlyFile(char *filename) {
             queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
-            /* AOF replay bypasses call()/afterCommand(); drain the per-key
-             * post-notification queue here so module callbacks fire once per
-             * replayed single command*/
-            if (server.has_pending_keyed_post_notif_jobs)
-                firePostKeyedNotificationJobs();
+            /* AOF replay bypasses call()/afterCommand(); fire the opted-in
+             * per-key post-notification jobs here so they run once per replayed
+             * single command, as REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS
+             * promises. Regular and non-opted jobs are flushed at cleanup. */
+            if (server.fire_keyed_jobs_between_subcommands)
+                firePerKeyJobsBetweenSubcommands();
             fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
@@ -1765,8 +1766,9 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
-    if (server.has_pending_keyed_post_notif_jobs)
-        firePostKeyedNotificationJobs();
+    /* Flush any post-notification jobs still queued from the replay (e.g. lazy
+     * per-key jobs that don't fire between sub-commands). */
+    firePostExecutionUnitJobs();
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;

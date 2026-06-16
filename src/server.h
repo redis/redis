@@ -2062,13 +2062,16 @@ struct redisServer {
     int execution_nesting;      /* Execution nesting level.
                                  * e.g. call(), async module stuff (timers, events, etc.),
                                  * cron stuff (active expire, eviction) */
-    uint8_t firing_keyed_post_notif_jobs; /* Re-entrance guard while
-                                       * firePostKeyedNotificationJobs is draining. */
-    uint8_t has_pending_keyed_post_notif_jobs; /* Fast-path hint: non-zero when at
-                                       * least one keyed post-notification job
-                                       * is queued. Lets the hot command path
-                                       * skip the firePostKeyedNotificationJobs
-                                       * call entirely when nothing is pending. */
+    uint8_t firing_keyed_post_notif_jobs; /* Non-zero while a per-key post-notification
+                                       * callback runs. The no-write guard: RM_Call is
+                                       * refused for the duration so the callback cannot
+                                       * touch the keyspace. */
+    uint8_t fire_keyed_jobs_between_subcommands; /* Non-zero when a module that
+                                       * opted into REDISMODULE_OPTIONS_PER_KEY_NOTIFICATION_JOBS
+                                       * queued a keyed job. Gates the between-sub-command
+                                       * drain in afterCommand; checked only after
+                                       * execution_nesting (hot) so standalone commands
+                                       * never load this byte. */
     uint8_t in_keyspace_notification;     /* >0 while inside a moduleNotifyKeyspaceEvent
                                        * dispatch. Defines the scope from which
                                        * RM_AddPostNotificationJobForKey may be called;
@@ -3132,7 +3135,7 @@ int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 void firePostExecutionUnitJobs(void);
-void firePostKeyedNotificationJobs(void);
+void firePerKeyJobsBetweenSubcommands(void);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
