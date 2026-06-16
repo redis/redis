@@ -375,11 +375,11 @@ start_server {tags {"hash"}} {
         assert_equal v127 [r hget freshcap f127]
     }
 
-    test {HSET fresh wide build - wide command with one duplicate field falls back, last-wins} {
+    test {HSET fresh wide build - wide command with one duplicate field, last-wins} {
         r del freshwidedup
         set args {}
         for {set i 0} {$i < 60} {incr i} { lappend args k$i u$i }
-        # repeat k0 at the tail with a new value -> duplicate detected -> per-field fallback
+        # repeat k0 at the tail with a new value -> dict collapses it last-wins
         lappend args k0 LAST
         assert_equal 60 [r hset freshwidedup {*}$args]
         assert_equal 60 [r hlen freshwidedup]

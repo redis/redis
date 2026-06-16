@@ -2154,14 +2154,12 @@ void hsetnxCommand(client *c) {
  * a non-empty hash, or with field TTLs (LISTPACK_EX) or hashtable encoding, takes
  * the unchanged per-field path (this helper is not called).
  *
- * A listpack hash must not contain duplicate fields, so the batched append is
- * only valid when the command's fields are all distinct. We detect duplicates
- * with a transient dict used purely as a set -- the same dict-as-a-set idiom
- * rdb.c uses (dupSearchDict) to reject duplicate hash fields while loading a
- * listpack hash (there with an owning dictType; here sdsReplyDictType borrows the
- * argv sds, so no per-field copy or free). If a field repeats (rare for a single
- * HSET) we return -1 and the caller falls back to the proven per-field path, which
- * resolves last-wins correctly -- so this helper never re-implements that.
+ * We collect the (field,value) pairs into a transient dict -- which also resolves
+ * in-command duplicate fields last-wins for free (dictReplace) -- then append the
+ * unique pairs with a single lpBatchAppend(). sdsReplyDictType makes the dict
+ * borrow the argv field/value sds (no copy, no free). Field order in the resulting
+ * listpack follows dict iteration order rather than argv order; hash fields are
+ * unordered (a hashtable-encoded hash is already unordered), so that is fine.
  *
  * Caller guarantees (asserted): o is an empty OBJ_ENCODING_LISTPACK hash and
  * 2 <= numfields <= HSET_LP_BATCH_MAX, and hashTypeTryConversion() has already
@@ -2170,36 +2168,39 @@ void hsetnxCommand(client *c) {
  * would already be a hashtable and we would not be here). Hence no per-field
  * length check and no post-build conversion are needed.
  *
- * Returns the number of fields created (== numfields) on the fast path, or -1 if
- * a duplicate field was found (caller must take the per-field path). HSET_LP_BATCH_MAX
- * bounds the stack array (2*MAX listpackEntry, ~6 KB at 128); a fresh HSET with
- * more fields (only reachable with a raised hash-max-listpack-entries) takes the
- * per-field path. */
+ * Returns the number of fields created (unique fields, <= numfields).
+ * HSET_LP_BATCH_MAX bounds the stack array (2*MAX listpackEntry, ~6 KB at 128); a
+ * fresh HSET with more fields (only reachable with a raised hash-max-listpack-entries)
+ * takes the per-field path. */
 #define HSET_LP_BATCH_MAX 128
 static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0 &&
                  numfields >= 2 && numfields <= HSET_LP_BATCH_MAX);
 
-    /* Duplicate-field detector (transient, borrows argv sds). */
-    dict *dupSearchDict = dictCreate(&sdsReplyDictType);
-    dictExpand(dupSearchDict, numfields);
-    int dup = 0;
-    for (int j = 0; j < numfields; j++) {
-        if (dictAdd(dupSearchDict, argv[j*2]->ptr, NULL) != DICT_OK) { dup = 1; break; }
-    }
-    dictRelease(dupSearchDict);
-    if (dup) return -1; /* fall back to the per-field last-wins path */
+    /* Collect unique (field,value) pairs; dictReplace gives last-wins on a
+     * repeated field. sdsReplyDictType borrows the argv sds (no copy/free). */
+    dict *fields = dictCreate(&sdsReplyDictType);
+    dictExpand(fields, numfields);
+    for (int j = 0; j < numfields; j++)
+        dictReplace(fields, argv[j*2]->ptr, argv[j*2+1]->ptr);
 
-    /* All fields distinct: build the whole hash with one batched append. */
+    int created = dictSize(fields);
     listpackEntry pairs[2 * HSET_LP_BATCH_MAX];
-    for (int j = 0; j < numfields * 2; j++) {
-        sds s = argv[j]->ptr;
-        pairs[j].sval = (unsigned char*)s;
-        pairs[j].slen = sdslen(s);
+    int n = 0;
+    dictIterator *di = dictGetIterator(fields);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        sds field = dictGetKey(de), value = dictGetVal(de);
+        pairs[n*2].sval   = (unsigned char*)field; pairs[n*2].slen   = sdslen(field);
+        pairs[n*2+1].sval = (unsigned char*)value; pairs[n*2+1].slen = sdslen(value);
+        n++;
     }
-    o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)numfields * 2);
+    dictReleaseIterator(di);
+    dictRelease(fields);
+
+    o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)created * 2);
     serverAssert(o->ptr != NULL); /* sizes pre-validated by hashTypeTryConversion */
-    return numfields;
+    return created;
 }
 
 void hsetCommand(client *c) {
@@ -2219,16 +2220,11 @@ void hsetCommand(client *c) {
     hashTypeTryConversion(c->db, kv, c->argv, 2, c->argc-1);
 
     int numfields = (c->argc - 2) / 2;
-    int built = -1;
     if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields > 1 &&
         numfields <= HSET_LP_BATCH_MAX && lpLength(kv->ptr) == 0)
     {
-        /* Fresh wide build: O(n) batch append (see hashTypeBuildFreshListpack).
-         * Returns -1 if the command has a duplicate field -> per-field fallback. */
-        built = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
-    }
-    if (built >= 0) {
-        created = built;
+        /* Fresh wide build: collect into a dict (last-wins) + one batch append. */
+        created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
     } else {
         for (i = 2; i < c->argc; i += 2)
             created += !hashTypeSet(c->db, kv, c->argv[i]->ptr, c->argv[i+1]->ptr, HASH_SET_COPY);
