@@ -66,6 +66,7 @@
 #define CLUSTER_MANAGER_SLOTS               16384
 #define CLUSTER_MANAGER_PORT_INCR           10000 /* same as CLUSTER_PORT_INCR */
 #define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
+#define CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT 3600000 /* 60 minutes */
 #define CLUSTER_MANAGER_MIGRATE_PIPELINE    10
 #define CLUSTER_MANAGER_REBALANCE_THRESHOLD 2
 
@@ -117,6 +118,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
 #define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
 #define CLUSTER_MANAGER_CMD_FLAG_ASM            1 << 13
+#define CLUSTER_MANAGER_CMD_FLAG_TIMEOUT        1 << 14
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -2971,6 +2973,8 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.slots = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-timeout") && !lastarg) {
             config.cluster_manager_command.timeout = atoi(argv[++i]);
+            config.cluster_manager_command.flags |=
+                CLUSTER_MANAGER_CMD_FLAG_TIMEOUT;
         } else if (!strcmp(argv[i],"--cluster-pipeline") && !lastarg) {
             config.cluster_manager_command.pipeline = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-threshold") && !lastarg) {
@@ -5526,8 +5530,12 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
     if (!(opts & CLUSTER_MANAGER_OPT_QUIET))
         printf("Waiting for migration task %s to complete", task_id);
 
-    /* Poll until completed/canceled/timeout. */
+    /* Poll until completed/canceled/timeout. When the user did not explicitly
+     * set --cluster-timeout, ASM uses a larger default since a single task may
+     * migrate a large amount of data. */
     int timeout = config.cluster_manager_command.timeout;
+    if (!(config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_TIMEOUT))
+        timeout = CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT;
     long long start_time = mstime();
     char errbuf[256];
     int success = 0;
