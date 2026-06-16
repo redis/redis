@@ -3398,7 +3398,9 @@ void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
 uint64_t trackingGetTotalPrefixes(void);
-void trackingBroadcastInvalidationMessages(void);
+void trackingBroadcastInvalidationMessages(user *u);
+void trackingBroadcastFlushClientPrefixes(client *c);
+void clientSetUser(client *c, user *new_user);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */

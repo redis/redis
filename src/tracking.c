@@ -605,15 +605,125 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
     return proto;
 }
 
-/* This function will run the prefixes of clients in BCAST mode and
- * keys that were modified about each prefix, and will send the
- * notifications to each client in each prefix.
+/* Send the pending BCAST invalidation messages accumulated in a single
+ * prefix's bcastState to every client subscribed to that prefix, then reset
+ * bs->keys so only keys accumulated from now on are tracked.
  *
  * For non-NOLOOP clients the invalidation proto is cached per distinct
  * ACL user pointer so that ACLUserCheckKeyPerm is called O(U*K) times
  * instead of O(C*K) (U = distinct users, C = clients, K = keys). */
-void trackingBroadcastInvalidationMessages(void) {
-    raxIterator ri, ri2;
+static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
+    if (raxSize(bs->keys) == 0) return;
+
+    raxIterator ri;
+
+    /* Per-user proto cache.  Key: user * pointer (identity),
+     * value: sds proto (may be NULL for users whose keys are all
+     * filtered out by ACL). */
+    dictType dt = { .hashFunction = dictPtrHash };
+    dict *user_cache = dictCreate(&dt);
+
+    /* Send this array of keys to every client in the list. */
+    raxStart(&ri,bs->clients);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        client *c;
+        memcpy(&c,ri.key,sizeof(c));
+
+        if (c->flags & CLIENT_TRACKING_NOLOOP) {
+            sds proto = trackingBuildBroadcastReply(c->user, c, bs->keys);
+            if (proto) {
+                sendTrackingMessage(c,proto,sdslen(proto),1);
+                sdsfree(proto);
+            }
+        } else {
+            dictEntry *existing;
+            dictEntry *de = dictAddRaw(user_cache, c->user, &existing);
+            if (de != NULL) {
+                sds proto = trackingBuildBroadcastReply(c->user, NULL,
+                                                        bs->keys);
+                dictSetVal(user_cache, de, proto);
+            } else {
+                de = existing;
+            }
+            void *cached = dictGetVal(de);
+            if (cached)
+                sendTrackingMessage(c,(char*)cached,sdslen((sds)cached),1);
+        }
+    }
+    raxStop(&ri);
+
+    /* Free all cached protos. */
+    dictIterator *cache_di = dictGetIterator(user_cache);
+    dictEntry *de;
+    while ((de = dictNext(cache_di)) != NULL) {
+        sds proto = dictGetVal(de);
+        if (proto) sdsfree(proto);
+    }
+    dictReleaseIterator(cache_di);
+    dictRelease(user_cache);
+
+    /* Clean up: we can remove everything from this state, because we
+     * want to only track the new keys that will be accumulated starting
+     * from now. */
+    raxFree(bs->keys);
+    bs->keys = raxNew();
+}
+
+/* Return 1 if at least one client subscribed to 'bs' is authenticated as
+ * user 'u', 0 otherwise. */
+static int bcastStateHasUser(bcastState *bs, user *u) {
+    raxIterator ri;
+    raxStart(&ri,bs->clients);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        client *c;
+        memcpy(&c,ri.key,sizeof(c));
+        if (c->user == u) {
+            raxStop(&ri);
+            return 1;
+        }
+    }
+    raxStop(&ri);
+    return 0;
+}
+
+/* Flush the pending BCAST invalidation messages for every prefix that client
+ * 'c' subscribes to, so the keys accumulated so far are delivered under c's
+ * CURRENT ACL identity.
+ *
+ * This must be called BEFORE c->user is changed (e.g. on re-AUTH). Otherwise
+ * beforeSleep would re-filter the already-accumulated keys by the new
+ * (possibly stricter) permissions and drop invalidations for keys the client
+ * could previously read. No-op if 'c' is not a BCAST tracking client. */
+void trackingBroadcastFlushClientPrefixes(client *c) {
+    if (!(c->flags & CLIENT_TRACKING_BCAST)) return;
+    if (c->client_tracking_prefixes == NULL) return;
+    if (TrackingTable == NULL || !server.tracking_clients) return;
+
+    raxIterator ri;
+    raxStart(&ri,c->client_tracking_prefixes);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        void *result;
+        int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+        serverAssert(found);
+        trackingBcastInvalidationsForPrefix(result);
+    }
+    raxStop(&ri);
+}
+
+/* This function will run the prefixes of clients in BCAST mode and
+ * keys that were modified about each prefix, and will send the
+ * notifications to each client in each prefix.
+ *
+ * If 'u' is non-NULL, only prefixes that have at least one client
+ * authenticated as 'u' are flushed. This is used to deliver pending
+ * invalidations under the old identity before an in-place ACL change to 'u'
+ * would otherwise cause beforeSleep to re-filter them by the new permissions.
+ * Passing NULL flushes every prefix. */
+void trackingBroadcastInvalidationMessages(user *u) {
+    raxIterator ri;
 
     /* Return ASAP if there is nothing to do here. */
     if (TrackingTable == NULL || !server.tracking_clients) return;
@@ -624,62 +734,8 @@ void trackingBroadcastInvalidationMessages(void) {
     /* For each prefix... */
     while(raxNext(&ri)) {
         bcastState *bs = ri.data;
-
-        if (raxSize(bs->keys)) {
-            /* Per-user proto cache.  Key: user * pointer (identity),
-             * value: sds proto (may be NULL for users whose keys are all
-             * filtered out by ACL). */
-            dictType dt = { .hashFunction = dictPtrHash };
-            dict *user_cache = dictCreate(&dt);
-
-            /* Send this array of keys to every client in the list. */
-            raxStart(&ri2,bs->clients);
-            raxSeek(&ri2,"^",NULL,0);
-            while(raxNext(&ri2)) {
-                client *c;
-                memcpy(&c,ri2.key,sizeof(c));
-
-                if (c->flags & CLIENT_TRACKING_NOLOOP) {
-                    sds proto = trackingBuildBroadcastReply(
-                                    c->user, c, bs->keys);
-                    if (proto) {
-                        sendTrackingMessage(c,proto,sdslen(proto),1);
-                        sdsfree(proto);
-                    }
-                } else {
-                    dictEntry *existing;
-                    dictEntry *de = dictAddRaw(user_cache, c->user,
-                                              &existing);
-                    if (de != NULL) {
-                        sds proto = trackingBuildBroadcastReply(
-                                        c->user, NULL, bs->keys);
-                        dictSetVal(user_cache, de, proto);
-                    } else {
-                        de = existing;
-                    }
-                    void *cached = dictGetVal(de);
-                    if (cached)
-                        sendTrackingMessage(c,(char*)cached,
-                                            sdslen((sds)cached),1);
-                }
-            }
-            raxStop(&ri2);
-
-            /* Free all cached protos. */
-            dictIterator *cache_di = dictGetIterator(user_cache);
-            dictEntry *de;
-            while ((de = dictNext(cache_di)) != NULL) {
-                sds proto = dictGetVal(de);
-                if (proto) sdsfree(proto);
-            }
-            dictReleaseIterator(cache_di);
-            dictRelease(user_cache);
-        }
-        /* Clean up: we can remove everything from this state, because we
-         * want to only track the new keys that will be accumulated starting
-         * from now. */
-        raxFree(bs->keys);
-        bs->keys = raxNew();
+        if (u == NULL || bcastStateHasUser(bs, u))
+            trackingBcastInvalidationsForPrefix(bs);
     }
     raxStop(&ri);
 }

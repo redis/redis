@@ -883,6 +883,182 @@ start_server {tags {"tracking network logreqres:skip"}} {
         assert_equal {PONG} [$rd read]
     }
 
+    test {BCAST ACL filtering - two clients same user see only permitted keys} {
+        clean_all
+
+        r ACL SETUSER shareduser on >pass123 ~public:* +@all
+        set c1 [redis_deferring_client]
+        set c2 [redis_deferring_client]
+
+        $c1 AUTH shareduser pass123
+        $c1 read
+
+        $c2 AUTH shareduser pass123
+        $c2 read
+
+        $c1 HELLO 3
+        $c1 read
+        $c2 HELLO 3
+        $c2 read
+
+        $c1 CLIENT TRACKING on BCAST PREFIX public: PREFIX admin:
+        assert_match {*OK*} [$c1 read]
+        $c2 CLIENT TRACKING on BCAST PREFIX public: PREFIX admin:
+        assert_match {*OK*} [$c2 read]
+
+        $rd_sg MSET public:a{t} 1 admin:b{t} 2
+
+        # Both clients should receive exactly {public:a{t}} for the
+        # public: prefix, and nothing for admin: (filtered out by ACL).
+        set c1_keys {}
+        set c2_keys {}
+        # Read invalidation messages: there are two prefixes, but only
+        # public: should have data for shareduser.
+        after 100
+        # $rd_sg is synchronous, so modified keys are already recorded
+        # on the server by the time we send PING. BCAST invalidations
+        # are flushed in beforeSleep before PONG, so they precede it
+        # on the wire. Drain all push messages until we hit the PONG.
+        $c1 PING
+        while 1 {
+            set resp [$c1 read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend c1_keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        $c2 PING
+        while 1 {
+            set resp [$c2 read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend c2_keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+
+        assert_equal [lsort $c1_keys] [list public:a{t}]
+        assert_equal [lsort $c2_keys] [list public:a{t}]
+
+        $c1 CLIENT TRACKING off
+        $c1 read
+        $c2 CLIENT TRACKING off
+        $c2 read
+        $c1 close
+        $c2 close
+        r ACL DELUSER shareduser
+    }
+
+    test {BCAST re-AUTH re-buckets correctly with ACL filtering} {
+        clean_all
+
+        r ACL SETUSER usr_a on >passA ~a:* +@all
+        r ACL SETUSER usr_b on >passB ~b:* +@all
+
+        set tc [redis_deferring_client]
+        $tc AUTH usr_a passA
+        $tc read
+
+        $tc HELLO 3
+        $tc read
+
+        $tc CLIENT TRACKING on BCAST PREFIX a: PREFIX b:
+        assert_match {*OK*} [$tc read]
+
+        # Write keys matching both prefixes.
+        $rd_sg SET a:1{t} val1
+        $rd_sg SET b:1{t} val1
+
+        # Under usr_a, only a:* is visible.
+        # $rd_sg is synchronous, so modified keys are already recorded
+        # on the server by the time we send PING. BCAST invalidations
+        # are flushed in beforeSleep before PONG, so they precede it
+        # on the wire. Drain all push messages until we hit the PONG.
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list a:1{t}]
+
+        # Re-AUTH as usr_b.
+        $tc AUTH usr_b passB
+        $tc read
+
+        # Write again.
+        $rd_sg SET a:2{t} val2
+        $rd_sg SET b:2{t} val2
+
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list b:2{t}]
+
+        $tc CLIENT TRACKING off
+        $tc read
+        $tc close
+        r ACL DELUSER usr_a
+        r ACL DELUSER usr_b
+    }
+
+    test {BCAST in-place ACL SETUSER flushes pending invalidations under old perms} {
+        clean_all
+
+        r ACL SETUSER setu on >setpass ~p:* +@all
+        set tc [redis_deferring_client]
+        $tc AUTH setu setpass
+        $tc read
+
+        $tc HELLO 3
+        $tc read
+
+        $tc CLIENT TRACKING on BCAST PREFIX p:
+        assert_match {*OK*} [$tc read]
+
+        # Modify a key the user can currently read AND revoke that access in
+        # the same event-loop iteration (MULTI/EXEC), so the invalidation is
+        # still pending when the user's permissions are overwritten in place.
+        # Without flushing under the old identity, the pending key would be
+        # re-filtered by the new (stricter) perms in beforeSleep and dropped.
+        $rd_sg MULTI
+        $rd_sg SET p:x{t} 1
+        $rd_sg ACL SETUSER setu resetkeys ~q:*
+        $rd_sg EXEC
+
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list p:x{t}]
+
+        $tc CLIENT TRACKING off
+        $tc read
+        $tc close
+        r ACL DELUSER setu
+    }
+
     $rd_redirection close
     $rd_sg close
     $rd close
@@ -911,4 +1087,54 @@ start_server {tags {"tracking network"}} {
     test {Coverage: Basic CLIENT GETREDIR} {
         r CLIENT GETREDIR
     } {-1}
+}
+
+# ACL LOAD rewrites the default user in place, so a default-user BCAST client
+# must still get invalidations accumulated under the pre-load permissions.
+set server_path [tmpdir "tracking.acl"]
+set fd [open $server_path/tracking.acl w]
+puts $fd "user default on nopass ~p:* &* +@all"
+close $fd
+start_server [list overrides [list "dir" $server_path "aclfile" "tracking.acl"] tags [list "tracking" "network" "logreqres:skip" "external:skip"]] {
+    test {BCAST ACL LOAD on default user flushes pending invalidations under old perms} {
+        set tc [redis_deferring_client]
+        $tc HELLO 3
+        $tc read
+
+        $tc CLIENT TRACKING on BCAST PREFIX p:
+        assert_match {*OK*} [$tc read]
+
+        # Rewrite the ACL file so the next ACL LOAD revokes default's access
+        # to p:* keys.
+        set fd [open $server_path/tracking.acl w]
+        puts $fd "user default on nopass ~q:* &* +@all"
+        close $fd
+
+        # Modify a p:* key and reload the (now restrictive) ACL in the same
+        # event-loop iteration, so the invalidation is still pending when the
+        # default user is overwritten in place. Without flushing under the old
+        # identity, the pending key would be re-filtered by the new perms in
+        # beforeSleep and dropped.
+        r MULTI
+        r SET p:x{t} 1
+        r ACL LOAD
+        r EXEC
+
+        after 100
+        $tc PING
+        set keys {}
+        while 1 {
+            set resp [$tc read]
+            if {[lindex $resp 0] eq "invalidate"} {
+                lappend keys {*}[lindex $resp 1]
+            } else {
+                break
+            }
+        }
+        assert_equal $keys [list p:x{t}]
+
+        $tc CLIENT TRACKING off
+        $tc read
+        $tc close
+    }
 }
