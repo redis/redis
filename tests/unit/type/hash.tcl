@@ -364,6 +364,30 @@ start_server {tags {"hash"}} {
         assert_equal c [r hget freshalldup f]
     }
 
+    test {HSET fresh wide build at the batch cap (128 distinct fields) stays listpack} {
+        r del freshcap
+        set args {}
+        for {set i 0} {$i < 128} {incr i} { lappend args f$i v$i }
+        assert_equal 128 [r hset freshcap {*}$args]
+        assert_equal 128 [r hlen freshcap]
+        assert_encoding listpack freshcap
+        assert_equal v0 [r hget freshcap f0]
+        assert_equal v127 [r hget freshcap f127]
+    }
+
+    test {HSET fresh wide build - wide command with one duplicate field falls back, last-wins} {
+        r del freshwidedup
+        set args {}
+        for {set i 0} {$i < 60} {incr i} { lappend args k$i u$i }
+        # repeat k0 at the tail with a new value -> duplicate detected -> per-field fallback
+        lappend args k0 LAST
+        assert_equal 60 [r hset freshwidedup {*}$args]
+        assert_equal 60 [r hlen freshwidedup]
+        assert_encoding listpack freshwidedup
+        assert_equal LAST [r hget freshwidedup k0]
+        assert_equal u59 [r hget freshwidedup k59]
+    }
+
     test {HSET fresh build with an over-limit value converts to hashtable} {
         r config set hash-max-listpack-value 64
         r del freshbigval
