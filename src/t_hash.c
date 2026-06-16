@@ -2154,12 +2154,13 @@ void hsetnxCommand(client *c) {
  * a non-empty hash, or with field TTLs (LISTPACK_EX) or hashtable encoding, takes
  * the unchanged per-field path (this helper is not called).
  *
- * We collect the (field,value) pairs into a transient dict -- which also resolves
+ * We collect the (field,value) pairs into a transient dict -- which resolves
  * in-command duplicate fields last-wins for free (dictReplace) -- then append the
  * unique pairs with a single lpBatchAppend(). sdsReplyDictType makes the dict
- * borrow the argv field/value sds (no copy, no free). Field order in the resulting
- * listpack follows dict iteration order rather than argv order; hash fields are
- * unordered (a hashtable-encoded hash is already unordered), so that is fine.
+ * borrow the argv field/value sds (no copy, no free). Fields are emitted in
+ * argv first-occurrence order (we walk argv and consume each field from the dict
+ * once), so the listpack is byte-identical to the per-field path -- preserving the
+ * insertion order callers and tests observe via HGETALL.
  *
  * Caller guarantees (asserted): o is an empty OBJ_ENCODING_LISTPACK hash and
  * 2 <= numfields <= HSET_LP_BATCH_MAX, and hashTypeTryConversion() has already
@@ -2177,25 +2178,28 @@ static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0 &&
                  numfields >= 2 && numfields <= HSET_LP_BATCH_MAX);
 
-    /* Collect unique (field,value) pairs; dictReplace gives last-wins on a
-     * repeated field. sdsReplyDictType borrows the argv sds (no copy/free). */
+    /* Pass 1: dict field -> latest value (dictReplace = last-wins on a repeated
+     * field). sdsReplyDictType borrows the argv sds (no copy/free). */
     dict *fields = dictCreate(&sdsReplyDictType);
     dictExpand(fields, numfields);
     for (int j = 0; j < numfields; j++)
         dictReplace(fields, argv[j*2]->ptr, argv[j*2+1]->ptr);
 
     int created = dictSize(fields);
+    /* Pass 2: walk argv in order, emit each field once with its final value,
+     * deleting it from the dict so a later duplicate occurrence is skipped. This
+     * keeps first-occurrence (insertion) order. */
     listpackEntry pairs[2 * HSET_LP_BATCH_MAX];
     int n = 0;
-    dictIterator *di = dictGetIterator(fields);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    for (int j = 0; j < numfields; j++) {
+        dictEntry *de = dictFind(fields, argv[j*2]->ptr);
+        if (de == NULL) continue; /* already emitted (earlier occurrence) */
         sds field = dictGetKey(de), value = dictGetVal(de);
         pairs[n*2].sval   = (unsigned char*)field; pairs[n*2].slen   = sdslen(field);
         pairs[n*2+1].sval = (unsigned char*)value; pairs[n*2+1].slen = sdslen(value);
         n++;
+        dictDelete(fields, field);
     }
-    dictReleaseIterator(di);
     dictRelease(fields);
 
     o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)created * 2);
