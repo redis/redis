@@ -432,6 +432,38 @@ foreach type {single multiple single_multiple} {
         assert_equal 3 [r sdiffcard 2 s0{t} nonexistent{t}]
     }
 
+    # The DIFF algorithm is selected by a size heuristic: a large first set
+    # combined with many small subtrahend sets forces algorithm 2. With LIMIT
+    # and cardinality-only, this is served by the early-terminating algo 2b.
+    # These tests assert it still returns the correct (clamped) cardinality.
+    foreach {type setup} {
+        intset {
+            r del s0{t}
+            for {set i 0} {$i < 1000} {incr i} { r sadd s0{t} $i }
+            for {set k 1} {$k <= 20} {incr k} { r del s$k{t}; r sadd s$k{t} $k }
+        }
+        string {
+            r del s0{t}
+            for {set i 0} {$i < 1000} {incr i} { r sadd s0{t} "elem-$i" }
+            for {set k 1} {$k <= 20} {incr k} { r del s$k{t}; r sadd s$k{t} "elem-$k" }
+        }
+    } {
+        test "SDIFFCARD forces algo 2 with LIMIT early termination - $type" {
+            eval $setup
+            set keys [list s0{t}]
+            for {set k 1} {$k <= 20} {incr k} { lappend keys s$k{t} }
+            set nk [llength $keys]
+            # Full diff: 1000 elements minus the 20 distinct subtracted ones.
+            set full [r sdiffcard $nk {*}$keys]
+            assert_equal 980 $full
+            assert_equal 980 [r sdiffcard $nk {*}$keys LIMIT 0]
+            assert_equal 1 [r sdiffcard $nk {*}$keys LIMIT 1]
+            assert_equal 100 [r sdiffcard $nk {*}$keys LIMIT 100]
+            assert_equal 980 [r sdiffcard $nk {*}$keys LIMIT 980]
+            assert_equal 980 [r sdiffcard $nk {*}$keys LIMIT 5000]
+        }
+    }
+
     foreach {type} {regular intset} {
         # Create sets setN{t} where N = 1..5
         if {$type eq "regular"} {
