@@ -126,8 +126,24 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:convert:huge]
         assert_error {*exceeds proto-max-bulk-len*} {r bitmap convert bitmap:convert:huge STRING}
         assert_equal bitmap [r type bitmap:convert:huge]
+        assert_equal 40 [string length [r debug digest-value bitmap:convert:huge]]
         assert_error {*exceeds proto-max-bulk-len*} {r debug bitmap-raw bitmap:convert:huge}
         r del bitmap:convert:huge
+    }
+
+    test {DEBUG DIGEST for native bitmaps includes trailing zero length} {
+        r config set bitmap-default-roaring yes
+        r del bitmap:digest:short bitmap:digest:long
+        r setbit bitmap:digest:short 3 1
+        r setbit bitmap:digest:long 3 1
+        r setbit bitmap:digest:long 1024 0
+        r config set bitmap-default-roaring no
+
+        assert_equal 1 [r bitcount bitmap:digest:short]
+        assert_equal 1 [r bitcount bitmap:digest:long]
+        assert_equal 1 [r getbit bitmap:digest:short 3]
+        assert_equal 1 [r getbit bitmap:digest:long 3]
+        assert {[r debug digest-value bitmap:digest:short] ne [r debug digest-value bitmap:digest:long]}
     }
 
     test {native bitmaps accept 64-bit offsets across the command surface} {

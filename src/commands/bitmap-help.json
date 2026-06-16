@@ -3,7 +3,7 @@
         "summary": "Returns helpful text about the different subcommands.",
         "complexity": "O(1)",
         "group": "bitmap",
-        "since": "8.8.0",
+        "since": "8.10.0",
         "arity": 2,
         "container": "BITMAP",
         "function": "bitmapCommand",

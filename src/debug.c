@@ -125,21 +125,16 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
 }
 
 void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
-    /* Bitmaps that fit a string representation digest their flat logical
-     * bytes. Larger bitmaps cannot be materialized; digest the logical length
-     * and the canonical little-endian serialized payload instead. Masters and
-     * replicas hold the same representation for every key (type transitions
-     * replicate as RESTORE), so either form compares reliably across a
-     * replication pair. */
-    sds raw = bitmapObjectMaterialize(o);
-    if (raw == NULL) {
-        char buf[LONG_STR_SIZE];
-        int len = ll2string(buf, sizeof(buf), (long long)bitmapObjectLen(o));
-        mixDigest(digest, buf, len);
-        raw = bitmapObjectSerialize(o);
-    }
-    mixDigest(digest, raw, sdslen(raw));
-    sdsfree(raw);
+    /* Digest native bitmaps by logical length plus canonical serialized
+     * payload. Avoid materializing sparse high-offset bitmaps into raw bytes:
+     * that can allocate up to proto-max-bulk-len for DEBUG DIGEST. */
+    char buf[LONG_STR_SIZE];
+    int len = ll2string(buf, sizeof(buf), (long long)bitmapObjectLen(o));
+    mixDigest(digest, buf, len);
+
+    sds payload = bitmapObjectSerialize(o);
+    mixDigest(digest, payload, sdslen(payload));
+    sdsfree(payload);
 }
 
 #ifdef ENABLE_GCRA
