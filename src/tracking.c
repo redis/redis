@@ -553,32 +553,32 @@ void trackingLimitUsedSlots(void) {
     timeout_counter++;
 }
 
-/* Generate Redis protocol for an array containing all the key names
- * in the 'keys' radix tree. If the client is not NULL, the list will not
- * include keys that were modified the last time by this client, in order
- * to implement the NOLOOP option.
+/* Build the RESP array of invalidated key names in 'keys', filtered by:
+ *   - ACL key permissions of user 'u' (NULL means all keys are permitted).
+ *   - NOLOOP: if 'noloop_client' is non-NULL, keys last modified by
+ *     that client are excluded.
  *
  * If the resulting array would be empty, NULL is returned instead. */
-sds trackingBuildBroadcastReply(client *c, rax *keys) {
+sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
     raxIterator ri;
-    uint64_t count;
+    uint64_t count = 0;
 
-    if (c == NULL) {
-        count = raxSize(keys);
-    } else {
-        count = 0;
-        raxStart(&ri,keys);
-        raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
-            if (ri.data != c) count++;
-        }
-        raxStop(&ri);
-
-        if (count == 0) return NULL;
+    raxStart(&ri,keys);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        if (noloop_client && ri.data == noloop_client)
+            continue;
+        if (ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len,
+                CMD_KEY_ACCESS) != ACL_OK)
+            continue;
+        count++;
     }
+    raxStop(&ri);
+
+    if (count == 0) return NULL;
 
     /* Create the array reply with the list of keys once, then send
-    * it to all the clients subscribed to this prefix. */
+    * it to the receiving client. */
     char buf[32];
     size_t len = ll2string(buf,sizeof(buf),count);
     sds proto = sdsempty();
@@ -589,7 +589,11 @@ sds trackingBuildBroadcastReply(client *c, rax *keys) {
     raxStart(&ri,keys);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
-        if (c && ri.data == c) continue;
+        if (noloop_client && ri.data == noloop_client)
+            continue;
+        if (ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len,
+                CMD_KEY_ACCESS) != ACL_OK)
+            continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
         proto = sdscatlen(proto,"$",1);
         proto = sdscatlen(proto,buf,len);
@@ -603,7 +607,11 @@ sds trackingBuildBroadcastReply(client *c, rax *keys) {
 
 /* This function will run the prefixes of clients in BCAST mode and
  * keys that were modified about each prefix, and will send the
- * notifications to each client in each prefix. */
+ * notifications to each client in each prefix.
+ *
+ * For non-NOLOOP clients the invalidation proto is cached per distinct
+ * ACL user pointer so that ACLUserCheckKeyPerm is called O(U*K) times
+ * instead of O(C*K) (U = distinct users, C = clients, K = keys). */
 void trackingBroadcastInvalidationMessages(void) {
     raxIterator ri, ri2;
 
@@ -618,9 +626,11 @@ void trackingBroadcastInvalidationMessages(void) {
         bcastState *bs = ri.data;
 
         if (raxSize(bs->keys)) {
-            /* Generate the common protocol for all the clients that are
-             * not using the NOLOOP option. */
-            sds proto = trackingBuildBroadcastReply(NULL,bs->keys);
+            /* Per-user proto cache.  Key: user * pointer (identity),
+             * value: sds proto (may be NULL for users whose keys are all
+             * filtered out by ACL). */
+            dictType dt = { .hashFunction = dictPtrHash };
+            dict *user_cache = dictCreate(&dt);
 
             /* Send this array of keys to every client in the list. */
             raxStart(&ri2,bs->clients);
@@ -628,24 +638,46 @@ void trackingBroadcastInvalidationMessages(void) {
             while(raxNext(&ri2)) {
                 client *c;
                 memcpy(&c,ri2.key,sizeof(c));
+
                 if (c->flags & CLIENT_TRACKING_NOLOOP) {
-                    /* This client may have certain keys excluded. */
-                    sds adhoc = trackingBuildBroadcastReply(c,bs->keys);
-                    if (adhoc) {
-                        sendTrackingMessage(c,adhoc,sdslen(adhoc),1);
-                        sdsfree(adhoc);
+                    sds proto = trackingBuildBroadcastReply(
+                                    c->user, c, bs->keys);
+                    if (proto) {
+                        sendTrackingMessage(c,proto,sdslen(proto),1);
+                        sdsfree(proto);
                     }
                 } else {
-                    sendTrackingMessage(c,proto,sdslen(proto),1);
+                    dictEntry *existing;
+                    dictEntry *de = dictAddRaw(user_cache, c->user,
+                                              &existing);
+                    if (de != NULL) {
+                        sds proto = trackingBuildBroadcastReply(
+                                        c->user, NULL, bs->keys);
+                        dictSetVal(user_cache, de, proto);
+                    } else {
+                        de = existing;
+                    }
+                    void *cached = dictGetVal(de);
+                    if (cached)
+                        sendTrackingMessage(c,(char*)cached,
+                                            sdslen((sds)cached),1);
                 }
             }
             raxStop(&ri2);
 
-            /* Clean up: we can remove everything from this state, because we
-             * want to only track the new keys that will be accumulated starting
-             * from now. */
-            sdsfree(proto);
+            /* Free all cached protos. */
+            dictIterator *cache_di = dictGetIterator(user_cache);
+            dictEntry *de;
+            while ((de = dictNext(cache_di)) != NULL) {
+                sds proto = dictGetVal(de);
+                if (proto) sdsfree(proto);
+            }
+            dictReleaseIterator(cache_di);
+            dictRelease(user_cache);
         }
+        /* Clean up: we can remove everything from this state, because we
+         * want to only track the new keys that will be accumulated starting
+         * from now. */
         raxFree(bs->keys);
         bs->keys = raxNew();
     }
