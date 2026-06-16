@@ -4,13 +4,16 @@
  * key metadata via RM_SetKeyMeta. Metadata is not in the AOF/RDB and is not
  * replicated, so its presence after a reload proves the callback re-ran. Keys
  * with the "probe_" prefix instead enqueue a job that attempts a (forbidden)
- * RM_Call, to check the runtime refuses it.
+ * RM_Call, to check the runtime refuses it. Keys with the "notifyprobe_" prefix
+ * enqueue a job that attempts a (forbidden) RM_NotifyKeyspaceEvent, to check the
+ * runtime refuses that too.
  *
  * Commands:
  *   pkmeta.getmeta <key>   - metadata string, or nil
  *   pkmeta.firecount       - how many times the per-key job ran
  *   pkmeta.firelog         - key names the job fired for, in order
  *   pkmeta.rmcall_blocked  - how many RM_Call attempts were refused
+ *   pkmeta.notify_blocked  - how many RM_NotifyKeyspaceEvent attempts were refused
  *   pkmeta.reset           - zero the counters and clear the log
  *   pkmeta.try_outside     - call the API outside a KSN handler (must fail)
  *
@@ -53,6 +56,10 @@ static void FireLogClear(void) {
 
 /* RM_Call attempts from inside a per-key callback that the runtime refused. */
 static long long rmcall_blocked_count = 0;
+
+/* RM_NotifyKeyspaceEvent attempts from inside a per-key callback that the
+ * runtime refused. */
+static long long notify_blocked_count = 0;
 
 /* Firings the job observed on an already-removed key (expired or evicted): the
  * key is gone by the time the job runs, so it can't attach metadata, but the
@@ -129,6 +136,17 @@ static void PerKeyRMCallProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, vo
     }
 }
 
+/* Per-key job that fires a (forbidden) keyspace notification. The runtime must
+ * refuse it: RM_NotifyKeyspaceEvent returns REDISMODULE_ERR while a per-key
+ * callback runs. Registered for "notifyprobe_" keys. */
+static void PerKeyNotifyProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+    REDISMODULE_NOT_USED(pd);
+    if (RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_GENERIC,
+                                        "pkmeta.probe", key) == REDISMODULE_ERR) {
+        notify_blocked_count++;
+    }
+}
+
 /* KSN handler: enqueues a per-key job instead of writing inline. */
 static int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                           RedisModuleString *key) {
@@ -137,6 +155,8 @@ static int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
     const char *kname = RedisModule_StringPtrLen(key, NULL);
     if (strncmp(kname, "probe_", 6) == 0) {
         RedisModule_AddPostNotificationJobForKey(ctx, PerKeyRMCallProbeJob, key, NULL, NULL);
+    } else if (strncmp(kname, "notifyprobe_", 12) == 0) {
+        RedisModule_AddPostNotificationJobForKey(ctx, PerKeyNotifyProbeJob, key, NULL, NULL);
     } else {
         RedisModule_AddPostNotificationJobForKey(ctx, PerKeyMetadataJob, key, NULL, NULL);
     }
@@ -193,6 +213,12 @@ static int RMCallBlockedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithLongLong(ctx, rmcall_blocked_count);
 }
 
+static int NotifyBlockedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, notify_blocked_count);
+}
+
 /* How many times the per-key job fired for an already-removed (expired/evicted)
  * key. */
 static int EmptyFireCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -217,6 +243,7 @@ static int ResetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     REDISMODULE_NOT_USED(argc);
     fire_count = 0;
     rmcall_blocked_count = 0;
+    notify_blocked_count = 0;
     empty_fire_count = 0;
     FireLogClear();
     EmptyFireLogClear();
@@ -268,6 +295,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.rmcall_blocked", RMCallBlockedCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.notify_blocked", NotifyBlockedCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.empty_firecount", EmptyFireCountCommand,

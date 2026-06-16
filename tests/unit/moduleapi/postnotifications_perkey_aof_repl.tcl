@@ -340,6 +340,40 @@ tags "modules external:skip" {
     }
 }
 
+# No-keyspace contract: a per-key callback may not fire a keyspace notification.
+# RM_NotifyKeyspaceEvent is refused for the same reason RM_Call is — a nested
+# notification could enqueue further per-key jobs mid-drain.
+tags "modules external:skip" {
+    test "perkey-contract: RM_NotifyKeyspaceEvent from inside a per-key callback is refused" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r pkmeta.reset
+            set repl [attach_to_replication_stream]
+
+            r set notifyprobe_x 1
+
+            # The notification attempt was refused.
+            assert_equal 1 [r pkmeta.notify_blocked]
+
+            # Only the originating SET propagated; the refused notification did
+            # not dispatch anything.
+            assert_replication_stream $repl {
+                {select *}
+                {set notifyprobe_x 1}
+            }
+            close_replication_stream $repl
+        }
+    }
+
+    test "perkey-contract: notification refusal repeats per firing" {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            r pkmeta.reset
+            r mset notifyprobe_a 1 notifyprobe_b 2 notifyprobe_c 3
+            # One refused RM_NotifyKeyspaceEvent per affected key.
+            assert_equal 3 [r pkmeta.notify_blocked]
+        }
+    }
+}
+
 # Expiry / eviction: the per-key job must fire when a key disappears — the real
 # metadata-cleanup use case.
 tags "modules external:skip" {
