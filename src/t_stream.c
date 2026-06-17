@@ -4669,10 +4669,10 @@ void xclaimCommand(client *c) {
                 addReplyStreamID(c,&id);
             } else {
                 streamReplyRangeArgs rawargs = {
-                .start = &id, .end = &id, .count = 1,
-                .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
-            };
-            serverAssert(streamReplyWithRange(c,o->ptr,&rawargs) == 1);
+                    .start = &id, .end = &id, .count = 1,
+                    .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
+                };
+                serverAssert(streamReplyWithRange(c,o->ptr,&rawargs) == 1);
             }
             arraylen++;
 
