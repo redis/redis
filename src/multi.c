@@ -228,13 +228,10 @@ void execCommand(client *c) {
 
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
-            /* Fire per-key post-notification jobs (RM_AddPostNotificationJobForKey)
-             * queued by this sub-command, so modules observe per-key effects between
-             * MULTI/EXEC sub-commands. This is done explicitly here, rather than on
-             * the universal afterCommand() path, so standalone commands pay nothing.
-             * The sub-command's call() has fully returned, so it is safe to run the
-             * callbacks (no use-after-realloc). Regular jobs drain at the end of the
-             * EXEC's execution unit. */
+            /* Drain per-key jobs queued by this sub-command so modules observe
+             * per-key effects between MULTI/EXEC sub-commands. Done here rather
+             * than on afterCommand() so standalone commands pay nothing. Regular
+             * jobs drain at the end of the EXEC's execution unit. */
             if (server.fire_keyed_jobs_between_subcommands)
                 firePerKeyJobsBetweenSubcommands();
         }
