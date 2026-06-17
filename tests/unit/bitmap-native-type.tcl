@@ -15,7 +15,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set help [join [r bitmap help] "\n"]
 
         assert_match {*NATIVE changes TYPE to bitmap*} $help
-        assert_match {*STRING changes TYPE back to string*} $help
+        assert_match {*STRING*changes TYPE back to string*} $help
     }
 
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
