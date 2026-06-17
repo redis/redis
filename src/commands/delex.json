@@ -74,12 +74,12 @@
                     },
                     {
                         "name": "ifdeq-digest",
-                        "type": "integer",
+                        "type": "string",
                         "token": "IFDEQ"
                     },
                     {
                         "name": "ifdne-digest",
-                        "type": "integer",
+                        "type": "string",
                         "token": "IFDNE"
                     }
                 ]

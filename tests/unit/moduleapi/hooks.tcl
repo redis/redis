@@ -318,4 +318,53 @@ tags "modules external:skip" {
             r ping
         }
     }
+
+    start_server {} {
+        r module load $testmodule
+        r module load [file normalize tests/modules/fork.so]
+        # avoid spurious RDB-save forks polluting the fork-child counters
+        r config set save ""
+
+        test {Test ForkChild PRE and BORN hooks fire around a fork} {
+            r fork.create 0 0
+            assert {[r hooks.event_count fork-child-pre] >= 1}
+            assert {[r hooks.event_count fork-child-born] >= 1}
+            # the child exits immediately; DIED fires once the parent reaps it
+            wait_for_condition 50 100 {
+                [r hooks.event_count fork-child-died] >= 1
+            } else {
+                fail "fork-child-died hook did not fire"
+            }
+        }
+
+        test {Test ForkChild rejected fork fires neither PRE nor CANCELLED} {
+            # keep the first child alive long enough to reject the second fork
+            r fork.create 0 100000000
+            set pre_before [r hooks.event_count fork-child-pre]
+            set cancelled_before [r hooks.event_count fork-child-cancelled]
+
+            catch {r fork.create 0 0} e
+            assert_match {*Fork failed*} $e
+            assert {[r hooks.event_count fork-child-pre] == $pre_before}
+            assert {[r hooks.event_count fork-child-cancelled] == $cancelled_before}
+            r fork.kill
+        }
+
+        test {Test ForkChild CANCELLED hook fires when fork() fails} {
+            set pre_before [r hooks.event_count fork-child-pre]
+            set cancelled_before [r hooks.event_count fork-child-cancelled]
+            # force the fork() to fail: PRE fires, then the fork is cancelled
+            r debug fork-fail 1
+            catch {r fork.create 0 0} e
+            r debug fork-fail 0
+            assert_match {*Fork failed*} $e
+            # exactly one PRE and one CANCELLED fire for the failed fork
+            assert {[r hooks.event_count fork-child-pre] == $pre_before + 1}
+            assert {[r hooks.event_count fork-child-cancelled] == $cancelled_before + 1}
+            # disabling the hook restores normal forking
+            set born_before [r hooks.event_count fork-child-born]
+            r fork.create 0 0
+            assert {[r hooks.event_count fork-child-born] == $born_before + 1}
+        }
+    }
 }

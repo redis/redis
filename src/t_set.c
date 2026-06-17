@@ -14,13 +14,28 @@
 
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "hyperloglog.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
  *----------------------------------------------------------------------------*/
 
+/* When estimating cardinality with HLL and a LIMIT is set, this is the minimum
+ * number of additional elements to process between two hllCount() checks. */
+#define HLL_CHECK_INTERVAL_FLOOR 1024
+
+/* Compute the UNION or DIFF (per 'op') of the 'setnum' sets named in 'setkeys'.
+ *   dstkey          - if non-NULL, store the result into this key (…STORE) and
+ *                     reply with its cardinality; otherwise reply to the client.
+ *   cardinality_only - reply only with the result cardinality (SUNIONCARD),
+ *                      without materializing the elements to the client.
+ *   approx           - with cardinality_only, return an approximate cardinality
+ *                      computed with a HyperLogLog (UNION only).
+ *   limit            - with cardinality_only, stop once the cardinality reaches
+ *                      'limit' (0 means no limit). */
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op);
+                              robj *dstkey, int op,
+                              int cardinality_only, int approx, long limit);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a listpack
@@ -853,7 +868,7 @@ void spopWithCountCommand(client *c) {
      * the number of elements inside the set: simply return the whole set. */
     if (count >= size) {
         /* We just return the entire set */
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION,0,0,0);
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
@@ -1633,18 +1648,29 @@ void sinterstoreCommand(client *c) {
 }
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op) {
+                              robj *dstkey, int op,
+                              int cardinality_only, int approx, long limit)
+{
+    /* Approximate cardinality is only ever requested for SUNIONCARD, i.e. a
+     * non-storing UNION that returns a count. */
+    serverAssert(!approx || (op == SET_OP_UNION && cardinality_only && dstkey == NULL));
+
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator si;
     robj *dstset = NULL;
+    robj *hllobj = NULL; /* Used only for approximate (HLL) cardinality. */
     int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
     size_t len = 0;
     int64_t llval = 0;
     int encoding;
-    int j, cardinality = 0;
-    int diff_algo = 1;
-    int sameset = 0; 
+    int j, diff_algo = 1;
+    long cardinality = 0;
+    int sameset = 0;
+    /* Memory tracking is only needed for SET_OP_DIFF. UNION just iterates the
+     * source sets; it never calls dictFind/dictAdd/dictDelete on a passed key,
+     * so it can't advance a rehash and change a source set's allocation size. */
+    int must_track_memory = (op != SET_OP_UNION && server.memory_tracking_enabled);
 
     for (j = 0; j < setnum; j++) {
         kvobj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1675,7 +1701,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             dstset_encoding = OBJ_ENCODING_HT;
         }
         sets[j].set = setobj;
-        if (server.memory_tracking_enabled)
+        if (must_track_memory)
             sets[j].oldsize = kvobjAllocSize(setobj);
         if (j > 0 && sets[0].set == sets[j].set) {
             sameset = 1; 
@@ -1725,14 +1751,53 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     if (op == SET_OP_UNION) {
-        /* Union is trivial, just add every element of every set to the
-         * temporary set. */
-        for (j = 0; j < setnum; j++) {
+        /* Union is trivial, just add every element of every set to either the
+         * temporary set (exact) or, for approximate cardinality, a temporary
+         * HLL object (standard sparse→dense encoding, same as PFADD). */
+        if (approx) hllobj = createHLLObject();
+        int early_exit = 0;
+        long elements_processed = 0;
+        long check_after = limit; /* For approx: first check after `limit` elements. */
+        for (j = 0; j < setnum && !early_exit; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
-                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                if (!approx) {
+                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    if (cardinality_only && limit > 0 && cardinality >= limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                    continue;
+                }
+
+                /* Approximate path: feed the element into the HLL. The estimate
+                 * is only ever read, so we can stop early once it is confidently
+                 * at/above the requested LIMIT. */
+                int retval;
+                if (str != NULL) {
+                    retval = hllAdd(hllobj, (unsigned char *)str, len);
+                } else {
+                    char buf[LONG_STR_SIZE];
+                    size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
+                    retval = hllAdd(hllobj, (unsigned char *)buf, slen);
+                }
+                /* hllAdd() only fails on a corrupted HLL header, which cannot
+                 * happen for an HLL we just created ourselves. */
+                serverAssert(retval != -1);
+
+                elements_processed++;
+                if (limit > 0 && elements_processed >= check_after) {
+                    uint64_t est = hllCount(hllobj->ptr, NULL);
+                    if (est >= (uint64_t)limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                    long remaining = (long)limit - (long)est;
+                    check_after = elements_processed +
+                        (remaining > HLL_CHECK_INTERVAL_FLOOR ? remaining : HLL_CHECK_INTERVAL_FLOOR);
+                }
             }
             setTypeResetIterator(&si);
         }
@@ -1790,7 +1855,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (cardinality == 0) break;
         }
     }
-    if (server.memory_tracking_enabled) {
+    if (must_track_memory) {
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
             if (!obj) continue;
@@ -1800,7 +1865,17 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
-    if (!dstkey) {
+    if (cardinality_only) {
+        if (approx) {
+            cardinality = hllCount(hllobj->ptr, NULL);
+            if (limit > 0 && cardinality > limit)
+                cardinality = limit;
+            decrRefCount(hllobj);
+        }
+        addReplyLongLong(c, cardinality);
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
+                                          decrRefCount(dstset);
+    } else if (!dstkey) {
         addReplySetLen(c,cardinality);
         setTypeInitIterator(&si, dstset);
         while (setTypeNext(&si, &str, &len, &llval) != -1) {
@@ -1837,22 +1912,60 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* SUNION key [key ...] */
 void sunionCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION,0,0,0);
+}
+
+/* SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
+void sunioncardCommand(client *c) {
+    long j;
+    long numkeys = 0;
+    long limit = 0; /* 0 means no limit. */
+    int approx = 0;
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+        } else if (!strcasecmp(opt, "APPROX")) {
+            approx = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Both the exact and approximate (HLL) cardinality are computed by the
+     * generic union function; `approx` selects between them. */
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
+                             SET_OP_UNION, 1, approx, limit);
 }
 
 /* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION,0,0,0);
 }
 
 /* SDIFF key [key ...] */
 void sdiffCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF,0,0,0);
 }
 
 /* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0,0);
 }
 
 void sscanCommand(client *c) {

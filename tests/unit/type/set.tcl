@@ -263,6 +263,91 @@ foreach type {single multiple single_multiple} {
         assert_equal 0 [r sintercard 1 non-existing-key limit 10]
     }
 
+    test "SUNIONCARD with illegal arguments" {
+        assert_error "ERR wrong number of arguments for 'sunioncard' command" {r sunioncard}
+        assert_error "ERR wrong number of arguments for 'sunioncard' command" {r sunioncard 1}
+
+        assert_error "ERR numkeys*" {r sunioncard 0 myset{t}}
+        assert_error "ERR numkeys*" {r sunioncard a myset{t}}
+
+        assert_error "ERR Number of keys*" {r sunioncard 2 myset{t}}
+        assert_error "ERR Number of keys*" {r sunioncard 3 myset{t} myset2{t}}
+
+        assert_error "ERR syntax error*" {r sunioncard 1 myset{t} myset2{t}}
+        assert_error "ERR syntax error*" {r sunioncard 1 myset{t} bar_arg}
+        assert_error "ERR syntax error*" {r sunioncard 1 myset{t} LIMIT}
+
+        assert_error "ERR LIMIT*" {r sunioncard 1 myset{t} LIMIT -1}
+        assert_error "ERR LIMIT*" {r sunioncard 1 myset{t} LIMIT a}
+    }
+
+    test "SUNIONCARD against non-set should throw error" {
+        r del set{t}
+        r sadd set{t} a b c
+        r set key1{t} x
+
+        assert_error "WRONGTYPE*" {r sunioncard 1 key1{t}}
+        assert_error "WRONGTYPE*" {r sunioncard 2 set{t} key1{t}}
+        assert_error "WRONGTYPE*" {r sunioncard 2 key1{t} noset{t}}
+    }
+
+    test "SUNIONCARD against non-existing key" {
+        assert_equal 0 [r sunioncard 1 non-existing-key]
+        assert_equal 0 [r sunioncard 1 non-existing-key limit 0]
+        assert_equal 0 [r sunioncard 1 non-existing-key limit 10]
+    }
+
+    test "SUNIONCARD with APPROX flag" {
+        r del set1{t} set2{t}
+        r sadd set1{t} a b c
+        r sadd set2{t} c d e
+        set exact [r sunioncard 2 set1{t} set2{t}]
+        set approx [r sunioncard 2 set1{t} set2{t} APPROX]
+        assert_equal $exact $approx
+    }
+
+    test "SUNIONCARD LIMIT 0 means no limit" {
+        r del set1{t} set2{t}
+        r sadd set1{t} a b c
+        r sadd set2{t} c d e
+        assert_equal 5 [r sunioncard 2 set1{t} set2{t} LIMIT 0]
+    }
+
+    test "SUNIONCARD with both APPROX and LIMIT" {
+        r del set1{t} set2{t}
+        r sadd set1{t} a b c
+        r sadd set2{t} c d e
+        assert_equal 3 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 3]
+        assert_equal 5 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
+    }
+
+    test "SUNIONCARD APPROX with large sets is within HLL error margin" {
+        r del bigset1{t} bigset2{t}
+        set n 10000
+        for {set i 0} {$i < $n} {incr i} {
+            r sadd bigset1{t} "elem_a_$i"
+        }
+        for {set i 5000} {$i < [expr {$n + 5000}]} {incr i} {
+            r sadd bigset2{t} "elem_b_$i"
+        }
+
+        set exact [r sunioncard 2 bigset1{t} bigset2{t}]
+        set approx_val [r sunioncard 2 bigset1{t} bigset2{t} APPROX]
+
+        # HyperLogLog's relative standard error is ~0.81% (1.04/sqrt(16384
+        # registers)); the union of these sets estimates to ~0.3% off here. The
+        # 0.9% bound sits just above the standard error - tight enough to flag a
+        # real drift in the estimate while leaving headroom over the observed
+        # error.
+        set error_pct [expr {abs($approx_val - $exact) * 100.0 / $exact}]
+        assert {$error_pct < 0.9}
+
+        set approx_limited [r sunioncard 2 bigset1{t} bigset2{t} APPROX LIMIT 5000]
+        assert_equal 5000 $approx_limited
+
+        r del bigset1{t} bigset2{t}
+    }
+
     foreach {type} {regular intset} {
         # Create sets setN{t} where N = 1..5
         if {$type eq "regular"} {
@@ -336,6 +421,40 @@ foreach type {single multiple single_multiple} {
         test "SUNION with two sets - $type" {
             set expected [lsort -uniq "[r smembers set1{t}] [r smembers set2{t}]"]
             assert_equal $expected [lsort [r sunion set1{t} set2{t}]]
+        }
+
+        test "SUNIONCARD with two sets - $type" {
+            set expected [llength [lsort -uniq "[r smembers set1{t}] [r smembers set2{t}]"]]
+            assert_equal $expected [r sunioncard 2 set1{t} set2{t}]
+            assert_equal $expected [r sunioncard 2 set1{t} set2{t} LIMIT 0]
+            assert_equal 3 [r sunioncard 2 set1{t} set2{t} LIMIT 3]
+            assert_equal $expected [r sunioncard 2 set1{t} set2{t} LIMIT 10000]
+        }
+
+        test "SUNIONCARD against three sets - $type" {
+            set expected [llength [lsort -uniq "[r smembers set1{t}] [r smembers set2{t}] [r smembers set3{t}]"]]
+            assert_equal $expected [r sunioncard 3 set1{t} set2{t} set3{t}]
+            assert_equal $expected [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 0]
+            assert_equal 2 [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 2]
+            assert_equal $expected [r sunioncard 3 set1{t} set2{t} set3{t} LIMIT 10000]
+        }
+
+        test "SUNIONCARD with non existing keys - $type" {
+            set expected [llength [lsort -uniq "[r smembers set1{t}] [r smembers set2{t}]"]]
+            assert_equal $expected [r sunioncard 4 nokey1{t} set1{t} set2{t} nokey2{t}]
+        }
+
+        test "SUNIONCARD APPROX with two sets - $type" {
+            set exact [r sunioncard 2 set1{t} set2{t}]
+            set approx [r sunioncard 2 set1{t} set2{t} APPROX]
+            set error_pct [expr {abs($approx - $exact) * 100.0 / $exact}]
+            assert {$error_pct < 5.0}
+        }
+
+        test "SUNIONCARD APPROX with LIMIT - $type" {
+            set approx_no_limit [r sunioncard 2 set1{t} set2{t} APPROX]
+            assert_equal $approx_no_limit [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 0]
+            assert_equal 10 [r sunioncard 2 set1{t} set2{t} APPROX LIMIT 10]
         }
 
         test "SUNIONSTORE with two sets - $type" {

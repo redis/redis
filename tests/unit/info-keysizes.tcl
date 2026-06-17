@@ -1100,6 +1100,47 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
+        # Every command routed through sunionDiffGenericCommand() is exercised
+        # against a source set that is mid-rehash. The DIFF commands dictFind()
+        # into that set and complete its rehash, freeing the old hash table and
+        # shrinking the set's allocation - which must be recorded via
+        # updateSlotAllocSize(). The UNION commands only iterate the set (no
+        # resize); they are gated out of the tracking and must keep the per-slot
+        # accounting correct anyway. The per-slot assertion runs after every
+        # command, so any miscounting panics inside the loop below.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        # The "driver" set is only iterated (sets[0] of the DIFF algorithm), so
+        # it can be bulk-loaded for speed.
+        set driver {}
+        for {set i 0} {$i < 2000} {incr i} { lappend driver "d-$i" }
+        r SADD "driver{t}" {*}$driver
+
+        foreach cmd {
+            {SUNION driver{t} src{t}}
+            {SUNIONSTORE dst{t} driver{t} src{t}}
+            {SUNIONCARD 2 driver{t} src{t}}
+            {SUNIONCARD 2 driver{t} src{t} APPROX}
+            {SDIFF driver{t} src{t}}
+            {SDIFFSTORE dst{t} driver{t} src{t}}
+        } {
+            # Recreate src{t} before each command, leaving it mid-rehash.
+            # We add one member per SADD on purpose: a single SADD with many
+            # members would pre-size the dict and skip rehashing. A set's dict
+            # is only rehashed by operations on it, so stopping shortly after an
+            # expand boundary (here 256) leaves the rehash unfinished.
+            r DEL "src{t}"
+            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
+            assert_encoding hashtable "src{t}"
+
+            r {*}$cmd
+        }
+
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
