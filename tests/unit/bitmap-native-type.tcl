@@ -398,11 +398,31 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r setbit bitop:not:huge 99999999999 1
         r config set bitmap-default-roaring no
 
-        assert_error {*BITOP NOT*proto-max-bulk-len*} {
+        assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
             r bitop not bitop:not:out bitop:not:huge
         }
         assert_equal 0 [r exists bitop:not:out]
         r del bitop:not:huge
+    }
+
+    test {BITOP NOT rejects oversized string sources when destination would be native} {
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
+        r config set bitmap-default-roaring no
+        r del bitop:not:mixed:big bitop:not:mixed:out
+        r setbit bitop:not:mixed:big [expr {($limit + 1) * 8 - 1}] 1
+        r config set proto-max-bulk-len $limit
+        r config set bitmap-default-roaring yes
+
+        assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
+            r bitop not bitop:not:mixed:out bitop:not:mixed:big
+        }
+        assert_equal 0 [r exists bitop:not:mixed:out]
+        assert_equal string [r type bitop:not:mixed:big]
+
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+        r del bitop:not:mixed:big
     }
 
     test {BITOP with 64-bit native sources computes in roaring space} {
