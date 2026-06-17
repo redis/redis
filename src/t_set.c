@@ -1899,10 +1899,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     if (cardinality_only) {
         if (approx) {
             cardinality = hllCount(hllobj->ptr, NULL);
-            decrRefCount(hllobj);
-            /* The HLL estimate can overshoot the limit, so clamp the final count. */
             if (limit > 0 && cardinality > limit)
                 cardinality = limit;
+            decrRefCount(hllobj);
         }
         addReplyLongLong(c, cardinality);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
