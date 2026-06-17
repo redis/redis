@@ -233,6 +233,36 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 004000] [r debug bitmap-raw bitmap:native:setbit]
     }
 
+    test {bitmap commands operate on legacy and native representations with default native creation disabled} {
+        r config set bitmap-default-roaring no
+        set raw [binary format H* 804001]
+        set string_key bitmap:native:mixed-surface:string
+        set native_key bitmap:native:mixed-surface:native
+
+        r set $string_key $raw
+        r set $native_key $raw
+        r bitmap convert $native_key
+
+        assert_equal string [r type $string_key]
+        assert_equal bitmap [r type $native_key]
+        assert_equal bitmap-roaring [r object encoding $native_key]
+
+        assert_equal [r setbit $string_key 23 1] [r setbit $native_key 23 1]
+        assert_equal [r getbit $string_key 23] [r getbit $native_key 23]
+        assert_equal [r bitcount $string_key] [r bitcount $native_key]
+        assert_equal [r bitcount $string_key 3 20 bit] [r bitcount $native_key 3 20 bit]
+        assert_equal [r bitpos $string_key 1] [r bitpos $native_key 1]
+        assert_equal [r bitpos $string_key 0 4 -1 bit] [r bitpos $native_key 0 4 -1 bit]
+
+        set bitfield_cmd {GET u8 0 SET u5 9 17 INCRBY i6 16 -3 GET i6 16}
+        assert_equal [r bitfield $string_key {*}$bitfield_cmd] [r bitfield $native_key {*}$bitfield_cmd]
+        assert_equal [r bitfield_ro $string_key GET u8 0 GET u8 16] [r bitfield_ro $native_key GET u8 0 GET u8 16]
+        assert_equal [r get $string_key] [r debug bitmap-raw $native_key]
+
+        assert_native_bitop_raws_match_string mixed-surface:bitop or \
+            [list [r get $string_key] [binary format H* 0f00ff]] {0}
+    }
+
     test {GETBIT past the native bitmap logical length returns 0} {
         seed_native_bitmap bitmap:native:getbit:past {3}
 
