@@ -12,6 +12,9 @@ libssl-dev on Debian/Ubuntu).
 To build TLS support as Redis built-in:
 Run `make BUILD_TLS=yes`.
 
+On macOS (using Homebrew), you may need to specify the path to OpenSSL using `CFLAGS` and `LDFLAGS` if the compiler cannot locate the OpenSSL headers or libraries:
+Run `make BUILD_TLS=yes CFLAGS="-I$(brew --prefix openssl)/include" LDFLAGS="-L$(brew --prefix openssl)/lib"`.
+
 Or to build TLS as Redis module:
 Run `make BUILD_TLS=module`.
 

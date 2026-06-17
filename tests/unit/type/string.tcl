@@ -863,6 +863,23 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_encoding "int" bar
         lappend res [r get bar]
     } {12 12}
+
+    test {INCR/DECR on raw/embstr encoding containing integer transitions to int} {
+        r del foo
+        r set foo 1
+        assert_encoding "int" foo
+        r append foo 2
+        assert_encoding "raw" foo
+        assert_equal [r incr foo] 13
+        assert_encoding "int" foo
+
+        r del foo
+        r set foo 1
+        r append foo 2
+        assert_encoding "raw" foo
+        assert_equal [r decr foo] 11
+        assert_encoding "int" foo
+    }
     
     # coverage for kvobjComputeSize
     test {MEMORY USAGE - STRINGS} {
