@@ -11,6 +11,7 @@
 #include "server.h"
 #include "bitmap_roaring.h"
 #include "ctype.h"
+#include <limits.h>
 
 #ifdef HAVE_AVX2
 /* Define __MM_MALLOC_H to prevent importing the memory aligned
@@ -1880,7 +1881,8 @@ void bitopCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;
     }
-    addReplyLongLong(c,maxlen); /* Return the output string length in bytes. */
+    serverAssert(maxlen <= (uint64_t)LLONG_MAX);
+    addReplyLongLong(c,(long long)maxlen); /* Return the destination length in bytes. */
 }
 
 typedef struct bitRange {
