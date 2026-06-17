@@ -1546,25 +1546,25 @@ void bitopCommand(client *c) {
      * propagated as the explicit result below). Otherwise it stays a string. */
     native_dest = has_native_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c));
 
+    /* BITOP NOT writes one result byte for every source byte, even when the
+     * destination would be native. Keep the same safety limit as string
+     * materialization so dense Roaring output cannot bypass proto-max-bulk-len. */
+    if (op == BITOP_NOT && maxlen > (uint64_t)server.proto_max_bulk_len) {
+        unsigned long i;
+        for (i = 0; i < numkeys; i++) {
+            if (objects[i] && objects[i]->type == OBJ_STRING)
+                decrRefCount(objects[i]);
+        }
+        zfree(src);
+        zfree(len);
+        zfree(objects);
+        addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
+        return;
+    }
+
     /* Compute the bit operation, if at least one source is not empty. */
     if (maxlen) {
         if (native_dest) {
-            /* Complementing is inherently dense: NOT of length L sets nearly
-             * all of its L*8 bits, so allow it only for lengths a string
-             * destination could also represent. Every other operation stays
-             * proportional to its sources. */
-            if (op == BITOP_NOT && maxlen > (uint64_t)server.proto_max_bulk_len) {
-                unsigned long i;
-                for (i = 0; i < numkeys; i++) {
-                    if (objects[i] && objects[i]->type == OBJ_STRING)
-                        decrRefCount(objects[i]);
-                }
-                zfree(src);
-                zfree(len);
-                zfree(objects);
-                addReplyError(c, "BITOP NOT of a bitmap longer than proto-max-bulk-len is not supported");
-                return;
-            }
             res_bitmap = bitmapObjectsBitopBitmap((bitmapBitop)op, objects,
                                                   numkeys, maxlen);
         } else {
