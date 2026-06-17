@@ -3111,6 +3111,7 @@ void xreadCommand(client *c) {
              * (count == 0) the remaining budget alone bounds this stream. */
             size_t stream_count = count;
             if (maxcount) {
+                serverAssert((size_t)maxcount > total_entries);
                 size_t remaining = (size_t)maxcount - total_entries;
                 if (count == 0 || remaining < (size_t)count)
                     stream_count = remaining;

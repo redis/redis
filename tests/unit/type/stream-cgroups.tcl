@@ -199,12 +199,12 @@ start_server {
     }
 
     test {XREADGROUP MAXCOUNT/MAXSIZE parameter validation} {
-        r DEL mystream{t}1
-        r XGROUP CREATE mystream{t}1 mygroup 0 MKSTREAM
-        assert_error "*MAXCOUNT must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT 0 STREAMS mystream{t}1 >}
-        assert_error "*MAXSIZE must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXSIZE -1 STREAMS mystream{t}1 >}
-        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREADGROUP GROUP mygroup c COUNT 50 MAXCOUNT 10 STREAMS mystream{t}1 >}
-        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT foo STREAMS mystream{t}1 >}
+        r DEL mystream1
+        r XGROUP CREATE mystream1 mygroup 0 MKSTREAM
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT 0 STREAMS mystream1 >}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXSIZE -1 STREAMS mystream1 >}
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREADGROUP GROUP mygroup c COUNT 50 MAXCOUNT 10 STREAMS mystream1 >}
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT foo STREAMS mystream1 >}
     }
 
     test {XREADGROUP MAXCOUNT caps new (">") and history (PEL) reads across streams} {
@@ -239,6 +239,7 @@ start_server {
     test {XREADGROUP MAXSIZE still returns a single oversized message} {
         r DEL bigstream
         r XADD bigstream 1-1 f [string repeat x 5000]
+        r XADD bigstream 2-2 f v
         r XGROUP CREATE bigstream bg 0
         set res [r XREADGROUP GROUP bg c MAXSIZE 50 STREAMS bigstream >]
         assert_equal 1 [xreadgroup_total_entries $res]
