@@ -2169,17 +2169,17 @@ void hsetnxCommand(client *c) {
  * under the default 512 limit) -- lpBatchInsert() already heap-allocates its own
  * scratch for large batches, so this just matches it.
  *
- * Caller guarantees (asserted): o is an empty OBJ_ENCODING_LISTPACK hash with
- * numfields >= 2, and hashTypeTryConversion() has already run for this command --
- * so every value fits hash-max-listpack-value, the total is lpSafeToAdd(), and
- * numfields <= hash-max-listpack-entries (else the object would already be a
- * hashtable and we would not be here). Hence no per-field length check and no
- * post-build conversion are needed. Returns the number of fields created (unique
- * fields, <= numfields). */
+ * Caller guarantees: o is an empty OBJ_ENCODING_LISTPACK hash, and
+ * hashTypeTryConversion() has already run for this command -- so every value fits
+ * hash-max-listpack-value, the total is lpSafeToAdd(), and numfields <=
+ * hash-max-listpack-entries (else the object would already be a hashtable and we
+ * would not be here). Hence no per-field length check and no post-build conversion
+ * are needed. The dispatch only invokes this for numfields >= 2 (a single-field
+ * HSET stays on the per-field path), though the build itself works for any >= 1.
+ * Returns the number of fields created (unique fields, <= numfields). */
 #define HSET_LP_STACK_PAIRS 128
 static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
-    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0 &&
-                 numfields >= 2);
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0);
 
     listpackEntry stackpairs[2 * HSET_LP_STACK_PAIRS];
     listpackEntry *pairs = (numfields <= HSET_LP_STACK_PAIRS) ? stackpairs :
@@ -2208,7 +2208,6 @@ static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
     dictRelease(slots);
 
     o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)n * 2);
-    serverAssert(o->ptr != NULL); /* sizes pre-validated by hashTypeTryConversion */
     if (pairs != stackpairs) zfree(pairs);
     return n;
 }
