@@ -9516,7 +9516,7 @@ void firePostExecutionUnitJobs(void) {
  * server.firing_keyed_post_notif_jobs guard). They therefore cannot trigger
  * notifications and cannot enqueue further jobs; the queue is stable across the
  * scan and capturing the next node up front is safe. */
-__attribute__((noinline,cold)) void firePerKeyJobsBetweenSubcommands(void) {
+void firePerKeyJobsBetweenSubcommands(void) {
     keyedPostNotifRMCallWarned = 0;
     keyedPostNotifNotifyWarned = 0;
     enterExecutionUnit(0, 0);
