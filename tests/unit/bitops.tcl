@@ -231,17 +231,17 @@ start_server {tags {"bitops"}} {
     test {BITOP NOT rejects string inputs longer than proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
-        r del bitop:not:big bitop:not:out
-        r setbit bitop:not:big [expr {($limit + 1) * 8 - 1}] 1
+        r del bitop:not:big{t} bitop:not:out{t}
+        r setbit bitop:not:big{t} [expr {($limit + 1) * 8 - 1}] 1
         r config set proto-max-bulk-len $limit
 
         assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
-            r bitop not bitop:not:out bitop:not:big
+            r bitop not bitop:not:out{t} bitop:not:big{t}
         }
-        assert_equal 0 [r exists bitop:not:out]
+        assert_equal 0 [r exists bitop:not:out{t}]
 
         r config set proto-max-bulk-len $oldval
-        r del bitop:not:big
+        r del bitop:not:big{t}
     }
 
     test {BITOP NOT with multiple source keys} {
