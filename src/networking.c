@@ -2744,24 +2744,21 @@ static inline int _writeToClientSlaveIOThread(client *c, ssize_t *nwritten) {
     size_t pos = c->io_curr_repl_node == c->io_bound_repl_node ?
                  c->io_bound_block_pos : o->used;
     if (pos > c->io_curr_block_pos) {
-        int consumed = connWrite(c->conn, o->buf+c->io_curr_block_pos,
-                                 pos-c->io_curr_block_pos);
+        /* The codec is applied at the client level (see client_comp.c): when
+         * compression is active `consumed` is how many uncompressed bytes were
+         * taken from the repl buffer while `sock_written` is how many bytes were
+         * actually written to the socket. Without compression they are equal. */
+        size_t sock_written = 0;
+        int consumed = clientConnWrite(c, o->buf+c->io_curr_block_pos,
+                                       pos-c->io_curr_block_pos, &sock_written);
 
         if (consumed <= 0) return C_ERR;
 
-        /* Note, that consumed is how much bytes we've read from the repl buffer,
-         * where as the bytes we've written into the socket may be different if
-         * connCheckLastWritten returns so (f.e compression case) */
-        /* TODO: if compression is generalized for all types of clients we will
-         * need to add this check in writeToClientNonSlave also */
-        size_t last_written = 0;
-        if (connCheckLastWritten(c->conn, &last_written)) {
-            *nwritten += last_written;
-            /* Since nwritten stores the number of compressed bytes written to
-             * socket we also store the uncompressed size for stats. */
+        *nwritten += sock_written;
+        if (clientIsCompressing(c)) {
+            /* nwritten counts the compressed bytes put on the socket, so we
+             * also track the uncompressed size for stats. */
             atomicIncr(server.stat_net_repl_uncompressed_bytes, consumed);
-        } else {
-            *nwritten += consumed;
         }
 
         /* Advance the block position with consumed, because that's how much
@@ -3959,7 +3956,12 @@ void readQueryFromClient(connection *conn) {
         /* Read as much as possible from the socket to save read(2) system calls. */
         readlen = sdsavail(c->querybuf);
     }
-    nread = connRead(c->conn, c->querybuf+qblen, readlen);
+    /* The codec is applied at the client level (see client_comp.c): when
+     * decompression is active `nread` is the number of decompressed bytes placed
+     * in the query buffer while `network_read` is the number of bytes actually
+     * read from the socket. Without compression they are equal. */
+    size_t network_read = 0;
+    nread = clientConnRead(c, c->querybuf+qblen, readlen, &network_read);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             goto done;
@@ -3986,13 +3988,9 @@ void readQueryFromClient(connection *conn) {
          * c->lastinteraction will be updated during processClientsFromIOThread */
         c->io_lastinteraction = server.unixtime;
 
-    size_t network_read;
-    if (!connCheckLastRead(c->conn, &network_read)) {
-        network_read = nread;
-    } else {
-        /* In case of compression nread is the number of decompressed bytes,
-         * whereas network_read stores the actual number of bytes read from
-         * socket. */
+    if (clientIsDecompressing(c)) {
+        /* nread is the number of decompressed bytes, whereas network_read
+         * stores the actual number of bytes read from the socket. */
         atomicIncr(server.stat_net_repl_decompressed_bytes, nread);
     }
 

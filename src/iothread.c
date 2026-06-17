@@ -115,7 +115,12 @@ int runClientCronFromIOThread(client *c) {
 void enqueuePendingClientsToMainThread(client *c, int unbind) {
     /* If the IO thread may no longer manage it, such as closing client, we should
      * unbind client from event loop, so main thread doesn't need to do it costly. */
-    if (unbind) connUnbindEventLoop(c->conn);
+    if (unbind) {
+        /* Drop it from the event loop's pending decompression list first, while
+         * c->conn->el is still valid. */
+        clientCompressionPendingRemove(c);
+        connUnbindEventLoop(c->conn);
+    }
     /* Just skip if it already is transferred. */
     if (c->io_thread_client_list_node) {
         IOThread *t = &IOThreads[c->tid];
@@ -189,6 +194,7 @@ void unbindClientFromIOThreadEventLoop(client *c) {
 
     /* As calling in main thread, we should pause the io thread to make it safe. */
     pauseIOThread(c->tid);
+    clientCompressionPendingRemove(c);
     connUnbindEventLoop(c->conn);
     IOThread *t = &IOThreads[c->tid];
     /* We need to remove the client from the compression_clients list so it
@@ -256,6 +262,7 @@ void fetchClientFromIOThread(client *c) {
         }
     }
     /* Unbind connection of client from io thread event loop. */
+    clientCompressionPendingRemove(c);
     connUnbindEventLoop(c->conn);
     /* Now main thread can process it. */
     resumeIOThread(c->tid);
@@ -836,9 +843,12 @@ void IOThreadBeforeSleep(struct aeEventLoop *el) {
 
     /* Handle pending data(typical TLS). */
     connTypeProcessPendingData(el);
+    /* Drain any buffered decompressed replication data (see client_comp.c). */
+    clientCompressionProcessPendingData(el);
 
-    /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    int dont_sleep = connTypeHasPendingData(el);
+    /* If any connection type(typical TLS) or the compression codec still has
+     * pending unread data don't sleep at all. */
+    int dont_sleep = connTypeHasPendingData(el) || clientCompressionHasPendingData(el);
 
     /* Process clients from main thread, since the main thread may deliver clients
      * without notification during IO thread processing events. */

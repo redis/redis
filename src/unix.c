@@ -207,8 +207,6 @@ static ConnectionType CT_Unix = {
     .sync_write = connUnixSyncWrite,
     .sync_read = connUnixSyncRead,
     .sync_readline = connUnixSyncReadLine,
-    .get_last_read = NULL,
-    .get_last_written = NULL,
 
     /* pending data */
     .has_pending_data = NULL,

@@ -40,7 +40,6 @@ typedef enum {
 #define CONN_TYPE_SOCKET            "tcp"
 #define CONN_TYPE_UNIX              "unix"
 #define CONN_TYPE_TLS               "tls"
-#define CONN_TYPE_COMPRESSION       "compression"
 #define CONN_TYPE_MAX               8           /* 8 is enough to be extendable */
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
@@ -82,8 +81,6 @@ typedef struct ConnectionType {
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
-    size_t (*get_last_read)(struct connection *conn);
-    size_t (*get_last_written)(struct connection *conn);
 
     /* event loop */
     void (*unbind_event_loop)(struct connection *conn);
@@ -269,25 +266,6 @@ static inline ssize_t connSyncRead(connection *conn, char *ptr, ssize_t size, lo
 
 static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size, long long timeout) {
     return conn->type->sync_readline(conn, ptr, size, timeout);
-}
-
-/* If connection type has a special way to get last read bytes from connection
- * save the value in last_read and return 1. Otherwise return 0.
- * F.e when compression is enabled we read compressed data from socket inside
- * connRead but it returns the number of bytes decompressed. In order to get the
- * number of bytes read from socket we call connCheckLastRead. */
-static inline int connCheckLastRead(connection *conn, size_t *last_read) {
-    if (!conn->type->get_last_read) return 0;
-    *last_read = conn->type->get_last_read(conn);
-    return 1;
-}
-
-/* If connection type has a special way to get last written bytes to connection
- * save the value in last_written and return 1. Otherwise return 0. */
-static inline int connCheckLastWritten(connection *conn, size_t *last_written) {
-    if (!conn->type->get_last_written) return 0;
-    *last_written = conn->type->get_last_written(conn);
-    return 1;
 }
 
 /* Return CONN_TYPE_* for the specified connection */
@@ -520,7 +498,6 @@ sds getListensInfoString(sds info);
 int RedisRegisterConnectionTypeSocket(void);
 int RedisRegisterConnectionTypeUnix(void);
 int RedisRegisterConnectionTypeTLS(void);
-int RedisRegisterConnectionTypeCompression(void);
 
 /* Return 1 if connection is using TLS protocol, 0 if otherwise. */
 static inline int connIsTLS(connection *conn) {
