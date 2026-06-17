@@ -1,6 +1,6 @@
 {
     "CONVERT": {
-        "summary": "Converts a bitmap key between the string and native compressed representations.",
+        "summary": "Converts a bitmap key between the legacy string type and native bitmap type.",
         "complexity": "O(N) with N being the number of bytes of the string representation, or the number of set bits when converting back to a string.",
         "group": "bitmap",
         "since": "8.10.0",
