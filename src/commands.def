@@ -754,7 +754,7 @@ struct COMMAND_ARG BITMAP_CONVERT_Args[] = {
 
 /* BITMAP command table */
 struct COMMAND_STRUCT BITMAP_Subcommands[] = {
-{MAKE_CMD("convert","Converts a bitmap key between the string and native compressed representations.","O(N) with N being the number of bytes of the string representation, or the number of set bits when converting back to a string.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITMAP_CONVERT_History,0,BITMAP_CONVERT_Tips,0,bitmapCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,BITMAP_CONVERT_Keyspecs,1,NULL,2),.args=BITMAP_CONVERT_Args},
+{MAKE_CMD("convert","Converts a bitmap key between the string and native compressed representations.","O(N) with N being the number of bytes of the string representation, or the number of set bits when converting back to a string.","8.10.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITMAP_CONVERT_History,0,BITMAP_CONVERT_Tips,0,bitmapCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,BITMAP_CONVERT_Keyspecs,1,NULL,2),.args=BITMAP_CONVERT_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITMAP_HELP_History,0,BITMAP_HELP_Tips,0,bitmapCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_BITMAP,BITMAP_HELP_Keyspecs,0,NULL,0)},
 {0}
 };
