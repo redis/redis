@@ -39,7 +39,7 @@ proc bitmap_oracle::mode_setup {client mode} {
 proc bitmap_oracle::keyspace_name {scenario mode} {
     set safe_scenario [string map {" " "_" ":" "_" "/" "_"} $scenario]
     set safe_mode [string map {" " "_" ":" "_" "/" "_"} $mode]
-    return "bitmap-oracle:$safe_scenario:$safe_mode"
+    return "bitmap-oracle:{$safe_scenario:$safe_mode}"
 }
 
 proc bitmap_oracle::expand_step {step keyspace} {
