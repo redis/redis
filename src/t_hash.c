@@ -2148,63 +2148,69 @@ void hsetnxCommand(client *c) {
  *
  * The per-field hashTypeSet() loop is O(n^2) for a wide HSET: each field runs a
  * full lpFind() over the listpack, which grows as earlier fields of the same
- * command are appended. For a freshly-created (empty) hash with all-distinct
- * fields there is nothing to look up or replace, so we append every pair with a
- * single lpBatchAppend() -> O(n) build (one realloc, no rescans). Any HSET into
- * a non-empty hash, or with field TTLs (LISTPACK_EX) or hashtable encoding, takes
- * the unchanged per-field path (this helper is not called).
+ * command are appended. For a freshly-created (empty) hash there is nothing to
+ * look up or replace, so we build the (field,value) array once and append it with
+ * a single lpBatchAppend() -> O(n) build (no rescans). Any HSET into a non-empty
+ * hash, or with field TTLs (LISTPACK_EX) or hashtable encoding, takes the
+ * unchanged per-field path (this helper is not called).
  *
- * We collect the (field,value) pairs into a transient dict -- which resolves
- * in-command duplicate fields last-wins for free (dictReplace) -- then append the
- * unique pairs with a single lpBatchAppend(). sdsReplyDictType makes the dict
- * borrow the argv field/value sds (no copy, no free). Fields are emitted in
- * argv first-occurrence order (we walk argv and consume each field from the dict
- * once), so the listpack is byte-identical to the per-field path -- preserving the
- * insertion order callers and tests observe via HGETALL.
+ * Single pass over argv: a transient dict maps each field sds -> its slot index in
+ * pairs[]. The first occurrence of a field appends a new slot (preserving argv
+ * order); a later duplicate reuses that slot and overwrites its value, so
+ * in-command duplicates resolve last-wins while keeping first-occurrence position.
+ * The result is byte-identical to the per-field path, so the insertion order
+ * callers and tests observe via HGETALL is preserved. sdsReplyDictType makes the
+ * dict borrow the argv sds (no copy, no free); the slot index is stored in the
+ * entry value (no allocation).
  *
- * Caller guarantees (asserted): o is an empty OBJ_ENCODING_LISTPACK hash and
- * 2 <= numfields <= HSET_LP_BATCH_MAX, and hashTypeTryConversion() has already
- * run for this command -- so every value fits hash-max-listpack-value, the total
- * is lpSafeToAdd(), and numfields <= hash-max-listpack-entries (else the object
- * would already be a hashtable and we would not be here). Hence no per-field
- * length check and no post-build conversion are needed.
+ * pairs[] is on the stack for the common small case and heap-allocated when a
+ * command carries more than HSET_LP_STACK_PAIRS fields (reachable on a fresh
+ * listpack hash whenever hash-max-listpack-entries is >= numfields, e.g. 129..512
+ * under the default 512 limit) -- lpBatchInsert() already heap-allocates its own
+ * scratch for large batches, so this just matches it.
  *
- * Returns the number of fields created (unique fields, <= numfields).
- * HSET_LP_BATCH_MAX bounds the stack array (2*MAX listpackEntry, ~6 KB at 128); a
- * fresh HSET with more fields (only reachable with a raised hash-max-listpack-entries)
- * takes the per-field path. */
-#define HSET_LP_BATCH_MAX 128
+ * Caller guarantees (asserted): o is an empty OBJ_ENCODING_LISTPACK hash with
+ * numfields >= 2, and hashTypeTryConversion() has already run for this command --
+ * so every value fits hash-max-listpack-value, the total is lpSafeToAdd(), and
+ * numfields <= hash-max-listpack-entries (else the object would already be a
+ * hashtable and we would not be here). Hence no per-field length check and no
+ * post-build conversion are needed. Returns the number of fields created (unique
+ * fields, <= numfields). */
+#define HSET_LP_STACK_PAIRS 128
 static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0 &&
-                 numfields >= 2 && numfields <= HSET_LP_BATCH_MAX);
+                 numfields >= 2);
 
-    /* Pass 1: dict field -> latest value (dictReplace = last-wins on a repeated
-     * field). sdsReplyDictType borrows the argv sds (no copy/free). */
-    dict *fields = dictCreate(&sdsReplyDictType);
-    dictExpand(fields, numfields);
-    for (int j = 0; j < numfields; j++)
-        dictReplace(fields, argv[j*2]->ptr, argv[j*2+1]->ptr);
+    listpackEntry stackpairs[2 * HSET_LP_STACK_PAIRS];
+    listpackEntry *pairs = (numfields <= HSET_LP_STACK_PAIRS) ? stackpairs :
+                           zmalloc(sizeof(listpackEntry) * 2 * (size_t)numfields);
 
-    int created = dictSize(fields);
-    /* Pass 2: walk argv in order, emit each field once with its final value,
-     * deleting it from the dict so a later duplicate occurrence is skipped. This
-     * keeps first-occurrence (insertion) order. */
-    listpackEntry pairs[2 * HSET_LP_BATCH_MAX];
+    /* dict: field sds -> slot index in pairs[]. First occurrence appends a slot
+     * (argv order); a duplicate reuses it (last value wins). */
+    dict *slots = dictCreate(&sdsReplyDictType);
+    dictExpand(slots, numfields);
     int n = 0;
     for (int j = 0; j < numfields; j++) {
-        dictEntry *de = dictFind(fields, argv[j*2]->ptr);
-        if (de == NULL) continue; /* already emitted (earlier occurrence) */
-        sds field = dictGetKey(de), value = dictGetVal(de);
-        pairs[n*2].sval   = (unsigned char*)field; pairs[n*2].slen   = sdslen(field);
-        pairs[n*2+1].sval = (unsigned char*)value; pairs[n*2+1].slen = sdslen(value);
-        n++;
-        dictDelete(fields, field);
+        sds field = argv[j*2]->ptr, value = argv[j*2+1]->ptr;
+        dictEntry *existing, *de = dictAddRaw(slots, field, &existing);
+        int slot;
+        if (de != NULL) {                       /* new field -> new slot */
+            slot = n++;
+            dictSetUnsignedIntegerVal(de, slot); /* slot >= 0; the unsigned accessor is declared in dict.h */
+            pairs[slot*2].sval = (unsigned char*)field;
+            pairs[slot*2].slen = sdslen(field);
+        } else {                                /* duplicate -> first-seen slot */
+            slot = (int)dictGetUnsignedIntegerVal(existing);
+        }
+        pairs[slot*2+1].sval = (unsigned char*)value; /* last value wins */
+        pairs[slot*2+1].slen = sdslen(value);
     }
-    dictRelease(fields);
+    dictRelease(slots);
 
-    o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)created * 2);
+    o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)n * 2);
     serverAssert(o->ptr != NULL); /* sizes pre-validated by hashTypeTryConversion */
-    return created;
+    if (pairs != stackpairs) zfree(pairs);
+    return n;
 }
 
 void hsetCommand(client *c) {
@@ -2225,9 +2231,9 @@ void hsetCommand(client *c) {
 
     int numfields = (c->argc - 2) / 2;
     if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields > 1 &&
-        numfields <= HSET_LP_BATCH_MAX && lpLength(kv->ptr) == 0)
+        lpLength(kv->ptr) == 0)
     {
-        /* Fresh wide build: collect into a dict (last-wins) + one batch append. */
+        /* Fresh wide build: single dict pass (last-wins) + one batch append. */
         created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
     } else {
         for (i = 2; i < c->argc; i += 2)

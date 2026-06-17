@@ -316,7 +316,10 @@ start_server {tags {"hash"}} {
         assert_equal b [r hget freshdup f2]
     }
 
-    test {HSET fresh wide build - integer-encoded vs leading-zero fields stay distinct} {
+    test {HSET fresh wide build - dedup keys on raw field bytes (123 vs 0123 distinct)} {
+        # The fast path dedups fields through a dict keyed on the raw field sds
+        # (byte compare), while listpack int-encoding happens per entry at append.
+        # "123" int-encodes and "0123" stays a string: they must remain two fields.
         r del freshint
         assert_equal 2 [r hset freshint 123 x 0123 y]
         assert_equal 2 [r hlen freshint]
@@ -325,6 +328,9 @@ start_server {tags {"hash"}} {
     }
 
     test {HSET fresh build crossing hash-max-listpack-entries converts to hashtable} {
+        # hashTypeTryConversion runs before the fast-path gate, so a build that
+        # exceeds the entry limit is hashtable and never enters the fast path.
+        set prev [lindex [r config get hash-max-listpack-entries] 1]
         r config set hash-max-listpack-entries 128
         r del freshbig
         set args {}
@@ -333,7 +339,7 @@ start_server {tags {"hash"}} {
         assert_equal 200 [r hlen freshbig]
         assert_encoding hashtable freshbig
         assert_equal v199 [r hget freshbig f199]
-        r config set hash-max-listpack-entries 512
+        r config set hash-max-listpack-entries $prev
     }
 
     test {HSET fresh build then DEBUG RELOAD round-trips} {
@@ -364,15 +370,17 @@ start_server {tags {"hash"}} {
         assert_equal c [r hget freshalldup f]
     }
 
-    test {HSET fresh wide build at the batch cap (128 distinct fields) stays listpack} {
-        r del freshcap
+    test {HSET fresh wide build above the stack threshold (300 fields) stays listpack} {
+        # 300 > HSET_LP_STACK_PAIRS(128) but < default hash-max-listpack-entries(512):
+        # exercises the heap-allocated pairs[] path; stays listpack.
+        r del freshheap
         set args {}
-        for {set i 0} {$i < 128} {incr i} { lappend args f$i v$i }
-        assert_equal 128 [r hset freshcap {*}$args]
-        assert_equal 128 [r hlen freshcap]
-        assert_encoding listpack freshcap
-        assert_equal v0 [r hget freshcap f0]
-        assert_equal v127 [r hget freshcap f127]
+        for {set i 0} {$i < 300} {incr i} { lappend args f$i v$i }
+        assert_equal 300 [r hset freshheap {*}$args]
+        assert_equal 300 [r hlen freshheap]
+        assert_encoding listpack freshheap
+        assert_equal v0 [r hget freshheap f0]
+        assert_equal v299 [r hget freshheap f299]
     }
 
     test {HSET fresh wide build - wide command with one duplicate field, last-wins} {
@@ -389,14 +397,30 @@ start_server {tags {"hash"}} {
     }
 
     test {HSET fresh build with an over-limit value converts to hashtable} {
+        set prev [lindex [r config get hash-max-listpack-value] 1]
         r config set hash-max-listpack-value 64
         r del freshbigval
         set big [string repeat x 100]
         assert_equal 2 [r hset freshbigval f1 v1 f2 $big]
         assert_encoding hashtable freshbigval
         assert_equal $big [r hget freshbigval f2]
-        r config set hash-max-listpack-value 64
+        r config set hash-max-listpack-value $prev
     }
+
+    test {HSET fresh wide build is byte-identical to the per-field path} {
+        # The fast path must produce exactly the listpack the per-field loop would:
+        # same fields, same first-occurrence order, same last-wins values.
+        r del fastp perfieldp
+        # Fast path: one wide HSET (incl. a duplicate field to exercise last-wins).
+        r hset fastp a 1 b 2 c 3 a 9 d 4
+        # Per-field path: separate single-field HSETs (numfields==1 each -> not fast).
+        foreach {f v} {a 1 b 2 c 3 a 9 d 4} { r hset perfieldp $f $v }
+        assert_encoding listpack fastp
+        assert_encoding listpack perfieldp
+        # HGETALL list equality checks both content AND physical order.
+        assert_equal [r hgetall fastp] [r hgetall perfieldp]
+        assert_equal [r debug digest-value fastp] [r debug digest-value perfieldp]
+    } {} {needs:debug}
 
     test {HSETNX target key missing - small hash} {
         r hsetnx smallhash __123123123__ foo
