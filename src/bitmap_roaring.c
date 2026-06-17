@@ -352,12 +352,12 @@ static void bitmapRoaringAlignedFree(void *ptr) {
 }
 
 static size_t bitmapRoaringMallocSize(const void *ptr) {
-    return ptr == NULL ? 0 : zmalloc_size((void *)ptr);
+    return ptr == NULL ? 0 : zmalloc_usable_size((void *)ptr);
 }
 
 static size_t bitmapRoaringAlignedMallocSize(void *ptr) {
     void *base = bitmapRoaringAlignedAllocBase(ptr);
-    return base == NULL ? 0 : zmalloc_size(base);
+    return base == NULL ? 0 : zmalloc_usable_size(base);
 }
 
 void bitmapRoaringInit(void) {
@@ -997,20 +997,20 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
 #define BITMAP_ROARING_BITSET_WORDS_ALIGNMENT 32
 
 static void *bitmapObjectActiveDefragAlloc(bitmapObject *bitmap, void *ptr) {
-    size_t old_size = zmalloc_size(ptr);
+    size_t old_size = zmalloc_usable_size(ptr);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr != NULL)
         bitmapObjectAdjustAllocSize(&bitmap->alloc_size, old_size,
-                                    zmalloc_size(newptr));
+                                    zmalloc_usable_size(newptr));
     return newptr;
 }
 
 static bitmapObject *bitmapObjectActiveDefragSelf(bitmapObject *bitmap) {
-    size_t old_size = zmalloc_size(bitmap);
+    size_t old_size = zmalloc_usable_size(bitmap);
     bitmapObject *newbitmap = activeDefragAlloc(bitmap);
     if (newbitmap != NULL)
         bitmapObjectAdjustAllocSize(&newbitmap->alloc_size, old_size,
-                                    zmalloc_size(newbitmap));
+                                    zmalloc_usable_size(newbitmap));
     return newbitmap;
 }
 
