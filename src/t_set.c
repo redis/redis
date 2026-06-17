@@ -1834,31 +1834,25 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
         }
         setTypeResetIterator(&si);
-    } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 2 &&
-               cardinality_only && limit > 0) {
+    } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 2 && cardinality_only && limit > 0) {
         /* DIFF Algorithm 2b (cardinality-only with LIMIT):
          *
          * Collect sets[1..N] into a single auxiliary set and iterate
          * the first set, counting elements absent from it with
          * a single membership lookup each. This lets us stop as
-         * soon as LIMIT is reached.
-         *
-         * We borrow the already-allocated dstset as the auxiliary set; it holds
-         * the subtracted elements here rather than the diff result. */
-        robj *subtractset = dstset;
+         * soon as LIMIT is reached. */
         for (j = 1; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1)
-                setTypeAddAux(subtractset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             setTypeResetIterator(&si);
         }
 
         setTypeInitIterator(&si, sets[0].set);
         while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
-            if (!setTypeIsMemberAux(subtractset, str, len, llval,
-                                    encoding == OBJ_ENCODING_HT)) {
+            if (!setTypeIsMemberAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT)) {
                 cardinality++;
                 if (cardinality >= limit) break; /* We reached the limit. */
             }
