@@ -7851,7 +7851,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             } else {
                 clusterManagerNode *src =
                     clusterNodeForResharding(buf, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7868,7 +7869,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             } else {
                 clusterManagerNode *src =
                     clusterNodeForResharding(from, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7882,7 +7884,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             if (!all) {
                 clusterManagerNode *src =
                     clusterNodeForResharding(from, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
