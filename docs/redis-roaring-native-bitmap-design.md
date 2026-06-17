@@ -54,6 +54,8 @@ is explicitly allowed to become a native bitmap.
 - Native bitmap values use `OBJ_BITMAP`.
 - `TYPE key` returns `string` for legacy bitmap strings.
 - `TYPE key` returns `bitmap` for native bitmap values.
+- `BITMAP CONVERT <key> NATIVE` is an observable type transition to
+  `bitmap`; `BITMAP CONVERT <key> STRING` transitions back to `string`.
 - `OBJECT ENCODING key` may return `bitmap-roaring` or another bitmap encoding
   name for native bitmap values.
 
