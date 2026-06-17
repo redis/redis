@@ -265,6 +265,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
 #define CMD_TOUCHES_ARBITRARY_KEYS (1ULL<<28)
 #define CMD_INTERNAL (1ULL<<29) /* Internal command. */
+#define CMD_SCRIPT_RUNNER (1ULL<<30) /* Command that executes scripts or functions (EVAL, FCALL, etc.). */
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -1903,6 +1904,27 @@ struct malloc_stats {
     size_t lua_allocator_frag_smallbins_bytes;
 };
 
+/* Tick-local cache used by computeDefragCycles() to avoid duplicating the
+ * expensive jemalloc fragmentation measurement that cronUpdateMemoryStats()
+ * already performs for its own purposes earlier in the same cron tick.
+ *
+ * Lifecycle (single-threaded by Redis's main-thread invariant):
+ *   - Producer: defragFragCachePut() — called from cronUpdateMemoryStats()
+ *     after its zmalloc_get_allocator_info() call. Records server.cronloops
+ *     at publish time alongside the (Lua-subtracted) values.
+ *   - Consumer: defragFragCacheTake() — called from computeDefragCycles().
+ *     Returns 1 only when the recorded cronloops matches server.cronloops
+ *     (same tick); returns 0 otherwise. No explicit invalidation needed —
+ *     both serverCron() and whileBlockedCron() advance server.cronloops at
+ *     entry, so any value published in a previous tick is automatically
+ *     stale on the next entry. */
+struct defragFragCache {
+    float  frag_pct;            /* defrag-relevant small-bins fragmentation percentage */
+    size_t frag_bytes;          /* defrag-relevant small-bins fragmentation in bytes */
+    int    cronloops;           /* server.cronloops at publish; -1 = never published */
+    long long hits;             /* Take found a valid cached value (DEBUG only) */
+};
+
 /*-----------------------------------------------------------------------------
  * TLS Context Configuration
  *----------------------------------------------------------------------------*/
@@ -2033,6 +2055,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    int debug_fork_fail;        /* Make the next redisFork() fail. (used by tests) */
     redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
@@ -2144,6 +2167,7 @@ struct redisServer {
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
+    struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
@@ -3734,6 +3758,8 @@ void exitExecutionUnit(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 void defragWhileBlocked(void);
+void defragFragCachePut(size_t frag_bytes, size_t allocated);
+int  defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes);
 unsigned int getLRUClock(void);
 unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);
@@ -4104,6 +4130,7 @@ int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags);
 void getKeysFreeResult(getKeysResult *result);
 int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int *slot);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int sunioncardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -4337,6 +4364,7 @@ void smembersCommand(client *c);
 void sinterCardCommand(client *c);
 void sinterstoreCommand(client *c);
 void sunionCommand(client *c);
+void sunioncardCommand(client *c);
 void sunionstoreCommand(client *c);
 void sdiffCommand(client *c);
 void sdiffstoreCommand(client *c);

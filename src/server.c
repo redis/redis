@@ -1509,6 +1509,22 @@ void cronUpdateMemoryStats(void) {
                                                 &server.cron_malloc_stats.lua_allocator_resident,
                                                 &server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes);
         }
+        /* Publish the just-measured (Lua-arena-subtracted) fragmentation
+         * values into the defrag-side tick-local cache so
+         * computeDefragCycles() later this tick can skip its own
+         * duplicate jemalloc measurement. Mirrors
+         * getAllocatorFragmentation()'s Lua subtraction so the cached
+         * value matches the fall-through real measurement exactly.
+         * Publishing with allocated==0 leaves the cache invalid
+         * (sentinel set inside the publish) — defrag should decide on
+         * real data or none. */
+        size_t frag  = server.cron_malloc_stats.allocator_frag_smallbins_bytes;
+        size_t alloc = server.cron_malloc_stats.allocator_allocated;
+        if (alloc > 0 && server.lua_arena != UINT_MAX) {
+            frag  -= server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes;
+            alloc -= server.cron_malloc_stats.lua_allocator_allocated;
+        }
+        defragFragCachePut(frag, alloc);
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident)
@@ -2375,6 +2391,7 @@ void initServerConfig(void) {
                                       updated later after loading the config.
                                       This value may be used before the server
                                       is initialized. */
+    server.defrag_frag_cache.cronloops = -1; /* Mark the defrag fragmentation cache as stale */
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
@@ -2400,6 +2417,7 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
+    server.debug_fork_fail = 0;
     server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
@@ -5300,6 +5318,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
         /* {CMD_TOUCHES_ARBITRARY_KEYS,  "TOUCHES_ARBITRARY_KEYS"}, Hidden on purpose */
+        {CMD_SCRIPT_RUNNER,     "script_runner"},
         {0,NULL}
     };
     addReplyCommandFlags(c, cmd->flags, flagNames);
@@ -7405,18 +7424,36 @@ void closeChildUnusedResourceAfterFork(void) {
 
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
-    if (isMutuallyExclusiveChildType(purpose)) {
-        if (hasActiveChildProcess()) {
-            errno = EEXIST;
-            return -1;
-        }
+    /* Guards against re-entrant RM_Fork from a FORK_CHILD_PRE event handler. */
+    static int fork_in_progress = 0;
 
-        openChildInfoPipe();
+    if (fork_in_progress ||
+        (isMutuallyExclusiveChildType(purpose) && hasActiveChildProcess()))
+    {
+        errno = EEXIST;
+        return -1;
     }
+    fork_in_progress = 1;
+
+    /* Let multi-threaded modules reach a fork-safe point: a background thread
+     * holding a lock (e.g. the allocator lock) at fork() time would deadlock the
+     * child. Handlers run synchronously and resume on FORK_CHILD_BORN/CANCELLED */
+    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                          REDISMODULE_SUBEVENT_FORK_CHILD_PRE,
+                          NULL);
+
+    if (isMutuallyExclusiveChildType(purpose))
+        openChildInfoPipe();
 
     int childpid;
     long long start = ustime();
-    if ((childpid = fork()) == 0) {
+    if (server.debug_fork_fail) { /* used by tests */
+        errno = EAGAIN;
+        childpid = -1;
+    } else {
+        childpid = fork();
+    }
+    if (childpid == 0) {
         /* Child.
          *
          * The order of setting things up follows some reasoning:
@@ -7441,6 +7478,12 @@ int redisFork(int purpose) {
         if (childpid == -1) {
             int fork_errno = errno;
             if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
+            /* The fork we prepared for did not happen; let modules resume the
+             * background threads they quiesced on FORK_CHILD_PRE. */
+            moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
+                                  REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED,
+                                  NULL);
+            fork_in_progress = 0;
             errno = fork_errno;
             return -1;
         }
@@ -7473,6 +7516,7 @@ int redisFork(int purpose) {
                               REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
                               NULL);
     }
+    fork_in_progress = 0;
     return childpid;
 }
 
