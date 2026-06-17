@@ -32,6 +32,78 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
         assert_equal $got $expected
     }
 
+    test {bitmap native oracle covers BITFIELD and range read parity} {
+        set steps {
+            {del %NS%:bitmap}
+            {setbit %NS%:bitmap 0 1}
+            {setbit %NS%:bitmap 9 1}
+            {setbit %NS%:bitmap 31 1}
+            {bitcount %NS%:bitmap}
+            {bitcount %NS%:bitmap 4 24 bit}
+            {bitpos %NS%:bitmap 1 8 -1 bit}
+            {bitfield %NS%:bitmap GET u10 0 SET u5 20 17 GET u8 16}
+            {bitfield_ro %NS%:bitmap GET u5 20 GET u1 31}
+            {getbit %NS%:bitmap 24}
+            {bitcount %NS%:bitmap}
+        }
+
+        set got [bitmap_oracle::assert_mode_equivalence r bitfield-ranges $steps]
+        set expected [list \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 3] \
+            [list ok 1] \
+            [list ok 9] \
+            [list ok {513 0 8}] \
+            [list ok {17 1}] \
+            [list ok 1] \
+            [list ok 5]]
+        assert_equal $got $expected
+    }
+
+    test {bitmap native oracle covers BITOP aliasing and missing sources} {
+        set steps {
+            {del %NS%:a %NS%:b %NS%:c %NS%:out %NS%:not}
+            {setbit %NS%:a 0 1}
+            {setbit %NS%:a 2 1}
+            {setbit %NS%:a 9 1}
+            {setbit %NS%:a 16 1}
+            {setbit %NS%:b 1 1}
+            {setbit %NS%:b 2 1}
+            {setbit %NS%:b 16 1}
+            {setbit %NS%:b 17 1}
+            {bitop xor %NS%:a %NS%:a %NS%:b}
+            {bitcount %NS%:a}
+            {bitop or %NS%:out %NS%:a %NS%:missing %NS%:c}
+            {bitcount %NS%:out}
+            {bitop not %NS%:not %NS%:out}
+            {bitcount %NS%:not}
+            {bitpos %NS%:not 0}
+        }
+
+        set got [bitmap_oracle::assert_mode_equivalence r bitop-alias-missing $steps]
+        set expected [list \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 0] \
+            [list ok 3] \
+            [list ok 4] \
+            [list ok 3] \
+            [list ok 4] \
+            [list ok 3] \
+            [list ok 20] \
+            [list ok 0]]
+        assert_equal $got $expected
+    }
+
     test {legacy bitmap strings keep string command behavior} {
         bitmap_oracle::mode_setup r legacy-string
         set key bitmap:legacy-boundary{t}
