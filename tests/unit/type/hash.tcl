@@ -410,7 +410,9 @@ start_server {tags {"hash"}} {
     test {HSET fresh wide build is byte-identical to the per-field path} {
         # The fast path must produce exactly the listpack the per-field loop would:
         # same fields, same first-occurrence order, same last-wins values.
-        r del fastp perfieldp
+        # (Delete keys one at a time -- they may live in different cluster slots.)
+        r del fastp
+        r del perfieldp
         # Fast path: one wide HSET (incl. a duplicate field to exercise last-wins).
         r hset fastp a 1 b 2 c 3 a 9 d 4
         # Per-field path: separate single-field HSETs (numfields==1 each -> not fast).
