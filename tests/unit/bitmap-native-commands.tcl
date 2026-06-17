@@ -116,6 +116,8 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
     set native_dest "bitmap:native:bitop:$name:native:dest"
     set string_sources {}
     set native_sources {}
+    set string_source_raws {}
+    set native_source_raws {}
 
     r config set bitmap-default-roaring no
 
@@ -129,6 +131,8 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
         }
         lappend string_sources $string_key
         lappend native_sources $native_key
+        lappend string_source_raws [bitmap_logical_raw $string_key]
+        lappend native_source_raws [bitmap_logical_raw $native_key]
     }
 
     if {$alias_index >= 0} {
@@ -143,6 +147,12 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
     if {[r exists $native_dest] && [llength $native_indexes] > 0} {
         assert_equal bitmap [r type $native_dest]
         assert_equal string [r type $string_dest]
+    }
+
+    for {set i 0} {$i < [llength $source_raws]} {incr i} {
+        if {$i == $alias_index} continue
+        assert_equal [lindex $string_source_raws $i] [bitmap_logical_raw [lindex $string_sources $i]]
+        assert_equal [lindex $native_source_raws $i] [bitmap_logical_raw [lindex $native_sources $i]]
     }
 }
 
@@ -600,6 +610,19 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             one   0 {0 2}
         } {
             assert_native_bitop_raws_match_string "alias:$op:$alias_index" \
+                $op $raws $native_indexes $alias_index
+        }
+
+        foreach {op alias_index native_indexes} {
+            and   0 {2}
+            or    1 {0 2}
+            xor   2 {0}
+            diff  0 {2}
+            diff1 1 {0 2}
+            andor 2 {0}
+            one   0 {2}
+        } {
+            assert_native_bitop_raws_match_string "alias-string:$op:$alias_index" \
                 $op $raws $native_indexes $alias_index
         }
 
