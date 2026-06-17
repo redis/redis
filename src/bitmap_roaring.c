@@ -1181,25 +1181,6 @@ uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
     return roaring64_bitmap_range_cardinality(bitmap->roaring, start, end);
 }
 
-void bitmapObjectVisitSetBitRanges(const robj *o,
-                                   bitmapObjectRangeCallback *callback,
-                                   void *privdata)
-{
-    bitmapObject *bitmap = getBitmapObject(o);
-    roaring64_iterator_t *it = roaring64_iterator_create(bitmap->roaring);
-    roaring64_range_closed_t ranges[128];
-    size_t count;
-
-    do {
-        count = roaring64_iterator_read_ranges(
-            it, ranges, sizeof(ranges) / sizeof(ranges[0]));
-        for (size_t i = 0; i < count; i++)
-            callback(ranges[i].min, ranges[i].max, privdata);
-    } while (count == sizeof(ranges) / sizeof(ranges[0]));
-
-    roaring64_iterator_free(it);
-}
-
 static long long bitmapObjectFirstSetBit(bitmapObject *bitmap, uint64_t start,
                                          uint64_t end)
 {
