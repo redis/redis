@@ -353,9 +353,10 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 #endif
 
-    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+    size_t usable;
+    bitmapObject *bitmap = zmalloc_usable(sizeof(*bitmap), &usable);
     bitmap->byte_len = len;
-    bitmap->alloc_size = zmalloc_size(bitmap);
+    bitmap->alloc_size = usable;
     size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
     bitmap->roaring = bitmapObjectRoaringFromString(buf, len, 1);
     bitmapRoaringPopAllocSizeTracker(prev);
