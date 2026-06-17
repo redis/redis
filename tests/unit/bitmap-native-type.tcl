@@ -104,6 +104,26 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal string [r type bitmap:convert]
     }
 
+    test {BITMAP CONVERT preserves all-zero logical byte length} {
+        r config set bitmap-default-roaring no
+        set raw [string repeat [binary format H* 00] 6]
+
+        r del bitmap:convert:zeros bitmap:convert:zeros:restored
+        r set bitmap:convert:zeros $raw
+        assert_equal OK [r bitmap convert bitmap:convert:zeros]
+        assert_equal bitmap [r type bitmap:convert:zeros]
+        assert_equal bitmap-roaring [r object encoding bitmap:convert:zeros]
+        assert_equal 0 [r bitcount bitmap:convert:zeros]
+        assert_equal $raw [r debug bitmap-raw bitmap:convert:zeros]
+
+        set payload [r dump bitmap:convert:zeros]
+        r restore bitmap:convert:zeros:restored 0 $payload
+        assert_equal bitmap [r type bitmap:convert:zeros:restored]
+        assert_equal bitmap-roaring [r object encoding bitmap:convert:zeros:restored]
+        assert_equal 0 [r bitcount bitmap:convert:zeros:restored]
+        assert_equal $raw [r debug bitmap-raw bitmap:convert:zeros:restored]
+    }
+
     test {BITMAP CONVERT handles int-encoded strings missing keys and wrong types} {
         r del bitmap:convert:int bitmap:convert:list
         r set bitmap:convert:int 12345
