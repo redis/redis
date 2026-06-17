@@ -2646,7 +2646,8 @@ void bitmapCommand(client *c) {
 "CONVERT <key> [NATIVE|STRING]",
 "    Convert a bitmap key to the native compressed representation, or back",
 "    to a plain string. Defaults to NATIVE. Converting to the current",
-"    representation is a no-op.",
+"    representation is a no-op. NATIVE changes TYPE to bitmap; STRING",
+"    changes TYPE back to string.",
 NULL
         };
         addReplyHelp(c, help);
