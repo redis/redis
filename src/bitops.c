@@ -1549,7 +1549,8 @@ void bitopCommand(client *c) {
     /* BITOP NOT writes one result byte for every source byte, even when the
      * destination would be native. Keep the same safety limit as string
      * materialization so dense Roaring output cannot bypass proto-max-bulk-len. */
-    if (op == BITOP_NOT && maxlen > (uint64_t)server.proto_max_bulk_len) {
+    if (op == BITOP_NOT && !mustObeyClient(c) &&
+        maxlen > (uint64_t)server.proto_max_bulk_len) {
         unsigned long i;
         for (i = 0; i < numkeys; i++) {
             if (objects[i] && objects[i]->type == OBJ_STRING)
