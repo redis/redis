@@ -1321,8 +1321,7 @@ run_solo {defrag} {
             }
 
             # Verify the bitmaps stayed intact after active defrag touched
-            # them. Bitmap command fallbacks land in a later step, so the
-            # content checks go through the digest and the debug raw helper.
+            # them using representation-independent content checks.
             assert_equal bitmap [r type bigbitmap1]
             assert_equal bitmap-roaring [r object encoding bigbitmap1]
             assert_equal $expected_raw [r debug bitmap-raw bigbitmap1]
