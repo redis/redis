@@ -139,11 +139,12 @@ void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     bcastState *bs;
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
-    if (!raxFind(PrefixTable,(unsigned char*)prefix,plen,&result)) {
+    raxNodeLink link;
+    if (!raxFindLink(PrefixTable,(unsigned char*)prefix,plen,&result,&link)) {
         bs = zmalloc(sizeof(*bs));
         bs->keys = raxNew();
         bs->clients = raxNew();
-        raxInsert(PrefixTable,(unsigned char*)prefix,plen,bs,NULL);
+        raxInsertAt(PrefixTable,(unsigned char*)prefix,plen,bs,NULL,&link);
     } else {
         bs = result;
     }
@@ -228,10 +229,11 @@ void trackingRememberKeys(client *tracking, client *executing) {
         sds sdskey = executing->argv[idx]->ptr;
         void *result;
         rax *ids;
-        if (!raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),&result)) {
+        raxNodeLink link;
+        if (!raxFindLink(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),&result,&link)) {
             ids = raxNew();
-            int inserted = raxTryInsert(TrackingTable,(unsigned char*)sdskey,
-                                        sdslen(sdskey),ids, NULL);
+            int inserted = raxInsertAt(TrackingTable,(unsigned char*)sdskey,
+                                       sdslen(sdskey),ids,NULL,&link);
             serverAssert(inserted == 1);
         } else {
             ids = result;

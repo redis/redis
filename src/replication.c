@@ -4010,7 +4010,7 @@ static void rdbChannelReplDataBufClear(void) {
 static int replDataBufReadIntoLastBlock(connection *conn, replDataBuf *buf,
                                     void (*error_handler)(connection *conn))
 {
-    atomicIncr(server.stat_io_reads_processed[IOTHREAD_MAIN_THREAD_ID], 1);
+    atomicIncr(IOThreads[IOTHREAD_MAIN_THREAD_ID].io_reads_processed, 1);
 
     replDataBufBlock *block = listNodeValue(listLast(buf->blocks));
     serverAssert(block && block->size > block->used);

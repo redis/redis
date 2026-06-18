@@ -1105,7 +1105,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.30.0
+      uses: cross-platform-actions/action@v1.0.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
@@ -1221,10 +1221,14 @@ jobs:
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
-    - name: Install Python dependencies
-      uses: py-actions/py-dependency-install@30aa0023464ed4b5b116bd9fbdab87acf01a484e # v4.1.0
+    - name: Set up Python
+      uses: actions/setup-python@v6
       with:
-        path: "./utils/req-res-validator/requirements.txt"
+        python-version: "3.x"
+        cache: "pip"
+        cache-dependency-path: "./utils/req-res-validator/requirements.txt"
+    - name: Install Python dependencies
+      run: python -m pip install -r ./utils/req-res-validator/requirements.txt
     - name: validator
       run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
 

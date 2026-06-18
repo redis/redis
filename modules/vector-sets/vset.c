@@ -554,6 +554,7 @@ int VADD_CASReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             newnode = hnsw_insert(vset->hnsw, vec, NULL, 0, 0, nv, ef);
             RedisModule_Assert(newnode != NULL);
         }
+        if (attrib != NULL) vset->numattribs++;
         RedisModule_DictSet(vset->dict,val,newnode);
         val = NULL; // Don't free it later.
         attrib = NULL; // Don't free it later.

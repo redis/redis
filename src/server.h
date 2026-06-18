@@ -265,6 +265,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
 #define CMD_TOUCHES_ARBITRARY_KEYS (1ULL<<28)
 #define CMD_INTERNAL (1ULL<<29) /* Internal command. */
+#define CMD_SCRIPT_RUNNER (1ULL<<30) /* Command that executes scripts or functions (EVAL, FCALL, etc.). */
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -1139,8 +1140,8 @@ static_assert(offsetof(payloadHeader, payload_len) == 0, "payload_len must be at
  * we store pointers to object and string itself */
 typedef struct __attribute__((__packed__)) bulkStrRef {
     robj *obj; /* pointer to object used for reference count management */
-    unsigned int prefix_cnt;
-    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n */
+    unsigned int prefix_cnt; /* length of prefix; 0 means prefix not yet formatted */
+    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n, lazily filled when writing */
     char crlf[2]; /* \r\n */
 } bulkStrRef;
 
@@ -1677,7 +1678,11 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
+    redisAtomic long long io_reads_processed;   /* Number of read events processed */
+    redisAtomic long long io_writes_processed;  /* Number of write events processed */
 } IOThread;
+
+extern IOThread IOThreads[IO_THREADS_MAX_NUM];
 
 /* Context for streaming replDataBuf to database */
 typedef struct replDataBufToDbCtx {
@@ -1898,6 +1903,27 @@ struct malloc_stats {
     size_t lua_allocator_frag_smallbins_bytes;
 };
 
+/* Tick-local cache used by computeDefragCycles() to avoid duplicating the
+ * expensive jemalloc fragmentation measurement that cronUpdateMemoryStats()
+ * already performs for its own purposes earlier in the same cron tick.
+ *
+ * Lifecycle (single-threaded by Redis's main-thread invariant):
+ *   - Producer: defragFragCachePut() — called from cronUpdateMemoryStats()
+ *     after its zmalloc_get_allocator_info() call. Records server.cronloops
+ *     at publish time alongside the (Lua-subtracted) values.
+ *   - Consumer: defragFragCacheTake() — called from computeDefragCycles().
+ *     Returns 1 only when the recorded cronloops matches server.cronloops
+ *     (same tick); returns 0 otherwise. No explicit invalidation needed —
+ *     both serverCron() and whileBlockedCron() advance server.cronloops at
+ *     entry, so any value published in a previous tick is automatically
+ *     stale on the next entry. */
+struct defragFragCache {
+    float  frag_pct;            /* defrag-relevant small-bins fragmentation percentage */
+    size_t frag_bytes;          /* defrag-relevant small-bins fragmentation in bytes */
+    int    cronloops;           /* server.cronloops at publish; -1 = never published */
+    long long hits;             /* Take found a valid cached value (DEBUG only) */
+};
+
 /*-----------------------------------------------------------------------------
  * TLS Context Configuration
  *----------------------------------------------------------------------------*/
@@ -2028,6 +2054,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    int debug_fork_fail;        /* Make the next redisFork() fail. (used by tests) */
     redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
@@ -2062,6 +2089,19 @@ struct redisServer {
     int execution_nesting;      /* Execution nesting level.
                                  * e.g. call(), async module stuff (timers, events, etc.),
                                  * cron stuff (active expire, eviction) */
+    uint8_t firing_keyed_post_notif_jobs; /* Non-zero while a per-key post-notification
+                                       * callback runs. The no-write guard: RM_Call is
+                                       * refused for the duration so the callback cannot
+                                       * touch the keyspace. */
+    uint8_t fire_keyed_jobs_between_subcommands; /* Non-zero when a per-key job
+                                       * (RM_AddPostNotificationJobForKey) is queued.
+                                       * Gates the explicit between-sub-command drains
+                                       * in execCommand (multi.c), scriptCall (script.c),
+                                       * and AOF replay (aof.c). */
+    uint8_t in_keyspace_notification;     /* >0 while inside a moduleNotifyKeyspaceEvent
+                                       * dispatch. Defines the scope from which
+                                       * RM_AddPostNotificationJobForKey may be called;
+                                       * a counter so nested notifications nest cleanly. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -2139,6 +2179,7 @@ struct redisServer {
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
+    struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
@@ -2157,8 +2198,6 @@ struct redisServer {
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
-    redisAtomic long long stat_io_reads_processed[IO_THREADS_MAX_NUM]; /* Number of read events processed by IO / Main threads */
-    redisAtomic long long stat_io_writes_processed[IO_THREADS_MAX_NUM]; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
@@ -3121,6 +3160,7 @@ int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 void firePostExecutionUnitJobs(void);
+void firePerKeyJobsBetweenSubcommands(void);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
@@ -3248,6 +3288,7 @@ void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
+unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
@@ -3727,6 +3768,8 @@ void exitExecutionUnit(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 void defragWhileBlocked(void);
+void defragFragCachePut(size_t frag_bytes, size_t allocated);
+int  defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes);
 unsigned int getLRUClock(void);
 unsigned int LRU_CLOCK(void);
 const char *evictPolicyToString(void);
@@ -4097,6 +4140,7 @@ int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags);
 void getKeysFreeResult(getKeysResult *result);
 int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int *slot);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int sunioncardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -4330,6 +4374,7 @@ void smembersCommand(client *c);
 void sinterCardCommand(client *c);
 void sinterstoreCommand(client *c);
 void sunionCommand(client *c);
+void sunioncardCommand(client *c);
 void sunionstoreCommand(client *c);
 void sdiffCommand(client *c);
 void sdiffstoreCommand(client *c);

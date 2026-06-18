@@ -2943,6 +2943,32 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
        assert_equal [R 1 asm.cluster_get_local_slot_ranges] {}
        assert_equal [R 4 asm.cluster_get_local_slot_ranges] {}
     }
+
+    test "Test RM_GetClusterNodeSlotRanges for local node" {
+        set local_id [R 0 cluster myid]
+        set ranges [R 0 asm.get_cluster_node_slot_ranges $local_id]
+        set local_ranges [R 0 asm.cluster_get_local_slot_ranges]
+        assert_equal $ranges $local_ranges
+    }
+
+    test "Test RM_GetClusterNodeSlotRanges for remote node" {
+        set node2_id [R 2 cluster myid]
+        set ranges [R 0 asm.get_cluster_node_slot_ranges $node2_id]
+        set remote_ranges [R 2 asm.cluster_get_local_slot_ranges]
+        assert_equal $ranges $remote_ranges
+    }
+
+    test "Test RM_GetClusterNodeSlotRanges for non-existent node" {
+        set ranges [R 0 asm.get_cluster_node_slot_ranges "0000000000000000000000000000000000000000"]
+        assert_equal $ranges {}
+    }
+
+    test "Test RM_GetClusterNodeSlotRanges for replica returns master slots" {
+        set replica3_id [R 3 cluster myid]
+        set ranges [R 0 asm.get_cluster_node_slot_ranges $replica3_id]
+        set master_ranges [R 0 asm.cluster_get_local_slot_ranges]
+        assert_equal $ranges $master_ranges
+    }
 }
 
 set testmodule [file normalize tests/modules/atomicslotmigration.so]
@@ -3054,6 +3080,15 @@ start_server {tags "cluster external:skip"} {
     test "Test RM_ClusterGetLocalSlotRanges without cluster" {
         r module load $testmodule
         assert_equal [r asm.cluster_get_local_slot_ranges] {{0 16383}}
+    }
+}
+
+start_server {tags "cluster external:skip"} {
+    test "Test RM_GetClusterNodeSlotRanges without cluster" {
+        r module load $testmodule
+        set local_id "nonexistent-node-id"
+        set ranges [r asm.get_cluster_node_slot_ranges $local_id]
+        assert_equal $ranges {}
     }
 }
 }

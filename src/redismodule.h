@@ -720,7 +720,9 @@ static const RedisModuleEvent
 
 #define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
 #define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
-#define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
+#define REDISMODULE_SUBEVENT_FORK_CHILD_PRE 2
+#define REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED 3
+#define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 4
 
 #define REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP 0
 #define REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP 1
@@ -995,7 +997,10 @@ typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv,
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
-typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
+/* Backward-compatible alias for the original (pre-rename) name. */
+typedef RedisModulePostNotifyJobFunc RedisModulePostNotificationJobFunc;
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef int (*RedisModuleTypeAuxLoadFunc)(RedisModuleIO *rdb, int encver, int when);
@@ -1382,7 +1387,8 @@ REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEventsWithSubkeys)(RedisModuleCtx *ctx, int types, int flags, RedisModuleNotificationWithSubkeysFunc cb) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddPostNotificationJobForKey)(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEventWithSubkeys)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetNotifyKeyspaceEvents)(void) REDISMODULE_ATTR;
@@ -1390,6 +1396,7 @@ REDISMODULE_API int (*RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx
 REDISMODULE_API void (*RedisModule_RegisterClusterMessageReceiver)(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SendClusterMessage)(RedisModuleCtx *ctx, const char *target_id, uint8_t type, const char *msg, uint32_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClusterNodeInfo)(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleSlotRangeArray *(*RedisModule_GetClusterNodeSlotRanges)(RedisModuleCtx *ctx, const char *nodeid) REDISMODULE_ATTR;
 REDISMODULE_API char ** (*RedisModule_GetClusterNodesList)(RedisModuleCtx *ctx, size_t *numnodes) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeClusterNodesList)(char **ids) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleTimerID (*RedisModule_CreateTimer)(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data) REDISMODULE_ATTR;
@@ -1788,6 +1795,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SubscribeToKeyspaceEventsWithSubkeys);
     REDISMODULE_GET_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
     REDISMODULE_GET_API(AddPostNotificationJob);
+    REDISMODULE_GET_API(AddPostNotificationJobForKey);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);
     REDISMODULE_GET_API(NotifyKeyspaceEventWithSubkeys);
     REDISMODULE_GET_API(GetNotifyKeyspaceEvents);
@@ -1795,6 +1803,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RegisterClusterMessageReceiver);
     REDISMODULE_GET_API(SendClusterMessage);
     REDISMODULE_GET_API(GetClusterNodeInfo);
+    REDISMODULE_GET_API(GetClusterNodeSlotRanges);
     REDISMODULE_GET_API(GetClusterNodesList);
     REDISMODULE_GET_API(FreeClusterNodesList);
     REDISMODULE_GET_API(CreateTimer);

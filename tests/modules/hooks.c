@@ -185,10 +185,30 @@ void persistenceCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, 
     /* modifying the keyspace from the fork child is not an option, using log instead */
     RedisModule_Log(ctx, "warning", "module-event-%s", keyname);
     if (sub == REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START ||
-        sub == REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START) 
+        sub == REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START)
     {
         LogNumericEvent(ctx, keyname, 0);
     }
+}
+
+void forkChildCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(e);
+    REDISMODULE_NOT_USED(data);
+
+    /* All ForkChild subevents fire on the main thread in the parent process, so
+     * logging into the in-module dict (rather than the keyspace) is safe. */
+    char *keyname = NULL;
+    switch (sub) {
+        case REDISMODULE_SUBEVENT_FORK_CHILD_BORN:      keyname = "fork-child-born"; break;
+        case REDISMODULE_SUBEVENT_FORK_CHILD_DIED:      keyname = "fork-child-died"; break;
+        case REDISMODULE_SUBEVENT_FORK_CHILD_PRE:       keyname = "fork-child-pre"; break;
+        case REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED: keyname = "fork-child-cancelled"; break;
+    }
+    if (keyname) LogNumericEvent(ctx, keyname, 0);
+
+    /* A nested RM_Fork from within FORK_CHILD_PRE must be rejected. */
+    if (sub == REDISMODULE_SUBEVENT_FORK_CHILD_PRE) assert(RedisModule_Fork(NULL, NULL) == -1);
 }
 
 void loadingCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
@@ -407,6 +427,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* persistence related hooks */
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Persistence, persistenceCallback);
+    RedisModule_SubscribeToServerEvent(ctx,
+        RedisModuleEvent_ForkChild, forkChildCallback);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_Loading, loadingCallback);
     RedisModule_SubscribeToServerEvent(ctx,

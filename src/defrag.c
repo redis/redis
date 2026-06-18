@@ -1386,10 +1386,38 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
 #define INTERPOLATE(x, x1, x2, y1, y2) ( (y1) + ((x)-(x1)) * ((y2)-(y1)) / ((x2)-(x1)) )
 #define LIMIT(y, min, max) ((y)<(min)? min: ((y)>(max)? max: (y)))
 
+/* Publish (Lua-subtracted) frag values with the current cronloops stamp.
+ * See struct defragFragCache in server.h for the cache rationale. */
+void defragFragCachePut(size_t frag_bytes, size_t allocated) {
+    if (allocated == 0) return;          /* avoid divide-by-zero */
+    server.defrag_frag_cache.frag_pct =
+        (float)((double)frag_bytes / (double)allocated * 100.0);
+    server.defrag_frag_cache.frag_bytes = frag_bytes;
+    server.defrag_frag_cache.cronloops = server.cronloops;
+}
+
+int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
+    if (server.defrag_frag_cache.cronloops != server.cronloops)
+        return 0;
+    server.defrag_frag_cache.hits++;
+    *out_frag_pct   = server.defrag_frag_cache.frag_pct;
+    *out_frag_bytes = server.defrag_frag_cache.frag_bytes;
+    return 1;
+}
+
 /* decide if defrag is needed, and at what CPU effort to invest in it */
 void computeDefragCycles(void) {
+    /* Try the tick-local cache first.  On hit, (frag_pct, frag_bytes)
+     * are populated from the value the producer published earlier this
+     * cron tick — saving a redundant getAllocatorFragmentation() call.
+     * On miss (cache stale, cold start, or invalidated by a previous
+     * consume), fall back to a fresh measurement.  The single threshold
+     * check below operates on whichever source provided the values. */
     size_t frag_bytes;
-    float frag_pct = getAllocatorFragmentation(&frag_bytes);
+    float frag_pct;
+    if (!defragFragCacheTake(&frag_pct, &frag_bytes)) {
+        frag_pct = getAllocatorFragmentation(&frag_bytes);
+    }
     /* If we're not already running, and below the threshold, exit. */
     if (!server.active_defrag_running) {
         if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
@@ -2012,6 +2040,15 @@ robj *activeDefragStringOb(robj *ob) {
 }
 
 void defragWhileBlocked(void) {
+}
+
+void defragFragCachePut(size_t frag_bytes, size_t allocated) {
+    UNUSED(frag_bytes); UNUSED(allocated);
+}
+
+int defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes) {
+    UNUSED(out_frag_pct); UNUSED(out_frag_bytes);
+    return 0;
 }
 
 #endif
