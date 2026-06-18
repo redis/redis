@@ -12564,6 +12564,7 @@ static uint64_t moduleEventVersions[] = {
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM */
+    -1, /* REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE (no data; module queries cluster info itself) */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -12922,6 +12923,31 @@ static uint64_t moduleEventVersions[] = {
  *
  *         RedisModuleSlotRangeArray *slots;  // Slot ranges
  *
+ * * RedisModuleEvent_ClusterTopologyChange
+ *
+ *     Called, in cluster mode, when the topology of the cluster changes: when the
+ *     cluster first becomes ready, when slot ownership or node membership changes
+ *     (resharding, a node joining or leaving), and when a primary changes (a
+ *     failover or a replica being promoted). It lets modules that route to other
+ *     shards (e.g. via slot ranges) refresh their cached view of the cluster
+ *     without polling or requiring an explicit command. Fires are debounced to at
+ *     most one per event loop iteration, so a single reshuffle touching many slots
+ *     yields one event.
+ *
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_STARTUP`:
+ *         The cluster reached the OK state for the first time since startup.
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_TOPOLOGY_CHANGED`:
+ *         Slot ownership or node membership changed.
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_ROLE_CHANGED`:
+ *         A node changed its primary/replica role (e.g. a failover).
+ *
+ *     The data pointer is NULL: the module reads whatever it needs about the new
+ *     topology via the cluster info APIs (e.g. `CLUSTER SLOTS`,
+ *     RedisModule_GetClusterNodesList / RedisModule_GetClusterNodeInfo /
+ *     RedisModule_GetClusterSize).
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -13007,6 +13033,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT;
     case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM:
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT;
     default:
         break;
     }

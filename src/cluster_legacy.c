@@ -39,6 +39,14 @@
  * that represents this node. */
 clusterNode *myself = NULL;
 
+/* RedisModuleEvent_ClusterTopologyChange is debounced: slot/role mutations only
+ * OR the matching subevent bit into server.cluster->topology_change_flags and
+ * request CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE; the event itself is fired once per
+ * event-loop iteration from clusterBeforeSleep(), which collapses a reshuffle
+ * that touches many slots into a single notification. The TOPOLOGY_CHANGED (1)
+ * and ROLE_CHANGED (2) subevent values are distinct bits, so they double as
+ * the pending-reason flags (ROLE_CHANGED takes precedence when both are set). */
+
 clusterNode *createClusterNode(char *nodename, int flags);
 void clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -47,6 +55,8 @@ void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
+static void clusterFireTopologyChangeIfNeeded(void);
+static void clusterNotifyTopologyChange(int change_flags);
 int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
@@ -964,6 +974,8 @@ void clusterInit(void) {
     server.cluster->currentEpoch = 0;
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 0;
+    server.cluster->topology_change_flags = 0;
+    server.cluster->topo_startup_fired = 0;
     server.cluster->todo_before_sleep = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->shards = dictCreate(&clusterSdsToListType);
@@ -2327,6 +2339,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
     n->flags &= ~CLUSTER_NODE_SLAVE;
     n->flags |= CLUSTER_NODE_MASTER;
     n->slaveof = NULL;
+    clusterNotifyTopologyChange(REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_ROLE_CHANGED);
 
     /* Update config and state. */
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -5020,6 +5033,13 @@ void clusterBeforeSleep(void) {
     /* Broadcast a PONG to all the nodes. */
     if (flags & CLUSTER_TODO_BROADCAST_PONG)
         clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+
+    /* Notify subscribed modules about cluster topology changes. Done here, after
+     * the state update above, so the notification reflects the current state and
+     * fires at most once per event-loop iteration regardless of how many slots
+     * or nodes changed. */
+    if (flags & CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE)
+        clusterFireTopologyChangeIfNeeded();
 }
 
 void clusterDoBeforeSleep(int flags) {
@@ -5122,6 +5142,7 @@ int clusterAddSlot(clusterNode *n, int slot) {
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     clusterSlotStatReset(slot);
+    clusterNotifyTopologyChange(REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_TOPOLOGY_CHANGED);
     return C_OK;
 }
 
@@ -5141,6 +5162,7 @@ int clusterDelSlot(int slot) {
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     clusterSlotStatReset(slot);
+    clusterNotifyTopologyChange(REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_TOPOLOGY_CHANGED);
     return C_OK;
 }
 
@@ -5194,6 +5216,48 @@ void clusterCloseAllSlots(void) {
 #define CLUSTER_MAX_REJOIN_DELAY 5000
 #define CLUSTER_MIN_REJOIN_DELAY 500
 #define CLUSTER_WRITABLE_DELAY 2000
+
+/* Record a pending RedisModuleEvent_ClusterTopologyChange (the change_flags are
+ * REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_* bits) and request it to be fired
+ * from the next clusterBeforeSleep(). Called from every slot/role mutation. */
+static void clusterNotifyTopologyChange(int change_flags) {
+    server.cluster->topology_change_flags |= change_flags;
+    clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
+}
+
+/* Fire the RedisModuleEvent_ClusterTopologyChange module event with the given
+ * subevent. The event carries no payload (NULL data). */
+static void clusterFireTopologyChangeEvent(int subevent) {
+    /* No data payload: a subscribing module reads whatever it needs about the
+     * new topology via the cluster info module APIs (CLUSTER SLOTS,
+     * RedisModule_GetClusterNodesList/NodeInfo, RedisModule_GetClusterSize, ...). */
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, subevent, NULL);
+}
+
+/* Fire the cluster topology-change notification to modules, if one is pending.
+ * Called once per event-loop iteration from clusterBeforeSleep() in response to
+ * CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE, which is requested by every slot/role
+ * mutation and on the cluster's OK/FAIL transition. This debounces a reshuffle
+ * that touches many slots into a single notification. STARTUP is reported once,
+ * the first time the cluster becomes OK; afterwards a pending role change is
+ * reported as ROLE_CHANGED and any other slot/membership change as
+ * TOPOLOGY_CHANGED. The checks here make a redundant TODO a harmless no-op. */
+static void clusterFireTopologyChangeIfNeeded(void) {
+    if (!server.cluster->topo_startup_fired) {
+        if (server.cluster->state == CLUSTER_OK) {
+            server.cluster->topo_startup_fired = 1;
+            server.cluster->topology_change_flags = 0;
+            clusterFireTopologyChangeEvent(
+                REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_STARTUP);
+        }
+    } else if (server.cluster->topology_change_flags) {
+        int subevent = (server.cluster->topology_change_flags & REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_ROLE_CHANGED) ?
+            REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_ROLE_CHANGED :
+            REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_TOPOLOGY_CHANGED;
+        server.cluster->topology_change_flags = 0;
+        clusterFireTopologyChangeEvent(subevent);
+    }
+}
 
 void clusterUpdateState(void) {
     int j, new_state;
@@ -5289,6 +5353,10 @@ void clusterUpdateState(void) {
             "Cluster state changed: %s",
             new_state == CLUSTER_OK ? "ok" : "fail");
         server.cluster->state = new_state;
+
+        /* The OK/FAIL transition (in particular the first reach of OK, i.e.
+         * startup) is itself a topology-change notification trigger. */
+        clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
     }
 }
 
@@ -5342,6 +5410,7 @@ void clusterSetMaster(clusterNode *n) {
 
     int was_master = clusterNodeIsMaster(myself);
     if (was_master) {
+        clusterNotifyTopologyChange(REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_ROLE_CHANGED);
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
