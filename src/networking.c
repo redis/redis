@@ -2088,6 +2088,10 @@ void deauthenticateAndCloseClient(client *c) {
     disableTracking(c);
     c->user = DefaultUser;
     c->authenticated = 0;
+    pubsubUnsubscribeAllChannels(c, 0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
+    pubsubUnsubscribeAllPatterns(c, 0);
+    unmarkClientAsPubSub(c);
     /* We will write replies to this client later, so we can't
      * close it directly even if async. */
     if (c == server.current_client) {

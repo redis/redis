@@ -1449,6 +1449,51 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd1 close
     }
 
+    test {ACL LOAD twice in one MULTI/EXEC survives a killed subscriber} {
+        reconnect
+        set rd1 [redis_deferring_client]
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 CLIENT SETNAME asap-victim
+        $rd1 read
+        $rd1 SUBSCRIBE secret
+        $rd1 read
+
+        # Revoke alice's access to "secret" so the first ACL LOAD kills the
+        # subscriber. The kill is asynchronous (CLIENT_CLOSE_ASAP): the client
+        # stays in server.clients, still keyed under alice's now-freed user
+        # pointer, until beforeSleep. Running two loads inside one MULTI/EXEC
+        # keeps both in the same event-loop iteration, so the second load
+        # revisits the half-freed client before it is reaped. Without the
+        # CLIENT_CLOSE_ASAP guard the second load dereferences the dangling
+        # subscription key (use-after-free, caught under ASAN/valgrind).
+        set aclfile [file join $server_path user.acl]
+        set fd [open $aclfile w]
+        puts $fd "user alice on allcommands allkeys resetchannels &other >alice"
+        puts $fd "user bob on -@all +@set +acl ~set* &* >bob"
+        puts $fd "user doug on resetchannels &test +@all ~* >doug"
+        puts $fd "user default on nopass ~* &* +@all"
+        close $fd
+
+        r MULTI
+        r ACL LOAD
+        r ACL LOAD
+        assert_equal {OK OK} [r EXEC]
+
+        # The first load killed the subscriber.
+        catch {$rd1 read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*asap-victim*} [r CLIENT LIST]
+
+        # The server survived both loads in the same iteration.
+        assert_equal PONG [r ping]
+
+        # Restore the original ACL file.
+        exec cp -f tests/assets/user.acl $server_path
+        r ACL LOAD
+        $rd1 close
+    }
+
     test {ACL LOAD default user subscriber survives when permissions unchanged} {
         reconnect
         set rd1 [redis_deferring_client]
