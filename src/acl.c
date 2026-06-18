@@ -491,18 +491,13 @@ void ACLFreeUserAndKillClients(user *u) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (c->user == u) {
+        if (c->user == u || dictFind(c->pubsub_subscriptions, u)) {
             /* We'll free the connection asynchronously, so
              * in theory to set a different user is not needed.
              * However if there are bugs in Redis, soon or later
              * this may result in some security hole: it's much
              * more defensive to set the default user and put
              * it in non authenticated mode. */
-            deauthenticateAndCloseClient(c);
-            continue;
-        }
-        /* Kill clients that still hold subscriptions from the deleted user */
-        if (dictFind(c->pubsub_subscriptions, u)) {
             deauthenticateAndCloseClient(c);
         }
     }
@@ -2007,47 +2002,27 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
+static int aclSubsDictHasViolatingSubscription(dict *d, list *upcoming, int is_pattern) {
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, d);
+    int kill = 0;
+    while (!kill && ((de = dictNext(&di)) != NULL)) {
+        robj *o = dictGetKey(de);
+        kill = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern)
+               == ACL_DENIED_CHANNEL;
+    }
+    dictResetIterator(&di);
+    return kill;
+}
+
 /* Check if a specific user's subscriptions violate the given channel list.
  * Returns 1 if any violation is found, 0 otherwise. */
 static int ACLShouldKillForUserSubs(pubsubUserSubs *subs, list *upcoming) {
     serverAssert(!pubsubUserSubsIsEmpty(subs));
-    robj *o;
-    int kill = 0;
-    dictIterator di;
-    dictEntry *de;
-
-    /* Check for pattern violations. */
-    dictInitIterator(&di, subs->patterns);
-    while (!kill && ((de = dictNext(&di)) != NULL)) {
-        o = dictGetKey(de);
-        int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-        kill = (res == ACL_DENIED_CHANNEL);
-    }
-    dictResetIterator(&di);
-
-    /* Check for global channel violations. */
-    if (!kill) {
-        dictInitIterator(&di, subs->channels);
-        while (!kill && ((de = dictNext(&di)) != NULL)) {
-            o = dictGetKey(de);
-            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-            kill = (res == ACL_DENIED_CHANNEL);
-        }
-        dictResetIterator(&di);
-    }
-
-    /* Check for shard channel violations. */
-    if (!kill) {
-        dictInitIterator(&di, subs->shard_channels);
-        while (!kill && ((de = dictNext(&di)) != NULL)) {
-            o = dictGetKey(de);
-            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-            kill = (res == ACL_DENIED_CHANNEL);
-        }
-        dictResetIterator(&di);
-    }
-
-    return kill;
+    return aclSubsDictHasViolatingSubscription(subs->patterns, upcoming, 1)
+        || aclSubsDictHasViolatingSubscription(subs->channels, upcoming, 0)
+        || aclSubsDictHasViolatingSubscription(subs->shard_channels, upcoming, 0);
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
@@ -2493,8 +2468,7 @@ sds ACLLoadFromFile(const char *filename) {
          * default user configuration in the old one. Snapshot the old default
          * into old_users before mutation so the provenance loop can compare
          * against the pre-load permissions. */
-        user *old_default_copy = zmalloc(sizeof(user));
-        memset(old_default_copy, 0, sizeof(user));
+        user *old_default_copy = zcalloc(sizeof(user));
         serverAssert(DefaultUser);
         old_default_copy->name = sdsdup(DefaultUser->name);
         ACLCopyUser(old_default_copy, DefaultUser);

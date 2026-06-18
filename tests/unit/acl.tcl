@@ -267,47 +267,28 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
-    test {Subscribers are killed when revoked of channel permission} {
-        set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &foo:1
-        $rd AUTH psuser pspass
-        $rd read
-        $rd CLIENT SETNAME deathrow
-        $rd read
-        $rd SUBSCRIBE foo:1
-        $rd read
-        r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
-        $rd close
-    } {0}
-
-    test {Subscribers are killed when revoked of channel permission} {
-        set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &foo:1
-        $rd AUTH psuser pspass
-        $rd read
-        $rd CLIENT SETNAME deathrow
-        $rd read
-        $rd SSUBSCRIBE foo:1
-        $rd read
-        r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
-        $rd close
-    } {0}
-
-    test {Subscribers are killed when revoked of pattern permission} {
-        set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &bar:*
-        $rd AUTH psuser pspass
-        $rd read
-        $rd CLIENT SETNAME deathrow
-        $rd read
-        $rd PSUBSCRIBE bar:*
-        $rd read
-        r ACL setuser psuser resetchannels
-        assert_no_match {*deathrow*} [r CLIENT LIST]
-        $rd close
-    } {0}
+    # {label subscribe-command target}. The user is granted &$target, subscribes,
+    # then has the grant revoked and must be disconnected. Normal channels,
+    # shard channels, and patterns all share the same flow.
+    foreach {label subcmd target} {
+        channel         SUBSCRIBE  foo:1
+        {shard channel} SSUBSCRIBE foo:1
+        pattern         PSUBSCRIBE bar:*
+    } {
+        test "Subscribers are killed when revoked of $label permission" {
+            set rd [redis_deferring_client]
+            r ACL setuser psuser resetchannels &$target
+            $rd AUTH psuser pspass
+            $rd read
+            $rd CLIENT SETNAME deathrow
+            $rd read
+            $rd $subcmd $target
+            $rd read
+            r ACL setuser psuser resetchannels
+            assert_no_match {*deathrow*} [r CLIENT LIST]
+            $rd close
+        } {0}
+    }
 
     test {Subscribers are killed when revoked of allchannels permission} {
         set rd [redis_deferring_client]
@@ -345,64 +326,34 @@ start_server {tags {"acl external:skip"}} {
 
     # ─── Provenance: subscription revocation across re-auth ───
 
-    test {Provenance: channel subscription is killed when originating user's permissions are revoked} {
-        r ACL SETUSER provuser on nopass ~* &* +@all
-        set rd [redis_deferring_client]
-        $rd HELLO 3 AUTH provuser provuser
-        $rd read
-        $rd SUBSCRIBE secret
-        assert_match {subscribe secret 1} [$rd read]
-        # Re-auth as default — subscription stays under provuser
-        $rd AUTH default ""
-        $rd read
-        $rd CLIENT SETNAME prov-channel
-        $rd read
-        # Revoke provuser's channel access
-        r ACL SETUSER provuser resetchannels
-        # Client must be killed — provenance entry is under provuser
-        catch {$rd read} e
-        assert_match {*I/O error*} $e
-        assert_no_match {*prov-channel*} [r CLIENT LIST]
-        $rd close
-        r ACL DELUSER provuser
-    }
-
-    test {Provenance: pattern subscription is killed when originating user's permissions are revoked} {
-        r ACL SETUSER provuser on nopass ~* &* +@all
-        set rd [redis_deferring_client]
-        $rd HELLO 3 AUTH provuser provuser
-        $rd read
-        $rd PSUBSCRIBE secret:*
-        assert_match {psubscribe secret:* 1} [$rd read]
-        $rd AUTH default ""
-        $rd read
-        $rd CLIENT SETNAME prov-pattern
-        $rd read
-        r ACL SETUSER provuser resetchannels
-        catch {$rd read} e
-        assert_match {*I/O error*} $e
-        assert_no_match {*prov-pattern*} [r CLIENT LIST]
-        $rd close
-        r ACL DELUSER provuser
-    }
-
-    test {Provenance: shard channel subscription is killed when originating user's permissions are revoked} {
-        r ACL SETUSER provuser on nopass ~* &* +@all
-        set rd [redis_deferring_client]
-        $rd HELLO 3 AUTH provuser provuser
-        $rd read
-        $rd SSUBSCRIBE secret
-        assert_match {ssubscribe secret 1} [$rd read]
-        $rd AUTH default ""
-        $rd read
-        $rd CLIENT SETNAME prov-shard
-        $rd read
-        r ACL SETUSER provuser resetchannels
-        catch {$rd read} e
-        assert_match {*I/O error*} $e
-        assert_no_match {*prov-shard*} [r CLIENT LIST]
-        $rd close
-        r ACL DELUSER provuser
+    # {label subscribe-command target client-name}. The expected reply verb is
+    # the lowercased command, and the reply is "{verb} {target} 1".
+    foreach {label subcmd target cname} {
+        channel         SUBSCRIBE  secret    prov-channel
+        pattern         PSUBSCRIBE secret:*  prov-pattern
+        {shard channel} SSUBSCRIBE secret    prov-shard
+    } {
+        test "Provenance: $label subscription is killed when originating user's permissions are revoked" {
+            r ACL SETUSER provuser on nopass ~* &* +@all
+            set rd [redis_deferring_client]
+            $rd HELLO 3 AUTH provuser provuser
+            $rd read
+            $rd $subcmd $target
+            assert_match "[string tolower $subcmd] $target 1" [$rd read]
+            # Re-auth as default — subscription stays under provuser
+            $rd AUTH default ""
+            $rd read
+            $rd CLIENT SETNAME $cname
+            $rd read
+            # Revoke provuser's channel access
+            r ACL SETUSER provuser resetchannels
+            # Client must be killed — provenance entry is under provuser
+            catch {$rd read} e
+            assert_match {*I/O error*} $e
+            assert_no_match "*$cname*" [r CLIENT LIST]
+            $rd close
+            r ACL DELUSER provuser
+        }
     }
 
     # ─── Provenance: ACL DELUSER on originating user ───
