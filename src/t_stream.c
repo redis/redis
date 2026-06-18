@@ -1964,6 +1964,17 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     decrRefCount(argv[4]);
 }
 
+/* Returns non-zero if the MAXSIZE byte budget for the whole command reply has
+ * been reached and we should stop emitting further entries. 'maxsize' is the
+ * byte budget (0 means no limit) and 'emitted' is the number of entries already
+ * emitted across the whole reply. The budget is never enforced before at least
+ * one entry has been emitted, so a single oversized message can still exceed
+ * maxsize. */
+static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t emitted) {
+    return maxsize && emitted > 0 &&
+           c->net_output_bytes_curr_cmd >= (size_t)maxsize;
+}
+
 /* Send the stream items in the specified range to the client 'c'. The range
  * the client will receive is between start and end inclusive, if 'count' is
  * non zero, no more than 'count' elements are sent.
@@ -2093,12 +2104,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
             uint64_t idle = cmd_time_snapshot - nack->delivery_time;
             if (idle < (uint64_t)min_idle_time) break;
 
-            /* Enforce the MAXSIZE byte budget: stop before claiming/emitting
-             * another entry once the reply has reached the limit, unless we
-             * have not emitted any entry yet across the whole reply (a single
-             * oversized entry is always allowed). */
-            if (maxsize && (emitted_before + arraylen) > 0 &&
-                c->net_output_bytes_curr_cmd >= (size_t)maxsize)
+            if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
                 break;
 
             /* Process and claim this entry */
@@ -2191,13 +2197,9 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
         arraylen_ptr = addReplyDeferredLen(c);
     streamIteratorStart(&si,s,start,end,rev);
     while (streamIteratorGetID(&si,&id,&numfields)) {
-        /* Enforce the MAXSIZE byte budget: stop before emitting another entry
-         * once the reply has reached the limit, unless we have not emitted any
-         * entry yet across the whole reply (a single oversized entry is always
-         * allowed). We break before delivering the entry so it is neither sent
-         * nor added to the consumer's PEL. */
-        if (maxsize && (emitted_before + arraylen) > 0 &&
-            c->net_output_bytes_curr_cmd >= (size_t)maxsize)
+        /* Break before delivering the entry so it is neither sent nor added to
+         * the consumer's PEL. */
+        if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
             break;
 
         /* Update the group last_id if needed. */
@@ -2353,11 +2355,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     while(raxNext(&ri) && (!count || arraylen < count)) {
         if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
-        /* Enforce the MAXSIZE byte budget: stop before emitting another entry
-         * once the reply has reached the limit, unless nothing has been emitted
-         * yet across the whole reply. */
-        if (maxsize && (emitted_before + arraylen) > 0 &&
-            c->net_output_bytes_curr_cmd >= (size_t)maxsize)
+        if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
             break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
@@ -2989,8 +2987,7 @@ void xreadCommand(client *c) {
          * At least the first stream is always served, so a single message
          * larger than MAXSIZE is still returned. */
         if (maxcount && total_entries >= (size_t)maxcount) break;
-        if (maxsize && total_entries > 0 &&
-            c->net_output_bytes_curr_cmd >= (size_t)maxsize) break;
+        if (streamReplyMaxsizeReached(c, maxsize, total_entries)) break;
 
         kvobj *o = lookupKeyRead(c->db, c->argv[streams_arg + i]);
         if (o == NULL) continue;
