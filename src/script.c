@@ -687,6 +687,10 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+
+    if (server.fire_keyed_jobs_between_subcommands)
+        firePerKeyJobsBetweenSubcommands();
+
     clusterSlotStatsInvalidateSlotIfApplicable(run_ctx);
     return;
 

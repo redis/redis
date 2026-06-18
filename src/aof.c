@@ -1681,6 +1681,12 @@ int loadSingleAppendOnlyFile(char *filename) {
             queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
+            /* AOF replay bypasses call()/afterCommand(); fire the per-key
+             * post-notification jobs here so they run once per replayed single
+             * command and rebuild per-key state. Regular jobs are flushed at
+             * cleanup. */
+            if (server.fire_keyed_jobs_between_subcommands)
+                firePerKeyJobsBetweenSubcommands();
             fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
@@ -1760,6 +1766,7 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
+    firePostExecutionUnitJobs();
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;
