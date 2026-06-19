@@ -9269,6 +9269,7 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_MODULE: Module types events
+ *  - REDISMODULE_NOTIFY_BITMAP: Bitmap events
  *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
  *                                Notice, key-miss event is the only type
  *                                of event that is fired from within a read command.

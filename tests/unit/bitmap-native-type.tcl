@@ -1,10 +1,6 @@
 set testmodule [file normalize tests/modules/misc.so]
 set ::sparse_public_offset 65536
 set ::sparse_public_len 8193
-# Native bitmaps support 64-bit indexing: the highest addressable bit offset
-# is 2^63-9 (a logical length of 2^60-1 bytes, the largest one whose bit
-# count still fits a signed 64-bit integer).
-set ::native_max_offset 9223372036854775799
 
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {bitmap-default-roaring defaults to no} {
@@ -145,19 +141,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_error {*syntax*} {r bitmap convert bitmap:convert:int SIDEWAYS}
     }
 
-    test {BITMAP CONVERT STRING rejects bitmaps longer than proto-max-bulk-len} {
-        r del bitmap:convert:huge
-        r config set bitmap-default-roaring yes
-        r setbit bitmap:convert:huge 99999999999 1
-        r config set bitmap-default-roaring no
-        assert_equal bitmap [r type bitmap:convert:huge]
-        assert_error {*exceeds proto-max-bulk-len*} {r bitmap convert bitmap:convert:huge STRING}
-        assert_equal bitmap [r type bitmap:convert:huge]
-        assert_equal 40 [string length [r debug digest-value bitmap:convert:huge]]
-        assert_error {*exceeds proto-max-bulk-len*} {r debug bitmap-raw bitmap:convert:huge}
-        r del bitmap:convert:huge
-    }
-
     test {DEBUG DIGEST for native bitmaps includes trailing zero length} {
         r config set bitmap-default-roaring yes
         r del bitmap:digest:short bitmap:digest:long
@@ -195,76 +178,53 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $converted_digest $setbit_digest
     }
 
-    test {native bitmaps accept 64-bit offsets across the command surface} {
-        r del bitmap:64bit
+    test {native bitmaps keep the original proto-max-bulk-len offset limit} {
+        r del bitmap:native:bounds
         r config set bitmap-default-roaring yes
-        set big_offset 99999999999
-        assert_equal 0 [r setbit bitmap:64bit $big_offset 1]
+        assert_equal 0 [r setbit bitmap:native:bounds 0 1]
         r config set bitmap-default-roaring no
 
-        assert_equal 1 [r getbit bitmap:64bit $big_offset]
-        assert_equal 0 [r getbit bitmap:64bit [expr {$big_offset - 1}]]
-        assert_equal 1 [r bitcount bitmap:64bit]
-        assert_equal 1 [r bitcount bitmap:64bit $big_offset $big_offset bit]
-        assert_equal $big_offset [r bitpos bitmap:64bit 1]
-        assert_equal $big_offset [r bitpos bitmap:64bit 1 12499999999]
-        assert_equal 0 [r bitpos bitmap:64bit 0]
-        assert_equal [list 1] [r bitfield_ro bitmap:64bit GET u1 $big_offset]
-        assert_equal [list 1 0] [r bitfield bitmap:64bit SET u1 $big_offset 0 GET u1 $big_offset]
-        assert_equal 0 [r bitcount bitmap:64bit]
-        r del bitmap:64bit
-    }
-
-    test {native bitmaps accept offsets up to 2^63-9 and reject beyond} {
-        r del bitmap:64bit:max
-        r config set bitmap-default-roaring yes
-        assert_equal 0 [r setbit bitmap:64bit:max $::native_max_offset 1]
-        r config set bitmap-default-roaring no
-
-        assert_equal 1 [r getbit bitmap:64bit:max $::native_max_offset]
-        assert_equal 1 [r bitcount bitmap:64bit:max]
-        assert_equal $::native_max_offset [r bitpos bitmap:64bit:max 1]
-
-        # One past the representable maximum parses but is not addressable.
-        assert_error {*not representable*} {
-            r setbit bitmap:64bit:max [expr {$::native_max_offset + 1}] 1
+        assert_equal bitmap [r type bitmap:native:bounds]
+        assert_equal 1 [r bitcount bitmap:native:bounds]
+        foreach cmd {
+            {getbit bitmap:native:bounds 4294967296}
+            {setbit bitmap:native:bounds 4294967296 1}
+            {bitfield_ro bitmap:native:bounds GET u1 4294967296}
+            {bitfield bitmap:native:bounds SET u1 4294967296 1}
+        } {
+            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
         }
-        # Reads past the maximum representable offset are plain unset bits.
-        assert_equal 0 [r getbit bitmap:64bit:max [expr {$::native_max_offset + 1}]]
-        # Offsets beyond the signed 64-bit range do not parse at all.
         assert_error {*bit offset is not an integer or out of range*} {
-            r setbit bitmap:64bit:max 9223372036854775808 1
+            r setbit bitmap:native:bounds 9223372036854775808 1
         }
-        assert_equal 1 [r bitcount bitmap:64bit:max]
-        r del bitmap:64bit:max
+        assert_equal 1 [r bitcount bitmap:native:bounds]
+        r del bitmap:native:bounds
     }
 
-    test {bitmap-default-roaring SETBIT rejects unrepresentable native offsets without changing keys} {
-        set one_past_native_max [expr {$::native_max_offset + 1}]
+    test {bitmap-default-roaring SETBIT rejects out-of-range offsets without changing keys} {
         r config set bitmap-default-roaring yes
-        r del bitmap:64bit:implicit:max:new bitmap:64bit:implicit:max:string
+        r del bitmap:bounds:implicit:new bitmap:bounds:implicit:string
 
-        assert_error {*not representable*} {
-            r setbit bitmap:64bit:implicit:max:new $one_past_native_max 1
+        assert_error {*bit offset is not an integer or out of range*} {
+            r setbit bitmap:bounds:implicit:new 4294967296 1
         }
-        assert_equal 0 [r exists bitmap:64bit:implicit:max:new]
+        assert_equal 0 [r exists bitmap:bounds:implicit:new]
 
         set raw [binary format H* 80]
-        r set bitmap:64bit:implicit:max:string $raw
-        assert_error {*not representable*} {
-            r setbit bitmap:64bit:implicit:max:string $one_past_native_max 1
+        r set bitmap:bounds:implicit:string $raw
+        assert_error {*bit offset is not an integer or out of range*} {
+            r setbit bitmap:bounds:implicit:string 4294967296 1
         }
-        assert_equal string [r type bitmap:64bit:implicit:max:string]
-        assert_equal $raw [r get bitmap:64bit:implicit:max:string]
+        assert_equal string [r type bitmap:bounds:implicit:string]
+        assert_equal $raw [r get bitmap:bounds:implicit:string]
         r config set bitmap-default-roaring no
     }
 
-    test {string bitmaps keep the proto-max-bulk-len write bound but read 64-bit offsets} {
+    test {string bitmaps keep the proto-max-bulk-len offset bound} {
         r del bitmap:string:bounds
         r config set bitmap-default-roaring no
         r set bitmap:string:bounds [binary format H* 80]
 
-        # Writes beyond the string bound keep the legacy out-of-range error.
         assert_error {*bit offset is not an integer or out of range*} {
             r setbit bitmap:string:bounds 4294967296 1
         }
@@ -273,12 +233,43 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         assert_equal string [r type bitmap:string:bounds]
 
-        # Reads beyond the bound resolve to 0 instead of erroring.
-        assert_equal 0 [r getbit bitmap:string:bounds 4294967296]
-        assert_equal 0 [r getbit bitmap:string:bounds 9223372036854775799]
-        assert_equal [list 0] [r bitfield_ro bitmap:string:bounds GET u8 4294967296]
-        assert_equal [list 0] [r bitfield bitmap:string:bounds GET u8 4294967296]
+        assert_error {*bit offset is not an integer or out of range*} {
+            r getbit bitmap:string:bounds 4294967296
+        }
+        assert_error {*bit offset is not an integer or out of range*} {
+            r bitfield_ro bitmap:string:bounds GET u8 4294967296
+        }
+        assert_error {*bit offset is not an integer or out of range*} {
+            r bitfield bitmap:string:bounds GET u8 4294967296
+        }
         assert_equal 1 [r bitcount bitmap:string:bounds]
+    }
+
+    test {bitmap offset limit follows proto-max-bulk-len config} {
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len $limit]
+        set last_allowed [expr {$limit * 8 - 1}]
+        set first_rejected [expr {$limit * 8}]
+
+        r del bitmap:native:small-limit
+        r config set bitmap-default-roaring yes
+        assert_equal 0 [r setbit bitmap:native:small-limit $last_allowed 1]
+        assert_equal 1 [r getbit bitmap:native:small-limit $last_allowed]
+
+        foreach cmd [list \
+            [list getbit bitmap:native:small-limit $first_rejected] \
+            [list setbit bitmap:native:small-limit $first_rejected 1] \
+            [list bitfield_ro bitmap:native:small-limit GET u1 $first_rejected] \
+            [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
+            [list bitfield bitmap:native:small-limit SET u2 $last_allowed 3] \
+        ] {
+            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
+        }
+        assert_equal 1 [r bitcount bitmap:native:small-limit]
+
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+        r del bitmap:native:small-limit
     }
 
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
@@ -299,14 +290,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
         r del bitmap:public:notify bitmap:public:notify:conv bitmap:public:notify:cmd
 
-        r config set notify-keyspace-events E\$ocn
+        r config set notify-keyspace-events E\$ocnb
         set rd [redis_deferring_client]
         $rd psubscribe __keyevent@9__:*
         $rd read
 
-        # Direct native creation in bitmap-default-roaring yes: same event sequence as a
-        # legacy creating SETBIT ("new" then "setbit") - the type difference
-        # is invisible at the notification surface.
+        # Direct native creation in bitmap-default-roaring yes: same event
+        # names as a legacy creating SETBIT ("new" then "setbit"), with the
+        # write event classified under the bitmap notification class.
         r config set bitmap-default-roaring yes
         r setbit bitmap:public:notify $::sparse_public_offset 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
@@ -336,6 +327,38 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:cmd} [$rd read]
 
         $rd close
+        r config set notify-keyspace-events {}
+    }
+
+    test {native bitmap writes use only the bitmap notification class} {
+        r config set bitmap-default-roaring no
+        r del bitmap:notify:native-dollar bitmap:notify:string-dollar \
+            bitmap:notify:string-bitmap bitmap:notify:native-bitmap \
+            bitmap:notify:native-all
+
+        set rd [redis_deferring_client]
+        $rd psubscribe __keyevent@9__:*
+        $rd read
+
+        r config set notify-keyspace-events E\$
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:notify:native-dollar 0 1
+        r config set bitmap-default-roaring no
+        r setbit bitmap:notify:string-dollar 0 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:string-dollar} [$rd read]
+
+        r config set notify-keyspace-events Eb
+        r setbit bitmap:notify:string-bitmap 0 1
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:notify:native-bitmap 0 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:native-bitmap} [$rd read]
+
+        r config set notify-keyspace-events EA
+        r setbit bitmap:notify:native-all 0 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:native-all} [$rd read]
+
+        $rd close
+        r config set bitmap-default-roaring no
         r config set notify-keyspace-events {}
     }
 
@@ -392,19 +415,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {BITOP NOT rejects oversized native bitmap sources} {
-        r del bitop:not:huge bitop:not:out
-        r config set bitmap-default-roaring yes
-        r setbit bitop:not:huge 99999999999 1
-        r config set bitmap-default-roaring no
-
-        assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
-            r bitop not bitop:not:out bitop:not:huge
-        }
-        assert_equal 0 [r exists bitop:not:out]
-        r del bitop:not:huge
-    }
-
     test {BITOP NOT rejects oversized string sources when destination would be native} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
@@ -425,23 +435,23 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitop:not:mixed:big
     }
 
-    test {BITOP with 64-bit native sources computes in roaring space} {
-        r del bitop:64:a bitop:64:b bitop:64:out
+    test {BITOP with sparse native sources computes in roaring space} {
+        r del bitop:sparse:a bitop:sparse:b bitop:sparse:out
         r config set bitmap-default-roaring yes
-        r setbit bitop:64:a 99999999999 1
-        r setbit bitop:64:a 5 1
-        r setbit bitop:64:b 99999999999 1
+        r setbit bitop:sparse:a 131071 1
+        r setbit bitop:sparse:a 5 1
+        r setbit bitop:sparse:b 131071 1
         r config set bitmap-default-roaring no
 
-        assert_equal 12500000000 [r bitop xor bitop:64:out bitop:64:a bitop:64:b]
-        assert_equal bitmap [r type bitop:64:out]
-        assert_equal 1 [r bitcount bitop:64:out]
-        assert_equal 5 [r bitpos bitop:64:out 1]
+        assert_equal 16384 [r bitop xor bitop:sparse:out bitop:sparse:a bitop:sparse:b]
+        assert_equal bitmap [r type bitop:sparse:out]
+        assert_equal 1 [r bitcount bitop:sparse:out]
+        assert_equal 5 [r bitpos bitop:sparse:out 1]
 
-        assert_equal 12500000000 [r bitop and bitop:64:out bitop:64:a bitop:64:b]
-        assert_equal 1 [r bitcount bitop:64:out]
-        assert_equal 99999999999 [r bitpos bitop:64:out 1]
-        r del bitop:64:a bitop:64:b bitop:64:out
+        assert_equal 16384 [r bitop and bitop:sparse:out bitop:sparse:a bitop:sparse:b]
+        assert_equal 1 [r bitcount bitop:sparse:out]
+        assert_equal 131071 [r bitpos bitop:sparse:out 1]
+        r del bitop:sparse:a bitop:sparse:b bitop:sparse:out
     }
 
     test {native bitmap helper exposes type encoding and exact raw bytes} {
@@ -667,78 +677,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-run:a bitmap:rdb-run:b
     }
 
-    test {64-bit native bitmaps survive dump restore and debug reload} {
-        r del bitmap:persist:64
-        r config set bitmap-default-roaring yes
-        r setbit bitmap:persist:64 99999999999 1
-        r setbit bitmap:persist:64 7 1
-        r config set bitmap-default-roaring no
-
-        set payload [r dump bitmap:persist:64]
-        r restore bitmap:restored:64 0 $payload
-        assert_equal bitmap [r type bitmap:restored:64]
-        assert_equal 1 [r getbit bitmap:restored:64 99999999999]
-        assert_equal 2 [r bitcount bitmap:restored:64]
-
-        # Oversized bitmaps use the serialized-payload digest fallback; it
-        # must be stable across an RDB round trip.
-        set digest_before [debug_digest]
-        r debug reload
-        assert_equal [debug_digest] $digest_before
-        assert_equal 1 [r getbit bitmap:persist:64 99999999999]
-        assert_equal 2 [r bitcount bitmap:persist:64]
-        r del bitmap:persist:64 bitmap:restored:64
-    }
-
-    test {native bitmap serialized payload endianness conversion round-trips} {
-        # Build one bitmap holding all three container kinds so the converter
-        # walks every payload section. Each 65536-bit chunk is 8192 bytes:
-        # chunk 0: 4800 consecutive set bits -> run container
-        # chunk 1: alternating bits, cardinality 8000 -> bitset container
-        # chunk 2: 64 isolated bits -> array container
-        # chunk 3: another run container, lifting the container count to the
-        #          CRoaring offset-header threshold so the offsets section is
-        #          present alongside the run bitmap.
-        set raw [string repeat [binary format H* ff] 600]
-        append raw [string repeat [binary format H* 00] 7592]
-        append raw [string repeat [binary format H* aa] 2000]
-        append raw [string repeat [binary format H* 00] 6192]
-        for {set i 0} {$i < 64} {incr i} {
-            append raw [binary format H* 80][string repeat [binary format H* 00] 15]
-        }
-        append raw [string repeat [binary format H* 00] 7168]
-        append raw [string repeat [binary format H* ff] 600]
-
-        r set bitmap:endian $raw
-        r bitmap convert bitmap:endian
-        assert_equal OK [r debug bitmap-endian-check bitmap:endian]
-        assert_equal [r debug bitmap-raw bitmap:endian] $raw
-
-        # An array-only bitmap spanning two containers serializes with the
-        # no-run cookie, covering the other header layout.
-        set sparse [binary format H* 80]
-        append sparse [string repeat [binary format H* 00] 8191]
-        append sparse [binary format H* 80]
-        r set bitmap:endian-sparse $sparse
-        r bitmap convert bitmap:endian-sparse
-        assert_equal OK [r debug bitmap-endian-check bitmap:endian-sparse]
-        assert_equal [r debug bitmap-raw bitmap:endian-sparse] $sparse
-    }
-
-    test {64-bit native bitmap endianness conversion covers multiple buckets} {
-        # Bits in distinct high-32 buckets force the 64-bit framing to walk
-        # several embedded 32-bit bitmaps.
-        r del bitmap:endian:64
-        r config set bitmap-default-roaring yes
-        r setbit bitmap:endian:64 7 1
-        r setbit bitmap:endian:64 99999999999 1
-        r setbit bitmap:endian:64 999999999999 1
-        r config set bitmap-default-roaring no
-        assert_equal OK [r debug bitmap-endian-check bitmap:endian:64]
-        assert_equal 3 [r bitcount bitmap:endian:64]
-        r del bitmap:endian:64
-    }
-
     test {native bitmap unlink uses lazyfree for many roaring containers} {
         r config resetstat
         r config set bitmap-default-roaring yes
@@ -830,7 +768,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         r setbit bitmap:public:aof:direct $::sparse_public_offset 1
         r set bitmap:public:aof:auto ""
         r setbit bitmap:public:aof:auto $::sparse_public_offset 1
-        r setbit bitmap:public:aof:64 99999999999 1
         set digest_before [debug_digest]
 
         r bgrewriteaof
@@ -840,10 +777,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         assert_equal [debug_digest] $digest_before
         assert_equal bitmap [r type bitmap:public:aof:direct]
         assert_equal bitmap [r type bitmap:public:aof:auto]
-        assert_equal bitmap [r type bitmap:public:aof:64]
         assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
         assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
-        assert_equal 1 [r getbit bitmap:public:aof:64 99999999999]
         r config set bitmap-default-roaring no
     }
 }
@@ -872,15 +807,12 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             $master setbit bitmap:public:repl:direct $::sparse_public_offset 1
             $master set bitmap:public:repl:auto ""
             $master setbit bitmap:public:repl:auto $::sparse_public_offset 1
-            $master setbit bitmap:public:repl:64 99999999999 1
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
-            assert_equal bitmap [$replica type bitmap:public:repl:64]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
-            assert_equal 1 [$replica getbit bitmap:public:repl:64 99999999999]
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
             assert_equal [$master debug digest] [$replica debug digest]
@@ -939,11 +871,9 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
 
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
-            assert_equal bitmap [$replica type bitmap:public:repl:64]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
-            assert_equal 1 [$replica getbit bitmap:public:repl:64 99999999999]
             assert_equal [$master debug digest] [$replica debug digest]
         }
 

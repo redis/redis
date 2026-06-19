@@ -3,16 +3,12 @@
 
 #include "sds.h"
 #include "object.h"
-#include "rio.h"
 
 #include <stdint.h>
 #include <sys/types.h>
 
-/* Native bitmaps support 64-bit indexing. The logical byte length must stay
- * representable as a non-negative signed 64-bit bit count (range arithmetic
- * in BITCOUNT/BITPOS works on signed bit totals), which caps the length at
- * 2^60-1 bytes and therefore the highest addressable bit offset at 2^63-9.
- * Legacy string bitmaps stay bounded by proto-max-bulk-len. */
+/* Internal sanity cap for native bitmap logical length. Public bitmap commands
+ * keep the legacy proto-max-bulk-len offset limit. */
 #define BITMAP_OBJECT_MAX_BYTES_RAW (INT64_MAX >> 3)
 #define BITMAP_OBJECT_MAX_BYTES ((uint64_t)BITMAP_OBJECT_MAX_BYTES_RAW)
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
@@ -20,9 +16,6 @@
 void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
-robj *createBitmapObjectFromPortable(uint64_t byte_len, const char *buf, size_t len, int deep_validate);
-ssize_t bitmapObjectSaveRdb(rio *rdb, const robj *o);
-robj *createBitmapObjectFromRdb(rio *rdb, int deep_validate);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
 void dismissBitmapObject(robj *o, size_t size_hint);
@@ -55,8 +48,5 @@ int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
 sds bitmapObjectMaterialize(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
-size_t bitmapObjectSerializedSize(const robj *o);
-sds bitmapObjectSerialize(const robj *o);
-int bitmapObjectEndianRoundtripCheck(const robj *o);
 
 #endif /* __BITMAP_ROARING_H */

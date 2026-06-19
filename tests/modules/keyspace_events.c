@@ -51,6 +51,8 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 }
 
 static long long callback_call_count = 0;
+static long long string_callback_call_count = 0;
+static long long bitmap_callback_call_count = 0;
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     callback_call_count++;
@@ -122,6 +124,7 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
 static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
+    string_callback_call_count++;
     RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
 
     size_t len = 0;
@@ -133,6 +136,15 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
 
     RedisModule_CloseKey(redis_key);
 
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationModuleBitmap(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+    bitmap_callback_call_count++;
     return REDISMODULE_OK;
 }
 
@@ -417,6 +429,8 @@ static RedisModuleNotificationFunc get_callback_for_event(int event_mask) {
         // We have two callbacks for STRING events in your OnLoad,
         // For simplicity, pick the first:
         return KeySpace_NotificationModuleString;
+    case REDISMODULE_NOTIFY_BITMAP:
+        return KeySpace_NotificationModuleBitmap;
     default:
         return NULL;
     }
@@ -426,6 +440,20 @@ int GetCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     RedisModule_ReplyWithLongLong(ctx, callback_call_count);
+    return REDISMODULE_OK;
+}
+
+int GetStringCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, string_callback_call_count);
+    return REDISMODULE_OK;
+}
+
+int GetBitmapCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, bitmap_callback_call_count);
     return REDISMODULE_OK;
 }
 
@@ -495,6 +523,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_BITMAP, KeySpace_NotificationModuleBitmap) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -542,6 +574,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.callback_count", GetCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.string_callback_count", GetStringCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.bitmap_callback_count", GetBitmapCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
