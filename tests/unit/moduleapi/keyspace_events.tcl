@@ -105,6 +105,21 @@ tags "modules external:skip" {
             assert_equal $before_unsub $after_unsub
         }
 
+        test "Keyspace notifications: module bitmap event class" {
+            r del bitmap:module:notify bitmap:module:string
+            set before_bitmap [r keyspace.bitmap_callback_count]
+            set before_string [r keyspace.string_callback_count]
+
+            r config set bitmap-default-roaring yes
+            r setbit bitmap:module:notify 0 1
+            assert_equal [expr {$before_bitmap + 1}] [r keyspace.bitmap_callback_count]
+            assert_equal $before_string [r keyspace.string_callback_count]
+
+            r config set bitmap-default-roaring no
+            r set bitmap:module:string dummy
+            assert_equal [expr {$before_string + 1}] [r keyspace.string_callback_count]
+        }
+
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10

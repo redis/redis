@@ -801,6 +801,7 @@ typedef enum {
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
+#define NOTIFY_BITMAP (1<<18)          /* b, bitmap notification */
 #define NOTIFY_SUBKEYSPACE (1<<19)       /* S, subkey-level keyspace notification */
 #define NOTIFY_SUBKEYEVENT (1<<20)       /* T, subkey-level keyevent notification */
 #define NOTIFY_SUBKEYSPACEITEM (1<<21)   /* I, subkey-level notification per item: channel=key\nsubkey */
@@ -809,7 +810,7 @@ typedef enum {
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_BITMAP | NOTIFY_ARRAY) /* A flag */
 
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.

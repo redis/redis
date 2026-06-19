@@ -280,29 +280,20 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 0 [r getbit bitmap:native:getbit:past 7]
         assert_equal 0 [r getbit bitmap:native:getbit:past 100]
         assert_equal 0 [r getbit bitmap:native:getbit:past 4294967295]
-        assert_equal 0 [r getbit bitmap:native:getbit:past 9223372036854775799]
+        assert_error {*bit offset is not an integer or out of range*} {
+            r getbit bitmap:native:getbit:past 4294967296
+        }
         assert_equal [binary format H* 10] [r debug bitmap-raw bitmap:native:getbit:past]
     }
 
-    test {SETBIT accepts 64-bit offsets on native bitmaps} {
+    test {SETBIT keeps the proto-max-bulk-len offset limit on native bitmaps} {
         seed_native_bitmap bitmap:native:setbit:cap {0}
 
-        # Offsets beyond the legacy 2^32-1 string cap are plain writes on a
-        # native bitmap.
-        assert_equal 0 [r setbit bitmap:native:setbit:cap 4294967295 1]
-        assert_equal 0 [r setbit bitmap:native:setbit:cap 4294967296 1]
-        assert_equal 1 [r getbit bitmap:native:setbit:cap 4294967295]
-        assert_equal 1 [r getbit bitmap:native:setbit:cap 4294967296]
-        assert_equal 3 [r bitcount bitmap:native:setbit:cap]
-
-        # The highest representable offset is 2^63-9: one bit past it errors
-        # without touching the key.
-        assert_equal 0 [r setbit bitmap:native:setbit:cap 9223372036854775799 1]
-        assert_error {*not representable*} {
-            r setbit bitmap:native:setbit:cap 9223372036854775800 1
+        assert_error {*bit offset is not an integer or out of range*} {
+            r setbit bitmap:native:setbit:cap 4294967296 1
         }
         assert_equal bitmap [r type bitmap:native:setbit:cap]
-        assert_equal 4 [r bitcount bitmap:native:setbit:cap]
+        assert_equal 1 [r bitcount bitmap:native:setbit:cap]
         r del bitmap:native:setbit:cap
     }
 
@@ -364,22 +355,21 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {native bitmap BITCOUNT and BITPOS handle 64-bit edges} {
-        # Bits in distinct 2^16 containers and distinct high-32 buckets, plus
-        # dense runs, exercise the container-walking BITPOS code where uint32
-        # and uint64 arithmetic mix.
+    test {native bitmap BITCOUNT and BITPOS handle container edges} {
+        # Bits in distinct 2^16 containers, plus dense runs, exercise the
+        # container-walking BITPOS code where uint32 and uint64 arithmetic mix.
         seed_native_bitmap bitmap:native:cap-edge {0}
-        r setbit bitmap:native:cap-edge 4294967295 1
-        r setbit bitmap:native:cap-edge 4294967296 1
-        r setbit bitmap:native:cap-edge 99999999999 1
+        r setbit bitmap:native:cap-edge 65535 1
+        r setbit bitmap:native:cap-edge 65536 1
+        r setbit bitmap:native:cap-edge 131071 1
 
         assert_equal 4 [r bitcount bitmap:native:cap-edge]
-        assert_equal 4294967295 [r bitpos bitmap:native:cap-edge 1 1 -1 bit]
-        assert_equal 4294967295 [r bitpos bitmap:native:cap-edge 1 536870911]
-        assert_equal 99999999999 [r bitpos bitmap:native:cap-edge 1 4294967297 -1 bit]
+        assert_equal 65535 [r bitpos bitmap:native:cap-edge 1 1 -1 bit]
+        assert_equal 65535 [r bitpos bitmap:native:cap-edge 1 8191]
+        assert_equal 131071 [r bitpos bitmap:native:cap-edge 1 65537 -1 bit]
         assert_equal 1 [r bitpos bitmap:native:cap-edge 0]
-        assert_equal -1 [r bitpos bitmap:native:cap-edge 0 4294967295 4294967295 bit]
-        assert_equal 2 [r bitcount bitmap:native:cap-edge 4294967295 4294967296 bit]
+        assert_equal -1 [r bitpos bitmap:native:cap-edge 0 65535 65535 bit]
+        assert_equal 2 [r bitcount bitmap:native:cap-edge 65535 65536 bit]
         r del bitmap:native:cap-edge
 
         # A dense run crossing a container boundary: the first clear bit
@@ -448,26 +438,19 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             {bitfield key OVERFLOW FAIL SET u2 47 5}
     }
 
-    test {BITFIELD accepts 64-bit offsets on native bitmaps and enforces the cap} {
+    test {BITFIELD keeps the proto-max-bulk-len offset limit on native bitmaps} {
         seed_native_bitmap bitmap:native:bitfield:limit {}
 
-        # Offsets far beyond the legacy string cap are plain writes.
-        assert_equal {0} [r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3]
-        assert_equal {3} [r bitfield_ro bitmap:native:bitfield:limit GET u2 4294967295]
-        assert_equal 2 [r bitcount bitmap:native:bitfield:limit]
-
-        # A write whose last bit would pass 2^63-9 is rejected before any
-        # part of it lands.
-        assert_error {*ERR bit offset is not representable in native bitmap encoding*} {
-            r bitfield bitmap:native:bitfield:limit SET u2 9223372036854775799 3
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield bitmap:native:bitfield:limit SET u1 4294967296 1
         }
-        assert_equal 2 [r bitcount bitmap:native:bitfield:limit]
-
-        # The acceptance side of the same boundary: a write whose last bit is
-        # exactly 2^63-9 must succeed.
-        assert_equal {0} [r bitfield bitmap:native:bitfield:limit SET u1 9223372036854775799 1]
-        assert_equal 1 [r getbit bitmap:native:bitfield:limit 9223372036854775799]
-        assert_equal 3 [r bitcount bitmap:native:bitfield:limit]
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
+        }
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296
+        }
+        assert_equal 0 [r bitcount bitmap:native:bitfield:limit]
         assert_equal bitmap [r type bitmap:native:bitfield:limit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
         r del bitmap:native:bitfield:limit
