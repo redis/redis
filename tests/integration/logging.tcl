@@ -92,6 +92,14 @@ if {!$::valgrind} {
         }
     }
 
+    set server_path [tmpdir server2-io-threads.log]
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no io-threads 2]] {
+        test "Crash report generated on DEBUG SEGFAULT with IO threads" {
+            catch {r debug segfault}
+            $check_cb "*crashed by signal*"
+        }
+    }
+
     # test DEBUG SIGALRM being non-fatal
     set server_path [tmpdir server3.log]
     start_server [list overrides [list dir $server_path]] {

@@ -942,7 +942,57 @@ void initThreadedIO(void) {
     }
 }
 
-/* Kill the IO threads, TODO: release the applied resources. */
+static void freeIOThreadResources(int j) {
+    IOThread *t = &IOThreads[j];
+
+    if (t->el) {
+        aeDeleteFileEvent(t->el, getReadEventFd(t->pending_clients_notifier), AE_READABLE);
+        aeDeleteEventLoop(t->el);
+        t->el = NULL;
+    }
+    if (t->pending_clients_notifier) {
+        freeEventNotifier(t->pending_clients_notifier);
+        t->pending_clients_notifier = NULL;
+    }
+    if (t->pending_clients) {
+        listRelease(t->pending_clients);
+        t->pending_clients = NULL;
+    }
+    if (t->processing_clients) {
+        listRelease(t->processing_clients);
+        t->processing_clients = NULL;
+    }
+    if (t->pending_clients_to_main_thread) {
+        listRelease(t->pending_clients_to_main_thread);
+        t->pending_clients_to_main_thread = NULL;
+    }
+    if (t->clients) {
+        listRelease(t->clients);
+        t->clients = NULL;
+    }
+    pthread_mutex_destroy(&t->pending_clients_mutex);
+
+    if (mainThreadPendingClientsNotifiers[j]) {
+        aeDeleteFileEvent(server.el, getReadEventFd(mainThreadPendingClientsNotifiers[j]), AE_READABLE);
+        freeEventNotifier(mainThreadPendingClientsNotifiers[j]);
+        mainThreadPendingClientsNotifiers[j] = NULL;
+    }
+    if (mainThreadPendingClientsToIOThreads[j]) {
+        listRelease(mainThreadPendingClientsToIOThreads[j]);
+        mainThreadPendingClientsToIOThreads[j] = NULL;
+    }
+    if (mainThreadPendingClients[j]) {
+        listRelease(mainThreadPendingClients[j]);
+        mainThreadPendingClients[j] = NULL;
+    }
+    if (mainThreadProcessingClients[j]) {
+        listRelease(mainThreadProcessingClients[j]);
+        mainThreadProcessingClients[j] = NULL;
+    }
+    pthread_mutex_destroy(&mainThreadPendingClientsMutexes[j]);
+}
+
+/* Kill the IO threads. */
 void killIOThreads(void) {
     if (server.io_threads_num <= 1) return;
 
@@ -957,6 +1007,8 @@ void killIOThreads(void) {
             } else {
                 serverLog(LL_WARNING,
                     "IO thread(tid:%lu) terminated",(unsigned long)IOThreads[j].tid);
+                freeIOThreadResources(j);
+                IOThreads[j].tid = 0;
             }
         }
     }
