@@ -151,15 +151,15 @@ will be lost.
 
 ---
 
-## 3. Install per-module deps: `make deps`
+## 3. Install per-module deps: `make bootstrap`
 
 Each cloned module ships its own `.install/install_script.sh` that
 auto-detects the host OS (Ubuntu, Alpine, AzureLinux, Mariner, macOS,
-…) and installs build/test prerequisites for that OS. `make deps`
+…) and installs build/test prerequisites for that OS. `make bootstrap`
 dispatches to every selected module's installer in turn:
 
 ```bash
-make deps [<name> ...|all|.|'*']
+make bootstrap [<name> ...|all|.|'*']
 ```
 
 | Argument | Selects |
@@ -173,14 +173,9 @@ toolchain (e.g. Rust for `redisjson`). The dispatcher continues past
 failures and prints a summary, so one broken module doesn't block the
 rest.
 
-Note: internally `make deps` dispatches to each module's own
-`make -C modules/<name>/src bootstrap` target — that name is set by
-upstream module Makefiles, so the inner target is still called
-`bootstrap` even though the redis-core entry point is `deps`.
-
 For a fresh checkout, run `make modules-update` to clone every module
-listed in `modules.yaml`, then `make deps` to install per-module
-deps. Re-run `make deps` whenever deps need a refresh (e.g. after
+listed in `modules.yaml`, then `make bootstrap` to install per-module
+deps. Re-run `make bootstrap` whenever deps need a refresh (e.g. after
 a Python version change).
 
 ---
@@ -544,7 +539,7 @@ code propagates directly.
 ```bash
 # First time:
 make modules-update                           # clone modules at pinned refs
-make deps                                     # install per-module deps (per-OS install)
+make bootstrap                                     # install per-module deps (per-OS install)
 make build                                    # build Redis, then every module
 
 # Iterate:
@@ -652,7 +647,7 @@ No network access needed at build time — modules are already on disk.
 ## 10. Full command reference
 
 ```
-make deps [<name> ...|all|.|'*']             # per-module OS deps + Python venv (re-run as needed)
+make bootstrap [<name> ...|all|.|'*']             # per-module OS deps + Python venv (re-run as needed)
 
 make modules-update [<name> ...]             # idempotent: clones if missing, else updates to pin
 make modules-shallow <name> [<name> ...]     # re-clone module(s) shallow (--depth 1) to reclaim disk
