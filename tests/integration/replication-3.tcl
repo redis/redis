@@ -67,6 +67,10 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
 
             assert_equal [expr {$limit + 1}] [r -1 strlen bitop:not:repl:out]
             assert_equal 1 [r -1 getbit bitop:not:repl:out 0]
+            assert_error {*bit offset is not an integer or out of range*} {
+                r -1 getbit bitop:not:repl:out [expr {($limit + 1) * 8 - 1}]
+            }
+            r -1 config set proto-max-bulk-len [expr {$limit + 1}]
             assert_equal 0 [r -1 getbit bitop:not:repl:out [expr {($limit + 1) * 8 - 1}]]
 
             r config set proto-max-bulk-len $master_old
