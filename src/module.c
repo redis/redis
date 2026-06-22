@@ -2817,6 +2817,11 @@ RedisModuleString *RM_CreateStringFromStreamID(RedisModuleCtx *ctx, const RedisM
  * the context, so if you want to free a string out of context later, make sure
  * to create it using a NULL context.
  *
+ * As of Redis 8.x, modules compiled with the new redismodule.h header get
+ * automatic NULL safety: the RedisModule_FreeString macro checks for NULL
+ * before calling through. Modules compiled against older headers should add
+ * their own NULL check before calling this function.
+ *
  * This API is not thread safe, access to these retained strings (if they originated
  * from a client command arguments) must be done with GIL locked. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
