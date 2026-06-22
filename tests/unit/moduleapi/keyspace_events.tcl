@@ -120,6 +120,15 @@ tags "modules external:skip" {
             assert_equal [expr {$before_string + 1}] [r keyspace.string_callback_count]
         }
 
+        test "Keyspace notifications: SETBIT updates keysizes before module callbacks" {
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+            assert_equal OK [r config set bitmap-default-roaring no]
+            r set stringdel_setbit x
+            r setbit stringdel_setbit 16 1
+            assert_equal 0 [r exists stringdel_setbit]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        } {} {needs:debug}
+
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10

@@ -677,6 +677,26 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-run:a bitmap:rdb-run:b
     }
 
+    test {native bitmap RDB load is not bounded by current proto-max-bulk-len} {
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
+        r config set bitmap-default-roaring yes
+
+        set offset [expr {$limit * 8}]
+        r setbit bitmap:rdb:above-bulk-limit $offset 1
+        r config set proto-max-bulk-len $limit
+
+        r debug reload
+
+        assert_equal bitmap [r type bitmap:rdb:above-bulk-limit]
+        assert_equal bitmap-roaring [r object encoding bitmap:rdb:above-bulk-limit]
+        r config set proto-max-bulk-len [expr {$limit + 1}]
+        assert_equal 1 [r getbit bitmap:rdb:above-bulk-limit $offset]
+
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+    }
+
     test {native bitmap unlink uses lazyfree for many roaring containers} {
         r config resetstat
         r config set bitmap-default-roaring yes
