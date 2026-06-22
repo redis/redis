@@ -81,12 +81,16 @@ redis-roaring registers two module data types: `reroaring` for 32-bit `R.*`
 keys and `roaring64` for 64-bit `R64.*` keys. Redis core v1 intentionally does
 not add compatibility command names. Existing Redis bitmap commands already
 cover `R.SETBIT` / `R64.SETBIT`, `R.GETBIT` / `R64.GETBIT`,
-`R.BITCOUNT` / `R64.BITCOUNT`, `R.BITPOS` / `R64.BITPOS`, and
-`R.BITOP` / `R64.BITOP`; in this branch, `BITOP` also covers the
-redis-roaring algebra variants `DIFF`, `DIFF1`, `ANDOR`, and `ONE`. The
-standalone `R.DIFF` / `R64.DIFF` command names are therefore compatibility
-wrappers around behavior covered by `BITOP DIFF`, with command syntax and reply
-differences left out of v1 Redis scope.
+`R.BITCOUNT` / `R64.BITCOUNT`, `R.BITPOS` / `R64.BITPOS`, and the
+algebra semantics of `R.BITOP` / `R64.BITOP`; in this branch, `BITOP` also
+covers the redis-roaring algebra variants `DIFF`, `DIFF1`, `ANDOR`, and `ONE`.
+That coverage is semantic rather than wire-compatible: redis-roaring's `NOT`
+form accepts an optional `last` bound, and redis-roaring `BITOP` replies with
+result cardinality instead of Redis' destination byte length. Those syntax and
+reply differences are migration-tool/replay concerns, not v1 Redis command
+surface. The standalone `R.DIFF` / `R64.DIFF` command names are therefore
+compatibility wrappers around behavior covered by `BITOP DIFF` and remain out of
+v1 Redis scope.
 
 | redis-roaring-only family | Gap versus Redis bitmap commands | Classification | v1 migration/import note |
 | --- | --- | --- | --- |
