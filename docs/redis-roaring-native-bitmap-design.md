@@ -1,31 +1,33 @@
 # Redis Roaring Native Bitmap Design Notes
 
-> **Upstream-alignment update**: the implementation has moved to 64-bit
-> indexing (`roaring64_bitmap_t`, offsets up to 2^63-9), a single
-> `bitmap-default-roaring` boolean config replacing the threshold-based
-> selection configs, an explicit `BITMAP CONVERT` command, and native BITOP
-> destinations whenever a source is native (and always when
-> `bitmap-default-roaring yes` is set). See the "Upstream-Alignment Update"
-> section of
-> `docs/redis-roaring-pr-breakdown.md` for the full list; where this
-> document's behavior matrix disagrees, that section wins.
+> **Current local status**: this document tracks the draft native bitmap design
+> in this fork, not upstream maintainer approval. Design status and
+> implementation status are listed separately because several tracker decisions
+> are still moving. The current `unstable` implementation has `OBJ_BITMAP`,
+> `bitmap-roaring`, `bitmap-default-roaring`, `BITMAP CONVERT`, direct native
+> bitmap command support, and RESTORE-based type-transition propagation. It
+> keeps the public bitmap offset limit tied to `proto-max-bulk-len` for both
+> legacy strings and native bitmaps while the final index-width/cap decision
+> remains pending in [#24](https://github.com/aviggiano/redis/issues/24) and
+> [#42](https://github.com/aviggiano/redis/issues/42).
 
-This document captures the Step 1 design baseline for adding Roaring
-compression as part of a native Redis bitmap value type. Step numbers refer to
-the plan phases in `docs/redis-roaring-pr-breakdown.md` (numbered Step 0-10;
-GitHub PR numbers in this fork drift from plan phases because issues and pull
-requests share one number counter - see the breakdown document for the current
-mapping). Step 1 intentionally adds no command or storage behavior changes; it
-documents the expected semantics and adds oracle tests that later steps can
-reuse.
+This document started as the Step 1 design baseline for adding Roaring
+compression as part of a native Redis bitmap value type. It now also records
+the current local implementation status so reviewers can tell which behavior is
+already in the fork and which design decisions still need explicit resolution.
+Step numbers refer to the plan phases in
+`docs/redis-roaring-pr-breakdown.md` (numbered Step 0-10; GitHub PR numbers in
+this fork drift from plan phases because issues and pull requests share one
+number counter - see the breakdown document for the current mapping).
 
 ## Goals
 
 - Keep the existing Redis bitmap command surface: `SETBIT`, `GETBIT`,
   `BITCOUNT`, `BITPOS`, `BITOP`, `BITFIELD`, and `BITFIELD_RO`.
-- Add a native `OBJ_BITMAP` type in later steps for values that opt in to
-  bitmap conversion.
-- Allow native bitmap values to use a Roaring-backed internal encoding.
+- Use a native `OBJ_BITMAP` type for values that opt in to bitmap conversion
+  or are created through the configured native-bitmap path.
+- Allow native bitmap values to use a Roaring-backed internal encoding with an
+  explicit logical byte length.
 - Preserve all existing behavior for legacy bitmap values that remain
   `OBJ_STRING`.
 - Make the string-vs-bitmap command boundary explicit instead of treating
@@ -35,20 +37,23 @@ reuse.
 
 ## Non-Goals
 
-- Step 1 does not vendor CRoaring.
-- Step 1 does not add `OBJ_BITMAP`, new encodings, configs, RDB/AOF formats, or
-  command handlers.
-- Step 1 does not enable public commands to create native bitmap values. Public
-  creation must wait until persistence, introspection, active defrag, and bitmap
-  command coverage are already in place.
 - Redis core does not import legacy redis-roaring module RDB payloads. Migration
   from module-backed deployments should remain external tooling.
+- Generic string commands do not silently materialize native bitmap values back
+  into strings.
+- This document does not claim upstream maintainer approval for tracker issues
+  marked pending.
+- The status matrix is not a substitute for implementation tests, benchmarks,
+  or upstream review.
 
 ## Proposed Type Model
 
 Existing Redis bitmap commands operate on string objects. The native bitmap work
 keeps those legacy values valid and introduces a type split only after a value
-is explicitly allowed to become a native bitmap.
+is explicitly allowed to become a native bitmap. Local tracker
+[#21](https://github.com/aviggiano/redis/issues/21) records the observable type
+model as ready; [PR #39](https://github.com/aviggiano/redis/pull/39) updated
+the command-facing docs and tests for this boundary.
 
 - Legacy bitmap values remain `OBJ_STRING`.
 - Native bitmap values use `OBJ_BITMAP`.
@@ -56,31 +61,36 @@ is explicitly allowed to become a native bitmap.
 - `TYPE key` returns `bitmap` for native bitmap values.
 - `BITMAP CONVERT <key> NATIVE` is an observable type transition to
   `bitmap`; `BITMAP CONVERT <key> STRING` transitions back to `string`.
-- `OBJECT ENCODING key` may return `bitmap-roaring` or another bitmap encoding
-  name for native bitmap values.
+- `OBJECT ENCODING key` returns `bitmap-roaring` for the current native
+  encoding.
 
-## Behavior Matrix
+## Design and Implementation Status Matrix
 
-| Operation class | Legacy `OBJ_STRING` bitmap | Native `OBJ_BITMAP` target behavior | First implementation step |
+| Area | Design status | Current implementation status | Trackers / PRs |
 | --- | --- | --- | --- |
-| `TYPE` | Returns `string`. | Returns `bitmap`. | Step 3 |
-| `OBJECT ENCODING` | Existing string encodings. | Bitmap encoding name, such as `bitmap-roaring`. | Step 3 |
-| `SETBIT` / `GETBIT` | Existing Redis behavior. | Same bitmap-observable behavior. | Step 4 |
-| `BITCOUNT` / `BITPOS` | Existing Redis behavior. | Same bitmap-observable behavior, initially via fallback if needed. | Step 4 / Step 7 |
-| `BITFIELD` / `BITFIELD_RO` | Existing Redis behavior. | Same bitmap-observable behavior, initially via fallback if needed. | Step 4 / Step 8 |
-| `BITOP` | Existing Redis behavior. | Accept mixed legacy/native sources, initially via fallback if needed. | Step 4 / Step 9 |
-| `GET`, `APPEND`, `SETRANGE`, `GETRANGE`, `STRLEN` | Existing string behavior. | `WRONGTYPE`, unless a command explicitly gains bitmap support. | Step 5 |
-| RDB / AOF / replication | Existing string persistence. | Native bitmap persistence before public creation. | Step 3 |
-| `DUMP` / `RESTORE` | Existing string payloads. | Native bitmap payload behavior before public creation. | Step 3 |
-| `TYPE`, `SCAN ... TYPE`, `COPY` | Existing string behavior. | Explicit bitmap type handling before public creation. | Step 3 |
-| Modules observing Redis types | Existing string behavior. | Explicit module API/type handling before public creation. | Step 3 / Step 5 |
+| Observable type model | Ready locally: native bitmaps are an observable `OBJ_BITMAP` / `TYPE bitmap`, not transparent string compression. | Implemented. `OBJECT ENCODING` reports `bitmap-roaring`. | [#21](https://github.com/aviggiano/redis/issues/21), [PR #39](https://github.com/aviggiano/redis/pull/39) |
+| Internal encoding and logical length | Ready locally for Roaring-backed storage with explicit logical byte length; final index-width implications remain tied to the pending cap decision. | Implemented with `roaring64_bitmap_t` and `byte_len`. | [#25](https://github.com/aviggiano/redis/issues/25), [PR #38](https://github.com/aviggiano/redis/pull/38) |
+| Public offset and index-width model | Pending clarification. DD-05 favored 64-bit native indexing, but DD-17 reopened whether v1 should use bounded 32-bit Roaring or another cap. | Current draft keeps the public `proto-max-bulk-len` bitmap offset limit for strings and native bitmaps. Native internals still use 64-bit Roaring. | [#24](https://github.com/aviggiano/redis/issues/24), [#42](https://github.com/aviggiano/redis/issues/42), [PR #43](https://github.com/aviggiano/redis/pull/43) |
+| Creation and conversion controls | Draft surface is `bitmap-default-roaring yes|no` plus `BITMAP CONVERT`; final v1 confirmation remains pending. | Implemented. `no` preserves legacy string creation unless conversion is explicit; `yes` creates/converts native bitmaps on bitmap writes. | [#20](https://github.com/aviggiano/redis/issues/20), [#22](https://github.com/aviggiano/redis/issues/22), [#26](https://github.com/aviggiano/redis/issues/26), [PR #13](https://github.com/aviggiano/redis/pull/13), [PR #15](https://github.com/aviggiano/redis/pull/15) |
+| Existing bitmap commands | Ready locally: existing bitmap commands must work on both legacy strings and native bitmaps without fallback in `unstable`. | Implemented for `SETBIT`, `GETBIT`, `BITCOUNT`, `BITPOS`, `BITFIELD`, `BITFIELD_RO`, and `BITOP`, with parity/oracle coverage. | [#23](https://github.com/aviggiano/redis/issues/23), [PR #40](https://github.com/aviggiano/redis/pull/40), [PR #10](https://github.com/aviggiano/redis/pull/10), [PR #11](https://github.com/aviggiano/redis/pull/11), [PR #12](https://github.com/aviggiano/redis/pull/12), [PR #41](https://github.com/aviggiano/redis/pull/41) |
+| `BITOP` destination and dense `NOT` limits | Ready locally: mixed legacy/native `BITOP` preserves Redis return values; native destinations follow source type or `bitmap-default-roaring`; oversized dense `NOT` remains bounded by `proto-max-bulk-len`. | Implemented, including mixed-source alias coverage and oversized `NOT` guards. | [#30](https://github.com/aviggiano/redis/issues/30), [#31](https://github.com/aviggiano/redis/issues/31), [PR #36](https://github.com/aviggiano/redis/pull/36), [PR #37](https://github.com/aviggiano/redis/pull/37) |
+| Generic string command boundary | Pending clarification for final audit scope and whether `BITMAP CONVERT ... STRING` is the only v1 materialization escape hatch. | Draft behavior is implemented: native bitmaps reject generic string commands with `WRONGTYPE`; explicit conversion back to string is supported while materialization fits `proto-max-bulk-len`. | [#22](https://github.com/aviggiano/redis/issues/22), [PR #8](https://github.com/aviggiano/redis/pull/8), [PR #39](https://github.com/aviggiano/redis/pull/39) |
+| Persistence, `DUMP` / `RESTORE`, and AOF rewrite | Pending clarification for the final RDB payload and whether RESTORE-based AOF rewrite remains acceptable for this core type. | Implemented in the current draft with `RDB_TYPE_BITMAP`, logical byte length plus raw bitmap bytes, `DUMP` / `RESTORE`, and AOF rewrite as `RESTORE`. | [#29](https://github.com/aviggiano/redis/issues/29), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43), related open [PR #44](https://github.com/aviggiano/redis/pull/44) |
+| Replication determinism | Pending clarification for long-term propagation strategy and amplification/version-skew policy. | Implemented draft behavior propagates type transitions as explicit `RESTORE ... REPLACE`, so replicas do not re-derive native decisions from local config. | [#28](https://github.com/aviggiano/redis/issues/28), [PR #9](https://github.com/aviggiano/redis/pull/9), [PR #13](https://github.com/aviggiano/redis/pull/13) |
+| Introspection, copy, modules, and notifications | Module/keyspace-notification details are still pending final clarification. | `TYPE`, `SCAN ... TYPE`, `COPY`, `RedisModule_KeyType()`, `NOTIFY_BITMAP`, and type-change notifications exist in the draft implementation. | [#33](https://github.com/aviggiano/redis/issues/33), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43) |
+| Memory accounting, active defrag, and fork-child dismissal | Pending clarification around accounting policy, allocator hooks, and defrag acceptability. | Implemented draft lifecycle coverage exists, with follow-up review cleanup tracked separately. | [#32](https://github.com/aviggiano/redis/issues/32), [PR #18](https://github.com/aviggiano/redis/pull/18), [PR #43](https://github.com/aviggiano/redis/pull/43), [#45](https://github.com/aviggiano/redis/issues/45) |
+| Test and benchmark gate | Pending clarification for required benchmark scope and acceptable event-loop stall bounds. | Correctness coverage exists across native type, command, oracle, corruption, replication, AOF, and module tests. Redis-specific benchmark harness remains open. | [#35](https://github.com/aviggiano/redis/issues/35), [#46](https://github.com/aviggiano/redis/issues/46), [#47](https://github.com/aviggiano/redis/issues/47) |
 
 ## Native Bitmap Exposure Gate
 
-The stacked branch must not create `OBJ_BITMAP` keys through public commands
-until Redis can safely own those keys everywhere they may flow.
+The original gate prevented public `OBJ_BITMAP` creation until the branch had
+enough type safety for Redis to own native bitmap keys everywhere they may
+flow. The current draft implementation has crossed that implementation gate and
+does expose native creation through `bitmap-default-roaring yes` and explicit
+`BITMAP CONVERT`, but the design gate remains open for the pending tracker
+decisions above.
 
-Required before public creation or auto-conversion:
+Required before treating the current surface as final:
 
 - RDB, AOF rewrite, `DUMP`, `RESTORE`, and replication support for native bitmap
   values.
@@ -98,27 +108,37 @@ Required before public creation or auto-conversion:
 The gate also carries a test bar (legacy-string oracle parity, conversion
 invariants, save/load + replication + AOF round-trips, corrupt-`RESTORE`
 coverage) and a performance bar (no unbounded event-loop stalls from
-materialization fallbacks or conversion-eligibility checks).
+materialization or conversion). The correctness side has draft coverage; the
+Redis-specific benchmark harness remains open in
+[#47](https://github.com/aviggiano/redis/issues/47).
 
-Until this gate is satisfied, native bitmap values should be reachable only by
-test-only helpers or internal fixtures that also exercise these safety paths.
+## Creation and Conversion Surface
 
-## Encoding Selection Sketch
+The current draft surface is a single `bitmap-default-roaring yes|no` flag,
+defaulting to `no`, plus `BITMAP CONVERT <key> [NATIVE|STRING]`.
 
-This original threshold-based sketch is superseded by the upstream-aligned
-surface: a single `bitmap-default-roaring yes|no` flag, defaulting to `no`.
-When it is `no`, bitmap writes keep creating strings unless conversion is
-explicit. When it is `yes`, bitmap write commands create missing keys as
-native Roaring bitmaps and convert existing string values before writing. The
-size/saving thresholds and trial encodes are intentionally omitted from the
-current design.
+- With `bitmap-default-roaring no`, bitmap writes keep creating strings unless
+  conversion is explicit.
+- With `bitmap-default-roaring yes`, bitmap write commands create missing keys
+  as native Roaring bitmaps and convert existing string values before writing.
+- `BITMAP CONVERT <key> NATIVE` converts a legacy string bitmap to `bitmap`.
+- `BITMAP CONVERT <key> STRING` converts back while the logical byte length can
+  be materialized within `proto-max-bulk-len`.
+- The size/saving thresholds and trial encodes from the early sketch are not in
+  the current draft.
+
+The implementation exists, but the final v1 command/config shape is still
+tracked as pending clarification in [#20](https://github.com/aviggiano/redis/issues/20),
+[#22](https://github.com/aviggiano/redis/issues/22), and
+[#26](https://github.com/aviggiano/redis/issues/26).
 
 ## Oracle Test Strategy
 
-Step 1 added a legacy-string oracle harness under `tests/support`. Later steps
+Step 1 added a legacy-string oracle harness under `tests/support`. Later work
 extended it with a `native-roaring` mode backed by `bitmap-default-roaring yes`,
 so scenarios now compare bitmap-observable command results across both
-representations.
+representations. [PR #41](https://github.com/aviggiano/redis/pull/41) added
+dedicated native bitmap oracle parity tests.
 
 The initial corpus focuses on cases redis-roaring-style implementations commonly
 stress:
@@ -128,43 +148,37 @@ stress:
 - Repeated deterministic fuzz writes followed by `GETBIT` and `BITCOUNT`.
 - String command boundary checks for values that are still legacy Redis strings.
 
-## Open Questions
+## Pending Decisions
 
-- Should native Redis bitmaps keep Redis string bitmap offset limits, or should
-  the new type introduce a documented 64-bit bitmap index model? This decision
-  is owned by Step 1 and must be answered before the Step 3 RDB payload and
-  object type id are submitted upstream; a later 64-bit variant would take a
-  new RDB type id (for example `RDB_TYPE_BITMAP_64`) per core convention, not
-  an in-payload flags byte.
-- Which commands, if any, should offer explicit native bitmap to string
-  materialization? Generic string commands should not silently materialize by
-  default. Decided in the upstream-aligned surface: `BITMAP CONVERT <key>
-  [NATIVE|STRING]` is the explicit conversion command, and
-  `BITMAP CONVERT <key> STRING` is the supported path back to a legacy string
-  while the logical length fits proto-max-bulk-len. `BITOP` is not a string
-  materialization escape hatch; destinations follow the native destination rule
-  recorded in `docs/redis-roaring-pr-breakdown.md`. Plain `SET` overwrites a
-  native bitmap key with a string like any other type. Generic string commands
-  keep returning `WRONGTYPE`.
-- What is the RDB opcode and AOF rewrite representation for compressed native
-  bitmaps, and which PR lands it before public creation? Decided in Step 3:
-  RDB uses a dedicated `RDB_TYPE_BITMAP` id carrying the portable Roaring
-  payload (a future format variant takes a new RDB type id, not an in-payload
-  flags byte), and AOF rewrite emits `RESTORE <key> 0 <DUMP payload> REPLACE`
-  for native bitmap values. Both land before Step 6 public creation.
-- Should replication send native bitmap payloads directly, or should it use a
-  command sequence until the persistence format is stable? Decided in Step 6:
-  type transitions replicate as an explicit
-  `RESTORE <key> <ttl> <DUMP payload> REPLACE [ABSTTL]` rewrite of the
-  triggering command, so type-transition decisions stay pure functions of
-  replicated logical state and propagate explicitly (see the exposure gate);
-  replicas never re-derive them from local config or allocator state.
-  Post-transition writes replicate verbatim against the same type on both
-  sides.
-- What debug or test-only hook should force native bitmap conversion without
-  exposing production-only command surface area? Decided in Step 3:
-  `DEBUG BITMAP-FORCE-ROARING <key>` (with `DEBUG BITMAP-RAW` for byte-exact
-  reads); it propagates its effect as the same RESTORE rewrite used by
-  SETBIT-triggered conversions, since replicas may refuse DEBUG entirely.
-- Which Redis module APIs need a new bitmap type contract, and which should
-  observe native bitmap values only as non-string values?
+- **Index width and public cap**: decide whether v1 keeps the current
+  `proto-max-bulk-len` public limit with 64-bit Roaring internals, switches to
+  bounded 32-bit Roaring, or exposes a documented wider native bitmap model.
+  See [#24](https://github.com/aviggiano/redis/issues/24) and
+  [#42](https://github.com/aviggiano/redis/issues/42).
+- **Conversion/public surface**: confirm whether `BITMAP CONVERT` is needed in
+  v1, whether it is the only new user-facing bitmap command, and whether
+  `BITMAP CONVERT ... STRING` is sufficient as the materialization escape
+  hatch. See [#20](https://github.com/aviggiano/redis/issues/20),
+  [#22](https://github.com/aviggiano/redis/issues/22), and
+  [#26](https://github.com/aviggiano/redis/issues/26).
+- **Persistence format and AOF rewrite**: confirm the final `RDB_TYPE_BITMAP`
+  payload layout, validation requirements, and whether RESTORE-based AOF
+  rewrite remains acceptable for this core type. The current implementation
+  stores logical byte length plus raw bitmap bytes; open
+  [PR #44](https://github.com/aviggiano/redis/pull/44) is related review
+  follow-up, not current `unstable` behavior. See
+  [#29](https://github.com/aviggiano/redis/issues/29).
+- **Replication strategy**: confirm whether RESTORE-based propagation remains
+  the long-term strategy, and document amplification and version-skew policy.
+  See [#28](https://github.com/aviggiano/redis/issues/28).
+- **Modules, notifications, and metadata**: settle event names/order, module
+  observations, unlink callbacks, and metadata preservation policy. See
+  [#33](https://github.com/aviggiano/redis/issues/33).
+- **Memory management and defrag policy**: close the accounting, allocator-hook,
+  active-defrag, and fork-child dismissal questions for v1. See
+  [#32](https://github.com/aviggiano/redis/issues/32).
+- **Benchmark and exposure gate**: define the Redis-specific benchmark harness,
+  required scenarios, and acceptable event-loop stall bounds before treating
+  the default/creation policy as final. See
+  [#35](https://github.com/aviggiano/redis/issues/35) and
+  [#47](https://github.com/aviggiano/redis/issues/47).
