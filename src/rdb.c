@@ -1138,8 +1138,7 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     return nwritten;
 }
 
-static robj *rdbLoadBitmapObject(rio *rdb, int deep_validate) {
-    UNUSED(deep_validate);
+static robj *rdbLoadBitmapObject(rio *rdb) {
     uint64_t byte_len = rdbLoadLen(rdb, NULL);
     if (byte_len == RDB_LENERR) return NULL;
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
@@ -3946,8 +3945,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             arSet(ar, idx, v);
         }
     } else if (rdbtype == RDB_TYPE_BITMAP) {
-        if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-        o = rdbLoadBitmapObject(rdb, deep_integrity_validation);
+        o = rdbLoadBitmapObject(rdb);
         if (o == NULL) {
             rdbReportCorruptRDB("Invalid bitmap RDB payload");
             return NULL;
