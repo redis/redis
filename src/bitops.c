@@ -969,7 +969,7 @@ static robj *bitmapObjectFromStringObject(robj *o) {
  * replica-local config or allocator behavior. Shared with the test-only
  * DEBUG BITMAP-FORCE-ROARING, whose verbatim DEBUG propagation would
  * otherwise be dropped by replicas running with debug commands disabled. */
-void bitmapPropagateRestore(client *c, robj *key, robj *bitmap) {
+static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap) {
     rio payload;
     robj *argv[6];
     long long expire = getExpire(c->db, key->ptr, bitmap);
