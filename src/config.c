@@ -3767,6 +3767,7 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
 
 int moduleSetNumericConfig(client *c, sds name, long long val, const char **err) {
     standardConfig *config = getMutableConfig(c, name, err);
+    if (!config) return 0;
     if (config->type != NUMERIC_CONFIG) return 0;
 
     sds old_value = config->interface.get(config);
