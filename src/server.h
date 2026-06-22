@@ -3553,7 +3553,6 @@ void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
 int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
 void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
-void bitmapPropagateRestore(client *c, robj *key, robj *bitmap);
 
 /* Child info */
 void openChildInfoPipe(void);
