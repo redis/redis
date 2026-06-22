@@ -788,6 +788,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
     test {public-created native bitmaps survive AOF rewrite as bitmap} {
         r flushall
         r config set appendonly yes
+        waitForBgrewriteaof r
         r config set auto-aof-rewrite-percentage 0
         r config set bitmap-default-roaring yes
 
@@ -811,6 +812,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
     test {AOF rewrite preserves deterministic bitmap and string transitions} {
         r flushall
         r config set appendonly yes
+        waitForBgrewriteaof r
         r config set auto-aof-rewrite-percentage 0
 
         set raw [binary format H* 80400100080000]
@@ -845,14 +847,11 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
         set master_port [srv -1 port]
         set replica [srv 0 client]
 
-        test {native bitmap public creation replicates deterministic type transitions} {
-            $replica replicaof $master_host $master_port
-            wait_for_condition 50 100 {
-                [s 0 master_link_status] eq {up}
-            } else {
-                fail "Replication not started."
-            }
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+        wait_for_ofs_sync $master $replica
 
+        test {native bitmap public creation replicates deterministic type transitions} {
             # The replica stays in bitmap-default-roaring no: type decisions must arrive
             # from the master as explicit RESTOREs, never be re-derived from
             # replica-local configuration.
