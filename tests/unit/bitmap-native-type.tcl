@@ -701,6 +701,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r setbit bitmap:public:reload:direct $::sparse_public_offset 1
         r set bitmap:public:reload:auto ""
         r setbit bitmap:public:reload:auto $::sparse_public_offset 1
+        assert {[string length [r dump bitmap:public:reload:direct]] < 256}
         set digest_before [debug_digest]
 
         r debug reload

@@ -15,6 +15,7 @@
 
 void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
+robj *createBitmapObjectWithLen(uint64_t byte_len);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
@@ -46,6 +47,8 @@ long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t en
 int bitmapObjectCanRepresentBit(uint64_t bitoffset);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
+int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end);
+void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 

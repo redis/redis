@@ -233,6 +233,14 @@ robj *createBitmapObject(void) {
     return o;
 }
 
+robj *createBitmapObjectWithLen(uint64_t byte_len) {
+    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+
+    robj *o = createBitmapObject();
+    getBitmapObject(o)->byte_len = byte_len;
+    return o;
+}
+
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
 #if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
@@ -800,6 +808,33 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     bitmapRoaringPopAllocSizeTracker(prev);
 
     return C_OK;
+}
+
+/* Add bits in the half-open range [start,end). */
+int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end) {
+    bitmapObject *bitmap = getBitmapObject(o);
+
+    if (start >= end) return C_OK;
+    if (!bitmapObjectCanRepresentBit(end - 1))
+        return C_ERR;
+
+    uint64_t byte = (end - 1) >> 3;
+    if (byte + 1 > bitmap->byte_len)
+        bitmap->byte_len = byte + 1;
+
+    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
+    roaring64_bitmap_add_range(bitmap->roaring, start, end);
+    bitmapRoaringPopAllocSizeTracker(prev);
+
+    return C_OK;
+}
+
+void bitmapObjectOptimize(robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
+    roaring64_bitmap_run_optimize(bitmap->roaring);
+    roaring64_bitmap_shrink_to_fit(bitmap->roaring);
+    bitmapRoaringPopAllocSizeTracker(prev);
 }
 
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
