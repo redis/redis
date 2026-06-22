@@ -42,13 +42,16 @@ proc assert_bitmap_translated_jaccard {name left_bits right_bits expected_inters
     r bitop and $intersection $left $right
     r bitop or $union $left $right
 
-    assert_equal $expected_intersection [r bitcount $intersection]
-    assert_equal $expected_union [r bitcount $union]
-    if {$expected_union == 0} {
-        assert_equal -1 $expected_ratio
+    set actual_intersection [r bitcount $intersection]
+    set actual_union [r bitcount $union]
+    assert_equal $expected_intersection $actual_intersection
+    assert_equal $expected_union $actual_union
+    if {$actual_union == 0} {
+        set actual_ratio -1
     } else {
-        assert_equal $expected_ratio [format %.6f [expr {double([r bitcount $intersection]) / [r bitcount $union]}]]
+        set actual_ratio [format %.6f [expr {double($actual_intersection) / $actual_union}]]
     }
+    assert_equal $expected_ratio $actual_ratio
 }
 
 proc assert_native_bitop_matches_string {name op source_bitsets} {
@@ -597,6 +600,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         assert_bitmap_translated_jaccard overlap {1 2 3 4 5} {3 4 5 6 7} 3 7 0.428571
         assert_bitmap_translated_jaccard subset {1 2 3} {1 2 3 4 5} 3 5 0.600000
+        assert_bitmap_translated_jaccard identical {8 13 21} {8 13 21} 3 3 1.000000
+        assert_bitmap_translated_jaccard one-empty {1 2 3} {} 0 3 0.000000
         assert_bitmap_translated_jaccard disjoint {1 2} {3 4} 0 4 0.000000
         assert_bitmap_translated_jaccard empty {} {} 0 0 -1
     }
