@@ -88,9 +88,12 @@ That coverage is semantic rather than wire-compatible: redis-roaring's `NOT`
 form accepts an optional `last` bound, and redis-roaring `BITOP` replies with
 result cardinality instead of Redis' destination byte length. Those syntax and
 reply differences are migration-tool/replay concerns, not v1 Redis command
-surface. The standalone `R.DIFF` / `R64.DIFF` command names are therefore
-compatibility wrappers around behavior covered by `BITOP DIFF` and remain out of
-v1 Redis scope.
+surface. `R64.*` command coverage is likewise limited to offsets that Redis
+bitmap commands can parse and native Redis bitmaps can represent; tooling must
+reject or explicitly policy-handle redis-roaring `uint64_t` offsets outside
+that Redis-representable range. The standalone `R.DIFF` / `R64.DIFF` command
+names are therefore compatibility wrappers around behavior covered by
+`BITOP DIFF` and remain out of v1 Redis scope.
 
 | redis-roaring-only family | Gap versus Redis bitmap commands | Classification | v1 migration/import note |
 | --- | --- | --- | --- |
