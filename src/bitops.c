@@ -2371,6 +2371,9 @@ void bitfieldGeneric(client *c, int flags) {
          * so a rejected command leaves the keyspace untouched. */
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
+        /* getBitOffsetFromArgument() and bitStringWriteOffsetWithinLimit()
+         * keep the client-visible write limit aligned with string bitmaps.
+         * This is only the native encoding's internal representability guard. */
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
             !bitmapObjectCanRepresentBit(highest_write_offset))
         {
