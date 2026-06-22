@@ -207,12 +207,11 @@ typedef struct raxIterator {
  * The commit itself is allowed to realloc `stopnode` (raxReallocForData,
  * raxAddChild) and update *parentlink in-place -- the link's own fields
  * survive the commit, but a second commit on the same link is undefined. */
+#define RAX_LEAF_PARENT_STOP (-1)  /* on fixed-len, when walk stop at a leaf parent */
 typedef struct raxNodeLink {
     raxNode  *stopnode;     /* Stop node. */
     raxNode **parentlink;   /* Slot in stopnode's parent that holds h. */
     size_t    consumed;     /* Bytes of key consumed at stop. */
-
-#define RAX_LEAF_PARENT_STOP (-1)  /* on fixed-len, when walk stop at a leaf parent */ 
     int       splitpos;     /* Split position inside stopnode's compressed
                              * prefix. Same semantic as raxLowWalk():
                              * only meaningful when stopnode->iscompr; 0 with

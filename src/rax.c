@@ -413,10 +413,9 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
  * is tracked implicitly: either by raxLowWalk or raxIterator.
  *
  * The child-pointer slots hold inlined values of the key instead of a pointer 
- * to raxNode dedicated ,
- * so the layout is identical to a normal node, except each child slot [Xptr]
- * becomes the value [Xval] for the key ending in 'X', and there is no trailing
- * |AUXP| (a leaf parent is never itself a complete key):
+ * to raxNode dedicated, so the layout is identical to a normal node, except each 
+ * child slot [Xptr] becomes the value [Xval] for the key ending in 'X', and there 
+ * is no trailing |AUXP| (a leaf parent is never itself a complete key):
  *
  *   iscompr=0:  [HDR*][abde][Aval][Bval][Dval][Eval]   (one slot per edge byte)
  *   iscompr=1:  [HDR*][xyz][val]                       (single slot, leafSlot=0)
