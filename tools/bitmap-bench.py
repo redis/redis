@@ -114,13 +114,16 @@ class RedisClient:
         self.db = db
         self.timeout = timeout
 
+    def connection(self) -> RespConnection:
+        return RespConnection(self.host, self.port, self.db, self.timeout)
+
     def execute(self, command: list[Any]) -> Any:
-        with RespConnection(self.host, self.port, self.db, self.timeout) as conn:
+        with self.connection() as conn:
             return conn.command(command)
 
     def pipeline(self, commands: Iterable[list[Any]], chunk_size: int = 1000) -> None:
         chunk: list[list[Any]] = []
-        with RespConnection(self.host, self.port, self.db, self.timeout) as conn:
+        with self.connection() as conn:
             for command in commands:
                 chunk.append(command)
                 if len(chunk) >= chunk_size:
@@ -625,9 +628,10 @@ class RedisBitmapBench:
 
     def run_one_shot_workload(self, workload: Workload) -> Result:
         before = self.memory_snapshot()
-        start = time.perf_counter()
-        response = self.client.execute(workload.command)
-        elapsed = elapsed_ms(start)
+        with self.client.connection() as conn:
+            start = time.perf_counter()
+            response = conn.command(workload.command)
+            elapsed = elapsed_ms(start)
         after = self.memory_snapshot()
         key = workload.sample_key
         return Result(
@@ -696,17 +700,18 @@ class RedisBitmapBench:
 
     def run_dump_restore(self, name: str, key: str) -> Result:
         before = self.memory_snapshot()
-        started = time.perf_counter()
-        payload = self.client.execute(["DUMP", key])
-        dump_elapsed = elapsed_ms(started)
-        if not isinstance(payload, bytes):
-            raise BenchError(f"DUMP returned no payload for {key}")
-
         dest = f"{key}:restored"
-        self.client.execute(["DEL", dest])
-        restore_started = time.perf_counter()
-        self.client.execute(["RESTORE", dest, "0", payload])
-        restore_elapsed = elapsed_ms(restore_started)
+        with self.client.connection() as conn:
+            started = time.perf_counter()
+            payload = conn.command(["DUMP", key])
+            dump_elapsed = elapsed_ms(started)
+            if not isinstance(payload, bytes):
+                raise BenchError(f"DUMP returned no payload for {key}")
+
+            conn.command(["DEL", dest])
+            restore_started = time.perf_counter()
+            conn.command(["RESTORE", dest, "0", payload])
+            restore_elapsed = elapsed_ms(restore_started)
         after = self.memory_snapshot()
         return Result(
             name=f"dump_restore_{name}",
