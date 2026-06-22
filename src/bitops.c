@@ -1117,15 +1117,15 @@ void setbitCommand(client *c) {
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
 
+        keyModified(c,c->db,c->argv[1],o,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+
         /* If this is not a new key and size changed, then update the
          * keysizes histogram. Otherwise, the histogram already
          * updated in lookupStringForBitCommand() by calling dbAdd(). */
         if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
-
-        keyModified(c,c->db,c->argv[1],o,1);
-        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty++;
     }
 
     /* Return original value. */
