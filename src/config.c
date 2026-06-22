@@ -794,7 +794,7 @@ static const char *configGetPrimaryName(standardConfig *config) {
 
 static int configIsSameConfig(standardConfig *a, standardConfig *b) {
     if (a == b) return 1;
-    if (!((a->flags | b->flags) & ALIAS_CONFIG)) return 0;
+    if (!((a->flags | b->flags) & ALIAS_CONFIG)) return 0; /* No alias, so not the same config. */
     return !strcasecmp(configGetPrimaryName(a), configGetPrimaryName(b));
 }
 
