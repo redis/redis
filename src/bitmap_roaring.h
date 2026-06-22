@@ -24,14 +24,14 @@ unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
 size_t bitmapObjectContainerCount(const robj *o);
 
 typedef enum bitmapBitop {
-    BITMAP_BITOP_AND = 0,
-    BITMAP_BITOP_OR,
-    BITMAP_BITOP_XOR,
-    BITMAP_BITOP_NOT,
-    BITMAP_BITOP_DIFF,
-    BITMAP_BITOP_DIFF1,
-    BITMAP_BITOP_ANDOR,
-    BITMAP_BITOP_ONE
+    BITOP_AND = 0,
+    BITOP_OR,
+    BITOP_XOR,
+    BITOP_NOT,
+    BITOP_DIFF,
+    BITOP_DIFF1,
+    BITOP_ANDOR,
+    BITOP_ONE
 } bitmapBitop;
 
 uint64_t bitmapObjectLen(const robj *o);

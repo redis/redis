@@ -948,7 +948,7 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
     bitmapObjectPrepareBitopSources(objects, sources, numkeys);
 
     switch (op) {
-    case BITMAP_BITOP_AND:
+    case BITOP_AND:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
@@ -957,44 +957,44 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
                 roaring64_bitmap_clear(result);
         }
         break;
-    case BITMAP_BITOP_OR:
+    case BITOP_OR:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_or_inplace(result, sources[i].roaring);
         }
         break;
-    case BITMAP_BITOP_XOR:
+    case BITOP_XOR:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_xor_inplace(result, sources[i].roaring);
         }
         break;
-    case BITMAP_BITOP_NOT:
+    case BITOP_NOT:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         break;
-    case BITMAP_BITOP_DIFF:
+    case BITOP_DIFF:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_andnot_inplace(result, sources[i].roaring);
         }
         break;
-    case BITMAP_BITOP_DIFF1:
+    case BITOP_DIFF1:
         result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
         if (sources[0].roaring != NULL)
             roaring64_bitmap_andnot_inplace(result, sources[0].roaring);
         break;
-    case BITMAP_BITOP_ANDOR:
+    case BITOP_ANDOR:
         result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
         if (sources[0].roaring != NULL)
             roaring64_bitmap_and_inplace(result, sources[0].roaring);
         else
             roaring64_bitmap_clear(result);
         break;
-    case BITMAP_BITOP_ONE:
+    case BITOP_ONE:
         result = bitmapObjectExactlyOneBitopSources(sources, numkeys);
         break;
     default:
