@@ -2132,7 +2132,8 @@ void bitposCommand(client *c) {
             strlen = slen;
         }
 
-        /* The whole string. */
+        /* The whole string. Native BITPOS still needs the derived bit interval
+         * populated in range.bit_start/range.bit_end. */
         range.start = 0;
         range.end = strlen-1;
         normalizeBitRange(&range, strlen, 0);
