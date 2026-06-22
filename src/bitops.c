@@ -1904,17 +1904,19 @@ bitop_cleanup:
                 bitmapPropagateRestore(c, targetkey, res_bitmap);
             }
             notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
-        } else {
-            robj *o = createObject(OBJ_STRING, res);
-            setKey(c, c->db, targetkey, &o, 0);
-            notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
-            server.dirty++;
+            goto out;
         }
+
+        robj *o = createObject(OBJ_STRING, res);
+        setKey(c, c->db, targetkey, &o, 0);
+        notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
+        server.dirty++;
     } else if (dbDelete(c->db,targetkey)) {
         keyModified(c,c->db,targetkey,NULL,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;
     }
+out:
     serverAssert(maxlen <= (uint64_t)LLONG_MAX);
     addReplyLongLong(c,(long long)maxlen); /* Return the destination length in bytes. */
 }
