@@ -38,9 +38,11 @@ marked pending in the trackers.
   [#26](https://github.com/aviggiano/redis/issues/26).
 - **BITOP destination rule**: a BITOP destination is native when at least
   one source is native, and always native when `bitmap-default-roaring yes`.
-  The operation runs entirely in roaring space (no materialization). `BITOP
-  NOT`, which is inherently dense, is rejected when the source's logical length
-  exceeds `proto-max-bulk-len`.
+  Native `BITOP` destinations are bounded by `proto-max-bulk-len`: commands
+  are rejected when the result logical length would exceed that limit. Most
+  native operations run entirely in roaring space without materializing a Redis
+  string; `BITOP NOT` is the dense/materializing case and is rejected when the
+  source's logical length exceeds `proto-max-bulk-len`.
   When the destination type decision depends on the local config (all-string
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
