@@ -763,6 +763,7 @@ class RedisBitmapBench:
         self.wait_for_aof_rewrite()
         rewrite_elapsed = elapsed_ms(started)
         persistence = parse_info(self.client.execute(["INFO", "PERSISTENCE"]))
+        aof_current_size = to_int(persistence.get("aof_current_size"))
         after = self.memory_snapshot()
         return Result(
             name="aof_rewrite",
@@ -773,11 +774,11 @@ class RedisBitmapBench:
             used_memory_before=before.get("used_memory"),
             used_memory_after=after.get("used_memory"),
             used_memory_peak=after.get("used_memory_peak"),
-            payload_size_bytes=self.aof_payload_size(),
+            payload_size_bytes=aof_current_size,
             command=["CONFIG SET appendonly yes", "BGREWRITEAOF"],
             extra={
                 "aof_last_bgrewrite_status": persistence.get("aof_last_bgrewrite_status"),
-                "aof_current_size": int(persistence.get("aof_current_size", "0")),
+                "aof_current_size": aof_current_size,
             },
         )
 
@@ -798,16 +799,6 @@ class RedisBitmapBench:
         if self.data_dir is None:
             raise BenchError("server data dir is not available")
         return self.data_dir
-
-    def aof_payload_size(self) -> Optional[int]:
-        data_dir = self.require_data_dir()
-        total = 0
-        seen = False
-        for path in data_dir.rglob("*.aof*"):
-            if path.is_file() and ".manifest" not in path.name:
-                total += path.stat().st_size
-                seen = True
-        return total if seen else None
 
     def memory_snapshot(self) -> dict[str, Optional[int]]:
         info = parse_info(self.client.execute(["INFO", "MEMORY"]))
