@@ -181,6 +181,7 @@ class Workload:
     warmup_requests: int = 2000
     setup: Optional[str] = None
     sample_key: Optional[str] = None
+    one_shot: bool = False
 
 
 @dataclass
@@ -258,8 +259,9 @@ class RedisBitmapBench:
                 result = self.run_workload(workload)
                 self.results.append(result)
                 payload = "-" if result.payload_size_bytes is None else str(result.payload_size_bytes)
+                metric = f"{result.qps:.2f} req/s" if result.qps is not None else "one-shot"
                 print(
-                    f"{result.name:32s} {result.qps:12.2f} req/s "
+                    f"{result.name:32s} {metric:>18s} "
                     f"{result.elapsed_ms:9.2f} ms payload={payload}"
                 )
 
@@ -279,9 +281,13 @@ class RedisBitmapBench:
                 self.stop_server(cleanup=True)
 
     def start_server(self) -> None:
-        if self.server_dir is None:
-            self.server_dir = tempfile.TemporaryDirectory(prefix="bitmap-bench-")
-            self.data_dir = Path(self.server_dir.name)
+        if self.data_dir is None:
+            if self.args.keep_server:
+                self.data_dir = Path(tempfile.mkdtemp(prefix="bitmap-bench-"))
+                print(f"keeping redis-server data dir: {self.data_dir}", file=sys.stderr)
+            else:
+                self.server_dir = tempfile.TemporaryDirectory(prefix="bitmap-bench-")
+                self.data_dir = Path(self.server_dir.name)
             self.server_log_path = self.data_dir / "redis-server.log"
         self.launch_server()
 
@@ -351,7 +357,7 @@ class RedisBitmapBench:
                     f"{self.read_server_log().strip()}"
                 )
             try:
-                if self.client.execute(["PING"]) == "PONG":
+                if self.client.execute(["PING"]) == "PONG" and self.ping_is_from_child():
                     return
             except Exception as exc:
                 last_error = exc
@@ -359,6 +365,20 @@ class RedisBitmapBench:
         raise BenchError(
             f"server did not start on {self.host}:{self.port}: {last_error}\n"
             f"{self.read_server_log().strip()}"
+        )
+
+    def ping_is_from_child(self) -> bool:
+        if self.server_proc is None:
+            return False
+        info = parse_info(self.client.execute(["INFO", "SERVER"]))
+        process_id = to_int(info.get("process_id"))
+        if process_id == self.server_proc.pid:
+            return True
+        if process_id is None:
+            raise BenchError("server answered PING but INFO SERVER did not report process_id")
+        raise BenchError(
+            f"server answered PING from pid {process_id}, "
+            f"expected benchmark child pid {self.server_proc.pid}"
         )
 
     def read_server_log(self) -> str:
@@ -444,19 +464,21 @@ class RedisBitmapBench:
         return [
             Workload(
                 "setbit_native_create_sparse",
-                "SETBIT creates a missing sparse key as a native bitmap with bitmap-default-roaring yes",
+                "One-shot SETBIT latency creating a missing sparse key as a native bitmap",
                 ["SETBIT", "bench:bitmap:setbit:create", str(self.args.sparse_space - 1), "1"],
-                100_000, 32, 16,
+                1, 1, 1,
                 warmup_requests=0, setup="setup_setbit_native_create",
                 sample_key="bench:bitmap:setbit:create",
+                one_shot=True,
             ),
             Workload(
                 "setbit_convert_string_dense",
-                "SETBIT converts an existing legacy string bitmap to native before writing",
+                "One-shot SETBIT latency converting an existing legacy string bitmap to native before writing",
                 ["SETBIT", "bench:bitmap:setbit:convert", str(self.args.convert_bytes * 8 - 1), "1"],
-                50_000, 24, 8,
+                1, 1, 1,
                 warmup_requests=0, setup="setup_setbit_convert_string",
                 sample_key="bench:bitmap:setbit:convert",
+                one_shot=True,
             ),
             Workload(
                 "bitcount_dense_legacy",
@@ -570,6 +592,8 @@ class RedisBitmapBench:
     def run_workload(self, workload: Workload) -> Result:
         if workload.setup:
             getattr(self, workload.setup)()
+        if workload.one_shot:
+            return self.run_one_shot_workload(workload)
         if self.args.warmup and workload.warmup_requests > 0:
             self.invoke_benchmark(workload, self.scale_requests(workload.warmup_requests))
 
@@ -597,6 +621,34 @@ class RedisBitmapBench:
             rand_range=workload.rand_range,
             command=workload.command,
             extra={"raw_output": raw.strip()},
+        )
+
+    def run_one_shot_workload(self, workload: Workload) -> Result:
+        before = self.memory_snapshot()
+        start = time.perf_counter()
+        response = self.client.execute(workload.command)
+        elapsed = elapsed_ms(start)
+        after = self.memory_snapshot()
+        key = workload.sample_key
+        return Result(
+            name=workload.name,
+            category="command",
+            description=workload.description,
+            elapsed_ms=elapsed,
+            memory_usage_bytes=self.memory_usage(key) if key else None,
+            used_memory_before=before.get("used_memory"),
+            used_memory_after=after.get("used_memory"),
+            used_memory_peak=after.get("used_memory_peak"),
+            payload_size_bytes=self.dump_payload_size(key) if key else None,
+            requests=1,
+            clients=1,
+            pipeline=1,
+            rand_range=workload.rand_range,
+            command=workload.command,
+            extra={
+                "measurement": "one-shot latency",
+                "response": decode_text(response),
+            },
         )
 
     def invoke_benchmark(self, workload: Workload, requests: int) -> str:
@@ -789,11 +841,12 @@ class RedisBitmapBench:
 
     def print_summary(self) -> None:
         print("\ncommand summary:")
-        print("| workload | qps | elapsed ms | memory bytes | peak bytes | payload bytes |")
+        print("| workload | qps | elapsed/latency ms | memory bytes | peak bytes | payload bytes |")
         print("|---|---:|---:|---:|---:|---:|")
         for result in self.results:
+            qps = "-" if result.qps is None else f"{result.qps:.2f}"
             print(
-                f"| {result.name} | {result.qps:.2f} | {result.elapsed_ms:.2f} | "
+                f"| {result.name} | {qps} | {result.elapsed_ms:.2f} | "
                 f"{fmt_optional(result.memory_usage_bytes)} | "
                 f"{fmt_optional(result.used_memory_peak)} | "
                 f"{fmt_optional(result.payload_size_bytes)} |"
