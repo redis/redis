@@ -125,6 +125,14 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
     string_callback_call_count++;
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    if (strcmp(event, "setbit") == 0 && strncmp(key_str, "stringdel_", 10) == 0) {
+        RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s!", key);
+        if (rep) RedisModule_FreeCallReply(rep);
+        return REDISMODULE_OK;
+    }
+
     RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
 
     size_t len = 0;

@@ -1178,7 +1178,6 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
     uint64_t byte_len = rdbLoadLen(rdb, NULL);
     if (byte_len == RDB_LENERR) return NULL;
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
-    if (byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
 
     uint64_t bit_len = byte_len * 8;
     uint64_t range_count = rdbLoadLen(rdb, NULL);

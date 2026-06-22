@@ -1236,7 +1236,7 @@ test {corrupt payload: bitmap range RDB validation} {
         set valid_raw [binary format H* 4440]
         set valid_ranges {{1 1} {5 5} {9 9}}
 
-        set huge_len_payload [bitmap_dump_payload $bitmap_type [expr {512 * 1024 * 1024 + 1}] $valid_ranges $dump_trailer]
+        set huge_len_payload [bitmap_dump_payload $bitmap_type [expr {1 << 60}] $valid_ranges $dump_trailer]
 
         catch { r restore bitmap:huge-len 0 $huge_len_payload } err
         assert_match "*Bad data format*" $err
@@ -1244,9 +1244,10 @@ test {corrupt payload: bitmap range RDB validation} {
 
         set old_bulk_len [config_get_set proto-max-bulk-len 1048576]
         set configured_huge_len_payload [bitmap_dump_payload $bitmap_type 1048577 $valid_ranges $dump_trailer]
-        catch { r restore bitmap:configured-huge-len 0 $configured_huge_len_payload } err
-        assert_match "*Bad data format*" $err
-        assert_equal PONG [r ping]
+        r restore bitmap:configured-huge-len 0 $configured_huge_len_payload
+        assert_equal [r type bitmap:configured-huge-len] bitmap
+        assert_equal 1 [r getbit bitmap:configured-huge-len 9]
+        r del bitmap:configured-huge-len
         r config set proto-max-bulk-len $old_bulk_len
 
         set valid_payload [bitmap_dump_payload $bitmap_type 2 $valid_ranges $dump_trailer]
