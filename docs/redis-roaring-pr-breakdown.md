@@ -274,8 +274,16 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     one byte at a time through the roaring lookup path instead of
     materializing each source once.
 - Keep redis-roaring migration tooling separate from Redis core.
+- Use the redis-roaring command inventory in
+  `docs/redis-roaring-native-bitmap-design.md` to keep v1 Redis command scope
+  separate from migration-tool-only compatibility work.
 - Export redis-roaring keys from old Redis with module loaded.
 - Import into new Redis using native Redis bitmap-compatible representation.
+- Tooling must understand both module input types: `reroaring` 32-bit payloads
+  and `roaring64` 64-bit payloads. Integer-array command families
+  (`SETINTARRAY`, `GETINTARRAY`, `RANGEINTARRAY`, `APPENDINTARRAY`, and
+  `DELETEINTARRAY`, with `R64.*` equivalents) are migration-tool concerns, not
+  Redis core commands.
 - Include downtime-oriented migration docs and validation tooling.
 
 ## Upstream Packaging
