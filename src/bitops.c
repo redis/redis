@@ -1577,25 +1577,10 @@ void bitopCommand(client *c) {
      * propagated as the explicit result below). Otherwise it stays a string. */
     native_dest = has_native_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c));
 
-    if (native_dest && !mustObeyClient(c) &&
-        maxlen > (uint64_t)server.proto_max_bulk_len)
-    {
-        unsigned long i;
-        for (i = 0; i < numkeys; i++) {
-            if (objects[i] && objects[i]->type == OBJ_STRING)
-                decrRefCount(objects[i]);
-        }
-        zfree(src);
-        zfree(len);
-        zfree(objects);
-        addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
-        return;
-    }
-
-    /* BITOP NOT writes one result byte for every source byte, even when the
-     * destination would be native. Keep the same safety limit as string
-     * materialization so dense Roaring output cannot bypass proto-max-bulk-len. */
-    if (op == BITMAP_BITOP_NOT && !mustObeyClient(c) &&
+    /* Native destinations and BITOP NOT both need a bulk payload path: native
+     * transitions propagate RESTORE payloads, and NOT writes one dense result
+     * byte per source byte. Keep both inside the string materialization limit. */
+    if ((native_dest || op == BITMAP_BITOP_NOT) && !mustObeyClient(c) &&
         maxlen > (uint64_t)server.proto_max_bulk_len) {
         unsigned long i;
         for (i = 0; i < numkeys; i++) {
