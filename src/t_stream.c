@@ -61,6 +61,560 @@ static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
 
+void streamEncodeID(void *buf, streamID *id);
+
+/* -----------------------------------------------------------------------
+ * Two-level PEL: rax -> direct | flax(seq -> data*)
+ *
+ * Multi-entry buckets use a 15-byte rax key (full ms + upper 7 bytes of
+ * big-endian seq) and store a flax* mapping the low byte of seq to data
+ * pointers.  Single-entry buckets ("direct entries") use a 16-byte rax
+ * key (the complete big-endian streamID) and store the raw data pointer
+ * directly in the rax value, avoiding the flax allocation. The key
+ * length in rax (16 vs 15) distinguishes the two bucket types.
+ * ----------------------------------------------------------------------- */
+
+
+/* Cache embedded in rax metadata to speed up sequential PEL ops
+ * when consecutive operations target the same ID prefix.
+ * When 'dirty' is set, the cached value has been created/updated but not yet
+ * inserted into the rax; it will be committed on the next cache eviction
+ * or explicit flush. 'direct' mirrors the key-length convention:
+ * 1 = direct (16-byte key, raw data pointer), 0 = flax (15-byte key).
+ *
+ * KEY INVARIANT: dirty==1 means "this bucket exists ONLY in the cache, not in
+ * the rax".  This permits type transitions (direct<->flax) while dirty without
+ * touching the rax: the old entry was never committed, so there is nothing
+ * stale to remove.  For example, a dirty direct can be promoted to a dirty
+ * flax (pelGenericInsert), or a dirty flax can be demoted to a dirty direct
+ * (pelRemove), and in both cases pelCacheFlush will later insert the new
+ * representation using the correct key length derived from cache->direct. */
+typedef struct pelCache {
+    unsigned char key[PEL_RAX_DIRECT_KEYLEN];
+    void *val;
+    int dirty;
+    int direct;
+} pelCache;
+
+static void pelCacheFlush(rax *r) {
+    pelCache *cache = (pelCache *)r->metadata;
+    if (!cache->dirty) return;
+    size_t keylen = cache->direct ? PEL_RAX_DIRECT_KEYLEN : PEL_RAX_FLAX_KEYLEN;
+    raxInsert(r, cache->key, keylen, cache->val, NULL);
+    cache->dirty = 0;
+}
+
+void pelCacheInvalidate(rax *pel) {
+    pelCacheFlush(pel);
+    pelCache *cache = (pelCache *)pel->metadata;
+    cache->val = NULL;
+    cache->dirty = 0;
+    cache->direct = 0;
+}
+
+rax *pelNew(size_t *alloc_size) {
+    rax *pel = raxNewWithMetadata(sizeof(pelCache), alloc_size);
+    if (pel) {
+        pelCache *cache = (pelCache *)pel->metadata;
+        cache->val = NULL;
+        cache->dirty = 0;
+        cache->direct = 0;
+    }
+    return pel;
+}
+
+/* Free all buckets and call nack_free for each data pointer. */
+void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx) {
+    if (!pel) return;
+    pelCacheFlush(pel);
+    raxIterator ri;
+    raxStart(&ri, pel);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        if (ri.key_len == PEL_RAX_DIRECT_KEYLEN) {
+            if (nack_free) nack_free(ri.data, ctx);
+        } else {
+            flax *f = (flax *)ri.data;
+            if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+            if (nack_free)
+                flaxFreeWithCallback(f, nack_free, ctx);
+            else
+                flaxFree(f);
+        }
+    }
+    raxStop(&ri);
+    raxFreeWithCbAndContext(pel, NULL, NULL);
+}
+
+/* Free buckets without freeing data (for consumer PEL where NACKs are shared). */
+void pelFreeShallow(rax *pel) {
+    if (!pel) return;
+    pelCacheFlush(pel);
+    raxIterator ri;
+    raxStart(&ri, pel);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        if (ri.key_len == PEL_RAX_FLAX_KEYLEN) {
+            flax *f = (flax *)ri.data;
+            if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+            flaxFree(f);
+        }
+    }
+    raxStop(&ri);
+    raxFree(pel);
+}
+
+/* Generic insert into two-level PEL. If 'overwrite' is true, an existing
+ * entry's value is replaced; otherwise the insert is skipped when the key
+ * already exists. Returns 1 if a new entry was created, 0 otherwise.
+ *
+ * New buckets are created as direct entries (16-byte rax key). When a second
+ * entry is inserted into a direct bucket with a different fkey, the bucket
+ * is promoted to a flax (15-byte rax key). */
+static int pelGenericInsert(rax *pel, streamID *id, void *data, uint64_t *count, int overwrite) {
+    unsigned char fullkey[PEL_RAX_DIRECT_KEYLEN];
+    streamEncodeID(fullkey, id);
+    uint8_t fkey = fullkey[PEL_RAX_FLAX_KEYLEN];
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    /* Cache lookup: compare the 15-byte prefix. */
+    int cache_hit = (cache->val != NULL &&
+                     memcmp(cache->key, fullkey, PEL_RAX_FLAX_KEYLEN) == 0);
+
+    int direct = 0;
+    void *bucket = NULL;
+    if (cache_hit) {
+        bucket = cache->val;
+        direct = cache->direct;
+    } else {
+        /* Switching away from previous bucket: shrink it if it was a flax. */
+        if (cache->val && !cache->direct) {
+            flax *prev = (flax *)cache->val;
+            size_t before = flaxAllocSize(prev);
+            flaxShrink(prev);
+            if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(prev);
+        }
+        pelCacheFlush(pel);
+
+        /* Look for an existing bucket: try 15-byte flax first, then
+         * prefix-scan for a 16-byte direct entry with any fkey. */
+        void *raxval;
+        if (raxFind(pel, fullkey, PEL_RAX_FLAX_KEYLEN, &raxval)) {
+            bucket = raxval;
+            cache->val = bucket;
+            cache->direct = 0;
+            memcpy(cache->key, fullkey, PEL_RAX_FLAX_KEYLEN);
+        } else {
+            raxIterator ri;
+            raxStart(&ri, pel);
+            raxSeek(&ri, ">=", fullkey, PEL_RAX_FLAX_KEYLEN);
+            if (raxNext(&ri) && ri.key_len == PEL_RAX_DIRECT_KEYLEN &&
+                memcmp(ri.key, fullkey, PEL_RAX_FLAX_KEYLEN) == 0) {
+                bucket = ri.data;
+                direct = 1;
+                cache->val = bucket;
+                cache->direct = 1;
+                memcpy(cache->key, ri.key, PEL_RAX_DIRECT_KEYLEN);
+            }
+            raxStop(&ri);
+        }
+    }
+
+    /* No existing bucket: store as direct entry with 16-byte key. */
+    if (!bucket) {
+        cache->val = data;
+        cache->direct = 1;
+        memcpy(cache->key, fullkey, PEL_RAX_DIRECT_KEYLEN);
+        cache->dirty = 1;
+        if (count) (*count)++;
+        return 1;
+    }
+
+    /* Existing direct entry. */
+    if (direct) {
+        uint8_t efkey = cache->key[PEL_RAX_FLAX_KEYLEN];
+        if (efkey == fkey) {
+            if (overwrite) {
+                cache->val = data;
+                if (!cache->dirty)
+                    raxInsert(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, data, NULL);
+            }
+            return 0;
+        }
+
+        /* Different fkey: promote direct -> flax.
+         * When dirty, the old direct was never committed to rax, so we
+         * skip rax ops and just overwrite the cache (see pelCache invariant).
+         *
+         * When non-dirty, we commit the new flax entry to rax immediately
+         * and leave dirty==0. Subsequent inserts into the same flax bucket
+         * modify the flax object in-place (including possible flax_resize of
+         * its internal data block), but the flax *struct pointer* stored in
+         * the rax never changes -- flax_resize only replaces f->data, not f
+         * itself. So the rax entry remains valid without needing a dirty
+         * flush. This invariant depends on flax using a separate heap
+         * allocation for the struct vs. its data block. */
+        flax *f = flaxNew();
+        flaxInsert(f, efkey, bucket, NULL);
+        flaxInsert(f, fkey, data, NULL);
+        if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f);
+        if (!cache->dirty) {
+            raxRemove(pel, cache->key, PEL_RAX_DIRECT_KEYLEN, NULL);
+            raxInsert(pel, fullkey, PEL_RAX_FLAX_KEYLEN, f, NULL);
+        }
+        cache->val = f;
+        cache->direct = 0;
+        memcpy(cache->key, fullkey, PEL_RAX_FLAX_KEYLEN);
+        if (count) (*count)++;
+        return 1;
+    }
+
+    /* Existing flax bucket. */
+    flax *f = (flax *)bucket;
+    size_t before = flaxAllocSize(f);
+    int inserted = overwrite ? flaxInsert(f, fkey, data, NULL)
+                             : flaxTryInsert(f, fkey, data, NULL);
+    if (pel->alloc_size) *pel->alloc_size += flaxAllocSize(f) - before;
+    if (inserted && count) (*count)++;
+    return inserted;
+}
+
+/* Overwriting insert. Just a wrapper for pelGenericInsert() that will
+ * update the element if there is already one for the same key. */
+int pelInsert(rax *pel, streamID *id, void *data, uint64_t *count) {
+    return pelGenericInsert(pel, id, data, count, 1);
+}
+
+/* Non overwriting insert function: if an element with the same key
+ * exists, the value is not updated and the function returns 0.
+ * This is just a wrapper for pelGenericInsert(). */
+int pelTryInsert(rax *pel, streamID *id, void *data, uint64_t *count) {
+    return pelGenericInsert(pel, id, data, count, 0);
+}
+
+/* Replace the data pointer for an existing entry without cache interaction or
+ * flax shrink side-effects. Intended for defrag, where the key is guaranteed
+ * to exist and we must avoid allocations that would increase fragmentation. */
+void pelReplace(rax *pel, streamID *id, void *data) {
+    unsigned char fullkey[PEL_RAX_DIRECT_KEYLEN];
+    streamEncodeID(fullkey, id);
+    uint8_t fkey = fullkey[PEL_RAX_FLAX_KEYLEN];
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    int cache_hit = (cache->val != NULL &&
+                     memcmp(cache->key, fullkey, PEL_RAX_FLAX_KEYLEN) == 0);
+    int direct;
+    void *bucket;
+    if (cache_hit) {
+        bucket = cache->val;
+        direct = cache->direct;
+    } else {
+        if (raxFind(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, &bucket)) {
+            direct = 1;
+        } else {
+            int found = raxFind(pel, fullkey, PEL_RAX_FLAX_KEYLEN, &bucket);
+            serverAssert(found);
+            direct = 0;
+        }
+    }
+
+    if (direct) {
+        if (cache_hit) {
+            cache->val = data;
+            if (!cache->dirty)
+                raxInsert(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, data, NULL);
+        } else {
+            raxInsert(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, data, NULL);
+        }
+    } else {
+        flaxInsert((flax *)bucket, fkey, data, NULL);
+    }
+}
+
+/* Find a value by streamID. Returns 1 if found (setting *data), 0 if not. */
+int pelFind(rax *pel, streamID *id, void **data) {
+    unsigned char fullkey[PEL_RAX_DIRECT_KEYLEN];
+    streamEncodeID(fullkey, id);
+    uint8_t fkey = fullkey[PEL_RAX_FLAX_KEYLEN];
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    void *bucket;
+    if (cache->val && memcmp(cache->key, fullkey, PEL_RAX_FLAX_KEYLEN) == 0) {
+        if (cache->direct) {
+            if (cache->key[PEL_RAX_FLAX_KEYLEN] != fkey) return 0;
+            if (data) *data = cache->val;
+            return 1;
+        }
+        bucket = cache->val;
+    } else {
+        pelCacheFlush(pel);
+        /* Try 16-byte key (direct entry) — exact match guarantees fkey. */
+        if (raxFind(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, &bucket)) {
+            if (data) *data = bucket;
+            return 1;
+        }
+        /* Try 15-byte key (flax bucket). */
+        if (!raxFind(pel, fullkey, PEL_RAX_FLAX_KEYLEN, &bucket))
+            return 0;
+    }
+
+    void *val;
+    if (!flaxFind((flax *)bucket, fkey, &val)) return 0;
+    if (data) *data = val;
+    return 1;
+}
+
+/* Remove a value by streamID. Returns the removed value or NULL.
+ * When a flax bucket drops to 1 entry, it is demoted to a direct entry. */
+void *pelRemove(rax *pel, streamID *id, uint64_t *count) {
+    unsigned char fullkey[PEL_RAX_DIRECT_KEYLEN];
+    streamEncodeID(fullkey, id);
+    uint8_t fkey = fullkey[PEL_RAX_FLAX_KEYLEN];
+    pelCache *cache = (pelCache *)pel->metadata;
+
+    int cache_hit = (cache->val != NULL &&
+                     memcmp(cache->key, fullkey, PEL_RAX_FLAX_KEYLEN) == 0);
+    int direct;
+    void *bucket;
+    if (cache_hit) {
+        bucket = cache->val;
+        direct = cache->direct;
+    } else {
+        pelCacheFlush(pel);
+        if (raxFind(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, &bucket)) {
+            direct = 1;
+        } else if (raxFind(pel, fullkey, PEL_RAX_FLAX_KEYLEN, &bucket)) {
+            direct = 0;
+        } else {
+            return NULL;
+        }
+    }
+
+    /* Direct entry. */
+    if (direct) {
+        if (cache_hit && cache->key[PEL_RAX_FLAX_KEYLEN] != fkey) return NULL;
+        void *old = bucket;
+        if (count) (*count)--;
+        if (cache_hit && cache->dirty) {
+            cache->val = NULL;
+            cache->dirty = 0;
+            cache->direct = 0;
+        } else {
+            raxRemove(pel, fullkey, PEL_RAX_DIRECT_KEYLEN, NULL);
+            pelCacheInvalidate(pel);
+        }
+        return old;
+    }
+
+    /* Flax bucket. */
+    flax *f = (flax *)bucket;
+    void *old;
+    size_t before = flaxAllocSize(f);
+    if (!flaxRemove(f, fkey, &old)) return NULL;
+    if (pel->alloc_size) *pel->alloc_size -= before - flaxAllocSize(f);
+    if (count) (*count)--;
+
+    if (f->numele == 0) {
+        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+        flaxFree(f);
+        if (cache_hit && cache->dirty) {
+            cache->val = NULL;
+            cache->dirty = 0;
+            cache->direct = 0;
+        } else {
+            raxRemove(pel, fullkey, PEL_RAX_FLAX_KEYLEN, NULL);
+            pelCacheInvalidate(pel);
+        }
+    } else if (f->numele == 1) {
+        /* Demote flax -> direct entry with 16-byte key.
+         * When dirty, the flax was never committed to rax, so we just
+         * replace the cache contents (see pelCache invariant). */
+        flaxIterator fi;
+        flaxStart(&fi, f);
+        flaxSeek(&fi, "^", 0);
+        void *directval = fi.data;
+        unsigned char directkey[PEL_RAX_DIRECT_KEYLEN];
+        memcpy(directkey, fullkey, PEL_RAX_FLAX_KEYLEN);
+        directkey[PEL_RAX_FLAX_KEYLEN] = (unsigned char)fi.key;
+        if (pel->alloc_size) *pel->alloc_size -= flaxAllocSize(f);
+        flaxFree(f);
+        if (cache_hit) {
+            cache->val = directval;
+            cache->direct = 1;
+            memcpy(cache->key, directkey, PEL_RAX_DIRECT_KEYLEN);
+            if (!cache->dirty) {
+                raxRemove(pel, fullkey, PEL_RAX_FLAX_KEYLEN, NULL);
+                raxInsert(pel, directkey, PEL_RAX_DIRECT_KEYLEN, directval, NULL);
+            }
+        } else {
+            raxRemove(pel, fullkey, PEL_RAX_FLAX_KEYLEN, NULL);
+            raxInsert(pel, directkey, PEL_RAX_DIRECT_KEYLEN, directval, NULL);
+        }
+    }
+
+    return old;
+}
+
+/* --- PEL Iterator --- */
+
+/* Refresh iterator fields from current rax+flax positions (flax bucket). */
+static void pelIterRefresh(pelIterator *pi) {
+    memcpy(pi->key, pi->ri.key, PEL_RAX_FLAX_KEYLEN);
+    pi->key[PEL_RAX_FLAX_KEYLEN] = (unsigned char)pi->fi.key;
+    streamDecodeID(pi->key, &pi->id);
+    pi->data = pi->fi.data;
+    pi->valid = 1;
+    pi->direct = 0;
+}
+
+/* Refresh iterator fields from a direct entry in the current rax node.
+ * Direct entries have a 16-byte rax key (full streamID). */
+static void pelIterRefreshDirect(pelIterator *pi) {
+    memcpy(pi->key, pi->ri.key, PEL_RAX_DIRECT_KEYLEN);
+    streamDecodeID(pi->key, &pi->id);
+    pi->data = pi->ri.data;
+    pi->valid = 1;
+    pi->direct = 1;
+}
+
+/* Position the iterator on the first valid entry starting from the current
+ * rax position (calling raxNext first). Returns 1 on success, 0 if no more. */
+static int pelIterAdvanceRax(pelIterator *pi) {
+    while (raxNext(&pi->ri)) {
+        if (pi->ri.key_len == PEL_RAX_DIRECT_KEYLEN) {
+            pelIterRefreshDirect(pi);
+            return 1;
+        }
+        flaxStart(&pi->fi, (flax *)pi->ri.data);
+        if (flaxSeek(&pi->fi, "^", 0)) {
+            pelIterRefresh(pi);
+            return 1;
+        }
+    }
+    pi->valid = 0;
+    return 0;
+}
+
+/* Position the iterator on the first entry of the current rax node's bucket.
+ * Returns 1 on success, 0 if bucket is empty (should not happen). */
+static int pelIterEnterBucketHead(pelIterator *pi) {
+    if (pi->ri.key_len == PEL_RAX_DIRECT_KEYLEN) {
+        pelIterRefreshDirect(pi);
+        return 1;
+    }
+    flaxStart(&pi->fi, (flax *)pi->ri.data);
+    if (flaxSeek(&pi->fi, "^", 0)) {
+        pelIterRefresh(pi);
+        return 1;
+    }
+    return 0;
+}
+
+/* Position the iterator on the last entry of the current rax node's bucket.
+ * Returns 1 on success, 0 if bucket is empty. */
+static int pelIterEnterBucketTail(pelIterator *pi) {
+    if (pi->ri.key_len == PEL_RAX_DIRECT_KEYLEN) {
+        pelIterRefreshDirect(pi);
+        return 1;
+    }
+    flaxStart(&pi->fi, (flax *)pi->ri.data);
+    if (flaxSeek(&pi->fi, "$", 0)) {
+        pelIterRefresh(pi);
+        return 1;
+    }
+    return 0;
+}
+
+void pelIterStart(pelIterator *pi, rax *pel) {
+    pelCacheFlush(pel);
+    raxStart(&pi->ri, pel);
+    pi->valid = 0;
+    pi->just_seeked = 0;
+    pi->direct = 0;
+    memset(&pi->fi, 0, sizeof(pi->fi));
+    memset(&pi->id, 0, sizeof(pi->id));
+    pi->data = NULL;
+}
+
+int pelIterSeek(pelIterator *pi, const char *op, streamID *id) {
+    pelCacheFlush(pi->ri.rt);
+    pi->valid = 0;
+    pi->just_seeked = 0;
+    if (op[0] == '^') {
+        raxSeek(&pi->ri, "^", NULL, 0);
+        if (!raxNext(&pi->ri)) return 0;
+        if (!pelIterEnterBucketHead(pi)) return 0;
+        pi->just_seeked = 1;
+        return 1;
+    } else if (op[0] == '$') {
+        raxSeek(&pi->ri, "$", NULL, 0);
+        if (!raxNext(&pi->ri)) return 0;
+        if (!pelIterEnterBucketTail(pi)) return 0;
+        pi->just_seeked = 1;
+        return 1;
+    } else if (op[0] == '>' && op[1] == '=') {
+        unsigned char fullkey[PEL_RAX_DIRECT_KEYLEN];
+        streamEncodeID(fullkey, id);
+        uint8_t fkey = fullkey[PEL_RAX_FLAX_KEYLEN];
+
+        raxSeek(&pi->ri, "<=", fullkey, PEL_RAX_DIRECT_KEYLEN);
+        if (!raxNext(&pi->ri)) {
+            raxSeek(&pi->ri, "^", NULL, 0);
+            if (!raxNext(&pi->ri)) return 0;
+            if (!pelIterEnterBucketHead(pi)) return 0;
+            pi->just_seeked = 1;
+            return 1;
+        }
+
+        int prefix_cmp = memcmp(pi->ri.key, fullkey, PEL_RAX_FLAX_KEYLEN);
+
+        /* raxSeek("<=", fullkey, 16) guarantees the returned key is <= fullkey,
+         * so its first 15 bytes cannot exceed fullkey's prefix. */
+        serverAssert(prefix_cmp <= 0);
+        if (prefix_cmp == 0) {
+            if (pi->ri.key_len == PEL_RAX_DIRECT_KEYLEN) {
+                if (pi->ri.key[PEL_RAX_FLAX_KEYLEN] >= fkey) {
+                    pelIterRefreshDirect(pi);
+                } else {
+                    if (!pelIterAdvanceRax(pi)) return 0;
+                }
+            } else {
+                flaxStart(&pi->fi, (flax *)pi->ri.data);
+                if (!flaxSeek(&pi->fi, ">=", fkey)) {
+                    if (!pelIterAdvanceRax(pi)) return 0;
+                } else {
+                    pelIterRefresh(pi);
+                }
+            }
+        } else {
+            if (!pelIterAdvanceRax(pi)) return 0;
+        }
+        pi->just_seeked = 1;
+        return 1;
+    }
+    return 0;
+}
+
+int pelIterNext(pelIterator *pi) {
+    if (pi->just_seeked) {
+        pi->just_seeked = 0;
+        return pi->valid;
+    }
+    if (!pi->valid) return 0;
+
+    if (!pi->direct && flaxNext(&pi->fi)) {
+        pelIterRefresh(pi);
+        return 1;
+    }
+
+    return pelIterAdvanceRax(pi);
+}
+
+void pelIterStop(pelIterator *pi) {
+    raxStop(&pi->ri);
+    pi->valid = 0;
+}
+
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
  * ----------------------------------------------------------------------- */
@@ -98,6 +652,11 @@ static void streamLpFreeGeneric(void *lp, void *strm) {
     lpFree(lp);
 }
 
+static void listReleaseGenericCb(void *val, void *ctx) {
+    (void)ctx;
+    listReleaseGeneric(val);
+}
+
 void streamFreeIdmpProducerGeneric(void *producer, void *strm) {
     stream *s = strm;
     idmpProducerFree((idmpProducer *)producer, &s->alloc_size);
@@ -109,7 +668,7 @@ void freeStream(stream *s) {
     if (s->cgroups)
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
-        raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
+        pelFree(s->cgroups_ref, listReleaseGenericCb, NULL);
     /* Free IDMP producers rax tree */
     if (s->idmp_producers)
         raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
@@ -284,13 +843,13 @@ robj *streamDup(robj *o) {
         /* Consumer Group PEL -- walk the time-ordered list so we can
          * append directly and preserve NACK zone structure. */
         for (streamNACK *nack = cg->pel_time_head; nack; nack = nack->pel_next) {
-            unsigned char buf[sizeof(streamID)];
-            streamEncodeID(buf, &nack->id);
             streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack->id);
             new_nack->delivery_time = nack->delivery_time;
             new_nack->delivery_count = nack->delivery_count;
-            new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, buf);
-            raxInsert(new_cg->pel, buf, sizeof(streamID), new_nack, NULL);
+            new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, &nack->id);
+            pelInsert(new_cg->pel, &nack->id, new_nack, &new_cg->pel_count);
+
+            /* Insert in sorted order to preserve ordering */
             pelListInsertAtTail(new_cg, new_nack);
             if (nack == cg->pel_nack_tail) new_cg->pel_nack_tail = new_nack;
         }
@@ -307,27 +866,26 @@ robj *streamDup(robj *o) {
             new_s->alloc_size += usable;
             new_consumer->name = sdsdup(consumer->name);
             new_s->alloc_size += sdsAllocSize(new_consumer->name);
-            new_consumer->pel = raxNewWithMetadata(0, &new_s->alloc_size);
+            new_consumer->pel = pelNew(&new_s->alloc_size);
+            new_consumer->pel_count = 0;
             raxInsert(new_cg->consumers,(unsigned char *)new_consumer->name,
                         sdslen(new_consumer->name), new_consumer, NULL);
             new_consumer->seen_time = consumer->seen_time;
             new_consumer->active_time = consumer->active_time;
 
             /* Consumer PEL */
-            raxIterator ri_cpel;
-            raxStart(&ri_cpel, consumer->pel);
-            raxSeek(&ri_cpel, "^", NULL, 0);
-            while (raxNext(&ri_cpel)) {
+            pelIterator pi_cpel;
+            pelIterStart(&pi_cpel, consumer->pel);
+            pelIterSeek(&pi_cpel, "^", NULL);
+            while(pelIterNext(&pi_cpel)) {
                 void *result;
-                int found = raxFind(new_cg->pel,ri_cpel.key,sizeof(streamID),&result);
-
+                int found = pelFind(new_cg->pel, &pi_cpel.id, &result);
                 serverAssert(found);
-
                 streamNACK *new_nack = result;
                 new_nack->consumer = new_consumer;
-                raxInsert(new_consumer->pel,ri_cpel.key,sizeof(streamID),new_nack,NULL);
+                pelInsert(new_consumer->pel, &pi_cpel.id, new_nack, &new_consumer->pel_count);
             }
-            raxStop(&ri_cpel);
+            pelIterStop(&pi_cpel);
         }
         raxStop(&ri_consumers);
     }
@@ -2098,12 +2656,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
                 /* Transfer ownership if needed */
                 if (nack->consumer != consumer) {
-                    unsigned char buf[sizeof(streamID)];
-                    streamEncodeID(buf, &nack->id);
                     if (nack->consumer)
-                        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                        pelRemove(nack->consumer->pel, &nack->id, &nack->consumer->pel_count);
                     nack->consumer = consumer;
-                    raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                    pelInsert(consumer->pel, &nack->id, nack, &consumer->pel_count);
                 }
                 nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
                 pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
@@ -2222,15 +2778,12 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
          * a NACK for the entry, we need to associate it to the new
          * consumer. */
         if (group && !noack) {
-            unsigned char buf[sizeof(streamID)];
-            streamEncodeID(buf,&id);
-
             /* Try to add a new NACK. Most of the time this will work and
              * will not require extra lookups. We'll fix the problem later
              * if we find that there is already an entry for this ID. */
             streamNACK *nack = streamCreateNACK(s, consumer, &id);
             int group_inserted =
-                raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
+                pelTryInsert(group->pel,&id,nack,&group->pel_count);
 
             /* Now we can check if the entry was already busy, and
              * in that case reassign the entry to the new consumer,
@@ -2238,23 +2791,23 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             if (group_inserted == 0) {
                 streamFreeNACK(s,nack);
                 void *result;
-                int found = raxFind(group->pel,buf,sizeof(buf),&result);
+                int found = pelFind(group->pel, &id, &result);
                 serverAssert(found);
                 nack = result;
                 /* Only transfer between consumers if they're different */
                 if (nack->consumer != consumer) {
-                    if (nack->consumer)
-                        raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    if (nack->consumer)                    
+                        pelRemove(nack->consumer->pel, &id, &nack->consumer->pel_count);
                     nack->consumer = consumer;
-                    raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                    pelInsert(consumer->pel, &id, nack, &consumer->pel_count);
                 }
                 nack->delivery_count = 1;
                 /* Update delivery time and reposition in time list */
                 pelListUpdate(group, nack, cmd_time_snapshot);
             } else {
                 /* New NACK - insert into consumer's PEL and time list */
-                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
-                nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
+                pelInsert(consumer->pel, &id, nack, &consumer->pel_count);
+                nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, &id);
                 pelListInsertAtTail(group, nack);
             }
 
@@ -2303,21 +2856,14 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
  * to the client. However clients only reach this code path when they are
  * fetching the history of already retrieved messages, which is rare. */
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer) {
-    raxIterator ri;
-    unsigned char startkey[sizeof(streamID)];
-    unsigned char endkey[sizeof(streamID)];
-    streamEncodeID(startkey,start);
-    if (end) streamEncodeID(endkey,end);
-
     size_t arraylen = 0;
     void *arraylen_ptr = addReplyDeferredLen(c);
-    raxStart(&ri,consumer->pel);
-    raxSeek(&ri,">=",startkey,sizeof(startkey));
-    while(raxNext(&ri) && (!count || arraylen < count)) {
-        if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
-        streamID thisid;
-        streamDecodeID(ri.key,&thisid);
-        if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
+    pelIterator pi;
+    pelIterStart(&pi, consumer->pel);
+    pelIterSeek(&pi, ">=", start);
+    while (pelIterNext(&pi) && (!count || arraylen < count)) {
+        if (end && streamCompareID(&pi.id, end) > 0) break;
+        if (streamReplyWithRange(c,s,&pi.id,&pi.id,1,0,-1,NULL,NULL,
                                  STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
         {
             /* Note that we may have a not acknowledged entry in the PEL
@@ -2325,16 +2871,16 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
              * by the user by other means. In that case we signal it emitting
              * the ID but then a NULL entry for the fields. */
             addReplyArrayLen(c,2);
-            addReplyStreamID(c,&thisid);
+            addReplyStreamID(c,&pi.id);
             addReplyNullArray(c);
         } else {
-            streamNACK *nack = ri.data;
+            streamNACK *nack = pi.data;
             nack->delivery_count += nack->delivery_count == LLONG_MAX ? 0 : 1;
             pelListUpdate(group, nack, commandTimeSnapshot());
         }
         arraylen++;
     }
-    raxStop(&ri);
+    pelIterStop(&pi);
     setDeferredArrayLen(c,arraylen_ptr,arraylen);
     return arraylen;
 }
@@ -3122,22 +3668,17 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
 
 /* Link a consumer group to a stream entry in the cgroups_ref index.
  * Returns a pointer to the list node, so that it can be used for future deletion. */
-listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
+listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id) {
     list *cglist;
 
     if (!s->cgroups_ref)
-        s->cgroups_ref = raxNewWithMetadata(0, &s->alloc_size);
+        s->cgroups_ref = pelNew(&s->alloc_size);
 
-    /* Find-or-insert in a single rax walk: raxFindLink stashes the stop
-     * position so raxInsertAt commits without re-walking the tree. */
-    raxNodeLink link;
-    if (!raxFindLink(s->cgroups_ref, key, sizeof(streamID),
-                     (void**)&cglist, &link)) {
+    /* Try to find the list for this stream ID, create it if it doesn't exist */
+    if (!pelFind(s->cgroups_ref, id, (void**)&cglist)) {
         cglist = listCreate();
-        serverAssert(raxInsertAt(s->cgroups_ref, key, sizeof(streamID),
-                                 cglist, NULL, &link));
+        serverAssert(pelInsert(s->cgroups_ref, id, cglist, NULL));
     }
-    
     /* Add the consumer group to the list and return the list node */
     listAddNodeTail(cglist, cg);
     return listLast(cglist);
@@ -3145,15 +3686,15 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
 
 /* Unlink a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted. */
-void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *key) {
+void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na) {
     list *cglist;
     if (!s->cgroups_ref) return;
-    if (raxFind(s->cgroups_ref, key, sizeof(streamID), (void**)&cglist)) {
+    if (pelFind(s->cgroups_ref, &na->id, (void**)&cglist)) {
         listDelNode(cglist, na->cgroup_ref_node);
-        
+
         /* If the list is now empty, remove it from the index. */
         if (listLength(cglist) == 0) {
-            raxRemove(s->cgroups_ref, key, sizeof(streamID), NULL);
+            pelRemove(s->cgroups_ref, &na->id, NULL);
             listRelease(cglist);
         }
     }
@@ -3165,32 +3706,30 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     list *cglist;
     listIter li;
     listNode *ln;
-    unsigned char buf[sizeof(streamID)];
-    streamEncodeID(buf, id);
-
+    
     /* If message is not in any consumer group, nothing to do */
-    if (!raxFind(s->cgroups_ref, buf, sizeof(streamID), (void **)&cglist))
+    if (!pelFind(s->cgroups_ref, id, (void**)&cglist))
         return;
 
     listRewind(cglist, &li);
     while ((ln = listNext(&li))) {
         streamNACK *nack;
         streamCG *group = listNodeValue(ln);
-        
+
         /* Find the message in this consumer group's PEL */
-        serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
-        
+        serverAssert(pelFind(group->pel, id, (void**)&nack));
+
         /* Remove from group and consumer PELs */
         pelListUnlink(group, nack);
-        raxRemove(group->pel, buf, sizeof(buf), NULL);
-        if (nack->consumer)
-            raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
+        pelRemove(group->pel, id, &group->pel_count);
+        if (nack->consumer)
+            pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
         streamFreeNACK(s, nack);
     }
 
-    raxRemove(s->cgroups_ref, buf, sizeof(streamID), NULL);
+    pelRemove(s->cgroups_ref, id, NULL);
     listRelease(cglist);
 }
 
@@ -3227,9 +3766,7 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
 
     /* Check if the message is in any consumer group's PEL */
     if (!s->cgroups_ref) return 0;
-    unsigned char buf[sizeof(streamID)];
-    streamEncodeID(buf, id);
-    return raxFind(s->cgroups_ref, buf, sizeof(streamID), NULL);
+    return pelFind(s->cgroups_ref, id, NULL);
 }
 
 /* Create a NACK entry setting the delivery count to 1 and the delivery
@@ -3259,10 +3796,10 @@ void streamFreeNACK(stream *s, streamNACK *na) {
 /* Free a NACK entry and remove its reference from the cgroups_ref.
  * This ensures proper cleanup of the consumer group list associated with the message ID.
  * Note: Caller must ensure NACK is unlinked from pel_time list before calling. */
-void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key) {
+void streamDestroyNACK(stream *s, streamNACK *na) {
     size_t usable;
     serverAssert(na->pel_prev == NULL && na->pel_next == NULL);
-    streamUnlinkEntryFromCGroupRef(s, na, key);
+    streamUnlinkEntryFromCGroupRef(s, na);
     zfree_usable(na, &usable);
     s->alloc_size -= usable;
 }
@@ -3288,8 +3825,7 @@ void streamFreeNACKGeneric(void *na, void *ctx) {
  * should do some work before. */
 void streamFreeConsumer(stream *s, streamConsumer *sc) {
     size_t usable;
-    raxFree(sc->pel); /* No value free callback: the PEL entries are shared
-                         between the consumer and the main stream PEL. */
+    pelFreeShallow(sc->pel);
     s->alloc_size -= sdsAllocSize(sc->name);
     sdsfree(sc->name);
     zfree_usable(sc, &usable);
@@ -3315,7 +3851,8 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     size_t usable;
     streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
     s->alloc_size += usable;
-    cg->pel = raxNewWithMetadata(0, &s->alloc_size);
+    cg->pel = pelNew(&s->alloc_size);
+    cg->pel_count = 0;
     cg->pel_time_head = NULL;
     cg->pel_time_tail = NULL;
     cg->pel_nack_tail = NULL;
@@ -3332,7 +3869,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
 static void streamFreeCG(stream *s, streamCG *cg) {
     /* Free the pel, unlinking each NACK from the time list in the callback */
     streamFreeNACKCtx ctx = {s, cg};
-    raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, &ctx);
+    pelFree(cg->pel, streamFreeNACKGeneric, &ctx);
     
     /* pel_time_head/tail/pel_nack_tail should now be NULL after unlinking all NACKs */
     serverAssert(cg->pel_time_head == NULL && cg->pel_time_tail == NULL && cg->pel_nack_tail == NULL);
@@ -3346,14 +3883,13 @@ static void streamFreeCG(stream *s, streamCG *cg) {
 /* Destroy a consumer group and clean up all associated references. */
 void streamDestroyCG(stream *s, streamCG *cg) {
     /* Remove all references from the cgroups_ref. */
-    raxIterator it;
-    raxStart(&it, cg->pel);
-    raxSeek(&it, "^", NULL, 0);
-    while (raxNext(&it)) {
-        streamNACK *nack = it.data;
-        streamUnlinkEntryFromCGroupRef(s, nack, it.key);
+    pelIterator pi;
+    pelIterStart(&pi, cg->pel);
+    pelIterSeek(&pi, "^", NULL);
+    while (pelIterNext(&pi)) {
+        streamUnlinkEntryFromCGroupRef(s,pi.data);
     }
-    raxStop(&it);
+    pelIterStop(&pi);
 
     /* If we're destroying the group with the minimum last_id, the cached
      * minimum is no longer valid and needs to be recalculated from the
@@ -3397,7 +3933,8 @@ streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *ke
     s->alloc_size += usable;
     consumer->name = sdsdup(name);
     s->alloc_size += sdsAllocSize(consumer->name);
-    consumer->pel = raxNewWithMetadata(0, &s->alloc_size);
+    consumer->pel = pelNew(&s->alloc_size);
+    consumer->pel_count = 0;
     consumer->active_time = -1;
     consumer->seen_time = commandTimeSnapshot();
     if (dirty) server.dirty++;
@@ -3417,22 +3954,19 @@ streamConsumer *streamLookupConsumer(streamCG *cg, sds name) {
 void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
     /* Iterate all the consumer pending messages, deleting every corresponding
      * entry from the global entry. */
-    raxIterator ri;
-    raxStart(&ri,consumer->pel);
-    raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
-        streamNACK *nack = ri.data;
-        streamUnlinkEntryFromCGroupRef(s, nack, ri.key);
+    pelIterator pi;
+    pelIterStart(&pi, consumer->pel);
+    pelIterSeek(&pi, "^", NULL);
+    while (pelIterNext(&pi)) {
+        streamNACK *nack = pi.data;
+        streamUnlinkEntryFromCGroupRef(s,nack);
 
-        streamID id;
-        streamDecodeID(ri.key, &id);
+        pelListUnlink(cg,nack);
+        pelRemove(cg->pel,&pi.id,&cg->pel_count);
 
-        pelListUnlink(cg, nack);
-        raxRemove(cg->pel,ri.key,ri.key_len,NULL);
-
-        streamFreeNACK(s, nack);
+        streamFreeNACK(s,nack);
     }
-    raxStop(&ri);
+    pelIterStop(&pi);
 
     /* Deallocate the consumer. */
     raxRemove(cg->consumers,(unsigned char*)consumer->name,
@@ -3628,7 +4162,7 @@ NULL
              * that were yet associated with such a consumer. */
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
-            pending = raxSize(consumer->pel);
+            pending = consumer->pel_count;
             streamDelConsumer(s,cg,consumer);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -3815,20 +4349,17 @@ void xackCommand(client *c) {
     int acknowledged = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     for (int j = 3; j < c->argc; j++) {
-        unsigned char buf[sizeof(streamID)];
-        streamEncodeID(buf,&ids[j-3]);
-
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
         void *result;
-        if (raxFind(group->pel,buf,sizeof(buf),&result)) {
+        if (pelFind(group->pel, &ids[j-3], &result)) {
             streamNACK *nack = result;
             pelListUnlink(group, nack);
-            raxRemove(group->pel,buf,sizeof(buf),NULL);
+            pelRemove(group->pel, &ids[j-3], &group->pel_count);
             if (nack->consumer)
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamDestroyNACK(kv->ptr, nack, buf);
+                pelRemove(nack->consumer->pel, &ids[j-3], &nack->consumer->pel_count);
+            streamDestroyNACK(kv->ptr, nack);
             acknowledged++;
             server.dirty++;
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -3941,17 +4472,13 @@ void xnackCommand(client *c) {
     int nacked = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     for (int j = 0; j < numids; j++) {
-        unsigned char buf[sizeof(streamID)];
-        streamEncodeID(buf,&ids[j]);
-
         void *result;
-        raxNodeLink link;
-        int found = raxFindLink(group->pel,buf,sizeof(buf),&result,&link);
+        int found = pelFind(group->pel,&ids[j],&result);
         if (found) {
             streamNACK *nack = result;
             nackSetDeliveryCount(nack, mode, retrycount);
             if (nack->consumer != NULL) {
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                pelRemove(nack->consumer->pel,&ids[j],&nack->consumer->pel_count);
                 nack->consumer = NULL;
             }
 
@@ -3973,9 +4500,9 @@ void xnackCommand(client *c) {
             nack->delivery_count = 0;
             nackSetDeliveryCount(nack, mode, retrycount);
 
-            raxInsertAt(group->pel, buf, sizeof(buf), nack, NULL, &link);
+            pelInsert(group->pel, &ids[j], nack, &group->pel_count);
             pelListInsertNacked(group, nack);
-            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
+            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, &ids[j]);
         } else {
             continue;
         }
@@ -4048,20 +4575,18 @@ void xackdelCommand(client *c) {
     for (int j = 0; j < args.numids; j++) {
         int res = XACKDEL_NO_ID;
         streamID *id = &ids[j];
-        unsigned char buf[sizeof(streamID)];
-        streamEncodeID(buf,id);
 
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
         void *result;
-        if (raxFind(group->pel,buf,sizeof(buf),&result)) {
+        if (pelFind(group->pel, id, &result)) {
             streamNACK *nack = result;
             pelListUnlink(group, nack);
-            raxRemove(group->pel,buf,sizeof(buf),NULL);
+            pelRemove(group->pel, id, &group->pel_count);
             if (nack->consumer)
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamDestroyNACK(s, nack, buf);
+                pelRemove(nack->consumer->pel, id, &nack->consumer->pel_count);
+            streamDestroyNACK(s, nack);
             server.dirty++;
 
             int can_delete = 1;
@@ -4203,39 +4728,38 @@ void xpendingCommand(client *c) {
     if (justinfo) {
         addReplyArrayLen(c,4);
         /* Total number of messages in the PEL. */
-        addReplyLongLong(c,raxSize(group->pel));
+        addReplyLongLong(c,group->pel_count);
         /* First and last IDs. */
-        if (raxSize(group->pel) == 0) {
+        if (group->pel_count == 0) {
             addReplyNull(c); /* Start. */
             addReplyNull(c); /* End. */
             addReplyNullArray(c); /* Clients. */
         } else {
             /* Start. */
-            raxIterator ri;
-            raxStart(&ri,group->pel);
-            raxSeek(&ri,"^",NULL,0);
-            raxNext(&ri);
-            streamDecodeID(ri.key,&startid);
-            addReplyStreamID(c,&startid);
+            pelIterator pi;
+            pelIterStart(&pi,group->pel);
+            pelIterSeek(&pi,"^",NULL);
+            pelIterNext(&pi);
+            addReplyStreamID(c,&pi.id);
 
             /* End. */
-            raxSeek(&ri,"$",NULL,0);
-            raxNext(&ri);
-            streamDecodeID(ri.key,&endid);
-            addReplyStreamID(c,&endid);
-            raxStop(&ri);
+            pelIterSeek(&pi,"$",NULL);
+            pelIterNext(&pi);
+            addReplyStreamID(c,&pi.id);
+            pelIterStop(&pi);
 
             /* Consumers with pending messages. */
+            raxIterator ri;
             raxStart(&ri,group->consumers);
             raxSeek(&ri,"^",NULL,0);
             void *arraylen_ptr = addReplyDeferredLen(c);
             size_t arraylen = 0;
             while(raxNext(&ri)) {
                 streamConsumer *consumer = ri.data;
-                if (raxSize(consumer->pel) == 0) continue;
+                if (consumer->pel_count == 0) continue;
                 addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c,ri.key,ri.key_len);
-                addReplyBulkLongLong(c,raxSize(consumer->pel));
+                addReplyBulkLongLong(c,consumer->pel_count);
                 arraylen++;
             }
             setDeferredArrayLen(c,arraylen_ptr,arraylen);
@@ -4255,20 +4779,16 @@ void xpendingCommand(client *c) {
         }
 
         rax *pel = consumer ? consumer->pel : group->pel;
-        unsigned char startkey[sizeof(streamID)];
-        unsigned char endkey[sizeof(streamID)];
-        raxIterator ri;
         mstime_t now = commandTimeSnapshot();
 
-        streamEncodeID(startkey,&startid);
-        streamEncodeID(endkey,&endid);
-        raxStart(&ri,pel);
-        raxSeek(&ri,">=",startkey,sizeof(startkey));
+        pelIterator pi;
+        pelIterStart(&pi,pel);
+        pelIterSeek(&pi,">=",&startid);
         void *arraylen_ptr = addReplyDeferredLen(c);
         size_t arraylen = 0;
 
-        while(count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
-            streamNACK *nack = ri.data;
+        while (count && pelIterNext(&pi) && streamCompareID(&pi.id,&endid) <= 0) {
+            streamNACK *nack = pi.data;
 
             if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
@@ -4280,9 +4800,7 @@ void xpendingCommand(client *c) {
             addReplyArrayLen(c,4);
 
             /* Entry ID. */
-            streamID id;
-            streamDecodeID(ri.key,&id);
-            addReplyStreamID(c,&id);
+            addReplyStreamID(c,&pi.id);
 
             /* Consumer name (empty string if NACKed / unowned). */
             if (nack->consumer) {
@@ -4305,7 +4823,7 @@ void xpendingCommand(client *c) {
             /* Number of deliveries. */
             addReplyLongLong(c,nack->delivery_count);
         }
-        raxStop(&ri);
+        pelIterStop(&pi);
         setDeferredArrayLen(c,arraylen_ptr,arraylen);
     }
 }
@@ -4490,12 +5008,10 @@ void xclaimCommand(client *c) {
     size_t arraylen = 0;
     for (int j = 5; j <= last_id_arg; j++) {
         streamID id = ids[j-5];
-        unsigned char buf[sizeof(streamID)];
-        streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL. */
         void *result = NULL;
-        raxFind(group->pel,buf,sizeof(buf),&result);
+        pelFind(group->pel,&id,&result);
         streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
@@ -4513,11 +5029,11 @@ void xclaimCommand(client *c) {
                 }
                 server.dirty++;
                 /* Release the NACK */
-                pelListUnlink(group, nack);
-                raxRemove(group->pel,buf,sizeof(buf),NULL);
+                pelListUnlink(group,nack);
+                pelRemove(group->pel,&id,&group->pel_count);
                 if (nack->consumer)
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                streamDestroyNACK(s, nack, buf);
+                    pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
+                streamDestroyNACK(s,nack);
             }
             continue;
         }
@@ -4529,10 +5045,10 @@ void xclaimCommand(client *c) {
          * and replication of consumer groups. */
         if (force && nack == NULL) {
             /* Create the NACK. */
-            nack = streamCreateNACK(s, NULL, &id);
-            raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
+            nack = streamCreateNACK(s,NULL,&id);
+            pelInsert(group->pel,&id,nack,&group->pel_count);
             pelListInsertAtTail(group, nack);
-            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
+            nack->cgroup_ref_node = streamLinkCGroupToEntry(s,group,&id);
         }
 
         if (nack != NULL) {
@@ -4552,7 +5068,7 @@ void xclaimCommand(client *c) {
                  * Note that nack->consumer is NULL if we created the
                  * NACK above because of the FORCE option. */
                 if (nack->consumer) {
-                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
                 }
             }
 
@@ -4567,7 +5083,7 @@ void xclaimCommand(client *c) {
             }
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
-                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                pelInsert(consumer->pel,&id,nack,&consumer->pel_count);
                 nack->consumer = consumer;
             }
             /* Send the reply for this entry. */
@@ -4692,19 +5208,15 @@ void xautoclaimCommand(client *c) {
     void *endidptr = addReplyDeferredLen(c); /* reply[0] */
     void *arraylenptr = addReplyDeferredLen(c); /* reply[1] */
 
-    unsigned char startkey[sizeof(streamID)];
-    streamEncodeID(startkey,&startid);
-    raxIterator ri;
-    raxStart(&ri,group->pel);
-    raxSeek(&ri,">=",startkey,sizeof(startkey));
+    pelIterator pi;
+    pelIterStart(&pi,group->pel);
+    pelIterSeek(&pi,">=",&startid);
     size_t arraylen = 0;
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
-    while (attempts-- && count && raxNext(&ri)) {
-        streamNACK *nack = ri.data;
-
-        streamID id;
-        streamDecodeID(ri.key, &id);
+    while (attempts-- && count && pelIterNext(&pi)) {
+        streamNACK *nack = pi.data;
+        streamID id = pi.id;
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(s,&id)) {
@@ -4722,14 +5234,14 @@ void xautoclaimCommand(client *c) {
             }
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
-            pelListUnlink(group, nack);
-            raxRemove(group->pel,ri.key,ri.key_len,NULL);
+            pelListUnlink(group,nack);
+            pelRemove(group->pel,&id,&group->pel_count);
             if (nack->consumer)
-                raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
-            streamDestroyNACK(s, nack, ri.key);
+                pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
+            streamDestroyNACK(s,nack);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
-            raxSeek(&ri,">=",ri.key,ri.key_len);
+            pelIterSeek(&pi,">=",&id);
             count--; /* Count is a limit of the command response size. */
             continue;
         }
@@ -4745,7 +5257,7 @@ void xautoclaimCommand(client *c) {
              * Note that nack->consumer is NULL if we created the
              * NACK above because of the FORCE option. */
             if (nack->consumer) {
-                raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+                pelRemove(nack->consumer->pel,&id,&nack->consumer->pel_count);
             }
         }
 
@@ -4758,7 +5270,7 @@ void xautoclaimCommand(client *c) {
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
-            raxInsert(consumer->pel,ri.key,ri.key_len,nack,NULL);
+            pelInsert(consumer->pel,&id,nack,&consumer->pel_count);
             nack->consumer = consumer;
         }
 
@@ -4781,18 +5293,18 @@ void xautoclaimCommand(client *c) {
     }
 
     /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
-    raxNext(&ri);
+    pelIterNext(&pi);
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
 
     streamID endid;
-    if (raxEOF(&ri)) {
+    if (!pi.valid) {
         endid.ms = endid.seq = 0;
     } else {
-        streamDecodeID(ri.key, &endid);
+        endid = pi.id;
     }
-    raxStop(&ri);
+    pelIterStop(&pi);
 
     setDeferredArrayLen(c,arraylenptr,arraylen);
     setDeferredReplyStreamID(c,endidptr,&endid);
@@ -5182,7 +5694,7 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
 
                 /* Group PEL count */
                 addReplyBulkCString(c,"pel-count");
-                addReplyLongLong(c,raxSize(cg->pel));
+                addReplyLongLong(c,cg->pel_count);
 
                 /* NACKed entries count (entries in the NACK zone) */
                 addReplyBulkCString(c,"nacked-count");
@@ -5192,17 +5704,15 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
                 addReplyBulkCString(c,"pending");
                 long long arraylen_cg_pel = 0;
                 void *arrayptr_cg_pel = addReplyDeferredLen(c);
-                raxIterator ri_cg_pel;
-                raxStart(&ri_cg_pel,cg->pel);
-                raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel) && (!count || arraylen_cg_pel < count)) {
-                    streamNACK *nack = ri_cg_pel.data;
+                pelIterator pi_cg;
+                pelIterStart(&pi_cg,cg->pel);
+                pelIterSeek(&pi_cg,"^",NULL);
+                while (pelIterNext(&pi_cg) && (!count || arraylen_cg_pel < count)) {
+                    streamNACK *nack = pi_cg.data;
                     addReplyArrayLen(c,4);
 
                     /* Entry ID. */
-                    streamID id;
-                    streamDecodeID(ri_cg_pel.key,&id);
-                    addReplyStreamID(c,&id);
+                    addReplyStreamID(c,&pi_cg.id);
 
                     /* Consumer name (empty string if NACKed / unowned). */
                     if (nack->consumer) {
@@ -5221,7 +5731,7 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
                     arraylen_cg_pel++;
                 }
                 setDeferredArrayLen(c,arrayptr_cg_pel,arraylen_cg_pel);
-                raxStop(&ri_cg_pel);
+                pelIterStop(&pi_cg);
 
                 /* Consumers */
                 addReplyBulkCString(c,"consumers");
@@ -5247,23 +5757,21 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
 
                     /* Consumer PEL count */
                     addReplyBulkCString(c,"pel-count");
-                    addReplyLongLong(c,raxSize(consumer->pel));
+                    addReplyLongLong(c,consumer->pel_count);
 
                     /* Consumer PEL */
                     addReplyBulkCString(c,"pending");
                     long long arraylen_cpel = 0;
                     void *arrayptr_cpel = addReplyDeferredLen(c);
-                    raxIterator ri_cpel;
-                    raxStart(&ri_cpel,consumer->pel);
-                    raxSeek(&ri_cpel,"^",NULL,0);
-                    while(raxNext(&ri_cpel) && (!count || arraylen_cpel < count)) {
-                        streamNACK *nack = ri_cpel.data;
+                    pelIterator pi_cpel;
+                    pelIterStart(&pi_cpel,consumer->pel);
+                    pelIterSeek(&pi_cpel,"^",NULL);
+                    while (pelIterNext(&pi_cpel) && (!count || arraylen_cpel < count)) {
+                        streamNACK *nack = pi_cpel.data;
                         addReplyArrayLen(c,3);
 
                         /* Entry ID. */
-                        streamID id;
-                        streamDecodeID(ri_cpel.key,&id);
-                        addReplyStreamID(c,&id);
+                        addReplyStreamID(c,&pi_cpel.id);
 
                         /* Last delivery. */
                         addReplyLongLong(c,nack->delivery_time);
@@ -5274,7 +5782,7 @@ void xinfoReplyWithStreamInfo(client *c, robj *key, kvobj *kv) {
                         arraylen_cpel++;
                     }
                     setDeferredArrayLen(c,arrayptr_cpel,arraylen_cpel);
-                    raxStop(&ri_cpel);
+                    pelIterStop(&pi_cpel);
                 }
                 raxStop(&ri_consumers);
             }
@@ -5345,7 +5853,7 @@ NULL
             addReplyBulkCString(c,"name");
             addReplyBulkCBuffer(c,consumer->name,sdslen(consumer->name));
             addReplyBulkCString(c,"pending");
-            addReplyLongLong(c,raxSize(consumer->pel));
+            addReplyLongLong(c,consumer->pel_count);
             addReplyBulkCString(c,"idle");
             addReplyLongLong(c,idle);
             addReplyBulkCString(c,"inactive");
@@ -5371,7 +5879,7 @@ NULL
             addReplyBulkCString(c,"consumers");
             addReplyLongLong(c,raxSize(cg->consumers));
             addReplyBulkCString(c,"pending");
-            addReplyLongLong(c,raxSize(cg->pel));
+            addReplyLongLong(c,cg->pel_count);
             addReplyBulkCString(c,"last-delivered-id");
             addReplyStreamID(c,&cg->last_id);
             addReplyBulkCString(c,"entries-read");

@@ -198,7 +198,7 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
              * work. */
             serverAssert(raxNext(&ri));
             cg = ri.data;
-            effort += raxSize(s->cgroups)*(1+raxSize(cg->pel));
+            effort += raxSize(s->cgroups)*(1+cg->pel_count);
             raxStop(&ri);
         }
         return effort;

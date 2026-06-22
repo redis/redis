@@ -7930,6 +7930,7 @@ struct redisTest {
     {"vector", vectorTest},
     {"bitmap", bitopsTest},
     {"rax", raxTest},
+    {"flax", flaxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},

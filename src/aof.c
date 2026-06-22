@@ -2360,7 +2360,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             while(raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
                 /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
-                if (raxSize(consumer->pel) == 0) {
+                if (consumer->pel_count == 0) {
                     if (rioWriteStreamEmptyConsumer(r,key,(char*)ri.key,
                                                     ri.key_len,consumer) == 0)
                     {
@@ -2372,22 +2372,22 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 }
                 /* For the current consumer, iterate all the PEL entries
                  * to emit the XCLAIM protocol. */
-                raxIterator ri_pel;
-                raxStart(&ri_pel,consumer->pel);
-                raxSeek(&ri_pel,"^",NULL,0);
-                while(raxNext(&ri_pel)) {
-                    streamNACK *nack = ri_pel.data;
+                pelIterator pi;
+                pelIterStart(&pi,consumer->pel);
+                pelIterSeek(&pi,"^",NULL);
+                while (pelIterNext(&pi)) {
+                    streamNACK *nack = pi.data;
                     if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
                                                    ri.key_len,consumer,
-                                                   ri_pel.key,nack) == 0)
+                                                   pi.key,nack) == 0)
                     {
-                        raxStop(&ri_pel);
+                        pelIterStop(&pi);
                         raxStop(&ri_cons);
                         raxStop(&ri);
                         return 0;
                     }
                 }
-                raxStop(&ri_pel);
+                pelIterStop(&pi);
             }
             raxStop(&ri_cons);
 

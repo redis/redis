@@ -5,6 +5,18 @@
 #include "listpack.h"
 #include "dict.h"
 #include "xxhash.h"
+#include "flax.h"
+#include <stdint.h>
+
+/* Two-level PEL key-length convention:
+ *
+ * Single-entry ("direct") buckets use a 16-byte rax key (the complete
+ * big-endian streamID) and store the data pointer directly as the rax
+ * value.  Multi-entry ("flax") buckets use a 15-byte rax key (ms + upper
+ * 7 bytes of seq) and store a flax* mapping the low byte of seq to data
+ * pointers.  The key length in rax (16 vs 15) distinguishes the two. */
+#define PEL_RAX_DIRECT_KEYLEN  sizeof(streamID)   /* 16 */
+#define PEL_RAX_FLAX_KEYLEN    15
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
  * a sequence counter. IDs generated in the same millisecond (or in a past
@@ -42,7 +54,11 @@ typedef struct stream {
     uint64_t entries_added; /* All time count of elements added. */
     size_t alloc_size;      /* Total allocated memory (in bytes) by this stream. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
-    rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
+    rax *cgroups_ref;       /* Two-level index mapping message IDs to their
+                               consumer groups.  Same key scheme as PEL:
+                               outer rax -> flax(low byte of seq -> list*
+                               of streamCG pointers).  Direct / flax key
+                               lengths follow the PEL convention (16/15). */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
     uint64_t idmp_duration; /* IDMP duration in seconds. */
@@ -99,12 +115,13 @@ typedef struct streamCG {
                                group reads. In the real world, the reasoning behind
                                this value is detailed at the top comment of
                                streamEstimateDistanceFromFirstEverEntry(). */
-    rax *pel;               /* Pending entries list. This is a radix tree that
-                               has every message delivered to consumers (without
-                               the NOACK option) that was yet not acknowledged
-                               as processed. The key of the radix tree is the
-                               ID as a 64 bit big endian number, while the
-                               associated value is a streamNACK structure.*/
+    rax *pel;               /* Two-level pending entries list.  Single-entry
+                               buckets (direct) use a 16-byte rax key (full
+                               big-endian streamID).  Multi-entry buckets use
+                               a 15-byte key (ms + upper 7 bytes of seq) and
+                               store a flax* mapping the low byte of seq to
+                               streamNACK pointers.  Max 256 per bucket. */
+    uint64_t pel_count;     /* Total number of NACK entries in this PEL (direct + flax). */
     streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
                                   entries (oldest delivery_time). Used for efficient
                                   CLAIM operations. O(1) access to oldest entries. */
@@ -127,13 +144,11 @@ typedef struct streamConsumer {
     sds name;                   /* Consumer name. This is how the consumer
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
-    rax *pel;                   /* Consumer specific pending entries list: all
-                                   the pending messages delivered to this
-                                   consumer not yet acknowledged. Keys are
-                                   big endian message IDs, while values are
-                                   the same streamNACK structure referenced
-                                   in the "pel" of the consumer group structure
-                                   itself, so the value is shared. */
+    rax *pel;                   /* Two-level consumer PEL: same structure as
+                                   streamCG.pel — 16-byte key for direct,
+                                   15-byte key for flax buckets.  NACKs are
+                                   shared with group PEL. */
+    uint64_t pel_count;         /* Total NACK count for this consumer. */
 } streamConsumer;
 
 /* Pending (yet not acknowledged) message in a consumer group. */
@@ -183,7 +198,7 @@ void streamEncodeID(void *buf, streamID *id);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(stream *s, streamNACK *na);
-void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key);
+void streamDestroyNACK(stream *s, streamNACK *na);
 int streamIncrID(streamID *id);
 int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
@@ -201,7 +216,37 @@ int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 
-listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
+listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, streamID *id);
+
+/* Two-level PEL iterator: walks outer rax and inner flax.
+ * Direct entries (16-byte rax key) have no flax allocation;
+ * direct tracks whether the current entry is direct. */
+typedef struct pelIterator {
+    raxIterator ri;
+    flaxIterator fi;
+    int valid;
+    int just_seeked;
+    int direct;
+    streamID id;
+    void *data;
+    unsigned char key[sizeof(streamID)];
+} pelIterator;
+
+/* Two-level PEL operations. */
+void pelCacheInvalidate(rax *pel);
+rax *pelNew(size_t *alloc_size);
+void pelFree(rax *pel, void (*nack_free)(void *, void *), void *ctx);
+void pelFreeShallow(rax *pel);
+int pelInsert(rax *pel, streamID *id, void *data, uint64_t *count);
+int pelTryInsert(rax *pel, streamID *id, void *data, uint64_t *count);
+void pelReplace(rax *pel, streamID *id, void *data);
+int pelFind(rax *pel, streamID *id, void **data);
+void *pelRemove(rax *pel, streamID *id, uint64_t *count);
+
+void pelIterStart(pelIterator *pi, rax *pel);
+int pelIterSeek(pelIterator *pi, const char *op, streamID *id);
+int pelIterNext(pelIterator *pi);
+void pelIterStop(pelIterator *pi);
 
 /* PEL time list management (used by RDB loading) */
 void pelListInsertSorted(streamCG *cg, streamNACK *nack);
