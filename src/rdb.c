@@ -1117,23 +1117,59 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     return nwritten;
 }
 
+static void rdbCountBitmapRange(uint64_t start, uint64_t end, void *privdata) {
+    UNUSED(start);
+    UNUSED(end);
+
+    uint64_t *count = privdata;
+    (*count)++;
+}
+
+typedef struct rdbSaveBitmapRangeCtx {
+    rio *rdb;
+    ssize_t nwritten;
+    int error;
+} rdbSaveBitmapRangeCtx;
+
+static void rdbSaveBitmapRange(uint64_t start, uint64_t end, void *privdata) {
+    rdbSaveBitmapRangeCtx *ctx = privdata;
+    ssize_t n;
+
+    if (ctx->error) return;
+
+    if ((n = rdbSaveLen(ctx->rdb, start)) == -1) {
+        ctx->error = 1;
+        return;
+    }
+    ctx->nwritten += n;
+
+    if ((n = rdbSaveLen(ctx->rdb, end)) == -1) {
+        ctx->error = 1;
+        return;
+    }
+    ctx->nwritten += n;
+}
+
 static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     ssize_t n, nwritten = 0;
+    uint64_t range_count = 0;
 
     if ((n = rdbSaveLen(rdb, bitmapObjectLen(o))) == -1) return -1;
     nwritten += n;
 
-    sds payload = bitmapObjectMaterialize(o);
-    if (payload == NULL) return -1;
-    serverAssert((uint64_t)sdslen(payload) == bitmapObjectLen(o));
+    bitmapObjectVisitSetBitRanges(o, rdbCountBitmapRange, &range_count);
 
-    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload,
-                              sdslen(payload))) == -1) {
-        sdsfree(payload);
-        return -1;
-    }
+    if ((n = rdbSaveLen(rdb, range_count)) == -1) return -1;
     nwritten += n;
-    sdsfree(payload);
+
+    rdbSaveBitmapRangeCtx ctx = {
+        .rdb = rdb,
+        .nwritten = 0,
+        .error = 0,
+    };
+    bitmapObjectVisitSetBitRanges(o, rdbSaveBitmapRange, &ctx);
+    if (ctx.error) return -1;
+    nwritten += ctx.nwritten;
 
     return nwritten;
 }
@@ -1144,18 +1180,33 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
     if (byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
 
-    size_t payload_len;
-    sds payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
-    if (payload == NULL) return NULL;
+    uint64_t bit_len = byte_len * 8;
+    uint64_t range_count = rdbLoadLen(rdb, NULL);
+    if (range_count == RDB_LENERR) return NULL;
+    if (range_count > (bit_len + 1) / 2) return NULL;
 
-    if ((uint64_t)payload_len != byte_len) {
-        sdsfree(payload);
-        return NULL;
+    robj *o = createBitmapObjectWithLen(byte_len);
+    if (o == NULL) return NULL;
+
+    uint64_t prev_end = 0;
+    int have_prev = 0;
+    for (uint64_t i = 0; i < range_count; i++) {
+        uint64_t start = rdbLoadLen(rdb, NULL);
+        uint64_t end = rdbLoadLen(rdb, NULL);
+        if (start == RDB_LENERR || end == RDB_LENERR) goto err;
+        if (start > end || end >= bit_len) goto err;
+        if (have_prev && start <= prev_end) goto err;
+        if (bitmapObjectAddRange(o, start, end + 1) != C_OK) goto err;
+        prev_end = end;
+        have_prev = 1;
     }
 
-    robj *o = createBitmapObjectFromString((unsigned char *)payload, payload_len);
-    sdsfree(payload);
+    bitmapObjectOptimize(o);
     return o;
+
+err:
+    decrRefCount(o);
+    return NULL;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
