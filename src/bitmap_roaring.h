@@ -15,6 +15,7 @@
 
 void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
+robj *createBitmapObjectWithLen(uint64_t byte_len);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
@@ -24,14 +25,14 @@ unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
 size_t bitmapObjectContainerCount(const robj *o);
 
 typedef enum bitmapBitop {
-    BITMAP_BITOP_AND = 0,
-    BITMAP_BITOP_OR,
-    BITMAP_BITOP_XOR,
-    BITMAP_BITOP_NOT,
-    BITMAP_BITOP_DIFF,
-    BITMAP_BITOP_DIFF1,
-    BITMAP_BITOP_ANDOR,
-    BITMAP_BITOP_ONE
+    BITOP_AND = 0,
+    BITOP_OR,
+    BITOP_XOR,
+    BITOP_NOT,
+    BITOP_DIFF,
+    BITOP_DIFF1,
+    BITOP_ANDOR,
+    BITOP_ONE
 } bitmapBitop;
 
 uint64_t bitmapObjectLen(const robj *o);
@@ -46,6 +47,8 @@ long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t en
 int bitmapObjectCanRepresentBit(uint64_t bitoffset);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
+int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end);
+void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 

@@ -233,6 +233,14 @@ robj *createBitmapObject(void) {
     return o;
 }
 
+robj *createBitmapObjectWithLen(uint64_t byte_len) {
+    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+
+    robj *o = createBitmapObject();
+    getBitmapObject(o)->byte_len = byte_len;
+    return o;
+}
+
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
 #if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
@@ -802,6 +810,33 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     return C_OK;
 }
 
+/* Add bits in the half-open range [start,end). */
+int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end) {
+    bitmapObject *bitmap = getBitmapObject(o);
+
+    if (start >= end) return C_OK;
+    if (!bitmapObjectCanRepresentBit(end - 1))
+        return C_ERR;
+
+    uint64_t byte = (end - 1) >> 3;
+    if (byte + 1 > bitmap->byte_len)
+        bitmap->byte_len = byte + 1;
+
+    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
+    roaring64_bitmap_add_range(bitmap->roaring, start, end);
+    bitmapRoaringPopAllocSizeTracker(prev);
+
+    return C_OK;
+}
+
+void bitmapObjectOptimize(robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
+    roaring64_bitmap_run_optimize(bitmap->roaring);
+    roaring64_bitmap_shrink_to_fit(bitmap->roaring);
+    bitmapRoaringPopAllocSizeTracker(prev);
+}
+
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
                                           size_t byte_len)
 {
@@ -948,7 +983,7 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
     bitmapObjectPrepareBitopSources(objects, sources, numkeys);
 
     switch (op) {
-    case BITMAP_BITOP_AND:
+    case BITOP_AND:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
@@ -957,44 +992,44 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
                 roaring64_bitmap_clear(result);
         }
         break;
-    case BITMAP_BITOP_OR:
+    case BITOP_OR:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_or_inplace(result, sources[i].roaring);
         }
         break;
-    case BITMAP_BITOP_XOR:
+    case BITOP_XOR:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_xor_inplace(result, sources[i].roaring);
         }
         break;
-    case BITMAP_BITOP_NOT:
+    case BITOP_NOT:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         break;
-    case BITMAP_BITOP_DIFF:
+    case BITOP_DIFF:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_andnot_inplace(result, sources[i].roaring);
         }
         break;
-    case BITMAP_BITOP_DIFF1:
+    case BITOP_DIFF1:
         result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
         if (sources[0].roaring != NULL)
             roaring64_bitmap_andnot_inplace(result, sources[0].roaring);
         break;
-    case BITMAP_BITOP_ANDOR:
+    case BITOP_ANDOR:
         result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
         if (sources[0].roaring != NULL)
             roaring64_bitmap_and_inplace(result, sources[0].roaring);
         else
             roaring64_bitmap_clear(result);
         break;
-    case BITMAP_BITOP_ONE:
+    case BITOP_ONE:
         result = bitmapObjectExactlyOneBitopSources(sources, numkeys);
         break;
     default:

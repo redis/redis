@@ -703,6 +703,43 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-run:a bitmap:rdb-run:b
     }
 
+    test {native bitmap RDB uses raw payload for fragmented bitmaps} {
+        set raw [string repeat [binary format H* 55] 8192]
+
+        r del bitmap:rdb-frag:a bitmap:rdb-frag:b
+        r set bitmap:rdb-frag:a $raw
+        r bitmap convert bitmap:rdb-frag:a
+
+        set dump [r dump bitmap:rdb-frag:a]
+        assert_lessthan [string length $dump] [expr {[string length $raw] + 128}] \
+            "dump_len=[string length $dump] raw_len=[string length $raw]"
+
+        r restore bitmap:rdb-frag:b 0 $dump
+        assert_equal bitmap [r type bitmap:rdb-frag:b]
+        assert_equal $raw [r debug bitmap-raw bitmap:rdb-frag:b]
+        r del bitmap:rdb-frag:a bitmap:rdb-frag:b
+    }
+
+    test {native bitmap RDB load is not bounded by current proto-max-bulk-len} {
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
+        r config set bitmap-default-roaring yes
+
+        set offset [expr {$limit * 8}]
+        r setbit bitmap:rdb:above-bulk-limit $offset 1
+        r config set proto-max-bulk-len $limit
+
+        r debug reload
+
+        assert_equal bitmap [r type bitmap:rdb:above-bulk-limit]
+        assert_equal bitmap-roaring [r object encoding bitmap:rdb:above-bulk-limit]
+        r config set proto-max-bulk-len [expr {$limit + 1}]
+        assert_equal 1 [r getbit bitmap:rdb:above-bulk-limit $offset]
+
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+    }
+
     test {native bitmap unlink uses lazyfree for many roaring containers} {
         r config resetstat
         r config set bitmap-default-roaring yes
@@ -727,6 +764,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r setbit bitmap:public:reload:direct $::sparse_public_offset 1
         r set bitmap:public:reload:auto ""
         r setbit bitmap:public:reload:auto $::sparse_public_offset 1
+        assert {[string length [r dump bitmap:public:reload:direct]] < 256}
         set digest_before [debug_digest]
 
         r debug reload
