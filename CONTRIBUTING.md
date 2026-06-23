@@ -115,12 +115,4 @@ view, and so forth. This helps.
 
 4. For minor fixes - open a pull request on GitHub.
 
-5. **Coding style and spelling checks**:
-   Please ensure your changes conform to the existing C coding style and that there are no spelling issues. 
-   You can run spelling checks locally using `codespell` with the project's configuration:
-   ```bash
-   pip install -r .codespell/requirements.txt
-   codespell --config=./.codespell/.codespellrc
-   ```
-
 Additional information on the RSALv2/SSPLv1/AGPLv3 tri-license is also found in the LICENSE.txt file.
