@@ -11,16 +11,20 @@ surface than several decisions recorded in the step narratives below. The
 implementation now follows the upstream consensus; where the text below
 contradicts this section, this section wins:
 
-- **64-bit indexing**: native bitmaps store a CRoaring `roaring64_bitmap_t`
-  and always accept 64-bit bit offsets (up to 2^63-9; logical lengths up to
-  2^60-1 bytes). The "fixed 512MB cap" and 32-bit `roaring_bitmap_t` choice
-  recorded under Steps 1-3 are superseded. The RDB payload is the Roaring
-  64-bit portable format under the same `RDB_TYPE_BITMAP` id (the 32-bit
-  format never shipped).
-- **Offset semantics split**: read-only commands accept 64-bit offsets
-  against either representation (bits past the end read as 0); write
-  commands accept 64-bit offsets only against native bitmaps, while string
-  writes keep the proto-max-bulk-len bound and its out-of-range error.
+- **64-bit internal indexing**: native bitmaps store a CRoaring
+  `roaring64_bitmap_t` and can represent Redis-native bitmap offsets up to
+  2^63-9 (logical lengths up to 2^60-1 bytes). The public Redis bitmap command
+  surface still applies Redis argument parsing and representation limits; this
+  is semantic coverage for Redis-representable offsets, not a wire-compatible
+  replay of every `R64.*` offset accepted by redis-roaring. The "fixed 512MB
+  cap" and 32-bit `roaring_bitmap_t` choice recorded under Steps 1-3 are
+  superseded. The RDB payload is the Roaring 64-bit portable format under the
+  same `RDB_TYPE_BITMAP` id (the 32-bit format never shipped).
+- **Offset semantics split**: read-only commands accept offsets within Redis'
+  parser/native representability limits against either representation (bits
+  past the end read as 0); write commands can use the native bitmap limit only
+  when the target is native, while string writes keep the proto-max-bulk-len
+  bound and its out-of-range error.
 - **Default Roaring opt-in**: the `bitmap-roaring-{enabled,auto-convert,
   min-bytes,min-saving}` configs are replaced by a single
   `bitmap-default-roaring` boolean flag (`no` by default, or `yes`). With
@@ -274,8 +278,16 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     one byte at a time through the roaring lookup path instead of
     materializing each source once.
 - Keep redis-roaring migration tooling separate from Redis core.
+- Use the redis-roaring command inventory in
+  `docs/redis-roaring-native-bitmap-design.md` to keep v1 Redis command scope
+  separate from migration-tool-only compatibility work.
 - Export redis-roaring keys from old Redis with module loaded.
 - Import into new Redis using native Redis bitmap-compatible representation.
+- Tooling must understand both module input types: `reroaring` 32-bit payloads
+  and `roaring64` 64-bit payloads. Integer-array command families
+  (`SETINTARRAY`, `GETINTARRAY`, `RANGEINTARRAY`, `APPENDINTARRAY`, and
+  `DELETEINTARRAY`, with `R64.*` equivalents) are migration-tool concerns, not
+  Redis core commands.
 - Include downtime-oriented migration docs and validation tooling.
 
 ## Upstream Packaging
