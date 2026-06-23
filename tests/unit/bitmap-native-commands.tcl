@@ -30,6 +30,30 @@ proc assert_bitmap_has_exact_bits {key bits} {
     }
 }
 
+proc assert_bitmap_translated_jaccard {name left_bits right_bits expected_intersection expected_union expected_ratio} {
+    set left "bitmap:native:translated:jaccard:$name:left"
+    set right "bitmap:native:translated:jaccard:$name:right"
+    set intersection "bitmap:native:translated:jaccard:$name:intersection"
+    set union "bitmap:native:translated:jaccard:$name:union"
+
+    seed_native_bitmap $left $left_bits
+    seed_native_bitmap $right $right_bits
+
+    r bitop and $intersection $left $right
+    r bitop or $union $left $right
+
+    set actual_intersection [r bitcount $intersection]
+    set actual_union [r bitcount $union]
+    assert_equal $expected_intersection $actual_intersection
+    assert_equal $expected_union $actual_union
+    if {$actual_union == 0} {
+        set actual_ratio -1
+    } else {
+        set actual_ratio [format %.6f [expr {double($actual_intersection) / $actual_union}]]
+    }
+    assert_equal $expected_ratio $actual_ratio
+}
+
 proc assert_native_bitop_matches_string {name op source_bitsets} {
     set string_dest "bitmap:native:bitop:$name:string:dest"
     set native_dest "bitmap:native:bitop:$name:native:dest"
@@ -460,6 +484,132 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:native:bitfield:limit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
         r del bitmap:native:bitfield:limit
+    }
+
+    test {translated redis-roaring int-array bit-array and clear scenarios use core bitmap commands} {
+        r config set bitmap-default-roaring yes
+
+        set int_key bitmap:native:translated:int-array
+        r del $int_key
+        foreach bit {1 2 3 4 5} {
+            assert_equal 0 [r setbit $int_key $bit 1]
+        }
+        assert_equal bitmap [r type $int_key]
+        assert_bitmap_has_exact_bits $int_key {1 2 3 4 5}
+
+        foreach bit {1 3} {
+            assert_equal 1 [r setbit $int_key $bit 0]
+        }
+        assert_bitmap_has_exact_bits $int_key {2 4 5}
+        assert_equal 2 [r bitcount $int_key 4 5 bit]
+
+        foreach bit {4 5} {
+            assert_equal 1 [r setbit $int_key $bit 0]
+        }
+        assert_bitmap_has_exact_bits $int_key {2}
+
+        set range_key bitmap:native:translated:range-array
+        r del $range_key
+        foreach bit {0 8 16} {
+            assert_equal 0 [r setbit $range_key $bit 1]
+        }
+        assert_bitmap_has_exact_bits $range_key {0 8 16}
+        assert_equal {1 1 1} [r bitfield_ro $range_key GET u1 0 GET u1 8 GET u1 16]
+        assert_equal 3 [r bitcount $range_key 0 16 bit]
+
+        set bitarray_key bitmap:native:translated:bit-array
+        r del $bitarray_key
+        foreach bit {1 2 4 7 11 14 17 18 21} {
+            assert_equal 0 [r setbit $bitarray_key $bit 1]
+        }
+        assert_bitmap_has_exact_bits $bitarray_key {1 2 4 7 11 14 17 18 21}
+        assert_equal {0 1 0 1} [r bitfield_ro $bitarray_key GET u1 0 GET u1 1 GET u1 24 GET u1 21]
+
+        r config set bitmap-default-roaring no
+    }
+
+    test {translated redis-roaring range full min and max scenarios use core bitmap commands} {
+        r config set bitmap-default-roaring yes
+
+        set range_key bitmap:native:translated:setrange
+        r del $range_key
+        for {set bit 0} {$bit < 5} {incr bit} {
+            assert_equal 0 [r setbit $range_key $bit 1]
+        }
+        assert_bitmap_has_exact_bits $range_key {0 1 2 3 4}
+        assert_equal 0 [r bitpos $range_key 1]
+        assert_equal 5 [r bitpos $range_key 0]
+
+        set full_key bitmap:native:translated:setfull
+        r set $full_key [binary format H* ff]
+        r bitmap convert $full_key
+        assert_equal bitmap [r type $full_key]
+        assert_equal bitmap-roaring [r object encoding $full_key]
+        assert_bitmap_has_exact_bits $full_key {0 1 2 3 4 5 6 7}
+        assert_equal 8 [r bitpos $full_key 0]
+
+        set minmax_key bitmap:native:translated:minmax
+        seed_native_bitmap $minmax_key {}
+        assert_equal 0 [r bitcount $minmax_key]
+        assert_equal -1 [r bitpos $minmax_key 1]
+
+        assert_equal 0 [r setbit $minmax_key 100 1]
+        assert_bitmap_has_exact_bits $minmax_key {100}
+        assert_equal 100 [r bitpos $minmax_key 1]
+
+        assert_equal 0 [r setbit $minmax_key 0 1]
+        assert_bitmap_has_exact_bits $minmax_key {0 100}
+        assert_equal 0 [r bitpos $minmax_key 1]
+        assert_equal 1 [r getbit $minmax_key 100]
+
+        assert_equal 1 [r setbit $minmax_key 0 0]
+        assert_equal 1 [r setbit $minmax_key 100 0]
+        assert_equal 0 [r bitcount $minmax_key]
+        assert_equal -1 [r bitpos $minmax_key 1]
+
+        assert {[r memory usage $full_key] > 0}
+        r config set bitmap-default-roaring no
+    }
+
+    test {translated redis-roaring contains and jaccard scenarios use bitmap algebra} {
+        set a bitmap:native:translated:contains:a
+        set b bitmap:native:translated:contains:b
+        set c bitmap:native:translated:contains:c
+        set e bitmap:native:translated:contains:empty
+
+        seed_native_bitmap $a {1 2 3 4 5}
+        seed_native_bitmap $b {2 3}
+        seed_native_bitmap $c {3 4 6}
+        seed_native_bitmap $e {}
+
+        r bitop and bitmap:native:translated:contains:some $a $b
+        assert_equal 2 [r bitcount bitmap:native:translated:contains:some]
+
+        r bitop and bitmap:native:translated:contains:none $a bitmap:native:translated:contains:missing
+        assert_equal 0 [r bitcount bitmap:native:translated:contains:none]
+
+        r bitop diff bitmap:native:translated:contains:subset-miss $b $a
+        assert_equal 0 [r bitcount bitmap:native:translated:contains:subset-miss]
+        assert {[r bitcount $b] < [r bitcount $a]}
+
+        r bitop diff bitmap:native:translated:contains:not-subset $c $a
+        assert_bitmap_has_exact_bits bitmap:native:translated:contains:not-subset {6}
+
+        seed_native_bitmap bitmap:native:translated:contains:eq1 {1 2 3 4 5}
+        seed_native_bitmap bitmap:native:translated:contains:eq2 {1 2 3 4 5}
+        r bitop xor bitmap:native:translated:contains:eq-diff \
+            bitmap:native:translated:contains:eq1 bitmap:native:translated:contains:eq2
+        assert_equal 0 [r bitcount bitmap:native:translated:contains:eq-diff]
+
+        r bitop diff bitmap:native:translated:contains:empty-subset $e $a
+        assert_equal 0 [r bitcount bitmap:native:translated:contains:empty-subset]
+
+        assert_bitmap_translated_jaccard overlap {1 2 3 4 5} {3 4 5 6 7} 3 7 0.428571
+        assert_bitmap_translated_jaccard subset {1 2 3} {1 2 3 4 5} 3 5 0.600000
+        assert_bitmap_translated_jaccard identical {8 13 21} {8 13 21} 3 3 1.000000
+        assert_bitmap_translated_jaccard one-empty {1 2 3} {} 0 3 0.000000
+        assert_bitmap_translated_jaccard disjoint {1 2} {3 4} 0 4 0.000000
+        assert_bitmap_translated_jaccard empty {} {} 0 0 -1
     }
 
     test {BITOP stores native destinations when sources include native bitmaps} {

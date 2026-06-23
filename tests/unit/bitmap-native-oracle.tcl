@@ -104,6 +104,75 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
         assert_equal $got $expected
     }
 
+    test {bitmap native oracle ports deterministic redis-roaring fuzz seed cases} {
+        set scenarios {
+            {seed1_setbit {
+                {del %NS%:bitmap}
+                {setbit %NS%:bitmap 1 1}
+                {setbit %NS%:bitmap 64 1}
+                {setbit %NS%:bitmap 4096 1}
+                {getbit %NS%:bitmap 64}
+                {bitcount %NS%:bitmap}
+                {bitpos %NS%:bitmap 1}
+                {bitfield_ro %NS%:bitmap GET u1 1 GET u1 2 GET u1 4096}
+            } {
+                {ok 0}
+                {ok 0}
+                {ok 0}
+                {ok 0}
+                {ok 1}
+                {ok 3}
+                {ok 1}
+                {ok {1 0 1}}
+            }}
+            {seed4_diff_alias {
+                {del %NS%:a %NS%:b %NS%:out}
+                {setbit %NS%:a 0 1}
+                {setbit %NS%:a 2 1}
+                {setbit %NS%:b 2 1}
+                {setbit %NS%:b 3 1}
+                {bitop diff %NS%:a %NS%:a %NS%:b}
+                {bitcount %NS%:a}
+                {bitop one %NS%:out %NS%:a %NS%:b}
+                {bitcount %NS%:out}
+            } {
+                {ok 0}
+                {ok 0}
+                {ok 0}
+                {ok 0}
+                {ok 0}
+                {ok 1}
+                {ok 1}
+                {ok 1}
+                {ok 3}
+            }}
+            {seed5_setfull_bounded {
+                {del %NS%:bitmap}
+                {bitfield %NS%:bitmap SET u8 0 255}
+                {bitcount %NS%:bitmap}
+                {bitpos %NS%:bitmap 0}
+                {bitfield %NS%:bitmap SET u5 8 31}
+                {bitcount %NS%:bitmap}
+                {bitpos %NS%:bitmap 0}
+            } {
+                {ok 0}
+                {ok 0}
+                {ok 8}
+                {ok 8}
+                {ok 0}
+                {ok 13}
+                {ok 13}
+            }}
+        }
+
+        foreach scenario $scenarios {
+            lassign $scenario name steps expected
+            set expected [lrange $expected 0 end]
+            set got [bitmap_oracle::assert_mode_equivalence r "redis-roaring:$name" $steps]
+            assert_equal $got $expected
+        }
+    }
+
     test {legacy bitmap strings keep string command behavior} {
         bitmap_oracle::mode_setup r legacy-string
         set key bitmap:legacy-boundary{t}
