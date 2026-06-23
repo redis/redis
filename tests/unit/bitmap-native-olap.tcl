@@ -21,6 +21,10 @@ proc assert_olap_bitmap_has_exact_bits {key bits} {
 
 start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
     test {native bitmap BITOP supports OLAP columnar index user stories} {
+        # Inspired by Apache Druid's columnar segment and logical filter docs:
+        # https://druid.apache.org/docs/latest/design/segments/
+        # https://druid.apache.org/docs/latest/querying/filters/#logical-expression-filters
+        #
         # Rows model ad-tech events in a Druid-style columnar segment:
         # 0 {country Brazil clicks 1 gender male}
         # 1 {country Brazil clicks 1 gender female}
@@ -77,5 +81,72 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
             bitmap:olap:country:united-states bitmap:olap:q:engaged
         assert_olap_bitmap_has_exact_bits bitmap:olap:q:us-engaged {2 3 5}
         assert_equal bitmap [r type bitmap:olap:q:us-engaged]
+    }
+
+    test {native bitmap BITOP models Pinot inverted index examples} {
+        # Implements the Apache Pinot Star-Tree Index example table and inverted
+        # index story as Redis bitmaps over document IDs:
+        # https://docs.pinot.apache.org/build-with-pinot/indexing/star-tree-index
+        #
+        # 0 {Country CA  Browser Chrome  Locale en  Impressions 400}
+        # 1 {Country CA  Browser Firefox Locale fr  Impressions 200}
+        # 2 {Country MX  Browser Safari  Locale es  Impressions 300}
+        # 3 {Country MX  Browser Safari  Locale en  Impressions 100}
+        # 4 {Country USA Browser Chrome  Locale en  Impressions 600}
+        # 5 {Country USA Browser Firefox Locale es  Impressions 200}
+        # 6 {Country USA Browser Firefox Locale en  Impressions 400}
+        foreach {index bits} {
+            country:ca {0 1}
+            country:mx {2 3}
+            country:usa {4 5 6}
+            browser:chrome {0 4}
+            browser:firefox {1 5 6}
+            browser:safari {2 3}
+            locale:en {0 3 4 6}
+            locale:fr {1}
+            locale:es {2 5}
+            metric:impressions-at-least-400 {0 4 6}
+            universe {0 1 2 3 4 5 6}
+        } {
+            seed_native_bitmap_olap "bitmap:pinot:$index" $bits
+            assert_equal bitmap [r type "bitmap:pinot:$index"]
+            assert_equal bitmap-roaring [r object encoding "bitmap:pinot:$index"]
+        }
+
+        # Source story: an inverted index maps a value such as Browser=Firefox
+        # to the matching document IDs.
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:browser:firefox {1 5 6}
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:locale:en {0 3 4 6}
+
+        # Query: which Firefox documents are in the English locale?
+        r bitop and bitmap:pinot:q:firefox-en \
+            bitmap:pinot:browser:firefox bitmap:pinot:locale:en
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:q:firefox-en {6}
+
+        # Query: which USA documents used Chrome or Spanish locale?
+        r bitop or bitmap:pinot:q:chrome-or-es \
+            bitmap:pinot:browser:chrome bitmap:pinot:locale:es
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:q:chrome-or-es {0 2 4 5}
+
+        r bitop and bitmap:pinot:q:usa-chrome-or-es \
+            bitmap:pinot:country:usa bitmap:pinot:q:chrome-or-es
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:q:usa-chrome-or-es {4 5}
+
+        # Query: which USA documents have at least 400 impressions?
+        r bitop and bitmap:pinot:q:usa-high-impressions \
+            bitmap:pinot:country:usa bitmap:pinot:metric:impressions-at-least-400
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:q:usa-high-impressions {4 6}
+
+        # Query: which CA or MX documents are not in the French locale?
+        r bitop or bitmap:pinot:q:ca-or-mx \
+            bitmap:pinot:country:ca bitmap:pinot:country:mx
+        r bitop not bitmap:pinot:q:not-fr:raw bitmap:pinot:locale:fr
+        assert_equal 1 [r getbit bitmap:pinot:q:not-fr:raw 7]
+
+        r bitop and bitmap:pinot:q:not-fr \
+            bitmap:pinot:universe bitmap:pinot:q:not-fr:raw
+        r bitop and bitmap:pinot:q:ca-or-mx-not-fr \
+            bitmap:pinot:q:ca-or-mx bitmap:pinot:q:not-fr
+        assert_olap_bitmap_has_exact_bits bitmap:pinot:q:ca-or-mx-not-fr {0 2 3}
     }
 }
