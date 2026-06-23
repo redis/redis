@@ -174,6 +174,7 @@ typedef struct streamReplyRangeArgs {
     unsigned long *propCount;   /* Out: number of propagated commands, or NULL. */
     long long maxsize;          /* Byte budget for the reply (0 means unlimited). */
     size_t emitted_before;      /* Entries already emitted before this call. */
+    size_t maxsize_base;        /* Output-bytes baseline; MAXSIZE checks the delta. */
 } streamReplyRangeArgs;
 
 /* Prototypes of exported APIs. */

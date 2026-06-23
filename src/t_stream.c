@@ -37,7 +37,7 @@
 
 void streamFreeCGGeneric(void *cg, void *s);
 void streamFreeNACK(stream *s, streamNACK *na);
-size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before);
+size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before, size_t maxsize_base);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 
@@ -1964,15 +1964,15 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     decrRefCount(argv[4]);
 }
 
-/* Returns non-zero if the MAXSIZE byte budget for the whole command reply has
- * been reached and we should stop emitting further entries. 'maxsize' is the
- * byte budget (0 means no limit) and 'emitted' is the number of entries already
- * emitted across the whole reply. The budget is never enforced before at least
- * one entry has been emitted, so a single oversized message can still exceed
- * maxsize. */
-static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t emitted) {
+/* Returns non-zero if the MAXSIZE byte budget has been reached. 'maxsize' is the
+ * budget (0 = no limit) and 'emitted' the entries emitted so far; the budget is
+ * only enforced after at least one entry, so a single oversized message can still
+ * exceed it. The budget applies to the delta from 'maxsize_base' (output bytes at
+ * serve-start) so earlier commands in the same MULTI/EXEC don't count; outside a
+ * transaction the base is 0. */
+static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t emitted, size_t maxsize_base) {
     return maxsize && emitted > 0 &&
-           c->net_output_bytes_curr_cmd >= (size_t)maxsize;
+           (c->net_output_bytes_curr_cmd - maxsize_base) >= (size_t)maxsize;
 }
 
 /* Send the stream items in the specified range to the client 'c'. The range
@@ -2059,6 +2059,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
     unsigned long *propCount = args->propCount;
     long long maxsize = args->maxsize;
     size_t emitted_before = args->emitted_before;
+    size_t maxsize_base = args->maxsize_base;
     void *arraylen_ptr = NULL;
     size_t arraylen = 0;
     streamIterator si;
@@ -2104,7 +2105,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
             uint64_t idle = cmd_time_snapshot - nack->delivery_time;
             if (idle < (uint64_t)min_idle_time) break;
 
-            if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
+            if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen, maxsize_base))
                 break;
 
             /* Process and claim this entry */
@@ -2179,7 +2180,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
         }
         return streamReplyWithRangeFromConsumerPEL(c,s,start,end,count,
                                                    group, consumer,
-                                                   maxsize, emitted_before);
+                                                   maxsize, emitted_before, maxsize_base);
     }
 
     /* Stop here if client only wants claimed entries or count is satisfied. */
@@ -2199,7 +2200,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
     while (streamIteratorGetID(&si,&id,&numfields)) {
         /* Break before delivering the entry so it is neither sent nor added to
          * the consumer's PEL. */
-        if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
+        if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen, maxsize_base))
             break;
 
         /* Update the group last_id if needed. */
@@ -2342,7 +2343,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
  * seek into the radix tree of the messages in order to emit the full message
  * to the client. However clients only reach this code path when they are
  * fetching the history of already retrieved messages, which is rare. */
-size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before) {
+size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer, long long maxsize, size_t emitted_before, size_t maxsize_base) {
     raxIterator ri;
     unsigned char startkey[sizeof(streamID)];
     unsigned char endkey[sizeof(streamID)];
@@ -2355,7 +2356,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     while(raxNext(&ri) && (!count || arraylen < count)) {
         if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
-        if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen))
+        if (streamReplyMaxsizeReached(c, maxsize, emitted_before + arraylen, maxsize_base))
             break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
@@ -2982,12 +2983,15 @@ void xreadCommand(client *c) {
     mstime_t min_pel_delivery_time = LLONG_MAX;
     size_t total_entries = 0; /* Entries emitted so far across all streams,
                                  used to enforce MAXCOUNT/MAXSIZE. */
+    /* MAXSIZE budget baseline: bytes accumulated before serving (non-zero inside
+     * MULTI/EXEC). The budget is enforced on the delta from this value. */
+    size_t maxsize_base = c->net_output_bytes_curr_cmd;
     for (int i = 0; i < streams_count; i++) {
         /* Stop scanning further streams once a cumulative limit is reached.
          * At least the first stream is always served, so a single message
          * larger than MAXSIZE is still returned. */
         if (maxcount && total_entries >= (size_t)maxcount) break;
-        if (streamReplyMaxsizeReached(c, maxsize, total_entries)) break;
+        if (streamReplyMaxsizeReached(c, maxsize, total_entries, maxsize_base)) break;
 
         kvobj *o = lookupKeyRead(c->db, c->argv[streams_arg + i]);
         if (o == NULL) continue;
@@ -3119,6 +3123,7 @@ void xreadCommand(client *c) {
                 .group = groups ? groups[i] : NULL, .consumer = consumer,
                 .flags = flags, .spi = &spi, .propCount = &propCount,
                 .maxsize = maxsize, .emitted_before = total_entries,
+                .maxsize_base = maxsize_base,
             };
             total_entries += streamReplyWithRange(c,s,&args);
             if (server.memory_tracking_enabled)

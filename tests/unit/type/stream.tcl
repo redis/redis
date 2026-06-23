@@ -3170,6 +3170,23 @@ start_server {
         assert_equal 5 [xread_total_entries $res]
     }
 
+    test {XREAD MAXSIZE budget is per-command inside MULTI/EXEC} {
+        r DEL stream
+        for {set i 0} {$i < 50} {incr i} {
+            r XADD stream * f v$i
+        }
+        set solo [r XREAD MAXSIZE 1000 STREAMS stream 0]
+        assert {[xread_total_entries $solo] > 1}
+
+        # A large reply before XREAD in the same EXEC must not consume its budget.
+        r MULTI
+        r XRANGE stream - +
+        r XREAD MAXSIZE 1000 STREAMS stream 0
+        set res [r EXEC]
+        set in_exec [lindex $res 1]
+        assert_equal [xread_total_entries $solo] [xread_total_entries $in_exec]
+    }
+
     test "XREAD: read last element after XDEL (issue #13628)" {
         # Should return actual last element after XDEL of current last element
 
