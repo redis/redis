@@ -1787,6 +1787,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
+    /* Kill active connections from ACL-expired users. */
+    run_with_period(1000) {
+        ACLExpiredUsersCycle();
+    }
+
     /* Cleanup expired IDMP entries from tracked streams */
     run_with_period(1000) {
         handleExpiredIdmpEntries();
