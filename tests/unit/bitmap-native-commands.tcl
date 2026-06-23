@@ -49,6 +49,8 @@ proc assert_native_bitop_matches_string {name op source_bitsets} {
     set native_reply [r bitop $op $native_dest {*}$native_sources]
     assert_equal $string_reply $native_reply
     assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    assert_equal $string_reply [string length [bitmap_logical_raw $string_dest]]
+    assert_equal $native_reply [string length [bitmap_logical_raw $native_dest]]
     if {[r exists $native_dest]} {
         # At least one native source makes the destination native.
         assert_equal bitmap [r type $native_dest]
@@ -97,6 +99,8 @@ proc assert_native_bitop_bitset_case {name op source_bitsets expected_bits {miss
     set native_reply [r bitop $op $native_dest {*}$native_sources]
     assert_equal $string_reply $native_reply
     assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    assert_equal $string_reply [string length [bitmap_logical_raw $string_dest]]
+    assert_equal $native_reply [string length [bitmap_logical_raw $native_dest]]
     assert_bitmap_has_exact_bits $string_dest $expected_bits
     assert_bitmap_has_exact_bits $native_dest $expected_bits
     if {[r exists $native_dest]} {
@@ -144,6 +148,8 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
     set native_reply [r bitop $op $native_dest {*}$native_sources]
     assert_equal $string_reply $native_reply
     assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    assert_equal $string_reply [string length [bitmap_logical_raw $string_dest]]
+    assert_equal $native_reply [string length [bitmap_logical_raw $native_dest]]
     if {[r exists $native_dest] && [llength $native_indexes] > 0} {
         assert_equal bitmap [r type $native_dest]
         assert_equal string [r type $string_dest]
@@ -470,6 +476,38 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 2 [r bitop not bitmap:native:bitop:not bitmap:native:bitop:a]
         assert_equal bitmap [r type bitmap:native:bitop:not]
         assert_equal [binary format H* 0fff] [r debug bitmap-raw bitmap:native:bitop:not]
+    }
+
+    test {BITOP NOT honors proto-max-bulk-len for native bitmap sources} {
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
+        r config set bitmap-default-roaring yes
+        r del bitop:not:native:limit bitop:not:native:too-big \
+            bitop:not:native:out bitop:not:native:sentinel
+
+        assert_equal 0 [r setbit bitop:not:native:limit [expr {$limit * 8 - 1}] 1]
+        assert_equal 0 [r setbit bitop:not:native:too-big [expr {($limit + 1) * 8 - 1}] 1]
+        assert_equal bitmap [r type bitop:not:native:limit]
+        assert_equal bitmap [r type bitop:not:native:too-big]
+
+        r config set proto-max-bulk-len $limit
+        assert_equal $limit [r bitop not bitop:not:native:out bitop:not:native:limit]
+        assert_equal bitmap [r type bitop:not:native:out]
+        assert_equal 1 [r getbit bitop:not:native:out [expr {$limit * 8 - 2}]]
+        assert_equal 0 [r getbit bitop:not:native:out [expr {$limit * 8 - 1}]]
+
+        r set bitop:not:native:sentinel keep
+        assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
+            r bitop not bitop:not:native:sentinel bitop:not:native:too-big
+        }
+        assert_equal string [r type bitop:not:native:sentinel]
+        assert_equal keep [r get bitop:not:native:sentinel]
+        assert_equal bitmap [r type bitop:not:native:too-big]
+
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+        r del bitop:not:native:limit bitop:not:native:too-big \
+            bitop:not:native:out bitop:not:native:sentinel
     }
 
     test {BITOP native bitmap sources match string bitmap results for all operations} {
