@@ -482,14 +482,14 @@ static raxNode *raxAddSlot(rax *rax, raxNode *n, unsigned char ch, void *value)
         for (pos = 0; pos < n->size; pos++) {
             if (n->data[pos] > ch) break;
         }
+
+        /* Slots at/after `pos` are the trailing (size-pos) pointers of the node.
+         * With no AUXP tail they end at n+curlen, so move that block to end at
+         * n+newlen, opening one slot's worth of gap (plus re-align padding). */
+        size_t tail = sizeof(void*) * (n->size - pos);
+        memmove((unsigned char*)n + newlen - tail,
+                (unsigned char*)n + curlen - tail, tail);
     }
-    
-    /* Slots at/after `pos` are the trailing (size-pos) pointers of the node.
-     * With no AUXP tail they end at n+curlen, so move that block to end at
-     * n+newlen, opening one slot's worth of gap (plus re-align padding). */
-    size_t tail = sizeof(void*) * (n->size - pos);
-    memmove((unsigned char*)n + newlen - tail,
-            (unsigned char*)n + curlen - tail, tail);
 
     /* shift = padding word added when the new edge byte crosses an 8-byte
      * boundary; if so, re-align the value slots before `pos` rightward. */
@@ -500,8 +500,10 @@ static raxNode *raxAddSlot(rax *rax, raxNode *n, unsigned char ch, void *value)
     }
 
     /* Open the gap in the edge-byte array for the new edge byte. */
-    src = n->data + pos;
-    memmove(src + 1, src, n->size - pos);
+    if (pos < n->size) {
+        src = n->data + pos;
+        memmove(src + 1, src, n->size - pos);
+    }
 
     n->data[pos] = ch;
     n->size++;
@@ -520,9 +522,9 @@ static raxNode *raxAddSlot(rax *rax, raxNode *n, unsigned char ch, void *value)
  * values (void*), not raxNode* pointers, and there is no AUXP tail to
  * preserve since a leaf parent is never itself a key. */
 static raxNode *raxRemoveSlotAt(rax *rax, raxNode *parent, int idx) {
-    assert(!parent->iscompr);
-    assert(!parent->iskey);
-    assert(idx >= 0 && idx < parent->size);
+    debugAssert(!parent->iscompr);
+    debugAssert(!parent->iskey);
+    debugAssert(idx >= 0 && idx < parent->size);
     debugnode("raxRemoveSlotAt before", parent);
 
     void **pFirst = (void**) raxNodeFirstChildPtr(parent);
@@ -558,10 +560,11 @@ static raxNode *raxRemoveSlotAt(rax *rax, raxNode *parent, int idx) {
 static raxNode *raxCompressNodeWithValue(rax *rax, raxNode *n,
                                          unsigned char *s, size_t len, void *value)
 {
-    assert(n->size == 0);
+    debugAssert(n->size == 0);
     /* Only reached in keyFixedLen mode, fusing a fresh intermediate node at
      * depth < keyFixedLen: it is never a key, so there is no value-ptr tail */
-    assert(!n->iskey);
+    debugAssert(rax->keyFixedLen > 0);
+    debugAssert(!n->iskey);
 
     /* Layout: [hdr][s[0..len-1]][padding][value_slot] (value in slot, no AUXP) */
     size_t newsize = sizeof(raxNode) + len + raxPadding(len) + sizeof(void*);
@@ -2312,7 +2315,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
     }
     it->node = n;
     /* When parked on a virtual leaf the data was set on slot entry */
-    if (it->leaf_slot_idx < 0) it->data = raxGetData(it->node);    
+    if (it->leaf_slot_idx < 0) it->data = raxGetData(it->node);
     return 1;
 }
 
@@ -2685,7 +2688,7 @@ int raxTest(int argc, char **argv, int flags) {
     TEST("inline-leaf: fixed-length rax tree round-trips and saves numnodes") {
         rax *r = raxNewEx(0, NULL, 8);
 
-        /* Value of eacy key in rax: k1->1, k2->2, k3->3, for easy verification */
+        /* Value of each key in rax: k1->1, k2->2, k3->3, for easy verification */
         #define V(n) ((void*)(uintptr_t)(n))
         unsigned char k1[8] = {'k','e','y','0','0','0','0','1'};
         unsigned char k2[8] = {'k','e','y','0','0','0','0','2'};
