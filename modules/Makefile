@@ -22,7 +22,7 @@ define submake
 	done
 endef
 
-all: prepare_source
+all: prepare_source handle-werrors
 	$(call submake,$@)
 
 get_source:

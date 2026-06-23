@@ -149,11 +149,6 @@ echo "==> Marking modules pre-prepared (so consumer 'make' skips clone step)"
 for name in $(manifest_modules); do
   touch "$work/modules/$name/src/.prepared"
 done
-if [ -d "$work/modules/redisearch/src" ]; then
-  echo "==> Re-creating empty .git marker for redisearch (its build.rs walks up to find one)"
-  mkdir -p "$work/modules/redisearch/src/.git"
-fi
-
 echo
 echo "==> Overlaying local config-sync tooling in staging"
 # Overlay the LOCAL sync-redis-conf / apply-redis-conf scripts + their lib

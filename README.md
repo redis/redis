@@ -502,7 +502,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - Debian 12 (Bookworm) / 13 (Trixie)
@@ -828,7 +828,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - Alpine 3.23+
@@ -900,7 +900,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   ./src/redis-server redis-full.conf
+   ./src/redis-server redis-gen.conf
    ```
 
 ### Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)
