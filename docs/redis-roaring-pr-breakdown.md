@@ -4,27 +4,22 @@ This branch tracks the proposed breakdown for adding a native Redis bitmap
 value type that can use Roaring compression behind the existing Redis bitmap
 command API.
 
-## Upstream-Alignment Update (supersedes decisions recorded below)
+## Current Draft Status (supersedes decisions recorded below)
 
-The upstream issue discussion (redis/redis#15296) converged on a different
-surface than several decisions recorded in the step narratives below. The
-implementation now follows the upstream consensus; where the text below
-contradicts this section, this section wins:
+The upstream issue discussion (redis/redis#15296) and local tracker issues have
+moved several decisions since the original step narratives below were written.
+This section records the current `unstable` draft implementation and local
+design status; where the text below contradicts this section, this section
+wins. This is not a claim of upstream maintainer approval for decisions still
+marked pending in the trackers.
 
-- **64-bit internal indexing**: native bitmaps store a CRoaring
-  `roaring64_bitmap_t` and can represent Redis-native bitmap offsets up to
-  2^63-9 (logical lengths up to 2^60-1 bytes). The public Redis bitmap command
-  surface still applies Redis argument parsing and representation limits; this
-  is semantic coverage for Redis-representable offsets, not a wire-compatible
-  replay of every `R64.*` offset accepted by redis-roaring. The "fixed 512MB
-  cap" and 32-bit `roaring_bitmap_t` choice recorded under Steps 1-3 are
-  superseded. The RDB payload is the Roaring 64-bit portable format under the
-  same `RDB_TYPE_BITMAP` id (the 32-bit format never shipped).
-- **Offset semantics split**: read-only commands accept offsets within Redis'
-  parser/native representability limits against either representation (bits
-  past the end read as 0); write commands can use the native bitmap limit only
-  when the target is native, while string writes keep the proto-max-bulk-len
-  bound and its out-of-range error.
+- **Index width and public offset cap**: the current implementation stores
+  native bitmaps with CRoaring `roaring64_bitmap_t` and an explicit logical byte
+  length, but public bitmap commands keep the existing
+  `proto-max-bulk-len` offset limit for both legacy strings and native bitmaps.
+  The final v1 index-width/cap decision remains pending in local trackers
+  [#24](https://github.com/aviggiano/redis/issues/24) and
+  [#42](https://github.com/aviggiano/redis/issues/42).
 - **Default Roaring opt-in**: the `bitmap-roaring-{enabled,auto-convert,
   min-bytes,min-saving}` configs are replaced by a single
   `bitmap-default-roaring` boolean flag (`no` by default, or `yes`). With
@@ -33,19 +28,31 @@ contradicts this section, this section wins:
   string values that bitmap writes touch, unconditionally (the size/saving
   thresholds and conversion amortization are gone along with the trial encodes
   they amortized).
-- **Explicit conversion command**: `BITMAP CONVERT <key> [NATIVE|STRING]`
-  replaces both the "no new command" Step 5 escape-hatch decision and the
-  test-only `DEBUG BITMAP-FORCE-ROARING`. The BITOP-copy escape hatch is
-  gone (see next point); `BITMAP CONVERT key STRING` is the supported path
-  back to a string, valid while the logical length fits proto-max-bulk-len.
+- **Explicit conversion command**: the current draft implements
+  `BITMAP CONVERT <key> [NATIVE|STRING]`. It replaces the old BITOP-copy
+  escape hatch in this fork, and `BITMAP CONVERT key STRING` is the draft path
+  back to a string while the logical length fits `proto-max-bulk-len`. Final
+  v1 approval for this public surface remains pending in
+  [#20](https://github.com/aviggiano/redis/issues/20),
+  [#22](https://github.com/aviggiano/redis/issues/22), and
+  [#26](https://github.com/aviggiano/redis/issues/26).
 - **BITOP destination rule**: a BITOP destination is native when at least
   one source is native, and always native when `bitmap-default-roaring yes`.
-  The operation runs entirely in roaring space (no materialization), so
-  64-bit sources work; only `BITOP NOT`, which is inherently dense, is
-  rejected when the source's logical length exceeds proto-max-bulk-len.
+  Native `BITOP` destinations are bounded by `proto-max-bulk-len`: commands
+  are rejected when the result logical length would exceed that limit. Most
+  native operations run entirely in roaring space without materializing a Redis
+  string; `BITOP NOT` is the dense/materializing case and is rejected when the
+  source's logical length exceeds `proto-max-bulk-len`.
   When the destination type decision depends on the local config (all-string
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
+- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores the
+  logical byte length plus raw bitmap bytes, and AOF rewrite emits `RESTORE`
+  with the DUMP payload. The final payload shape and RESTORE-based rewrite
+  strategy remain pending in
+  [#29](https://github.com/aviggiano/redis/issues/29); open
+  [PR #44](https://github.com/aviggiano/redis/pull/44) is related review
+  follow-up, not current `unstable` behavior.
 
 The determinism invariant is unchanged and now covers the new paths: type
 transitions always reach replicas and the AOF as explicit RESTOREs of the
@@ -63,8 +70,14 @@ using "PR N" for both invites confusion. GitHub PR numbers are written as
 
 ## Exposure Gate
 
-No public command may create or auto-convert a key to `OBJ_BITMAP` until all of
-these are implemented in the stacked branch:
+The original plan used this gate to prevent public `OBJ_BITMAP` creation until
+Redis could safely own native bitmap keys everywhere they may flow. The current
+draft implementation exposes public creation through `bitmap-default-roaring
+yes` and explicit `BITMAP CONVERT` after implementing the safety paths below;
+pending design and benchmark trackers still decide whether that surface is
+final.
+
+The checklist remains:
 
 - RDB, AOF rewrite, `DUMP`, `RESTORE`, and replication handling for native
   bitmap values.
@@ -91,8 +104,9 @@ The gate also carries a test bar and a performance bar:
   value size; in particular the hot write path must not pay O(value) work per
   command just to decide whether to convert.
 
-Before that gate is satisfied, native bitmap objects may be reachable only by
-test-only helpers or internal fixtures that also exercise the safety paths.
+Until the pending design and benchmark items are resolved, treat the exposed
+surface as draft implementation status rather than final upstream-approved
+design.
 
 ## Step 0: Upstream Alignment
 
@@ -117,13 +131,11 @@ test-only helpers or internal fixtures that also exercise the safety paths.
 - Own the 64-bit indexing decision: decide (or explicitly time-box) whether
   `OBJ_BITMAP` keeps Redis string bitmap offset limits or introduces a
   documented 64-bit index model. Hard deadline is Step 3, because the RDB
-  payload and type id ossify the answer. Note the current asymmetry: string
-  bitmap offsets are bounded by `proto-max-bulk-len` (a check bypassed for
-  master/AOF-loading clients via `mustObeyClient`), while the in-progress
-  native code hard-codes a fixed 512MB cap. If 64-bit support arrives later,
-  it should be a new RDB type id (for example `RDB_TYPE_BITMAP_64`), following
-  the core convention of one RDB type per format variant - not an in-payload
-  index-width or flags byte, which is a module-type (`encver`) mechanism.
+  payload and type id ossify the answer. The current draft implementation
+  keeps public bitmap offsets bounded by `proto-max-bulk-len` for both legacy
+  strings and native bitmaps, while native internals use `roaring64_bitmap_t`.
+  DD-17 reopens whether v1 should instead use bounded 32-bit Roaring or another
+  documented cap.
 - Port redis-roaring test properties and edge cases, not its fuzz corpora: the
   module corpora are libFuzzer inputs for `R.*`-shaped harnesses driving a
   spawned server over hiredis, and Redis core has no libFuzzer infrastructure,
@@ -150,20 +162,19 @@ test-only helpers or internal fixtures that also exercise the safety paths.
   and active defrag handling.
 - Add native bitmap persistence support before public creation is possible:
   RDB, AOF rewrite, `DUMP`, `RESTORE`, and replication.
-- AOF rewrite strategy (already decided in the implementation; document it for
-  reviewers): rewrite emits `RESTORE <key> 0 <DUMP payload> REPLACE` for
-  native bitmap values. This is novel for a core type and couples
+- AOF rewrite strategy (current draft implementation; final acceptance is still
+  tracked in DD-10): rewrite emits `RESTORE <key> 0 <DUMP payload> REPLACE`
+  for native bitmap values. This is novel for a core type and couples
   command-format AOF content to the RDB payload version even without
   `aof-use-rdb-preamble`. Alternatives considered: replaying per-bit `SETBIT`
   sequences (O(set bits), and cannot deterministically preserve trailing-zero
   length plus type selection), and a dedicated creation command (new command
   surface). Call the choice and its version coupling out explicitly in the PR
   description.
-- Harden `RESTORE` for the new payload: bounds-checked deserialization
-  (`roaring_bitmap_portable_deserialize_safe`) plus logical-length/max-offset
-  validation unconditionally, and full structural validation
-  (`roaring_bitmap_internal_validate`) under `sanitize-dump-payload` deep
-  integrity validation, with corrupt-payload tests.
+- Harden `RESTORE` for the new payload: validate logical byte length, raw
+  payload length, max-offset/cardinality invariants, and any payload-specific
+  structure under `sanitize-dump-payload` deep integrity validation, with
+  corrupt-payload tests.
 - The 64-bit indexing decision (Step 1) must be resolved before this step's
   RDB payload and type id are submitted upstream.
 - Add key introspection and module-facing type handling:
@@ -207,21 +218,21 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
 - Audit `SORT ... BY`/`GET` patterns, module/string APIs, and Lua script
   surfaces that read values as strings.
 - Decide whether Redis needs an explicit bitmap-to-string conversion escape
-  hatch; keep it out of generic string command behavior. Decision:
+  hatch; keep it out of generic string command behavior. Current draft surface:
   `BITMAP CONVERT <key> [NATIVE|STRING]` is the explicit conversion command,
-  and `BITMAP CONVERT <key> STRING` is the supported path back to a legacy
-  string while the logical length fits proto-max-bulk-len. `BITOP` is not a
-  string materialization escape hatch; destinations are native whenever any
-  source is native, and are also native for string-only sources when
+  and `BITMAP CONVERT <key> STRING` is the path back to a legacy string while
+  the logical length fits `proto-max-bulk-len`. `BITOP` is not a string
+  materialization escape hatch; destinations are native whenever any source is
+  native, and are also native for string-only sources when
   `bitmap-default-roaring yes` is set. Plain `SET` overwrites a native bitmap
   key with a string like any other type. Generic string commands keep returning
-  `WRONGTYPE`.
+  `WRONGTYPE`; final v1 confirmation remains tracked in DD-01/DD-03/DD-07.
 
 ## Step 6: Minimal Configs and Public Native Bitmap Creation
 
 - The original threshold-based config sketch from this step is superseded.
-  The upstream-aligned surface is a single `bitmap-default-roaring yes|no`
-  flag, defaulting to `no`.
+  The current draft surface is a single `bitmap-default-roaring yes|no` flag,
+  defaulting to `no`.
 - With `bitmap-default-roaring no`, bitmap writes preserve string bitmap
   creation unless conversion is explicit. With `yes`, bitmap write commands
   create missing keys as native Roaring bitmaps and convert existing strings
@@ -273,10 +284,9 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     where stream/array cache an `alloc_size` field; under
     `memory_tracking_enabled` every native bitmap write pays that walk, so
     either benchmark it as acceptable or add the cached field.
-  - When any `BITOP` source exceeds the 512MB native cap (raised
-    `proto-max-bulk-len` only), the bytewise fallback reads native sources
-    one byte at a time through the roaring lookup path instead of
-    materializing each source once.
+  - Materialization paths such as `BITMAP CONVERT ... STRING`,
+    `DEBUG BITMAP-RAW`, and the current raw-byte persistence payload need
+    benchmark coverage and explicit limits because they flatten native bitmaps.
 - Keep redis-roaring migration tooling separate from Redis core.
 - Use the redis-roaring command inventory in
   `docs/redis-roaring-native-bitmap-design.md` to keep v1 Redis command scope
