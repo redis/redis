@@ -677,6 +677,23 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-run:a bitmap:rdb-run:b
     }
 
+    test {native bitmap RDB uses raw payload for fragmented bitmaps} {
+        set raw [string repeat [binary format H* 55] 8192]
+
+        r del bitmap:rdb-frag:a bitmap:rdb-frag:b
+        r set bitmap:rdb-frag:a $raw
+        r bitmap convert bitmap:rdb-frag:a
+
+        set dump [r dump bitmap:rdb-frag:a]
+        assert {[string length $dump] < [expr {[string length $raw] + 128}]} \
+            "dump_len=[string length $dump] raw_len=[string length $raw]"
+
+        r restore bitmap:rdb-frag:b 0 $dump
+        assert_equal bitmap [r type bitmap:rdb-frag:b]
+        assert_equal $raw [r debug bitmap-raw bitmap:rdb-frag:b]
+        r del bitmap:rdb-frag:a bitmap:rdb-frag:b
+    }
+
     test {native bitmap RDB load is not bounded by current proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]

@@ -1195,10 +1195,10 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
     }
 }
 
-test {corrupt payload: bitmap range RDB validation} {
-    # Payload layout: type byte RDB_TYPE_BITMAP, logical byte length, set-bit
-    # range count, closed start/end pairs, 2-byte RDB version, 8-byte CRC (stale in the corrupted
-    # variants; checksum validation is skipped above).
+test {corrupt payload: bitmap RDB validation} {
+    # Payload layout: type byte RDB_TYPE_BITMAP, logical byte length, encoding,
+    # encoding-specific payload, 2-byte RDB version, 8-byte CRC (stale in the
+    # corrupted variants; checksum validation is skipped above).
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         r setbit bitmap:type-probe 1 1
@@ -1220,9 +1220,10 @@ test {corrupt payload: bitmap range RDB validation} {
             }
         }
 
-        proc bitmap_dump_payload {bitmap_type byte_len ranges trailer} {
+        proc bitmap_range_dump_payload {bitmap_type byte_len ranges trailer} {
             set payload [binary format H* $bitmap_type]
             append payload [bitmap_rdb_len $byte_len]
+            append payload [bitmap_rdb_len 1]
             append payload [bitmap_rdb_len [llength $ranges]]
             foreach range $ranges {
                 lassign $range start end
@@ -1233,39 +1234,69 @@ test {corrupt payload: bitmap range RDB validation} {
             return $payload
         }
 
+        proc bitmap_raw_dump_payload {bitmap_type byte_len raw trailer} {
+            set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len $byte_len]
+            append payload [bitmap_rdb_len 0]
+            append payload [bitmap_rdb_len [string length $raw]]
+            append payload $raw
+            append payload $trailer
+            return $payload
+        }
+
+        proc bitmap_bad_encoding_payload {bitmap_type byte_len encoding trailer} {
+            set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len $byte_len]
+            append payload [bitmap_rdb_len $encoding]
+            append payload $trailer
+            return $payload
+        }
+
         set valid_raw [binary format H* 4440]
         set valid_ranges {{1 1} {5 5} {9 9}}
 
-        set huge_len_payload [bitmap_dump_payload $bitmap_type [expr {1 << 60}] $valid_ranges $dump_trailer]
+        set huge_len_payload [bitmap_range_dump_payload $bitmap_type [expr {1 << 60}] $valid_ranges $dump_trailer]
 
         catch { r restore bitmap:huge-len 0 $huge_len_payload } err
         assert_match "*Bad data format*" $err
         assert_equal PONG [r ping]
 
         set old_bulk_len [config_get_set proto-max-bulk-len 1048576]
-        set configured_huge_len_payload [bitmap_dump_payload $bitmap_type 1048577 $valid_ranges $dump_trailer]
+        set configured_huge_len_payload [bitmap_range_dump_payload $bitmap_type 1048577 $valid_ranges $dump_trailer]
         r restore bitmap:configured-huge-len 0 $configured_huge_len_payload
         assert_equal [r type bitmap:configured-huge-len] bitmap
         assert_equal 1 [r getbit bitmap:configured-huge-len 9]
         r del bitmap:configured-huge-len
         r config set proto-max-bulk-len $old_bulk_len
 
-        set valid_payload [bitmap_dump_payload $bitmap_type 2 $valid_ranges $dump_trailer]
+        set valid_payload [bitmap_range_dump_payload $bitmap_type 2 $valid_ranges $dump_trailer]
+        set valid_raw_payload [bitmap_raw_dump_payload $bitmap_type 2 $valid_raw $dump_trailer]
 
         r config set sanitize-dump-payload yes
         r restore bitmap:valid 0 $valid_payload
         assert_equal [r type bitmap:valid] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid] $valid_raw
+        r restore bitmap:valid-raw 0 $valid_raw_payload
+        assert_equal [r type bitmap:valid-raw] bitmap
+        assert_equal [r debug bitmap-raw bitmap:valid-raw] $valid_raw
 
-        set out_of_bounds_payload [bitmap_dump_payload $bitmap_type 1 {{9 9}} $dump_trailer]
+        set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 2 2 $dump_trailer]
+        catch { r restore bitmap:bad-encoding 0 $bad_encoding_payload } err
+        assert_match "*Bad data format*" $err
+
+        set short_raw_payload [bitmap_raw_dump_payload $bitmap_type 3 $valid_raw $dump_trailer]
+        catch { r restore bitmap:short-raw 0 $short_raw_payload } err
+        assert_match "*Bad data format*" $err
+
+        set out_of_bounds_payload [bitmap_range_dump_payload $bitmap_type 1 {{9 9}} $dump_trailer]
         catch { r restore bitmap:out-of-bounds 0 $out_of_bounds_payload } err
         assert_match "*Bad data format*" $err
 
-        set inverted_payload [bitmap_dump_payload $bitmap_type 2 {{5 1}} $dump_trailer]
+        set inverted_payload [bitmap_range_dump_payload $bitmap_type 2 {{5 1}} $dump_trailer]
         catch { r restore bitmap:inverted 0 $inverted_payload } err
         assert_match "*Bad data format*" $err
 
-        set unsorted_payload [bitmap_dump_payload $bitmap_type 2 {{9 9} {1 1}} $dump_trailer]
+        set unsorted_payload [bitmap_range_dump_payload $bitmap_type 2 {{9 9} {1 1}} $dump_trailer]
         catch { r restore bitmap:unsorted 0 $unsorted_payload } err
         assert_match "*Bad data format*" $err
 

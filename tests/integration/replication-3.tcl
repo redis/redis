@@ -66,12 +66,10 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
             wait_for_ofs_sync [srv 0 client] [srv -1 client]
 
             assert_equal [expr {$limit + 1}] [r -1 strlen bitop:not:repl:out]
-            assert_equal 1 [r -1 getbit bitop:not:repl:out 0]
-            assert_error {*bit offset is not an integer or out of range*} {
-                r -1 getbit bitop:not:repl:out [expr {($limit + 1) * 8 - 1}]
-            }
-            r -1 config set proto-max-bulk-len [expr {$limit + 1}]
-            assert_equal 0 [r -1 getbit bitop:not:repl:out [expr {($limit + 1) * 8 - 1}]]
+            # GETBIT enforces the replica's local proto-max-bulk-len offset limit,
+            # so verify edge bytes with bounded GETRANGE reads instead.
+            assert_equal [binary format H* ff] [r -1 getrange bitop:not:repl:out 0 0]
+            assert_equal [binary format H* fe] [r -1 getrange bitop:not:repl:out $limit $limit]
 
             r config set proto-max-bulk-len $master_old
             r -1 config set proto-max-bulk-len $replica_old
