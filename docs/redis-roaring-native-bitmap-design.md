@@ -81,6 +81,39 @@ the command-facing docs and tests for this boundary.
 | Memory accounting, active defrag, and fork-child dismissal | Pending clarification around accounting policy, allocator hooks, and defrag acceptability. | Implemented draft lifecycle coverage exists, with follow-up review cleanup tracked separately. | [#32](https://github.com/aviggiano/redis/issues/32), [PR #18](https://github.com/aviggiano/redis/pull/18), [PR #43](https://github.com/aviggiano/redis/pull/43), [#45](https://github.com/aviggiano/redis/issues/45) |
 | Test and benchmark gate | Pending clarification for required benchmark scope and acceptable event-loop stall bounds. | Correctness coverage exists across native type, command, oracle, corruption, replication, AOF, and module tests. Redis-specific benchmark harness remains open. | [#35](https://github.com/aviggiano/redis/issues/35), [#46](https://github.com/aviggiano/redis/issues/46), [#47](https://github.com/aviggiano/redis/issues/47) |
 
+## Redis-Roaring Command Inventory
+
+redis-roaring registers two module data types: `reroaring` for 32-bit `R.*`
+keys and `roaring64` for 64-bit `R64.*` keys. Redis core v1 intentionally does
+not add compatibility command names. Existing Redis bitmap commands already
+cover `R.SETBIT` / `R64.SETBIT`, `R.GETBIT` / `R64.GETBIT`,
+`R.BITCOUNT` / `R64.BITCOUNT`, `R.BITPOS` / `R64.BITPOS`, and the
+algebra semantics of `R.BITOP` / `R64.BITOP`; in this branch, `BITOP` also
+covers the redis-roaring algebra variants `DIFF`, `DIFF1`, `ANDOR`, and `ONE`.
+That coverage is semantic rather than wire-compatible: redis-roaring's `NOT`
+form accepts an optional `last` bound, and redis-roaring `BITOP` replies with
+result cardinality instead of Redis' destination byte length. Those syntax and
+reply differences are migration-tool/replay concerns, not v1 Redis command
+surface. `R64.*` command coverage is likewise limited to offsets that Redis
+bitmap commands can parse and native Redis bitmaps can represent; tooling must
+reject or explicitly policy-handle redis-roaring `uint64_t` offsets outside
+that Redis-representable range. The standalone `R.DIFF` / `R64.DIFF` command
+names are therefore compatibility wrappers around behavior covered by
+`BITOP DIFF` and remain out of v1 Redis scope.
+
+| redis-roaring-only family | Gap versus Redis bitmap commands | Classification | v1 migration/import note |
+| --- | --- | --- | --- |
+| `R.SETINTARRAY`, `R.GETINTARRAY`, `R.RANGEINTARRAY`, `R.APPENDINTARRAY`, `R.DELETEINTARRAY`, and `R64.*` equivalents | Treat set bits as sorted integer arrays, including range paging and append/delete mutations. | Migration-tool-only | Required. Export should stream set offsets from `reroaring` and `roaring64` keys; import should build native 64-bit bitmaps from 32-bit or 64-bit integer arrays. `R.RANGEINTARRAY` / `R64.RANGEINTARRAY` are useful for paged command-based export. |
+| `R.SETBITARRAY`, `R.GETBITARRAY`, and `R64.*` equivalents | Use ASCII `0`/`1` bit-array strings rather than Redis raw bitmap strings. | Migration-tool-only | Optional compatibility format for tooling. Import can translate ASCII bit arrays to set offsets or native payloads; Redis core should prefer raw strings plus `BITMAP CONVERT` where a string representation fits. |
+| `R.SETRANGE`, `R.SETFULL`, and `R64.*` equivalents | Create dense ranges or full universes of set bits. | Not needed for v1 | State migration can export the final set bits; command replay, if a tool supports it, can translate ranges outside Redis core. |
+| `R.GETBITS`, `R.CLEARBITS`, and `R64.*` equivalents | Bulk `GETBIT`, bulk clear-to-zero, and an optional cleared-count reply. | Future Redis command candidate | Useful as generic batch bitmap operations, but not required to migrate stored values. Replay tooling can lower `CLEARBITS` to repeated clears or direct payload edits. |
+| `R.CLEAR` and `R64.CLEAR` | Clear a module key without deleting the key name. | Not needed for v1 | Use `DEL` or an empty native bitmap during migration; no compatibility command is needed. |
+| `R.MIN`, `R.MAX`, and `R64.*` equivalents | Return the first or last set integer. | Future Redis command candidate | `BITPOS key 1` covers the minimum; a reverse set-bit lookup could be considered later for maximum. Not required for import/export. |
+| `R.CONTAINS`, `R.JACCARD`, and `R64.*` equivalents | Set-relation and similarity queries over two bitmaps. | Future Redis command candidate | Can be emulated for validation with `BITOP` plus `BITCOUNT` and temporary keys. Not required for state migration. |
+| `R.OPTIMIZE` and `R64.OPTIMIZE` | Force CRoaring container optimization. | Not needed for v1 | Native Redis owns encoding optimization; migration tooling may optimize generated payloads internally. |
+| `R.STAT` | Return module/container statistics for `reroaring` and `roaring64` keys. | Not needed for v1 | Use `MEMORY USAGE`, `OBJECT ENCODING`, benchmark tooling, or debug-only inspection for native stats if needed. |
+| Module payloads: `reroaring`, `roaring64` | Module RDB / `DUMP` payloads are not native Redis bitmap payloads. | Migration-tool-only | Required. Tooling must read both module type names: `reroaring` uses CRoaring 32-bit serialized payloads and should be promoted to native `roaring64_bitmap_t`; `roaring64` uses CRoaring 64-bit portable payloads and can be validated/transcoded to the native bitmap RDB / `DUMP` representation. Values beyond native bitmap offset limits must fail migration or follow an explicit tool policy. Redis core must not load these module payloads directly. |
+
 ## Native Bitmap Exposure Gate
 
 The original gate prevented public `OBJ_BITMAP` creation until the branch had
