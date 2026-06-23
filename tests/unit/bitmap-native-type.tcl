@@ -655,6 +655,32 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r debug bitmap-raw bitmap:restored] $raw
     }
 
+    test {RESTORE REPLACE preserves explicit string and native bitmap transitions} {
+        set raw [binary format H* 80400100080000]
+
+        r del bitmap:restore:source bitmap:restore:target
+        r set bitmap:restore:source $raw
+        set string_payload [r dump bitmap:restore:source]
+
+        r bitmap convert bitmap:restore:source
+        set bitmap_payload [r dump bitmap:restore:source]
+        assert_equal bitmap [r type bitmap:restore:source]
+        assert_equal bitmap-roaring [r object encoding bitmap:restore:source]
+
+        r restore bitmap:restore:target 0 $string_payload
+        assert_equal string [r type bitmap:restore:target]
+        assert_equal $raw [r get bitmap:restore:target]
+
+        r restore bitmap:restore:target 0 $bitmap_payload replace
+        assert_equal bitmap [r type bitmap:restore:target]
+        assert_equal bitmap-roaring [r object encoding bitmap:restore:target]
+        assert_equal $raw [r debug bitmap-raw bitmap:restore:target]
+
+        r restore bitmap:restore:target 0 $string_payload replace
+        assert_equal string [r type bitmap:restore:target]
+        assert_equal $raw [r get bitmap:restore:target]
+    }
+
     test {native bitmap RDB restores run containers without capacity bloat} {
         set raw ""
         for {set i 0} {$i < 32} {incr i} {
@@ -762,6 +788,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
     test {public-created native bitmaps survive AOF rewrite as bitmap} {
         r flushall
         r config set appendonly yes
+        waitForBgrewriteaof r
         r config set auto-aof-rewrite-percentage 0
         r config set bitmap-default-roaring yes
 
@@ -781,6 +808,36 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
         r config set bitmap-default-roaring no
     }
+
+    test {AOF rewrite preserves deterministic bitmap and string transitions} {
+        r flushall
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r config set auto-aof-rewrite-percentage 0
+
+        set raw [binary format H* 80400100080000]
+        r set bitmap:aof:transition:native $raw
+        r bitmap convert bitmap:aof:transition:native
+
+        r set bitmap:aof:transition:string $raw
+        r bitmap convert bitmap:aof:transition:string
+        r bitmap convert bitmap:aof:transition:string STRING
+
+        assert_equal bitmap [r type bitmap:aof:transition:native]
+        assert_equal string [r type bitmap:aof:transition:string]
+        set digest_before [debug_digest]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        assert_equal [debug_digest] $digest_before
+        assert_equal bitmap [r type bitmap:aof:transition:native]
+        assert_equal bitmap-roaring [r object encoding bitmap:aof:transition:native]
+        assert_equal $raw [r debug bitmap-raw bitmap:aof:transition:native]
+        assert_equal string [r type bitmap:aof:transition:string]
+        assert_equal $raw [r get bitmap:aof:transition:string]
+    }
 }
 
 start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:skip"}} {
@@ -790,14 +847,11 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
         set master_port [srv -1 port]
         set replica [srv 0 client]
 
-        test {native bitmap public creation replicates deterministic type transitions} {
-            $replica replicaof $master_host $master_port
-            wait_for_condition 50 100 {
-                [s 0 master_link_status] eq {up}
-            } else {
-                fail "Replication not started."
-            }
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+        wait_for_ofs_sync $master $replica
 
+        test {native bitmap public creation replicates deterministic type transitions} {
             # The replica stays in bitmap-default-roaring no: type decisions must arrive
             # from the master as explicit RESTOREs, never be re-derived from
             # replica-local configuration.
@@ -901,6 +955,33 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             wait_for_ofs_sync $master $replica
             assert_equal string [$replica type bitmap:public:repl:conv]
             assert_equal $raw [$replica get bitmap:public:repl:conv]
+            assert_equal [$master debug digest] [$replica debug digest]
+        }
+
+        test {RESTORE payloads replicate bitmap and string type transitions} {
+            set raw [binary format H* 80400100080000]
+
+            $master del bitmap:public:repl:restore:source bitmap:public:repl:restore:target
+            $master set bitmap:public:repl:restore:source $raw
+            set string_payload [$master dump bitmap:public:repl:restore:source]
+            $master bitmap convert bitmap:public:repl:restore:source
+            set bitmap_payload [$master dump bitmap:public:repl:restore:source]
+
+            $master restore bitmap:public:repl:restore:target 0 $string_payload replace
+            wait_for_ofs_sync $master $replica
+            assert_equal string [$replica type bitmap:public:repl:restore:target]
+            assert_equal $raw [$replica get bitmap:public:repl:restore:target]
+
+            $master restore bitmap:public:repl:restore:target 0 $bitmap_payload replace
+            wait_for_ofs_sync $master $replica
+            assert_equal bitmap [$replica type bitmap:public:repl:restore:target]
+            assert_equal bitmap-roaring [$replica object encoding bitmap:public:repl:restore:target]
+            assert_equal $raw [$replica debug bitmap-raw bitmap:public:repl:restore:target]
+
+            $master restore bitmap:public:repl:restore:target 0 $string_payload replace
+            wait_for_ofs_sync $master $replica
+            assert_equal string [$replica type bitmap:public:repl:restore:target]
+            assert_equal $raw [$replica get bitmap:public:repl:restore:target]
             assert_equal [$master debug digest] [$replica debug digest]
         }
     }
