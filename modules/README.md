@@ -137,6 +137,44 @@ make apply-redis-conf
 ./src/redis-server redis.conf
 ```
 
+## IDE setup (VSCode / Cursor)
+
+Module sources live at `modules/<name>/src/`, which is 3 levels deep. By default VSCode/Cursor only scans 1 level for Git repos and will miss them.
+
+**Option A — single-folder setup** (all modules share one Git sidebar):
+
+Add to your local `.vscode/settings.json` (do not commit this file):
+```json
+{
+    "git.repositoryScanMaxDepth": 3
+}
+```
+
+**Option B — workspace setup** (each module appears as its own project with its own Git context):
+
+Create `redis.code-workspace` at the repo root with the following content, then open it in VSCode/Cursor:
+
+```json
+{
+    "folders": [
+        { "name": "redistimeseries", "path": "modules/redistimeseries/src" },
+        { "name": "redisbloom",      "path": "modules/redisbloom/src" },
+        { "name": "redisjson",       "path": "modules/redisjson/src" },
+        { "name": "redisearch",      "path": "modules/redisearch/src" },
+        { "name": "redis (root)",    "path": "." }
+    ],
+    "settings": {
+        "git.autoRepositoryDetection": true,
+        "git.repositoryScanMaxDepth": 1,
+        "git.openRepositoryInParentFolders": "never",
+        "git.detectSubmodules": false,
+        "git.repositoryScanIgnoredFolders": ["node_modules", "deps", "bin", "build", ".build"]
+    }
+}
+```
+
+---
+
 ## Further reading
 
 - [MODULES.md](MODULES.md) — full reference: manifest format, ref
