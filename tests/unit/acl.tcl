@@ -1338,10 +1338,7 @@ tags {modules external:skip cluster} {
     puts $fp "user default on nopass ~* &* +@all"
     close $fp
 
-    start_cluster 1 0 [list \
-        config_lines [list loadmodule $testmodule] \
-        overrides [list aclfile $aclpath] \
-    ] {
+    start_cluster 1 0 [list config_lines [list loadmodule $testmodule] overrides [list aclfile $aclpath]] {
         test {ACL LOAD handles correctly an internal (NULL-user) connection present} {
             set victim [redis_client]
 
