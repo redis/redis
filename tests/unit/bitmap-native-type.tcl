@@ -685,7 +685,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r bitmap convert bitmap:rdb-frag:a
 
         set dump [r dump bitmap:rdb-frag:a]
-        assert {[string length $dump] < [expr {[string length $raw] + 128}]} \
+        assert_lessthan [string length $dump] [expr {[string length $raw] + 128}] \
             "dump_len=[string length $dump] raw_len=[string length $raw]"
 
         r restore bitmap:rdb-frag:b 0 $dump
