@@ -1044,7 +1044,23 @@ start_server {tags {"scripting"}} {
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]
         # drain the response
         while {true} {
-            if {$res == "-ERR reached lua stack limit"} {
+            if {$res == "-ERR max recursion level reached"} {
+                break
+            }
+            assert_equal $res "*1"
+            set res [r read]
+        }
+        r readraw 0
+        # make sure the connection is still valid
+        assert_equal [r ping] {PONG}
+    }
+
+    test {Script reply conversion bounds recursion depth} {
+        r readraw 1
+        set res [run_script {local t = {} for i=1,1000 do t = {t} end return t} 0]
+        # drain the response until the recursion limit is reached
+        while {true} {
+            if {$res == "-ERR max recursion level reached"} {
                 break
             }
             assert_equal $res "*1"
