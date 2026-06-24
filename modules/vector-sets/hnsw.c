@@ -794,7 +794,7 @@ uint32_t random_level(void) {
     static const int threshold = HNSW_P * RAND_MAX;
     uint32_t level = 0;
 
-    while (rand() < threshold && level < HNSW_MAX_LEVEL)
+    while (rand() < threshold && level < HNSW_MAX_LEVEL - 1)
         level += 1;
     return level;
 }
@@ -903,6 +903,13 @@ uint32_t hnsw_quants_bytes(HNSW *index) {
  * after the node creation (see later for the serialization API that
  * handles this and more). */
 hnswNode *hnsw_node_new(HNSW *index, uint64_t id, const float *vector, const int8_t *qvector, float qrange, uint32_t level, int normalize) {
+    /* Defense in depth: every node level must stay within the architectural
+     * cap. Untrusted input (e.g. a tampered serialized stream) is already
+     * rejected by the caller before reaching this point, so a violation here
+     * can only be an internal bug: fail fast instead of over-allocating the
+     * node and poisoning index->max_level. */
+    assert(level < HNSW_MAX_LEVEL);
+
     hnswNode *node = hmalloc(sizeof(hnswNode)+(sizeof(hnswNodeLayer)*(level+1)));
     if (!node) return NULL;
 
@@ -2593,6 +2600,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
 
     if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+
+    /* A serialized stream coming from an untrusted source (e.g. a tampered
+     * RDB file) could encode an out of range level: reject it here, otherwise
+     * we would over-allocate the node layers and poison index->max_level with
+     * an illegal value. */
+    if (level >= HNSW_MAX_LEVEL) return NULL;
     int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
