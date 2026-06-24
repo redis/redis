@@ -281,9 +281,6 @@ int clientCreateCompressionState(client *c, compressionDirection dir) {
         serverAssert(0);
     }
 
-    /* Note: unlike the previous design we do NOT wrap c->conn in a special
-     * compression connection type. The compressor lives on the client and is
-     * applied by clientConnRead/clientConnWrite on top of the real connection. */
     return 1;
 }
 
@@ -358,8 +355,7 @@ int compressAndWrite(client *c, int *tot_written) {
 
     /* Try to write all the data available in the compressed buffer. */
     *tot_written = 0;
-    int towrite =
-        state->output.written - state->output.consumed;
+    int towrite = state->output.written - state->output.consumed;
     do {
         int written = connWrite(
             c->conn, state->output.data + state->output.consumed, towrite);
@@ -510,14 +506,6 @@ int clientHasPendingCompressedData(client *c) {
            state->output.written > state->output.consumed;
 }
 
-int clientIsCompressing(client *c) {
-    return c->compression_state && c->compression_state->dir == COMPRESS;
-}
-
-int clientIsDecompressing(client *c) {
-    return c->compression_state && c->compression_state->dir == DECOMPRESS;
-}
-
 /* Add the client to its event loop's pending decompression list so its buffered
  * compressed/decompressed data can be drained from beforeSleep even when no
  * socket read event fires. No-op if already present. */
@@ -583,17 +571,17 @@ int clientCompressionProcessPendingData(struct aeEventLoop *el) {
 
 /* Compress `len` bytes from `data` and write them to the client's connection.
  * See client_comp.h for the contract. */
-ssize_t clientConnWrite(client *c, const void *data, size_t len, size_t *nwritten) {
+int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
     compressionState *state = c->compression_state;
     /* No active compressor for this direction: behave like a plain write. */
     if (!state || state->dir != COMPRESS) {
-        ssize_t w = connWrite(c->conn, data, len);
-        if (nwritten) *nwritten = (w > 0) ? (size_t)w : 0;
+        int w = connWrite(c->conn, data, len);
+        if (nwritten) *nwritten = (w > 0) ? w : 0;
         return w;
     }
 
     int consumed = 0;
-    size_t sock_written = 0;
+    int sock_written = 0;
     while ((size_t)consumed != len) {
         int to_consume =
             min(state->input.size - state->input.written, (int)(len - consumed));
@@ -609,10 +597,12 @@ ssize_t clientConnWrite(client *c, const void *data, size_t len, size_t *nwritte
         int written = 0;
         int err = compressAndWrite(c, &written);
         if (err) {
-            if (nwritten) *nwritten = sock_written;
-            if (connGetState(c->conn) != CONN_STATE_CONNECTED)
+            if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
+                if (nwritten) *nwritten = sock_written;
                 return -1;
-            return consumed;
+            }
+            /* Connection is still healthy, return what we managed to consume. */
+            break;
         }
         sock_written += written;
 
@@ -621,22 +611,27 @@ ssize_t clientConnWrite(client *c, const void *data, size_t len, size_t *nwritte
     }
 
     if (nwritten) *nwritten = sock_written;
+    /* `consumed` counts the uncompressed bytes taken from the caller while the
+     * socket received `sock_written` compressed bytes. Track the uncompressed
+     * size here so callers don't have to be compression-aware. */
+    if (consumed > 0)
+        atomicIncr(server.stat_net_repl_uncompressed_bytes, consumed);
     return consumed;
 }
 
 /* Read from the client's connection and decompress into `buf`.
  * See client_comp.h for the contract. */
-ssize_t clientConnRead(client *c, void *buf, size_t buf_len, size_t *nread_out) {
+int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
     compressionState *state = c->compression_state;
     /* No active decompressor: behave like a plain read. */
     if (!state || state->dir != DECOMPRESS) {
-        ssize_t r = connRead(c->conn, buf, buf_len);
-        if (nread_out) *nread_out = (r > 0) ? (size_t)r : 0;
+        int r = connRead(c->conn, buf, buf_len);
+        if (nread_out) *nread_out = (r > 0) ? r : 0;
         return r;
     }
 
-    size_t sock_read = 0;
-    size_t decompressed = 0;
+    int sock_read = 0;
+    int decompressed = 0;
     do {
         int curr = decompressInto(state, (char*)buf + decompressed, buf_len - decompressed);
         /* Decompression error, we should close the connection */
@@ -669,7 +664,7 @@ ssize_t clientConnRead(client *c, void *buf, size_t buf_len, size_t *nread_out) 
         }
 
         if (curr <= 0 && nread <= 0) break;
-    } while (decompressed < buf_len);
+    } while ((size_t)decompressed < buf_len);
 
     if (nread_out) *nread_out = sock_read;
 
@@ -685,6 +680,12 @@ ssize_t clientConnRead(client *c, void *buf, size_t buf_len, size_t *nread_out) 
             clientCompressionPendingRemove(c);
         }
     }
+
+    /* `decompressed` bytes were produced from `sock_read` compressed bytes read
+     * off the socket. Track the decompressed size here so callers don't have to
+     * be compression-aware. */
+    if (decompressed > 0)
+        atomicIncr(server.stat_net_repl_decompressed_bytes, decompressed);
 
     return decompressed;
 }

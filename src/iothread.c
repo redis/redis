@@ -846,7 +846,7 @@ void IOThreadBeforeSleep(struct aeEventLoop *el) {
     /* Drain any buffered decompressed replication data (see client_comp.c). */
     clientCompressionProcessPendingData(el);
 
-    /* If any connection type(typical TLS) or the compression codec still has
+    /* If any connection type(typical TLS) or compression still has
      * pending unread data don't sleep at all. */
     int dont_sleep = connTypeHasPendingData(el) || clientCompressionHasPendingData(el);
 

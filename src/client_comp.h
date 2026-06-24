@@ -40,9 +40,8 @@ int readFromBufAndDecompress(struct client *c, char *input_buf, size_t input_len
 int clientHasPendingCompressionFlush(struct client *c);
 int clientHasPendingCompressedData(struct client *c);
 
-/* Client-level codec API. These are the networking-facing wrappers that apply
- * the client's compressor (codec) on top of the *real* connection, i.e the
- * compression/decompression happens outside of the connection layer.
+/* Client-level compression API. These are the networking-facing wrappers that
+ * apply the client's compressor around the client's connection.
  *
  * clientConnWrite compresses `len` bytes from `data` and writes them to the
  * client's connection. It returns the number of *uncompressed* bytes consumed
@@ -57,12 +56,8 @@ int clientHasPendingCompressedData(struct client *c);
  * When the client has no active compressor for the relevant direction both
  * simply forward to connWrite/connRead and set the out-param equal to the
  * return value. */
-ssize_t clientConnWrite(struct client *c, const void *data, size_t len, size_t *nwritten);
-ssize_t clientConnRead(struct client *c, void *buf, size_t buf_len, size_t *nread);
-
-/* Whether the client currently has an active compressor for the given direction. */
-int clientIsCompressing(struct client *c);
-int clientIsDecompressing(struct client *c);
+int clientConnWrite(struct client *c, const void *data, size_t len, int *nwritten);
+int clientConnRead(struct client *c, void *buf, size_t buf_len, int *nread);
 
 /* Per-event-loop pending decompressed data handling. A decompressor may hold
  * data in its internal buffers that hasn't been delivered to the query buffer
