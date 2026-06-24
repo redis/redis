@@ -161,13 +161,14 @@ Create `redis.code-workspace` at the repo root with the following content, then 
         { "name": "redisbloom",      "path": "modules/redisbloom/src" },
         { "name": "redisjson",       "path": "modules/redisjson/src" },
         { "name": "redisearch",      "path": "modules/redisearch/src" },
+        { "name": "modules",         "path": "modules" },
         { "name": "redis (root)",    "path": "." }
     ],
     "settings": {
         "git.autoRepositoryDetection": true,
         "git.repositoryScanMaxDepth": 1,
         "git.openRepositoryInParentFolders": "never",
-        "git.detectSubmodules": false,
+        "git.detectSubmodules": true,
         "git.repositoryScanIgnoredFolders": ["node_modules", "deps", "bin", "build", ".build"]
     }
 }
