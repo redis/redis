@@ -345,6 +345,7 @@ proc findKeyWithType {r type} {
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+    set usestream [expr {[lsearch -exact $opt usestream] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
@@ -365,6 +366,31 @@ proc createComplexDataset {r ops {opt {}}} {
             if {rand() < 0.1} {
                 {*}$r expire [randomKey] [randomInt 2]
             }
+        }
+
+        # Streams live in their own bounded key namespace (so entries accumulate
+        # into larger streams across iterations, and stream IDs stay monotonic
+        # per key) rather than sharing the random keyspace with the other types.
+        if {$usestream && rand() < 0.2} {
+            set sk "strm:[randomInt 20]$tag"
+            randpath {
+                {*}$r xadd $sk * $f $v
+            } {
+                {*}$r xadd $sk MAXLEN [randomInt 30] * $f $v
+            } {
+                catch {{*}$r xtrim $sk MAXLEN [randomInt 10]}
+            } {
+                catch {{*}$r xgroup create $sk g 0}
+                catch {{*}$r xreadgroup group g c count 5 streams $sk >}
+            } {
+                # Ack-and-delete the oldest entry, if any, to drive XACKDEL/PEL.
+                set first [lindex [{*}$r xrange $sk - + COUNT 1] 0 0]
+                if {$first ne {}} {
+                    catch {{*}$r xackdel $sk g IDS 1 $first}
+                    catch {{*}$r xdel $sk $first}
+                }
+            }
+            continue
         }
 
         randpath {
