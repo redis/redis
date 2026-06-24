@@ -6218,12 +6218,20 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
                     c->slowlog_count, (double)c->slowlog_time_us_sum / 1000,
                     (double)c->slowlog_time_us_max / 1000);
             } else {
-                info = sdscatprintf(info,
-                    "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
-                    ",rejected_calls=%lld,failed_calls=%lld\r\n",
+                /* Hot path (no slowlog): avoid sdscatprintf's full printf-format
+                 * parse of this long format string for every command (hundreds on
+                 * a busy server). Pre-render the single float field, then use
+                 * sdscatfmt's lightweight scanner (%I = long long) for the integer
+                 * fields. Byte-identical: identical (float)-cast %.2f and integer
+                 * digits; only the formatter machinery changes. */
+                char upc[64];
+                snprintf(upc, sizeof(upc), "%.2f",
+                    (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+                info = sdscatfmt(info,
+                    "cmdstat_%s:calls=%I,usec=%I,usec_per_call=%s"
+                    ",rejected_calls=%I,failed_calls=%I\r\n",
                     getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe), c->calls, c->microseconds,
-                    (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
-                    c->rejected_calls, c->failed_calls);
+                    upc, c->rejected_calls, c->failed_calls);
             }
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
