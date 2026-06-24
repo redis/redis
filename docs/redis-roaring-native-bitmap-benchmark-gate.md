@@ -5,6 +5,10 @@ defaults. The gate is intentionally evidence-based: native creation,
 conversion, and default behavior should stay provisional until Redis-level
 correctness coverage and performance data show the tradeoffs clearly.
 
+This PR covers the harness and evidence-gathering side of issue #35. It does
+not close the final threshold decision; that still requires reviewing captured
+benchmark artifacts and setting or revising the pass/fail criteria.
+
 ## What the Gate Measures
 
 Use `tools/bitmap-bench.py` to produce comparable rows for:
@@ -32,6 +36,13 @@ workflow builds a baseline ref and a candidate ref, then runs:
 - `redis_before`: baseline build in legacy string mode.
 - `redis_pr_native`: candidate build with native bitmap behavior.
 - `redis_pr_legacy`: candidate build in legacy mode as a guardrail.
+
+For publishable comparisons, enter full commit SHAs for `before_ref` and
+`after_ref` instead of branch names. Branch refs are still useful for local or
+exploratory runs, but the uploaded `runner.txt` records both the requested
+inputs (`before_ref_input`, `after_ref_input`) and the resolved checkouts
+(`before_sha`, `after_sha`). The compare JSON and Markdown also include each
+run's actual `source_sha`.
 
 The workflow uploads JSON, CSV, Markdown, and runner metadata artifacts under
 `bitmap-bench-results`.
@@ -68,6 +79,10 @@ python3 tools/bitmap-bench.py \
 Keep developer runs small with `--request-scale 0.05`, `--skip-persistence`, or
 `--only workload_a,workload_b`. Use full-scale workflow runs for data intended
 to justify exposure/default decisions.
+
+Compare output reports `native_delta_percent` as a metric-aware improvement:
+positive means higher QPS for throughput rows and lower `elapsed_ms` for
+latency or persistence rows.
 
 ## Decision Questions
 

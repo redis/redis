@@ -7,10 +7,10 @@ on:
         description: "Linux x64 runner label to use; choose the largest configured runner for publishable numbers"
         default: "ubuntu-latest"
       before_ref:
-        description: "Baseline Redis ref to build in legacy mode"
+        description: "Baseline Redis commit SHA/ref to build in legacy mode; use a full SHA for publishable numbers"
         default: "unstable"
       after_ref:
-        description: "Candidate Redis ref to build in native and legacy guardrail modes; empty means the workflow SHA"
+        description: "Candidate Redis commit SHA/ref to build in native and legacy guardrail modes; empty means the workflow SHA"
         default: ""
       request_scale:
         description: "Multiplier for command benchmark request counts"
@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Resolve refs
+      - name: Resolve requested refs
         run: |
           after_ref="${{ inputs.after_ref }}"
           if [ -z "$after_ref" ]; then
@@ -59,6 +59,13 @@ jobs:
           ref: ${{ inputs.after_ref || github.sha }}
           path: after
 
+      - name: Record checked-out SHAs
+        run: |
+          before_sha="$(git -C before rev-parse HEAD)"
+          after_sha="$(git -C after rev-parse HEAD)"
+          echo "BEFORE_SHA=$before_sha" >> "$GITHUB_ENV"
+          echo "AFTER_SHA=$after_sha" >> "$GITHUB_ENV"
+
       - name: Build baseline
         working-directory: before
         run: make -j"$(nproc)" REDIS_CFLAGS='-Werror'
@@ -73,8 +80,10 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/bitmap-bench-results"
           {
             echo "runner_label=${{ inputs.runner_label }}"
-            echo "before_ref=$BEFORE_REF"
-            echo "after_ref=$AFTER_REF"
+            echo "before_ref_input=$BEFORE_REF"
+            echo "before_sha=$BEFORE_SHA"
+            echo "after_ref_input=$AFTER_REF"
+            echo "after_sha=$AFTER_SHA"
             uname -a
             lscpu || true
             free -h || true

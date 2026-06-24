@@ -277,6 +277,9 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
 - Use `tools/bitmap-bench.py` and the workflow documented in
   `docs/redis-roaring-native-bitmap-benchmark-gate.md` for the DD-16
   Redis-level benchmark gate.
+- Treat PR #79 / issue #35 work here as harness and evidence tooling first:
+  closing the final threshold/default decision still requires reviewing the
+  captured benchmark artifacts and recording explicit criteria.
 - Use benchmark data to justify the provisional Step 6 config defaults, or
   revise them.
 - Known deferred-perf items the benchmark suite must cover explicitly:
