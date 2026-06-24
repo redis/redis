@@ -861,14 +861,24 @@ static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
     return raw;
 }
 
-/* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
- * logical length exceeds proto-max-bulk-len. */
-sds bitmapObjectMaterialize(const robj *o) {
+static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited) {
     bitmapObject *bitmap = getBitmapObject(o);
-    if (bitmap->byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
+    if (proto_limited &&
+        bitmap->byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
     if (bitmap->byte_len > (uint64_t)SIZE_MAX) return NULL;
     return bitmapObjectMaterializeRoaring(bitmap->roaring,
                                           (size_t)bitmap->byte_len);
+}
+
+/* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
+ * logical length exceeds proto-max-bulk-len. */
+sds bitmapObjectMaterialize(const robj *o) {
+    return bitmapObjectMaterializeRaw(o, 1);
+}
+
+/* RDB raw payloads are persisted data, not client protocol bulk strings. */
+sds bitmapObjectMaterializeForRDB(const robj *o) {
+    return bitmapObjectMaterializeRaw(o, 0);
 }
 
 typedef struct bitmapBitopSource {
