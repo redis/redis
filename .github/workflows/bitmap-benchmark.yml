@@ -1,0 +1,112 @@
+name: Bitmap Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: "Linux x64 runner label to use; choose the largest configured runner for publishable numbers"
+        default: "ubuntu-latest"
+      before_ref:
+        description: "Baseline Redis commit SHA/ref to build in legacy mode; use a full SHA for publishable numbers"
+        default: "unstable"
+      after_ref:
+        description: "Candidate Redis commit SHA/ref to build in native and legacy guardrail modes; empty means the workflow SHA"
+        default: ""
+      request_scale:
+        description: "Multiplier for command benchmark request counts"
+        default: "1.0"
+      runs:
+        description: "Repeated command samples per workload"
+        default: "3"
+      realdata_archives:
+        description: "Comma-separated real-roaring dataset archives to download"
+        default: "census-income,uscensus2000,weather_sept_85,wikileaks-noquotes"
+      extra_args:
+        description: "Extra tools/bitmap-bench.py arguments"
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ${{ inputs.runner_label }}
+    timeout-minutes: 360
+
+    steps:
+      - name: Resolve requested refs
+        run: |
+          after_ref="${{ inputs.after_ref }}"
+          if [ -z "$after_ref" ]; then
+            after_ref="${{ github.sha }}"
+          fi
+          echo "AFTER_REF=$after_ref" >> "$GITHUB_ENV"
+          echo "BEFORE_REF=${{ inputs.before_ref }}" >> "$GITHUB_ENV"
+
+      - name: Checkout baseline
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.before_ref }}
+          path: before
+
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.after_ref || github.sha }}
+          path: after
+
+      - name: Record checked-out SHAs
+        run: |
+          before_sha="$(git -C before rev-parse HEAD)"
+          after_sha="$(git -C after rev-parse HEAD)"
+          echo "BEFORE_SHA=$before_sha" >> "$GITHUB_ENV"
+          echo "AFTER_SHA=$after_sha" >> "$GITHUB_ENV"
+
+      - name: Build baseline
+        working-directory: before
+        run: make -j"$(nproc)" REDIS_CFLAGS='-Werror'
+
+      - name: Build candidate
+        working-directory: after
+        run: make -j"$(nproc)" REDIS_CFLAGS='-Werror'
+
+      - name: Prepare benchmark directories
+        run: |
+          mkdir -p "$RUNNER_TEMP/croaring-realdata"
+          mkdir -p "$GITHUB_WORKSPACE/bitmap-bench-results"
+          {
+            echo "runner_label=${{ inputs.runner_label }}"
+            echo "before_ref_input=$BEFORE_REF"
+            echo "before_sha=$BEFORE_SHA"
+            echo "after_ref_input=$AFTER_REF"
+            echo "after_sha=$AFTER_SHA"
+            uname -a
+            lscpu || true
+            free -h || true
+          } > "$GITHUB_WORKSPACE/bitmap-bench-results/runner.txt"
+
+      - name: Run bitmap benchmark compare
+        working-directory: after
+        run: |
+          python3 tools/bitmap-bench.py \
+            --compare-before-src-dir "$GITHUB_WORKSPACE/before/src" \
+            --compare-after-src-dir "$GITHUB_WORKSPACE/after/src" \
+            --compare-legacy-src-dir "$GITHUB_WORKSPACE/after/src" \
+            --compare-out "$GITHUB_WORKSPACE/bitmap-bench-results/bitmap-bench-compare" \
+            --request-scale "${{ inputs.request_scale }}" \
+            --runs "${{ inputs.runs }}" \
+            --ping-canary \
+            --croaring-realdata-dir "$RUNNER_TEMP/croaring-realdata" \
+            --download-croaring-realdata \
+            --realdata-archives "${{ inputs.realdata_archives }}" \
+            ${{ inputs.extra_args }}
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitmap-bench-results
+          path: bitmap-bench-results/
