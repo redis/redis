@@ -611,22 +611,30 @@ class RedisBitmapBench:
     def load_realdata(self) -> list[RealDataSet]:
         if not self.args.croaring_realdata_dir and not self.args.download_croaring_realdata:
             return []
+        if self.args.realdata_max_files <= 0:
+            return []
         realdata_dir = self.ensure_realdata_dir()
         datasets: list[RealDataSet] = []
+        sources = []
         for path in sorted(realdata_dir.rglob("*")):
-            if path.is_dir():
+            if path.is_dir() or path.name == "bitsets_1925630_96.gz":
                 continue
-            if path.name == "bitsets_1925630_96.gz":
-                continue
-            if path.suffix == ".zip":
-                datasets.extend(self.load_realdata_zip(path))
+            if path.suffix.lower() == ".zip" or path.suffix.lower() in ("", ".txt", ".csv"):
+                sources.append(path)
+
+        for index, path in enumerate(sources):
+            remaining_slots = self.args.realdata_max_files - len(datasets)
+            if remaining_slots <= 0:
+                break
+            remaining_sources = len(sources) - index
+            source_limit = max(1, (remaining_slots + remaining_sources - 1) // remaining_sources)
+            if path.suffix.lower() == ".zip":
+                datasets.extend(self.load_realdata_zip(path, source_limit))
             elif path.suffix.lower() in ("", ".txt", ".csv"):
                 bits = parse_realdata_text(path.read_text(encoding="utf-8", errors="replace"),
                                            self.args.realdata_max_values)
                 if bits:
                     datasets.append(RealDataSet(sanitize_name(path.stem), bits))
-            if len(datasets) >= self.args.realdata_max_files:
-                break
         return datasets[:self.args.realdata_max_files]
 
     def ensure_realdata_dir(self) -> Path:
@@ -646,8 +654,10 @@ class RedisBitmapBench:
                 urlretrieve(url, archive)
         return realdata_dir
 
-    def load_realdata_zip(self, path: Path) -> list[RealDataSet]:
+    def load_realdata_zip(self, path: Path, limit: int) -> list[RealDataSet]:
         datasets: list[RealDataSet] = []
+        if limit <= 0:
+            return datasets
         with ZipFile(path) as zf:
             for member in sorted(zf.namelist()):
                 if member.endswith("/"):
@@ -658,7 +668,7 @@ class RedisBitmapBench:
                 if bits:
                     name = sanitize_name(f"{path.stem}_{Path(member).stem}")
                     datasets.append(RealDataSet(name, bits))
-                if len(datasets) >= self.args.realdata_max_files:
+                if len(datasets) >= limit:
                     break
         return datasets
 
@@ -712,6 +722,7 @@ class RedisBitmapBench:
         return [w for w in workloads if w.name in wanted]
 
     def workloads(self) -> list[Workload]:
+        sparse_hit_offset = str(self.sparse_bits()[-1])
         workloads = [
             Workload(
                 "setbit_native_create_sparse",
@@ -736,7 +747,7 @@ class RedisBitmapBench:
             Workload(
                 "getbit_sparse_native_hit",
                 "GETBIT hit against a sparse native bitmap",
-                ["GETBIT", DATASET_KEYS["sparse_native"], str(self.args.sparse_space - 1)],
+                ["GETBIT", DATASET_KEYS["sparse_native"], sparse_hit_offset],
                 80_000, 32, 16, sample_key=DATASET_KEYS["sparse_native"],
                 story="Membership lookup", dataset="synthetic_sparse",
             ),
@@ -1572,6 +1583,7 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row["story"] = first.get("extra", {}).get("story", row["category"])
         row["dataset"] = first.get("extra", {}).get("dataset", "-")
         row["metric"] = "qps" if first.get("qps") is not None else "elapsed_ms"
+        row["metric_direction"] = "higher_is_better" if row["metric"] == "qps" else "lower_is_better"
         for label in labels:
             result = by_name[name][label]
             value = result.get("qps")
@@ -1579,8 +1591,12 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 value = result.get("elapsed_ms")
             row[label] = value
         if "redis_before" in row and "redis_pr_native" in row and row["redis_before"]:
-            row["native_delta_percent"] = ((row["redis_pr_native"] - row["redis_before"]) /
-                                           row["redis_before"] * 100.0)
+            if row["metric"] == "elapsed_ms":
+                row["native_delta_percent"] = ((row["redis_before"] - row["redis_pr_native"]) /
+                                               row["redis_before"] * 100.0)
+            else:
+                row["native_delta_percent"] = ((row["redis_pr_native"] - row["redis_before"]) /
+                                               row["redis_before"] * 100.0)
         else:
             row["native_delta_percent"] = None
         rows.append(row)
@@ -1603,14 +1619,16 @@ def compare_markdown_lines(rows: list[dict[str, Any]], payloads: list[dict[str, 
         )
     lines.extend([
         "",
-        "| Story | Dataset | Workload | Metric | Redis before | Redis PR native | Delta % | PR legacy |",
+        "Native delta is metric-aware: positive means higher QPS for throughput rows and lower elapsed_ms for latency rows.",
+        "",
+        "| Story | Dataset | Workload | Metric | Redis before | Redis PR native | Native delta % (positive=better) | PR legacy |",
         "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
     ])
     for row in rows:
         lines.append(
             f"| {row.get('story', '-')} | {row.get('dataset', '-')} | {row['workload']} | "
             f"{row.get('metric', '-')} | {fmt_any(row.get('redis_before'))} | "
-            f"{fmt_any(row.get('redis_pr_native'))} | {fmt_any(row.get('native_delta_percent'))} | "
+            f"{fmt_any(row.get('redis_pr_native'))} | {fmt_delta(row.get('native_delta_percent'))} | "
             f"{fmt_any(row.get('redis_pr_legacy'))} |"
         )
     return lines
@@ -1623,6 +1641,7 @@ def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "workload",
         "category",
         "metric",
+        "metric_direction",
         "redis_before",
         "redis_pr_native",
         "native_delta_percent",
@@ -1640,6 +1659,14 @@ def fmt_any(value: Any) -> str:
         return "-"
     if isinstance(value, float):
         return f"{value:.2f}"
+    return str(value)
+
+
+def fmt_delta(value: Any) -> str:
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, float):
+        return f"{value:+.2f}"
     return str(value)
 
 
