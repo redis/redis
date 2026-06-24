@@ -85,7 +85,7 @@ fi
 
 echo
 echo "==> Refreshing redis-gen.conf via sync-redis-conf"
-"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="$modules"
+"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="${modules:-none}"
 
 if [ -n "$failed" ]; then
   echo

@@ -116,17 +116,22 @@ if [ ! -f "$MODULES_MANIFEST_FILE" ]; then
   exit 1
 fi
 
-# Resolve the requested module set. Empty MODULES → every manifest module
-# (sorted by manifest_modules). An explicit MODULES preserves caller order
-# so a deterministic invocation yields a deterministic file.
+# Resolve the requested module set.
+#   unset / empty MODULES  → every manifest module (standalone `make sync-redis-conf`)
+#   MODULES=none           → explicitly no modules (redis-only build via build.sh)
+#   MODULES=<names>        → exactly those modules
 default_used=0
 requested_raw="${MODULES:-}"
-if [ -z "$(printf '%s' "$requested_raw" | tr -d '[:space:]')" ]; then
+_modules_stripped="$(printf '%s' "$requested_raw" | tr -d '[:space:]')"
+if [ -z "$_modules_stripped" ]; then
   requested="$(manifest_modules | tr '\n' ' ')"
   default_used=1
+elif [ "$_modules_stripped" = "none" ]; then
+  requested=""
 else
   requested="$requested_raw"
 fi
+unset _modules_stripped
 # Collapse runs of whitespace to single spaces, trim ends.
 requested="$(printf '%s\n' "$requested" | xargs || true)"
 

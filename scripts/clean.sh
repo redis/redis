@@ -30,8 +30,6 @@ echo "==> Cleaning main Redis (src/)"
 "$MAKE_BIN" -C src clean || true
 
 if [ -z "$modules" ]; then
-  echo
-  echo "==> No modules to clean (no cloned modules under modules/*/src)"
   exit 0
 fi
 

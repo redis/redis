@@ -26,6 +26,15 @@ fi
 cloned="$(cloned_modules)"
 selected="$(resolve_modules "$*" "$cloned" "none")"
 
+# Detect whether the caller named modules explicitly. Wildcards ("", all, ., *)
+# and the "none" token resolve without naming specific modules — in that case a
+# missing .so is a warning (skip and continue). An explicit name means the user
+# expects that module to load — a missing .so is a hard error.
+case "${1:-}" in
+  ""|all|.|'*'|none) explicit=0 ;;
+  *) explicit=1 ;;
+esac
+
 host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 [ "$host_os" = "darwin" ] && host_os="macos"
 
@@ -42,8 +51,8 @@ for name in $selected; do
   # which combined with `set -euo pipefail` on the parent shell would silently
   # kill the whole script the moment a single un-built module shows up in the
   # loop (the failure escapes the command substitution before the fallback
-  # `[ -z "$so_path" ]` chain ever runs). The `WARNING ... skipping` branch
-  # below is the intended "no .so" handling — keep grep failures out of $?.
+  # `[ -z "$so_path" ]` chain ever runs). The `WARNING ... skipping` / error
+  # branch below is the intended "no .so" handling — keep grep failures out of $?.
   candidates="$(find "modules/$name" -type f -name "$so_base" 2>/dev/null \
       | grep -v -E '/(CMakeFiles|tests?|sample|samples|fixtures)/' || true)"
   so_path="$(echo "$candidates" | grep -E "(^|/)$host_os-[^/]*-release(/|\$)" | head -1 || true)"
@@ -52,6 +61,11 @@ for name in $selected; do
   [ -z "$so_path" ] && so_path="$(echo "$candidates" | head -1 || true)"
 
   if [ -z "$so_path" ]; then
+    if [ "$explicit" = "1" ]; then
+      echo "ERROR: $name is not built ($so_base not found under modules/$name)."
+      echo "       Run 'make build $name' first."
+      exit 1
+    fi
     echo "WARNING: no built $so_base found under modules/$name, skipping $name (did you run 'make build'?)"
     continue
   fi
