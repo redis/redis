@@ -3093,7 +3093,7 @@ start_server {tags "cluster external:skip"} {
 }
 }
 
-# redis-cli --cluster reshard/rebalance with --cluster-use-atomic-slot-migration.
+# redis-cli --cluster reshard/rebalance automatically uses atomic slot migration.
 #
 # 3 masters, no replicas. continuous_slot_allocation distributes slots as:
 #   node 0: 0-5461     (5462 slots)
@@ -3104,24 +3104,31 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
     set id0 [R 0 cluster myid]
     set id1 [R 1 cluster myid]
 
-    test "redis-cli --cluster reshard --cluster-use-atomic-slot-migration" {
+    test "redis-cli --cluster reshard automatically uses atomic slot migration" {
         # Move the lowest 1000 slots (0-999) from node 0 to node 1 using ASM.
+        clear_module_event_log
         exec src/redis-cli --cluster reshard 127.0.0.1:[get_port 0] \
             --cluster-from $id0 --cluster-to $id1 \
-            --cluster-slots 1000 --cluster-yes \
-            --cluster-use-atomic-slot-migration
+            --cluster-slots 1000 --cluster-yes
         wait_for_asm_done
+
+        # Non-empty event logs confirm redis-cli used ASM.
+        assert {[R 0 asm.get_cluster_event_log] ne {}}
+        assert {[R 1 asm.get_cluster_event_log] ne {}}
 
         assert_equal {{1000 5461}} [R 0 asm.cluster_get_local_slot_ranges]
         assert_equal {{0 999} {5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
     }
 
-    test "redis-cli --cluster rebalance --cluster-use-atomic-slot-migration" {
+    test "redis-cli --cluster rebalance automatically uses atomic slot migration" {
         # Rebalance distributes 16384 slots evenly across the 3 nodes.
         # (0-999) will be moved back to node 0.
-        exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] \
-            --cluster-yes --cluster-use-atomic-slot-migration
+        clear_module_event_log
+        exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
         wait_for_asm_done
+        # Non-empty event logs confirm redis-cli used ASM.
+        assert {[R 1 asm.get_cluster_event_log] ne {}}
+        assert {[R 0 asm.get_cluster_event_log] ne {}}
 
         assert_equal {{0 5461}} [R 0 asm.cluster_get_local_slot_ranges]
         assert_equal {{5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]

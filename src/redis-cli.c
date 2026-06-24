@@ -69,6 +69,8 @@
 #define CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT 3600000 /* 60 minutes */
 #define CLUSTER_MANAGER_MIGRATE_PIPELINE    10
 #define CLUSTER_MANAGER_REBALANCE_THRESHOLD 2
+/* CLUSTER MIGRATION, used by ASM, is available starting with Redis 8.4.0. */
+#define CLUSTER_MANAGER_ASM_MIN_VERSION     "8.4.0"
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
@@ -117,8 +119,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS 1 << 10
 #define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
 #define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
-#define CLUSTER_MANAGER_CMD_FLAG_ASM            1 << 13
-#define CLUSTER_MANAGER_CMD_FLAG_TIMEOUT        1 << 14
+#define CLUSTER_MANAGER_CMD_FLAG_TIMEOUT        1 << 13
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -870,20 +871,16 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
     return numCommands;
 }
 
-/* Gets the server version string by calling INFO SERVER.
- * Stores the result in config.server_version.
- * When not connected, or not possible, returns NULL. */
-static sds cliGetServerVersion(void) {
+/* Gets the server version string from the given context by calling INFO SERVER.
+ * The caller owns the returned SDS. When not connected, or not possible,
+ * returns NULL. */
+static sds cliGetServerVersionFromContext(redisContext *ctx) {
     static const char *key = "\nredis_version:";
     redisReply *serverInfo = NULL;
     char *pos;
 
-    if (config.server_version != NULL) {
-        return config.server_version;
-    }
-
-    if (!context) return NULL;
-    serverInfo = redisCommand(context, "INFO SERVER");
+    if (!ctx) return NULL;
+    serverInfo = redisCommand(ctx, "INFO SERVER");
     if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
         freeReplyObject(serverInfo);
         return sdsempty();
@@ -900,12 +897,26 @@ static sds cliGetServerVersion(void) {
         if (end) {
             sds version = sdsnewlen(pos, end - pos);
             freeReplyObject(serverInfo);
-            config.server_version = version;
             return version;
         }
     }
     freeReplyObject(serverInfo);
     return NULL;
+}
+
+/* Gets the server version string by calling INFO SERVER.
+ * Stores the result in config.server_version.
+ * When not connected, or not possible, returns NULL. */
+static sds cliGetServerVersion(void) {
+    if (config.server_version != NULL) {
+        return config.server_version;
+    }
+
+    sds version = cliGetServerVersionFromContext(context);
+    if (version != NULL && sdslen(version) != 0) {
+        config.server_version = version;
+    }
+    return version;
 }
 
 static void cliLegacyInitHelp(dict *groups) {
@@ -2997,9 +3008,6 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-use-empty-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;
-        } else if (!strcmp(argv[i],"--cluster-use-atomic-slot-migration")) {
-            config.cluster_manager_command.flags |=
-                CLUSTER_MANAGER_CMD_FLAG_ASM;
         } else if (!strcmp(argv[i],"--cluster-search-multiple-owners")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS;
@@ -3834,6 +3842,7 @@ typedef struct clusterManagerNode {
     int importing_count; /* Length of the importing array (importing slots*2) */
     float weight;   /* Weight used by rebalance */
     int balance;    /* Used by rebalance */
+    sds server_version;
 } clusterManagerNode;
 
 /* Data structure used to represent a sequence of cluster nodes. */
@@ -3952,10 +3961,10 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "search-multiple-owners,fix-with-unreachable-masters"},
     {"reshard", clusterManagerCommandReshard, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "from <arg>,to <arg>,slots <arg>,yes,timeout <ms>,pipeline <arg>,"
-     "replace,use-atomic-slot-migration"},
+     "replace"},
     {"rebalance", clusterManagerCommandRebalance, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
-     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace,use-atomic-slot-migration"},
+     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
@@ -4124,6 +4133,7 @@ static void freeClusterManagerNode(clusterManagerNode *node) {
         freeClusterManagerNodeFlags(node->flags_str);
         node->flags_str = NULL;
     }
+    if (node->server_version != NULL) sdsfree(node->server_version);
     zfree(node);
 }
 
@@ -4176,6 +4186,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_por
     node->replicas_count = 0;
     node->weight = 1.0f;
     node->balance = 0;
+    node->server_version = NULL;
     clusterManagerNodeResetSlots(node);
     return node;
 }
@@ -5935,6 +5946,44 @@ invalid_friend:
             } else master->replicas_count++;
         }
     }
+    return 1;
+}
+
+/* Gets and caches the Redis server version for a cluster manager node. */
+static sds clusterManagerNodeGetServerVersion(clusterManagerNode *node) {
+    sds version = NULL;
+    if (node->server_version != NULL) return node->server_version;
+
+    if (node->context == NULL && !clusterManagerNodeConnect(node)) return NULL;
+
+    version = cliGetServerVersionFromContext(node->context);
+    if (version == NULL || sdslen(version) == 0) {
+        if (version) sdsfree(version);
+        return NULL;
+    }
+    node->server_version = version;
+    return node->server_version;
+}
+
+/* Returns true when ASM can be selected automatically for cluster slot moves. */
+static int clusterManagerShouldUseAtomicSlotMigration(void) {
+    if (cluster_manager.nodes == NULL) return 0;
+
+    sds min_version = sdsnew(CLUSTER_MANAGER_ASM_MIN_VERSION);
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        sds server_version = clusterManagerNodeGetServerVersion(n);
+        if (server_version == NULL ||
+            !versionIsSupported(server_version, min_version))
+        {
+            sdsfree(min_version);
+            return 0;
+        }
+    }
+    sdsfree(min_version);
     return 1;
 }
 
@@ -7941,8 +7990,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             goto cleanup;
         }
     }
-    int use_asm = config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_ASM;
-    if (use_asm) {
+    if (clusterManagerShouldUseAtomicSlotMigration()) {
         /* For each source, collect its slots and migrate them in one atomic
          * call. CLUSTER MIGRATION IMPORT only accepts a single source per
          * task, so we must issue one call per source node. */
@@ -8130,8 +8178,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     int src_idx = nodes_involved - 1;
     int simulate = config.cluster_manager_command.flags &
                    CLUSTER_MANAGER_CMD_FLAG_SIMULATE;
-    int use_asm = config.cluster_manager_command.flags &
-                  CLUSTER_MANAGER_CMD_FLAG_ASM;
+    int use_asm = !simulate && clusterManagerShouldUseAtomicSlotMigration();
     while (dst_idx < src_idx) {
         clusterManagerNode *dst = weightedNodes[dst_idx];
         clusterManagerNode *src = weightedNodes[src_idx];
