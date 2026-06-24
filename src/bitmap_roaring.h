@@ -50,6 +50,7 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
 int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end);
 void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
+sds bitmapObjectMaterializeForRDB(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITMAP_ROARING_H */

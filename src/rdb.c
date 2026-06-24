@@ -1167,7 +1167,7 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
         if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_RAW)) == -1) return -1;
         nwritten += n;
 
-        sds payload = bitmapObjectMaterialize(o);
+        sds payload = bitmapObjectMaterializeForRDB(o);
         if (payload == NULL) return -1;
         serverAssert((uint64_t)sdslen(payload) == byte_len);
 
