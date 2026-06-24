@@ -368,9 +368,10 @@ proc createComplexDataset {r ops {opt {}}} {
             }
         }
 
-        # Streams live in their own bounded key namespace (so entries accumulate
-        # into larger streams across iterations, and stream IDs stay monotonic
-        # per key) rather than sharing the random keyspace with the other types.
+        # Streams use their own small key namespace so that entries accumulate into
+        # larger streams across iterations (exercising the higher histogram bins),
+        # and so stream keys aren't clobbered into other types in the shared random
+        # keyspace. Entry IDs use "*" so the server keeps them monotonic per key.
         if {$usestream && rand() < 0.2} {
             set sk "strm:[randomInt 20]$tag"
             randpath {
