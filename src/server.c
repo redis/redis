@@ -6030,18 +6030,67 @@ void bytesToHuman(char *s, size_t size, unsigned long long n) {
     }
 }
 
-/* Fill percentile distribution of latencies. */
-sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
+/* Upper bound on configured percentiles resolved in a single histogram pass.
+ * Sized for any realistic latency-tracking-info-percentiles config (default 3);
+ * larger configs fall back to the per-percentile path. Bounds the four small
+ * stack arrays below (<=448 bytes total). */
+#define LATENCY_PERCENTILE_FASTPATH_MAX 16
+
+/* Fill percentile distribution of latencies. 'plabels' holds the pre-formatted
+ * percentile labels (e.g. "50","99","99.9"), which are identical for every
+ * histogram; pass NULL to format them per-call (the rare >FASTPATH_MAX fallback). */
+sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram, const char **plabels) {
+    const int len = server.latency_tracking_info_percentiles_len;
+    const double *pcfg = server.latency_tracking_info_percentiles;
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
-    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-        char fbuf[128];
-        size_t len = snprintf(fbuf, sizeof(fbuf), "%f", server.latency_tracking_info_percentiles[j]);
-        trimDoubleString(fbuf, len);
-        info = sdscatprintf(info,"p%s=%.3f", fbuf,
-            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
-        if (j != server.latency_tracking_info_percentiles_len-1)
-            info = sdscatlen(info,",",1);
+
+    /* Computing each percentile with hdr_value_at_percentile() rescans the
+     * histogram counts from index 0 every time, so N percentiles cost N scans.
+     * hdr_value_at_percentiles() resolves them all in a single pass, but
+     * requires ascending input while the configured list may be in any order.
+     * Sort an index permutation (len is tiny, 3 by default), resolve in one
+     * pass, and scatter the results back into the configured order so the
+     * output is byte-identical to the per-percentile path. */
+    int64_t values[LATENCY_PERCENTILE_FASTPATH_MAX];
+    int use_fastpath = (len > 0 && len <= LATENCY_PERCENTILE_FASTPATH_MAX);
+    if (use_fastpath) {
+        int order[LATENCY_PERCENTILE_FASTPATH_MAX];
+        double sorted_p[LATENCY_PERCENTILE_FASTPATH_MAX];
+        int64_t sorted_v[LATENCY_PERCENTILE_FASTPATH_MAX];
+        for (int j = 0; j < len; j++) order[j] = j;
+        for (int a = 1; a < len; a++) { /* insertion sort indices by value */
+            int key = order[a];
+            int b = a - 1;
+            while (b >= 0 && pcfg[order[b]] > pcfg[key]) { order[b+1] = order[b]; b--; }
+            order[b+1] = key;
         }
+        for (int j = 0; j < len; j++) sorted_p[j] = pcfg[order[j]];
+        hdr_value_at_percentiles(histogram, sorted_p, sorted_v, len);
+        for (int j = 0; j < len; j++) values[order[j]] = sorted_v[j];
+    }
+
+    for (int j = 0; j < len; j++) {
+        int64_t v = use_fastpath ? values[j] : hdr_value_at_percentile(histogram, pcfg[j]);
+        /* v is an integer histogram value (nanoseconds); the reported figure is
+         * v/1000 (microseconds). Because v is an integer, v/1000.0 has at most 3
+         * fractional decimal digits, so emitting (v/1000).(v%1000, zero-padded to
+         * 3) by integer conversion is byte-identical to the old "%.3f" of
+         * (double)v/1000.0 across the bounded latency-histogram range (values are
+         * clamped to <= 1e9, far below 2^53 where double vs integer rounding could
+         * diverge), while avoiding glibc's floating-point formatter (__printf_fp),
+         * the dominant latencystats leaf in CPU profiling. */
+        long long ip = (long long)(v / 1000), fp = (long long)(v % 1000);
+        if (plabels != NULL) {
+            info = sdscatprintf(info,"p%s=%lld.%03lld", plabels[j], ip, fp);
+        } else {
+            char fbuf[128];
+            size_t flen = snprintf(fbuf, sizeof(fbuf), "%f", pcfg[j]);
+            trimDoubleString(fbuf, flen);
+            info = sdscatprintf(info,"p%s=%lld.%03lld", fbuf, ip, fp);
+        }
+        if (j != len-1)
+            info = sdscatlen(info,",",1);
+    }
     info = sdscatprintf(info,"\r\n");
     return info;
 }
@@ -6203,7 +6252,9 @@ sds genRedisInfoStringACLStats(sds info) {
     return info;
 }
 
-sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+/* Recursive worker for genRedisInfoStringLatencyStats(). 'plabels' carries the
+ * pre-formatted percentile labels (constant across all histograms), or NULL. */
+static sds genRedisInfoStringLatencyStatsImpl(sds info, dict *commands, const char **plabels) {
     struct redisCommand *c;
     dictEntry *de;
     dictIterator di;
@@ -6214,16 +6265,37 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
         if (c->latency_histogram) {
             info = fillPercentileDistributionLatencies(info,
                 getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe),
-                c->latency_histogram);
+                c->latency_histogram, plabels);
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         if (c->subcommands_dict) {
-            info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
+            info = genRedisInfoStringLatencyStatsImpl(info, c->subcommands_dict, plabels);
         }
     }
     dictResetIterator(&di);
 
     return info;
+}
+
+sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+    /* The percentile LABELS (e.g. "50"/"99"/"99.9") are identical for every
+     * command histogram, so format them once here instead of re-running
+     * snprintf()+trimDoubleString() per histogram inside the per-command loop
+     * (which on a busy server iterates hundreds of histograms). */
+    const int len = server.latency_tracking_info_percentiles_len;
+    if (len > 0 && len <= LATENCY_PERCENTILE_FASTPATH_MAX) {
+        char lblbuf[LATENCY_PERCENTILE_FASTPATH_MAX][16]; /* percentiles are <=100.0 -> <=10 chars */
+        const char *plabels[LATENCY_PERCENTILE_FASTPATH_MAX];
+        for (int j = 0; j < len; j++) {
+            size_t l = snprintf(lblbuf[j], sizeof(lblbuf[j]), "%f",
+                                server.latency_tracking_info_percentiles[j]);
+            trimDoubleString(lblbuf[j], l);
+            plabels[j] = lblbuf[j];
+        }
+        return genRedisInfoStringLatencyStatsImpl(info, commands, plabels);
+    }
+    /* len==0, or an unusually large config: format labels per-call. */
+    return genRedisInfoStringLatencyStatsImpl(info, commands, NULL);
 }
 
 /* Takes a null terminated sections list, and adds them to the dict. */
