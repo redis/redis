@@ -27,20 +27,22 @@ static void populateDeltaHistograms(kvstore *kvs, asmTrimCtx *ctx) {
 
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
-        if ((!kv) || (kv->type >= OBJ_TYPE_BASIC_MAX)) continue;
+        if (!kv) continue;
+        int idx = keysizesHistIdx(kv->type);
+        if (idx < 0) continue;
 
         /* Update keysizes_hist delta */
         size_t len = getObjectLength(kv);
         int sizeBin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
         debugServerAssert(sizeBin < MAX_KEYSIZES_BINS);
-        ctx->delta_keysizes_hist[kv->type][sizeBin]++;
+        ctx->delta_keysizes_hist[idx][sizeBin]++;
 
         /* Update allocsizes_hist delta */
         if (server.memory_tracking_enabled) {
             size_t alloc_size = kvobjAllocSize(kv);
             int allocBin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
             debugServerAssert(allocBin < MAX_KEYSIZES_BINS);
-            ctx->delta_allocsizes_hist[kv->type][allocBin]++;
+            ctx->delta_allocsizes_hist[idx][allocBin]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);

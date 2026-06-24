@@ -356,12 +356,13 @@ static void dictDestructorKV(dict *d, void *key) {
         meta->alloc_size -= alloc_size;
         /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
          * (e.g. in lazy free context). */
-        if (kvstoreMeta && kv->type < OBJ_TYPE_BASIC_MAX) {
+        int idx = keysizesHistIdx(kv->type);
+        if (kvstoreMeta && idx >= 0) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
             int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
             debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-            kvstoreMeta->allocsizes_hist[kv->type][old_bin]--;
+            kvstoreMeta->allocsizes_hist[idx][old_bin]--;
         }
     }
     decrRefCount(kv);
@@ -6372,7 +6373,7 @@ static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const c
         "1E", "2E", "4E"                                                     /* Exa */
     };
 
-    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+    for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
         if (field_names[type] == NULL) continue;
 
         char buf[10000];
@@ -7096,17 +7097,19 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_LIST] = "distrib_lists_items",
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
-            [OBJ_HASH] = "distrib_hashes_items"
+            [OBJ_HASH] = "distrib_hashes_items",
+            [KEYSIZES_IDX_STREAM] = "distrib_streams_items"
         };
-        serverAssert(sizeof(type_items_str)/sizeof(type_items_str[0]) == OBJ_TYPE_BASIC_MAX);
+        serverAssert(sizeof(type_items_str)/sizeof(type_items_str[0]) == MAX_KEYSIZES_TYPES);
         static const char *type_sizes_str[] = {
             [OBJ_STRING] = NULL, /* Skip strings to avoid confusion with distrib_strings_sizes */
             [OBJ_LIST] = "distrib_lists_sizes",
             [OBJ_SET] = "distrib_sets_sizes",
             [OBJ_ZSET] = "distrib_zsets_sizes",
-            [OBJ_HASH] = "distrib_hashes_sizes"
+            [OBJ_HASH] = "distrib_hashes_sizes",
+            [KEYSIZES_IDX_STREAM] = "distrib_streams_sizes"
         };
-        serverAssert(sizeof(type_sizes_str)/sizeof(type_sizes_str[0]) == OBJ_TYPE_BASIC_MAX);
+        serverAssert(sizeof(type_sizes_str)/sizeof(type_sizes_str[0]) == MAX_KEYSIZES_TYPES);
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
             if (kvstoreSize(server.db[dbnum].keys) == 0)

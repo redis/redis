@@ -31,7 +31,8 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
+static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX + 1, "basic types + streams");
+static_assert(KEYSIZES_IDX_STREAM == OBJ_TYPE_BASIC_MAX, "streams take the slot after the basic types");
 
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
@@ -86,34 +87,35 @@ void updateLRM(robj *o) {
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
-    if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
+    int idx = keysizesHistIdx((int) type);
+    if (unlikely(idx < 0))
         return;
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
         debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[type][old_bin]--;
-        debugServerAssert(kvstoreHist[type][old_bin] >= 0);
+        kvstoreHist[idx][old_bin]--;
+        debugServerAssert(kvstoreHist[idx][old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily
              * dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[type][0]--;
-            debugServerAssert(kvstoreHist[type][0] >= 0);
+            kvstoreHist[idx][0]--;
+            debugServerAssert(kvstoreHist[idx][0] >= 0);
         }
     }
-    
+
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
         debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[type][new_bin]++;
+        kvstoreHist[idx][new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily
              * dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[type][0]++;
+            kvstoreHist[idx][0]++;
         }
     }
 }
@@ -155,13 +157,14 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
     kvstoreIteratorInit(&kvs_it, kvs);
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
-        if (kv->type < OBJ_TYPE_BASIC_MAX) {
+        int idx = keysizesHistIdx(kv->type);
+        if (idx >= 0) {
             int64_t len = fn(kv);
-            scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
+            scanHist[idx][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
-    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+    for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
         volatile int64_t *keysizesHist = hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])

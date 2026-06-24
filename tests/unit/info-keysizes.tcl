@@ -34,6 +34,7 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
     
         # Replace all placeholders with the actual values. Remove spaces & newlines.
         set res [string map {
+            "STREAM" "distrib_streams_items"
             "STR" "distrib_strings_sizes"
             "LIST" "distrib_lists_items"
             "SET" "distrib_sets_items"
@@ -113,6 +114,10 @@ proc eval_db_histogram {server dbid} {
                 set value [$server hlen $key]
                 set type "HASH"
             }
+            "stream" {
+                set value [$server xlen $key]
+                set type "STREAM"
+            }
             default {
                 continue  ; # Skip unknown types
             }
@@ -126,7 +131,7 @@ proc eval_db_histogram {server dbid} {
     }
 
     set result {}
-    foreach type {STR LIST SET ZSET HASH} {
+    foreach type {STR LIST SET ZSET HASH STREAM} {
         if {[array exists type_counts] && [array names type_counts $type,*] ne ""} {
             set sorted_powers [lsort -integer [lmap item [array names type_counts $type,*] {
                 lindex [split $item ,] 1  ; # Extracts only the numeric part
@@ -753,6 +758,44 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1}
     } {} {cluster:skip needs:debug}
 
+    test "KEYSIZES - Stream entries are tracked in the keysizes histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Bin walk (floor-log2): 1->"1", 2,3->"2", 4..7->"4", 8->"8".
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 3-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 4-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 5-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 6-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 7-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 8-1 f v} {db0_STREAM:8=1}
+        # XTRIM and XDEL move the sample down; emptying lands it in bin 0.
+        run_cmd_verify_hist {$server XTRIM st maxlen 4} {db0_STREAM:4=1}  ;# keeps 5-1..8-1
+        run_cmd_verify_hist {$server XDEL st 5-1 6-1} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XDEL st 7-1 8-1} {db0_STREAM:0=1}
+        # Deleting the key removes its sample entirely.
+        run_cmd_verify_hist {$server DEL st} {}
+        # XGROUP CREATE ... MKSTREAM births an empty stream in bin 0.
+        run_cmd_verify_hist {$server XGROUP CREATE st2 g 0 MKSTREAM} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - XDELEX and XACKDEL update the stream histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        for {set i 1} {$i <= 4} {incr i} { $server XADD st $i-1 f v }
+        run_cmd_verify_hist {$server XLEN st} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XDELEX st IDS 2 4-1 3-1} {db0_STREAM:2=1}
+        $server XGROUP CREATE st g 0
+        $server XREADGROUP GROUP g c COUNT 2 STREAMS st >
+        run_cmd_verify_hist {$server XACKDEL st g IDS 2 1-1 2-1} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - Stream survives DEBUG RELOAD $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STREAM:2=1}
+    } {} {cluster:skip needs:debug}
+
     test "KEYSIZES - Test RDB $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         # Write list, set and zset to db0
@@ -807,8 +850,8 @@ proc get_info_keymem_stripped {server} {
     set info [$server info keysizes]
     set result ""
     foreach line [split $info "\n"] {
-        # Match key memory histograms: lists_sizes, sets_sizes, zsets_sizes, hashes_sizes
-        if {[regexp {distrib_(lists|sets|zsets|hashes)_sizes} $line]} {
+        # Match key memory histograms: lists/sets/zsets/hashes/streams _sizes.
+        if {[regexp {distrib_(lists|sets|zsets|hashes|streams)_sizes} $line]} {
             append result [string map {" " "" "\r" ""} $line]
         }
     }
@@ -855,8 +898,17 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         r SADD "set" x y z
         r ZADD "zset" 1 a 2 b
         r HSET "hash" f1 v1
+        r XADD "stream" 1-1 f v
 
-        verify_keymem_non_empty r {lists sets zsets hashes}
+        verify_keymem_non_empty r {lists sets zsets hashes streams}
+    }
+
+    test "KEY-MEMORY-STATS - Stream keys should appear in key memory histogram" {
+        r FLUSHALL
+        for {set i 1} {$i <= 8} {incr i} { r XADD mystream $i-1 f v }
+        verify_keymem_non_empty r {streams}
+        r FLUSHALL
+        verify_keymem_empty r
     }
 
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
