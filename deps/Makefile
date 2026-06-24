@@ -109,9 +109,10 @@ xxhash: .make-prerequisites
 	cd xxhash && $(MAKE) lib CFLAGS="$(XXHASH_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 .PHONY: xxhash
 
+CROARING_CFLAGS = $(DEPS_CFLAGS) -DROARING_DISABLE_X64=1 -DDISABLENEON=1
 croaring: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd croaring && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO="$(ENABLE_LTO)"
+	cd croaring && $(MAKE) CFLAGS="$(CROARING_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO="$(ENABLE_LTO)"
 
 .PHONY: croaring
 
