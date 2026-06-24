@@ -720,6 +720,29 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
+    test {native bitmap RDB raw save is not bounded by current proto-max-bulk-len} {
+        set limit 1048576
+        set byte_len [expr {$limit + 1}]
+        set oldval [config_get_set proto-max-bulk-len [expr {$byte_len + 1024}]]
+        set raw [string repeat [binary format H* 8000] [expr {$limit / 2}]]
+        append raw [binary format H* 80]
+        assert_equal $byte_len [string length $raw]
+
+        r del bitmap:rdb-raw-bulk-limit
+        r set bitmap:rdb-raw-bulk-limit $raw
+        r bitmap convert bitmap:rdb-raw-bulk-limit
+        r config set proto-max-bulk-len $limit
+
+        r debug reload
+
+        r config set proto-max-bulk-len [expr {$byte_len + 1024}]
+        assert_equal bitmap [r type bitmap:rdb-raw-bulk-limit]
+        assert_equal bitmap-roaring [r object encoding bitmap:rdb-raw-bulk-limit]
+        assert_equal $raw [r debug bitmap-raw bitmap:rdb-raw-bulk-limit]
+        r del bitmap:rdb-raw-bulk-limit
+        r config set proto-max-bulk-len $oldval
+    }
+
     test {native bitmap RDB load is not bounded by current proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
