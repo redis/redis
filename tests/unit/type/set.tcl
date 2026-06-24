@@ -448,7 +448,7 @@ foreach type {single multiple single_multiple} {
             for {set k 1} {$k <= 20} {incr k} { r del s$k{t}; r sadd s$k{t} "elem-$k" }
         }
     } {
-        test "SDIFFCARD forces algo 2 with LIMIT early termination - $type" {
+        test "SDIFFCARD forces algo 2b with LIMIT early termination - $type" {
             eval $setup
             set keys [list s0{t}]
             for {set k 1} {$k <= 20} {incr k} { lappend keys s$k{t} }
