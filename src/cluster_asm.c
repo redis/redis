@@ -183,8 +183,6 @@ char *receiveSynchronousResponse(connection *conn);
 ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
-/* cluster.c */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);
