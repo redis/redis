@@ -1163,6 +1163,10 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
 
     bitmapObjectVisitSetBitRanges(o, rdbCountBitmapRange, &range_count);
 
+    /* Each range writes start and end as RDB lengths, at least two bytes per
+     * range. If range_count exceeds byte_len / 2, the range endpoints alone
+     * are larger than the raw byte payload, before the range_count field and
+     * any multi-byte length encodings, so use raw encoding. */
     if (range_count > byte_len / 2) {
         if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_RAW)) == -1) return -1;
         nwritten += n;
