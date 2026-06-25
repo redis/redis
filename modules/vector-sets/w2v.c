@@ -46,7 +46,7 @@ void test_recall(HNSW *index, int ef) {
 
     // Create array to store vectors for mixing.
     int num_source_vectors = 1000; // Enough, since we mix them.
-    float **source_vectors = malloc(sizeof(float*) * num_source_vectors);
+    float **source_vectors = calloc(num_source_vectors, sizeof(float*));
     if (!source_vectors) {
         printf("Failed to allocate memory for source vectors\n");
         return;
@@ -54,7 +54,7 @@ void test_recall(HNSW *index, int ef) {
 
     // Allocate memory for each source vector.
     for (int i = 0; i < num_source_vectors; i++) {
-        source_vectors[i] = malloc(sizeof(float) * 300);
+        source_vectors[i] = calloc(300, sizeof(float));
         if (!source_vectors[i]) {
             printf("Failed to allocate memory for source vector %d\n", i);
             // Clean up already allocated vectors.
@@ -81,7 +81,7 @@ void test_recall(HNSW *index, int ef) {
     }
 
     // Allocate memory for test vector.
-    float *test_vector = malloc(sizeof(float) * 300);
+    float *test_vector = calloc(300, sizeof(float));
     if (!test_vector) {
         printf("Failed to allocate memory for test vector\n");
         for (int i = 0; i < num_source_vectors; i++) {
@@ -92,10 +92,10 @@ void test_recall(HNSW *index, int ef) {
     }
 
     // Allocate memory for results.
-    hnswNode **hnsw_results = malloc(sizeof(hnswNode*) * ef);
-    hnswNode **linear_results = malloc(sizeof(hnswNode*) * ef);
-    float *hnsw_distances = malloc(sizeof(float) * ef);
-    float *linear_distances = malloc(sizeof(float) * ef);
+    hnswNode **hnsw_results = calloc(ef, sizeof(hnswNode*));
+    hnswNode **linear_results = calloc(ef, sizeof(hnswNode*));
+    float *hnsw_distances = calloc(ef, sizeof(float));
+    float *linear_distances = calloc(ef, sizeof(float));
 
     if (!hnsw_results || !linear_results || !hnsw_distances || !linear_distances) {
         printf("Failed to allocate memory for results\n");
@@ -449,7 +449,7 @@ int w2v_multi_thread(int m_param, int numthreads, int quantization, uint64_t num
 
     // We will search this last inserted word in the next test.
     // Let's save its embedding.
-    ctx.search_vector = malloc(sizeof(float)*300);
+    ctx.search_vector = calloc(300, sizeof(float));
     hnsw_get_node_vector(ctx.index,node,ctx.search_vector);
 
     printf("%llu words added (%llu words/sec), last word: %s\n",
