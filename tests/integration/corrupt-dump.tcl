@@ -1289,12 +1289,13 @@ test {corrupt payload: bitmap RDB validation} {
         r set bitmap:replace-target $replace_target_raw
         r bitmap convert bitmap:replace-target
         r pexpire bitmap:replace-target 60000
+        set replace_target_expire [r pexpiretime bitmap:replace-target]
         catch { r restore bitmap:replace-target 0 $bad_encoding_payload replace } err
         assert_match "*Bad data format*" $err
         assert_equal bitmap [r type bitmap:replace-target]
         assert_equal bitmap-roaring [r object encoding bitmap:replace-target]
         assert_equal $replace_target_raw [r debug bitmap-raw bitmap:replace-target]
-        assert {[r pttl bitmap:replace-target] > 0}
+        assert_equal $replace_target_expire [r pexpiretime bitmap:replace-target]
 
         set short_raw_payload [bitmap_raw_dump_payload $bitmap_type 3 $valid_raw $dump_trailer]
         catch { r restore bitmap:short-raw 0 $short_raw_payload } err
