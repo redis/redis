@@ -4,7 +4,7 @@ STD = -std=gnu11
 WARN = -Wall
 OPT = -O3
 
-AR = ar
+AR ?= ar
 ARFLAGS = rcs
 
 CROARING_CFLAGS = $(STD) $(WARN) $(OPT) $(ENABLE_LTO) $(CFLAGS) -fPIC \
