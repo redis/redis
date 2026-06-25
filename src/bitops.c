@@ -2579,7 +2579,9 @@ void bitfieldGeneric(client *c, int flags) {
         if (!changes && !native_len_extended) server.dirty++;
     }
 
-    if (changes || native_len_extended) {
+    int string_len_extended = !native_bitmap_write && strGrowSize != 0;
+
+    if (changes || native_len_extended || string_len_extended) {
         if (native_bitmap_write) {
             if (strOldSize != bitmapObjectLen(o))
                 updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
