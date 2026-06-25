@@ -1072,7 +1072,8 @@ void setbitCommand(client *c) {
              * callback. */
             bitmapPropagateRestore(c, c->argv[1], native, -1);
             dbAddByLink(c->db, c->argv[1], &native, &link);
-            keyModified(c,c->db,c->argv[1],native,1);
+            keyModified(c,c->db,c->argv[1],
+                        lookupKeyWriteWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH),1);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
         } else if (native_converted) {
