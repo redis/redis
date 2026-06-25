@@ -131,7 +131,9 @@ In `include/roaring/portability.h`:
   `#define __has_include(x) 0`) for compilers without the builtin.
 * Fixed upstream's malformed `#ifndef !defined(__BYTE_ORDER__) || ...` guard
   to a proper `#if !defined(...)` form and reworked the endian/byteswap
-  include chain around it.
+  include chain around it. Redis' copy also recognizes the non-GNU
+  `__BYTE_ORDER`, `_BYTE_ORDER`, and `BYTE_ORDER` macro families and errors at
+  build time when CRoaring cannot determine target endianness.
 * Added a `CROARING_ATOMIC_IMPL_GCC` fallback using `__sync` builtins for
   toolchains without C11 atomics.
 * Gated `CROARING_ALLOW_UNALIGNED` to
