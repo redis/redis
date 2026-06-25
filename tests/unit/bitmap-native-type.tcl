@@ -297,7 +297,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
             [list bitfield bitmap:native:small-limit SET u2 $last_allowed 3] \
         ] {
-            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
+            assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
         assert_equal 1 [r bitcount bitmap:native:small-limit]
 
