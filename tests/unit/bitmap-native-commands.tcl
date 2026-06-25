@@ -273,6 +273,42 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 004000] [r debug bitmap-raw bitmap:native:setbit]
     }
 
+    test {native bitmap MEMORY USAGE tracks roaring container allocation updates} {
+        r config set bitmap-default-roaring yes
+        r del bitmap:native:memory
+
+        assert_equal 0 [r setbit bitmap:native:memory 0 1]
+        set one_container [r memory usage bitmap:native:memory]
+        assert_morethan $one_container 0
+
+        assert_equal 0 [r setbit bitmap:native:memory 65536 1]
+        set two_containers [r memory usage bitmap:native:memory]
+        assert_morethan $two_containers $one_container
+
+        assert_equal 1 [r setbit bitmap:native:memory 65536 0]
+        set back_to_one [r memory usage bitmap:native:memory]
+        assert_lessthan $back_to_one $two_containers
+        assert_equal 1 [r bitcount bitmap:native:memory]
+
+        assert_equal 1 [r setbit bitmap:native:memory 0 0]
+        set empty [r memory usage bitmap:native:memory]
+        assert_lessthan $empty $back_to_one
+        assert_equal 0 [r bitcount bitmap:native:memory]
+
+        r del bitmap:native:memory:same-container
+        assert_equal 0 [r setbit bitmap:native:memory:same-container 0 1]
+        set sparse_container [r memory usage bitmap:native:memory:same-container]
+        for {set bit 1} {$bit <= 4096} {incr bit} {
+            assert_equal 0 [r setbit bitmap:native:memory:same-container $bit 1]
+        }
+        set dense_container [r memory usage bitmap:native:memory:same-container]
+        assert_morethan $dense_container $sparse_container
+        assert_equal 4097 [r bitcount bitmap:native:memory:same-container]
+
+        r config set bitmap-default-roaring no
+        r del bitmap:native:memory bitmap:native:memory:same-container
+    }
+
     test {bitmap commands operate on legacy and native representations with default native creation disabled} {
         r config set bitmap-default-roaring no
         set raw [binary format H* 804001]
@@ -466,6 +502,24 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_native_bitmap_write_matches_string grow-after-fail-only-high-write \
             [binary format H* 00] \
             {bitfield key OVERFLOW FAIL SET u2 47 5}
+
+        set fail_key bitmap:native:bitfield:overflow-fail-string-growth
+        r config set bitmap-default-roaring no
+        r set $fail_key [binary format H* 00]
+        assert_equal string [r type $fail_key]
+        assert_equal {{}} [r bitfield $fail_key OVERFLOW FAIL SET u2 47 5]
+        assert_equal string [r type $fail_key]
+        assert_equal 7 [r strlen $fail_key]
+        assert_equal [binary format H* 00000000000000] [r get $fail_key]
+
+        set watched_fail_key bitmap:native:bitfield:overflow-fail-string-growth-watch
+        r set $watched_fail_key [binary format H* 00]
+        r watch $watched_fail_key
+        assert_equal {{}} [r bitfield $watched_fail_key OVERFLOW FAIL SET u2 47 5]
+        r multi
+        r ping
+        assert_equal {} [r exec]
+        assert_equal 7 [r strlen $watched_fail_key]
     }
 
     test {BITFIELD uses the same write offset limit for string and native bitmaps} {
