@@ -1059,7 +1059,7 @@ void setbitCommand(client *c) {
             bitmapPropagateRestore(c, c->argv[1], created_bitmap, -1);
             dbAddByLink(c->db, c->argv[1], &created_bitmap, &link);
             keyModified(c,c->db,c->argv[1],
-                        lookupKeyWrite(c->db,c->argv[1]),1);
+                        lookupKeyWriteWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH),1);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
 
@@ -2590,7 +2590,7 @@ void bitfieldGeneric(client *c, int flags) {
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
                                     oldAllocSize, kvobjAllocSize(o));
-        } else {
+        } else if (!native_transition) {
             /* If this is not a new key and size changed, then update the
              * keysizes histogram. Otherwise, the histogram already
              * updated in lookupStringForBitCommand() by calling dbAdd(). */
@@ -2599,7 +2599,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
         
         keyModified(c,c->db,c->argv[1],
-                    native_transition ? lookupKeyWrite(c->db,c->argv[1]) : o,1);
+                    native_transition ? lookupKeyWriteWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) : o,1);
         notifyKeyspaceEvent(native_bitmap_write ? NOTIFY_BITMAP : NOTIFY_STRING,
                             "setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
