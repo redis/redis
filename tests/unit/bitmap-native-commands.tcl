@@ -468,19 +468,24 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             {bitfield key OVERFLOW FAIL SET u2 47 5}
     }
 
-    test {BITFIELD keeps the proto-max-bulk-len offset limit on native bitmaps} {
+    test {BITFIELD uses the same write offset limit for string and native bitmaps} {
+        seed_string_bitmap bitmap:string:bitfield:limit {}
         seed_native_bitmap bitmap:native:bitfield:limit {}
 
-        assert_error {*ERR bit offset*out of range*} {
-            r bitfield bitmap:native:bitfield:limit SET u1 4294967296 1
-        }
-        assert_error {*ERR bit offset*out of range*} {
-            r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
+        foreach key {bitmap:string:bitfield:limit bitmap:native:bitfield:limit} {
+            assert_error {*ERR bit offset is not an integer or out of range*} {
+                r bitfield $key SET u1 4294967296 1
+            }
+            assert_error {*ERR bit offset is not an integer or out of range*} {
+                r bitfield $key SET u2 4294967295 3
+            }
         }
         assert_error {*ERR bit offset*out of range*} {
             r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296
         }
+        assert_equal 0 [r bitcount bitmap:string:bitfield:limit]
         assert_equal 0 [r bitcount bitmap:native:bitfield:limit]
+        assert_equal string [r type bitmap:string:bitfield:limit]
         assert_equal bitmap [r type bitmap:native:bitfield:limit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
 
@@ -497,7 +502,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitcount bitmap:native:bitfield:limit]
         r config set proto-max-bulk-len $oldval
 
-        r del bitmap:native:bitfield:limit
+        r del bitmap:string:bitfield:limit bitmap:native:bitfield:limit
     }
 
     test {translated redis-roaring int-array bit-array and clear scenarios use core bitmap commands} {
