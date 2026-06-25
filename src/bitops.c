@@ -1073,7 +1073,7 @@ void setbitCommand(client *c) {
             bitmapPropagateRestore(c, c->argv[1], native, -1);
             dbAddByLink(c->db, c->argv[1], &native, &link);
             keyModified(c,c->db,c->argv[1],
-                        lookupKeyWriteWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH),1);
+                        lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS),1);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
         } else if (native_converted) {
@@ -2605,7 +2605,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
         
         keyModified(c,c->db,c->argv[1],
-                    native_transition ? lookupKeyWriteWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) : o,1);
+                    native_transition ? lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o,1);
         notifyKeyspaceEvent(native_bitmap_write ? NOTIFY_BITMAP : NOTIFY_STRING,
                             "setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
