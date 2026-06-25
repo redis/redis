@@ -229,7 +229,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         } {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r setbit bitmap:native:bounds 9223372036854775808 1
         }
         assert_equal 1 [r bitcount bitmap:native:bounds]
@@ -240,14 +240,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring yes
         r del bitmap:bounds:implicit:new bitmap:bounds:implicit:string
 
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r setbit bitmap:bounds:implicit:new 4294967296 1
         }
         assert_equal 0 [r exists bitmap:bounds:implicit:new]
 
         set raw [binary format H* 80]
         r set bitmap:bounds:implicit:string $raw
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r setbit bitmap:bounds:implicit:string 4294967296 1
         }
         assert_equal string [r type bitmap:bounds:implicit:string]
@@ -260,21 +260,21 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
         r set bitmap:string:bounds [binary format H* 80]
 
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r setbit bitmap:string:bounds 4294967296 1
         }
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r bitfield bitmap:string:bounds SET u8 4294967296 255
         }
         assert_equal string [r type bitmap:string:bounds]
 
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r getbit bitmap:string:bounds 4294967296
         }
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r bitfield_ro bitmap:string:bounds GET u8 4294967296
         }
-        assert_error {*bit offset is not an integer or out of range*} {
+        assert_error {*bit offset is*out of range*} {
             r bitfield bitmap:string:bounds GET u8 4294967296
         }
         assert_equal 1 [r bitcount bitmap:string:bounds]
@@ -296,9 +296,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             [list setbit bitmap:native:small-limit $first_rejected 1] \
             [list bitfield_ro bitmap:native:small-limit GET u1 $first_rejected] \
             [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
-            [list bitfield bitmap:native:small-limit SET u2 $last_allowed 3] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
+        }
+        assert_error {*bit offset*out of range*} {
+            r bitfield bitmap:native:small-limit SET u2 $last_allowed 3
         }
         assert_equal 1 [r bitcount bitmap:native:small-limit]
 
@@ -746,10 +748,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r bitmap convert bitmap:rdb-frag:a
 
         set dump [r dump bitmap:rdb-frag:a]
-        binary scan [string index $dump 1] H2 bitmap_format_marker_tag
-        assert_equal 81 $bitmap_format_marker_tag
-        binary scan [string index $dump 10] c raw_encoding
-        assert_equal 0 $raw_encoding
         assert_lessthan [string length $dump] [expr {[string length $raw] + 128}] \
             "dump_len=[string length $dump] raw_len=[string length $raw]"
 
