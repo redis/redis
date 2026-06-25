@@ -859,6 +859,24 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_non_empty r {lists sets zsets hashes}
     }
 
+    test "KEY-MEMORY-STATS - BITFIELD native transitions keep histograms consistent" {
+        r FLUSHALL
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+        assert_equal OK [r config set bitmap-default-roaring yes]
+
+        assert_equal {0} [r bitfield "bitmap:keymem:bf:new" SET u1 65536 1]
+        assert_equal bitmap [r type "bitmap:keymem:bf:new"]
+
+        r set "bitmap:keymem:bf:convert" ""
+        assert_equal {0} [r bitfield "bitmap:keymem:bf:convert" SET u1 65536 1]
+        assert_equal bitmap [r type "bitmap:keymem:bf:convert"]
+
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        assert_equal OK [r config set bitmap-default-roaring no]
+        r FLUSHALL
+        verify_keymem_empty r
+    }
+
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
         r FLUSHALL
         r HSET "hash" f1 v1
