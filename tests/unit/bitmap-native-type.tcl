@@ -66,6 +66,40 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
+    test {bitmap-default-roaring yes: zero SETBIT extends native bitmap length} {
+        r config set bitmap-default-roaring yes
+        r del bitmap:public:zero:new bitmap:public:zero:convert \
+            bitmap:public:zero:existing
+
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal 0 [r setbit bitmap:public:zero:new 0 0]
+        assert_equal bitmap [r type bitmap:public:zero:new]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:new]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+
+        r set bitmap:public:zero:convert ""
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal 0 [r setbit bitmap:public:zero:convert 0 0]
+        assert_equal bitmap [r type bitmap:public:zero:convert]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:convert]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+
+        r set bitmap:public:zero:existing ""
+        r bitmap convert bitmap:public:zero:existing
+        assert_equal "" [r debug bitmap-raw bitmap:public:zero:existing]
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal 0 [r setbit bitmap:public:zero:existing 0 0]
+        assert_equal bitmap [r type bitmap:public:zero:existing]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:existing]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal 0 [r setbit bitmap:public:zero:existing 0 0]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:existing]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+        r config set bitmap-default-roaring no
+    }
+
     test {bitmap-default-roaring yes: BITFIELD creates and converts native bitmaps} {
         r config set bitmap-default-roaring yes
         r del bitmap:public:bf:new bitmap:public:bf:conv
@@ -193,7 +227,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             {bitfield_ro bitmap:native:bounds GET u1 4294967296}
             {bitfield bitmap:native:bounds SET u1 4294967296 1}
         } {
-            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
+            assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
         assert_error {*bit offset is not an integer or out of range*} {
             r setbit bitmap:native:bounds 9223372036854775808 1
@@ -262,9 +296,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             [list setbit bitmap:native:small-limit $first_rejected 1] \
             [list bitfield_ro bitmap:native:small-limit GET u1 $first_rejected] \
             [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
-            [list bitfield bitmap:native:small-limit SET u2 $last_allowed 3] \
         ] {
-            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
+            assert_error {*bit offset*out of range*} {r {*}$cmd}
+        }
+        assert_error {*bit offset is out of range*} {
+            r bitfield bitmap:native:small-limit SET u2 $last_allowed 3
         }
         assert_equal 1 [r bitcount bitmap:native:small-limit]
 
@@ -855,6 +891,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         r config set bitmap-default-roaring yes
 
         r setbit bitmap:public:aof:direct $::sparse_public_offset 1
+        r setbit bitmap:public:aof:zero 0 0
         r set bitmap:public:aof:auto ""
         r setbit bitmap:public:aof:auto $::sparse_public_offset 1
         set digest_before [debug_digest]
@@ -865,8 +902,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
 
         assert_equal [debug_digest] $digest_before
         assert_equal bitmap [r type bitmap:public:aof:direct]
+        assert_equal bitmap [r type bitmap:public:aof:zero]
         assert_equal bitmap [r type bitmap:public:aof:auto]
         assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:aof:zero]
         assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
         r config set bitmap-default-roaring no
     }
@@ -921,13 +960,16 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             $replica config set bitmap-default-roaring no
 
             $master setbit bitmap:public:repl:direct $::sparse_public_offset 1
+            $master setbit bitmap:public:repl:zero 0 0
             $master set bitmap:public:repl:auto ""
             $master setbit bitmap:public:repl:auto $::sparse_public_offset 1
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
+            assert_equal bitmap [$replica type bitmap:public:repl:zero]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal [binary format H* 00] [$replica debug bitmap-raw bitmap:public:repl:zero]
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
@@ -989,6 +1031,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+            assert_equal [binary format H* 00] [$replica debug bitmap-raw bitmap:public:repl:zero]
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
             assert_equal [$master debug digest] [$replica debug digest]
         }
