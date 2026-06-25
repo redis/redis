@@ -1971,8 +1971,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  * serve-start), so earlier commands in the same MULTI/EXEC don't count; outside a
  * transaction the baseline is 0. */
 static inline int streamReplyMaxsizeReached(client *c, long long maxsize, size_t emitted) {
-    return maxsize && emitted > 0 &&
-           c->net_output_bytes_curr_cmd >= (size_t)maxsize;
+    return maxsize && emitted > 0 && c->net_output_bytes_curr_cmd >= (size_t)maxsize;
 }
 
 /* Send the stream items in the specified range to the client 'c'. The range
