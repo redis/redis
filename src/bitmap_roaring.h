@@ -7,8 +7,9 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-/* Internal sanity cap for native bitmap logical length. Public bitmap commands
- * keep the legacy proto-max-bulk-len offset limit. */
+/* Internal representability cap for native bitmap logical length. Command
+ * handlers enforce the client-visible bitmap limits separately; this cap only
+ * protects native encoding invariants. */
 #define BITMAP_OBJECT_MAX_BYTES_RAW (INT64_MAX >> 3)
 #define BITMAP_OBJECT_MAX_BYTES ((uint64_t)BITMAP_OBJECT_MAX_BYTES_RAW)
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
