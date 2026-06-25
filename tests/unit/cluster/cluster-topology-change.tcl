@@ -41,6 +41,25 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         wait_for_cluster_state ok
     }
 
+    test "ClusterTopologyChange reports the SLOT reason on atomic slot migration" {
+        # Atomically migrate a slot range from node 0 to node 1 and back. Both
+        # the losing and the gaining owner must observe the SLOT reason.
+        set before0 [dict get [topo_stats 0] slot]
+        set before1 [dict get [topo_stats 1] slot]
+        R 1 cluster migration import 0 100
+        wait_for_condition 50 100 {
+            [dict get [topo_stats 0] slot] > $before0 &&
+            [dict get [topo_stats 1] slot] > $before1
+        } else {
+            fail "SLOT change reason was not reported on atomic slot migration"
+        }
+        # Migrate the slots back so the cluster layout is restored.
+        wait_for_cluster_propagation
+        R 0 cluster migration import 0 100
+        wait_for_cluster_propagation
+        wait_for_cluster_state ok
+    }
+
     test "ClusterTopologyChange reports the STATE reason when the cluster turns FAIL" {
         set before [dict get [topo_stats 0] state]
         # Dropping ownership of slots leaves them uncovered, which (with the
