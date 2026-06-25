@@ -395,8 +395,16 @@ static inline int roaring_hamming(uint64_t x) {
 #define CROARING_ALLOW_UNALIGNED
 #endif
 
-#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__)
-#define CROARING_IS_BIG_ENDIAN (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+#ifndef CROARING_IS_BIG_ENDIAN
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && \
+    defined(__ORDER_LITTLE_ENDIAN__)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define CROARING_IS_BIG_ENDIAN 1
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define CROARING_IS_BIG_ENDIAN 0
+#else
+#error "Unsupported __BYTE_ORDER__ value"
+#endif
 #elif defined(_WIN32)
 #define CROARING_IS_BIG_ENDIAN 0
 #else
@@ -415,15 +423,56 @@ static inline int roaring_hamming(uint64_t x) {
 
 #endif  // defined(__APPLE__) || defined(__FreeBSD__)
 
-#if !defined(__BYTE_ORDER__) || !defined(__ORDER_LITTLE_ENDIAN__)
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && \
+    defined(__ORDER_LITTLE_ENDIAN__)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define CROARING_IS_BIG_ENDIAN 1
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define CROARING_IS_BIG_ENDIAN 0
+#else
+#error "Unsupported __BYTE_ORDER__ value"
+#endif
+#elif defined(__BYTE_ORDER) && defined(__BIG_ENDIAN) && \
+    defined(__LITTLE_ENDIAN)
+#if __BYTE_ORDER == __BIG_ENDIAN
+#define CROARING_IS_BIG_ENDIAN 1
+#elif __BYTE_ORDER == __LITTLE_ENDIAN
+#define CROARING_IS_BIG_ENDIAN 0
+#else
+#error "Unsupported __BYTE_ORDER value"
+#endif
+#elif defined(_BYTE_ORDER) && defined(_BIG_ENDIAN) && defined(_LITTLE_ENDIAN)
+#if _BYTE_ORDER == _BIG_ENDIAN
+#define CROARING_IS_BIG_ENDIAN 1
+#elif _BYTE_ORDER == _LITTLE_ENDIAN
+#define CROARING_IS_BIG_ENDIAN 0
+#else
+#error "Unsupported _BYTE_ORDER value"
+#endif
+#elif defined(BYTE_ORDER) && defined(BIG_ENDIAN) && defined(LITTLE_ENDIAN)
+#if BYTE_ORDER == BIG_ENDIAN
+#define CROARING_IS_BIG_ENDIAN 1
+#elif BYTE_ORDER == LITTLE_ENDIAN
+#define CROARING_IS_BIG_ENDIAN 0
+#else
+#error "Unsupported BYTE_ORDER value"
+#endif
+#elif defined(__BIG_ENDIAN__) && !defined(__LITTLE_ENDIAN__)
+#define CROARING_IS_BIG_ENDIAN 1
+#elif defined(__LITTLE_ENDIAN__) && !defined(__BIG_ENDIAN__)
+#define CROARING_IS_BIG_ENDIAN 0
+#elif defined(_BIG_ENDIAN) && !defined(_LITTLE_ENDIAN)
+#define CROARING_IS_BIG_ENDIAN 1
+#elif defined(_LITTLE_ENDIAN) && !defined(_BIG_ENDIAN)
+#define CROARING_IS_BIG_ENDIAN 0
+#else
+#error "Unable to determine target byte order for CRoaring; define CROARING_IS_BIG_ENDIAN to 0 or 1."
+#endif
+#endif
 #endif
 
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define CROARING_IS_BIG_ENDIAN 0
-#else  // __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define CROARING_IS_BIG_ENDIAN 1
-#endif  // __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if CROARING_IS_BIG_ENDIAN != 0 && CROARING_IS_BIG_ENDIAN != 1
+#error "CROARING_IS_BIG_ENDIAN must be 0 or 1."
 #endif
 
 // Host <-> big endian conversion.
