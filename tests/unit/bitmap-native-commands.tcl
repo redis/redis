@@ -295,8 +295,18 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_lessthan $empty $back_to_one
         assert_equal 0 [r bitcount bitmap:native:memory]
 
+        r del bitmap:native:memory:same-container
+        assert_equal 0 [r setbit bitmap:native:memory:same-container 0 1]
+        set sparse_container [r memory usage bitmap:native:memory:same-container]
+        for {set bit 1} {$bit <= 4096} {incr bit} {
+            assert_equal 0 [r setbit bitmap:native:memory:same-container $bit 1]
+        }
+        set dense_container [r memory usage bitmap:native:memory:same-container]
+        assert_morethan $dense_container $sparse_container
+        assert_equal 4097 [r bitcount bitmap:native:memory:same-container]
+
         r config set bitmap-default-roaring no
-        r del bitmap:native:memory
+        r del bitmap:native:memory bitmap:native:memory:same-container
     }
 
     test {bitmap commands operate on legacy and native representations with default native creation disabled} {
