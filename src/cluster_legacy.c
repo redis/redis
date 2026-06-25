@@ -5400,8 +5400,12 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(myself->numslots == 0);
 
     int was_master = clusterNodeIsMaster(myself);
+    /* This node's replication relationship is changing -- either a master being
+     * demoted to a replica, or a replica re-pointing to a different primary. Both
+     * are topology changes, so notify modules in either branch (not only on
+     * demotion) so they re-read the topology. */
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
     if (was_master) {
-        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
