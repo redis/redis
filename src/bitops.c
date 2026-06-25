@@ -964,18 +964,18 @@ static robj *bitmapObjectFromStringObject(robj *o) {
     return bitmap;
 }
 
-/* Propagate a string-to-native-bitmap type transition as RESTORE ... REPLACE
+/* Propagate a bitmap representation transition as RESTORE ... REPLACE
  * [ABSTTL] instead of the triggering command: the conversion decision must
  * stay a pure function of replicated logical state, never re-derived from
- * replica-local config or allocator behavior. Shared with the test-only
- * DEBUG BITMAP-FORCE-ROARING, whose verbatim DEBUG propagation would
- * otherwise be dropped by replicas running with debug commands disabled.
- * This helper owns suppression of the triggering command so callers cannot
- * queue both the original write and the replacement payload. */
-static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap) {
+ * replica-local config or allocator behavior. The object does not need to be
+ * installed in the keyspace yet; callers pass the expiration that RESTORE
+ * should apply so the payload can be queued before keyspace notifications run
+ * module callbacks that may mutate the key. This helper owns suppression of
+ * the triggering command so callers cannot queue both the original write and
+ * the replacement payload. */
+static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long expire) {
     rio payload;
     robj *argv[6];
-    long long expire = getExpire(c->db, key->ptr, bitmap);
     int has_expire = expire != -1;
     int argc = has_expire ? 6 : 5;
 
@@ -1067,15 +1067,18 @@ void setbitCommand(client *c) {
         }
 
         if (native_created) {
+            /* Queue the RESTORE payload before the keyspace notification:
+             * module subscribers may mutate or delete the key from their
+             * callback. */
+            bitmapPropagateRestore(c, c->argv[1], native, -1);
             dbAddByLink(c->db, c->argv[1], &native, &link);
-            keyModified(c,c->db,c->argv[1],native,1);
+            keyModified(c,c->db,c->argv[1],
+                        lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS),1);
             server.dirty++;
-            /* Build and queue the RESTORE payload before the keyspace
-             * notification: module subscribers may mutate or delete the key
-             * from their callback. */
-            bitmapPropagateRestore(c, c->argv[1], native);
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
         } else if (native_converted) {
+            long long expire = getExpire(c->db, c->argv[1]->ptr, o);
+            bitmapPropagateRestore(c, c->argv[1], native, expire);
             /* setKeyByLink() fires the "overwritten" and "type_changed"
              * events and signals watchers. Like every type transition this
              * reaches replicas and the AOF as an explicit RESTORE of the
@@ -1083,7 +1086,6 @@ void setbitCommand(client *c) {
             setKeyByLink(c, c->db, c->argv[1], &native,
                          SETKEY_KEEPTTL | SETKEY_ALREADY_EXIST, &link);
             server.dirty++;
-            bitmapPropagateRestore(c, c->argv[1], native);
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
         } else if (native_changed) {
             if (oldlen != bitmapObjectLen(native))
@@ -1894,17 +1896,17 @@ bitop_cleanup:
     /* Store the computed value into the target key */
     if (maxlen) {
         if (native_dest) {
-            setKey(c, c->db, targetkey, &res_bitmap, 0);
-            server.dirty++;
             if (!has_native_bitmap) {
                 /* The native destination type came from this server's
                  * bitmap-default-roaring setting, not from the source types,
                  * so replicas and the AOF receive the explicit result instead
                  * of re-running the command against their own configuration.
-                 * The payload is queued before the keyspace notification:
+                 * The payload is queued before setKey() notifications:
                  * module subscribers may mutate or delete the key. */
-                bitmapPropagateRestore(c, targetkey, res_bitmap);
+                bitmapPropagateRestore(c, targetkey, res_bitmap, -1);
             }
+            setKey(c, c->db, targetkey, &res_bitmap, 0);
+            server.dirty++;
             notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
             goto out;
         }
@@ -2262,6 +2264,8 @@ void bitfieldGeneric(client *c, int flags) {
     uint64_t highest_write_bit = 0;
     int native_bitmap_write = 0;
     int native_transition = 0;
+    int native_transition_created = 0;
+    long long native_transition_expire = -1;
     int native_len_extended = 0;
     dictEntryLink native_bitmap_link = NULL;
     size_t oldAllocSize = 0;
@@ -2388,15 +2392,12 @@ void bitfieldGeneric(client *c, int flags) {
         }
         if (default_roaring) {
             if (o == NULL) {
-                robj *created_bitmap = createBitmapObject();
-                dbAddByLink(c->db, c->argv[1], &created_bitmap, &native_bitmap_link);
-                o = created_bitmap;
+                o = createBitmapObject();
+                native_transition_created = 1;
             } else {
+                native_transition_expire = getExpire(c->db, c->argv[1]->ptr, o);
                 robj *converted = bitmapObjectFromStringObject(o);
                 serverAssert(converted != NULL);
-                /* setKey() fires the "overwritten" and "type_changed" events
-                 * and signals watchers. */
-                setKey(c, c->db, c->argv[1], &converted, SETKEY_KEEPTTL);
                 o = converted;
             }
             native_transition = 1;
@@ -2408,7 +2409,7 @@ void bitfieldGeneric(client *c, int flags) {
             strOldSize = bitmapObjectLen(o);
             strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
             native_bitmap_write = 1;
-            if (server.memory_tracking_enabled)
+            if (!native_transition && server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c,
@@ -2572,23 +2573,32 @@ void bitfieldGeneric(client *c, int flags) {
     /* A created or converted native value must reach replicas and the AOF
      * even when every op failed or wrote nothing: the transition itself (and
      * the string-parity length growth above) already happened. The payload is
-     * built before the keyspace notification below so module subscribers
-     * cannot invalidate the object first. */
+     * queued before the value is installed, since installing it can notify
+     * module subscribers that may mutate or delete the key. */
     if (native_transition) {
-        bitmapPropagateRestore(c, c->argv[1], o);
+        bitmapPropagateRestore(c, c->argv[1], o, native_transition_expire);
+        if (native_transition_created) {
+            robj *created_bitmap = o;
+            dbAddByLink(c->db, c->argv[1], &created_bitmap, &native_bitmap_link);
+        } else {
+            robj *converted = o;
+            /* setKey() fires the "overwritten" and "type_changed" events
+             * and signals watchers. */
+            setKey(c, c->db, c->argv[1], &converted, SETKEY_KEEPTTL);
+        }
         if (!changes && !native_len_extended) server.dirty++;
     }
 
     int string_len_extended = !native_bitmap_write && strGrowSize != 0;
 
     if (changes || native_len_extended || string_len_extended) {
-        if (native_bitmap_write) {
+        if (native_bitmap_write && !native_transition) {
             if (strOldSize != bitmapObjectLen(o))
                 updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
                                     oldAllocSize, kvobjAllocSize(o));
-        } else {
+        } else if (!native_transition) {
             /* If this is not a new key and size changed, then update the
              * keysizes histogram. Otherwise, the histogram already
              * updated in lookupStringForBitCommand() by calling dbAdd(). */
@@ -2596,7 +2606,8 @@ void bitfieldGeneric(client *c, int flags) {
                 updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
         }
         
-        keyModified(c,c->db,c->argv[1],o,1);
+        keyModified(c,c->db,c->argv[1],
+                    native_transition ? lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o,1);
         notifyKeyspaceEvent(native_bitmap_write ? NOTIFY_BITMAP : NOTIFY_STRING,
                             "setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
@@ -2657,16 +2668,16 @@ static void bitmapConvertCommand(client *c) {
         replacement = createObject(OBJ_STRING, raw);
     }
 
+    long long expire = getExpire(c->db, c->argv[2]->ptr, kv);
+    bitmapPropagateRestore(c, c->argv[2], replacement, expire);
     /* setKey() fires the "overwritten" and "type_changed" events and signals
      * watchers. Like every other representation transition the conversion
      * reaches replicas and the AOF as an explicit RESTORE of the new value
      * (with its TTL preserved): whether a replica could re-run the
      * conversion depends on its own proto-max-bulk-len, so the command is
-     * never propagated verbatim. The payload is queued before any keyspace
-     * notification can run module callbacks that touch the key. */
+     * never propagated verbatim. */
     setKey(c, c->db, c->argv[2], &replacement, SETKEY_KEEPTTL);
     server.dirty++;
-    bitmapPropagateRestore(c, c->argv[2], replacement);
     addReply(c, shared.ok);
 }
 
