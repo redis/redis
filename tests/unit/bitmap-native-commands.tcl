@@ -492,7 +492,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_error {*ERR bit offset is not an integer or out of range*} {
             r bitfield bitmap:native:bitfield:limit SET u1 4294967296 1
         }
-        assert_error {*ERR bit offset is not an integer or out of range*} {
+        assert_error {*ERR bit offset is out of range*} {
             r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
         }
         assert_error {*ERR bit offset is not an integer or out of range*} {
