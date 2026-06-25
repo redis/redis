@@ -4,11 +4,12 @@ STD = -std=gnu11
 WARN = -Wall
 OPT = -O3
 
-AR = ar
+AR ?= ar
 ARFLAGS = rcs
 
 CROARING_CFLAGS = $(STD) $(WARN) $(OPT) $(ENABLE_LTO) $(CFLAGS) -fPIC \
 	-DROARING_DISABLE_X64=1 -DDISABLENEON=1 -Iinclude -Isrc
+CROARING_BUILD_SETTINGS = .make-build-settings
 
 ROARING_SRC = \
 	src/isadetection.c \
@@ -39,11 +40,23 @@ ROARING_OBJ = $(ROARING_SRC:.c=.o)
 libroaring.a: $(ROARING_OBJ)
 	$(AR) $(ARFLAGS) $@ $+
 
-%.o: %.c
+$(CROARING_BUILD_SETTINGS): FORCE
+	@printf '%s\n' 'CROARING_CFLAGS=$(CROARING_CFLAGS)' > $@.tmp
+	@if test -r $@ && cmp -s $@ $@.tmp; then \
+		rm $@.tmp; \
+	else \
+		mv $@.tmp $@; \
+		rm -f $(ROARING_OBJ) libroaring.a; \
+	fi
+
+%.o: %.c $(CROARING_BUILD_SETTINGS)
 	$(CC) $(CROARING_CFLAGS) -c -o $@ $<
 
 clean:
 	rm -f $(ROARING_OBJ)
 	rm -f libroaring.a
+	rm -f $(CROARING_BUILD_SETTINGS) $(CROARING_BUILD_SETTINGS).tmp
 
-.PHONY: clean
+FORCE:
+
+.PHONY: clean FORCE
