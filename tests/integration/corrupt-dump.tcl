@@ -1196,10 +1196,12 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
 }
 
 test {corrupt payload: bitmap RDB validation} {
-    # Payload layout: type byte RDB_TYPE_BITMAP, encoding, encoding-specific
-    # payload, 2-byte RDB version, 8-byte CRC (stale in the corrupted variants;
-    # checksum validation is skipped above).  Range encoding includes the
-    # logical byte length because ranges do not represent trailing zero bytes.
+    # Payload layout: type byte RDB_TYPE_BITMAP, bitmap payload format marker,
+    # encoding, encoding-specific payload, 2-byte RDB version, 8-byte CRC
+    # (stale in the corrupted variants; checksum validation is skipped above).
+    # Range encoding includes the logical byte length because ranges do not
+    # represent trailing zero bytes. Legacy payloads omit the marker and start
+    # with logical byte length, followed by encoding.
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         r setbit bitmap:type-probe 1 1
@@ -1221,8 +1223,13 @@ test {corrupt payload: bitmap RDB validation} {
             }
         }
 
+        proc bitmap_rdb_format_version {} {
+            return [expr {1 << 60}]
+        }
+
         proc bitmap_range_dump_payload {bitmap_type byte_len ranges trailer} {
             set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len [bitmap_rdb_format_version]]
             append payload [bitmap_rdb_len 1]
             append payload [bitmap_rdb_len $byte_len]
             append payload [bitmap_rdb_len [llength $ranges]]
@@ -1237,6 +1244,7 @@ test {corrupt payload: bitmap RDB validation} {
 
         proc bitmap_raw_dump_payload {bitmap_type raw trailer} {
             set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len [bitmap_rdb_format_version]]
             append payload [bitmap_rdb_len 0]
             append payload [bitmap_rdb_len [string length $raw]]
             append payload $raw
@@ -1246,6 +1254,7 @@ test {corrupt payload: bitmap RDB validation} {
 
         proc bitmap_raw_dump_payload_with_len {bitmap_type declared_len raw trailer} {
             set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len [bitmap_rdb_format_version]]
             append payload [bitmap_rdb_len 0]
             append payload [bitmap_rdb_len $declared_len]
             append payload $raw
@@ -1255,7 +1264,32 @@ test {corrupt payload: bitmap RDB validation} {
 
         proc bitmap_bad_encoding_payload {bitmap_type encoding trailer} {
             set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len [bitmap_rdb_format_version]]
             append payload [bitmap_rdb_len $encoding]
+            append payload $trailer
+            return $payload
+        }
+
+        proc bitmap_legacy_range_dump_payload {bitmap_type byte_len ranges trailer} {
+            set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len $byte_len]
+            append payload [bitmap_rdb_len 1]
+            append payload [bitmap_rdb_len [llength $ranges]]
+            foreach range $ranges {
+                lassign $range start end
+                append payload [bitmap_rdb_len $start]
+                append payload [bitmap_rdb_len $end]
+            }
+            append payload $trailer
+            return $payload
+        }
+
+        proc bitmap_legacy_raw_dump_payload {bitmap_type byte_len raw trailer} {
+            set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_len $byte_len]
+            append payload [bitmap_rdb_len 0]
+            append payload [bitmap_rdb_len [string length $raw]]
+            append payload $raw
             append payload $trailer
             return $payload
         }
@@ -1288,12 +1322,25 @@ test {corrupt payload: bitmap RDB validation} {
         assert_equal [r type bitmap:valid-raw] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid-raw] $valid_raw
 
+        set legacy_payload [bitmap_legacy_range_dump_payload \
+            $bitmap_type 2 $valid_ranges $dump_trailer]
+        set legacy_raw_payload [bitmap_legacy_raw_dump_payload \
+            $bitmap_type 2 $valid_raw $dump_trailer]
+        r restore bitmap:legacy 0 $legacy_payload
+        assert_equal [r type bitmap:legacy] bitmap
+        assert_equal [r debug bitmap-raw bitmap:legacy] $valid_raw
+        r restore bitmap:legacy-raw 0 $legacy_raw_payload
+        assert_equal [r type bitmap:legacy-raw] bitmap
+        assert_equal [r debug bitmap-raw bitmap:legacy-raw] $valid_raw
+
         set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 2 $dump_trailer]
         catch { r restore bitmap:bad-encoding 0 $bad_encoding_payload } err
         assert_match "*Bad data format*" $err
 
-        set short_raw_payload [bitmap_raw_dump_payload_with_len $bitmap_type 3 $valid_raw $dump_trailer]
-        catch { r restore bitmap:short-raw 0 $short_raw_payload } err
+        set truncated_raw_len [expr {[string length $valid_raw] + [string length $dump_trailer] + 1}]
+        set truncated_raw_payload [bitmap_raw_dump_payload_with_len \
+            $bitmap_type $truncated_raw_len $valid_raw $dump_trailer]
+        catch { r restore bitmap:truncated-raw 0 $truncated_raw_payload } err
         assert_match "*Bad data format*" $err
 
         set out_of_bounds_payload [bitmap_range_dump_payload $bitmap_type 1 {{9 9}} $dump_trailer]

@@ -1127,6 +1127,10 @@ static void rdbCountBitmapRange(uint64_t start, uint64_t end, void *privdata) {
 
 #define RDB_BITMAP_ENCODING_RAW 0
 #define RDB_BITMAP_ENCODING_RANGES 1
+/* Native bitmap payloads used to start with the logical byte length. Use an
+ * impossible legacy byte length as an in-payload version marker so old payloads
+ * remain distinguishable without restoring the redundant raw byte length. */
+#define RDB_BITMAP_FORMAT_VERSION_V2 (BITMAP_OBJECT_MAX_BYTES + 1)
 
 typedef struct rdbSaveBitmapRangeCtx {
     rio *rdb;
@@ -1159,6 +1163,9 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     uint64_t byte_len = bitmapObjectLen(o);
 
     bitmapObjectVisitSetBitRanges(o, rdbCountBitmapRange, &range_count);
+
+    if ((n = rdbSaveLen(rdb, RDB_BITMAP_FORMAT_VERSION_V2)) == -1) return -1;
+    nwritten += n;
 
     /* Each range writes start and end as RDB lengths, at least two bytes per
      * range. If range_count exceeds byte_len / 2, the range endpoints alone
@@ -1205,9 +1212,12 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     return nwritten;
 }
 
-static robj *rdbLoadBitmapRangeObject(rio *rdb) {
-    uint64_t byte_len = rdbLoadLen(rdb, NULL);
-    if (byte_len == RDB_LENERR) return NULL;
+static robj *rdbLoadBitmapRangeObject(rio *rdb, uint64_t byte_len,
+                                      int byte_len_loaded) {
+    if (!byte_len_loaded) {
+        byte_len = rdbLoadLen(rdb, NULL);
+        if (byte_len == RDB_LENERR) return NULL;
+    }
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
     uint64_t bit_len = byte_len * 8;
@@ -1239,10 +1249,16 @@ err:
     return NULL;
 }
 
-static robj *rdbLoadBitmapRawObject(rio *rdb) {
+static robj *rdbLoadBitmapRawObject(rio *rdb, uint64_t byte_len,
+                                    int validate_len) {
     size_t payload_len;
     sds payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
     if (payload == NULL) return NULL;
+
+    if (validate_len && (uint64_t)payload_len != byte_len) {
+        sdsfree(payload);
+        return NULL;
+    }
 
     robj *o = createBitmapObjectFromString((unsigned char *)payload, payload_len);
     sdsfree(payload);
@@ -1250,13 +1266,23 @@ static robj *rdbLoadBitmapRawObject(rio *rdb) {
 }
 
 static robj *rdbLoadBitmapObject(rio *rdb) {
+    uint64_t header = rdbLoadLen(rdb, NULL);
+    if (header == RDB_LENERR) return NULL;
+
+    int legacy = header != RDB_BITMAP_FORMAT_VERSION_V2;
+    uint64_t byte_len = 0;
+    if (legacy) {
+        byte_len = header;
+        if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+    }
+
     uint64_t encoding = rdbLoadLen(rdb, NULL);
     if (encoding == RDB_LENERR) return NULL;
 
     if (encoding == RDB_BITMAP_ENCODING_RAW) {
-        return rdbLoadBitmapRawObject(rdb);
+        return rdbLoadBitmapRawObject(rdb, byte_len, legacy);
     } else if (encoding == RDB_BITMAP_ENCODING_RANGES) {
-        return rdbLoadBitmapRangeObject(rdb);
+        return rdbLoadBitmapRangeObject(rdb, byte_len, legacy);
     }
     return NULL;
 }
