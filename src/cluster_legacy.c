@@ -39,15 +39,6 @@
  * that represents this node. */
 clusterNode *myself = NULL;
 
-/* RedisModuleEvent_ClusterTopologyChange is debounced: slot/role mutations and
- * the cluster's OK/FAIL transition only OR the matching reason bit into
- * server.cluster->topology_change_flags (REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_*)
- * and request CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE; the event itself is fired once
- * per event-loop iteration from clusterBeforeSleep(), which collapses a reshuffle
- * that touches many slots into a single notification. The accumulated reason bits
- * are reported together in the event data (change_flags), so a module sees every
- * reason that contributed rather than a single one taking precedence. */
-
 clusterNode *createClusterNode(char *nodename, int flags);
 void clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
