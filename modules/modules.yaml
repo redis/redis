@@ -51,7 +51,7 @@
 modules:
   - name: redisbloom
     repo: https://github.com/redisbloom/redisbloom
-    ref: master
+    ref: tal.ba/fix/bootstrap
     target_module: redisbloom.so
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
@@ -66,6 +66,6 @@ modules:
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
     repo: https://github.com/redistimeseries/redistimeseries
-    ref: master
+    ref: tal.ba/fix/bootstrap
     target_module: redistimeseries.so
     loadmodule: ./modules/redistimeseries/redistimeseries.so
