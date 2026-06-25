@@ -466,6 +466,15 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_native_bitmap_write_matches_string grow-after-fail-only-high-write \
             [binary format H* 00] \
             {bitfield key OVERFLOW FAIL SET u2 47 5}
+
+        set fail_key bitmap:native:bitfield:overflow-fail-string-growth
+        r config set bitmap-default-roaring no
+        r set $fail_key [binary format H* 00]
+        assert_equal string [r type $fail_key]
+        assert_equal {{}} [r bitfield $fail_key OVERFLOW FAIL SET u2 47 5]
+        assert_equal string [r type $fail_key]
+        assert_equal 7 [r strlen $fail_key]
+        assert_equal [binary format H* 00000000000000] [r get $fail_key]
     }
 
     test {BITFIELD keeps the proto-max-bulk-len offset limit on native bitmaps} {
