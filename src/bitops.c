@@ -833,7 +833,7 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
 static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
     if (mustObeyClient(c) || (maxbit >> 3) < (uint64_t)server.proto_max_bulk_len)
         return 1;
-    addReplyError(c, "bit offset is not an integer or out of range");
+    addReplyError(c, "bit offset is out of range");
     return 0;
 }
 
@@ -2579,7 +2579,9 @@ void bitfieldGeneric(client *c, int flags) {
         if (!changes && !native_len_extended) server.dirty++;
     }
 
-    if (changes || native_len_extended) {
+    int string_len_extended = !native_bitmap_write && strGrowSize != 0;
+
+    if (changes || native_len_extended || string_len_extended) {
         if (native_bitmap_write) {
             if (strOldSize != bitmapObjectLen(o))
                 updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
