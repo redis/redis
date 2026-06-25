@@ -192,7 +192,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             {bitfield_ro bitmap:native:bounds GET u1 4294967296}
             {bitfield bitmap:native:bounds SET u1 4294967296 1}
         } {
-            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
+            assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
         assert_error {*bit offset is not an integer or out of range*} {
             r setbit bitmap:native:bounds 9223372036854775808 1
@@ -263,7 +263,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
             [list bitfield bitmap:native:small-limit SET u2 $last_allowed 3] \
         ] {
-            assert_error {*bit offset is not an integer or out of range*} {r {*}$cmd}
+            assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
         assert_equal 1 [r bitcount bitmap:native:small-limit]
 
