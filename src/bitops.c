@@ -833,7 +833,7 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
 static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
     if (mustObeyClient(c) || (maxbit >> 3) < (uint64_t)server.proto_max_bulk_len)
         return 1;
-    addReplyError(c, "bit offset is not an integer or out of range");
+    addReplyError(c, "bit offset is out of range");
     return 0;
 }
 
