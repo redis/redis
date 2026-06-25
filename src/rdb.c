@@ -1204,6 +1204,7 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
 }
 
 static robj *rdbLoadBitmapRangeObject(rio *rdb, uint64_t byte_len) {
+    serverAssert(byte_len < BITMAP_OBJECT_MAX_BYTES);
     uint64_t bit_len = byte_len * 8;
     uint64_t range_count = rdbLoadLen(rdb, NULL);
     if (range_count == RDB_LENERR) return NULL;

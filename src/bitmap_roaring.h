@@ -40,9 +40,7 @@ size_t bitmapObjectAllocSize(const robj *o);
 uint64_t bitmapObjectCardinality(const robj *o);
 uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start, uint64_t end);
 typedef void bitmapObjectRangeCallback(uint64_t start, uint64_t end, void *privdata);
-void bitmapObjectVisitSetBitRanges(const robj *o,
-                                   bitmapObjectRangeCallback *callback,
-                                   void *privdata);
+void bitmapObjectVisitSetBitRanges(const robj *o, bitmapObjectRangeCallback *callback, void *privdata);
 long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
 int bitmapObjectCanRepresentBit(uint64_t bitoffset);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
