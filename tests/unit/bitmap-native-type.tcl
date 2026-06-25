@@ -711,7 +711,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r bitmap convert bitmap:rdb-frag:a
 
         set dump [r dump bitmap:rdb-frag:a]
-        binary scan [string index $dump 1] c raw_encoding
+        binary scan [string index $dump 1] H2 bitmap_format_marker_tag
+        assert_equal 81 $bitmap_format_marker_tag
+        binary scan [string index $dump 10] c raw_encoding
         assert_equal 0 $raw_encoding
         assert_lessthan [string length $dump] [expr {[string length $raw] + 128}] \
             "dump_len=[string length $dump] raw_len=[string length $raw]"
