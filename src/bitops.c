@@ -825,14 +825,15 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
 }
 
 /* Bitmap writes cannot address bits at or beyond proto-max-bulk-len bytes
- * (512MB by default). Returns 1 when 'maxbit' is writable, otherwise replies
- * with the legacy out-of-range error and returns 0. Commands obeying a master
- * or the AOF skip the check: the master already validated the write against
- * its own limit. */
-static int bitStringWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
+ * (512MB by default), regardless of whether the value is stored as a string or
+ * as a native bitmap. 'maxbit' must be the last bit the write can touch.
+ * Returns 1 when 'maxbit' is writable, otherwise replies with the legacy
+ * out-of-range error and returns 0. Commands obeying a master or the AOF skip
+ * the check: the master already validated the write against its own limit. */
+static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
     if (mustObeyClient(c) || (maxbit >> 3) < (uint64_t)server.proto_max_bulk_len)
         return 1;
-    addReplyError(c, "bit offset is out of range");
+    addReplyError(c, "bit offset is not an integer or out of range");
     return 0;
 }
 
@@ -889,7 +890,7 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
     if (checkType(c,o,OBJ_STRING)) return NULL;
-    if (!bitStringWriteOffsetWithinLimit(c, maxbit)) return NULL;
+    if (!bitmapWriteOffsetWithinLimit(c, maxbit)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
@@ -968,7 +969,9 @@ static robj *bitmapObjectFromStringObject(robj *o) {
  * stay a pure function of replicated logical state, never re-derived from
  * replica-local config or allocator behavior. Shared with the test-only
  * DEBUG BITMAP-FORCE-ROARING, whose verbatim DEBUG propagation would
- * otherwise be dropped by replicas running with debug commands disabled. */
+ * otherwise be dropped by replicas running with debug commands disabled.
+ * This helper owns suppression of the triggering command so callers cannot
+ * queue both the original write and the replacement payload. */
 static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap) {
     rio payload;
     robj *argv[6];
@@ -986,6 +989,7 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap) {
     argv[4] = createStringObject("REPLACE", 7);
     if (has_expire) argv[5] = shared.absttl;
 
+    preventCommandPropagation(c);
     alsoPropagate(c->db->id, argv, argc, PROPAGATE_AOF | PROPAGATE_REPL);
 
     decrRefCount(argv[0]);
@@ -1015,25 +1019,78 @@ void setbitCommand(client *c) {
     }
 
     dictEntryLink link;
-    kvobj *bitmap = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-    if (bitmap != NULL && bitmap->type == OBJ_BITMAP) {
-        uint64_t oldlen = bitmapObjectLen(bitmap);
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    robj *native = o;
+    int native_created = 0;
+    int native_converted = 0;
+
+    if (bitmapDefaultRoaringEnabled(c) &&
+        (o == NULL || o->type == OBJ_STRING))
+    {
+        if (!bitmapObjectCanRepresentBit(bitoffset)) {
+            addReplyError(c, "bit offset is not representable in native bitmap encoding");
+            return;
+        }
+
+        if (o == NULL) {
+            /* bitmap-default-roaring yes: newly created bitmap keys are native.
+             * Build the object first, then add the final value with the
+             * lookup link so the keyspace dict is probed only once. */
+            native = createBitmapObject();
+            native_created = 1;
+        } else {
+            /* bitmap-default-roaring yes: writes against existing strings
+             * first produce a native replacement so the write is not bounded
+             * by the string representation. */
+            native = bitmapObjectFromStringObject(o);
+            serverAssert(native != NULL);
+            native_converted = 1;
+        }
+    }
+
+    if (native != NULL && native->type == OBJ_BITMAP) {
+        uint64_t oldlen = bitmapObjectLen(native);
+        int native_changed = 0;
         size_t oldAllocSize = 0;
 
         byte = bitoffset >> 3;
-        bitval = bitmapObjectGetBit(bitmap, bitoffset);
+        bitval = bitmapObjectGetBit(native, bitoffset);
         if (byte >= oldlen || (!!bitval != on)) {
-            if (server.memory_tracking_enabled)
-                oldAllocSize = kvobjAllocSize(bitmap);
-            if (bitmapObjectSetBit(bitmap, bitoffset, on) != C_OK) {
+            if (!native_created && !native_converted && server.memory_tracking_enabled)
+                oldAllocSize = kvobjAllocSize(native);
+            if (bitmapObjectSetBit(native, bitoffset, on) != C_OK) {
+                if (native_created || native_converted) decrRefCount(native);
                 addReplyError(c, "bit offset is not representable in native bitmap encoding");
                 return;
             }
-            if (oldlen != bitmapObjectLen(bitmap))
-                updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(bitmap));
+            native_changed = 1;
+        }
+
+        if (native_created) {
+            dbAddByLink(c->db, c->argv[1], &native, &link);
+            keyModified(c,c->db,c->argv[1],native,1);
+            server.dirty++;
+            /* Build and queue the RESTORE payload before the keyspace
+             * notification: module subscribers may mutate or delete the key
+             * from their callback. */
+            bitmapPropagateRestore(c, c->argv[1], native);
+            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+        } else if (native_converted) {
+            /* setKeyByLink() fires the "overwritten" and "type_changed"
+             * events and signals watchers. Like every type transition this
+             * reaches replicas and the AOF as an explicit RESTORE of the
+             * final state. */
+            setKeyByLink(c, c->db, c->argv[1], &native,
+                         SETKEY_KEEPTTL | SETKEY_ALREADY_EXIST, &link);
+            server.dirty++;
+            bitmapPropagateRestore(c, c->argv[1], native);
+            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+        } else if (native_changed) {
+            if (oldlen != bitmapObjectLen(native))
+                updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(native));
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), bitmap, oldAllocSize, kvobjAllocSize(bitmap));
-            keyModified(c,c->db,c->argv[1],bitmap,1);
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), native, oldAllocSize, kvobjAllocSize(native));
+            keyModified(c,c->db,c->argv[1],native,1);
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
             server.dirty++;
         }
@@ -1042,63 +1099,10 @@ void setbitCommand(client *c) {
         return;
     }
 
-    if (bitmapDefaultRoaringEnabled(c)) {
-        if ((bitmap == NULL || bitmap->type == OBJ_STRING) &&
-            !bitmapObjectCanRepresentBit(bitoffset))
-        {
-            addReplyError(c, "bit offset is not representable in native bitmap encoding");
-            return;
-        }
-        if (bitmap == NULL) {
-            /* bitmap-default-roaring yes: newly created bitmap keys are native.
-             * The link from the lookup above is still valid: building the
-             * bitmap never touches the keyspace dict. */
-            robj *created = createBitmapObject();
-            serverAssert(bitmapObjectSetBit(created, bitoffset, on) == C_OK);
-            dbAddByLink(c->db, c->argv[1], &created, &link);
-            keyModified(c,c->db,c->argv[1],created,1);
-            server.dirty++;
-
-            /* Build and queue the RESTORE payload before the keyspace
-             * notification: module subscribers may mutate or delete the key
-             * from their callback. */
-            preventCommandPropagation(c);
-            bitmapPropagateRestore(c, c->argv[1], created);
-            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-
-            addReply(c, shared.czero);
-            return;
-        }
-        if (bitmap->type == OBJ_STRING) {
-            /* bitmap-default-roaring yes: a write against an existing string value
-             * converts it to a native bitmap first, so the write itself is
-             * not bounded by the string representation. The converted bitmap
-             * holds the original content, so the old bit value is read from
-             * it before the write. */
-            robj *converted = bitmapObjectFromStringObject(bitmap);
-            serverAssert(converted != NULL);
-            bitval = bitmapObjectGetBit(converted, bitoffset);
-            serverAssert(bitmapObjectSetBit(converted, bitoffset, on) == C_OK);
-
-            /* setKey() fires the "overwritten" and "type_changed" events and
-             * signals watchers; like every type transition this one reaches
-             * replicas and the AOF as an explicit RESTORE of the new state. */
-            setKey(c, c->db, c->argv[1], &converted, SETKEY_KEEPTTL);
-            server.dirty++;
-            preventCommandPropagation(c);
-            bitmapPropagateRestore(c, c->argv[1], converted);
-            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-
-            addReply(c, bitval ? shared.cone : shared.czero);
-            return;
-        }
-        /* Any other type falls through to the WRONGTYPE error below. */
-    }
-
     size_t strOldSize, strGrowSize;
     int created = 0;
-    kvobj *o = lookupStringForBitCommand(c, bitoffset, bitmap, link,
-                                         &strOldSize, &strGrowSize, &created);
+    o = lookupStringForBitCommand(c, bitoffset, o, link,
+                                  &strOldSize, &strGrowSize, &created);
     if (o == NULL) return;
 
     /* Get current values */
@@ -1899,7 +1903,6 @@ bitop_cleanup:
                  * of re-running the command against their own configuration.
                  * The payload is queued before the keyspace notification:
                  * module subscribers may mutate or delete the key. */
-                preventCommandPropagation(c);
                 bitmapPropagateRestore(c, targetkey, res_bitmap);
             }
             notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
@@ -2256,7 +2259,7 @@ void bitfieldGeneric(client *c, int flags) {
     int string_created = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    uint64_t highest_write_offset = 0;
+    uint64_t highest_write_bit = 0;
     int native_bitmap_write = 0;
     int native_transition = 0;
     int native_len_extended = 0;
@@ -2317,13 +2320,13 @@ void bitfieldGeneric(client *c, int flags) {
                 zfree(ops);
                 return;
             }
-            if (!bitStringWriteOffsetWithinLimit(c,last_bit)) {
+            if (!bitmapWriteOffsetWithinLimit(c,last_bit)) {
                 zfree(ops);
                 return;
             }
             readonly = 0;
-            if (highest_write_offset < last_bit)
-                highest_write_offset = last_bit;
+            if (highest_write_bit < last_bit)
+                highest_write_bit = last_bit;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -2367,17 +2370,17 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* When bitmap-default-roaring is enabled, newly created bitmap keys
          * are native, and a write against an existing string value converts it
-         * first, so neither is bounded by the string representation. The
-         * transition reaches replicas and the AOF as an explicit RESTORE of
-         * the final state. The offset bound is validated before the transition
-         * so a rejected command leaves the keyspace untouched. */
+         * first. The shared public bitmap write limit was validated above
+         * against the last bit touched, so a rejected command leaves the
+         * keyspace untouched. The transition reaches replicas and the AOF as
+         * an explicit RESTORE of the final state. */
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
-        /* getBitOffsetFromArgument() and bitStringWriteOffsetWithinLimit()
-         * keep the client-visible write limit aligned with string bitmaps.
-         * This is only the native encoding's internal representability guard. */
+        /* This is only the native encoding's internal representability guard;
+         * bitmapWriteOffsetWithinLimit() enforces the client-visible limit for
+         * both string and native bitmap writes. */
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapObjectCanRepresentBit(highest_write_offset))
+            !bitmapObjectCanRepresentBit(highest_write_bit))
         {
             zfree(ops);
             addReplyError(c, "bit offset is not representable in native bitmap encoding");
@@ -2400,7 +2403,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (o != NULL && o->type == OBJ_BITMAP) {
-            uint64_t byte = highest_write_offset >> 3;
+            uint64_t byte = highest_write_bit >> 3;
 
             strOldSize = bitmapObjectLen(o);
             strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
@@ -2409,7 +2412,7 @@ void bitfieldGeneric(client *c, int flags) {
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c,
-                highest_write_offset,o,native_bitmap_link,
+                highest_write_bit,o,native_bitmap_link,
                 &sOldSize,&sGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
@@ -2560,8 +2563,8 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (native_bitmap_write && strGrowSize) {
         uint64_t oldlen = bitmapObjectLen(o);
-        int bit = bitmapObjectGetBit(o, highest_write_offset);
-        int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
+        int bit = bitmapObjectGetBit(o, highest_write_bit);
+        int ret = bitmapObjectSetBit(o, highest_write_bit, bit);
         serverAssert(ret == C_OK);
         native_len_extended = oldlen != bitmapObjectLen(o);
     }
@@ -2572,7 +2575,6 @@ void bitfieldGeneric(client *c, int flags) {
      * built before the keyspace notification below so module subscribers
      * cannot invalidate the object first. */
     if (native_transition) {
-        preventCommandPropagation(c);
         bitmapPropagateRestore(c, c->argv[1], o);
         if (!changes && !native_len_extended) server.dirty++;
     }
@@ -2662,7 +2664,6 @@ static void bitmapConvertCommand(client *c) {
      * notification can run module callbacks that touch the key. */
     setKey(c, c->db, c->argv[2], &replacement, SETKEY_KEEPTTL);
     server.dirty++;
-    preventCommandPropagation(c);
     bitmapPropagateRestore(c, c->argv[2], replacement);
     addReply(c, shared.ok);
 }
