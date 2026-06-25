@@ -381,7 +381,7 @@ proc createComplexDataset {r ops {opt {}}} {
             } {
                 catch {{*}$r xtrim $sk MAXLEN [randomInt 10]}
             } {
-                catch {{*}$r xgroup create $sk g 0}
+                catch {{*}$r xgroup create $sk g 0 MKSTREAM}
                 catch {{*}$r xreadgroup group g c count 5 streams $sk >}
             } {
                 # Ack-and-delete the oldest entry, if any, to drive XACKDEL/PEL.
