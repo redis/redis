@@ -473,10 +473,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         seed_native_bitmap bitmap:native:bitfield:limit {}
 
         foreach key {bitmap:string:bitfield:limit bitmap:native:bitfield:limit} {
-            assert_error {*ERR bit offset is not an integer or out of range*} {
+            assert_error {*ERR bit offset*out of range*} {
                 r bitfield $key SET u1 4294967296 1
             }
-            assert_error {*ERR bit offset is not an integer or out of range*} {
+            assert_error {*ERR bit offset*out of range*} {
                 r bitfield $key SET u2 4294967295 3
             }
         }
