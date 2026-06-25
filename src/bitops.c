@@ -825,11 +825,12 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
 }
 
 /* Bitmap writes cannot address bits at or beyond proto-max-bulk-len bytes
- * (512MB by default). Returns 1 when 'maxbit' is writable, otherwise replies
- * with the legacy out-of-range error and returns 0. Commands obeying a master
- * or the AOF skip the check: the master already validated the write against
- * its own limit. */
-static int bitStringWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
+ * (512MB by default), regardless of whether the value is stored as a string or
+ * as a native bitmap. 'maxbit' must be the last bit the write can touch.
+ * Returns 1 when 'maxbit' is writable, otherwise replies with the legacy
+ * out-of-range error and returns 0. Commands obeying a master or the AOF skip
+ * the check: the master already validated the write against its own limit. */
+static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
     if (mustObeyClient(c) || (maxbit >> 3) < (uint64_t)server.proto_max_bulk_len)
         return 1;
     addReplyError(c, "bit offset is out of range");
@@ -889,7 +890,7 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
     if (checkType(c,o,OBJ_STRING)) return NULL;
-    if (!bitStringWriteOffsetWithinLimit(c, maxbit)) return NULL;
+    if (!bitmapWriteOffsetWithinLimit(c, maxbit)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
@@ -1070,11 +1071,10 @@ void setbitCommand(client *c) {
             return;
         }
         if (bitmap->type == OBJ_STRING) {
-            /* bitmap-default-roaring yes: a write against an existing string value
-             * converts it to a native bitmap first, so the write itself is
-             * not bounded by the string representation. The converted bitmap
-             * holds the original content, so the old bit value is read from
-             * it before the write. */
+            /* bitmap-default-roaring yes: a write against an existing string
+             * value converts it to a native bitmap after the shared public
+             * bitmap offset check. The converted bitmap holds the original
+             * content, so the old bit value is read from it before the write. */
             robj *converted = bitmapObjectFromStringObject(bitmap);
             serverAssert(converted != NULL);
             bitval = bitmapObjectGetBit(converted, bitoffset);
@@ -2256,7 +2256,7 @@ void bitfieldGeneric(client *c, int flags) {
     int string_created = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    uint64_t highest_write_offset = 0;
+    uint64_t highest_write_bit = 0;
     int native_bitmap_write = 0;
     int native_transition = 0;
     int native_len_extended = 0;
@@ -2317,13 +2317,13 @@ void bitfieldGeneric(client *c, int flags) {
                 zfree(ops);
                 return;
             }
-            if (!bitStringWriteOffsetWithinLimit(c,last_bit)) {
+            if (!bitmapWriteOffsetWithinLimit(c,last_bit)) {
                 zfree(ops);
                 return;
             }
             readonly = 0;
-            if (highest_write_offset < last_bit)
-                highest_write_offset = last_bit;
+            if (highest_write_bit < last_bit)
+                highest_write_bit = last_bit;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -2367,17 +2367,17 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* When bitmap-default-roaring is enabled, newly created bitmap keys
          * are native, and a write against an existing string value converts it
-         * first, so neither is bounded by the string representation. The
-         * transition reaches replicas and the AOF as an explicit RESTORE of
-         * the final state. The offset bound is validated before the transition
-         * so a rejected command leaves the keyspace untouched. */
+         * first. The shared public bitmap write limit was validated above
+         * against the last bit touched, so a rejected command leaves the
+         * keyspace untouched. The transition reaches replicas and the AOF as
+         * an explicit RESTORE of the final state. */
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
-        /* getBitOffsetFromArgument() and bitStringWriteOffsetWithinLimit()
-         * keep the client-visible write limit aligned with string bitmaps.
-         * This is only the native encoding's internal representability guard. */
+        /* This is only the native encoding's internal representability guard;
+         * bitmapWriteOffsetWithinLimit() enforces the client-visible limit for
+         * both string and native bitmap writes. */
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapObjectCanRepresentBit(highest_write_offset))
+            !bitmapObjectCanRepresentBit(highest_write_bit))
         {
             zfree(ops);
             addReplyError(c, "bit offset is not representable in native bitmap encoding");
@@ -2400,7 +2400,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (o != NULL && o->type == OBJ_BITMAP) {
-            uint64_t byte = highest_write_offset >> 3;
+            uint64_t byte = highest_write_bit >> 3;
 
             strOldSize = bitmapObjectLen(o);
             strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
@@ -2409,7 +2409,7 @@ void bitfieldGeneric(client *c, int flags) {
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c,
-                highest_write_offset,o,native_bitmap_link,
+                highest_write_bit,o,native_bitmap_link,
                 &sOldSize,&sGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
@@ -2560,8 +2560,8 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (native_bitmap_write && strGrowSize) {
         uint64_t oldlen = bitmapObjectLen(o);
-        int bit = bitmapObjectGetBit(o, highest_write_offset);
-        int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
+        int bit = bitmapObjectGetBit(o, highest_write_bit);
+        int ret = bitmapObjectSetBit(o, highest_write_bit, bit);
         serverAssert(ret == C_OK);
         native_len_extended = oldlen != bitmapObjectLen(o);
     }

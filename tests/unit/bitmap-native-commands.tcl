@@ -471,18 +471,32 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {BITFIELD keeps the proto-max-bulk-len offset limit on native bitmaps} {
         seed_native_bitmap bitmap:native:bitfield:limit {}
 
-        assert_error {*ERR bit offset is not an integer or out of range*} {
+        assert_error {*ERR bit offset*out of range*} {
             r bitfield bitmap:native:bitfield:limit SET u1 4294967296 1
         }
-        assert_error {*ERR bit offset is not an integer or out of range*} {
+        assert_error {*ERR bit offset*out of range*} {
             r bitfield bitmap:native:bitfield:limit SET u2 4294967295 3
         }
-        assert_error {*ERR bit offset is not an integer or out of range*} {
+        assert_error {*ERR bit offset*out of range*} {
             r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296
         }
         assert_equal 0 [r bitcount bitmap:native:bitfield:limit]
         assert_equal bitmap [r type bitmap:native:bitfield:limit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
+
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len $limit]
+        set last_allowed [expr {$limit * 8 - 1}]
+        assert_equal {0} [r bitfield bitmap:native:bitfield:limit SET u1 $last_allowed 1]
+        assert_error {*ERR bit offset*out of range*} {
+            r bitfield bitmap:native:bitfield:limit SET u2 $last_allowed 3
+        }
+        assert_error {*ERR bit offset*out of range*} {
+            r bitfield bitmap:native:bitfield:limit INCRBY u2 $last_allowed 1
+        }
+        assert_equal 1 [r bitcount bitmap:native:bitfield:limit]
+        r config set proto-max-bulk-len $oldval
+
         r del bitmap:native:bitfield:limit
     }
 
