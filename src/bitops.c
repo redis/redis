@@ -1053,10 +1053,9 @@ void setbitCommand(client *c) {
             /* bitmap-default-roaring yes: newly created bitmap keys are native.
              * The link from the lookup above is still valid: building the
              * bitmap never touches the keyspace dict. */
-            robj *created_bitmap = createBitmapObject();
-            serverAssert(bitmapObjectSetBit(created_bitmap, bitoffset, on) == C_OK);
-            dbAddByLink(c->db, c->argv[1], &created_bitmap, &link);
-            kvobj *created = created_bitmap;
+            robj *created = createBitmapObject();
+            serverAssert(bitmapObjectSetBit(created, bitoffset, on) == C_OK);
+            dbAddByLink(c->db, c->argv[1], &created, &link);
             keyModified(c,c->db,c->argv[1],created,1);
             server.dirty++;
 
