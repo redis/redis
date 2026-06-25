@@ -35,17 +35,36 @@ workflow builds a baseline ref and a candidate ref, then runs:
 
 - `redis_before`: baseline build in legacy string mode.
 - `redis_pr_native`: candidate build with native bitmap behavior.
+- `redis_roaring_module`: `aviggiano/redis-roaring` loaded into a
+  `redis/redis` host build.
 - `redis_pr_legacy`: candidate build in legacy mode as a guardrail.
 
-For publishable comparisons, enter full commit SHAs for `before_ref` and
-`after_ref` instead of branch names. Branch refs are still useful for local or
-exploratory runs, but the uploaded `runner.txt` records both the requested
-inputs (`before_ref_input`, `after_ref_input`) and the resolved checkouts
-(`before_sha`, `after_sha`). The compare JSON and Markdown also include each
-run's actual `source_sha`.
+For publishable comparisons, enter full commit SHAs for `baseline_redis_ref`,
+`core_redis_ref`, `module_host_redis_ref`, and `redis_roaring_ref` instead of
+branch names. Branch refs are still useful for local or exploratory runs, but
+the uploaded `runner.txt` records both the requested inputs and the resolved
+checkouts. The compare JSON includes each Redis run's actual `source_sha`,
+plus `module_sha` for the redis-roaring module run. The compare Markdown links
+the run labels to the resolved commits and links the module commit when present.
 
 The workflow uploads JSON, CSV, Markdown, and runner metadata artifacts under
 `bitmap-bench-results`.
+
+Use `benchmark_profile` to choose the workload family:
+
+- `small-sets`: sparse/high-offset integer-set-like datasets and CRoaring
+  realdata inputs.
+- `bitsets`: dense, clustered, and packed-field bitmap workloads.
+- `mixed-bitop`: all-string, all-native, and mixed-source BITOP workloads.
+- `smoke`: short sanity profile with request floors to avoid misleading
+  `0.00 qps` rows.
+- `full`: all benchmark families.
+
+Use `report_view` to publish `performance`, `memory`, `payload`, or the
+default `combined` Markdown report. Performance rows use `time_per_op_us` as
+the primary metric and keep QPS as secondary data in JSON/CSV. Repeated samples
+also publish mean, median, min, max, standard deviation, and coefficient of
+variation fields for `time_per_op_us`.
 
 ## Local Examples
 
@@ -68,8 +87,12 @@ Compare explicit source trees:
 python3 tools/bitmap-bench.py \
   --compare-before-src-dir /path/to/before/src \
   --compare-after-src-dir /path/to/after/src \
+  --compare-module-src-dir /path/to/module-host/src \
+  --compare-module-path /path/to/libredis-roaring.so \
   --compare-legacy-src-dir /path/to/after/src \
   --compare-out bitmap-bench-compare \
+  --benchmark-profile full \
+  --report-view combined \
   --runs 3 \
   --ping-canary \
   --croaring-realdata-dir /tmp/croaring-realdata \
@@ -81,8 +104,19 @@ Keep developer runs small with `--request-scale 0.05`, `--skip-persistence`, or
 to justify exposure/default decisions.
 
 Compare output reports `native_delta_percent` as a metric-aware improvement:
-positive means higher QPS for throughput rows and lower `elapsed_ms` for
-latency or persistence rows.
+positive means lower `time_per_op_us` for command rows and lower `elapsed_ms`
+for persistence rows. The published Markdown table focuses on Redis string,
+Redis core Roaring, and redis-roaring module columns; unsupported module rows
+are marked `N/A`. The optional `redis_pr_legacy` guardrail remains available in
+JSON and CSV but is omitted from the Markdown run table so the rendered report
+shows the three primary comparison targets. The Markdown keeps the human-facing
+tables compact by folding dataset, group, and story context into the operation
+cell; JSON and CSV retain the expanded columns for analysis.
+
+The compare Markdown is split into first-class performance, memory, and
+storage sections. Dataset metadata includes bitcount, max set
+offset, logical byte length, and density so sparse small-set rows are not mixed
+with dense bitset rows without context.
 
 ## Decision Questions
 
