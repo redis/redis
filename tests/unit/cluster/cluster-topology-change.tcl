@@ -91,4 +91,37 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             }
         }
     }
+
+    # NOTE: keep this test last. It removes a node from the cluster, so it must
+    # run after the failover test (which asserts that *every* node is notified).
+    test "ClusterTopologyChange reports the NODE reason when a node is removed" {
+        # Remove a replica (dropping a replica keeps every slot covered).
+        set removed -1
+        for {set i 1} {$i < 6} {incr i} {
+            if {[lindex [R $i role] 0] eq "slave"} { set removed $i; break }
+        }
+        assert {$removed != -1}
+
+        # Snapshot the NODE counters on every surviving node.
+        set before {}
+        for {set i 0} {$i < 6} {incr i} {
+            if {$i == $removed} continue
+            dict set before $i [dict get [topo_stats $i] node]
+        }
+
+        # isolate_node resets the node and forgets it; the FORGET propagates so
+        # every surviving node eventually drops it from its view.
+        isolate_node $removed
+
+        # The removal must have notified the module with the NODE reason on each
+        # surviving node, not just the one that issued the FORGET.
+        for {set i 0} {$i < 6} {incr i} {
+            if {$i == $removed} continue
+            wait_for_condition 50 100 {
+                [dict get [topo_stats $i] node] > [dict get $before $i]
+            } else {
+                fail "NODE change reason was not reported on node $i"
+            }
+        }
+    }
 }
