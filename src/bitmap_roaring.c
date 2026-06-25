@@ -20,8 +20,8 @@
 #include "server.h"
 #include "bitmap_roaring.h"
 
-/* Native bitmaps use Roaring internally, but public bitmap commands keep the
- * same proto-max-bulk-len offset limit as legacy string bitmaps. */
+/* Native bitmaps use Roaring internally. Client-visible command limits are
+ * enforced by command handlers; the object cap protects encoding invariants. */
 typedef struct bitmapObject {
     uint64_t byte_len;
     size_t alloc_size;          /* Total memory used by this bitmap object. */
