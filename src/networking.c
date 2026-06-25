@@ -1921,7 +1921,7 @@ void unlinkClient(client *c) {
              * the main process is stale. SSL_shutdown() involves a handshake,
              * and it may block the caller when used with stale TLS state.*/
             if (c->flags & CLIENT_REPL_RDB_CHANNEL)
-                shutdown(connGetFd(c->conn), SHUT_RDWR);
+                shutdown(c->conn->fd, SHUT_RDWR);
             else
                 connShutdown(c->conn);
         }
@@ -2579,7 +2579,7 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
  * and 'nwritten' is an output parameter, it means how many bytes server write
  * to client. */
 static int _writevToClient(client *c, ssize_t *nwritten) {
-    int iovmax = min(IOV_MAX, connGetIovcnt(c->conn));
+    int iovmax = min(IOV_MAX, c->conn->iovcnt);
     struct iovec iov[iovmax];
     ReplyIOV reply_iov = {iov, iovmax};
 

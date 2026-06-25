@@ -95,17 +95,6 @@ typedef struct ConnectionType {
 
     /* Get peer username based on connection type */
     sds (*get_peer_username)(connection *conn);
-
-    aeEventLoop* (*get_event_loop)(connection *conn);
-    void (*unset_event_loop)(connection *conn);
-    int (*get_fd)(connection *conn);
-    int (*get_iovcnt)(connection *conn);
-    ConnectionState (*get_state)(connection *conn);
-    int (*get_last_errno)(connection *conn);
-    int (*has_read_handler)(connection *conn);
-    int (*has_write_handler)(connection *conn);
-    void (*set_private_data)(connection *conn, void *data);
-    void* (*get_private_data)(connection *conn);
 } ConnectionType;
 
 struct connection {
@@ -274,8 +263,7 @@ static inline const char *connGetType(connection *conn) {
 }
 
 static inline int connLastErrorRetryable(connection *conn) {
-    int last_errno = conn->type->get_last_errno ? conn->type->get_last_errno(conn) : conn->last_errno;
-    return last_errno == EINTR;
+    return conn->last_errno == EINTR;
 }
 
 /* Get address information of a connection.
@@ -326,52 +314,34 @@ static inline int connIsLocal(connection *conn) {
     return -1;
 }
 
-static inline ConnectionState connGetState(connection *conn) {
-    return conn->type->get_state ? conn->type->get_state(conn) : conn->state;
-}
-
-static inline int connGetFd(connection *conn) {
-    return conn->type->get_fd ? conn->type->get_fd(conn) : conn->fd;
-}
-
-static inline int connGetIovcnt(connection *conn) {
-    return conn->type->get_iovcnt ? conn->type->get_iovcnt(conn) : conn->iovcnt;
+static inline int connGetState(connection *conn) {
+    return conn->state;
 }
 
 /* Returns true if a write handler is registered */
 static inline int connHasWriteHandler(connection *conn) {
-    return conn->type->has_write_handler ?
-           conn->type->has_write_handler(conn) :
-           (conn->write_handler != NULL);
+    return conn->write_handler != NULL;
 }
 
 /* Returns true if a read handler is registered */
 static inline int connHasReadHandler(connection *conn) {
-    return conn->type->has_read_handler ?
-           conn->type->has_read_handler(conn) :
-           (conn->read_handler != NULL);
+    return conn->read_handler != NULL;
 }
 
 /* Returns true if the connection is bound to an event loop */
 static inline int connHasEventLoop(connection *conn) {
-    return conn->type->get_event_loop ?
-           (conn->type->get_event_loop(conn) != NULL) :
-           (conn->el != NULL);
+    return conn->el != NULL;
 }
 
 /* Unbind the current event loop from the connection, so that it can be
  * rebind to a different event loop in the future. */
 static inline void connUnbindEventLoop(connection *conn) {
-    if (!connHasEventLoop(conn)) return;
+    if (conn->el == NULL) return;
     connSetReadHandler(conn, NULL);
     connSetWriteHandler(conn, NULL);
     if (conn->type->unbind_event_loop)
         conn->type->unbind_event_loop(conn);
-
-    if (conn->type->unset_event_loop)
-        conn->type->unset_event_loop(conn);
-    else
-        conn->el = NULL;
+    conn->el = NULL;
 }
 
 /* Rebind the connection to another event loop, read/write handlers must not
@@ -382,17 +352,12 @@ static inline int connRebindEventLoop(connection *conn, aeEventLoop *el) {
 
 /* Associate a private data pointer with the connection */
 static inline void connSetPrivateData(connection *conn, void *data) {
-    if (conn->type->set_private_data)
-        conn->type->set_private_data(conn, data);
-    else
-        conn->private_data = data;
+    conn->private_data = data;
 }
 
 /* Get the associated private data pointer */
 static inline void *connGetPrivateData(connection *conn) {
-    return conn->type->get_private_data ?
-           conn->type->get_private_data(conn) :
-           conn->private_data;
+    return conn->private_data;
 }
 
 /* Return a text that describes the connection, suitable for inclusion
@@ -401,8 +366,7 @@ static inline void *connGetPrivateData(connection *conn) {
  * For sockets, we always return "fd=<fdnum>" to maintain compatibility.
  */
 static inline const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
-    int fd = conn ? connGetFd(conn) : -1;
-    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : fd);
+    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : conn->fd);
     return buf;
 }
 

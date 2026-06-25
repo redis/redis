@@ -430,43 +430,36 @@ static ConnectionType CT_Socket = {
 };
 
 int connBlock(connection *conn) {
-    int fd = connGetFd(conn);
-    if (fd == -1) return C_ERR;
-    return anetBlock(NULL, fd);
+    if (conn->fd == -1) return C_ERR;
+    return anetBlock(NULL, conn->fd);
 }
 
 int connNonBlock(connection *conn) {
-    int fd = connGetFd(conn);
-    if (fd == -1) return C_ERR;
-    return anetNonBlock(NULL, fd);
+    if (conn->fd == -1) return C_ERR;
+    return anetNonBlock(NULL, conn->fd);
 }
 
 int connEnableTcpNoDelay(connection *conn) {
-    int fd = connGetFd(conn);
-    if (fd == -1) return C_ERR;
-    return anetEnableTcpNoDelay(NULL, fd);
+    if (conn->fd == -1) return C_ERR;
+    return anetEnableTcpNoDelay(NULL, conn->fd);
 }
 
 int connDisableTcpNoDelay(connection *conn) {
-    int fd = connGetFd(conn);
-    if (fd == -1) return C_ERR;
-    return anetDisableTcpNoDelay(NULL, fd);
+    if (conn->fd == -1) return C_ERR;
+    return anetDisableTcpNoDelay(NULL, conn->fd);
 }
 
 int connKeepAlive(connection *conn, int interval) {
-    int fd = connGetFd(conn);
-    if (fd == -1) return C_ERR;
-    return anetKeepAlive(NULL, fd, interval);
+    if (conn->fd == -1) return C_ERR;
+    return anetKeepAlive(NULL, conn->fd, interval);
 }
 
 int connSendTimeout(connection *conn, long long ms) {
-    int fd = connGetFd(conn);
-    return anetSendTimeout(NULL, fd, ms);
+    return anetSendTimeout(NULL, conn->fd, ms);
 }
 
 int connRecvTimeout(connection *conn, long long ms) {
-    int fd = connGetFd(conn);
-    return anetRecvTimeout(NULL, fd, ms);
+    return anetRecvTimeout(NULL, conn->fd, ms);
 }
 
 int RedisRegisterConnectionTypeSocket(void)
