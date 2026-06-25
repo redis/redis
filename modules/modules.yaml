@@ -56,7 +56,7 @@ modules:
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
     repo: https://github.com/redisearch/redisearch
-    ref: codex/bootstrap-fixes
+    ref: master
     target_module: search-community/redisearch.so
     loadmodule: ./modules/redisearch/redisearch.so
   - name: redisjson
