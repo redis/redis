@@ -41,6 +41,26 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         wait_for_cluster_state ok
     }
 
+    test "ClusterTopologyChange reports the STATE reason when the cluster turns FAIL" {
+        set before [dict get [topo_stats 0] state]
+        # Dropping ownership of slots leaves them uncovered, which (with the
+        # default cluster-require-full-coverage) turns the cluster state to FAIL.
+        R 0 cluster DELSLOTSRANGE 0 100
+        wait_for_condition 50 100 {
+            [CI 0 cluster_state] eq "fail"
+        } else {
+            fail "cluster did not turn FAIL after dropping slots"
+        }
+        wait_for_condition 50 100 {
+            [dict get [topo_stats 0] state] > $before
+        } else {
+            fail "STATE change reason was not reported when the cluster turned FAIL"
+        }
+        # Restore the slots and let the cluster become OK again.
+        R 0 cluster ADDSLOTSRANGE 0 100
+        wait_for_cluster_state ok
+    }
+
     test "ClusterTopologyChange reports the ROLE reason on failover" {
         # Find a replica and trigger a coordinated manual failover.
         set replica -1
