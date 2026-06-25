@@ -112,7 +112,7 @@ xxhash: .make-prerequisites
 CROARING_CFLAGS = $(DEPS_CFLAGS) -DROARING_DISABLE_X64=1 -DDISABLENEON=1
 croaring: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd croaring && $(MAKE) CFLAGS="$(CROARING_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO="$(ENABLE_LTO)"
+	cd croaring && $(MAKE) CFLAGS="$(CROARING_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO="$(ENABLE_LTO)" AR="$(AR)"
 
 .PHONY: croaring
 
@@ -136,7 +136,7 @@ endif
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
-AR=ar
+AR ?= ar
 ARFLAGS=rc
 
 lua: .make-prerequisites
