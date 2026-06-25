@@ -442,12 +442,12 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->numMeta * sizeof(uint64_t));
     }
 
-    signalKeyAsReady(db, key, kv->type);
-    notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     *valref = kv;
+    signalKeyAsReady(db, key, kv->type);
+    notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     return kv;
 }
 
@@ -786,8 +786,11 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbAddByLink(db, key, valref, link);
     }
 
-    /* Signal key modification and update LRM timestamp. */
-    keyModified(c,db,key,*valref,!(flags & SETKEY_NO_SIGNAL));
+    /* Signal key modification and update LRM timestamp. The notifications
+     * above can synchronously let modules delete or replace the key, so look
+     * up the current value instead of dereferencing the caller's possibly
+     * stale replacement pointer. */
+    keyModified(c,db,key,lookupKeyReadWithFlags(db,key,LOOKUP_NOEFFECTS),!(flags & SETKEY_NO_SIGNAL));
 }
 
 /* During atomic slot migration, keys that are being imported are in an

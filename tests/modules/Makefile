@@ -56,6 +56,7 @@ TEST_MODULES = \
     datatype.so \
     datatype2.so \
     auth.so \
+    bitmap_notify.so \
     keyspace_events.so \
     blockedclient.so \
     getkeys.so \
