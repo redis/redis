@@ -12948,7 +12948,8 @@ static uint64_t moduleEventVersions[] = {
  *         The cluster OK/FAIL state changed (this also covers the cluster
  *         first becoming ready at startup).
  *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE`:
- *         A node joined or left the cluster.
+ *         A node joined or left the cluster, or an existing node's address
+ *         (ip/port) changed.
  *
  *     More than one bit may be set. Beyond the change reasons, the module reads
  *     whatever else it needs about the new topology via the cluster info APIs

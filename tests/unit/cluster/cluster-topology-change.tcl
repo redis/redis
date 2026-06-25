@@ -28,6 +28,34 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         }
     }
 
+    test "ClusterTopologyChange reports the NODE reason on a node address change" {
+        # Changing node 0's announced port makes the other nodes observe a new
+        # address for node 0 (learned via gossip), which is a topology change.
+        if {$::tls} {
+            set baseport [lindex [R 0 config get tls-port] 1]
+        } else {
+            set baseport [lindex [R 0 config get port] 1]
+        }
+        set newport [find_available_port $baseport [expr [llength $::servers] + 1]]
+
+        set before [dict get [topo_stats 1] node]
+        R 0 config set cluster-announce-tls-port $newport
+        R 0 config set cluster-announce-port $newport
+
+        # Node 1 must both learn the new address and be notified with NODE.
+        wait_for_condition 50 100 {
+            [string match "*:$newport@*" [R 1 cluster nodes]] &&
+            [dict get [topo_stats 1] node] > $before
+        } else {
+            fail "NODE change reason was not reported on a node address change"
+        }
+
+        # Restore node 0's announced port for the following tests.
+        R 0 config set cluster-announce-tls-port 0
+        R 0 config set cluster-announce-port 0
+        wait_for_cluster_state ok
+    }
+
     test "ClusterTopologyChange reports the SLOT reason on slot ownership change" {
         set before [dict get [topo_stats 0] slot]
         R 0 cluster DELSLOTSRANGE 0 100

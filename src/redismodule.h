@@ -930,7 +930,7 @@ typedef struct RedisModuleClusterSlotMigrationTrimInfo {
 #define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1<<0) /* Slot ownership changed. */
 #define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1<<1) /* A node changed its primary/replica role. */
 #define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1<<2) /* The cluster OK/FAIL state changed. */
-#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster, or its address changed. */
 
 #define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION 1
 
