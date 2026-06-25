@@ -48,7 +48,7 @@ void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 static void clusterFireTopologyChangeIfNeeded(void);
-static void clusterNotifyTopologyChange(int change_flags);
+static void clusterNotifyTopologyChange(uint64_t change_flags);
 int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
@@ -5216,7 +5216,7 @@ void clusterCloseAllSlots(void) {
  * REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) and request it to be fired
  * from the next clusterBeforeSleep(). Called from every slot/role mutation and
  * on the cluster's OK/FAIL transition. */
-static void clusterNotifyTopologyChange(int change_flags) {
+static void clusterNotifyTopologyChange(uint64_t change_flags) {
     server.cluster->topology_change_flags |= change_flags;
     clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
 }
@@ -5241,7 +5241,7 @@ static void clusterFireTopologyChangeIfNeeded(void) {
      * RedisModule_GetClusterSize, ...). */
     RedisModuleClusterTopologyChangeInfo info = {
         .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
-        .change_flags = (uint64_t)server.cluster->topology_change_flags,
+        .change_flags = server.cluster->topology_change_flags,
     };
     server.cluster->topology_change_flags = 0;
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
