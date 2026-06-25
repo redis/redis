@@ -2981,17 +2981,15 @@ void xreadCommand(client *c) {
     mstime_t min_pel_delivery_time = LLONG_MAX;
     size_t total_entries = 0; /* Entries emitted so far across all streams,
                                  used to enforce MAXCOUNT/MAXSIZE. */
-    /* MAXSIZE budget baseline: fold the bytes accumulated before serving
-     * (non-zero inside MULTI/EXEC) into the budget so MAXSIZE is enforced on the
-     * absolute c->net_output_bytes_curr_cmd. Only adjust a real (non-zero) budget,
-     * since maxsize == 0 means "no limit". */
-    if (maxsize) maxsize += c->net_output_bytes_curr_cmd;
+    /* Compute an absolute threshold by adding the bytes already accumulated
+     * (non-zero inside MULTI/EXEC) to MAXSIZE. Zero means "no limit". */
+    long long maxsize_threshold = maxsize ? maxsize + c->net_output_bytes_curr_cmd : 0;
     for (int i = 0; i < streams_count; i++) {
         /* Stop scanning further streams once a cumulative limit is reached.
          * At least the first stream is always served, so a single message
          * larger than MAXSIZE is still returned. */
         if (maxcount && total_entries >= (size_t)maxcount) break;
-        if (streamReplyMaxsizeReached(c, maxsize, total_entries)) break;
+        if (streamReplyMaxsizeReached(c, maxsize_threshold, total_entries)) break;
 
         kvobj *o = lookupKeyRead(c->db, c->argv[streams_arg + i]);
         if (o == NULL) continue;
@@ -3122,7 +3120,7 @@ void xreadCommand(client *c) {
                 .min_idle_time = min_idle_time,
                 .group = groups ? groups[i] : NULL, .consumer = consumer,
                 .flags = flags, .spi = &spi, .propCount = &propCount,
-                .maxsize = maxsize, .emitted_before = total_entries,
+                .maxsize = maxsize_threshold, .emitted_before = total_entries,
             };
             total_entries += streamReplyWithRange(c,s,&args);
             if (server.memory_tracking_enabled)
