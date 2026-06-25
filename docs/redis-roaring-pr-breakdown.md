@@ -46,9 +46,12 @@ marked pending in the trackers.
   When the destination type decision depends on the local config (all-string
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
-- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores the
-  logical byte length plus raw bitmap bytes, and AOF rewrite emits `RESTORE`
-  with the DUMP payload. The final payload shape and RESTORE-based rewrite
+- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores a v2
+  marker followed by encoding-specific data: raw payloads use the RDB string
+  length, while range payloads keep the logical byte length. The loader also
+  accepts the previous same-version layout that wrote logical byte length
+  before encoding. AOF rewrite emits `RESTORE` with the DUMP payload. The final
+  payload shape and RESTORE-based rewrite
   strategy remain pending in
   [#29](https://github.com/aviggiano/redis/issues/29); open
   [PR #44](https://github.com/aviggiano/redis/pull/44) is related review
