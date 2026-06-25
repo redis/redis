@@ -1283,6 +1283,19 @@ test {corrupt payload: bitmap RDB validation} {
         set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 2 2 $dump_trailer]
         catch { r restore bitmap:bad-encoding 0 $bad_encoding_payload } err
         assert_match "*Bad data format*" $err
+        assert_equal 0 [r exists bitmap:bad-encoding]
+
+        set replace_target_raw [binary format H* a5]
+        r set bitmap:replace-target $replace_target_raw
+        r bitmap convert bitmap:replace-target
+        r pexpire bitmap:replace-target 60000
+        set replace_target_expire [r pexpiretime bitmap:replace-target]
+        catch { r restore bitmap:replace-target 0 $bad_encoding_payload replace } err
+        assert_match "*Bad data format*" $err
+        assert_equal bitmap [r type bitmap:replace-target]
+        assert_equal bitmap-roaring [r object encoding bitmap:replace-target]
+        assert_equal $replace_target_raw [r debug bitmap-raw bitmap:replace-target]
+        assert_equal $replace_target_expire [r pexpiretime bitmap:replace-target]
 
         set short_raw_payload [bitmap_raw_dump_payload $bitmap_type 3 $valid_raw $dump_trailer]
         catch { r restore bitmap:short-raw 0 $short_raw_payload } err
