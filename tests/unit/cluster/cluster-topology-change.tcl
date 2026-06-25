@@ -49,7 +49,11 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         }
         assert {$replica != -1}
 
-        set before [dict get [topo_stats $replica] role]
+        # Snapshot the ROLE counters on every node before the failover.
+        set before {}
+        for {set i 0} {$i < 6} {incr i} {
+            dict set before $i [dict get [topo_stats $i] role]
+        }
         R $replica cluster failover
         # Wait for the replica to actually take over as a primary.
         wait_for_condition 50 100 {
@@ -57,11 +61,14 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         } else {
             fail "manual failover did not promote the replica"
         }
-        # The promotion must have notified the module with the ROLE reason.
-        wait_for_condition 50 100 {
-            [dict get [topo_stats $replica] role] > $before
-        } else {
-            fail "ROLE change reason was not reported on the promoted node"
+        # The role change propagates across the cluster, so every node must be
+        # notified with the ROLE reason, not just the promoted node.
+        for {set i 0} {$i < 6} {incr i} {
+            wait_for_condition 50 100 {
+                [dict get [topo_stats $i] role] > [dict get $before $i]
+            } else {
+                fail "ROLE change reason was not reported on node $i"
+            }
         }
     }
 }
