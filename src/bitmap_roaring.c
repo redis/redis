@@ -29,14 +29,18 @@ typedef struct bitmapObject {
 } bitmapObject;
 
 static size_t bitmapRoaringAllocSize(const roaring64_bitmap_t *r);
+static size_t bitmapRoaringRangeAllocSize(const roaring64_bitmap_t *r,
+                                          uint64_t start, uint64_t end);
+static void bitmapObjectRefreshAllocSize(bitmapObject *bitmap);
+static void bitmapObjectRefreshRangeAllocSize(bitmapObject *bitmap,
+                                              uint64_t start, uint64_t end,
+                                              size_t old_size);
 
 static bitmapObject *getBitmapObject(const robj *o) {
     serverAssert(o->type == OBJ_BITMAP);
     serverAssert(o->encoding == OBJ_ENCODING_BITMAP_ROARING);
     return o->ptr;
 }
-
-static __thread size_t *bitmapRoaringAllocSizeTracker = NULL;
 
 static void bitmapObjectAdjustAllocSize(size_t *alloc_size, size_t old_size,
                                         size_t new_size)
@@ -50,57 +54,20 @@ static void bitmapObjectAdjustAllocSize(size_t *alloc_size, size_t old_size,
     }
 }
 
-static size_t *bitmapRoaringPushAllocSizeTracker(size_t *alloc_size) {
-    size_t *prev = bitmapRoaringAllocSizeTracker;
-    bitmapRoaringAllocSizeTracker = alloc_size;
-    return prev;
-}
-
-static void bitmapRoaringPopAllocSizeTracker(size_t *prev) {
-    bitmapRoaringAllocSizeTracker = prev;
-}
-
 static void *bitmapRoaringMalloc(size_t size) {
-    if (bitmapRoaringAllocSizeTracker != NULL) {
-        size_t usable = 0;
-        void *ptr = zmalloc_usable(size, &usable);
-        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker, 0, usable);
-        return ptr;
-    }
     return zmalloc(size);
 }
 
 static void *bitmapRoaringRealloc(void *ptr, size_t size) {
-    if (bitmapRoaringAllocSizeTracker != NULL) {
-        size_t usable = 0, old_usable = 0;
-        void *newptr = zrealloc_usable(ptr, size, &usable, &old_usable);
-        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker,
-                                    old_usable, usable);
-        return newptr;
-    }
     return zrealloc(ptr, size);
 }
 
 static void *bitmapRoaringCalloc(size_t nmemb, size_t size) {
-    if (bitmapRoaringAllocSizeTracker != NULL) {
-        if ((size == 0) || (nmemb > SIZE_MAX / size))
-            return zcalloc_num(nmemb, size);
-        size_t usable = 0;
-        void *ptr = zcalloc_usable(nmemb * size, &usable);
-        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker, 0, usable);
-        return ptr;
-    }
     return zcalloc_num(nmemb, size);
 }
 
 static void bitmapRoaringFree(void *ptr) {
     if (ptr == NULL) return;
-    if (bitmapRoaringAllocSizeTracker != NULL) {
-        size_t usable = 0;
-        zfree_usable(ptr, &usable);
-        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker, usable, 0);
-        return;
-    }
     zfree(ptr);
 }
 
@@ -168,13 +135,7 @@ static void *bitmapRoaringAlignedMalloc(size_t alignment, size_t size) {
     extra = alignment - 1 + sizeof(void *);
     if (size > SIZE_MAX - extra) return NULL;
 
-    if (bitmapRoaringAllocSizeTracker != NULL) {
-        size_t usable = 0;
-        base = zmalloc_usable(size + extra, &usable);
-        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker, 0, usable);
-    } else {
-        base = zmalloc(size + extra);
-    }
+    base = zmalloc(size + extra);
     raw = (uintptr_t)base + sizeof(void *);
     aligned = (raw + alignment - 1) & ~((uintptr_t)alignment - 1);
     ((void **)aligned)[-1] = base;
@@ -189,12 +150,6 @@ static void *bitmapRoaringAlignedAllocBase(void *ptr) {
 static void bitmapRoaringAlignedFree(void *ptr) {
     if (ptr == NULL) return;
     void *base = bitmapRoaringAlignedAllocBase(ptr);
-    if (bitmapRoaringAllocSizeTracker != NULL) {
-        size_t usable = 0;
-        zfree_usable(base, &usable);
-        bitmapObjectAdjustAllocSize(bitmapRoaringAllocSizeTracker, usable, 0);
-        return;
-    }
     zfree(base);
 }
 
@@ -221,12 +176,10 @@ void bitmapRoaringInit(void) {
 }
 
 robj *createBitmapObject(void) {
-    size_t bitmap_alloc_size = 0;
-    bitmapObject *bitmap = zmalloc_usable(sizeof(*bitmap), &bitmap_alloc_size);
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = 0;
     bitmap->roaring = roaring64_bitmap_create();
-    bitmap->alloc_size = bitmap_alloc_size +
-                         bitmapRoaringAllocSize(bitmap->roaring);
+    bitmapObjectRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -246,12 +199,10 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 #endif
 
-    size_t bitmap_alloc_size = 0;
-    bitmapObject *bitmap = zmalloc_usable(sizeof(*bitmap), &bitmap_alloc_size);
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
     bitmap->roaring = bitmapObjectRoaringFromString(buf, len, 1);
-    bitmap->alloc_size = bitmap_alloc_size +
-                         bitmapRoaringAllocSize(bitmap->roaring);
+    bitmapObjectRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -260,12 +211,10 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
 
 robj *bitmapTypeDup(const robj *o) {
     bitmapObject *src = getBitmapObject(o);
-    size_t bitmap_alloc_size = 0;
-    bitmapObject *dst = zmalloc_usable(sizeof(*dst), &bitmap_alloc_size);
+    bitmapObject *dst = zmalloc(sizeof(*dst));
     dst->byte_len = src->byte_len;
     dst->roaring = roaring64_bitmap_copy(src->roaring);
-    dst->alloc_size = bitmap_alloc_size +
-                      bitmapRoaringAllocSize(dst->roaring);
+    bitmapObjectRefreshAllocSize(dst);
 
     robj *copy = createObject(OBJ_BITMAP, dst);
     copy->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -361,6 +310,58 @@ static size_t bitmapRoaringAllocSize(const roaring64_bitmap_t *r) {
         art_iterator_next(&it);
     }
     return size;
+}
+
+static size_t bitmapRoaringTopLevelAllocSize(const roaring64_bitmap_t *r) {
+    size_t size = bitmapRoaringMallocSize(r);
+
+    if (!bitmapRoaringIsFrozen(r)) {
+        for (int i = BITMAP_ART_MIN_NODE_TYPE; i <= BITMAP_ART_MAX_NODE_TYPE; i++)
+            size += bitmapRoaringMallocSize(r->art.nodes[i]);
+    }
+    size += bitmapRoaringMallocSize(r->containers);
+    return size;
+}
+
+/* Mutating one bit or range can only change the top-level CRoaring arrays and
+ * the containers whose high 48 bits fall inside that range. Keep those hot
+ * accounting updates proportional to the mutation instead of walking every
+ * container in the bitmap. */
+static size_t bitmapRoaringRangeAllocSize(const roaring64_bitmap_t *r,
+                                          uint64_t start, uint64_t end)
+{
+    size_t size = bitmapRoaringTopLevelAllocSize(r);
+
+    if (start >= end) return size;
+
+    uint64_t last_high48 = (end - 1) >> 16;
+    art_key_chunk_t key[ART_KEY_BYTES];
+    bitmapArtKeyFromHigh48(start >> 16, key);
+    art_iterator_t it = art_lower_bound((art_t *)&r->art, key);
+    while (it.value != NULL) {
+        uint64_t high48 = bitmapArtKeyToHigh48(it.key);
+        if (high48 > last_high48) break;
+
+        roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
+        size += bitmapRoaringContainerAllocSize(
+            r, r->containers[roaring64_leaf_index(leaf)],
+            roaring64_leaf_typecode(leaf));
+        art_iterator_next(&it);
+    }
+    return size;
+}
+
+static void bitmapObjectRefreshAllocSize(bitmapObject *bitmap) {
+    bitmap->alloc_size = bitmapRoaringMallocSize(bitmap) +
+                         bitmapRoaringAllocSize(bitmap->roaring);
+}
+
+static void bitmapObjectRefreshRangeAllocSize(bitmapObject *bitmap,
+                                              uint64_t start, uint64_t end,
+                                              size_t old_size)
+{
+    size_t new_size = bitmapRoaringRangeAllocSize(bitmap->roaring, start, end);
+    bitmapObjectAdjustAllocSize(&bitmap->alloc_size, old_size, new_size);
 }
 
 size_t bitmapObjectAllocSize(const robj *o) {
@@ -793,6 +794,7 @@ int bitmapObjectGetBit(const robj *o, uint64_t bitoffset) {
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     bitmapObject *bitmap = getBitmapObject(o);
     uint64_t byte = bitoffset >> 3;
+    size_t old_size;
 
     if (!bitmapObjectCanRepresentBit(bitoffset))
         return C_ERR;
@@ -800,12 +802,14 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     if (byte + 1 > bitmap->byte_len)
         bitmap->byte_len = byte + 1;
 
-    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
+    old_size = bitmapRoaringRangeAllocSize(bitmap->roaring, bitoffset,
+                                           bitoffset + 1);
     if (on)
         roaring64_bitmap_add(bitmap->roaring, bitoffset);
     else
         roaring64_bitmap_remove(bitmap->roaring, bitoffset);
-    bitmapRoaringPopAllocSizeTracker(prev);
+    bitmapObjectRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1,
+                                      old_size);
 
     return C_OK;
 }
@@ -813,6 +817,7 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
 /* Add bits in the half-open range [start,end). */
 int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end) {
     bitmapObject *bitmap = getBitmapObject(o);
+    size_t old_size;
 
     if (start >= end) return C_OK;
     if (!bitmapObjectCanRepresentBit(end - 1))
@@ -822,19 +827,18 @@ int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end) {
     if (byte + 1 > bitmap->byte_len)
         bitmap->byte_len = byte + 1;
 
-    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
+    old_size = bitmapRoaringRangeAllocSize(bitmap->roaring, start, end);
     roaring64_bitmap_add_range(bitmap->roaring, start, end);
-    bitmapRoaringPopAllocSizeTracker(prev);
+    bitmapObjectRefreshRangeAllocSize(bitmap, start, end, old_size);
 
     return C_OK;
 }
 
 void bitmapObjectOptimize(robj *o) {
     bitmapObject *bitmap = getBitmapObject(o);
-    size_t *prev = bitmapRoaringPushAllocSizeTracker(&bitmap->alloc_size);
     roaring64_bitmap_run_optimize(bitmap->roaring);
     roaring64_bitmap_shrink_to_fit(bitmap->roaring);
-    bitmapRoaringPopAllocSizeTracker(prev);
+    bitmapObjectRefreshAllocSize(bitmap);
 }
 
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
@@ -1054,11 +1058,10 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
     roaring64_bitmap_shrink_to_fit(result);
     zfree(sources);
 
-    size_t bitmap_alloc_size = 0;
-    bitmapObject *bitmap = zmalloc_usable(sizeof(*bitmap), &bitmap_alloc_size);
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = maxlen;
     bitmap->roaring = result;
-    bitmap->alloc_size = bitmap_alloc_size + bitmapRoaringAllocSize(result);
+    bitmapObjectRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
