@@ -338,8 +338,7 @@ struct clusterState {
     uint64_t currentEpoch;
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
-    int topology_change_flags; /* Pending RedisModuleEvent_ClusterTopologyChange subevents (REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_* bits) */
-    int topo_startup_fired;  /* STARTUP topology-change subevent already fired (on first OK) */
+    int topology_change_flags; /* Pending RedisModuleEvent_ClusterTopologyChange reasons (REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     dict *shards;         /* Hash table of shard_id -> list (of nodes) structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */

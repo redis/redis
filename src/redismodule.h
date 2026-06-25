@@ -757,10 +757,8 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
 #define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
 
-#define REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_STARTUP 0
-#define REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_TOPOLOGY_CHANGED 1
-#define REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_ROLE_CHANGED 2
-#define _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT 3
+/* RedisModuleEvent_ClusterTopologyChange has no meaningful subevent. */
+#define _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT 0
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -925,6 +923,26 @@ typedef struct RedisModuleClusterSlotMigrationTrimInfo {
 } RedisModuleClusterSlotMigrationTrimInfoV1;
 
 #define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
+
+/* Reason flags reported in RedisModuleClusterTopologyChangeInfo.change_flags.
+ * More than one bit may be set when several changes were collapsed into a
+ * single (debounced) RedisModuleEvent_ClusterTopologyChange notification. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1<<0) /* Slot ownership changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1<<1) /* A node changed its primary/replica role. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1<<2) /* The cluster OK/FAIL state changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster. */
+
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION 1
+
+typedef struct RedisModuleClusterTopologyChangeInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint64_t change_flags;  /* Bitmask of REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_*
+                               reasons that contributed to this notification. */
+} RedisModuleClusterTopologyChangeInfoV1;
+
+#define RedisModuleClusterTopologyChangeInfo RedisModuleClusterTopologyChangeInfoV1
 
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
