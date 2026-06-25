@@ -1196,9 +1196,10 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
 }
 
 test {corrupt payload: bitmap RDB validation} {
-    # Payload layout: type byte RDB_TYPE_BITMAP, logical byte length, encoding,
-    # encoding-specific payload, 2-byte RDB version, 8-byte CRC (stale in the
-    # corrupted variants; checksum validation is skipped above).
+    # Payload layout: type byte RDB_TYPE_BITMAP, encoding, encoding-specific
+    # payload, 2-byte RDB version, 8-byte CRC (stale in the corrupted variants;
+    # checksum validation is skipped above).  Range encoding includes the
+    # logical byte length because ranges do not represent trailing zero bytes.
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         r setbit bitmap:type-probe 1 1
@@ -1222,8 +1223,8 @@ test {corrupt payload: bitmap RDB validation} {
 
         proc bitmap_range_dump_payload {bitmap_type byte_len ranges trailer} {
             set payload [binary format H* $bitmap_type]
-            append payload [bitmap_rdb_len $byte_len]
             append payload [bitmap_rdb_len 1]
+            append payload [bitmap_rdb_len $byte_len]
             append payload [bitmap_rdb_len [llength $ranges]]
             foreach range $ranges {
                 lassign $range start end
@@ -1234,9 +1235,8 @@ test {corrupt payload: bitmap RDB validation} {
             return $payload
         }
 
-        proc bitmap_raw_dump_payload {bitmap_type byte_len raw trailer} {
+        proc bitmap_raw_dump_payload {bitmap_type raw trailer} {
             set payload [binary format H* $bitmap_type]
-            append payload [bitmap_rdb_len $byte_len]
             append payload [bitmap_rdb_len 0]
             append payload [bitmap_rdb_len [string length $raw]]
             append payload $raw
@@ -1244,9 +1244,17 @@ test {corrupt payload: bitmap RDB validation} {
             return $payload
         }
 
-        proc bitmap_bad_encoding_payload {bitmap_type byte_len encoding trailer} {
+        proc bitmap_raw_dump_payload_with_len {bitmap_type declared_len raw trailer} {
             set payload [binary format H* $bitmap_type]
-            append payload [bitmap_rdb_len $byte_len]
+            append payload [bitmap_rdb_len 0]
+            append payload [bitmap_rdb_len $declared_len]
+            append payload $raw
+            append payload $trailer
+            return $payload
+        }
+
+        proc bitmap_bad_encoding_payload {bitmap_type encoding trailer} {
+            set payload [binary format H* $bitmap_type]
             append payload [bitmap_rdb_len $encoding]
             append payload $trailer
             return $payload
@@ -1270,7 +1278,7 @@ test {corrupt payload: bitmap RDB validation} {
         r config set proto-max-bulk-len $old_bulk_len
 
         set valid_payload [bitmap_range_dump_payload $bitmap_type 2 $valid_ranges $dump_trailer]
-        set valid_raw_payload [bitmap_raw_dump_payload $bitmap_type 2 $valid_raw $dump_trailer]
+        set valid_raw_payload [bitmap_raw_dump_payload $bitmap_type $valid_raw $dump_trailer]
 
         r config set sanitize-dump-payload yes
         r restore bitmap:valid 0 $valid_payload
@@ -1280,11 +1288,11 @@ test {corrupt payload: bitmap RDB validation} {
         assert_equal [r type bitmap:valid-raw] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid-raw] $valid_raw
 
-        set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 2 2 $dump_trailer]
+        set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 2 $dump_trailer]
         catch { r restore bitmap:bad-encoding 0 $bad_encoding_payload } err
         assert_match "*Bad data format*" $err
 
-        set short_raw_payload [bitmap_raw_dump_payload $bitmap_type 3 $valid_raw $dump_trailer]
+        set short_raw_payload [bitmap_raw_dump_payload_with_len $bitmap_type 3 $valid_raw $dump_trailer]
         catch { r restore bitmap:short-raw 0 $short_raw_payload } err
         assert_match "*Bad data format*" $err
 
