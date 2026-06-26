@@ -9,9 +9,11 @@ describes the branch state at the time this document was written; it does not
 settle the design.
 
 Final v1 outcome for Packet 1: native bitmaps keep `roaring64_bitmap_t`
-internals, Redis bitmap writes remain bounded by `proto-max-bulk-len` for
-allocation safety, and read-only native bitmap offset lookups can use sparse
-signed-64-bit offsets.
+internals, but native bitmap values remain capped at 512 MiB of logical bytes
+(max bit offset `4294967295`). Redis bitmap writes remain bounded by
+`proto-max-bulk-len` for allocation safety, and read-only native bitmap lookups
+may only exceed a lower current `proto-max-bulk-len` setting while staying
+inside the native v1 cap.
 
 Primary local references:
 
@@ -48,15 +50,15 @@ Roaring before the format is treated as stable?
 - The current code stores native bitmaps with CRoaring's
   `roaring64_bitmap_t` and a separate `uint64_t byte_len`.
 - Public write paths reject offsets that address a byte at or beyond
-  `proto-max-bulk-len` for normal clients. Native bitmap read paths accept
-  sparse signed-64-bit offsets and return zero for unset bits beyond the
-  logical length.
+  `proto-max-bulk-len` for normal clients. Native bitmap values additionally
+  reject offsets above bit `4294967295`; read-only native lookups return zero
+  for unset bits beyond the logical length only within that v1 range.
 - The current RDB path saves native bitmaps as v2 payloads with either raw
   bytes or set-bit ranges, and validates payloads against the native bitmap
   representability cap.
-- Documentation now describes native 64-bit-capable internals with the v1
-  Redis bitmap write safety limit, leaving any future write-limit expansion as
-  a separate decision.
+- Documentation now describes native 64-bit-capable internals with the bounded
+  v1 native bitmap surface, leaving any future cap expansion as a separate
+  decision.
 - The upstream concern that reopened this question is allocation safety:
   extremely high offsets can still lead to expensive dense operations, digest
   paths, materialization, or future feature pressure if the type advertises a
@@ -66,7 +68,7 @@ Roaring before the format is treated as stable?
 
 | Option | Benefits | Costs / Risks |
 | --- | --- | --- |
-| Keep 64-bit Roaring with the current write cap | Minimizes current code churn; keeps a path open for future native offsets beyond string write limits; maps naturally from redis-roaring `roaring64` migration inputs; permits sparse signed-64-bit read lookups on native values. | Carries 64-bit internal overhead while v1 writes remain bounded; keeps future pressure to lift caps; safety review must prove dense/materializing paths respect the bounded surface. |
+| Keep 64-bit Roaring with the bounded v1 cap | Minimizes current code churn; keeps 64-bit-capable storage internals for future native-offset work; maps naturally from redis-roaring `roaring64` migration inputs after validation; permits sparse read lookups on native values inside the v1 cap. | Carries 64-bit internal overhead while v1 remains bounded; keeps future pressure to lift caps; safety review must prove dense/materializing paths respect the bounded surface. |
 | Switch v1 to bounded 32-bit Roaring | Aligns storage width with the current effective v1 cap; avoids advertising unused 64-bit behavior; likely smaller/faster internal directory for bounded data; makes allocation-safety story simpler. | Requires implementation churn; makes later 64-bit support a new format/type migration; cannot represent redis-roaring `roaring64` inputs above the 32-bit range; raised `proto-max-bulk-len` deployments would need an explicit native bitmap cap. |
 | Ship dual 32-bit and 64-bit native formats in v1 | Can optimize bounded keys while preserving future wide-key support. | Adds format, RDB, command, migration, and test complexity before v1 semantics are settled. This is the least concise v1 story. |
 
@@ -74,9 +76,9 @@ Roaring before the format is treated as stable?
 
 - Legacy string bitmap behavior remains bounded by `proto-max-bulk-len` in all
   options.
-- Keeping 64-bit internally with bounded writes is compatible with the current
-  branch behavior; docs must not promise native writes beyond
-  `proto-max-bulk-len`.
+- Keeping 64-bit internally with a bounded native surface is compatible with
+  the current branch behavior; docs must not promise native reads or writes
+  beyond the v1 native cap.
 - Switching to bounded 32-bit is user-visible only if native bitmaps are
   expected to support raised `proto-max-bulk-len` values above the 32-bit
   bitmap range, or if migration tools encounter `roaring64` inputs with set
@@ -111,11 +113,12 @@ Roaring before the format is treated as stable?
 
 ### Recommendation
 
-Final v1 direction keeps 64-bit-capable Roaring internals and the
-`proto-max-bulk-len` write limit. This preserves redis-roaring `roaring64`
-migration headroom and avoids reopening the storage format, while keeping the
-allocation-safety boundary reviewers asked for. Lifting the write cap remains a
-future compatibility and performance decision.
+Final v1 direction keeps 64-bit-capable Roaring internals while bounding native
+bitmap logical length to 512 MiB / max bit `4294967295`. This preserves
+redis-roaring `roaring64` migration headroom for values that validate inside
+the v1 range and avoids reopening the storage format, while keeping the
+allocation-safety boundary reviewers asked for. Lifting the native cap remains
+a future compatibility and performance decision.
 
 ## Packet 2: `BITMAP CONVERT` v1
 
