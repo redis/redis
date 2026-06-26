@@ -17,10 +17,11 @@ marked pending in the trackers.
   native bitmaps with CRoaring `roaring64_bitmap_t` and an explicit logical byte
   length. DD-17 settles v1 on 64-bit-capable internals with a bounded native
   surface: native bitmap logical length is capped at 512 MiB, max bit offset
-  `4294967295`, and normal client commands also honor `proto-max-bulk-len` when
-  it is lower. Lifting the cap is deferred to a future compatibility and
-  performance decision. See [#24](https://github.com/aviggiano/redis/issues/24)
-  and [#42](https://github.com/aviggiano/redis/issues/42).
+  `4294967295`; writes also honor `proto-max-bulk-len`. Lifting the cap is
+  deferred to a future compatibility and performance decision, and read-only
+  native lookups may exceed a lower current `proto-max-bulk-len` only within the
+  native cap. See [#24](https://github.com/aviggiano/redis/issues/24) and
+  [#42](https://github.com/aviggiano/redis/issues/42).
 - **Default Roaring opt-in**: the `bitmap-roaring-{enabled,auto-convert,
   min-bytes,min-saving}` configs are replaced by a single
   `bitmap-default-roaring` boolean flag (`no` by default, or `yes`). With
@@ -133,10 +134,7 @@ design.
 - Add open questions.
 - Add Redis bitmap/string behavior matrix.
 - Add legacy-string-vs-native-bitmap oracle test harness.
-- Own the 64-bit indexing decision: decide (or explicitly time-box) whether
-  `OBJ_BITMAP` keeps Redis string bitmap offset limits or introduces a
-  documented 64-bit index model. Hard deadline is Step 3, because the RDB
-  payload and type id ossify the answer. DD-17 resolved this for v1 by keeping
+- Own the 64-bit indexing decision. The v1 decision is to keep
   `roaring64_bitmap_t` internally while bounding native bitmap values to
   512 MiB / max bit `4294967295`; future work can revisit wider native offsets
   as an explicit compatibility decision.
