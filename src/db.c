@@ -90,7 +90,7 @@ void updateLRM(robj *o) {
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
-    int idx = keysizesHistIdx((int) type);
+    int idx = keysizesHistIdx(type);
     if (unlikely(idx < 0))
         return;
 
@@ -102,8 +102,8 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
-            /* Only strings can be empty. Yet, a command flow might temporarily
-             * dbAdd() empty collection, and only after add elements. */
+            /* Only strings and streams can be empty. Yet, a command flow might
+             * temporarily dbAdd() empty collection, and only after add elements. */
             kvstoreHist[idx][0]--;
             debugServerAssert(kvstoreHist[idx][0] >= 0);
         }
@@ -116,8 +116,8 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
-            /* Only strings can be empty. Yet, a command flow might temporarily
-             * dbAdd() empty collection, and only after add elements. */
+            /* Only strings and streams can be empty. Yet, a command flow might
+             * temporarily dbAdd() empty collection, and only after add elements. */
             kvstoreHist[idx][0]++;
         }
     }

@@ -787,6 +787,16 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server XGROUP CREATE st2 g 0 MKSTREAM} {db0_STREAM:0=1}
     }
 
+    test "KEYSIZES - XADD that appends and trims in one command $suffixRepl" {
+        # xaddCommand appends then trims within the same command, with a single
+        # post-command histogram update. MAXLEN 0 leaves the (newly created)
+        # stream key at length 0 -> bin 0; later MAXLEN 1 must keep it at bin 1.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st MAXLEN 0 1-1 f v} {db0_STREAM:0=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st MAXLEN 1 3-1 f v} {db0_STREAM:1=1}
+    }
+
     test "KEYSIZES - XDELEX and XACKDEL update the stream histogram $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         for {set i 1} {$i <= 4} {incr i} { $server XADD st $i-1 f v }

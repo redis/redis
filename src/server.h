@@ -1257,11 +1257,13 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 /* Map an object type to its keysizes/allocsizes histogram slot, or -1 if the
  * type is not tracked. Basic types keep their own ordinal; streams take the
  * slot right after them, so no row is wasted on the untracked module type
- * (OBJ_MODULE == 5 sits between the basic types and OBJ_STREAM == 6). */
-static inline int keysizesHistIdx(int type) {
-    if (type >= 0 && type < OBJ_TYPE_BASIC_MAX) return type; /* 0..4 */
-    if (type == OBJ_STREAM) return KEYSIZES_IDX_STREAM;      /* 5 */
-    return -1;                                               /* modules etc.: not tracked */
+ * (OBJ_MODULE == 5 sits between the basic types and OBJ_STREAM == 6). The
+ * argument is unsigned to match the object type field (object.h: type:4); any
+ * other (untracked) type value falls through to -1. */
+static inline int keysizesHistIdx(uint32_t type) {
+    if (type < OBJ_TYPE_BASIC_MAX) return type;          /* 0..4 */
+    if (type == OBJ_STREAM) return KEYSIZES_IDX_STREAM;  /* 5 */
+    return -1;                                           /* modules etc.: not tracked */
 }
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
