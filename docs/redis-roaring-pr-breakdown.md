@@ -131,14 +131,10 @@ design.
 - Add open questions.
 - Add Redis bitmap/string behavior matrix.
 - Add legacy-string-vs-native-bitmap oracle test harness.
-- Own the 64-bit indexing decision: decide (or explicitly time-box) whether
-  `OBJ_BITMAP` keeps Redis string bitmap offset limits or introduces a
-  documented 64-bit index model. Hard deadline is Step 3, because the RDB
-  payload and type id ossify the answer. The current draft implementation
-  keeps public bitmap offsets bounded by `proto-max-bulk-len` for both legacy
-  strings and native bitmaps, while native internals use `roaring64_bitmap_t`.
-  DD-17 reopens whether v1 should instead use bounded 32-bit Roaring or another
-  documented cap.
+- Own the 64-bit indexing decision. The v1 decision is to keep
+  `roaring64_bitmap_t` internally, preserve the Redis `proto-max-bulk-len`
+  write limit for legacy strings and native bitmaps, and leave any future
+  write-limit expansion to a later compatibility/performance decision.
 - Port redis-roaring test properties and edge cases, not its fuzz corpora: the
   module corpora are libFuzzer inputs for `R.*`-shaped harnesses driving a
   spawned server over hiredis, and Redis core has no libFuzzer infrastructure,

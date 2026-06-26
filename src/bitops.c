@@ -780,10 +780,10 @@ void printBits(unsigned char *p, unsigned long count) {
 #define BITFIELDOP_INCRBY 2
 
 /* This helper function used by bitmap commands parses the bit offset argument,
- * making sure an error is returned if it is negative, does not fit a signed
- * 64-bit integer, or addresses a byte at or beyond proto-max-bulk-len. Keeping
- * the original public offset limit avoids command-surface differences between
- * legacy string bitmaps and native compressed bitmaps.
+ * making sure an error is returned if it is negative or does not fit a signed
+ * 64-bit integer. Write paths and legacy string read paths apply the
+ * client-visible proto-max-bulk-len limit separately; native bitmap reads can
+ * address sparse 64-bit offsets and read unset bits as zero.
  *
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
@@ -813,15 +813,21 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
         loffset *= bits;
     }
 
-    if (!mustObeyClient(c) &&
-        (((uint64_t)loffset) >> 3) >= (uint64_t)server.proto_max_bulk_len)
-    {
-        addReplyError(c,err);
-        return C_ERR;
-    }
-
     *offset = loffset;
     return C_OK;
+}
+
+static int bitmapOffsetWithinProtoLimit(client *c, uint64_t bitoffset, const char *err) {
+    if (mustObeyClient(c) || (bitoffset >> 3) < (uint64_t)server.proto_max_bulk_len)
+        return 1;
+    addReplyError(c, err);
+    return 0;
+}
+
+/* Legacy string and missing-key reads keep the historical Redis bitmap offset
+ * limit. Native bitmap reads use the wider sparse representation instead. */
+static int bitmapReadOffsetWithinLimit(client *c, uint64_t bitoffset) {
+    return bitmapOffsetWithinProtoLimit(c, bitoffset, "bit offset is out of range");
 }
 
 /* Bitmap writes cannot address bits at or beyond proto-max-bulk-len bytes
@@ -831,9 +837,8 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
  * out-of-range error and returns 0. Commands obeying a master or the AOF skip
  * the check: the master already validated the write against its own limit. */
 static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
-    if (mustObeyClient(c) || (maxbit >> 3) < (uint64_t)server.proto_max_bulk_len)
+    if (bitmapOffsetWithinProtoLimit(c, maxbit, "bit offset is out of range"))
         return 1;
-    addReplyError(c, "bit offset is out of range");
     return 0;
 }
 
@@ -1009,6 +1014,9 @@ void setbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
+    if (!bitmapWriteOffsetWithinLimit(c, bitoffset))
+        return;
+
     if (getLongFromObjectOrReply(c,c->argv[3],&on,err) != C_OK)
         return;
 
@@ -1147,8 +1155,15 @@ void getbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
-    kvobj *kv = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
-    if (kv == NULL || checkStringOrBitmapType(c,kv)) return;
+    kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
+    if ((kv == NULL || kv->type != OBJ_BITMAP) &&
+        !bitmapReadOffsetWithinLimit(c, bitoffset))
+        return;
+    if (kv == NULL) {
+        addReply(c, shared.czero);
+        return;
+    }
+    if (checkStringOrBitmapType(c,kv)) return;
 
     /* Offsets past the end of the value read as 0, like any other unset bit. */
     byte = bitoffset >> 3;
@@ -2351,10 +2366,27 @@ void bitfieldGeneric(client *c, int flags) {
         j += 3 - (opcode == BITFIELDOP_GET);
     }
 
+    if (!readonly) {
+        for (j = 0; j < numops; j++) {
+            if (!bitmapReadOffsetWithinLimit(c, ops[j].offset)) {
+                zfree(ops);
+                return;
+            }
+        }
+    }
+
     if (readonly) {
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string or bitmap. */
         o = lookupKeyRead(c->db,c->argv[1]);
+        if (o == NULL || o->type != OBJ_BITMAP) {
+            for (j = 0; j < numops; j++) {
+                if (!bitmapReadOffsetWithinLimit(c, ops[j].offset)) {
+                    zfree(ops);
+                    return;
+                }
+            }
+        }
         if (o != NULL && checkStringOrBitmapType(c,o)) {
             zfree(ops);
             return;

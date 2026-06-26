@@ -346,10 +346,42 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 0 [r getbit bitmap:native:getbit:past 7]
         assert_equal 0 [r getbit bitmap:native:getbit:past 100]
         assert_equal 0 [r getbit bitmap:native:getbit:past 4294967295]
+        assert_equal 0 [r getbit bitmap:native:getbit:past 4294967296]
+        assert_equal 0 [r getbit bitmap:native:getbit:past 9223372036854775799]
         assert_error {*bit offset is*out of range*} {
-            r getbit bitmap:native:getbit:past 4294967296
+            r getbit bitmap:native:getbit:past 9223372036854775808
         }
         assert_equal [binary format H* 10] [r debug bitmap-raw bitmap:native:getbit:past]
+    }
+
+    test {native bitmap writes use 64-bit offsets when proto-max-bulk-len permits} {
+        set offset 4294967296
+        set limit [expr {($offset / 8) + 1}]
+        set oldval [config_get_set proto-max-bulk-len $limit]
+        r config set bitmap-default-roaring yes
+        r del bitmap:native:wide-offset
+
+        assert_equal 0 [r setbit bitmap:native:wide-offset $offset 1]
+        assert_equal bitmap [r type bitmap:native:wide-offset]
+        assert_equal bitmap-roaring [r object encoding bitmap:native:wide-offset]
+        assert_equal 1 [r getbit bitmap:native:wide-offset $offset]
+        assert_equal {1} [r bitfield_ro bitmap:native:wide-offset GET u1 $offset]
+        assert_equal 1 [r bitcount bitmap:native:wide-offset]
+
+        r config set proto-max-bulk-len 1048576
+        assert_equal 1 [r getbit bitmap:native:wide-offset $offset]
+        assert_equal {1 0} [r bitfield_ro bitmap:native:wide-offset GET u1 $offset GET u1 [expr {$offset + 1}]]
+        assert_error {*bit offset*out of range*} {
+            r setbit bitmap:native:wide-offset [expr {$offset + 1}] 1
+        }
+        assert_error {*bit offset*out of range*} {
+            r bitfield bitmap:native:wide-offset SET u1 [expr {$offset + 1}] 1
+        }
+        assert_equal 1 [r bitcount bitmap:native:wide-offset]
+
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+        r del bitmap:native:wide-offset
     }
 
     test {SETBIT keeps the proto-max-bulk-len offset limit on native bitmaps} {
@@ -535,7 +567,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             }
         }
         assert_error {*ERR bit offset*out of range*} {
-            r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296
+            r bitfield_ro bitmap:string:bitfield:limit GET u1 4294967296
+        }
+        assert_equal {0} [r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296]
+        assert_error {*ERR bit offset*out of range*} {
+            r bitfield bitmap:native:bitfield:limit GET u1 4294967296 SET u1 0 1
         }
         assert_equal 0 [r bitcount bitmap:string:bitfield:limit]
         assert_equal 0 [r bitcount bitmap:native:bitfield:limit]
