@@ -221,10 +221,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         assert_equal bitmap [r type bitmap:native:bounds]
         assert_equal 1 [r bitcount bitmap:native:bounds]
-        assert_equal 0 [r getbit bitmap:native:bounds 4294967296]
-        assert_equal {0} [r bitfield_ro bitmap:native:bounds GET u1 4294967296]
+        assert_equal 0 [r getbit bitmap:native:bounds 4294967295]
+        assert_equal {0} [r bitfield_ro bitmap:native:bounds GET u1 4294967295]
         foreach cmd {
+            {getbit bitmap:native:bounds 4294967296}
             {setbit bitmap:native:bounds 4294967296 1}
+            {bitfield_ro bitmap:native:bounds GET u1 4294967296}
             {bitfield bitmap:native:bounds SET u1 4294967296 1}
             {bitfield bitmap:native:bounds GET u1 4294967296 SET u1 0 1}
         } {
@@ -310,6 +312,50 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
         r del bitmap:native:small-limit
+    }
+
+    test {native bitmap offset cap remains bounded when proto-max-bulk-len is raised} {
+        set raised_limit [expr {536870912 + 1}]
+        set max_native_bit 4294967295
+        set first_rejected [expr {$max_native_bit + 1}]
+        set oldval [config_get_set proto-max-bulk-len $raised_limit]
+
+        r del bitmap:native:raised-limit bitmap:native:raised-limit:new \
+            bitmap:native:raised-limit:string
+        r config set bitmap-default-roaring yes
+        assert_equal 0 [r setbit bitmap:native:raised-limit 0 1]
+        assert_equal 0 [r getbit bitmap:native:raised-limit $max_native_bit]
+
+        foreach cmd [list \
+            [list getbit bitmap:native:raised-limit $first_rejected] \
+            [list setbit bitmap:native:raised-limit $first_rejected 1] \
+            [list bitfield_ro bitmap:native:raised-limit GET u1 $first_rejected] \
+            [list bitfield bitmap:native:raised-limit SET u1 $first_rejected 1] \
+            [list bitfield bitmap:native:raised-limit SET u2 $max_native_bit 3] \
+            [list bitfield bitmap:native:raised-limit GET u1 $first_rejected SET u1 1 1] \
+        ] {
+            assert_error {*bit offset*out of range*} {r {*}$cmd}
+        }
+
+        assert_error {*bit offset*out of range*} {
+            r setbit bitmap:native:raised-limit:new $first_rejected 1
+        }
+        assert_equal 0 [r exists bitmap:native:raised-limit:new]
+
+        r set bitmap:native:raised-limit:string [binary format H* 80]
+        assert_error {*bit offset*out of range*} {
+            r setbit bitmap:native:raised-limit:string $first_rejected 1
+        }
+        assert_error {*bit offset*out of range*} {
+            r bitfield bitmap:native:raised-limit:string GET u1 $first_rejected SET u1 1 1
+        }
+        assert_equal string [r type bitmap:native:raised-limit:string]
+        assert_equal [binary format H* 80] [r get bitmap:native:raised-limit:string]
+
+        assert_equal 1 [r bitcount bitmap:native:raised-limit]
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len $oldval
+        r del bitmap:native:raised-limit bitmap:native:raised-limit:string
     }
 
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
