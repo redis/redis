@@ -1123,6 +1123,10 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
  * impossible legacy byte length as an in-payload version marker so old payloads
  * remain distinguishable without restoring the redundant raw byte length. */
 #define RDB_BITMAP_FORMAT_VERSION_V2 (BITMAP_OBJECT_MAX_BYTES + 1)
+/* LZF's best case is much less optimistic than this, but keep the guard loose:
+ * it only skips raw-size probing when compressed raw bytes cannot plausibly
+ * beat the already-known range payload size. */
+#define RDB_BITMAP_LZF_OPTIMISTIC_RATIO 1024
 
 typedef struct rdbSaveBitmapRangeCtx {
     rio *rdb;
@@ -1192,6 +1196,12 @@ static int rdbBitmapRangeEncodedSize(uint64_t byte_len,
     return C_OK;
 }
 
+static int rdbBitmapShouldTryRawEncoding(uint64_t byte_len, size_t range_size) {
+    if (byte_len <= (uint64_t)range_size) return 1;
+    if (!server.rdb_compression || byte_len <= 20) return 0;
+    return byte_len / RDB_BITMAP_LZF_OPTIMISTIC_RATIO <= (uint64_t)range_size;
+}
+
 static sds rdbBitmapEncodeRawPayload(sds payload) {
     rio raw;
     sds encoded = sdsempty();
@@ -1250,19 +1260,21 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     use_raw = stats.range_count > byte_len / 2;
 
     /* For sparser inputs, compare against the actual raw RDB string size so
-     * LZF compression can beat high-offset range framing. If raw
-     * materialization fails, keep the streaming range encoding unless raw was
-     * already the only viable choice. */
-    raw_payload = bitmapObjectMaterializeForRDB(o);
-    if (raw_payload != NULL) {
-        serverAssert((uint64_t)sdslen(raw_payload) == byte_len);
-        raw_encoded = rdbBitmapEncodeRawPayload(raw_payload);
-        sdsfree(raw_payload);
-        if (raw_encoded == NULL) return -1;
-        raw_size = sdslen(raw_encoded);
-        if (raw_size <= range_size) use_raw = 1;
-    } else if (use_raw) {
-        return -1;
+     * LZF compression can beat high-offset range framing. Avoid probing cases
+     * where even an unrealistically strong compression ratio cannot beat the
+     * range payload, because probing requires materializing the logical bytes. */
+    if (use_raw || rdbBitmapShouldTryRawEncoding(byte_len, range_size)) {
+        raw_payload = bitmapObjectMaterializeForRDB(o);
+        if (raw_payload != NULL) {
+            serverAssert((uint64_t)sdslen(raw_payload) == byte_len);
+            raw_encoded = rdbBitmapEncodeRawPayload(raw_payload);
+            sdsfree(raw_payload);
+            if (raw_encoded == NULL) return -1;
+            raw_size = sdslen(raw_encoded);
+            if (raw_size <= range_size) use_raw = 1;
+        } else {
+            use_raw = 0;
+        }
     }
 
     if (use_raw) {
