@@ -3204,6 +3204,8 @@ int clusterProcessPacket(clusterLink *link) {
                      * primary in the very first time. */
                     updateShardId(sender, master->shard_id);
 
+                    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 }
