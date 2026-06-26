@@ -167,6 +167,7 @@ jobs:
             --croaring-realdata-dir "$RUNNER_TEMP/croaring-realdata" \
             --download-croaring-realdata \
             --realdata-archives "${{ inputs.realdata_archives }}" \
+            --realdata-max-files 10 \
             ${{ inputs.extra_args }}
 
       - name: Publish benchmark report summary
