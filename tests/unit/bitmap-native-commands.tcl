@@ -240,6 +240,22 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r debug bitmap-raw bitmap:native:read]
     }
 
+    test {BITMAP CONVERT preserves dense raw chunks and boundary bits} {
+        set raw [binary format H* "[string repeat ff 8192]8001"]
+
+        r set bitmap:native:convert:dense $raw
+        r bitmap convert bitmap:native:convert:dense
+
+        assert_equal bitmap [r type bitmap:native:convert:dense]
+        assert_equal bitmap-roaring [r object encoding bitmap:native:convert:dense]
+        assert_equal $raw [r debug bitmap-raw bitmap:native:convert:dense]
+        assert_equal 65538 [r bitcount bitmap:native:convert:dense]
+        assert_equal 1 [r getbit bitmap:native:convert:dense 0]
+        assert_equal 1 [r getbit bitmap:native:convert:dense 65535]
+        assert_equal 1 [r getbit bitmap:native:convert:dense 65536]
+        assert_equal 1 [r getbit bitmap:native:convert:dense 65551]
+    }
+
     test {SETBIT and GETBIT round trip native bitmap offsets} {
         seed_native_bitmap bitmap:native:setbit:loop {}
 
@@ -866,6 +882,22 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             assert_native_bitop_raws_match_string "mixed:$op" $op $raws {0 2}
         }
         assert_native_bitop_raws_match_string mixed:not not [list $a] {0}
+    }
+
+    test {BITOP mixed dense string chunks match string results} {
+        set native [binary format H* [string repeat aa 8194]]
+        set dense [binary format H* "[string repeat ff 8192]8001"]
+        set sparse [binary format H* [string repeat 00 8194]]
+        set sparse [string replace $sparse 0 0 [binary format H* 80]]
+        set sparse [string replace $sparse 8191 8191 [binary format H* 01]]
+        set sparse [string replace $sparse 8192 8192 [binary format H* 80]]
+        set sparse [string replace $sparse 8193 8193 [binary format H* 01]]
+        set raws [list $native $dense $sparse]
+
+        foreach op {and or xor diff diff1 andor one} {
+            assert_native_bitop_raws_match_string "mixed-dense:$op" \
+                $op $raws {0}
+        }
     }
 
     test {BITOP mixed native source destination aliasing matches string results} {
