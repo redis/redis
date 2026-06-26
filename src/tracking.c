@@ -615,8 +615,6 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
 static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
     if (raxSize(bs->keys) == 0) return;
 
-    raxIterator ri;
-
     /* Per-user proto cache.  Key: user * pointer (identity),
      * value: sds proto (may be NULL for users whose keys are all
      * filtered out by ACL). */
@@ -624,6 +622,7 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
     dict *user_cache = dictCreate(&dt);
 
     /* Send this array of keys to every client in the list. */
+    raxIterator ri;
     raxStart(&ri,bs->clients);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
