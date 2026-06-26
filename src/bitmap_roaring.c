@@ -209,6 +209,41 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     return o;
 }
 
+robj *createBitmapObjectFromPortable(const unsigned char *buf, size_t len,
+                                     uint64_t byte_len) {
+    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+
+    size_t read_len =
+        roaring64_bitmap_portable_deserialize_size((const char *)buf, len);
+    if (read_len == 0 || read_len != len) return NULL;
+
+    roaring64_bitmap_t *roaring =
+        roaring64_bitmap_portable_deserialize_safe((const char *)buf, len);
+    if (roaring == NULL) return NULL;
+
+    if (!roaring64_bitmap_internal_validate(roaring, NULL)) {
+        roaring64_bitmap_free(roaring);
+        return NULL;
+    }
+
+    if (!roaring64_bitmap_is_empty(roaring)) {
+        uint64_t max = roaring64_bitmap_maximum(roaring);
+        if (byte_len == 0 || max >= byte_len * 8) {
+            roaring64_bitmap_free(roaring);
+            return NULL;
+        }
+    }
+
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+    bitmap->byte_len = byte_len;
+    bitmap->roaring = roaring;
+    bitmapObjectRefreshAllocSize(bitmap);
+
+    robj *o = createObject(OBJ_BITMAP, bitmap);
+    o->encoding = OBJ_ENCODING_BITMAP_ROARING;
+    return o;
+}
+
 robj *bitmapTypeDup(const robj *o) {
     bitmapObject *src = getBitmapObject(o);
     bitmapObject *dst = zmalloc(sizeof(*dst));
@@ -883,6 +918,16 @@ sds bitmapObjectMaterialize(const robj *o) {
 /* RDB raw payloads are persisted data, not client protocol bulk strings. */
 sds bitmapObjectMaterializeForRDB(const robj *o) {
     return bitmapObjectMaterializeRaw(o, 0);
+}
+
+sds bitmapObjectSerializePortable(const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    size_t len = roaring64_bitmap_portable_size_in_bytes(bitmap->roaring);
+    sds payload = sdsnewlen(SDS_NOINIT, len);
+    size_t written =
+        roaring64_bitmap_portable_serialize(bitmap->roaring, payload);
+    serverAssert(written == len);
+    return payload;
 }
 
 typedef struct bitmapBitopSource {
