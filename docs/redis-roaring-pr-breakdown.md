@@ -49,15 +49,15 @@ marked pending in the trackers.
   When the destination type decision depends on the local config (all-string
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
-- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores a v2
-  marker followed by encoding-specific data: raw payloads use the RDB string
-  length, while range payloads keep the logical byte length. The loader also
-  accepts the previous same-version layout that wrote logical byte length
-  before encoding. AOF rewrite emits `RESTORE` with the DUMP payload. The DD-10
-  baseline in [#29](https://github.com/aviggiano/redis/issues/29) is the V2
-  raw/range payload direction with RESTORE input treated as untrusted; open
-  [PR #44](https://github.com/aviggiano/redis/pull/44) is related review
-  follow-up, not current `unstable` behavior.
+- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores a
+  stable v2 marker, a portable-payload encoding id, the logical byte length, and
+  an endian-neutral CRoaring portable payload. The loader also accepts the
+  previous raw/range encodings and the previous same-version layout that wrote
+  logical byte length before encoding. AOF rewrite emits `RESTORE` with the
+  DUMP payload. The DD-10 baseline in
+  [#29](https://github.com/aviggiano/redis/issues/29) treats RESTORE input as
+  untrusted; open [PR #44](https://github.com/aviggiano/redis/pull/44) is
+  related review follow-up, not current `unstable` behavior.
 
 The determinism invariant is unchanged and now covers the new paths: type
 transitions always reach replicas and the AOF as explicit RESTOREs of the
@@ -172,9 +172,9 @@ design.
   surface). Call the choice and its version coupling out explicitly in the PR
   description.
 - Harden `RESTORE` for the new payload: always validate logical byte length,
-  raw payload length, max-offset/cardinality invariants, and canonical range
-  ordering, with corrupt-payload tests. Deep CRoaring-container validation is
-  not part of the raw/range payload contract.
+  portable payload deserialization, raw payload length for legacy raw inputs,
+  max-offset/cardinality invariants, and canonical range ordering for legacy
+  range inputs, with corrupt-payload tests.
 - The 64-bit indexing decision (Step 1) must be resolved before this step's
   RDB payload and type id are submitted upstream.
 - Add key introspection and module-facing type handling:
