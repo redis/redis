@@ -345,7 +345,6 @@ proc findKeyWithType {r type} {
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
-    set usestream [expr {[lsearch -exact $opt usestream] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
@@ -373,7 +372,7 @@ proc createComplexDataset {r ops {opt {}}} {
         # not delete the key, so a stream key cycles back to "none" only if the key
         # itself is deleted or expires. The dedicated namespace also lets entries
         # accumulate into larger streams, with "*" keeping IDs monotonic per key.
-        if {$usestream && rand() < 0.2} {
+        if {rand() < 0.2} {
             set sk "strm:[randomInt 20]$tag"
             randpath {
                 {*}$r xadd $sk * $f $v
@@ -543,6 +542,17 @@ proc csvdump r {
                     foreach kv $fields {
                         append o [csvstring [lindex $kv 0]] ,
                         append o [csvstring [lindex $kv 1]] ,
+                    }
+                    append o "\n"
+                }
+                stream {
+                    # Must cover the same state as the stream
+                    # digest in xorObjectDigest() (debug.c)
+                    foreach entry [{*}$r xrange $k - +] {
+                        append o [csvstring [lindex $entry 0]] ,
+                        foreach fv [lindex $entry 1] {
+                            append o [csvstring $fv] ,
+                        }
                     }
                     append o "\n"
                 }

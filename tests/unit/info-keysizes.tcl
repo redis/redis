@@ -509,11 +509,11 @@ proc test_all_keysizes { {replMode 0} } {
 
     test "KEYSIZES - Test complex dataset $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
-        createComplexDataset $server 1000 {usestream}
+        createComplexDataset $server 1000
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
 
         run_cmd_verify_hist {$server FLUSHALL} {}
-        createComplexDataset $server 1000 {useexpire usehexpire usestream}
+        createComplexDataset $server 1000 {useexpire usehexpire}
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
     } {} {cluster:skip}
     
@@ -522,8 +522,8 @@ proc test_all_keysizes { {replMode 0} } {
         # Test based on debug command rather than __EVAL_DB_HIST__
             r DEBUG KEYSIZES-HIST-ASSERT 1
             r FLUSHALL
-            createComplexDataset r 100 {usestream}
-            createComplexDataset r 100 {useexpire usehexpire usestream}
+            createComplexDataset r 100
+            createComplexDataset r 100 {useexpire usehexpire}
         }
     }
     
@@ -1023,8 +1023,8 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
     test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
-        createComplexDataset r 100 {usestream}
-        createComplexDataset r 100 {useexpire usehexpire usestream}
+        createComplexDataset r 100
+        createComplexDataset r 100 {useexpire usehexpire}
         # If we get here without crash, the assertion passed
         r DEBUG KEYSIZES-HIST-ASSERT 0
     }
@@ -1146,8 +1146,8 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
     test "SLOT-ALLOCSIZE - Test DEBUG ALLOCSIZE-SLOTS-ASSERT command" {
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
         r FLUSHALL
-        createComplexDataset r 100 {usetag usestream}
-        createComplexDataset r 100 {usetag useexpire usehexpire usestream}
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
         # If we get here without crash, the assertion passed
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
@@ -1197,8 +1197,8 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
     test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
-        createComplexDataset r 100 {usetag usestream}
-        createComplexDataset r 100 {usetag useexpire usehexpire usestream}
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
         # If we get here without crash, the assertion passed
         r DEBUG KEYSIZES-HIST-ASSERT 0
     }
