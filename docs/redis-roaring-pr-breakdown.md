@@ -15,11 +15,12 @@ marked pending in the trackers.
 
 - **Index width and public offset cap**: the current implementation stores
   native bitmaps with CRoaring `roaring64_bitmap_t` and an explicit logical byte
-  length, but public bitmap commands keep the existing
-  `proto-max-bulk-len` offset limit for both legacy strings and native bitmaps.
-  The final v1 index-width/cap decision remains pending in local trackers
-  [#24](https://github.com/aviggiano/redis/issues/24) and
-  [#42](https://github.com/aviggiano/redis/issues/42).
+  length. DD-17 settles v1 on 64-bit-capable internals with a bounded native
+  surface: native bitmap logical length is capped at 512 MiB, max bit offset
+  `4294967295`, and normal client commands also honor `proto-max-bulk-len` when
+  it is lower. Lifting the cap is deferred to a future compatibility and
+  performance decision. See [#24](https://github.com/aviggiano/redis/issues/24)
+  and [#42](https://github.com/aviggiano/redis/issues/42).
 - **Default Roaring opt-in**: the `bitmap-roaring-{enabled,auto-convert,
   min-bytes,min-saving}` configs are replaced by a single
   `bitmap-default-roaring` boolean flag (`no` by default, or `yes`). With
@@ -38,11 +39,12 @@ marked pending in the trackers.
   [#26](https://github.com/aviggiano/redis/issues/26).
 - **BITOP destination rule**: a BITOP destination is native when at least
   one source is native, and always native when `bitmap-default-roaring yes`.
-  Native `BITOP` destinations are bounded by `proto-max-bulk-len`: commands
-  are rejected when the result logical length would exceed that limit. Most
-  native operations run entirely in roaring space without materializing a Redis
-  string; `BITOP NOT` is the dense/materializing case and is rejected when the
-  source's logical length exceeds `proto-max-bulk-len`.
+  Native `BITOP` destinations are bounded by the 512 MiB native cap and by
+  `proto-max-bulk-len` when it is lower: commands are rejected when the result
+  logical length would exceed either limit. Most native operations run entirely
+  in roaring space without materializing a Redis string; `BITOP NOT` is the
+  dense/materializing case and is rejected when the source's logical length
+  exceeds `proto-max-bulk-len`.
   When the destination type decision depends on the local config (all-string
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
@@ -134,11 +136,10 @@ design.
 - Own the 64-bit indexing decision: decide (or explicitly time-box) whether
   `OBJ_BITMAP` keeps Redis string bitmap offset limits or introduces a
   documented 64-bit index model. Hard deadline is Step 3, because the RDB
-  payload and type id ossify the answer. The current draft implementation
-  keeps public bitmap offsets bounded by `proto-max-bulk-len` for both legacy
-  strings and native bitmaps, while native internals use `roaring64_bitmap_t`.
-  DD-17 reopens whether v1 should instead use bounded 32-bit Roaring or another
-  documented cap.
+  payload and type id ossify the answer. DD-17 resolved this for v1 by keeping
+  `roaring64_bitmap_t` internally while bounding native bitmap values to
+  512 MiB / max bit `4294967295`; future work can revisit wider native offsets
+  as an explicit compatibility decision.
 - Port redis-roaring test properties and edge cases, not its fuzz corpora: the
   module corpora are libFuzzer inputs for `R.*`-shaped harnesses driving a
   spawned server over hiredis, and Redis core has no libFuzzer infrastructure,

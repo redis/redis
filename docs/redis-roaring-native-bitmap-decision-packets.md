@@ -32,9 +32,10 @@ Useful source links:
 
 ### Decision Needed
 
-Should v1 keep the current `roaring64_bitmap_t` internal representation with a
-bounded public command surface, or switch v1 native bitmaps to bounded 32-bit
-Roaring before the format is treated as stable?
+Resolved by DD-17: v1 keeps the current `roaring64_bitmap_t` internal
+representation with a bounded native bitmap surface instead of switching the
+storage implementation to bounded 32-bit Roaring before the format is treated
+as stable.
 
 ### Facts and Current Implementation State
 
@@ -42,16 +43,16 @@ Roaring before the format is treated as stable?
   `TYPE` returning `bitmap`.
 - The current code stores native bitmaps with CRoaring's
   `roaring64_bitmap_t` and a separate `uint64_t byte_len`.
-- The current public command parser rejects offsets that address a byte at or
-  beyond `proto-max-bulk-len` for normal clients. Tests currently assert that
-  native bitmaps keep the original `proto-max-bulk-len` offset limit.
-- The current RDB path saves a native bitmap as logical byte length plus a raw
-  materialized string payload, and load rejects native bitmap payloads longer
-  than `proto-max-bulk-len`.
-- Some existing documentation and `redis.conf` text still describe native
-  64-bit offsets independent of `proto-max-bulk-len`; that prose is stale
-  relative to the current command guards and is tracked separately for docs
-  synchronization.
+- Native bitmap logical length is capped at 512 MiB, so the maximum native bit
+  offset is `4294967295`. Normal client commands also reject native bitmap
+  offsets at or beyond `proto-max-bulk-len` when that configured limit is lower.
+- The current RDB path saves a native bitmap with a stable v2 marker followed
+  by an encoding-specific payload. Load accepts payloads above the server's
+  current lower `proto-max-bulk-len` setting, but rejects native bitmap logical
+  lengths above the 512 MiB v1 cap.
+- Some existing documentation and `redis.conf` text previously described native
+  64-bit offsets independent of the v1 cap; that prose is stale relative to the
+  DD-17 rule.
 - The upstream concern that reopened this question is allocation safety:
   extremely high offsets can still lead to expensive dense operations, digest
   paths, materialization, or future feature pressure if the type advertises a
@@ -104,16 +105,14 @@ Roaring before the format is treated as stable?
   bounded by `proto-max-bulk-len` because `BITMAP CONVERT key STRING` requires
   materialization to a Redis string.
 
-### Recommendation
+### Resolution
 
-Prefer bounded 32-bit Roaring for v1 if maintainers intend to keep native
-bitmap writes bounded by `proto-max-bulk-len`. It matches the current effective
-surface and gives reviewers a simpler safety story.
-
-Keep 64-bit only if maintainers explicitly want the v1 storage format to
-reserve room for future wider native offsets despite the initial public cap.
-In that case, update docs to say the internal width is 64-bit but v1 commands
-remain bounded.
+Keep 64-bit-capable Roaring internals for v1, but bound native bitmap values to
+the Redis safety range: 512 MiB of logical bytes, max bit offset `4294967295`.
+Treat lifting that cap, adding a wider native format, or changing storage width
+as a future compatibility and performance decision. Docs and tests should say
+the internal width is 64-bit-capable while the v1 native surface remains
+bounded.
 
 ## Packet 2: `BITMAP CONVERT` v1
 
