@@ -61,12 +61,13 @@ how each source corpus item is represented in the Redis core tests.
 
 ## Offset and Representation Notes
 
-Redis core native bitmaps on this branch use Roaring internally but keep the
-public bitmap command offset limit tied to `proto-max-bulk-len`, matching
-legacy string bitmap behavior. Tests therefore cover the boundary that is
-observable on this branch: allowed offsets at the current bulk limit, rejected
-offsets immediately past it, and no mutation after rejected native or string
-writes.
+Redis core native bitmaps on this branch use 64-bit-capable Roaring internals
+but keep v1 native values bounded to 512 MiB of logical bytes (max bit offset
+`4294967295`). Normal client commands also honor `proto-max-bulk-len` when it
+is lower. Tests therefore cover the observable boundaries on this branch:
+allowed offsets at the active native/client limit, rejected offsets immediately
+past it, no mutation after rejected native writes, and RDB rejection for native
+payloads beyond the v1 cap.
 
 The `R.*` and `R64.*` split in the module maps to one Redis core bitmap API.
 Where module tests compare 32-bit and 64-bit command families, Redis core tests

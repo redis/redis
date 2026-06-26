@@ -837,6 +837,12 @@ static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
     return 0;
 }
 
+static int bitmapNativeOffsetWithinLimit(client *c, uint64_t maxbit) {
+    if (bitmapObjectCanRepresentBit(maxbit)) return 1;
+    addReplyError(c, "bit offset is out of range");
+    return 0;
+}
+
 /* This helper function for BITFIELD parses a bitfield type in the form
  * <sign><bits> where sign is 'u' or 'i' for unsigned and signed, and
  * the bits is a value between 1 and 64. However 64 bits unsigned integers
@@ -954,14 +960,18 @@ static int bitmapDefaultRoaringEnabled(client *c) {
 }
 
 /* Convert a string value of any encoding into a native bitmap object holding
- * the same logical bits. Only fails for strings beyond the native bitmap byte
- * cap, which no real string value can reach. */
+ * the same logical bits. Returns NULL when the string is wider than the v1
+ * native bitmap cap. */
 static robj *bitmapObjectFromStringObject(robj *o) {
     robj *decoded = getDecodedObject(o);
     robj *bitmap = createBitmapObjectFromString((unsigned char *)decoded->ptr,
                                                 sdslen(decoded->ptr));
     decrRefCount(decoded);
     return bitmap;
+}
+
+static void addBitmapNativeLengthError(client *c) {
+    addReplyError(c, "bitmap length exceeds native bitmap limit");
 }
 
 /* Propagate a bitmap representation transition as RESTORE ... REPLACE
@@ -1027,10 +1037,7 @@ void setbitCommand(client *c) {
     if (bitmapDefaultRoaringEnabled(c) &&
         (o == NULL || o->type == OBJ_STRING))
     {
-        if (!bitmapObjectCanRepresentBit(bitoffset)) {
-            addReplyError(c, "bit offset is not representable in native bitmap encoding");
-            return;
-        }
+        if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
 
         if (o == NULL) {
             /* bitmap-default-roaring yes: newly created bitmap keys are native.
@@ -1043,7 +1050,10 @@ void setbitCommand(client *c) {
              * first produce a native replacement so the write is not bounded
              * by the string representation. */
             native = bitmapObjectFromStringObject(o);
-            serverAssert(native != NULL);
+            if (native == NULL) {
+                addBitmapNativeLengthError(c);
+                return;
+            }
             native_converted = 1;
         }
     }
@@ -1054,13 +1064,14 @@ void setbitCommand(client *c) {
         size_t oldAllocSize = 0;
 
         byte = bitoffset >> 3;
+        if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
         bitval = bitmapObjectGetBit(native, bitoffset);
         if (byte >= oldlen || (!!bitval != on)) {
             if (!native_created && !native_converted && server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(native);
             if (bitmapObjectSetBit(native, bitoffset, on) != C_OK) {
                 if (native_created || native_converted) decrRefCount(native);
-                addReplyError(c, "bit offset is not representable in native bitmap encoding");
+                addReplyError(c, "bit offset is out of range");
                 return;
             }
             native_changed = 1;
@@ -1154,6 +1165,7 @@ void getbitCommand(client *c) {
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
     if (kv->type == OBJ_BITMAP) {
+        if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
         bitval = bitmapObjectGetBit(kv, bitoffset);
     } else if (sdsEncodedObject(kv)) {
         if (byte < sdslen(kv->ptr))
@@ -1581,6 +1593,19 @@ void bitopCommand(client *c) {
      * when bitmap-default-roaring is enabled on this server (a local decision,
      * propagated as the explicit result below). Otherwise it stays a string. */
     native_dest = has_native_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c));
+
+    if (native_dest && maxlen > BITMAP_OBJECT_MAX_BYTES) {
+        unsigned long i;
+        for (i = 0; i < numkeys; i++) {
+            if (objects[i] && objects[i]->type == OBJ_STRING)
+                decrRefCount(objects[i]);
+        }
+        zfree(src);
+        zfree(len);
+        zfree(objects);
+        addBitmapNativeLengthError(c);
+        return;
+    }
 
     /* Native destinations and BITOP NOT both need a bulk payload path: native
      * transitions propagate RESTORE payloads, and NOT writes one dense result
@@ -2359,6 +2384,17 @@ void bitfieldGeneric(client *c, int flags) {
             zfree(ops);
             return;
         }
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            for (j = 0; j < numops; j++) {
+                uint64_t last_bit;
+                if (getBitfieldLastBit(ops[j].offset,ops[j].bits,&last_bit) != C_OK ||
+                    !bitmapNativeOffsetWithinLimit(c,last_bit))
+                {
+                    zfree(ops);
+                    return;
+                }
+            }
+        }
     } else {
         if (flags & BITFIELD_FLAG_READONLY) {
             zfree(ops);
@@ -2380,14 +2416,10 @@ void bitfieldGeneric(client *c, int flags) {
          * an explicit RESTORE of the final state. */
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
-        /* This is only the native encoding's internal representability guard;
-         * bitmapWriteOffsetWithinLimit() enforces the client-visible limit for
-         * both string and native bitmap writes. */
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapObjectCanRepresentBit(highest_write_bit))
+            !bitmapNativeOffsetWithinLimit(c,highest_write_bit))
         {
             zfree(ops);
-            addReplyError(c, "bit offset is not representable in native bitmap encoding");
             return;
         }
         if (default_roaring) {
@@ -2397,7 +2429,11 @@ void bitfieldGeneric(client *c, int flags) {
             } else {
                 native_transition_expire = getExpire(c->db, c->argv[1]->ptr, o);
                 robj *converted = bitmapObjectFromStringObject(o);
-                serverAssert(converted != NULL);
+                if (converted == NULL) {
+                    zfree(ops);
+                    addBitmapNativeLengthError(c);
+                    return;
+                }
                 o = converted;
             }
             native_transition = 1;
@@ -2654,7 +2690,10 @@ static void bitmapConvertCommand(client *c) {
             return;
         }
         replacement = bitmapObjectFromStringObject(kv);
-        serverAssert(replacement != NULL);
+        if (replacement == NULL) {
+            addBitmapNativeLengthError(c);
+            return;
+        }
     } else {
         if (kv->type == OBJ_STRING) {
             addReply(c, shared.ok);

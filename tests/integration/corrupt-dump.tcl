@@ -1303,6 +1303,16 @@ test {corrupt payload: bitmap RDB validation} {
         assert_match "*Bad data format*" $err
         assert_equal PONG [r ping]
 
+        set over_native_cap_payload [bitmap_range_dump_payload $bitmap_type 536870913 {} $dump_trailer]
+        catch { r restore bitmap:over-native-cap 0 $over_native_cap_payload } err
+        assert_match "*Bad data format*" $err
+        assert_equal 0 [r exists bitmap:over-native-cap]
+
+        set over_native_cap_raw_payload [bitmap_raw_dump_payload_with_len $bitmap_type 536870913 "" $dump_trailer]
+        catch { r restore bitmap:over-native-cap-raw 0 $over_native_cap_raw_payload } err
+        assert_match "*Bad data format*" $err
+        assert_equal 0 [r exists bitmap:over-native-cap-raw]
+
         set old_bulk_len [config_get_set proto-max-bulk-len 1048576]
         set configured_huge_len_payload [bitmap_range_dump_payload $bitmap_type 1048577 $valid_ranges $dump_trailer]
         r restore bitmap:configured-huge-len 0 $configured_huge_len_payload
