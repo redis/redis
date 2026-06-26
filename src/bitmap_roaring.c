@@ -244,6 +244,9 @@ uint64_t bitmapObjectLen(const robj *o) {
  * left uninitialized by art_init_cleared(), so walks must never touch it. */
 #define BITMAP_ART_MIN_NODE_TYPE 1
 #define BITMAP_ART_MAX_NODE_TYPE 5
+/* Keep native BITOP latency competitive for small steady-state results without
+ * letting skipped run compression create unbounded memory growth. */
+#define BITMAP_BITOP_FAST_RESULT_MAX_BYTES (1024 * 1024)
 
 static void bitmapArtKeyFromHigh48(uint64_t high48, art_key_chunk_t key[ART_KEY_BYTES]) {
     for (int i = 0; i < ART_KEY_BYTES; i++)
@@ -890,6 +893,34 @@ typedef struct bitmapBitopSource {
     roaring64_bitmap_t *owned;
 } bitmapBitopSource;
 
+static int bitmapRoaringHasRunContainers(const roaring64_bitmap_t *roaring) {
+    art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
+    while (it.value != NULL) {
+        roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
+        uint8_t typecode = roaring64_leaf_typecode(leaf);
+        if (typecode == RUN_CONTAINER_TYPE) return 1;
+        if (typecode == SHARED_CONTAINER_TYPE) {
+            const shared_container_t *shared = const_CAST_shared(
+                roaring->containers[roaring64_leaf_index(leaf)]);
+            if (shared->typecode == RUN_CONTAINER_TYPE) return 1;
+        }
+        art_iterator_next(&it);
+    }
+    return 0;
+}
+
+static int bitmapBitopSourcesBorrowedWithoutRuns(bitmapBitopSource *sources,
+                                                 size_t numkeys)
+{
+    for (size_t i = 0; i < numkeys; i++) {
+        if (sources[i].owned != NULL) return 0;
+        if (sources[i].roaring != NULL &&
+            bitmapRoaringHasRunContainers(sources[i].roaring))
+            return 0;
+    }
+    return 1;
+}
+
 static void bitmapObjectReleaseBitopSources(bitmapBitopSource *sources,
                                             size_t numkeys)
 {
@@ -989,6 +1020,7 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
 {
     bitmapBitopSource *sources;
     roaring64_bitmap_t *result = NULL;
+    int optimize_result = 1;
 
     serverAssert(numkeys > 0);
     serverAssert(maxlen <= BITMAP_OBJECT_MAX_BYTES);
@@ -997,7 +1029,10 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
     bitmapObjectPrepareBitopSources(objects, sources, numkeys);
 
     switch (op) {
-    case BITOP_AND:
+    case BITOP_AND: {
+        int skip_optimize =
+            maxlen <= BITMAP_BITOP_FAST_RESULT_MAX_BYTES &&
+            bitmapBitopSourcesBorrowedWithoutRuns(sources, numkeys);
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
@@ -1005,7 +1040,9 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
             else
                 roaring64_bitmap_clear(result);
         }
+        if (skip_optimize) optimize_result = 0;
         break;
+    }
     case BITOP_OR:
         result = bitmapObjectCopyBitopSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
@@ -1021,6 +1058,9 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
         }
         break;
     case BITOP_NOT:
+        if (sources[0].owned == NULL && sources[0].roaring != NULL &&
+            maxlen <= BITMAP_BITOP_FAST_RESULT_MAX_BYTES)
+            optimize_result = 0;
         result = bitmapObjectCopyBitopSource(&sources[0]);
         roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         break;
@@ -1052,9 +1092,9 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
 
     bitmapObjectReleaseBitopSources(sources, numkeys);
 
-    /* Unlike BITOP temporaries, the result is stored in the keyspace, so the
-     * container-conversion work pays for itself. */
-    roaring64_bitmap_run_optimize(result);
+    /* Large or potentially run-friendly results still pay the conversion cost
+     * before being stored; small native steady-state results skip it above. */
+    if (optimize_result) roaring64_bitmap_run_optimize(result);
     roaring64_bitmap_shrink_to_fit(result);
     zfree(sources);
 
