@@ -1333,7 +1333,7 @@ test {corrupt payload: bitmap RDB validation} {
         assert_equal [r type bitmap:legacy-raw] bitmap
         assert_equal [r debug bitmap-raw bitmap:legacy-raw] $valid_raw
 
-        set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 2 $dump_trailer]
+        set bad_encoding_payload [bitmap_bad_encoding_payload $bitmap_type 3 $dump_trailer]
         catch { r restore bitmap:bad-encoding 0 $bad_encoding_payload } err
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:bad-encoding]
