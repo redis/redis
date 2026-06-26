@@ -7,10 +7,12 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-/* Internal representability cap for native bitmap logical length. Command
- * handlers enforce the client-visible bitmap limits separately; this cap only
- * protects native encoding invariants. */
-#define BITMAP_OBJECT_MAX_BYTES_RAW (INT64_MAX >> 3)
+/* Internal representability cap for native bitmap logical length. Keep v1
+ * native bitmaps inside the same 32-bit bit index space as bounded Roaring
+ * bitmaps: 512 MiB of logical bytes, max bit offset UINT32_MAX. Command
+ * handlers still enforce the client-visible proto-max-bulk-len limit when it
+ * is lower. */
+#define BITMAP_OBJECT_MAX_BYTES_RAW (512LL*1024*1024)
 #define BITMAP_OBJECT_MAX_BYTES ((uint64_t)BITMAP_OBJECT_MAX_BYTES_RAW)
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
 
