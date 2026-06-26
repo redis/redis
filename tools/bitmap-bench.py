@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+from itertools import islice
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,14 @@ REALDATA_ARCHIVES = (
     "weather_sept_85_srt",
     "wikileaks-noquotes",
     "wikileaks-noquotes_srt",
+)
+CENSUS1881_ARCHIVE = "census1881"
+CENSUS1881_BITOP_TYPES = (
+    ("AND", 0),
+    ("OR", 1),
+    ("XOR", 2),
+    ("ANDOR", 3),
+    ("ONE", 4),
 )
 CSV_FIELDS = [
     "mode",
@@ -321,6 +330,7 @@ class Workload:
     target_groups: tuple[str, ...] = ("bitsets",)
     native_only: bool = False
     stall_probe: bool = False
+    custom_runner: Optional[str] = None
 
 
 @dataclass
@@ -362,6 +372,9 @@ class Result:
 class RealDataSet:
     name: str
     bits: list[int]
+    source: str = ""
+    member: str = ""
+    source_index: int = 0
 
 
 @dataclass
@@ -918,15 +931,20 @@ class RedisBitmapBench:
         if limit <= 0:
             return datasets
         with ZipFile(path) as zf:
-            for member in sorted(zf.namelist()):
-                if member.endswith("/"):
-                    continue
+            members = [member for member in sorted(zf.namelist()) if not member.endswith("/")]
+            for source_index, member in enumerate(members):
                 with zf.open(member) as fp:
                     text = fp.read().decode("utf-8", "replace")
                 bits = parse_realdata_text(text, self.args.realdata_max_values)
                 if bits:
                     name = sanitize_name(f"{path.stem}_{Path(member).stem}")
-                    datasets.append(RealDataSet(name, bits))
+                    datasets.append(RealDataSet(
+                        name,
+                        bits,
+                        source=path.stem,
+                        member=member,
+                        source_index=source_index,
+                    ))
                 if len(datasets) >= limit:
                     break
         return datasets
@@ -945,6 +963,16 @@ class RedisBitmapBench:
 
     def prepare_realdata(self) -> None:
         for item in self.realdata:
+            if item.source == CENSUS1881_ARCHIVE:
+                key = self.census1881_key(item.source_index)
+                if self.args.mode == "module":
+                    self.seed_module_bitmap(key, item.bits)
+                else:
+                    self.seed_setbit_bitmap(key, item.bits, native=self.args.mode == "native")
+                self.dataset_keys[f"census1881_{item.source_index}"] = key
+                self.record_dataset_metadata(key, dataset_metrics_from_bits(item.bits))
+                continue
+
             legacy_key = f"bench:bitmap:real:{item.name}:legacy"
             native_key = f"bench:bitmap:real:{item.name}:native"
             if self.args.mode == "module":
@@ -960,6 +988,25 @@ class RedisBitmapBench:
             metrics = dataset_metrics_from_bits(item.bits)
             self.record_dataset_metadata(legacy_key, metrics)
             self.record_dataset_metadata(native_key, metrics)
+
+    def census1881_items(self) -> list[RealDataSet]:
+        return sorted(
+            (item for item in self.realdata if item.source == CENSUS1881_ARCHIVE),
+            key=lambda item: item.source_index,
+        )
+
+    def census1881_impl_index(self) -> int:
+        return {
+            "module": 0,
+            "native": 1,
+            "legacy": 2,
+        }[self.args.mode]
+
+    def census1881_key(self, source_index: int) -> str:
+        return f"{self.census1881_impl_index()}-{source_index}"
+
+    def census1881_dest_key(self, type_index: int, source_index: int) -> str:
+        return f"dest-{type_index}-{self.census1881_impl_index()}-{source_index}"
 
     def dataset_summary(self) -> list[DatasetSummary]:
         summaries = []
@@ -1019,6 +1066,8 @@ class RedisBitmapBench:
     def module_workload(self, workload: Workload) -> Optional[Workload]:
         if workload.native_only:
             return None
+        if workload.custom_runner:
+            return workload
         command = self.module_command_for(workload.command)
         if command is None:
             return None
@@ -1241,7 +1290,8 @@ class RedisBitmapBench:
 
     def realdata_workloads(self) -> list[Workload]:
         workloads: list[Workload] = []
-        for item in self.realdata:
+        realdata_items = [item for item in self.realdata if item.source != CENSUS1881_ARCHIVE]
+        for item in realdata_items:
             native_key = f"bench:bitmap:real:{item.name}:native"
             workloads.append(Workload(
                 f"bitcount_realdata_{item.name}",
@@ -1251,9 +1301,9 @@ class RedisBitmapBench:
                 story="Count a realdata cohort", dataset=item.name,
                 target_groups=("small-sets",),
             ))
-        if len(self.realdata) >= 2:
-            a = self.realdata[0].name
-            b = self.realdata[1].name
+        if len(realdata_items) >= 2:
+            a = realdata_items[0].name
+            b = realdata_items[1].name
             workloads.append(Workload(
                 f"bitop_and_realdata_{a}_{b}",
                 f"BITOP AND over CRoaring realdata datasets {a} and {b}",
@@ -1263,6 +1313,76 @@ class RedisBitmapBench:
                 sample_key="bench:bitmap:real:and:dest",
                 story="Realdata intersection", dataset=f"{a}+{b}",
                 target_groups=("small-sets", "mixed-bitop"),
+            ))
+        workloads.extend(self.census1881_workloads())
+        return workloads
+
+    def census1881_workloads(self) -> list[Workload]:
+        if not self.census1881_items():
+            return []
+        common = {
+            "dataset": CENSUS1881_ARCHIVE,
+            "custom_runner": "run_census1881_workload",
+        }
+        workloads = [
+            Workload(
+                "census1881_setbit",
+                "SETBIT over CRoaring census1881 values using redis-roaring key order",
+                ["CENSUS1881", "SETBIT"],
+                1, 1, 1,
+                story="Realdata key construction",
+                target_groups=("small-sets",),
+                stall_probe=True,
+                **common,
+            ),
+            Workload(
+                "census1881_getbit",
+                "GETBIT over CRoaring census1881 values using redis-roaring key order",
+                ["CENSUS1881", "GETBIT"],
+                1, 1, 1,
+                story="Realdata membership lookup",
+                target_groups=("small-sets",),
+                **common,
+            ),
+            Workload(
+                "census1881_bitcount",
+                "BITCOUNT over CRoaring census1881 files using redis-roaring key order",
+                ["CENSUS1881", "BITCOUNT"],
+                1, 1, 1,
+                story="Realdata cohort count",
+                target_groups=("small-sets",),
+                **common,
+            ),
+            Workload(
+                "census1881_bitpos",
+                "BITPOS 1 and 0 over CRoaring census1881 files using redis-roaring key order",
+                ["CENSUS1881", "BITPOS"],
+                1, 1, 1,
+                story="Realdata first match/gap",
+                target_groups=("small-sets",),
+                **common,
+            ),
+            Workload(
+                "census1881_bitop_not",
+                "BITOP NOT over CRoaring census1881 files using redis-roaring key order",
+                ["CENSUS1881", "BITOP", "NOT"],
+                1, 1, 1,
+                story="Realdata unary complement",
+                target_groups=("small-sets", "mixed-bitop"),
+                stall_probe=True,
+                **common,
+            ),
+        ]
+        for operation, type_index in CENSUS1881_BITOP_TYPES:
+            workloads.append(Workload(
+                f"census1881_bitop_{operation.lower()}",
+                f"BITOP {operation} over paired CRoaring census1881 files using redis-roaring key order",
+                ["CENSUS1881", "BITOP", operation, str(type_index)],
+                1, 1, 1,
+                story="Realdata paired algebra",
+                target_groups=("small-sets", "mixed-bitop"),
+                stall_probe=True,
+                **common,
             ))
         return workloads
 
@@ -1315,6 +1435,8 @@ class RedisBitmapBench:
     def run_workload_sample(self, workload: Workload, run_index: int) -> Result:
         if workload.setup:
             getattr(self, workload.setup)()
+        if workload.custom_runner:
+            return getattr(self, workload.custom_runner)(workload, run_index)
         if workload.one_shot:
             return self.run_one_shot_workload(workload, run_index)
         if self.args.warmup and workload.warmup_requests > 0:
@@ -1391,6 +1513,184 @@ class RedisBitmapBench:
             time_per_op_us=per_op,
             extra=self.result_extra(workload, run_index, extra),
         )
+
+    def run_census1881_workload(self, workload: Workload, run_index: int) -> Result:
+        items = self.census1881_items()
+        if not items:
+            raise BenchError("census1881 workload selected but no census1881 data was loaded")
+        if len(workload.command) < 2:
+            raise BenchError(f"invalid census1881 workload command: {workload.command}")
+
+        operation = workload.command[1].upper()
+        total_requests = self.census1881_request_count(operation, items)
+        requests = self.scale_custom_requests(total_requests)
+        if requests <= 0:
+            raise BenchError(f"census1881 workload has no commands: {workload.name}")
+
+        if operation == "SETBIT":
+            self.prepare_census1881_setbit_keys(items)
+        elif operation == "BITOP":
+            self.delete_census1881_bitop_dests(workload, len(items))
+
+        before = self.memory_snapshot()
+        response_samples = []
+        executed = 0
+        with PingCanary(
+            self.client,
+            self.args.ping_canary_interval,
+            self.args.ping_canary and workload.stall_probe,
+        ) as canary:
+            with self.client.connection() as conn:
+                started = time.perf_counter()
+                for command in islice(self.census1881_commands(workload, items), requests):
+                    response = conn.command(command)
+                    executed += 1
+                    if len(response_samples) < 3:
+                        response_samples.append(decode_text(response))
+                elapsed = elapsed_ms(started)
+        after = self.memory_snapshot()
+        if operation == "SETBIT":
+            self.set_default_roaring(False, required=False)
+
+        sample_key = self.census1881_sample_key(workload, items)
+        qps = (executed / (elapsed / 1000.0)) if elapsed > 0 else None
+        extra = {
+            "measurement": "redis-roaring-style command loop",
+            "census1881_files": len(items),
+            "census1881_commands": executed,
+            "responses_sample": response_samples,
+        }
+        stall = canary.stats()
+        if stall is not None:
+            extra["stall"] = asdict(stall)
+        return Result(
+            name=workload.name,
+            category="command",
+            description=workload.description,
+            elapsed_ms=elapsed,
+            memory_usage_bytes=self.memory_usage(sample_key) if sample_key else None,
+            used_memory_before=before.get("used_memory"),
+            used_memory_after=after.get("used_memory"),
+            used_memory_peak=after.get("used_memory_peak"),
+            payload_size_bytes=self.dump_payload_size(sample_key) if sample_key else None,
+            qps=qps,
+            requests=executed,
+            clients=1,
+            pipeline=1,
+            command=workload.command,
+            time_per_op_us=time_per_op_us(elapsed, executed, qps),
+            extra=self.result_extra(workload, run_index, extra),
+        )
+
+    def census1881_request_count(self, operation: str, items: list[RealDataSet]) -> int:
+        if operation == "SETBIT":
+            return 3 * sum(len(item.bits) for item in items)
+        if operation == "GETBIT":
+            return sum(len(item.bits) for item in items)
+        if operation == "BITCOUNT":
+            return len(items)
+        if operation == "BITPOS":
+            return 2 * len(items)
+        if operation == "BITOP":
+            return len(items)
+        raise BenchError(f"unsupported census1881 operation: {operation}")
+
+    def scale_custom_requests(self, requests: int) -> int:
+        if requests <= 1:
+            return requests
+        scaled = max(1, int(requests * self.args.request_scale))
+        scaled = max(min(requests, self.args.min_requests), scaled)
+        return min(requests, scaled)
+
+    def prepare_census1881_setbit_keys(self, items: list[RealDataSet]) -> None:
+        keys = [self.census1881_key(item.source_index) for item in items]
+        if keys:
+            self.client.execute(["DEL", *keys])
+        if self.args.mode != "module":
+            self.set_default_roaring(self.args.mode == "native", required=self.args.mode == "native")
+
+    def delete_census1881_bitop_dests(self, workload: Workload, count: int) -> None:
+        keys = []
+        if len(workload.command) >= 3 and workload.command[2].upper() == "NOT":
+            keys = [self.census1881_not_dest_key(index) for index in range(count)]
+        elif len(workload.command) >= 4:
+            type_index = int(workload.command[3])
+            keys = [self.census1881_dest_key(type_index, index) for index in range(count)]
+        if keys:
+            self.client.execute(["DEL", *keys])
+
+    def census1881_commands(self, workload: Workload, items: list[RealDataSet]) -> Iterable[list[Any]]:
+        operation = workload.command[1].upper()
+        if operation == "SETBIT":
+            for bit in (1, 0, 1):
+                for item in items:
+                    key = self.census1881_key(item.source_index)
+                    for offset in item.bits:
+                        yield [self.census1881_command("SETBIT"), key, offset, bit]
+            return
+        if operation == "GETBIT":
+            for item in items:
+                key = self.census1881_key(item.source_index)
+                for offset in item.bits:
+                    yield [self.census1881_command("GETBIT"), key, offset]
+            return
+        if operation == "BITCOUNT":
+            for item in items:
+                yield [self.census1881_command("BITCOUNT"), self.census1881_key(item.source_index)]
+            return
+        if operation == "BITPOS":
+            for bit in (1, 0):
+                for item in items:
+                    yield [self.census1881_command("BITPOS"), self.census1881_key(item.source_index), bit]
+            return
+        if operation == "BITOP":
+            yield from self.census1881_bitop_commands(workload, len(items))
+            return
+        raise BenchError(f"unsupported census1881 operation: {operation}")
+
+    def census1881_bitop_commands(self, workload: Workload, count: int) -> Iterable[list[Any]]:
+        if len(workload.command) < 3:
+            raise BenchError(f"invalid census1881 BITOP workload: {workload.command}")
+        operation = workload.command[2].upper()
+        if operation == "NOT":
+            for index in range(count):
+                yield [
+                    self.census1881_command("BITOP"),
+                    "NOT",
+                    self.census1881_not_dest_key(index),
+                    self.census1881_key(index),
+                ]
+            return
+        if len(workload.command) < 4:
+            raise BenchError(f"invalid census1881 BITOP workload: {workload.command}")
+        type_index = int(workload.command[3])
+        for index in range(count):
+            yield [
+                self.census1881_command("BITOP"),
+                operation,
+                self.census1881_dest_key(type_index, index),
+                self.census1881_key(2 * index),
+                self.census1881_key(2 * index + 1),
+            ]
+
+    def census1881_command(self, name: str) -> str:
+        return self.module_cmd(name) if self.args.mode == "module" else name
+
+    def census1881_not_dest_key(self, source_index: int) -> str:
+        return f"dest-{self.census1881_impl_index()}-{source_index}"
+
+    def census1881_sample_key(self, workload: Workload, items: list[RealDataSet]) -> Optional[str]:
+        if not items:
+            return None
+        operation = workload.command[1].upper()
+        if operation in ("SETBIT", "GETBIT", "BITCOUNT", "BITPOS"):
+            return self.census1881_key(items[0].source_index)
+        if operation == "BITOP":
+            if len(workload.command) >= 3 and workload.command[2].upper() == "NOT":
+                return self.census1881_not_dest_key(0)
+            if len(workload.command) >= 4:
+                return self.census1881_dest_key(int(workload.command[3]), 0)
+        return None
 
     def result_extra(self, workload: Workload, run_index: int, extra: dict[str, Any]) -> dict[str, Any]:
         payload = {
