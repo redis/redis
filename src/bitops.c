@@ -2273,6 +2273,19 @@ static int getBitfieldLastBit(uint64_t offset, int bits, uint64_t *last) {
     return C_OK;
 }
 
+static int bitmapNativeBitfieldOpsWithinLimit(client *c, struct bitfieldOp *ops,
+                                              int numops) {
+    for (int j = 0; j < numops; j++) {
+        uint64_t last_bit;
+        if (getBitfieldLastBit(ops[j].offset,ops[j].bits,&last_bit) != C_OK) {
+            addReplyError(c,"bit offset is not an integer or out of range");
+            return 0;
+        }
+        if (!bitmapNativeOffsetWithinLimit(c,last_bit)) return 0;
+    }
+    return 1;
+}
+
 /* This implements both the BITFIELD command and the BITFIELD_RO command
  * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
  * GET subcommand is allowed, other subcommands will return an error. */
@@ -2385,14 +2398,9 @@ void bitfieldGeneric(client *c, int flags) {
             return;
         }
         if (o != NULL && o->type == OBJ_BITMAP) {
-            for (j = 0; j < numops; j++) {
-                uint64_t last_bit;
-                if (getBitfieldLastBit(ops[j].offset,ops[j].bits,&last_bit) != C_OK ||
-                    !bitmapNativeOffsetWithinLimit(c,last_bit))
-                {
-                    zfree(ops);
-                    return;
-                }
+            if (!bitmapNativeBitfieldOpsWithinLimit(c,ops,numops)) {
+                zfree(ops);
+                return;
             }
         }
     } else {
@@ -2417,7 +2425,7 @@ void bitfieldGeneric(client *c, int flags) {
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapNativeOffsetWithinLimit(c,highest_write_bit))
+            !bitmapNativeBitfieldOpsWithinLimit(c,ops,numops))
         {
             zfree(ops);
             return;
