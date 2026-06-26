@@ -50,10 +50,9 @@ marked pending in the trackers.
   marker followed by encoding-specific data: raw payloads use the RDB string
   length, while range payloads keep the logical byte length. The loader also
   accepts the previous same-version layout that wrote logical byte length
-  before encoding. AOF rewrite emits `RESTORE` with the DUMP payload. The final
-  payload shape and RESTORE-based rewrite
-  strategy remain pending in
-  [#29](https://github.com/aviggiano/redis/issues/29); open
+  before encoding. AOF rewrite emits `RESTORE` with the DUMP payload. The DD-10
+  baseline in [#29](https://github.com/aviggiano/redis/issues/29) is the V2
+  raw/range payload direction with RESTORE input treated as untrusted; open
   [PR #44](https://github.com/aviggiano/redis/pull/44) is related review
   follow-up, not current `unstable` behavior.
 
@@ -165,8 +164,7 @@ design.
   and active defrag handling.
 - Add native bitmap persistence support before public creation is possible:
   RDB, AOF rewrite, `DUMP`, `RESTORE`, and replication.
-- AOF rewrite strategy (current draft implementation; final acceptance is still
-  tracked in DD-10): rewrite emits `RESTORE <key> 0 <DUMP payload> REPLACE`
+- AOF rewrite strategy: rewrite emits `RESTORE <key> 0 <DUMP payload> REPLACE`
   for native bitmap values. This is novel for a core type and couples
   command-format AOF content to the RDB payload version even without
   `aof-use-rdb-preamble`. Alternatives considered: replaying per-bit `SETBIT`
@@ -174,10 +172,10 @@ design.
   length plus type selection), and a dedicated creation command (new command
   surface). Call the choice and its version coupling out explicitly in the PR
   description.
-- Harden `RESTORE` for the new payload: validate logical byte length, raw
-  payload length, max-offset/cardinality invariants, and any payload-specific
-  structure under `sanitize-dump-payload` deep integrity validation, with
-  corrupt-payload tests.
+- Harden `RESTORE` for the new payload: always validate logical byte length,
+  raw payload length, max-offset/cardinality invariants, and canonical range
+  ordering, with corrupt-payload tests. Deep CRoaring-container validation is
+  not part of the raw/range payload contract.
 - The 64-bit indexing decision (Step 1) must be resolved before this step's
   RDB payload and type id are submitted upstream.
 - Add key introspection and module-facing type handling:

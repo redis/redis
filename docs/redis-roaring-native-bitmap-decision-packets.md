@@ -45,9 +45,10 @@ Roaring before the format is treated as stable?
 - The current public command parser rejects offsets that address a byte at or
   beyond `proto-max-bulk-len` for normal clients. Tests currently assert that
   native bitmaps keep the original `proto-max-bulk-len` offset limit.
-- The current RDB path saves a native bitmap as logical byte length plus a raw
-  materialized string payload, and load rejects native bitmap payloads longer
-  than `proto-max-bulk-len`.
+- The current RDB path saves a native bitmap as a v2 marker plus either a raw
+  RDB string payload or logical byte length plus canonical set-bit ranges.
+  Load validates the native bitmap object cap, max offsets, and range ordering;
+  raw RDB payloads are not bounded by the current `proto-max-bulk-len`.
 - Some existing documentation and `redis.conf` text still describe native
   64-bit offsets independent of `proto-max-bulk-len`; that prose is stale
   relative to the current command guards and is tracked separately for docs
