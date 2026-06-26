@@ -368,10 +368,11 @@ proc createComplexDataset {r ops {opt {}}} {
             }
         }
 
-        # Streams use their own small key namespace so that entries accumulate into
-        # larger streams across iterations (exercising the higher histogram bins),
-        # and so stream keys aren't clobbered into other types in the shared random
-        # keyspace. Entry IDs use "*" so the server keeps them monotonic per key.
+        # Streams get their own small key namespace rather than sharing the random
+        # keyspace: unlike the other types, removing all entries from a stream does
+        # not delete the key, so a stream key cycles back to "none" only if the key
+        # itself is deleted or expires. The dedicated namespace also lets entries
+        # accumulate into larger streams, with "*" keeping IDs monotonic per key.
         if {$usestream && rand() < 0.2} {
             set sk "strm:[randomInt 20]$tag"
             randpath {
@@ -391,7 +392,6 @@ proc createComplexDataset {r ops {opt {}}} {
                     catch {{*}$r xdel $sk $first}
                 }
             }
-            continue
         }
 
         randpath {
