@@ -32,7 +32,7 @@ on:
         default: "3"
       realdata_archives:
         description: "Comma-separated real-roaring dataset archives to download"
-        default: "census-income,uscensus2000,weather_sept_85,wikileaks-noquotes"
+        default: "census1881,census-income,uscensus2000,weather_sept_85,wikileaks-noquotes"
       extra_args:
         description: "Extra tools/bitmap-bench.py arguments"
         default: ""
@@ -167,6 +167,7 @@ jobs:
             --croaring-realdata-dir "$RUNNER_TEMP/croaring-realdata" \
             --download-croaring-realdata \
             --realdata-archives "${{ inputs.realdata_archives }}" \
+            --realdata-max-files 10 \
             ${{ inputs.extra_args }}
 
       - name: Publish benchmark report summary

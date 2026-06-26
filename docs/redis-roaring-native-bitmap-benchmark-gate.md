@@ -96,7 +96,9 @@ python3 tools/bitmap-bench.py \
   --runs 3 \
   --ping-canary \
   --croaring-realdata-dir /tmp/croaring-realdata \
-  --download-croaring-realdata
+  --download-croaring-realdata \
+  --realdata-archives census1881,census-income,uscensus2000,weather_sept_85,wikileaks-noquotes \
+  --realdata-max-files 10
 ```
 
 Keep developer runs small with `--request-scale 0.05`, `--skip-persistence`, or
@@ -117,6 +119,16 @@ The compare Markdown is split into first-class performance, memory, and
 storage sections. Dataset metadata includes bitcount, max set
 offset, logical byte length, and density so sparse small-set rows are not mixed
 with dense bitset rows without context.
+
+The default workflow downloads CRoaring's `census1881` archive so the big
+benchmark includes the same source dataset used by `aviggiano/redis-roaring`'s
+published performance table. The workflow raises `--realdata-max-files` to 10
+so census coverage is added on top of the prior two-file coverage for each
+default archive. Census rows are aggregated by operation to keep the report
+compact: keys follow the redis-roaring benchmark's implementation index pattern
+(`0-i` for module, `1-i` for native Redis, `2-i` for Redis strings), and BITOP
+rows use the same unary `NOT` and paired `AND`/`OR`/`XOR`/`ANDOR`/`ONE` source
+shapes where Redis supports them.
 
 ## Decision Questions
 
