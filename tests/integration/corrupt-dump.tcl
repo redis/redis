@@ -1217,9 +1217,21 @@ test {corrupt payload: bitmap RDB validation} {
             } elseif {$len < 16384} {
                 return [binary format cc [expr {(($len >> 8) & 0x3f) | 0x40}] [expr {$len & 0xff}]]
             } elseif {$len <= 0xffffffff} {
-                return [binary format cI 0x80 $len]
+                return [binary format ccccc 0x80 \
+                    [expr {($len >> 24) & 0xff}] \
+                    [expr {($len >> 16) & 0xff}] \
+                    [expr {($len >> 8) & 0xff}] \
+                    [expr {$len & 0xff}]]
             } else {
-                return [binary format cW 0x81 $len]
+                return [binary format ccccccccc 0x81 \
+                    [expr {($len >> 56) & 0xff}] \
+                    [expr {($len >> 48) & 0xff}] \
+                    [expr {($len >> 40) & 0xff}] \
+                    [expr {($len >> 32) & 0xff}] \
+                    [expr {($len >> 24) & 0xff}] \
+                    [expr {($len >> 16) & 0xff}] \
+                    [expr {($len >> 8) & 0xff}] \
+                    [expr {$len & 0xff}]]
             }
         }
 
