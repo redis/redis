@@ -58,10 +58,11 @@ as stable.
   that configured limit is lower; read-only native lookups can exceed a lower
   runtime limit only inside the 512 MiB v1 cap.
 - The current RDB path saves a native bitmap with a stable v2 marker followed
-  by an encoding-specific payload. Load accepts payloads above the server's
-  current lower `proto-max-bulk-len` setting, but rejects native bitmap logical
-  lengths above the 512 MiB v1 cap, max offsets above bit `4294967295`, and
-  non-canonical range payloads with overlapping or adjacent ranges.
+  by an endian-neutral portable payload. Load accepts current portable payloads
+  and older raw/range payloads above the server's current lower
+  `proto-max-bulk-len` setting, but rejects native bitmap logical lengths above
+  the 512 MiB v1 cap, max offsets above bit `4294967295`, and non-canonical
+  legacy range payloads with overlapping or adjacent ranges.
 - Documentation now describes native 64-bit-capable internals with the bounded
   v1 native bitmap surface, leaving any future cap expansion as a separate
   decision.
