@@ -2833,6 +2833,48 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         R 1 flushall
     }
 
+    test "Test module replicates commands at the end of slot migration " {
+        R 0 flushall
+        R 1 flushall
+
+        # asm.read_keyless_cmd_val returns a global counter that is never reset,
+        # so capture the baseline instead of assuming a fixed value.
+        set base_keyless [R 1 asm.read_keyless_cmd_val]
+
+        # Enable module command replication and set keys to be replicated.
+        # The module will replicate:
+        #  - At the beginning (MIGRATE_MODULE_PROPAGATE):
+        #     1- A keyless command: asm.keyless_cmd
+        #     2- SET command for the begin key and value
+        #  - At the end (MIGRATE_MODULE_PROPAGATE_END):
+        #     3- SET command for the end key and value
+        set keyname [slot_key 0 modulekey]
+        set endkeyname [slot_key 0 moduleendkey]
+        R 0 asm.replicate_module_command 1 $keyname "value" $endkeyname "endvalue"
+
+        setup_slot_migration_with_delay 0 1 0 100
+        wait_for_asm_done
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+
+        # Verify the commands replicated at both the beginning and the end.
+        assert_equal [expr {$base_keyless + 1}] [R 1 asm.read_keyless_cmd_val]
+        assert_equal value [R 1 get $keyname]
+        assert_equal endvalue [R 1 get $endkeyname]
+
+        # Verify the commands are replicated to replica
+        R 4 readonly
+        assert_equal [expr {$base_keyless + 1}] [R 4 asm.read_keyless_cmd_val]
+        assert_equal value [R 4 get $keyname]
+        assert_equal endvalue [R 4 get $endkeyname]
+
+        # cleanup
+        R 0 asm.replicate_module_command 0 "" ""
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 flushall
+        R 1 flushall
+    }
+
     test "Test subcommand propagation during slot migration" {
         R 0 flushall
         R 1 flushall
