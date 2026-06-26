@@ -42,6 +42,176 @@ static bitmapObject *getBitmapObject(const robj *o) {
     return o->ptr;
 }
 
+#if BYTE_ORDER == BIG_ENDIAN
+static int bitmapPortableHasBytes(size_t offset, size_t bytes, size_t len) {
+    return offset <= len && bytes <= len - offset;
+}
+
+static uint16_t bitmapPortableRead16(const unsigned char *p, int little) {
+    uint16_t v;
+    memcpy(&v, p, sizeof(v));
+    if (little) memrev16ifbe(&v);
+    return v;
+}
+
+static uint32_t bitmapPortableRead32(const unsigned char *p, int little) {
+    uint32_t v;
+    memcpy(&v, p, sizeof(v));
+    if (little) memrev32ifbe(&v);
+    return v;
+}
+
+static uint64_t bitmapPortableRead64(const unsigned char *p, int little) {
+    uint64_t v;
+    memcpy(&v, p, sizeof(v));
+    if (little) memrev64ifbe(&v);
+    return v;
+}
+
+static void bitmapPortableSwap16(unsigned char *p) {
+    memrev16(p);
+}
+
+static void bitmapPortableSwap32(unsigned char *p) {
+    memrev32(p);
+}
+
+static void bitmapPortableSwap64(unsigned char *p) {
+    memrev64(p);
+}
+
+/* CRoaring's "portable" serializers use host endian. Redis RDB payloads must
+ * stay endian-neutral, so big-endian hosts swap the serialized portable format
+ * to little-endian on save and back to host endian before CRoaring load. */
+static int bitmapObjectPortableConvert32(unsigned char *buf, size_t len,
+                                         int from_little, size_t *read_len) {
+    size_t offset = 0;
+
+    if (!bitmapPortableHasBytes(offset, sizeof(uint32_t), len)) return C_ERR;
+    uint32_t cookie = bitmapPortableRead32(buf + offset, from_little);
+    bitmapPortableSwap32(buf + offset);
+    offset += sizeof(uint32_t);
+
+    int hasrun = (cookie & 0xFFFF) == SERIAL_COOKIE;
+    if (!hasrun && cookie != SERIAL_COOKIE_NO_RUNCONTAINER) return C_ERR;
+
+    uint32_t containers;
+    if (hasrun) {
+        containers = (cookie >> 16) + 1;
+    } else {
+        if (!bitmapPortableHasBytes(offset, sizeof(uint32_t), len))
+            return C_ERR;
+        containers = bitmapPortableRead32(buf + offset, from_little);
+        bitmapPortableSwap32(buf + offset);
+        offset += sizeof(uint32_t);
+    }
+    if (containers > (1U << 16)) return C_ERR;
+
+    unsigned char *runmap = NULL;
+    if (hasrun) {
+        size_t runmap_len = (containers + 7) / 8;
+        if (!bitmapPortableHasBytes(offset, runmap_len, len)) return C_ERR;
+        runmap = buf + offset;
+        offset += runmap_len;
+    }
+
+    size_t keycard_len = containers * 2 * sizeof(uint16_t);
+    if (!bitmapPortableHasBytes(offset, keycard_len, len)) return C_ERR;
+
+    size_t keycard_offset = offset;
+    for (uint32_t i = 0; i < containers; i++) {
+        bitmapPortableSwap16(buf + offset);
+        offset += sizeof(uint16_t);
+        bitmapPortableSwap16(buf + offset);
+        offset += sizeof(uint16_t);
+    }
+
+    if (!hasrun || containers >= NO_OFFSET_THRESHOLD) {
+        size_t offset_table_len = containers * sizeof(uint32_t);
+        if (!bitmapPortableHasBytes(offset, offset_table_len, len))
+            return C_ERR;
+        for (uint32_t i = 0; i < containers; i++) {
+            bitmapPortableSwap32(buf + offset);
+            offset += sizeof(uint32_t);
+        }
+    }
+
+    int swapped_little = !from_little;
+    for (uint32_t i = 0; i < containers; i++) {
+        uint16_t card_minus_one =
+            bitmapPortableRead16(buf + keycard_offset + i * 4 + 2,
+                                 swapped_little);
+        uint32_t cardinality = (uint32_t)card_minus_one + 1;
+        int isbitmap = cardinality > DEFAULT_MAX_SIZE;
+        int isrun = 0;
+        if (hasrun && (runmap[i / 8] & (1 << (i % 8))) != 0) {
+            isbitmap = 0;
+            isrun = 1;
+        }
+
+        if (isbitmap) {
+            size_t bitset_len =
+                BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
+            if (!bitmapPortableHasBytes(offset, bitset_len, len))
+                return C_ERR;
+            for (uint32_t j = 0; j < BITSET_CONTAINER_SIZE_IN_WORDS; j++) {
+                bitmapPortableSwap64(buf + offset);
+                offset += sizeof(uint64_t);
+            }
+        } else if (isrun) {
+            if (!bitmapPortableHasBytes(offset, sizeof(uint16_t), len))
+                return C_ERR;
+            uint16_t runs = bitmapPortableRead16(buf + offset, from_little);
+            bitmapPortableSwap16(buf + offset);
+            offset += sizeof(uint16_t);
+            if (runs > (len - offset) / (2 * sizeof(uint16_t))) return C_ERR;
+            for (uint32_t j = 0; j < (uint32_t)runs * 2; j++) {
+                bitmapPortableSwap16(buf + offset);
+                offset += sizeof(uint16_t);
+            }
+        } else {
+            if (cardinality > (len - offset) / sizeof(uint16_t))
+                return C_ERR;
+            for (uint32_t j = 0; j < cardinality; j++) {
+                bitmapPortableSwap16(buf + offset);
+                offset += sizeof(uint16_t);
+            }
+        }
+    }
+
+    *read_len = offset;
+    return C_OK;
+}
+
+static int bitmapObjectPortableConvertEndian(unsigned char *buf, size_t len,
+                                             int from_little) {
+    size_t offset = 0;
+
+    if (!bitmapPortableHasBytes(offset, sizeof(uint64_t), len)) return C_ERR;
+    uint64_t buckets = bitmapPortableRead64(buf + offset, from_little);
+    bitmapPortableSwap64(buf + offset);
+    offset += sizeof(uint64_t);
+    if (buckets > UINT32_MAX) return C_ERR;
+
+    for (uint64_t i = 0; i < buckets; i++) {
+        if (!bitmapPortableHasBytes(offset, sizeof(uint32_t), len))
+            return C_ERR;
+        bitmapPortableSwap32(buf + offset);
+        offset += sizeof(uint32_t);
+
+        size_t bitmap32_len = 0;
+        if (bitmapObjectPortableConvert32(buf + offset, len - offset,
+                                          from_little,
+                                          &bitmap32_len) != C_OK) {
+            return C_ERR;
+        }
+        offset += bitmap32_len;
+    }
+
+    return offset == len ? C_OK : C_ERR;
+}
+#endif
+
 static void bitmapObjectAdjustAllocSize(size_t *alloc_size, size_t old_size,
                                         size_t new_size)
 {
@@ -207,6 +377,59 @@ robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
+}
+
+robj *createBitmapObjectFromPortable(const unsigned char *buf, size_t len,
+                                     uint64_t byte_len) {
+    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+
+    roaring64_bitmap_t *roaring = NULL;
+#if BYTE_ORDER == BIG_ENDIAN
+    unsigned char *converted = zmalloc(len);
+    memcpy(converted, buf, len);
+    if (bitmapObjectPortableConvertEndian(converted, len, 1) != C_OK) {
+        zfree(converted);
+        return NULL;
+    }
+    buf = converted;
+#endif
+
+    size_t read_len =
+        roaring64_bitmap_portable_deserialize_size((const char *)buf, len);
+    if (read_len == 0 || read_len != len) goto err;
+
+    roaring = roaring64_bitmap_portable_deserialize_safe((const char *)buf, len);
+    if (roaring == NULL) goto err;
+
+    if (!roaring64_bitmap_internal_validate(roaring, NULL)) {
+        goto err;
+    }
+
+    if (!roaring64_bitmap_is_empty(roaring)) {
+        uint64_t max = roaring64_bitmap_maximum(roaring);
+        if (byte_len == 0 || max >= byte_len * 8) {
+            goto err;
+        }
+    }
+
+    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+    bitmap->byte_len = byte_len;
+    bitmap->roaring = roaring;
+    bitmapObjectRefreshAllocSize(bitmap);
+
+    robj *o = createObject(OBJ_BITMAP, bitmap);
+    o->encoding = OBJ_ENCODING_BITMAP_ROARING;
+#if BYTE_ORDER == BIG_ENDIAN
+    zfree(converted);
+#endif
+    return o;
+
+err:
+    if (roaring != NULL) roaring64_bitmap_free(roaring);
+#if BYTE_ORDER == BIG_ENDIAN
+    zfree(converted);
+#endif
+    return NULL;
 }
 
 robj *bitmapTypeDup(const robj *o) {
@@ -883,6 +1106,20 @@ sds bitmapObjectMaterialize(const robj *o) {
 /* RDB raw payloads are persisted data, not client protocol bulk strings. */
 sds bitmapObjectMaterializeForRDB(const robj *o) {
     return bitmapObjectMaterializeRaw(o, 0);
+}
+
+sds bitmapObjectSerializePortable(const robj *o) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    size_t len = roaring64_bitmap_portable_size_in_bytes(bitmap->roaring);
+    sds payload = sdsnewlen(SDS_NOINIT, len);
+    size_t written =
+        roaring64_bitmap_portable_serialize(bitmap->roaring, payload);
+    serverAssert(written == len);
+#if BYTE_ORDER == BIG_ENDIAN
+    serverAssert(bitmapObjectPortableConvertEndian((unsigned char *)payload,
+                                                   len, 0) == C_OK);
+#endif
+    return payload;
 }
 
 typedef struct bitmapBitopSource {
