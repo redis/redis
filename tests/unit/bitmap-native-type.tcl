@@ -213,7 +213,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $converted_digest $setbit_digest
     }
 
-    test {native bitmaps keep the original proto-max-bulk-len offset limit} {
+    test {native bitmap writes keep the proto-max-bulk-len offset limit} {
         r del bitmap:native:bounds
         r config set bitmap-default-roaring yes
         assert_equal 0 [r setbit bitmap:native:bounds 0 1]
@@ -221,11 +221,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         assert_equal bitmap [r type bitmap:native:bounds]
         assert_equal 1 [r bitcount bitmap:native:bounds]
+        assert_equal 0 [r getbit bitmap:native:bounds 4294967296]
+        assert_equal {0} [r bitfield_ro bitmap:native:bounds GET u1 4294967296]
         foreach cmd {
-            {getbit bitmap:native:bounds 4294967296}
             {setbit bitmap:native:bounds 4294967296 1}
-            {bitfield_ro bitmap:native:bounds GET u1 4294967296}
             {bitfield bitmap:native:bounds SET u1 4294967296 1}
+            {bitfield bitmap:native:bounds GET u1 4294967296 SET u1 0 1}
         } {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
@@ -291,11 +292,13 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 0 [r setbit bitmap:native:small-limit $last_allowed 1]
         assert_equal 1 [r getbit bitmap:native:small-limit $last_allowed]
 
+        assert_equal 0 [r getbit bitmap:native:small-limit $first_rejected]
+        assert_equal {0} [r bitfield_ro bitmap:native:small-limit GET u1 $first_rejected]
+
         foreach cmd [list \
-            [list getbit bitmap:native:small-limit $first_rejected] \
             [list setbit bitmap:native:small-limit $first_rejected 1] \
-            [list bitfield_ro bitmap:native:small-limit GET u1 $first_rejected] \
             [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
+            [list bitfield bitmap:native:small-limit GET u1 $first_rejected SET u1 0 1] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }

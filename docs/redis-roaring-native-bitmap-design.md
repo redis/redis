@@ -6,10 +6,10 @@
 > are still moving. The current `unstable` implementation has `OBJ_BITMAP`,
 > `bitmap-roaring`, `bitmap-default-roaring`, `BITMAP CONVERT`, direct native
 > bitmap command support, and RESTORE-based type-transition propagation. It
-> keeps the public bitmap offset limit tied to `proto-max-bulk-len` for both
-> legacy strings and native bitmaps while the final index-width/cap decision
-> remains pending in [#24](https://github.com/aviggiano/redis/issues/24) and
-> [#42](https://github.com/aviggiano/redis/issues/42).
+> keeps bitmap writes tied to the Redis `proto-max-bulk-len` safety limit for
+> both legacy strings and native bitmaps. Native bitmap values keep
+> 64-bit-capable Roaring internals, and read-only native bitmap offset lookups
+> can address sparse signed-64-bit offsets as unset zero bits.
 
 This document started as the Step 1 design baseline for adding Roaring
 compression as part of a native Redis bitmap value type. It now also records
@@ -69,8 +69,8 @@ the command-facing docs and tests for this boundary.
 | Area | Design status | Current implementation status | Trackers / PRs |
 | --- | --- | --- | --- |
 | Observable type model | Ready locally: native bitmaps are an observable `OBJ_BITMAP` / `TYPE bitmap`, not transparent string compression. | Implemented. `OBJECT ENCODING` reports `bitmap-roaring`. | [#21](https://github.com/aviggiano/redis/issues/21), [PR #39](https://github.com/aviggiano/redis/pull/39) |
-| Internal encoding and logical length | Ready locally for Roaring-backed storage with explicit logical byte length; final index-width implications remain tied to the pending cap decision. | Implemented with `roaring64_bitmap_t` and `byte_len`. | [#25](https://github.com/aviggiano/redis/issues/25), [PR #38](https://github.com/aviggiano/redis/pull/38) |
-| Public offset and index-width model | Pending clarification. DD-05 favored 64-bit native indexing, but DD-17 reopened whether v1 should use bounded 32-bit Roaring or another cap. | Current draft keeps the public `proto-max-bulk-len` bitmap offset limit for strings and native bitmaps. Native internals still use 64-bit Roaring. | [#24](https://github.com/aviggiano/redis/issues/24), [#42](https://github.com/aviggiano/redis/issues/42), [PR #43](https://github.com/aviggiano/redis/pull/43) |
+| Internal encoding and logical length | Ready locally for Roaring-backed storage with explicit logical byte length. | Implemented with `roaring64_bitmap_t` and `byte_len`. | [#25](https://github.com/aviggiano/redis/issues/25), [PR #38](https://github.com/aviggiano/redis/pull/38) |
+| Public offset and index-width model | Ready locally: v1 keeps 64-bit-capable native bitmap internals while retaining the Redis bitmap write limit as the allocation-safety boundary. | Implemented. Native bitmap writes, legacy string writes, and dense/materializing operations remain bounded by `proto-max-bulk-len`; read-only native bitmap offset lookups accept signed-64-bit sparse offsets and return zero for unset bits beyond the logical length. | [#24](https://github.com/aviggiano/redis/issues/24), [#42](https://github.com/aviggiano/redis/issues/42), [PR #43](https://github.com/aviggiano/redis/pull/43) |
 | Creation and conversion controls | Draft surface is `bitmap-default-roaring yes|no` plus `BITMAP CONVERT`; final v1 confirmation remains pending. | Implemented. `no` preserves legacy string creation unless conversion is explicit; `yes` creates/converts native bitmaps on bitmap writes. | [#20](https://github.com/aviggiano/redis/issues/20), [#22](https://github.com/aviggiano/redis/issues/22), [#26](https://github.com/aviggiano/redis/issues/26), [PR #13](https://github.com/aviggiano/redis/pull/13), [PR #15](https://github.com/aviggiano/redis/pull/15) |
 | Existing bitmap commands | Ready locally: existing bitmap commands must work on both legacy strings and native bitmaps without fallback in `unstable`. | Implemented for `SETBIT`, `GETBIT`, `BITCOUNT`, `BITPOS`, `BITFIELD`, `BITFIELD_RO`, and `BITOP`, with parity/oracle coverage. | [#23](https://github.com/aviggiano/redis/issues/23), merged landing PRs [PR #40](https://github.com/aviggiano/redis/pull/40) and [PR #41](https://github.com/aviggiano/redis/pull/41); historical stacked PRs later landed through [PR #40](https://github.com/aviggiano/redis/pull/40): [PR #10](https://github.com/aviggiano/redis/pull/10), [PR #11](https://github.com/aviggiano/redis/pull/11), [PR #12](https://github.com/aviggiano/redis/pull/12) |
 | `BITOP` destination and dense `NOT` limits | Ready locally: mixed legacy/native `BITOP` preserves Redis return values; native destinations follow source type or `bitmap-default-roaring` and are bounded by `proto-max-bulk-len`; `NOT` is the dense/materializing case. | Implemented, including mixed-source alias coverage, native-destination bulk-limit guards, and oversized `NOT` coverage. | [#30](https://github.com/aviggiano/redis/issues/30), [#31](https://github.com/aviggiano/redis/issues/31), [PR #36](https://github.com/aviggiano/redis/pull/36), [PR #37](https://github.com/aviggiano/redis/pull/37) |
@@ -94,10 +94,11 @@ That coverage is semantic rather than wire-compatible: redis-roaring's `NOT`
 form accepts an optional `last` bound, and redis-roaring `BITOP` replies with
 result cardinality instead of Redis' destination byte length. Those syntax and
 reply differences are migration-tool/replay concerns, not v1 Redis command
-surface. `R64.*` command coverage is likewise limited to offsets that Redis
-bitmap commands can parse and native Redis bitmaps can represent; tooling must
-reject or explicitly policy-handle redis-roaring `uint64_t` offsets outside
-that Redis-representable range. The standalone `R.DIFF` / `R64.DIFF` command
+surface. `R64.*` read coverage can use sparse signed-64-bit native bitmap
+offsets, while write/import coverage is limited by the Redis bitmap write
+safety boundary and the native bitmap representability cap. Tooling must reject
+or explicitly policy-handle redis-roaring `uint64_t` offsets outside that
+Redis-representable range. The standalone `R.DIFF` / `R64.DIFF` command
 names are therefore compatibility wrappers around behavior covered by
 `BITOP DIFF` and remain out of v1 Redis scope.
 
@@ -181,13 +182,15 @@ stress:
 - Repeated deterministic fuzz writes followed by `GETBIT` and `BITCOUNT`.
 - String command boundary checks for values that are still legacy Redis strings.
 
-## Pending Decisions
+## Settled v1 Decisions
 
-- **Index width and public cap**: decide whether v1 keeps the current
-  `proto-max-bulk-len` public limit with 64-bit Roaring internals, switches to
-  bounded 32-bit Roaring, or exposes a documented wider native bitmap model.
+- **Index width and public cap**: v1 keeps `roaring64_bitmap_t` internally and
+  preserves the Redis bitmap write safety limit for both legacy strings and
+  native bitmaps. Lifting that write limit is future work, not required for v1.
   See [#24](https://github.com/aviggiano/redis/issues/24) and
   [#42](https://github.com/aviggiano/redis/issues/42).
+
+## Pending Decisions
 - **Conversion/public surface**: confirm whether `BITMAP CONVERT` is needed in
   v1, whether it is the only new user-facing bitmap command, and whether
   `BITMAP CONVERT ... STRING` is sufficient as the materialization escape
