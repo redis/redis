@@ -1368,7 +1368,13 @@ test {corrupt payload: bitmap RDB validation} {
         catch { r restore bitmap:unsorted 0 $unsorted_payload } err
         assert_match "*Bad data format*" $err
 
+        set adjacent_payload [bitmap_range_dump_payload $bitmap_type 2 {{1 1} {2 2}} $dump_trailer]
+        catch { r restore bitmap:adjacent 0 $adjacent_payload } err
+        assert_match "*Bad data format*" $err
+
         r config set sanitize-dump-payload no
+        catch { r restore bitmap:shallow-adjacent 0 $adjacent_payload } err
+        assert_match "*Bad data format*" $err
         r restore bitmap:shallow 0 $valid_payload
         assert_equal [r type bitmap:shallow] bitmap
         assert_equal [r debug bitmap-raw bitmap:shallow] $valid_raw
