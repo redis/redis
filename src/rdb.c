@@ -1117,14 +1117,6 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     return nwritten;
 }
 
-static void rdbCountBitmapRange(uint64_t start, uint64_t end, void *privdata) {
-    UNUSED(start);
-    UNUSED(end);
-
-    uint64_t *count = privdata;
-    (*count)++;
-}
-
 #define RDB_BITMAP_ENCODING_RAW 0
 #define RDB_BITMAP_ENCODING_RANGES 1
 /* Native bitmap payloads used to start with the logical byte length. Use an
@@ -1137,6 +1129,84 @@ typedef struct rdbSaveBitmapRangeCtx {
     ssize_t nwritten;
     int error;
 } rdbSaveBitmapRangeCtx;
+
+typedef struct rdbBitmapRangeStatsCtx {
+    uint64_t range_count;
+    size_t encoded_ranges_size;
+    int error;
+} rdbBitmapRangeStatsCtx;
+
+static void rdbBitmapRangeStats(uint64_t start, uint64_t end, void *privdata) {
+    rdbBitmapRangeStatsCtx *ctx = privdata;
+    ssize_t n;
+
+    if (ctx->error) return;
+    if (ctx->range_count == UINT64_MAX) {
+        ctx->error = 1;
+        return;
+    }
+    ctx->range_count++;
+
+    n = rdbSaveLen(NULL, start);
+    if (n < 0 || (size_t)n > SIZE_MAX - ctx->encoded_ranges_size) {
+        ctx->error = 1;
+        return;
+    }
+    ctx->encoded_ranges_size += n;
+
+    n = rdbSaveLen(NULL, end);
+    if (n < 0 || (size_t)n > SIZE_MAX - ctx->encoded_ranges_size) {
+        ctx->error = 1;
+        return;
+    }
+    ctx->encoded_ranges_size += n;
+}
+
+static ssize_t rdbBitmapEncodedLen(uint64_t value) {
+    return rdbSaveLen(NULL, value);
+}
+
+static int rdbBitmapAddEncodedLen(size_t *total, uint64_t value) {
+    ssize_t n = rdbBitmapEncodedLen(value);
+    if (n < 0 || (size_t)n > SIZE_MAX - *total) return C_ERR;
+    *total += n;
+    return C_OK;
+}
+
+static int rdbBitmapRangeEncodedSize(uint64_t byte_len,
+                                     const rdbBitmapRangeStatsCtx *stats,
+                                     size_t *size)
+{
+    size_t total = stats->encoded_ranges_size;
+
+    if (rdbBitmapAddEncodedLen(&total, RDB_BITMAP_FORMAT_VERSION_V2) != C_OK)
+        return C_ERR;
+    if (rdbBitmapAddEncodedLen(&total, RDB_BITMAP_ENCODING_RANGES) != C_OK)
+        return C_ERR;
+    if (rdbBitmapAddEncodedLen(&total, byte_len) != C_OK)
+        return C_ERR;
+    if (rdbBitmapAddEncodedLen(&total, stats->range_count) != C_OK)
+        return C_ERR;
+
+    *size = total;
+    return C_OK;
+}
+
+static sds rdbBitmapEncodeRawPayload(sds payload) {
+    rio raw;
+    sds encoded = sdsempty();
+
+    rioInitWithBuffer(&raw, encoded);
+    if (rdbSaveLen(&raw, RDB_BITMAP_FORMAT_VERSION_V2) == -1) goto werr;
+    if (rdbSaveLen(&raw, RDB_BITMAP_ENCODING_RAW) == -1) goto werr;
+    if (rdbSaveRawString(&raw, (unsigned char *)payload, sdslen(payload)) == -1)
+        goto werr;
+    return raw.io.buffer.ptr;
+
+werr:
+    sdsfree(raw.io.buffer.ptr);
+    return NULL;
+}
 
 static void rdbSaveBitmapRange(uint64_t start, uint64_t end, void *privdata) {
     rdbSaveBitmapRangeCtx *ctx = privdata;
@@ -1159,35 +1229,56 @@ static void rdbSaveBitmapRange(uint64_t start, uint64_t end, void *privdata) {
 
 static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     ssize_t n, nwritten = 0;
-    uint64_t range_count = 0;
     uint64_t byte_len = bitmapObjectLen(o);
+    rdbBitmapRangeStatsCtx stats = {0};
+    size_t range_size;
+    size_t raw_size = 0;
+    sds raw_payload = NULL;
+    sds raw_encoded = NULL;
+    int use_raw;
 
-    bitmapObjectVisitSetBitRanges(o, rdbCountBitmapRange, &range_count);
+    bitmapObjectVisitSetBitRanges(o, rdbBitmapRangeStats, &stats);
+    if (stats.error) return -1;
 
-    if ((n = rdbSaveLen(rdb, RDB_BITMAP_FORMAT_VERSION_V2)) == -1) return -1;
-    nwritten += n;
+    if (rdbBitmapRangeEncodedSize(byte_len, &stats, &range_size) != C_OK)
+        return -1;
 
     /* Each range writes start and end as RDB lengths, at least two bytes per
      * range. If range_count exceeds byte_len / 2, the range endpoints alone
      * are larger than the raw byte payload, before the range_count field and
-     * any multi-byte length encodings, so use raw encoding. */
-    if (range_count > byte_len / 2) {
-        if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_RAW)) == -1) return -1;
-        nwritten += n;
+     * any multi-byte length encodings, so raw encoding will be smaller. */
+    use_raw = stats.range_count > byte_len / 2;
 
-        sds payload = bitmapObjectMaterializeForRDB(o);
-        if (payload == NULL) return -1;
-        serverAssert((uint64_t)sdslen(payload) == byte_len);
+    /* For sparser inputs, compare against the actual raw RDB string size so
+     * LZF compression can beat high-offset range framing. If raw
+     * materialization fails, keep the streaming range encoding unless raw was
+     * already the only viable choice. */
+    raw_payload = bitmapObjectMaterializeForRDB(o);
+    if (raw_payload != NULL) {
+        serverAssert((uint64_t)sdslen(raw_payload) == byte_len);
+        raw_encoded = rdbBitmapEncodeRawPayload(raw_payload);
+        sdsfree(raw_payload);
+        if (raw_encoded == NULL) return -1;
+        raw_size = sdslen(raw_encoded);
+        if (raw_size <= range_size) use_raw = 1;
+    } else if (use_raw) {
+        return -1;
+    }
 
-        if ((n = rdbSaveRawString(rdb, (unsigned char *)payload,
-                                  sdslen(payload))) == -1) {
-            sdsfree(payload);
+    if (use_raw) {
+        serverAssert(raw_encoded != NULL);
+        if ((n = rdbWriteRaw(rdb, raw_encoded, raw_size)) == -1) {
+            sdsfree(raw_encoded);
             return -1;
         }
         nwritten += n;
-        sdsfree(payload);
+        sdsfree(raw_encoded);
         return nwritten;
     }
+    if (raw_encoded != NULL) sdsfree(raw_encoded);
+
+    if ((n = rdbSaveLen(rdb, RDB_BITMAP_FORMAT_VERSION_V2)) == -1) return -1;
+    nwritten += n;
 
     if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_RANGES)) == -1) return -1;
     nwritten += n;
@@ -1197,7 +1288,7 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb, range_count)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb, stats.range_count)) == -1) return -1;
     nwritten += n;
 
     rdbSaveBitmapRangeCtx ctx = {

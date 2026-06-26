@@ -757,6 +757,34 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
+    test {native bitmap RDB uses compressed raw payload when smaller than sparse ranges} {
+        set oldcomp [config_get_set rdbcompression yes]
+
+        r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
+            bitmap:rdb-sparse:restored
+        for {set i 0} {$i < 512} {incr i} {
+            r setbit bitmap:rdb-sparse:string [expr {$i * 32768}] 1
+        }
+        set raw [r get bitmap:rdb-sparse:string]
+        r set bitmap:rdb-sparse:native $raw
+        r bitmap convert bitmap:rdb-sparse:native
+
+        set string_dump [r dump bitmap:rdb-sparse:string]
+        set native_dump [r dump bitmap:rdb-sparse:native]
+        assert_lessthan_equal [string length $native_dump] \
+            [expr {[string length $string_dump] + 16}] \
+            "native_dump_len=[string length $native_dump] string_dump_len=[string length $string_dump]"
+
+        r restore bitmap:rdb-sparse:restored 0 $native_dump
+        assert_equal bitmap [r type bitmap:rdb-sparse:restored]
+        assert_equal bitmap-roaring [r object encoding bitmap:rdb-sparse:restored]
+        assert_equal $raw [r debug bitmap-raw bitmap:rdb-sparse:restored]
+
+        r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
+            bitmap:rdb-sparse:restored
+        r config set rdbcompression $oldcomp
+    }
+
     test {native bitmap RDB raw save is not bounded by current proto-max-bulk-len} {
         set limit 1048576
         set byte_len [expr {$limit + 1}]
