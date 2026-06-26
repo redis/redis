@@ -8,8 +8,9 @@
 > bitmap command support, and RESTORE-based type-transition propagation. DD-17
 > settled the v1 index-width rule: native bitmaps keep `roaring64_bitmap_t`
 > internally, but their logical length is capped at 512 MiB (max bit offset
-> `4294967295`), with normal client commands also honoring
-> `proto-max-bulk-len` when it is lower.
+> `4294967295`). Bitmap writes also honor `proto-max-bulk-len`; read-only
+> native lookups can exceed a lower current `proto-max-bulk-len` setting only
+> while staying inside the native v1 cap.
 
 This document started as the Step 1 design baseline for adding Roaring
 compression as part of a native Redis bitmap value type. It now also records
@@ -70,7 +71,7 @@ the command-facing docs and tests for this boundary.
 | --- | --- | --- | --- |
 | Observable type model | Ready locally: native bitmaps are an observable `OBJ_BITMAP` / `TYPE bitmap`, not transparent string compression. | Implemented. `OBJECT ENCODING` reports `bitmap-roaring`. | [#21](https://github.com/aviggiano/redis/issues/21), [PR #39](https://github.com/aviggiano/redis/pull/39) |
 | Internal encoding and logical length | Ready locally for Roaring-backed storage with explicit logical byte length and a bounded v1 native index space. | Implemented with `roaring64_bitmap_t`, `byte_len`, and a 512 MiB native logical length cap. | [#25](https://github.com/aviggiano/redis/issues/25), [PR #38](https://github.com/aviggiano/redis/pull/38) |
-| Public offset and index-width model | DD-17 resolved v1 in favor of 64-bit-capable internals with the safer bounded native surface, not a switch to 32-bit Roaring. | Native bitmaps are capped at 512 MiB / max bit `4294967295`; normal client commands also obey `proto-max-bulk-len` when it is lower. | [#24](https://github.com/aviggiano/redis/issues/24), [#42](https://github.com/aviggiano/redis/issues/42), [PR #43](https://github.com/aviggiano/redis/pull/43) |
+| Public offset and index-width model | DD-17 resolved v1 in favor of 64-bit-capable internals with the safer bounded native surface, not a switch to 32-bit Roaring. | Native bitmaps are capped at 512 MiB / max bit `4294967295`; writes also obey `proto-max-bulk-len`, and read-only native lookups may exceed a lower current `proto-max-bulk-len` only within the native cap. | [#24](https://github.com/aviggiano/redis/issues/24), [#42](https://github.com/aviggiano/redis/issues/42), [PR #43](https://github.com/aviggiano/redis/pull/43) |
 | Creation and conversion controls | Draft surface is `bitmap-default-roaring yes|no` plus `BITMAP CONVERT`; final v1 confirmation remains pending. | Implemented. `no` preserves legacy string creation unless conversion is explicit; `yes` creates/converts native bitmaps on bitmap writes. | [#20](https://github.com/aviggiano/redis/issues/20), [#22](https://github.com/aviggiano/redis/issues/22), [#26](https://github.com/aviggiano/redis/issues/26), [PR #13](https://github.com/aviggiano/redis/pull/13), [PR #15](https://github.com/aviggiano/redis/pull/15) |
 | Existing bitmap commands | Ready locally: existing bitmap commands must work on both legacy strings and native bitmaps without fallback in `unstable`. | Implemented for `SETBIT`, `GETBIT`, `BITCOUNT`, `BITPOS`, `BITFIELD`, `BITFIELD_RO`, and `BITOP`, with parity/oracle coverage. | [#23](https://github.com/aviggiano/redis/issues/23), merged landing PRs [PR #40](https://github.com/aviggiano/redis/pull/40) and [PR #41](https://github.com/aviggiano/redis/pull/41); historical stacked PRs later landed through [PR #40](https://github.com/aviggiano/redis/pull/40): [PR #10](https://github.com/aviggiano/redis/pull/10), [PR #11](https://github.com/aviggiano/redis/pull/11), [PR #12](https://github.com/aviggiano/redis/pull/12) |
 | `BITOP` destination and dense `NOT` limits | Ready locally: mixed legacy/native `BITOP` preserves Redis return values; native destinations follow source type or `bitmap-default-roaring` and are bounded by the v1 native cap plus `proto-max-bulk-len` when lower; `NOT` is the dense/materializing case. | Implemented, including mixed-source alias coverage, native-destination limit guards, and oversized `NOT` coverage. | [#30](https://github.com/aviggiano/redis/issues/30), [#31](https://github.com/aviggiano/redis/issues/31), [PR #36](https://github.com/aviggiano/redis/pull/36), [PR #37](https://github.com/aviggiano/redis/pull/37) |
@@ -94,17 +95,17 @@ That coverage is semantic rather than wire-compatible: redis-roaring's `NOT`
 form accepts an optional `last` bound, and redis-roaring `BITOP` replies with
 result cardinality instead of Redis' destination byte length. Those syntax and
 reply differences are migration-tool/replay concerns, not v1 Redis command
-surface. `R64.*` command coverage is likewise limited to offsets that Redis
-bitmap commands can parse and native Redis bitmaps can represent; for v1 that
-native range ends at bit offset `4294967295`. Tooling must reject or explicitly
-policy-handle redis-roaring `uint64_t` offsets outside that Redis-representable
-range. The standalone `R.DIFF` / `R64.DIFF` command
+surface. `R64.*` coverage is limited to offsets that Redis bitmap commands can
+parse and native Redis bitmaps can represent; for v1 that native range ends at
+bit offset `4294967295`. Tooling must reject or explicitly policy-handle
+redis-roaring `uint64_t` offsets outside that Redis-representable range. The
+standalone `R.DIFF` / `R64.DIFF` command
 names are therefore compatibility wrappers around behavior covered by
 `BITOP DIFF` and remain out of v1 Redis scope.
 
 | redis-roaring-only family | Gap versus Redis bitmap commands | Classification | v1 migration/import note |
 | --- | --- | --- | --- |
-| `R.SETINTARRAY`, `R.GETINTARRAY`, `R.RANGEINTARRAY`, `R.APPENDINTARRAY`, `R.DELETEINTARRAY`, and `R64.*` equivalents | Treat set bits as sorted integer arrays, including range paging and append/delete mutations. | Migration-tool-only | Required. Export should stream set offsets from `reroaring` and `roaring64` keys; import should build native 64-bit bitmaps from 32-bit or 64-bit integer arrays. `R.RANGEINTARRAY` / `R64.RANGEINTARRAY` are useful for paged command-based export. |
+| `R.SETINTARRAY`, `R.GETINTARRAY`, `R.RANGEINTARRAY`, `R.APPENDINTARRAY`, `R.DELETEINTARRAY`, and `R64.*` equivalents | Treat set bits as sorted integer arrays, including range paging and append/delete mutations. | Migration-tool-only | Required. Export should stream set offsets from `reroaring` and `roaring64` keys; import should build native bitmaps only when every 32-bit or 64-bit integer-array offset fits the v1 native cap. `R.RANGEINTARRAY` / `R64.RANGEINTARRAY` are useful for paged command-based export. |
 | `R.SETBITARRAY`, `R.GETBITARRAY`, and `R64.*` equivalents | Use ASCII `0`/`1` bit-array strings rather than Redis raw bitmap strings. | Migration-tool-only | Optional compatibility format for tooling. Import can translate ASCII bit arrays to set offsets or native payloads; Redis core should prefer raw strings plus `BITMAP CONVERT` where a string representation fits. |
 | `R.SETRANGE`, `R.SETFULL`, and `R64.*` equivalents | Create dense ranges or full universes of set bits. | Not needed for v1 | State migration can export the final set bits; command replay, if a tool supports it, can translate ranges outside Redis core. |
 | `R.GETBITS`, `R.CLEARBITS`, and `R64.*` equivalents | Bulk `GETBIT`, bulk clear-to-zero, and an optional cleared-count reply. | Future Redis command candidate | Useful as generic batch bitmap operations, but not required to migrate stored values. Replay tooling can lower `CLEARBITS` to repeated clears or direct payload edits. |
@@ -182,13 +183,14 @@ stress:
 - Repeated deterministic fuzz writes followed by `GETBIT` and `BITCOUNT`.
 - String command boundary checks for values that are still legacy Redis strings.
 
-## Resolved Decisions
+## Settled v1 Decisions
 
-- **Index width and public cap**: DD-17 keeps 64-bit-capable Roaring internals
-  for v1 while bounding native bitmap logical length to 512 MiB / max bit
-  `4294967295`. Normal client writes and reads continue to honor
-  `proto-max-bulk-len` when it is lower. Lifting this cap is a future
-  compatibility and performance decision. See
+- **Index width and public cap**: v1 keeps `roaring64_bitmap_t` internally and
+  bounds native bitmap logical length to 512 MiB / max bit `4294967295`.
+  Bitmap writes and dense/materializing paths also preserve the Redis bitmap
+  safety limit when `proto-max-bulk-len` is lower; read-only native lookups can
+  exceed that lower runtime limit only inside the native cap. Lifting the
+  native cap is future work, not required for v1. See
   [#24](https://github.com/aviggiano/redis/issues/24) and
   [#42](https://github.com/aviggiano/redis/issues/42).
 
