@@ -327,6 +327,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             [list bitfield_ro bitmap:native:raised-limit GET u1 $first_rejected] \
             [list bitfield bitmap:native:raised-limit SET u1 $first_rejected 1] \
             [list bitfield bitmap:native:raised-limit SET u2 $max_native_bit 3] \
+            [list bitfield bitmap:native:raised-limit GET u1 $first_rejected SET u1 1 1] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
@@ -339,6 +340,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r set bitmap:native:raised-limit:string [binary format H* 80]
         assert_error {*bit offset*out of range*} {
             r setbit bitmap:native:raised-limit:string $first_rejected 1
+        }
+        assert_error {*bit offset*out of range*} {
+            r bitfield bitmap:native:raised-limit:string GET u1 $first_rejected SET u1 1 1
         }
         assert_equal string [r type bitmap:native:raised-limit:string]
         assert_equal [binary format H* 80] [r get bitmap:native:raised-limit:string]
