@@ -77,7 +77,7 @@ the command-facing docs and tests for this boundary.
 | `BITOP` destination and dense `NOT` limits | Ready locally: mixed legacy/native `BITOP` preserves Redis return values; native destinations follow source type or `bitmap-default-roaring` and are bounded by the v1 native cap plus `proto-max-bulk-len` when lower; `NOT` is the dense/materializing case. | Implemented, including mixed-source alias coverage, native-destination limit guards, and oversized `NOT` coverage. | [#30](https://github.com/aviggiano/redis/issues/30), [#31](https://github.com/aviggiano/redis/issues/31), [PR #36](https://github.com/aviggiano/redis/pull/36), [PR #37](https://github.com/aviggiano/redis/pull/37) |
 | Generic string command boundary | Pending clarification for final audit scope and whether `BITMAP CONVERT ... STRING` is the only v1 materialization escape hatch. | Draft behavior is implemented: native bitmaps reject generic string commands with `WRONGTYPE`; explicit conversion back to string is supported while materialization fits `proto-max-bulk-len`. | [#22](https://github.com/aviggiano/redis/issues/22), [PR #8](https://github.com/aviggiano/redis/pull/8), [PR #39](https://github.com/aviggiano/redis/pull/39) |
 | Persistence, `DUMP` / `RESTORE`, and AOF rewrite | Settled for the current V2 direction: persist raw bytes or canonical set-bit ranges, not CRoaring internals, and keep RESTORE-based rewrite for native bitmap values. | Implemented with `RDB_TYPE_BITMAP`, a v2 marker plus encoding-specific raw or range payloads, `DUMP` / `RESTORE`, AOF rewrite as `RESTORE`, always-on payload length/range validation, and a fallback for the previous same-version byte-length-first layout. | [#29](https://github.com/aviggiano/redis/issues/29), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43), related open [PR #44](https://github.com/aviggiano/redis/pull/44) |
-| Replication determinism | Pending clarification for long-term propagation strategy and amplification/version-skew policy. | Implemented draft behavior propagates type transitions as explicit `RESTORE ... REPLACE`, so replicas do not re-derive native decisions from local config. | [#28](https://github.com/aviggiano/redis/issues/28), [PR #9](https://github.com/aviggiano/redis/pull/9), [PR #13](https://github.com/aviggiano/redis/pull/13) |
+| Replication determinism | Ready locally: explicit `RESTORE`/`DUMP` propagation is the v1 deterministic baseline; sparse/container-specific propagation remains future work; replicas must be upgraded before native bitmap creation or conversion is enabled. | Implemented. Config-dependent native creations and conversions queue `RESTORE ... REPLACE [ABSTTL]`, native bitmap AOF rewrite emits `RESTORE`, and tests cover incremental AOF, rewrite, and replication convergence across mismatched local config. | [#28](https://github.com/aviggiano/redis/issues/28), [PR #9](https://github.com/aviggiano/redis/pull/9), [PR #13](https://github.com/aviggiano/redis/pull/13) |
 | Introspection, copy, modules, and notifications | Module/keyspace-notification details are still pending final clarification. | `TYPE`, `SCAN ... TYPE`, `COPY`, `RedisModule_KeyType()`, `NOTIFY_BITMAP`, and type-change notifications exist in the draft implementation. | [#33](https://github.com/aviggiano/redis/issues/33), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43) |
 | Memory accounting, active defrag, and fork-child dismissal | Pending clarification around accounting policy, allocator hooks, and defrag acceptability. | Implemented draft lifecycle coverage exists, with follow-up review cleanup tracked separately. | [#32](https://github.com/aviggiano/redis/issues/32), [PR #18](https://github.com/aviggiano/redis/pull/18), [PR #43](https://github.com/aviggiano/redis/pull/43), [#45](https://github.com/aviggiano/redis/issues/45) |
 | Test and benchmark gate | Pending clarification for required benchmark scope and acceptable event-loop stall bounds. | Correctness coverage exists across native type, command, oracle, corruption, replication, AOF, and module tests. Redis-specific benchmark harness remains open. | [#35](https://github.com/aviggiano/redis/issues/35), [#46](https://github.com/aviggiano/redis/issues/46), [#47](https://github.com/aviggiano/redis/issues/47) |
@@ -147,6 +147,33 @@ materialization or conversion). The correctness side has draft coverage; the
 Redis-specific benchmark harness remains open in
 [#47](https://github.com/aviggiano/redis/issues/47).
 
+## Replication and AOF Determinism
+
+DD-09 is resolved for v1 around an explicit serialized-payload baseline:
+replicas and AOF replay must receive the representation chosen by the master,
+not re-run native bitmap creation or conversion policy locally.
+
+- A bitmap write that creates or converts a native bitmap because of
+  `bitmap-default-roaring yes` queues `RESTORE <key> <ttl> <DUMP payload>
+  REPLACE [ABSTTL]` for AOF and replication, and suppresses propagation of the
+  triggering command.
+- `BITMAP CONVERT` in either direction queues the same RESTORE form, preserving
+  TTL with `ABSTTL` when needed.
+- `BITOP` results whose native destination is chosen from local
+  `bitmap-default-roaring yes` also propagate the final serialized value.
+  Results that are native because an input key is already native can propagate
+  as `BITOP`, since the source type is replicated logical state.
+- AOF rewrite emits native bitmap values as `RESTORE <key> 0 <DUMP payload>
+  REPLACE`, with key metadata inside the payload and expiration emitted through
+  the normal AOF expiration path.
+- The tradeoff is amplification: a small write that crosses the string/native
+  boundary can append or replicate a full DUMP payload. Container-oriented or
+  sparse transition commands can be evaluated later, but they are not required
+  for v1 correctness.
+- Version-skew policy is upgrade-first. Replicas and AOF replay targets must
+  understand the native bitmap RDB/DUMP payload before operators enable native
+  bitmap creation or conversion on a master.
+
 ## Creation and Conversion Surface
 
 The current draft surface is a single `bitmap-default-roaring yes|no` flag,
@@ -201,9 +228,14 @@ stress:
   hatch. See [#20](https://github.com/aviggiano/redis/issues/20),
   [#22](https://github.com/aviggiano/redis/issues/22), and
   [#26](https://github.com/aviggiano/redis/issues/26).
-- **Replication strategy**: confirm whether RESTORE-based propagation remains
-  the long-term strategy, and document amplification and version-skew policy.
-  See [#28](https://github.com/aviggiano/redis/issues/28).
+- **Persistence format and AOF rewrite**: confirm the final `RDB_TYPE_BITMAP`
+  payload layout, validation requirements, and whether RESTORE-based AOF
+  rewrite remains acceptable for this core type. The current implementation
+  stores a v2 marker plus encoding-specific raw or range payloads, while the
+  loader still accepts the previous byte-length-first layout; open
+  [PR #44](https://github.com/aviggiano/redis/pull/44) is related review
+  follow-up, not current `unstable` behavior. See
+  [#29](https://github.com/aviggiano/redis/issues/29).
 - **Modules, notifications, and metadata**: settle event names/order, module
   observations, unlink callbacks, and metadata preservation policy. See
   [#33](https://github.com/aviggiano/redis/issues/33).

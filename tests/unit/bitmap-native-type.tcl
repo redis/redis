@@ -990,6 +990,68 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
     }
 }
 
+start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no}} {
+    test {native bitmap transitions are written to incremental AOF as RESTORE} {
+        set aof [get_last_incr_aof_path r]
+        set raw [binary format H* 80400100080000]
+
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:aof-incr:create $::sparse_public_offset 1
+        r config set bitmap-default-roaring no
+
+        r set bitmap:aof-incr:convert $raw
+        r pexpire bitmap:aof-incr:convert 600000
+        r bitmap convert bitmap:aof-incr:convert
+        r bitmap convert bitmap:aof-incr:convert STRING
+
+        set fp [open $aof r]
+        fconfigure $fp -translation binary
+        fconfigure $fp -blocking 1
+
+        set commands {}
+        while {1} {
+            set cmd [read_from_aof $fp]
+            if {$cmd eq ""} break
+            lappend commands $cmd
+        }
+        close $fp
+
+        set forbidden {}
+        set create_restore 0
+        set convert_restore 0
+        foreach cmd $commands {
+            set name [lindex $cmd 0]
+            if {$name eq "setbit" || $name eq "bitmap"} {
+                lappend forbidden $cmd
+            }
+            if {$name eq "restore"} {
+                assert_equal REPLACE [lindex $cmd 4]
+                set key [lindex $cmd 1]
+                if {$key eq "bitmap:aof-incr:create"} {
+                    assert_equal 5 [llength $cmd]
+                    assert_equal 0 [lindex $cmd 2]
+                    incr create_restore
+                } elseif {$key eq "bitmap:aof-incr:convert"} {
+                    assert_equal 6 [llength $cmd]
+                    assert_equal ABSTTL [lindex $cmd 5]
+                    incr convert_restore
+                }
+            }
+        }
+
+        assert_equal {} $forbidden
+        assert_equal 1 $create_restore
+        assert_equal 2 $convert_restore
+
+        set digest_before [debug_digest]
+        r debug loadaof
+        assert_equal $digest_before [debug_digest]
+        assert_equal bitmap [r type bitmap:aof-incr:create]
+        assert_equal string [r type bitmap:aof-incr:convert]
+        assert_equal $raw [r get bitmap:aof-incr:convert]
+    }
+}
+
 start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:skip"}} {
     start_server {} {
         set master [srv -1 client]
