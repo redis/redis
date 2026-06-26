@@ -732,6 +732,14 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server RPUSH l12 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {$server RENAME l12 l13} {db0_LIST:4=1}
     } {} {cluster:skip}
+
+    test "KEYSIZES - Test COPY $suffixRepl" {
+        # COPY births a new key via dbAdd; the histogram should count the copy.
+        # Exercised on a stream so a stream goes through this generic path too.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st1 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server COPY st1 st2} {db0_STREAM:1=2}
+    } {} {cluster:skip}
     
     test "KEYSIZES - Test MOVE $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
