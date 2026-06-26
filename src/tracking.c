@@ -562,30 +562,19 @@ void trackingLimitUsedSlots(void) {
 sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
     raxIterator ri;
     uint64_t count = 0;
-
-    raxStart(&ri,keys);
-    raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
-        if (noloop_client && ri.data == noloop_client)
-            continue;
-        if (ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len,
-                CMD_KEY_ACCESS) != ACL_OK)
-            continue;
-        count++;
-    }
-    raxStop(&ri);
-
-    if (count == 0) return NULL;
-
-    /* Create the array reply with the list of keys once, then send
-    * it to the receiving client. */
     char buf[32];
-    size_t len = ll2string(buf,sizeof(buf),count);
-    sds proto = sdsempty();
-    proto = sdsMakeRoomFor(proto,count*15);
-    proto = sdscatlen(proto,"*",1);
-    proto = sdscatlen(proto,buf,len);
-    proto = sdscatlen(proto,"\r\n",2);
+    size_t len;
+
+    /* Build the bulk strings for the (filtered) keys in a single pass,
+     * counting them as we go. The RESP array header needs the count up
+     * front, so we accumulate the bodies into a scratch buffer first and
+     * prepend the header once at the end. This keeps the (potentially
+     * expensive) ACL check to a single call per key.
+     *
+     * 'body' is grown on demand rather than reserved up front: the post-filter
+     * key count is not known here, and reserving for raxSize(keys) would
+     * over-allocate whenever the ACL/NOLOOP filter drops keys. */
+    sds body = sdsempty();
     raxStart(&ri,keys);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
@@ -595,13 +584,30 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
                 CMD_KEY_ACCESS) != ACL_OK)
             continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
-        proto = sdscatlen(proto,"$",1);
-        proto = sdscatlen(proto,buf,len);
-        proto = sdscatlen(proto,"\r\n",2);
-        proto = sdscatlen(proto,ri.key,ri.key_len);
-        proto = sdscatlen(proto,"\r\n",2);
+        body = sdscatlen(body,"$",1);
+        body = sdscatlen(body,buf,len);
+        body = sdscatlen(body,"\r\n",2);
+        body = sdscatlen(body,ri.key,ri.key_len);
+        body = sdscatlen(body,"\r\n",2);
+        count++;
     }
     raxStop(&ri);
+
+    if (count == 0) {
+        sdsfree(body);
+        return NULL;
+    }
+
+    /* Prepend the array header and append the accumulated bodies, then send
+     * the reply to the receiving client. */
+    len = ll2string(buf,sizeof(buf),count);
+    sds proto = sdsempty();
+    proto = sdsMakeRoomFor(proto,1+len+2+sdslen(body));
+    proto = sdscatlen(proto,"*",1);
+    proto = sdscatlen(proto,buf,len);
+    proto = sdscatlen(proto,"\r\n",2);
+    proto = sdscatsds(proto,body);
+    sdsfree(body);
     return proto;
 }
 
