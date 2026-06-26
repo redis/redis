@@ -762,8 +762,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
             bitmap:rdb-sparse:restored
-        for {set i 0} {$i < 512} {incr i} {
-            r setbit bitmap:rdb-sparse:string [expr {$i * 32768}] 1
+        for {set i 0} {$i < 4096} {incr i} {
+            r setbit bitmap:rdb-sparse:string [expr {$i * 4096}] 1
         }
         set raw [r get bitmap:rdb-sparse:string]
         r set bitmap:rdb-sparse:native $raw
