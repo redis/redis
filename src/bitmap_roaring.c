@@ -35,6 +35,8 @@ static void bitmapObjectRefreshAllocSize(bitmapObject *bitmap);
 static void bitmapObjectRefreshRangeAllocSize(bitmapObject *bitmap,
                                               uint64_t start, uint64_t end,
                                               size_t old_size);
+static void bitmapArtKeyFromHigh48(uint64_t high48,
+                                   art_key_chunk_t key[ART_KEY_BYTES]);
 
 static bitmapObject *getBitmapObject(const robj *o) {
     serverAssert(o->type == OBJ_BITMAP);
@@ -54,6 +56,38 @@ static void bitmapObjectAdjustAllocSize(size_t *alloc_size, size_t old_size,
     }
 }
 
+static void bitmapObjectRoaringAppendContainer(roaring64_bitmap_t *roaring,
+                                               uint64_t high48,
+                                               container_t *container,
+                                               uint8_t typecode)
+{
+    if (roaring->first_free == roaring->capacity) {
+        uint64_t new_capacity;
+
+        if (roaring->capacity == 0)
+            new_capacity = 2;
+        else if (roaring->capacity < 1024)
+            new_capacity = roaring->capacity * 2;
+        else
+            new_capacity = roaring->capacity + roaring->capacity / 4;
+
+        container_t **containers = roaring_realloc(
+            roaring->containers, new_capacity * sizeof(*containers));
+        serverAssert(containers != NULL);
+        memset(containers + roaring->capacity, 0,
+               (new_capacity - roaring->capacity) * sizeof(*containers));
+        roaring->containers = containers;
+        roaring->capacity = new_capacity;
+    }
+
+    uint64_t index = roaring->first_free++;
+    roaring->containers[index] = container;
+
+    art_key_chunk_t key[ART_KEY_BYTES];
+    bitmapArtKeyFromHigh48(high48, key);
+    art_insert(&roaring->art, key, (art_val_t)((index << 8) | typecode));
+}
+
 static void *bitmapRoaringMalloc(size_t size) {
     return zmalloc(size);
 }
@@ -71,34 +105,111 @@ static void bitmapRoaringFree(void *ptr) {
     zfree(ptr);
 }
 
-/* Build a roaring bitmap from raw bitmap string bytes. Batch insertions
- * through add_many: this conversion runs on every bitmap-default-roaring write
- * that converts a string and on every string BITOP source, and per-bit
- * roaring64_bitmap_add dominates the cost on dense inputs. The optimize pass
- * is only worth paying for bitmaps that are kept (run_optimize/shrink_to_fit
- * walk every container); BITOP operand temporaries are freed within the
- * command, so their callers pass optimize=0. */
+static unsigned char bitmapReverseByte(unsigned char value) {
+    value = (unsigned char)(((value & 0xf0) >> 4) | ((value & 0x0f) << 4));
+    value = (unsigned char)(((value & 0xcc) >> 2) | ((value & 0x33) << 2));
+    value = (unsigned char)(((value & 0xaa) >> 1) | ((value & 0x55) << 1));
+    return value;
+}
+
+static int bitmapRawChunkFitsArray(const unsigned char *buf, size_t len,
+                                   int *cardinality)
+{
+    int count = 0;
+
+    for (size_t i = 0; i < len; i++) {
+        count += __builtin_popcount(buf[i]);
+        if (count > DEFAULT_MAX_SIZE) return 0;
+    }
+    *cardinality = count;
+    return 1;
+}
+
+static void bitmapObjectAppendRawArrayContainer(roaring64_bitmap_t *roaring,
+                                                const unsigned char *buf,
+                                                size_t len,
+                                                int cardinality,
+                                                uint64_t high48)
+{
+    array_container_t *array =
+        array_container_create_given_capacity(cardinality);
+    serverAssert(array != NULL);
+    array->cardinality = cardinality;
+
+    int32_t out = 0;
+    for (size_t byte = 0; byte < len; byte++) {
+        unsigned char value = buf[byte];
+        for (int bit = 0; bit < 8; bit++) {
+            if (value & (0x80 >> bit))
+                array->array[out++] = (uint16_t)(byte * 8 + bit);
+        }
+    }
+    serverAssert(out == cardinality);
+
+    bitmapObjectRoaringAppendContainer(roaring, high48, (container_t *)array,
+                                       ARRAY_CONTAINER_TYPE);
+}
+
+static void bitmapObjectAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
+                                                 const unsigned char *buf,
+                                                 size_t len,
+                                                 uint64_t high48)
+{
+    bitset_container_t *bitset = bitset_container_create();
+    serverAssert(bitset != NULL);
+
+    int cardinality = 0;
+    size_t byte = 0;
+    for (int word = 0; word < BITSET_CONTAINER_SIZE_IN_WORDS; word++) {
+        uint64_t bits = 0;
+
+        for (int lane = 0; lane < 8 && byte < len; lane++, byte++) {
+            unsigned char value = buf[byte];
+            cardinality += __builtin_popcount(value);
+            bits |= (uint64_t)bitmapReverseByte(value) << (lane * 8);
+        }
+        bitset->words[word] = bits;
+    }
+    bitset->cardinality = cardinality;
+
+    bitmapObjectRoaringAppendContainer(roaring, high48, (container_t *)bitset,
+                                       BITSET_CONTAINER_TYPE);
+}
+
+/* Build a roaring bitmap from raw bitmap string bytes by constructing one
+ * container per 2^16-bit chunk. This conversion runs on every
+ * bitmap-default-roaring write that converts a string and on every string
+ * BITOP source, so dense chunks must avoid per-bit roaring64_bitmap_add calls.
+ * The optimize pass is only worth paying for bitmaps that are kept
+ * (run_optimize/shrink_to_fit walk every container); BITOP operand temporaries
+ * are freed within the command, so their callers pass optimize=0. */
 static roaring64_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *buf,
                                                          size_t len, int optimize)
 {
     roaring64_bitmap_t *roaring = roaring64_bitmap_create();
 
-    uint64_t pending[1024];
-    size_t npending = 0;
+#define BITMAP_ROARING_CONTAINER_BYTES \
+    (BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t))
+    for (size_t offset = 0; offset < len;
+         offset += BITMAP_ROARING_CONTAINER_BYTES)
+    {
+        size_t chunk_len = len - offset;
+        if (chunk_len > BITMAP_ROARING_CONTAINER_BYTES)
+            chunk_len = BITMAP_ROARING_CONTAINER_BYTES;
 
-    for (size_t byte = 0; byte < len; byte++) {
-        unsigned char value = buf[byte];
-        while (value) {
-            int bit = __builtin_ctz(value);
-            pending[npending++] = (uint64_t)byte * 8 + (7 - bit);
-            value &= value - 1;
-            if (npending == sizeof(pending) / sizeof(pending[0])) {
-                roaring64_bitmap_add_many(roaring, npending, pending);
-                npending = 0;
-            }
+        uint64_t high48 = offset / BITMAP_ROARING_CONTAINER_BYTES;
+        int cardinality;
+        if (bitmapRawChunkFitsArray(buf + offset, chunk_len, &cardinality)) {
+            if (cardinality == 0) continue;
+            bitmapObjectAppendRawArrayContainer(roaring, buf + offset,
+                                                chunk_len, cardinality,
+                                                high48);
+        } else {
+            bitmapObjectAppendRawBitsetContainer(roaring, buf + offset,
+                                                 chunk_len, high48);
         }
     }
-    if (npending) roaring64_bitmap_add_many(roaring, npending, pending);
+#undef BITMAP_ROARING_CONTAINER_BYTES
 
     if (optimize) {
         roaring64_bitmap_run_optimize(roaring);
