@@ -2316,6 +2316,7 @@ static int propagateModuleCommands(asmTask *task, rio *rdb) {
             }
     }
     redisOpArrayFree(task->pre_snapshot_module_cmds);
+    zfree(task->pre_snapshot_module_cmds->ops);
     zfree(task->pre_snapshot_module_cmds);
     task->pre_snapshot_module_cmds = NULL;
     return ret;
@@ -2355,6 +2356,7 @@ static void propagateModuleCommandsAtEnd(asmTask *task) {
         task->source_offset += (getNormalClientPendingReplyBytes(c) - prev_bytes);
     }
     redisOpArrayFree(task->post_stream_module_cmds);
+    zfree(task->post_stream_module_cmds->ops);
     zfree(task->post_stream_module_cmds);
     task->post_stream_module_cmds = NULL;
 }
@@ -3832,14 +3834,10 @@ int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, in
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
     redisOpArray *target = NULL;
     if (task->operation == ASM_MIGRATE) {
-        if (server.in_fork_child == CHILD_TYPE_RDB &&
-            task->state == ASM_SEND_BULK_AND_STREAM)
-        {
+        if (server.in_fork_child == CHILD_TYPE_RDB && task->state == ASM_SEND_BULK_AND_STREAM) {
             /* Pre-snapshot context: in the RDB fork child. */
             target = task->pre_snapshot_module_cmds;
-        } else if (server.in_fork_child == CHILD_TYPE_NONE &&
-                   task->state == ASM_HANDOFF)
-        {
+        } else if (server.in_fork_child == CHILD_TYPE_NONE && task->state == ASM_HANDOFF) {
             /* End-of-migration context: in the main process. */
             target = task->post_stream_module_cmds;
         }
