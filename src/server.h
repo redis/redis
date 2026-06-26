@@ -1247,8 +1247,11 @@ typedef struct redisDb {
 
 /* maximum number of bins of keysizes histogram */
 #define MAX_KEYSIZES_BINS 60
-#define MAX_KEYSIZES_TYPES 6  /* 5 basic types + streams; see keysizesHistIdx() */
-#define KEYSIZES_IDX_STREAM 5 /* streams occupy the slot right after the basic types */
+/* Streams occupy the histogram slot right after the basic types, and the table
+ * is exactly the basic types plus that one stream slot. Both are derived from
+ * OBJ_TYPE_BASIC_MAX so they can't drift if the object type ordinals change. */
+#define KEYSIZES_IDX_STREAM OBJ_TYPE_BASIC_MAX
+#define MAX_KEYSIZES_TYPES (KEYSIZES_IDX_STREAM + 1)
 typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 
 /* Map an object type to its keysizes/allocsizes histogram slot, or -1 if the
@@ -1256,9 +1259,9 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
  * slot right after them, so no row is wasted on the untracked module type
  * (OBJ_MODULE == 5 sits between the basic types and OBJ_STREAM == 6). */
 static inline int keysizesHistIdx(int type) {
-    if (type < OBJ_TYPE_BASIC_MAX) return type;          /* 0..4 */
-    if (type == OBJ_STREAM) return KEYSIZES_IDX_STREAM;  /* 5 */
-    return -1;                                           /* modules etc.: not tracked */
+    if (type >= 0 && type < OBJ_TYPE_BASIC_MAX) return type; /* 0..4 */
+    if (type == OBJ_STREAM) return KEYSIZES_IDX_STREAM;      /* 5 */
+    return -1;                                               /* modules etc.: not tracked */
 }
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */

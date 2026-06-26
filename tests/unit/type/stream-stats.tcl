@@ -23,7 +23,7 @@ proc items_hist {r {dbnum 9}} {
     return ""
 }
 
-start_server {tags {"stream cluster:skip"}} {
+start_server {tags {stream cluster:skip external:skip}} {
     # Every key-delete command must drop the deleted stream's sample (and only
     # it). We run each command for real rather than assume they share a path.
     foreach delcmd {del unlink delex} {

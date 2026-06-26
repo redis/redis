@@ -31,8 +31,11 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX + 1, "basic types + streams");
-static_assert(KEYSIZES_IDX_STREAM == OBJ_TYPE_BASIC_MAX, "streams take the slot after the basic types");
+/* keysizesHistIdx() maps the basic types 0..OBJ_TYPE_BASIC_MAX-1 onto themselves
+ * and OBJ_STREAM onto the slot right after them (KEYSIZES_IDX_STREAM). That only
+ * holds while OBJ_STREAM stays outside the basic-type range; otherwise a stream
+ * would be caught by the identity branch and collide with a basic type's slot. */
+static_assert(OBJ_STREAM >= OBJ_TYPE_BASIC_MAX, "stream must lie outside the basic-type range");
 
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
