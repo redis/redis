@@ -848,12 +848,6 @@ static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
     return 0;
 }
 
-static int bitmapNativeOffsetWithinLimit(client *c, uint64_t maxbit) {
-    if (bitmapObjectCanRepresentBit(maxbit)) return 1;
-    addReplyError(c, "bit offset is out of range");
-    return 0;
-}
-
 /* This helper function for BITFIELD parses a bitfield type in the form
  * <sign><bits> where sign is 'u' or 'i' for unsigned and signed, and
  * the bits is a value between 1 and 64. However 64 bits unsigned integers
