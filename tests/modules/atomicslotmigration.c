@@ -26,12 +26,10 @@ RedisModuleString *moduleCommandKeyVal = NULL;  /* Key value to replicate at the
 RedisModuleString *moduleCommandEndKeyName = NULL; /* Key name to replicate at the end. */
 RedisModuleString *moduleCommandEndKeyVal = NULL;  /* Key value to replicate at the end. */
 
-/* Enable or disable module command replication. */
+/* Enable or disable module command replication.
+ * asm.replicate_module_command <enable> <key> <val> [<at_the_end>] */
 int replicate_module_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    /* asm.replicate_module_command <enable> <key> <val> [<end_key> <end_val>]
-     * The optional end_key/end_val are propagated at the end of the migration,
-     * just before STREAM-EOF, via the MIGRATE_MODULE_PROPAGATE_END event. */
-    if (argc != 4 && argc != 6) {
+    if (argc != 4 && argc != 5) {
         RedisModule_ReplyWithError(ctx, "ERR wrong number of arguments");
         return REDISMODULE_OK;
     }
@@ -43,20 +41,24 @@ int replicate_module_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
     replicateModuleCommand = (enable != 0);
 
-    /* Set the key name and value to replicate at the beginning. */
-    if (moduleCommandKeyName) RedisModule_FreeString(ctx, moduleCommandKeyName);
-    if (moduleCommandKeyVal) RedisModule_FreeString(ctx, moduleCommandKeyVal);
-    moduleCommandKeyName = RedisModule_CreateStringFromString(ctx, argv[2]);
-    moduleCommandKeyVal = RedisModule_CreateStringFromString(ctx, argv[3]);
+    long long at_the_end = 0;
+    if (argc == 5 && RedisModule_StringToLongLong(argv[4], &at_the_end) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR at_the_end value");
+        return REDISMODULE_OK;
+    }
 
-    /* Set the key name and value to replicate at the end (optional). */
-    if (moduleCommandEndKeyName) RedisModule_FreeString(ctx, moduleCommandEndKeyName);
-    if (moduleCommandEndKeyVal) RedisModule_FreeString(ctx, moduleCommandEndKeyVal);
-    moduleCommandEndKeyName = NULL;
-    moduleCommandEndKeyVal = NULL;
-    if (argc == 6) {
-        moduleCommandEndKeyName = RedisModule_CreateStringFromString(ctx, argv[4]);
-        moduleCommandEndKeyVal = RedisModule_CreateStringFromString(ctx, argv[5]);
+    if (at_the_end) {
+        /* Set the key name and value to replicate at the end. */
+        if (moduleCommandEndKeyName) RedisModule_FreeString(ctx, moduleCommandEndKeyName);
+        if (moduleCommandEndKeyVal) RedisModule_FreeString(ctx, moduleCommandEndKeyVal);
+        moduleCommandEndKeyName = RedisModule_CreateStringFromString(ctx, argv[2]);
+        moduleCommandEndKeyVal = RedisModule_CreateStringFromString(ctx, argv[3]);
+    } else {
+        /* Set the key name and value to replicate at the beginning. */
+        if (moduleCommandKeyName) RedisModule_FreeString(ctx, moduleCommandKeyName);
+        if (moduleCommandKeyVal) RedisModule_FreeString(ctx, moduleCommandKeyVal);
+        moduleCommandKeyName = RedisModule_CreateStringFromString(ctx, argv[2]);
+        moduleCommandKeyVal = RedisModule_CreateStringFromString(ctx, argv[3]);
     }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -328,7 +330,9 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
             ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "asm.keyless_cmd", "");
             RedisModule_Assert(ret == REDISMODULE_OK);
 
-            /* Propagate configured key and value. */
+            if (moduleCommandKeyName == NULL) return;
+
+            /* Propagate configured key and value at the beginning. */
             ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "SET", "ss", moduleCommandKeyName, moduleCommandKeyVal);
             RedisModule_Assert(ret == REDISMODULE_OK);
         } else if (sub == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END) {

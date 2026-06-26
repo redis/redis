@@ -2850,7 +2850,8 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         #     3- SET command for the end key and value
         set keyname [slot_key 0 modulekey]
         set endkeyname [slot_key 0 moduleendkey]
-        R 0 asm.replicate_module_command 1 $keyname "value" $endkeyname "endvalue"
+        R 0 asm.replicate_module_command 1 $keyname "value"
+        R 0 asm.replicate_module_command 1 $endkeyname "endvalue" 1
 
         setup_slot_migration_with_delay 0 1 0 100
         wait_for_asm_done
