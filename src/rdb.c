@@ -1238,6 +1238,9 @@ static robj *rdbLoadBitmapRangeObject(rio *rdb, uint64_t byte_len,
         if (start == RDB_LENERR || end == RDB_LENERR) goto err;
         if (start > end || end >= bit_len) goto err;
         if (have_prev && start <= prev_end) goto err;
+        /* Range payloads are canonical set-bit runs. Adjacent ranges are
+         * malformed because the saver would have emitted one combined run. */
+        if (have_prev && start == prev_end + 1) goto err;
         if (bitmapObjectAddRange(o, start, end + 1) != C_OK) goto err;
         prev_end = end;
         have_prev = 1;

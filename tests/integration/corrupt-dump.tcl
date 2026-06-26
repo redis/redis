@@ -1217,9 +1217,21 @@ test {corrupt payload: bitmap RDB validation} {
             } elseif {$len < 16384} {
                 return [binary format cc [expr {(($len >> 8) & 0x3f) | 0x40}] [expr {$len & 0xff}]]
             } elseif {$len <= 0xffffffff} {
-                return [binary format cI 0x80 $len]
+                return [binary format ccccc 0x80 \
+                    [expr {($len >> 24) & 0xff}] \
+                    [expr {($len >> 16) & 0xff}] \
+                    [expr {($len >> 8) & 0xff}] \
+                    [expr {$len & 0xff}]]
             } else {
-                return [binary format cW 0x81 $len]
+                return [binary format ccccccccc 0x81 \
+                    [expr {($len >> 56) & 0xff}] \
+                    [expr {($len >> 48) & 0xff}] \
+                    [expr {($len >> 40) & 0xff}] \
+                    [expr {($len >> 32) & 0xff}] \
+                    [expr {($len >> 24) & 0xff}] \
+                    [expr {($len >> 16) & 0xff}] \
+                    [expr {($len >> 8) & 0xff}] \
+                    [expr {$len & 0xff}]]
             }
         }
 
@@ -1378,7 +1390,13 @@ test {corrupt payload: bitmap RDB validation} {
         catch { r restore bitmap:unsorted 0 $unsorted_payload } err
         assert_match "*Bad data format*" $err
 
+        set adjacent_payload [bitmap_range_dump_payload $bitmap_type 2 {{1 1} {2 2}} $dump_trailer]
+        catch { r restore bitmap:adjacent 0 $adjacent_payload } err
+        assert_match "*Bad data format*" $err
+
         r config set sanitize-dump-payload no
+        catch { r restore bitmap:shallow-adjacent 0 $adjacent_payload } err
+        assert_match "*Bad data format*" $err
         r restore bitmap:shallow 0 $valid_payload
         assert_equal [r type bitmap:shallow] bitmap
         assert_equal [r debug bitmap-raw bitmap:shallow] $valid_raw

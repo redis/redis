@@ -60,7 +60,8 @@ as stable.
 - The current RDB path saves a native bitmap with a stable v2 marker followed
   by an encoding-specific payload. Load accepts payloads above the server's
   current lower `proto-max-bulk-len` setting, but rejects native bitmap logical
-  lengths above the 512 MiB v1 cap.
+  lengths above the 512 MiB v1 cap, max offsets above bit `4294967295`, and
+  non-canonical range payloads with overlapping or adjacent ranges.
 - Documentation now describes native 64-bit-capable internals with the bounded
   v1 native bitmap surface, leaving any future cap expansion as a separate
   decision.
