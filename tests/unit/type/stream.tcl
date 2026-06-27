@@ -3184,6 +3184,9 @@ start_server {
         r XREAD MAXSIZE 1000 STREAMS stream 0
         set res [r EXEC]
         set in_exec [lindex $res 1]
+        if {$::force_resp3} {
+            set in_exec [transfrom_map_to_tupple_array {XREAD} $in_exec]
+        }
         assert_equal [xread_total_entries $solo] [xread_total_entries $in_exec]
     }
 
