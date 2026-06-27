@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <memory.h>
+#include <string.h>
 #include <errno.h>
 
 #define MAX_EVENTS 1024
@@ -540,6 +541,35 @@ int asmGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* Wipe the whole dataset via RM_ResetDataset. Used to verify that resetting
+ * the dataset cancels any in-progress atomic slot migration. */
+int resetDatasetCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ResetDataset(0, 0);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+/* Save the dataset to an internal file and load it back via RM_RdbLoad. Used
+ * to verify that loading an RDB cancels any in-progress atomic slot migration. */
+int rdbLoadCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleRdbStream *stream = RedisModule_RdbStreamCreateFromFile("asm_rdbload_test.rdb");
+    if (RedisModule_RdbSave(ctx, stream, 0) != REDISMODULE_OK ||
+        RedisModule_RdbLoad(ctx, stream, 0) != REDISMODULE_OK)
+    {
+        RedisModule_RdbStreamFree(stream);
+        RedisModule_ReplyWithError(ctx, strerror(errno));
+        return REDISMODULE_OK;
+    }
+    RedisModule_RdbStreamFree(stream);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -599,6 +629,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.get", asmGetCommand, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.reset_dataset", resetDatasetCmd, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.rdbload", rdbLoadCmd, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.parent", NULL, "", 0, 0, 0) == REDISMODULE_ERR)

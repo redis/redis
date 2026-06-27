@@ -2295,6 +2295,30 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         assert_equal {item1} [R 3 lrange $listkey 0 -1]
     }
 
+    test "RM_ResetDataset and RM_RdbLoad will cancel slot migration task" {
+        # RM_ResetDataset and RM_RdbLoad both flush the whole dataset, so they
+        # must cancel any ASM task on that node.
+        foreach resetcmd {asm.reset_dataset asm.rdbload} {
+            # node 0 is the source (migrate task), node 1 the destination (import task)
+            foreach node {0 1} {
+                R 0 flushall
+                R 1 flushall
+                set task_id [setup_slot_migration_with_delay 0 1 0 100]
+                assert_equal 1 [CI $node cluster_slot_migration_active_tasks]
+
+                assert_equal "OK" [R $node $resetcmd]
+                assert_equal "canceled" [migration_status $node $task_id state]
+                assert_equal 0 [CI $node cluster_slot_migration_active_tasks]
+
+                # cleanup
+                R 0 config set rdb-key-save-delay 0
+                R 0 CLUSTER MIGRATION CANCEL ID $task_id
+                R 1 CLUSTER MIGRATION CANCEL ID $task_id
+                wait_for_asm_done
+            }
+        }
+    }
+
     test "Test RM_ClusterCanAccessKeysInSlot" {
         # Test invalid slots
         assert_equal 0 [R 0 asm.cluster_can_access_keys_in_slot -1]
