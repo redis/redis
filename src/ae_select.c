@@ -57,7 +57,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
-    int retval, j, numevents = 0;
+    int retval, j, numevents = 0, mask;
 
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
@@ -66,7 +66,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
         for (j = 0; j <= eventLoop->maxfd; j++) {
-            int mask = 0;
+            mask = 0;
             aeFileEvent *fe = &eventLoop->events[j];
 
             if (fe->mask == AE_NONE) continue;
