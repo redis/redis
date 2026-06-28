@@ -61,7 +61,7 @@ modules:
     loadmodule: ./modules/redisearch/redisearch.so
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
-    ref: master
+    ref: tal.ba/fix/build_bootstrap
     target_module: rejson.so
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
