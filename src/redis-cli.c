@@ -116,6 +116,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS 1 << 10
 #define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
 #define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
+#define CLUSTER_MANAGER_CMD_FLAG_SHUTDOWN_NOSAVE_ON_DEL 1 << 13
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -2998,6 +2999,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-fix-with-unreachable-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
+        } else if (!strcmp(argv[i],"--cluster-shutdown-nosave-on-del")) {
+            config.cluster_manager_command.flags |=
+                CLUSTER_MANAGER_CMD_FLAG_SHUTDOWN_NOSAVE_ON_DEL;
         } else if (!strcmp(argv[i],"--test_hint") && !lastarg) {
             config.test_hint = argv[++i];
         } else if (!strcmp(argv[i],"--test_hint_file") && !lastarg) {
@@ -3950,7 +3954,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
-    {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
+    {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id","shutdown-nosave-on-del"},
     {"call", clusterManagerCommandCall, -2,
         "host:port command arg arg .. arg", "only-masters,only-replicas"},
     {"set-timeout", clusterManagerCommandSetTimeout, 2,
@@ -7562,6 +7566,23 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
         success = clusterManagerCheckRedisReply(n, r, NULL);
         if (r) freeReplyObject(r);
         if (!success) return 0;
+    }
+
+    if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_SHUTDOWN_NOSAVE_ON_DEL) {
+        /* With --cluster-shutdown-nosave-on-del: send SHUTDOWN NOSAVE so that clients get a
+         * clear connection failure instead of connecting to a stale standalone
+         * node.  If SHUTDOWN fails, fall back to CLUSTER RESET SOFT. */
+        clusterManagerLogInfo(">>> Sending SHUTDOWN NOSAVE to the deleted node.\n");
+        redisReply *r = redisCommand(node->context, "SHUTDOWN NOSAVE");
+        if (r == NULL && (node->context->err == REDIS_ERR_IO ||
+                           node->context->err == REDIS_ERR_EOF)) {
+            /* Connection closed - expected after successful SHUTDOWN */
+            clusterManagerLogOk("[OK] Node %s:%d shut down.\n", node->ip, node->port);
+            return 1;
+        }
+        /* SHUTDOWN failed - fall back to CLUSTER RESET SOFT */
+        if (r) freeReplyObject(r);
+        clusterManagerLogWarn(">>> SHUTDOWN failed, falling back to CLUSTER RESET SOFT.\n");
     }
 
     /* Finally send CLUSTER RESET to the node. */
