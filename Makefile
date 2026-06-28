@@ -9,7 +9,7 @@
 # recipe shells (different PATH ordering than the user's interactive shell).
 export MAKE
 
-.DEFAULT_GOAL := all
+.DEFAULT_GOAL := build
 
 SUBDIRS = src
 ifeq ($(BUILD_WITH_MODULES), yes)
@@ -108,6 +108,9 @@ clean:
 # scripts/ so the logic stays out of Make. See each script's header for full
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
+
+all:
+	@$(MAKE) build
 
 # build [<name> ...|all|.|'*'|redis|core|none] — Redis core + selected modules.
 build:
