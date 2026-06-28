@@ -180,13 +180,13 @@ a Python version change).
 
 ---
 
-## 4. Build: `make` / `make core` / `make <module>`
+## 4. Build: `make build [<name>]`
 
 ```bash
-make                        # Redis + all cloned modules
-make core                   # Redis only
-make redistimeseries        # Redis + one module
-make BUILD_WITH_MODULES=yes # alias for make (same result)
+make build                        # Redis + all cloned modules
+make build core                   # Redis only
+make build redistimeseries        # Redis + one module
+make build -j8                    # parallel build
 ```
 
 All forms route through `scripts/build.sh`.
@@ -195,10 +195,9 @@ Selection:
 
 | Command | Selects |
 |---|---|
-| `make` | Redis + every cloned module |
-| `make BUILD_WITH_MODULES=yes` | Same as `make` |
-| `make core` | Redis only; skip modules |
-| `make <name>` | Redis + only the named module |
+| `make build` | Redis + every cloned module |
+| `make build core` | Redis only; skip modules |
+| `make build <name>` | Redis + only the named module |
 
 Invalid module names are detected **before** any compilation runs — you
 won't waste time on a Redis rebuild just to hit a typo at the end.
@@ -216,20 +215,18 @@ Order (deliberate):
    vars (`RM_INCLUDE_DIR`, `RS_INCLUDE_DIR`) are **not** overridden — each
    module resolves `redismodule.h` via its own upstream defaults, the
    same way it would build standalone in its own repo. Override them on
-   the command line — `make redistimeseries VAR=…` — if you need to compile a
-   module against this tree's `redismodule.h`.
+   the command line — `make build redistimeseries VAR=…` — if you need to
+   compile a module against this tree's `redismodule.h`.
 4. Build stops on the first failing module (fail-fast).
 5. Final output lists `src/redis-server` plus every `.so` produced per
    module.
 
-Variables pass through on the make line: `make redistimeseries VAR=value`.
-
 Examples:
 
 ```bash
-make                                # Redis + all cloned modules
-make core                           # Redis only
-make redistimeseries                # Redis + just one module
+make build                              # Redis + all cloned modules
+make build core                         # Redis only
+make build redistimeseries              # Redis + just one module
 ```
 
 ---

@@ -38,6 +38,7 @@ GOALS_WITH_ARGS := \
     modules-update:MODULES_ARGS \
     modules-shallow:SHALLOW_ARGS \
     run:RUN_ARGS \
+    build:BUILD_ARGS \
     clean:CLEAN_ARGS \
     bootstrap:BOOTSTRAP_ARGS \
     deploy:DEPLOY_ARGS \
@@ -108,21 +109,9 @@ clean:
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
 
-# all / make: Redis core + all cloned modules.
-# BUILD_WITH_MODULES=yes is accepted for backward compatibility — same result.
-all:
-	@scripts/build.sh
-
-# core: Redis core only (no modules).
-core:
-	@scripts/build.sh redis
-
-# Per-module targets: `make redistimeseries` → Redis core + that module.
-define _module_build_target
-$(1):
-	@scripts/build.sh $(1)
-endef
-$(foreach m,$(AVAILABLE_MODULES),$(eval $(call _module_build_target,$(m))))
+# build [<name> ...|all|.|'*'|redis|core|none] — Redis core + selected modules.
+build:
+	@scripts/build.sh $(BUILD_ARGS)
 
 # bootstrap [<name> ...|all|.|'*'] — install per-module build/test prereqs.
 bootstrap:
@@ -189,4 +178,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: all core install clean run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball $(AVAILABLE_MODULES)
+.PHONY: all install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball

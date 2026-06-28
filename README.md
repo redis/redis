@@ -373,7 +373,7 @@ Tested with the following Docker image:
 > commands below by hand, you can build the bundled `docker/Dockerfile.noble`
 > image, which installs every per-module system dependency and runs
 > `make modules-update`. The image is intended as a build environment — mount
-> the repo at runtime, then run `make`/`make run` inside the container.
+> the repo at runtime, then run `make build`/`make run` inside the container.
 >
 > ```bash
 > # Native architecture only:

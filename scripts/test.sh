@@ -45,7 +45,7 @@ case "$target" in
     fi
     if [ -z "$cloned" ]; then
       echo "ERROR: no cloned modules under modules/*/src"
-      echo "       run 'make modules-update all' and 'make' first"
+      echo "       run 'make modules-update all' and 'make build' first"
       exit 1
     fi
     echo "==> Running tests for all cloned modules: $cloned"

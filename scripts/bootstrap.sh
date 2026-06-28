@@ -75,4 +75,4 @@ if [ -n "$failed" ]; then
   exit 1
 fi
 echo "==> Deps install complete for: $selected"
-echo "    Next: 'make [<name>]' then 'make test [<name>]' or 'make run'."
+echo "    Next: 'make build [<name>]' then 'make test [<name>]' or 'make run'."

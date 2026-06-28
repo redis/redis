@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 # build.sh — build Redis (src/) + selected modules.
 #
-# Invoked by the top-level Makefile targets:
-#   make                    → scripts/build.sh          (all cloned modules)
-#   make core               → scripts/build.sh redis    (Redis core only)
-#   make redistimeseries    → scripts/build.sh redistimeseries
-#   make BUILD_WITH_MODULES=yes → scripts/build.sh      (same as make)
+# Usage:  scripts/build.sh [<name> ...|all|.|'*'|redis|core|none]
 #
-# Tokens accepted by this script:
+# Tokens:
 #   (no args) | all | . | '*'   build Redis + every cloned module
-#   redis | none                 build Redis only
+#   redis | core | none          build Redis only (no modules)
 #   <name> [<name> ...]          build Redis + the listed modules
 #
 # Each selected module is built via `make -C modules/<name>` using its
@@ -29,7 +25,7 @@ cd "$REPO_ROOT"
 MAKE_BIN="${MAKE:-make}"
 
 cloned="$(cloned_modules)"
-modules="$(resolve_modules "$*" "$cloned" "redis none")"
+modules="$(resolve_modules "$*" "$cloned" "redis core none")"
 
 echo "==> Building main Redis (src/)"
 if ! "$MAKE_BIN" -C src all; then
@@ -87,8 +83,12 @@ if [ -n "$modules" ]; then
   done
 fi
 
+echo
+echo "==> Refreshing redis-full.conf via sync-redis-conf"
+"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="${modules:-none}"
+
 if [ -n "$failed" ]; then
   echo
-  echo "ERROR: make finished with module failure(s):$failed"
+  echo "ERROR: make build finished with module failure(s):$failed"
   exit 1
 fi

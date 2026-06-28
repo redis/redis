@@ -19,19 +19,22 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 cd "$REPO_ROOT"
 
 if [ ! -x src/redis-server ]; then
-  echo "ERROR: src/redis-server is not built. Run 'make' (or 'make -C src all') first."
+  echo "ERROR: src/redis-server is not built. Run 'make build' (or 'make -C src all') first."
   exit 1
 fi
 
 cloned="$(cloned_modules)"
-selected="$(resolve_modules "$*" "$cloned" "none")"
+# "core" is a "no modules" alias — same as "none".
+_run_args="$*"
+[ "$_run_args" = "core" ] && _run_args="none"
+selected="$(resolve_modules "$_run_args" "$cloned" "none")"
 
 # Detect whether the caller named modules explicitly. Wildcards ("", all, ., *)
-# and the "none" token resolve without naming specific modules — in that case a
-# missing .so is a warning (skip and continue). An explicit name means the user
-# expects that module to load — a missing .so is a hard error.
+# and the "none"/"core" tokens resolve without naming specific modules — in that
+# case a missing .so is a warning (skip and continue). An explicit name means
+# the user expects that module to load — a missing .so is a hard error.
 case "${1:-}" in
-  ""|all|.|'*'|none) explicit=0 ;;
+  ""|all|.|'*'|none|core) explicit=0 ;;
   *) explicit=1 ;;
 esac
 
@@ -63,10 +66,10 @@ for name in $selected; do
   if [ -z "$so_path" ]; then
     if [ "$explicit" = "1" ]; then
       echo "ERROR: $name is not built ($so_base not found under modules/$name)."
-      echo "       Run 'make $name' first."
+      echo "       Run 'make build $name' first."
       exit 1
     fi
-    echo "WARNING: no built $so_base found under modules/$name, skipping $name (did you run 'make $name'?)"
+    echo "WARNING: no built $so_base found under modules/$name, skipping $name (did you run 'make build $name'?)"
     continue
   fi
   echo "==> Loading $name from $so_path"

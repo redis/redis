@@ -40,14 +40,14 @@ Pass module names to either step to scope it: `make modules-update redisbloom re
 `make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
 the dependency install.
 
-### 2. Build — `make`
+### 2. Build — `make build`
 
 Builds Redis first, then each cloned module against that Redis.
 
 ```bash
-make                               # Redis + all modules
-make core                          # Redis only
-make redistimeseries               # Redis + one module
+make build                         # Redis + all modules
+make build core                    # Redis only
+make build redistimeseries         # Redis + one module
 ```
 
 ### 3. Run — `make run`
@@ -101,11 +101,11 @@ positionally — Make reserves `:` for rule syntax. See
 # One-time:
 make modules-update
 make bootstrap
-make
+make build
 
 # Day to day:
 make modules-update redisbloom        # after editing ref: in modules.yaml
-make                                  # rebuild
+make build                            # rebuild
 make run redistimeseries redisbloom   # start with just these two
 redis-cli MODULE LIST
 make test redistimeseries             # exercise the module

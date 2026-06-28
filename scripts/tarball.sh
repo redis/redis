@@ -145,7 +145,7 @@ find "$work/modules" -path '*/tests/*' -type f -name '*.rdb' -delete 2>/dev/null
 find "$work/modules" -path '*/tests/*' -type f \
     \( -name '*.csv' -o -name '*.fvecs' -o -name '*.svs' -o -name '*.txt' \) \
     -size +1M -delete 2>/dev/null || true
-echo "==> Marking modules pre-prepared (so consumer 'make' skips clone step)"
+echo "==> Marking modules pre-prepared (so consumer 'make build' skips clone step)"
 for name in $(manifest_modules); do
   touch "$work/modules/$name/src/.prepared"
 done
