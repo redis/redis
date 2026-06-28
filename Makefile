@@ -9,6 +9,8 @@
 # recipe shells (different PATH ordering than the user's interactive shell).
 export MAKE
 
+.DEFAULT_GOAL := all
+
 SUBDIRS = src
 ifeq ($(BUILD_WITH_MODULES), yes)
 	ifeq ($(MAKECMDGOALS),32bit)
