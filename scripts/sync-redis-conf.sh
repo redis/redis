@@ -104,6 +104,8 @@ CORE_BEGIN="# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<"
 CORE_END="# <<< END: Redis-core config (DO NOT REMOVE THIS MARKER) >>>"
 MODULES_BEGIN="# >>> BEGIN section: Modules (regenerated on every sync) <<<"
 MODULES_END="# <<< END section: Modules <<<"
+LOADMODULE_BEGIN="# >>> BEGIN: loadmodule paths (replaced by make deploy) <<<"
+LOADMODULE_END="# <<< END: loadmodule paths <<<"
 PRIVATE_BEGIN="# >>> BEGIN redis-gen-conf:private <<<"
 PRIVATE_END="# <<< END redis-gen-conf:private <<<"
 
@@ -318,11 +320,12 @@ $MODULES_BEGIN
 
 EOF
 
-  # `loadmodule` lines (or commented placeholders) come first so the rest of
-  # the section is just per-module config blocks. File existence is tested
-  # against the on-disk path (where the build actually drops .so files —
-  # REPO_ROOT-relative), while the emitted path is absolutized via $PREFIX
-  # so the conf is portable across cwds at `redis-server` launch time.
+  # `loadmodule` lines (or commented placeholders) are wrapped in markers so
+  # `make deploy` can replace just this block with installed paths without
+  # regenerating the entire conf. File existence is tested against the on-disk
+  # path (REPO_ROOT-relative), while the emitted path is absolutized via
+  # $PREFIX so the conf is portable across cwds at `redis-server` launch time.
+  echo "$LOADMODULE_BEGIN"
   for name in $requested; do
     so="$(lookup_so "$name")"
     if [ -z "$so" ]; then
@@ -344,6 +347,7 @@ EOF
       printf "# loadmodule %s\n" "$so_full"
     fi
   done
+  echo "$LOADMODULE_END"
   echo
 
   # Per-module config blocks. Each block is wrapped in its own BEGIN/END

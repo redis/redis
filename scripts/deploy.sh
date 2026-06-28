@@ -134,3 +134,34 @@ if [ -n "$failed" ]; then
   echo "ERROR: deploy finished with module copy failure(s):$failed" >&2
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Phase 3: rewrite the loadmodule paths in redis-full.conf in-place.
+# Only the block between LOADMODULE_BEGIN / LOADMODULE_END is replaced —
+# the Redis-core config and per-module config blocks are untouched.
+# ---------------------------------------------------------------------------
+REDIS_FULL_CONF="${REDIS_GEN_CONF:-redis-full.conf}"
+LOADMODULE_BEGIN="# >>> BEGIN: loadmodule paths (replaced by make deploy) <<<"
+LOADMODULE_END="# <<< END: loadmodule paths <<<"
+
+if [ -f "$REDIS_FULL_CONF" ] && [ -n "$modules" ]; then
+  new_lines=""
+  for name in $modules; do
+    target="$(manifest_field "$name" target_module)"
+    [ -z "$target" ] && continue
+    so_basename="$(basename "$target")"
+    new_lines="${new_lines}loadmodule $INSTALL_MOD_DIR/$so_basename
+"
+  done
+
+  tmp_conf="$(mktemp "${REDIS_FULL_CONF}.deploy.XXXXXX")"
+  trap 'rm -f "$tmp_conf"' EXIT
+  awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v new="$new_lines" '
+    $0 == begin { print; printf "%s", new; skip=1; next }
+    $0 == end   { skip=0 }
+    !skip        { print }
+  ' "$REDIS_FULL_CONF" > "$tmp_conf"
+  mv "$tmp_conf" "$REDIS_FULL_CONF"
+  trap - EXIT
+  echo "==> Updated loadmodule paths in $REDIS_FULL_CONF"
+fi

@@ -135,11 +135,6 @@ bootstrap:
 deploy: PREFIX ?= /usr/local
 deploy:
 	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
-	@echo
-	@echo "==> Updating redis.conf for installed layout (PREFIX=$(PREFIX)/lib/redis/modules)"
-	@$(MAKE) --no-print-directory apply-redis-conf \
-	    PREFIX='$(PREFIX)/lib/redis/modules' \
-	    MODULES='$(DEPLOY_ARGS)'
 
 # run [<name> ...|all|.|'*'|none] [ARGS="<redis-server flags>"]
 run:
