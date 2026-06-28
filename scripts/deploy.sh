@@ -151,15 +151,25 @@ if [ -n "$installed_modules" ]; then
 "
   done
 
+  # Write new_lines to a temp file so awk can read it with getline — BSD awk
+  # (macOS /usr/bin/awk) rejects embedded newlines in -v values.
+  new_lines_file="$(mktemp)"
+  printf '%s' "$new_lines" > "$new_lines_file"
+
   _patch_conf() {
     local conf="$1"
     [ -f "$conf" ] || return 0
     grep -qF "$LOADMODULE_BEGIN" "$conf" 2>/dev/null || return 0
     local tmp
     tmp="$(mktemp "${conf}.deploy.XXXXXX")"
-    trap 'rm -f "$tmp"' EXIT
-    awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v new="$new_lines" '
-      $0 == begin { print; printf "%s", new; skip=1; next }
+    trap 'rm -f "$tmp" "$new_lines_file"' EXIT
+    awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" '
+      $0 == begin {
+        print
+        while ((getline line < newfile) > 0) print line
+        close(newfile)
+        skip=1; next
+      }
       $0 == end   { skip=0 }
       !skip        { print }
     ' "$conf" > "$tmp"
@@ -170,6 +180,7 @@ if [ -n "$installed_modules" ]; then
 
   _patch_conf "$REDIS_FULL_CONF"
   _patch_conf "$REDIS_CONF"
+  rm -f "$new_lines_file"
 fi
 
 echo

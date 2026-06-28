@@ -160,9 +160,10 @@ echo "==> Overlaying local config-sync tooling in staging"
 mkdir -p "$work/scripts/lib" "$work/modules"
 cp scripts/sync-redis-conf.sh   "$work/scripts/sync-redis-conf.sh"
 cp scripts/apply-redis-conf.sh  "$work/scripts/apply-redis-conf.sh"
+cp scripts/deploy.sh            "$work/scripts/deploy.sh"
 cp scripts/lib/manifest.sh      "$work/scripts/lib/manifest.sh"
 cp modules/modules.yaml         "$work/modules/modules.yaml"
-chmod +x "$work/scripts/sync-redis-conf.sh" "$work/scripts/apply-redis-conf.sh"
+chmod +x "$work/scripts/sync-redis-conf.sh" "$work/scripts/apply-redis-conf.sh" "$work/scripts/deploy.sh"
 rm -f "$work/modules.yaml"
 
 echo
