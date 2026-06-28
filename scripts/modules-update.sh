@@ -131,4 +131,4 @@ echo "==> Modules updated: $requested"
 echo "    Next: run 'make bootstrap [<name> ...]' to install per-module build/test deps."
 
 echo "==> Refreshing redis-full.conf via sync-redis-conf"
-"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="$requested"
+"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="$requested" ASSUME_BUILT=1

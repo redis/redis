@@ -157,12 +157,6 @@ echo "==> Overlaying local config-sync tooling in staging"
 # require re-tagging Redis core. If $TAG predates that relocation, drop the
 # stale root-level modules.yaml so the in-staging tooling has exactly one
 # manifest to find.
-#
-# The tarball ships `redis.conf` UNMODIFIED. To get a config that pre-loads
-# the bundled modules, the consumer runs one of:
-#   gmake sync-redis-conf      # produces redis-full.conf (use with `redis-server redis-full.conf`)
-#   gmake apply-redis-conf     # overwrites redis.conf with the generated content
-# Neither runs at tarball time, so `redis-full.conf` is NEVER packed.
 mkdir -p "$work/scripts/lib" "$work/modules"
 cp scripts/sync-redis-conf.sh   "$work/scripts/sync-redis-conf.sh"
 cp scripts/apply-redis-conf.sh  "$work/scripts/apply-redis-conf.sh"
@@ -170,6 +164,14 @@ cp scripts/lib/manifest.sh      "$work/scripts/lib/manifest.sh"
 cp modules/modules.yaml         "$work/modules/modules.yaml"
 chmod +x "$work/scripts/sync-redis-conf.sh" "$work/scripts/apply-redis-conf.sh"
 rm -f "$work/modules.yaml"
+
+echo
+echo "==> Generating redis-full.conf and applying into redis.conf (ASSUME_BUILT=1)"
+# Run apply-redis-conf inside the staging tree: generates redis-full.conf with
+# relative loadmodule paths, then overwrites redis.conf with the result.
+# ASSUME_BUILT=1 emits active loadmodule lines even though .so files aren't
+# present yet — consumer builds first, then runs redis-server redis.conf.
+( cd "$work" && ASSUME_BUILT=1 bash scripts/apply-redis-conf.sh )
 
 echo
 echo "==> Producing reproducible tarball at $out"
