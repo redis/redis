@@ -90,6 +90,9 @@ LOADMODULE_BEGIN="# >>> BEGIN: loadmodule paths (replaced by make deploy) <<<"
 LOADMODULE_END="# <<< END: loadmodule paths <<<"
 PRIVATE_BEGIN="# >>> BEGIN redis-gen-conf:private <<<"
 PRIVATE_END="# <<< END redis-gen-conf:private <<<"
+# Header line that marks the ## MODULES ## block in redis.conf. Stripped from
+# the extracted core so the generated Modules section takes its place.
+MODULES_PLACEHOLDER_HEADER="################################## MODULES #####################################"
 
 if [ ! -f "$REDIS_CONF" ]; then
   echo "ERROR: $REDIS_CONF not found" >&2
@@ -287,17 +290,27 @@ trap 'rm -f "$LOOKUP_FILE" "$tmp_out"' EXIT
 # redis-full.conf. Anything outside the markers (including this banner) is
 # ignored on every regeneration, so the banner is safe to keep here.
 #
-# Module load lines are NOT placed inside the markers — they belong in the
-# auto-generated Modules section below. To strip that section back out, run
+# The \`## MODULES ##\` section in redis.conf is a placeholder — sync-redis-conf
+# strips it from the extracted core and regenerates it with real loadmodule
+# lines + per-module config. To strip that generated section back out, run
 # \`make apply-redis-conf revert\`.
 # ============================================================================
 
 $CORE_BEGIN
 EOF
-  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF"
+  # Extract the core section, stripping the ## MODULES ## placeholder block so
+  # the generated Modules section takes its place below instead of duplicating.
+  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF" | \
+    awk -v hdr="$MODULES_PLACEHOLDER_HEADER" '
+      $0 == hdr           { skip=1; next }
+      skip && /^#{8,} [A-Z]/ { skip=0 }
+      skip                { next }
+                          { print }
+    '
   cat <<EOF
 $CORE_END
 
+$MODULES_PLACEHOLDER_HEADER
 $MODULES_BEGIN
 
 EOF
