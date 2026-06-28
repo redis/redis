@@ -26,6 +26,8 @@ if [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" -eq 0 ] && ! command -v sudo >/de
     apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo python3
   elif command -v dnf >/dev/null 2>&1; then
     dnf install -y sudo python3
+  elif command -v tdnf >/dev/null 2>&1; then
+    tdnf install -y sudo python3
   elif command -v apk >/dev/null 2>&1; then
     apk add --no-cache bash make git sudo python3
   fi
