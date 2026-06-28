@@ -40,16 +40,14 @@ Pass module names to either step to scope it: `make modules-update redisbloom re
 `make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
 the dependency install.
 
-### 2. Build — `make build`
+### 2. Build — `make`
 
-Builds Redis first, then each cloned module against that Redis. After
-the build, regenerates `redis-gen.conf` so the runtime config reflects
-what was actually built.
+Builds Redis first, then each cloned module against that Redis.
 
 ```bash
-make build all                     # Redis + all modules
-make build redis                   # Redis only
-make build redistimeseries         # Redis + one module
+make                               # Redis + all modules
+make core                          # Redis only
+make redistimeseries               # Redis + one module
 ```
 
 ### 3. Run — `make run`
@@ -60,11 +58,11 @@ Starts `src/redis-server` with the selected modules auto-loaded via
 hardcoding platform paths.
 
 ```bash
-./src/redis-server redis-gen.conf           #include all modules and redis configs 
+./src/redis-server redis-full.conf           #include all modules and redis configs 
 make run                                    # all built modules without configs
 make run redistimeseries redisbloom         # subset
 make run ARGS="--port 6400 --loglevel debug"
-./src/redis-server redis-gen.conf
+./src/redis-server redis-full.conf
 ```
 
 Verify from another shell:
@@ -103,22 +101,21 @@ positionally — Make reserves `:` for rule syntax. See
 # One-time:
 make modules-update
 make bootstrap
-make build
+make
 
 # Day to day:
 make modules-update redisbloom        # after editing ref: in modules.yaml
-make build                            # rebuild + refresh redis-gen.conf
+make                                  # rebuild
 make run redistimeseries redisbloom   # start with just these two
 redis-cli MODULE LIST
 make test redistimeseries             # exercise the module
 ```
 
-## Configuration: `redis.conf` vs. `redis-gen.conf`
+## Configuration: `redis.conf` vs. `redis-full.conf`
 
 - `redis.conf` — tracked, hand-edited Redis-core config. **Do not** add
   module load lines here.
-- `redis-gen.conf` — untracked, regenerated on every `make build` /
-  `make modules-update`. This is the file that actually loads the
+- `redis-full.conf` — untracked, regenerated on every `make modules-update`. This is the file that actually loads the
   bundled modules. It's `redis.conf` plus a `loadmodule` line and
   inlined `module.conf` for each built module.
 
@@ -126,7 +123,7 @@ Point `redis-server` at it explicitly when you want the generated
 config:
 
 ```bash
-./src/redis-server redis-gen.conf
+./src/redis-server redis-full.conf
 ```
 
 Or apply it onto `redis.conf` once for a one-file launch path (see

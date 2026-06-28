@@ -106,7 +106,7 @@ echo "==> Stripping .git, .github, build caches and IDE noise from cloned module
 find "$work/modules" -name '.git' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$work/modules" -type d -name '.github' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$work/modules" -name '.gitmodules' -delete 2>/dev/null || true
-# Local CMake/Rust build outputs from prior `make build` runs. Not in a
+# Local CMake/Rust build outputs from prior `make` runs. Not in a
 # fresh clone, so they have no business in a source tarball. Two-tier
 # strip so we don't accidentally remove tracked sources:
 #
@@ -160,9 +160,9 @@ echo "==> Overlaying local config-sync tooling in staging"
 #
 # The tarball ships `redis.conf` UNMODIFIED. To get a config that pre-loads
 # the bundled modules, the consumer runs one of:
-#   gmake sync-redis-conf      # produces redis-gen.conf (use with `redis-server redis-gen.conf`)
+#   gmake sync-redis-conf      # produces redis-full.conf (use with `redis-server redis-full.conf`)
 #   gmake apply-redis-conf     # overwrites redis.conf with the generated content
-# Neither runs at tarball time, so `redis-gen.conf` is NEVER packed.
+# Neither runs at tarball time, so `redis-full.conf` is NEVER packed.
 mkdir -p "$work/scripts/lib" "$work/modules"
 cp scripts/sync-redis-conf.sh   "$work/scripts/sync-redis-conf.sh"
 cp scripts/apply-redis-conf.sh  "$work/scripts/apply-redis-conf.sh"

@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 cd "$REPO_ROOT"
 
 if [ ! -x src/redis-server ]; then
-  echo "ERROR: src/redis-server is not built. Run 'make build' (or 'make -C src all') first."
+  echo "ERROR: src/redis-server is not built. Run 'make' (or 'make -C src all') first."
   exit 1
 fi
 
@@ -63,10 +63,10 @@ for name in $selected; do
   if [ -z "$so_path" ]; then
     if [ "$explicit" = "1" ]; then
       echo "ERROR: $name is not built ($so_base not found under modules/$name)."
-      echo "       Run 'make build $name' first."
+      echo "       Run 'make $name' first."
       exit 1
     fi
-    echo "WARNING: no built $so_base found under modules/$name, skipping $name (did you run 'make build'?)"
+    echo "WARNING: no built $so_base found under modules/$name, skipping $name (did you run 'make $name'?)"
     continue
   fi
   echo "==> Loading $name from $so_path"

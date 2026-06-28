@@ -17,8 +17,6 @@ ifeq ($(BUILD_WITH_MODULES), yes)
 	SUBDIRS += modules
 endif
 
-default: all
-
 # Manifest parser (modules.yaml → AVAILABLE_MODULES + helpers) shared with
 # per-module builds via modules/common.mk. The `sync-redis-conf` target lives
 # in this top-level Makefile (not in manifest.mk) so per-module builds —
@@ -28,16 +26,16 @@ include modules/manifest.mk
 # ----------------------------------------------------------------------------
 # Positional-arg capture for goals that take a list of module/test names.
 #
-# `make build redistimeseries redisjson` is parsed by Make as three goals; we
-# want only `build` to run, with the rest captured into BUILD_ARGS. Each entry
-# in GOALS_WITH_ARGS is `<goal>:<VAR>`. To add a new positional-arg goal,
-# append it here — the dispatch and no-op .PHONY targets fall out automatically.
+# `make modules-update redistimeseries redisjson` is parsed by Make as three
+# goals; we want only `modules-update` to run, with the rest captured into
+# MODULES_ARGS. Each entry in GOALS_WITH_ARGS is `<goal>:<VAR>`. To add a
+# new positional-arg goal, append it here — the dispatch and no-op .PHONY
+# targets fall out automatically.
 # ----------------------------------------------------------------------------
 GOALS_WITH_ARGS := \
     modules-update:MODULES_ARGS \
     modules-shallow:SHALLOW_ARGS \
     run:RUN_ARGS \
-    build:BUILD_ARGS \
     clean:CLEAN_ARGS \
     bootstrap:BOOTSTRAP_ARGS \
     deploy:DEPLOY_ARGS \
@@ -108,12 +106,21 @@ clean:
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
 
-# build [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules,
-# orchestrated by scripts/build.sh. NOTE: `make` / `make all` still use the
-# legacy `.DEFAULT:` recursion into $(SUBDIRS) (preserved for compatibility
-# with the upstream Redis build flow); only `make build` routes here.
-build:
-	@scripts/build.sh $(BUILD_ARGS)
+# all / make: Redis core + all cloned modules.
+# BUILD_WITH_MODULES=yes is accepted for backward compatibility — same result.
+all:
+	@scripts/build.sh
+
+# core: Redis core only (no modules).
+core:
+	@scripts/build.sh redis
+
+# Per-module targets: `make redistimeseries` → Redis core + that module.
+define _module_build_target
+$(1):
+	@scripts/build.sh $(1)
+endef
+$(foreach m,$(AVAILABLE_MODULES),$(eval $(call _module_build_target,$(m))))
 
 # bootstrap [<name> ...|all|.|'*'] — install per-module build/test prereqs.
 bootstrap:
@@ -159,7 +166,7 @@ tarball:
 	    scripts/tarball.sh
 
 # sync-redis-conf [<name> ...] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
-#   Rewrite the untracked redis-gen.conf from redis.conf + modules.yaml +
+#   Rewrite the untracked redis-full.conf from redis.conf + modules.yaml +
 #   per-module module.conf files. See scripts/sync-redis-conf.sh for the full
 #   contract (env vars, file layout, private-block stripping).
 sync-redis-conf:
@@ -176,7 +183,7 @@ sync-redis-conf:
 #   back out, or `git checkout -- redis.conf` to revert everything.
 #   Idempotent: re-running is safe because sync extracts only the Redis-core
 #   section between the BEGIN/END markers in redis.conf. Typical use: after
-#   extracting a release tarball + `make build`, so
+#   extracting a release tarball + `make`, so
 #   `./src/redis-server redis.conf` auto-loads bundled modules.
 apply-redis-conf:
 	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
@@ -185,4 +192,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: all core install clean run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball $(AVAILABLE_MODULES)

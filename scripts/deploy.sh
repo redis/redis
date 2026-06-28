@@ -16,7 +16,7 @@
 #
 # Flow:
 #   1. Delegate build to scripts/build.sh — same orchestration the user gets
-#      from `make build` (failure collection, redis-gen.conf refresh, etc.).
+#      from `make` (failure collection, redis-full.conf refresh, etc.).
 #   2. After build, copy artifacts into place ourselves (NOT via each
 #      module's `install` target). This keeps the install step a pure copy
 #      and avoids depending on per-module Makefile install recipes.

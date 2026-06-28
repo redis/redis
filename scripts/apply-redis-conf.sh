@@ -8,8 +8,8 @@
 #     Regenerate $REDIS_GEN_CONF via scripts/sync-redis-conf.sh, then
 #     overwrite $REDIS_CONF with it. After this, `./src/redis-server
 #     redis.conf` auto-loads the bundled modules — no need to point at
-#     redis-gen.conf. Typical use: after `tar xzf redis-<tag>.tar.gz &&
-#     make build` from a release tarball.
+#     redis-full.conf. Typical use: after `tar xzf redis-<tag>.tar.gz &&
+#     make` from a release tarball.
 #
 #   revert
 #     Inverse. Strip the auto-generated Modules section back out of
@@ -43,7 +43,7 @@ REPO_ROOT="${REPO_ROOT:-$(cd -- "$SCRIPT_DIR/.." && pwd)}"
 cd "$REPO_ROOT"
 
 REDIS_CONF="${REDIS_CONF:-redis.conf}"
-REDIS_GEN_CONF="${REDIS_GEN_CONF:-redis-gen.conf}"
+REDIS_GEN_CONF="${REDIS_GEN_CONF:-redis-full.conf}"
 
 # Parse positional args for the revert toggle.
 REVERT=0
@@ -162,7 +162,7 @@ revert_mode() {
 # Redis-core configuration.
 #
 # \`make sync-redis-conf\` extracts ONLY the content between BEGIN/END to build
-# redis-gen.conf. Anything outside the markers (including this banner) is
+# redis-full.conf. Anything outside the markers (including this banner) is
 # ignored on every regeneration, so the banner is safe to keep here.
 #
 # Module load lines are NOT placed inside the markers — they belong in the
