@@ -186,8 +186,7 @@ rm -f "$out"
     --sort=name \
     --mtime="@$mtime" \
     --owner=0 --group=0 --numeric-owner \
-    --use-compress-program='gzip -n' \
-    -cf "$out" "$prefix" )
+    -c "$prefix" ) | gzip -n > "$out"
 
 echo "==> Cleaning staging $staging"
 rm -rf "$staging"

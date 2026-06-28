@@ -59,9 +59,9 @@ MODULES_MANIFEST_FILE="${MODULES_MANIFEST_FILE:-$REPO_ROOT/modules/modules.yaml}
 
 manifest_modules() {
   awk '
-    /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
-      sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "")
-      sub(/[[:space:]]+$/, "")
+    /^[ \t]*-[ \t]*name:[ \t]*/ {
+      sub(/^[ \t]*-[ \t]*name:[ \t]*/, "")
+      sub(/[ \t]+$/, "")
       if (length() > 0) print
     }
   ' "$MODULES_MANIFEST_FILE" 2>/dev/null | sort -u
@@ -71,19 +71,19 @@ manifest_field() {
   local want="$1" field="$2"
   awk -v want="$want" -v field="$field" '
     BEGIN { cur = "" }
-    /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
+    /^[ \t]*-[ \t]*name:[ \t]*/ {
       line = $0
-      sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", line)
-      sub(/[[:space:]]+$/, "", line)
+      sub(/^[ \t]*-[ \t]*name:[ \t]*/, "", line)
+      sub(/[ \t]+$/, "", line)
       cur = line
       next
     }
     cur == want {
-      pat = "^[[:space:]]+" field ":"
+      pat = "^[ \t]+" field ":"
       if ($0 ~ pat) {
         v = $0
-        sub("^[[:space:]]+" field ":[[:space:]]*", "", v)
-        sub(/[[:space:]]+$/, "", v)
+        sub("^[ \t]+" field ":[ \t]*", "", v)
+        sub(/[ \t]+$/, "", v)
         print v
         exit
       }

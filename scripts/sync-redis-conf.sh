@@ -133,17 +133,17 @@ trap 'rm -f "$LOOKUP_FILE" "${tmp_out:-}"' EXIT
 
 awk '
   BEGIN { cur = "" }
-  /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
+  /^[ \t]*-[ \t]*name:[ \t]*/ {
     line = $0
-    sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", line)
-    sub(/[[:space:]]+$/, "", line)
+    sub(/^[ \t]*-[ \t]*name:[ \t]*/, "", line)
+    sub(/[ \t]+$/, "", line)
     cur = line
     next
   }
-  cur != "" && /^[[:space:]]+loadmodule:[[:space:]]*/ {
+  cur != "" && /^[ \t]+loadmodule:[ \t]*/ {
     v = $0
-    sub(/^[[:space:]]+loadmodule:[[:space:]]*/, "", v)
-    sub(/[[:space:]]+$/, "", v)
+    sub(/^[ \t]+loadmodule:[ \t]*/, "", v)
+    sub(/[ \t]+$/, "", v)
     print cur "\t" v
   }
 ' "$MODULES_MANIFEST_FILE" > "$LOOKUP_FILE"
