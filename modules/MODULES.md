@@ -320,16 +320,13 @@ Rewrites the untracked `redis-full.conf` file at the repo root from:
      the module isn't loaded).
    - Modules with no `loadmodule:` field show up as `Bad manifest: <name>`
      in the file header so misconfigurations surface loudly.
-   - **Path rewriting**: the manifest's `loadmodule:` value (e.g.
-     `./modules/redisbloom/redisbloom.so`) is absolutized against
-     `PREFIX` before being written — the leading `.` is replaced by
-     `$PREFIX`, yielding `$PREFIX/modules/redisbloom/redisbloom.so`.
-     `PREFIX` defaults to `$PWD` (the repo root, since the script
-     `cd`s there), so out of the box the generated conf carries
-     absolute paths and `redis-server <conf>` works from any cwd.
-     Already-absolute manifest values are left untouched.
-     File existence is still tested against the on-disk path (where
-     the build actually drops .so files — REPO_ROOT-relative).
+   - **Path rewriting**: in dev mode (no `PREFIX`) the manifest's
+     `loadmodule:` value is written as-is — relative paths stay
+     relative, so `redis-server redis-full.conf` works when launched
+     from the source/tarball root. When `PREFIX` is set (install
+     mode), paths become `$PREFIX/<basename>` — used by `make deploy`
+     to point at the installed modules directory.
+     File existence is tested against the on-disk path (REPO_ROOT-relative).
 
 The write is atomic (tmpfile + `mv`), so a mid-run failure leaves the
 previous `redis-full.conf` intact.

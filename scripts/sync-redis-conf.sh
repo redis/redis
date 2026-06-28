@@ -18,13 +18,11 @@
 #                           regardless of whether the .so is present on disk
 #                           (used by `make tarball`)
 #   MODULES_MANIFEST_FILE   manifest path             (default: modules/modules.yaml)
-#   PREFIX                  install root prepended to every emitted loadmodule
-#                           path. The manifest's `loadmodule:` value
-#                           `./modules/foo/foo.so` is rewritten as
-#                           `$PREFIX/modules/foo/foo.so`. Defaults to $PWD (i.e.
-#                           the repo root, since this script `cd`s there) when
-#                           unset — yielding absolute paths that work regardless
-#                           of where `redis-server` is launched from.
+#   PREFIX                  installed modules directory. When set, switches to
+#                           install mode: loadmodule paths are written as
+#                           `$PREFIX/<basename>`. When unset (default), paths
+#                           are kept as-is from modules.yaml (relative), so
+#                           redis-full.conf works from the source/tarball root.
 #
 # Output is always rewritten in full and is atomic (write to sibling tmpfile,
 # then rename). On any failure the temp file is cleaned up and the existing
@@ -40,41 +38,25 @@ cd "$REPO_ROOT"
 REDIS_CONF="${REDIS_CONF:-redis.conf}"
 REDIS_GEN_CONF="${REDIS_GEN_CONF:-redis-full.conf}"
 
-# Install prefix used to absolutize every emitted `loadmodule` path. Default
-# is the current working directory (which is REPO_ROOT after the `cd` above),
-# so by default the generated conf carries absolute paths rooted at the build
-# tree — `redis-server <conf>` works from any cwd. Trailing slash stripped so
-# concatenation never produces `//`.
-PREFIX="${PREFIX:-$PWD}"
+# PREFIX: when set, switches to install mode — loadmodule paths are written as
+# $PREFIX/<basename>. Used by `make deploy` (PREFIX = installed modules dir).
+# When unset, dev mode: paths are kept as-is from modules.yaml (relative).
+PREFIX="${PREFIX:-}"
 PREFIX="${PREFIX%/}"
 
-# When PREFIX is left at the default (REPO_ROOT) we're in dev mode: the
-# manifest stubs are treated as repo-relative and PREFIX just absolutizes
-# them. When PREFIX is set to anything else, it IS the directory the .so
-# files live in — the script appends nothing, just the basename from the
-# manifest stub. So `PREFIX=/opt/foo/modules` writes paths like
-# `/opt/foo/modules/redisbloom.so`.
 INSTALL_MODE=0
-if [ "$PREFIX" != "${PWD%/}" ]; then
-  INSTALL_MODE=1
-fi
+[ -n "$PREFIX" ] && INSTALL_MODE=1
 
 # Translate a manifest `loadmodule:` value into the path written to the
 # generated conf:
-#   install mode               →  $PREFIX/<basename>    (PREFIX = modules dir)
-#   dev mode, ./modules/...    →  $PREFIX/modules/...   (leading '.' → PREFIX)
-#   dev mode, modules/...      →  $PREFIX/modules/...   (no leading '.': prepend)
-#   dev mode, /abs/path/...    →  /abs/path/...         (already absolute)
+#   install mode   →  $PREFIX/<basename>   (PREFIX = installed modules dir)
+#   dev mode       →  path as-is from modules.yaml (relative paths stay relative)
 resolve_so_path() {
   if [ "$INSTALL_MODE" = "1" ]; then
     printf '%s\n' "$PREFIX/$(basename "$1")"
     return
   fi
-  case "$1" in
-    /*)  printf '%s\n' "$1" ;;
-    ./*) printf '%s\n' "$PREFIX${1#.}" ;;
-    *)   printf '%s\n' "$PREFIX/$1" ;;
-  esac
+  printf '%s\n' "$1"
 }
 
 # Mirror DOCKER_STRICT semantics from
@@ -323,8 +305,8 @@ EOF
   # `loadmodule` lines (or commented placeholders) are wrapped in markers so
   # `make deploy` can replace just this block with installed paths without
   # regenerating the entire conf. File existence is tested against the on-disk
-  # path (REPO_ROOT-relative), while the emitted path is absolutized via
-  # $PREFIX so the conf is portable across cwds at `redis-server` launch time.
+  # path (REPO_ROOT-relative). In dev mode paths stay relative (as in
+  # modules.yaml); in install mode they become $PREFIX/<basename>.
   echo "$LOADMODULE_BEGIN"
   for name in $requested; do
     so="$(lookup_so "$name")"
