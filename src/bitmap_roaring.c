@@ -1151,6 +1151,118 @@ int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
     return C_OK;
 }
 
+uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
+                                         uint64_t bits) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    uint64_t bit_len = bitmap->byte_len * 8;
+    uint64_t last_bit;
+    uint64_t value = 0;
+    uint64_t cached_high48 = UINT64_MAX;
+    const container_t *container = NULL;
+    uint8_t typecode = 0;
+
+    if (bits == 0) return 0;
+    if (!bitmapObjectCanRepresentBit(offset) || offset >= bit_len) return 0;
+    if (offset <= UINT64_MAX - (bits - 1)) {
+        last_bit = offset + bits - 1;
+        if (last_bit < bit_len && (offset >> 16) == (last_bit >> 16)) {
+            uint64_t high48 = offset >> 16;
+            art_key_chunk_t key[ART_KEY_BYTES];
+            bitmapArtKeyFromHigh48(high48, key);
+            roaring64_leaf_t *leaf =
+                (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
+
+            if (leaf == NULL) return 0;
+
+            typecode = roaring64_leaf_typecode(*leaf);
+            container =
+                bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
+            if (container_contains_range(container, (uint16_t)offset,
+                                         (uint32_t)(uint16_t)last_bit + 1,
+                                         typecode)) {
+                return bits == 64 ? UINT64_MAX : ((UINT64_C(1) << bits) - 1);
+            }
+            cached_high48 = high48;
+        }
+    }
+
+    for (uint64_t j = 0; j < bits; j++) {
+        if (offset > UINT64_MAX - j) {
+            value <<= bits - j;
+            break;
+        }
+
+        uint64_t bitoffset = offset + j;
+        if (!bitmapObjectCanRepresentBit(bitoffset) || bitoffset >= bit_len) {
+            value <<= bits - j;
+            break;
+        }
+
+        uint64_t high48 = bitoffset >> 16;
+        if (high48 != cached_high48) {
+            art_key_chunk_t key[ART_KEY_BYTES];
+            bitmapArtKeyFromHigh48(high48, key);
+            roaring64_leaf_t *leaf =
+                (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
+            if (leaf != NULL) {
+                typecode = roaring64_leaf_typecode(*leaf);
+                container =
+                    bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
+            } else {
+                container = NULL;
+                typecode = 0;
+            }
+            cached_high48 = high48;
+        }
+
+        uint64_t bitval = container != NULL &&
+            container_contains(container, (uint16_t)bitoffset, typecode);
+        value = (value << 1) | bitval;
+    }
+
+    return value;
+}
+
+int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
+                                    uint64_t value) {
+    bitmapObject *bitmap = getBitmapObject(o);
+    uint64_t positions_to_add[64];
+    uint64_t positions_to_remove[64];
+    size_t add_count = 0, remove_count = 0;
+    size_t old_size;
+
+    if (bits == 0) return C_OK;
+    if (offset > UINT64_MAX - (bits - 1)) return C_ERR;
+
+    uint64_t last_bit = offset + bits - 1;
+    if (!bitmapObjectCanRepresentBit(last_bit)) return C_ERR;
+
+    uint64_t byte = last_bit >> 3;
+    if (byte + 1 > bitmap->byte_len)
+        bitmap->byte_len = byte + 1;
+
+    for (uint64_t j = 0; j < bits; j++) {
+        uint64_t bitoffset = offset + j;
+        int bitval = (value & ((uint64_t)1 << (bits - 1 - j))) != 0;
+        if (bitval)
+            positions_to_add[add_count++] = bitoffset;
+        else
+            positions_to_remove[remove_count++] = bitoffset;
+    }
+
+    old_size = bitmapRoaringRangeAllocSize(bitmap->roaring, offset,
+                                           last_bit + 1);
+    if (add_count)
+        roaring64_bitmap_add_many(bitmap->roaring, add_count,
+                                  positions_to_add);
+    if (remove_count)
+        roaring64_bitmap_remove_many(bitmap->roaring, remove_count,
+                                     positions_to_remove);
+    bitmapObjectRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
+
+    return C_OK;
+}
+
 /* Add bits in the half-open range [start,end). */
 int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end) {
     bitmapObject *bitmap = getBitmapObject(o);
