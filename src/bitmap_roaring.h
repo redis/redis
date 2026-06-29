@@ -60,6 +60,7 @@ sds bitmapObjectMaterializeForRDB(const robj *o);
 sds bitmapObjectSerializePortable(const robj *o);
 ssize_t bitmapObjectSaveRdbContainers(rio *rdb, const robj *o);
 robj *createBitmapObjectFromRdbContainers(rio *rdb, uint64_t byte_len);
+int bitmapObjectEndianRoundtripCheck(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITMAP_ROARING_H */
