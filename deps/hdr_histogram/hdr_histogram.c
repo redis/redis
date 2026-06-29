@@ -17,15 +17,6 @@
 #include "hdr_tests.h"
 #include "hdr_atomic.h"
 
-/* Branch-prediction hints (upstream HdrHistogram_c). */
-#if defined(__GNUC__) || defined(__clang__)
-#  define HDR_LIKELY(x)   __builtin_expect(!!(x), 1)
-#  define HDR_UNLIKELY(x) __builtin_expect(!!(x), 0)
-#else
-#  define HDR_LIKELY(x)   (x)
-#  define HDR_UNLIKELY(x) (x)
-#endif
-
 #ifndef HDR_MALLOC_INCLUDE
 #define HDR_MALLOC_INCLUDE "hdr_malloc.h"
 #endif
@@ -740,110 +731,35 @@ int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percen
         values[i] = count_at_percentile > 1 ? count_at_percentile : 1;
     }
 
-    /* Resolve every requested percentile in a single ascending cumulative scan
-     * of counts[] (one pass instead of one hdr_iter_next() walk per percentile).
-     * Scan from index 0: value 0 lives in counts[0] yet is excluded from
-     * h->min_value by update_min_max(), so starting at the min_value bucket
-     * would drop the zero bucket and skew every percentile.
-     *
-     * p0 reports the lowest equivalent value, every other percentile the
-     * highest -- matching the singular hdr_value_at_percentile(). NOTE: the
-     * upstream batch (HdrHistogram_c PR #137) uses highest_equivalent_value()
-     * for p0 too, which diverges from its own singular API; we keep the p0
-     * special-case so the batch stays byte-identical to the singular.
-     *
-     * Offset-aware fallback for decoded histograms (hdr_log_read /
-     * hdr_decode_compressed can set h->normalizing_index_offset != 0); the live
-     * histograms INFO reads always have offset 0 and take the block-summed fast
-     * path below. */
-    if (HDR_UNLIKELY(h->normalizing_index_offset != 0))
+    /* Single cumulative forward scan of counts[], like
+     * get_value_from_idx_up_to_count(). Scan from index 0: value 0 lives in
+     * counts[0] yet is excluded from h->min_value by update_min_max(), so
+     * starting at the min_value bucket would drop the zero bucket and skew
+     * every percentile. */
+    int64_t count_to_idx = 0;
+    size_t at_pos = 0;
+    for (int32_t idx = 0; idx < h->counts_len && at_pos < length; idx++)
     {
-        int64_t running = 0;
-        size_t at_pos = 0;
-        for (int32_t idx = 0; idx < h->counts_len && at_pos < length; idx++)
+        count_to_idx += h->counts[idx];
+        if (count_to_idx < values[at_pos]) continue;
+        const int64_t v = hdr_value_at_index(h, idx);
+        while (at_pos < length && count_to_idx >= values[at_pos])
         {
-            running += counts_get_normalised(h, idx);
-            while (at_pos < length && running >= values[at_pos])
-            {
-                const int64_t v = hdr_value_at_index(h, idx);
-                values[at_pos] = percentiles[at_pos] == 0.0 ?
-                    lowest_equivalent_value(h, v) : highest_equivalent_value(h, v);
-                at_pos++;
-            }
-        }
-        while (at_pos < length)
-        {
+            /* The 0th percentile reports the lowest equivalent value; every
+             * other percentile reports the highest (matches the singular API). */
             values[at_pos] = percentiles[at_pos] == 0.0 ?
-                lowest_equivalent_value(h, 0) : highest_equivalent_value(h, 0);
-            at_pos++;
-        }
-        return 0;
-    }
-
-    {
-        /* Block-summed (BLK=4) fast scan from HdrHistogram_c PR #137: sum a
-         * block of counts at once and only walk it element-by-element when the
-         * running total crosses the next percentile target. */
-        enum { BLK = 4 };
-        const int64_t* counts = h->counts;
-        const int32_t n = h->counts_len;
-        const int32_t blk_limit = n - (n % BLK);
-        int64_t running = 0;
-        size_t at_pos = 0;
-        int32_t idx = 0;
-
-        for (; idx < blk_limit && at_pos < length; idx += BLK)
-        {
-            /* Unsigned accumulation: counts are non-negative; avoids any
-             * transient signed overflow while block-summing. */
-            uint64_t block_sum_u = 0;
-            for (int32_t j = 0; j < BLK; j++)
-            {
-                block_sum_u += (uint64_t)counts[idx + j];
-            }
-            if (HDR_UNLIKELY((uint64_t)running + block_sum_u >= (uint64_t)values[at_pos]))
-            {
-                for (int32_t j = 0; j < BLK; j++)
-                {
-                    running += counts[idx + j];
-                    while (at_pos < length && running >= values[at_pos])
-                    {
-                        const int64_t v = hdr_value_at_index(h, idx + j);
-                        values[at_pos] = percentiles[at_pos] == 0.0 ?
-                            lowest_equivalent_value(h, v) : highest_equivalent_value(h, v);
-                        at_pos++;
-                    }
-                }
-            }
-            else
-            {
-                running += (int64_t)block_sum_u;
-            }
-        }
-
-        for (; idx < n && at_pos < length; idx++)
-        {
-            running += counts[idx];
-            while (at_pos < length && running >= values[at_pos])
-            {
-                const int64_t v = hdr_value_at_index(h, idx);
-                values[at_pos] = percentiles[at_pos] == 0.0 ?
-                    lowest_equivalent_value(h, v) : highest_equivalent_value(h, v);
-                at_pos++;
-            }
-        }
-
-        /* Fill any percentiles not reached (only possible for an empty
-         * histogram, total_count == 0), matching what hdr_value_at_percentile()
-         * returns for value 0 in that case. */
-        while (at_pos < length)
-        {
-            values[at_pos] = percentiles[at_pos] == 0.0 ?
-                lowest_equivalent_value(h, 0) : highest_equivalent_value(h, 0);
+                lowest_equivalent_value(h, v) : highest_equivalent_value(h, v);
             at_pos++;
         }
     }
-
+    /* Fill any percentiles not reached (only possible for an empty histogram),
+     * matching what hdr_value_at_percentile() returns for value 0 in that case. */
+    while (at_pos < length)
+    {
+        values[at_pos] = percentiles[at_pos] == 0.0 ?
+            lowest_equivalent_value(h, 0) : highest_equivalent_value(h, 0);
+        at_pos++;
+    }
     return 0;
 }
 
