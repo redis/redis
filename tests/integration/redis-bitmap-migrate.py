@@ -741,20 +741,24 @@ class RedisProcess:
     def __exit__(self, exc_type, exc, tb):
         if self.proc is None:
             return
-        if self.proc.poll() is None:
-            try:
-                real_redis_client(self.port, "shutdown").execute(["SHUTDOWN", "NOSAVE"])
-            except Exception:
-                pass
-            try:
-                self.proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.proc.terminate()
+        try:
+            if self.proc.poll() is None:
+                try:
+                    real_redis_client(self.port, "shutdown").execute(["SHUTDOWN", "NOSAVE"])
+                except Exception:
+                    pass
                 try:
                     self.proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self.proc.kill()
-                    self.proc.wait(timeout=5)
+                    self.proc.terminate()
+                    try:
+                        self.proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.proc.kill()
+                        self.proc.wait(timeout=5)
+        finally:
+            if self.proc.stdout is not None:
+                self.proc.stdout.close()
 
     def wait_ready(self):
         client = real_redis_client(self.port, "redis-server")
@@ -796,7 +800,9 @@ class RealRedisRoaringMigrationTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            rc = migrate.main(args)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ResourceWarning)
+                rc = migrate.main(args)
         return rc, stdout.getvalue(), stderr.getvalue()
 
     def start_pair(self, tmp):
