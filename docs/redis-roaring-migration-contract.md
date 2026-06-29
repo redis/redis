@@ -6,6 +6,8 @@ use an external streaming migrator, for example `redis-bitmap-migrate`, as the
 supported path from `aviggiano/redis-roaring` deployments to Redis native bitmap
 values.
 
+This repository provides that v1 tool as `tools/redis-bitmap-migrate.py`.
+
 Proposal A is the v1 contract. Proposal B, an offline RDB transcoder, remains a
 possible future expert mode. Bridge modules and core legacy RDB loaders are out
 of scope for v1.
@@ -21,6 +23,38 @@ The migrator runs outside Redis core. Redis core must not add:
 The target Redis may accept normal native bitmap `DUMP` / `RESTORE` payloads.
 The migration tool is responsible for reading legacy data, building target
 native bitmap values, validating them, and committing them safely.
+
+## Tool Usage
+
+The tool defaults to a dry run and writes a durable JSON manifest:
+
+```
+tools/redis-bitmap-migrate.py \
+  --source-host 127.0.0.1 --source-port 6379 \
+  --target-host 127.0.0.1 --target-port 6380 \
+  --manifest redis-bitmap-migrate-manifest.json
+```
+
+To perform writes, run it during a maintenance window or another verified final
+pass and acknowledge that source writes are frozen:
+
+```
+tools/redis-bitmap-migrate.py \
+  --source-host 127.0.0.1 --source-port 6379 \
+  --target-host 127.0.0.1 --target-port 6380 \
+  --manifest redis-bitmap-migrate-manifest.json \
+  --apply --assume-frozen
+```
+
+Useful safety switches:
+
+- `--replace` allows overwriting destination keys; the default is no-overwrite.
+- `--cap-policy skip` records above-cap `roaring64` keys as skipped instead of
+  failing the run.
+- `--resume` resumes from an existing manifest.
+- `--all-dbs` discovers DB indexes from `INFO keyspace`; otherwise `--db`
+  defaults to DB 0 and may be repeated.
+- `--key`, `--key-file`, and `--pattern` restrict the source key set.
 
 ## Correctness Model
 
@@ -44,10 +78,10 @@ The tool must understand both redis-roaring module data types:
 - `reroaring`, the 32-bit `R.*` input type;
 - `roaring64`, the 64-bit `R64.*` input type.
 
-Export may use bounded and probed redis-roaring commands, such as
-`R.RANGEINTARRAY` / `R64.RANGEINTARRAY`, or validated module payload decoding.
-The implementation must bound command result sizes, detect export failures, and
-record enough source state for validation and resume.
+The implemented tool uses bounded and probed redis-roaring commands:
+`R.RANGEINTARRAY` / `R64.RANGEINTARRAY`. It exports by ordinal ranges, bounds
+each command result with `--page-size`, detects export failures or concurrent
+cardinality changes, and records enough source state for validation and resume.
 
 The v1 native bitmap contract is capped at max bit offset `4294967295`, which
 corresponds to a logical length of 512 MiB. Above-cap `roaring64` inputs default
@@ -57,10 +91,11 @@ the skipped key and reports it loudly. There is no silent truncation and no v1
 
 ## Import and Commit Requirements
 
-The fast path should import by writing native bitmap `RESTORE` payloads into
-manifest-owned temporary keys. The native payload must be generated with the
-actual target Redis encoder and versioned format. The tool must not infer or
-hand-roll bytes from old design text.
+The implemented fast path imports by writing native bitmap `RESTORE` payloads
+into manifest-owned temporary keys. To avoid hand-rolling the native wire format,
+it creates a tiny native build key on the target Redis, streams exported offsets
+into that native key with `SETBIT`, obtains the target-generated `DUMP` payload,
+and `RESTORE`s that payload into the manifest temp key before validation.
 
 After import, the tool validates the temporary key before finalizing. Finalizing
 uses an atomic rename or replace into the destination key. The tool must preserve
@@ -107,10 +142,11 @@ checks above are the v1 floor.
 
 ## Cluster Requirements
 
-Cluster support is explicit, not implicit. If a tool claims cluster support, it
-must run against masters, use DB 0 only, require stable topology with no
-resharding during the migration, route each key by slot, and create same-slot
-temporary keys so the final rename remains atomic.
+Cluster support is explicit, not implicit. The v1 tool rejects cluster-enabled
+sources or targets. If a future tool claims cluster support, it must run against
+masters, use DB 0 only, require stable topology with no resharding during the
+migration, route each key by slot, and create same-slot temporary keys so the
+final rename remains atomic.
 
 Tools that do not implement those guarantees should reject cluster targets
 instead of performing a best-effort migration.

@@ -66,8 +66,8 @@ marked pending in the trackers.
   manifest, target-native RESTORE payloads into temporary keys, validation
   before atomic rename or replacement, TTL and DB preservation, and explicit
   above-cap policy defaulting to `fail`. Offline RDB transcoding is deferred as
-  a possible future expert mode. See
-  `docs/redis-roaring-migration-contract.md`.
+  a possible future expert mode. The implementation is
+  `tools/redis-bitmap-migrate.py`; see `docs/redis-roaring-migration-contract.md`.
 
 The determinism invariant is unchanged and now covers the new paths: type
 transitions always reach replicas and the AOF as explicit RESTOREs of the
@@ -314,9 +314,9 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     materialization.
 - Keep redis-roaring migration tooling separate from Redis core. The v1
   contract is the external streaming migrator documented in
-  `docs/redis-roaring-migration-contract.md`; Redis core must not add legacy
-  `reroaring` / `roaring64` payload loading or `R.*` / `R64.*` compatibility
-  prefixes.
+  `docs/redis-roaring-migration-contract.md` and implemented in
+  `tools/redis-bitmap-migrate.py`; Redis core must not add legacy `reroaring` /
+  `roaring64` payload loading or `R.*` / `R64.*` compatibility prefixes.
 - Use the redis-roaring command inventory in
   `docs/redis-roaring-native-bitmap-design.md` to keep v1 Redis command scope
   separate from migration-tool-only compatibility work.
