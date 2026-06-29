@@ -522,15 +522,7 @@ void setSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, int64_t
 static int setUnsignedBitfieldInBitmapObject(robj *o, uint64_t offset,
                                              uint64_t bits, uint64_t value)
 {
-    uint64_t j;
-
-    for (j = 0; j < bits; j++) {
-        int bitval = (value & ((uint64_t)1 << (bits - 1 - j))) != 0;
-        if (bitmapObjectSetBit(o, offset, bitval) != C_OK)
-            return C_ERR;
-        offset++;
-    }
-    return C_OK;
+    return bitmapObjectSetUnsignedBitfield(o, offset, bits, value);
 }
 
 static int setSignedBitfieldInBitmapObject(robj *o, uint64_t offset,
@@ -579,14 +571,7 @@ int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
 static uint64_t getUnsignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
                                                     uint64_t bits)
 {
-    uint64_t bitval, j, value = 0;
-
-    for (j = 0; j < bits; j++) {
-        bitval = bitmapObjectGetBit(o, offset);
-        value = (value << 1) | bitval;
-        offset++;
-    }
-    return value;
+    return bitmapObjectGetUnsignedBitfield(o, offset, bits);
 }
 
 static int64_t getSignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
@@ -2542,10 +2527,10 @@ void bitfieldGeneric(client *c, int flags) {
                  * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
-                    int ret = setSignedBitfieldInValue(bitmap,string,
-                            thisop->offset,thisop->bits,newval);
-                    serverAssert(ret == C_OK);
                     if (strGrowSize || (oldval != newval)) {
+                        int ret = setSignedBitfieldInValue(bitmap,string,
+                                thisop->offset,thisop->bits,newval);
+                        serverAssert(ret == C_OK);
                         changes++;
                     }
                 } else {
@@ -2579,10 +2564,10 @@ void bitfieldGeneric(client *c, int flags) {
                  * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
-                    int ret = setUnsignedBitfieldInValue(bitmap,string,
-                            thisop->offset,thisop->bits,newval);
-                    serverAssert(ret == C_OK);
                     if (strGrowSize || (oldval != newval)) {
+                        int ret = setUnsignedBitfieldInValue(bitmap,string,
+                                thisop->offset,thisop->bits,newval);
+                        serverAssert(ret == C_OK);
                         changes++;
                     }
                 } else {
