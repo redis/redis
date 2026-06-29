@@ -1800,6 +1800,28 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
     return ACL_DENIED_KEY;
 }
 
+/* Return 1 if user 'u' has unrestricted access (per the keyspec 'flags', e.g.
+ * CMD_KEY_ACCESS) to every key in the keyspace, 0 otherwise. A NULL user (the
+ * unrestricted connection) trivially qualifies.
+ *
+ * The check is conservative: it returns 1 only when access to all keys is
+ * provably granted (via '~*', '%R~*'/'%W~*', or the allkeys flag on some
+ * selector). Callers can use it to skip per-key ACLUserCheckKeyPerm() checks
+ * when the result is guaranteed to be ACL_OK for every key. */
+int ACLUserHasUnrestrictedKeyAccess(user *u, int flags) {
+    listIter li;
+    listNode *ln;
+
+    if (u == NULL) return 1;
+
+    listRewind(u->selectors,&li);
+    while((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        if (ACLSelectorHasUnrestrictedKeyAccess(s, flags)) return 1;
+    }
+    return 0;
+}
+
 /* Checks if the user can execute the given command with the added restriction
  * it must also have the access specified in flags to any key in the key space. 
  * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 

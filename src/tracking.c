@@ -575,12 +575,19 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
     char buf[32];
     size_t len;
     sds body = sdsempty();
+
+    /* If the user has unrestricted read access to the whole keyspace, every
+     * key would pass ACLUserCheckKeyPerm() anyway, so hoist that determination
+     * out of the loop and skip the per-key check entirely. */
+    int check_acl = !ACLUserHasUnrestrictedKeyAccess(u, CMD_KEY_ACCESS);
+
     raxStart(&ri,keys);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         if (noloop_client && ri.data == noloop_client)
             continue;
-        if (ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len, CMD_KEY_ACCESS) != ACL_OK)
+        if (check_acl &&
+            ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len, CMD_KEY_ACCESS) != ACL_OK)
             continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
         body = sdscatlen(body,"$",1);
