@@ -47,7 +47,7 @@ void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
-static void clusterFireTopologyChangeIfNeeded(void);
+static void clusterFireTopologyChangeEventIfNeeded(void);
 static void clusterNotifyTopologyChange(uint64_t change_flags);
 int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
@@ -5039,7 +5039,7 @@ void clusterBeforeSleep(void) {
      * fires at most once per event-loop iteration regardless of how many slots
      * or nodes changed. */
     if (flags & CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE)
-        clusterFireTopologyChangeIfNeeded();
+        clusterFireTopologyChangeEventIfNeeded();
 }
 
 void clusterDoBeforeSleep(int flags) {
