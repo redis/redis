@@ -450,6 +450,8 @@ void debugCommand(client *c) {
 "    Crash by assertion failed.",
 "BITMAP-ENDIAN-CHECK <key>",
 "    Verify the native bitmap serialized payload endianness conversion round-trips.",
+"BITMAP-MICROBENCH <key> <iterations>",
+"    Time direct CRoaring calls and native bitmap wrapper helpers for a bitmap key.",
 "BITMAP-RAW <key>",
 "    Return the raw byte materialization of a native bitmap key.",
 "CHANGE-REPL-ID",
@@ -1007,6 +1009,43 @@ NULL
             return;
         }
         addReplyBulkSds(c, raw);
+    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-microbench") &&
+               c->argc == 4)
+    {
+        long long iterations_ll;
+        if (getLongLongFromObjectOrReply(c, c->argv[3], &iterations_ll,
+                                         "iterations must be a positive integer") != C_OK)
+            return;
+        if (iterations_ll <= 0) {
+            addReplyError(c, "iterations must be a positive integer");
+            return;
+        }
+
+        kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
+        if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
+
+        bitmapObjectBenchResult result;
+        bitmapObjectBench(kv, (uint64_t)iterations_ll, &result);
+
+        addReplyMapLen(c, 9);
+        addReplyBulkCString(c, "iterations");
+        addReplyLongLong(c, (long long)result.iterations);
+        addReplyBulkCString(c, "direct_cardinality_us");
+        addReplyLongLong(c, result.direct_cardinality_us);
+        addReplyBulkCString(c, "wrapper_cardinality_us");
+        addReplyLongLong(c, result.wrapper_cardinality_us);
+        addReplyBulkCString(c, "direct_range_cardinality_us");
+        addReplyLongLong(c, result.direct_range_cardinality_us);
+        addReplyBulkCString(c, "wrapper_range_cardinality_us");
+        addReplyLongLong(c, result.wrapper_range_cardinality_us);
+        addReplyBulkCString(c, "direct_minimum_us");
+        addReplyLongLong(c, result.direct_minimum_us);
+        addReplyBulkCString(c, "wrapper_bitpos_one_us");
+        addReplyLongLong(c, result.wrapper_bitpos_one_us);
+        addReplyBulkCString(c, "wrapper_bitpos_zero_us");
+        addReplyLongLong(c, result.wrapper_bitpos_zero_us);
+        addReplyBulkCString(c, "sink");
+        addReplyLongLong(c, (long long)result.sink);
     } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
                c->argc == 3)
     {

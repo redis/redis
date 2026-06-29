@@ -226,6 +226,19 @@ def decode_text(value: Any) -> str:
     return str(value)
 
 
+def response_to_map(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return {decode_text(k): v for k, v in value.items()}
+    if isinstance(value, list):
+        if len(value) % 2 != 0:
+            raise BenchError(f"expected map-like reply, got odd array: {value!r}")
+        return {
+            decode_text(value[i]): value[i + 1]
+            for i in range(0, len(value), 2)
+        }
+    raise BenchError(f"expected map-like reply, got {value!r}")
+
+
 def parse_info(raw: Any) -> dict[str, str]:
     text = decode_text(raw)
     out: dict[str, str] = {}
@@ -547,6 +560,7 @@ class RedisBitmapBench:
             "--dir", str(self.data_dir),
             "--dbfilename", "dump.rdb",
             "--loglevel", "warning",
+            "--enable-debug-command", "yes",
             "--daemonize", "no",
         ]
         if self.args.mode == "module":
@@ -1099,10 +1113,15 @@ class RedisBitmapBench:
             raise BenchError(f"unknown workload(s): {', '.join(sorted(unknown))}")
         unsupported = wanted - {w.name for w in workloads}
         if unsupported:
-            raise BenchError(
-                f"workload(s) not supported in {self.args.mode} mode: "
-                f"{', '.join(sorted(unsupported))}"
-            )
+            if getattr(self.args, "skip_unsupported_only", False):
+                wanted -= unsupported
+            else:
+                raise BenchError(
+                    f"workload(s) not supported in {self.args.mode} mode: "
+                    f"{', '.join(sorted(unsupported))}"
+                )
+        if not wanted:
+            return []
         return [w for w in workloads if w.name in wanted]
 
     def filter_workloads_by_profile(self, workloads: list[Workload]) -> list[Workload]:
@@ -1214,6 +1233,15 @@ class RedisBitmapBench:
                 50_000, 32, 8, sample_key=DATASET_KEYS["sparse_native"],
                 story="Count a sparse cohort", dataset="synthetic_sparse",
                 target_groups=("small-sets",),
+            ),
+            Workload(
+                "bitmap_microbench_sparse_native",
+                "Direct CRoaring versus native bitmap wrapper microbenchmark on a sparse native bitmap",
+                ["DEBUG", "BITMAP-MICROBENCH", DATASET_KEYS["sparse_native"], str(self.args.microbench_iterations)],
+                1, 1, 1, sample_key=DATASET_KEYS["sparse_native"],
+                story="CRoaring wrapper split", dataset="synthetic_sparse",
+                target_groups=("small-sets",), native_only=True,
+                custom_runner="run_bitmap_microbench",
             ),
             Workload(
                 "bitpos_clustered_native",
@@ -1488,6 +1516,58 @@ class RedisBitmapBench:
             keys = [self.module_key(key) for key in keys]
         self.set_default_roaring(False, required=False)
         self.client.execute(["DEL", *keys])
+
+    def run_bitmap_microbench(self, workload: Workload, run_index: int) -> Result:
+        key = workload.sample_key
+        if not key:
+            raise BenchError(f"{workload.name} requires a sample key")
+        command = ["DEBUG", "BITMAP-MICROBENCH", key, str(self.args.microbench_iterations)]
+
+        before = self.memory_snapshot()
+        start = time.perf_counter()
+        response = self.client.execute(command)
+        elapsed = elapsed_ms(start)
+        after = self.memory_snapshot()
+
+        metrics = response_to_map(response)
+        iterations = int(metrics.get("iterations", self.args.microbench_iterations))
+        per_call = {
+            name: (float(metrics[name]) / iterations) if iterations else None
+            for name in (
+                "direct_cardinality_us",
+                "wrapper_cardinality_us",
+                "direct_range_cardinality_us",
+                "wrapper_range_cardinality_us",
+                "direct_minimum_us",
+                "wrapper_bitpos_one_us",
+                "wrapper_bitpos_zero_us",
+            )
+            if name in metrics
+        }
+        metric = per_call.get("wrapper_bitpos_one_us")
+        extra = {
+            "measurement": "DEBUG BITMAP-MICROBENCH",
+            "microbench_totals_us": metrics,
+            "microbench_us_per_call": per_call,
+        }
+
+        return Result(
+            name=workload.name,
+            category="microbenchmark",
+            description=workload.description,
+            elapsed_ms=elapsed,
+            memory_usage_bytes=self.memory_usage(key),
+            used_memory_before=before.get("used_memory"),
+            used_memory_after=after.get("used_memory"),
+            used_memory_peak=after.get("used_memory_peak"),
+            payload_size_bytes=self.dump_payload_size(key),
+            requests=iterations,
+            clients=1,
+            pipeline=1,
+            command=command,
+            time_per_op_us=metric,
+            extra=self.result_extra(workload, run_index, extra),
+        )
 
     def run_workload(self, workload: Workload) -> Result:
         sample_count = max(1, self.args.runs)
@@ -2097,6 +2177,7 @@ class RedisBitmapBench:
                 "dense_bytes": self.args.dense_bytes,
                 "sparse_space": self.args.sparse_space,
                 "sparse_count": self.args.sparse_count,
+                "microbench_iterations": self.args.microbench_iterations,
                 "cluster_count": self.args.cluster_count,
                 "cluster_span": self.args.cluster_span,
                 "cluster_gap": self.args.cluster_gap,
@@ -2417,6 +2498,8 @@ def parse_args() -> argparse.Namespace:
                         help="Logical bit space used by sparse benchmarks")
     parser.add_argument("--sparse-count", type=int, default=4096,
                         help="Number of set bits in sparse datasets")
+    parser.add_argument("--microbench-iterations", type=int, default=100_000,
+                        help="Iterations for DEBUG BITMAP-MICROBENCH workloads")
     parser.add_argument("--cluster-count", type=int, default=8)
     parser.add_argument("--cluster-span", type=int, default=512,
                         help="Set bits per clustered run")
@@ -2510,6 +2593,7 @@ def run_compare(args: argparse.Namespace) -> int:
             run_args.compare_module_src_dir = None
             run_args.compare_module_path = None
             run_args.compare_out = None
+            run_args.skip_unsupported_only = True
             run_args.json_out = str(Path(tmp) / f"{label}.json")
             run_args.csv_out = None
             run_args.markdown_out = None
