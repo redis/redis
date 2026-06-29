@@ -438,6 +438,26 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitpos bitmap:native:countpos:single-zero 0]
     }
 
+    test {DEBUG BITMAP-MICROBENCH reports direct and wrapper timings} {
+        seed_native_bitmap bitmap:native:microbench {1 65536 131071}
+
+        set metrics [r debug bitmap-microbench bitmap:native:microbench 10]
+        assert_equal 10 [dict get $metrics iterations]
+        foreach field {
+            direct_cardinality_us
+            wrapper_cardinality_us
+            direct_range_cardinality_us
+            wrapper_range_cardinality_us
+            direct_minimum_us
+            wrapper_bitpos_one_us
+            wrapper_bitpos_zero_us
+            sink
+        } {
+            assert {[dict exists $metrics $field]}
+            assert {[dict get $metrics $field] >= 0}
+        }
+    }
+
     test {native bitmap BITCOUNT and BITPOS match string edge ranges} {
         set raw [binary format H* ff00f0800100007f]
         set commands {
