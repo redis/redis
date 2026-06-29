@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import socket
 import socketserver
 import subprocess
@@ -14,11 +15,15 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from urllib.request import urlretrieve
+from zipfile import ZipFile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = REPO_ROOT / "tools" / "redis-bitmap-migrate.py"
 MODULE_NAME = "redis_bitmap_migrate_under_test"
+REALDATA_BASE_URL = "https://raw.githubusercontent.com/RoaringBitmap/real-roaring-datasets/master"
+INTEGER_RE = re.compile(r"\d+")
 
 spec = importlib.util.spec_from_file_location(MODULE_NAME, TOOL_PATH)
 migrate = importlib.util.module_from_spec(spec)
@@ -439,6 +444,75 @@ def redis_roaring_module_path():
     return REPO_ROOT.parent / "redis-roaring" / "build" / "libredis-roaring.so"
 
 
+def env_truthy(name):
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def croaring_realdata_dir():
+    return Path(os.environ.get("REDIS_CROARING_REALDATA_DIR", REPO_ROOT.parent / "croaring-realdata"))
+
+
+def parse_realdata_text(text, max_values):
+    bits = []
+    for match in INTEGER_RE.finditer(text):
+        bits.append(int(match.group(0)))
+        if len(bits) >= max_values:
+            break
+    return bits
+
+
+def load_census1881_realdata_bits(max_values=4096, min_values=128):
+    realdata_path = croaring_realdata_dir()
+    candidates = []
+    if realdata_path.is_file():
+        candidates.append(realdata_path)
+    elif realdata_path.is_dir():
+        archive = realdata_path / "census1881.zip"
+        if archive.is_file():
+            candidates.append(archive)
+        candidates.extend(
+            path for path in sorted(realdata_path.rglob("*"))
+            if path.is_file() and "census1881" in str(path).lower()
+        )
+
+    if not candidates and env_truthy("REDIS_DOWNLOAD_CROARING_REALDATA"):
+        realdata_path.mkdir(parents=True, exist_ok=True)
+        archive = realdata_path / "census1881.zip"
+        if not archive.exists():
+            urlretrieve(f"{REALDATA_BASE_URL}/census1881.zip", archive)
+        candidates.append(archive)
+
+    merged_bits = set()
+    sources = []
+    for path in candidates:
+        if path.suffix.lower() == ".zip":
+            with ZipFile(path) as zf:
+                for member in sorted(name for name in zf.namelist() if not name.endswith("/")):
+                    with zf.open(member) as fp:
+                        text = fp.read().decode("utf-8", "replace")
+                    parsed = parse_realdata_text(text, max_values)
+                    if parsed:
+                        merged_bits.update(parsed)
+                        sources.append(f"{path.name}:{member}")
+                    if len(merged_bits) >= max_values:
+                        break
+        elif path.suffix.lower() in {"", ".txt", ".csv"}:
+            parsed = parse_realdata_text(path.read_text(encoding="utf-8", errors="replace"), max_values)
+            if parsed:
+                merged_bits.update(parsed)
+                sources.append(str(path))
+        if len(merged_bits) >= max_values:
+            break
+
+    if len(merged_bits) >= min_values:
+        return sorted(merged_bits)[:max_values], ",".join(sources[:4])
+
+    raise unittest.SkipTest(
+        "CRoaring census1881 realdata not found; set REDIS_CROARING_REALDATA_DIR "
+        "or REDIS_DOWNLOAD_CROARING_REALDATA=1"
+    )
+
+
 def real_redis_client(port, name):
     return migrate.RedisClient(migrate.RedisEndpoint(
         "127.0.0.1",
@@ -571,17 +645,36 @@ class RealRedisRoaringMigrationTests(unittest.TestCase):
             *extra,
         ]
 
-    def assert_native_bits(self, client, key, set_bits, clear_bits):
+    def assert_native_bits(self, client, key, set_bits, clear_bits, expected_count=None):
         self.assertEqual(migrate.decode_text(client.execute(["TYPE", key])), "bitmap")
         self.assertIn(
             "bitmap",
             migrate.decode_text(client.execute(["OBJECT", "ENCODING", key])),
         )
-        self.assertEqual(client.execute(["BITCOUNT", key]), len(set_bits))
+        if expected_count is None:
+            expected_count = len(set_bits)
+        self.assertEqual(client.execute(["BITCOUNT", key]), expected_count)
         for bit in set_bits:
             self.assertEqual(client.execute(["GETBIT", key, str(bit)]), 1)
         for bit in clear_bits:
             self.assertEqual(client.execute(["GETBIT", key, str(bit)]), 0)
+
+    def seed_reroaring_int_array(self, client, key, bits, chunk_size=512):
+        client.execute(["DEL", key])
+        for index in range(0, len(bits), chunk_size):
+            chunk = bits[index:index + chunk_size]
+            command = "R.SETINTARRAY" if index == 0 else "R.APPENDINTARRAY"
+            client.execute([command, key, *chunk])
+
+    def clear_bit_samples(self, bits, limit=8):
+        present = set(bits)
+        samples = []
+        candidate = 0
+        while len(samples) < limit:
+            if candidate not in present:
+                samples.append(candidate)
+            candidate += 1
+        return samples
 
     def test_real_reroaring_migration_preserves_bits_and_ttl(self):
         bits = {1, 2, 5, 100, 65536}
@@ -640,6 +733,51 @@ class RealRedisRoaringMigrationTests(unittest.TestCase):
             self.assertEqual(entry["state"], "committed")
             self.assertEqual(entry["source_type"], "roaring64")
             self.assertEqual(entry["cardinality"], len(bits))
+
+    def test_real_croaring_census1881_reroaring_migration_preserves_dataset(self):
+        bits, source_name = load_census1881_realdata_bits()
+        self.assertGreater(len(bits), 100)
+        self.assertLessEqual(max(bits), 0xFFFFFFFF)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            source_proc, target_proc, source_port, target_port = self.start_pair(tmp)
+            with source_proc, target_proc:
+                source = real_redis_client(source_port, "source")
+                target = real_redis_client(target_port, "target")
+                self.seed_reroaring_int_array(source, "census1881", bits)
+                self.assertEqual(source.execute(["R.BITCOUNT", "census1881"]), len(bits))
+
+                rc, stdout, stderr = self.run_migrator(
+                    self.migrator_args(
+                        source_port,
+                        target_port,
+                        manifest,
+                        "census1881",
+                        "--page-size", "256",
+                        "--pipeline-size", "256",
+                    )
+                )
+
+                self.assertEqual(rc, 0)
+                self.assertIn(f"MIGRATED db=0 key=census1881 count={len(bits)}", stdout)
+                self.assertEqual(stderr, "")
+                probe_bits = bits[:4] + bits[len(bits) // 2:len(bits) // 2 + 4] + bits[-4:]
+                self.assert_native_bits(
+                    target,
+                    "census1881",
+                    probe_bits,
+                    self.clear_bit_samples(bits),
+                    expected_count=len(bits),
+                )
+
+            data = json.loads(manifest.read_text())
+            entry = data["entries"][0]
+            self.assertEqual(entry["state"], "committed")
+            self.assertEqual(entry["source_type"], "reroaring")
+            self.assertEqual(entry["cardinality"], len(bits))
+            self.assertEqual(entry["validation"]["cardinality"], len(bits))
+            self.assertIn("census1881", source_name)
 
 
 if __name__ == "__main__":
