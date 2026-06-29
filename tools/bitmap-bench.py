@@ -2348,7 +2348,7 @@ def result_stall_ms(result: Result) -> Optional[float]:
                         value = sample_stall.get(key)
                         if isinstance(value, (int, float)):
                             values.append(float(value))
-            return max(values) if values else None
+        return max(values) if values else None
     return None
 
 
