@@ -826,6 +826,19 @@ class RealRedisRoaringMigrationTests(unittest.TestCase):
             *extra,
         ]
 
+    def migrator_scan_args(self, source_port, target_port, manifest, *extra):
+        return [
+            "--source-host", "127.0.0.1",
+            "--source-port", str(source_port),
+            "--target-host", "127.0.0.1",
+            "--target-port", str(target_port),
+            "--manifest", str(manifest),
+            "--apply",
+            "--assume-frozen",
+            "--socket-timeout", "2",
+            *extra,
+        ]
+
     def assert_native_bits(self, client, key, set_bits, clear_bits, expected_count=None):
         self.assertEqual(migrate.decode_text(client.execute(["TYPE", key])), "bitmap")
         self.assertIn(
@@ -840,12 +853,31 @@ class RealRedisRoaringMigrationTests(unittest.TestCase):
         for bit in clear_bits:
             self.assertEqual(client.execute(["GETBIT", key, str(bit)]), 0)
 
-    def seed_reroaring_int_array(self, client, key, bits, chunk_size=512):
+    def assert_native_dataset(self, client, key, bits):
+        self.assertGreater(len(bits), 0)
+        probe_bits = bits[:4] + bits[len(bits) // 2:len(bits) // 2 + 4] + bits[-4:]
+        self.assert_native_bits(
+            client,
+            key,
+            probe_bits,
+            self.clear_bit_samples(bits),
+            expected_count=len(bits),
+        )
+        self.assertEqual(client.execute(["BITPOS", key, "1"]), bits[0])
+        self.assertEqual(client.execute(["GETBIT", key, str(bits[-1])]), 1)
+
+    def seed_roaring_int_array(self, client, command_prefix, key, bits, chunk_size=512):
         client.execute(["DEL", key])
         for index in range(0, len(bits), chunk_size):
             chunk = bits[index:index + chunk_size]
-            command = "R.SETINTARRAY" if index == 0 else "R.APPENDINTARRAY"
+            command = f"{command_prefix}.SETINTARRAY" if index == 0 else f"{command_prefix}.APPENDINTARRAY"
             client.execute([command, key, *chunk])
+
+    def seed_reroaring_int_array(self, client, key, bits, chunk_size=512):
+        self.seed_roaring_int_array(client, "R", key, bits, chunk_size)
+
+    def seed_roaring64_int_array(self, client, key, bits, chunk_size=512):
+        self.seed_roaring_int_array(client, "R64", key, bits, chunk_size)
 
     def clear_bit_samples(self, bits, limit=8):
         present = set(bits)
@@ -943,19 +975,100 @@ class RealRedisRoaringMigrationTests(unittest.TestCase):
                 self.assertEqual(rc, 0)
                 self.assertIn(f"MIGRATED db=0 key=census1881 count={len(bits)}", stdout)
                 self.assertEqual(stderr, "")
-                probe_bits = bits[:4] + bits[len(bits) // 2:len(bits) // 2 + 4] + bits[-4:]
-                self.assert_native_bits(
-                    target,
-                    "census1881",
-                    probe_bits,
-                    self.clear_bit_samples(bits),
-                    expected_count=len(bits),
-                )
+                self.assert_native_dataset(target, "census1881", bits)
 
             data = json.loads(manifest.read_text())
             entry = data["entries"][0]
             self.assertEqual(entry["state"], "committed")
             self.assertEqual(entry["source_type"], "reroaring")
+            self.assertEqual(entry["cardinality"], len(bits))
+            self.assertEqual(entry["validation"]["cardinality"], len(bits))
+            self.assertIn("census1881", source_name)
+
+    def test_real_croaring_census1881_scan_migrates_multiple_prefixed_keys(self):
+        bits, source_name = load_census1881_realdata_bits(max_values=768, min_values=256)
+        datasets = {
+            "census1881:even": bits[::2],
+            "census1881:odd": bits[1::2],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            source_proc, target_proc, source_port, target_port = self.start_pair(tmp)
+            with source_proc, target_proc:
+                source = real_redis_client(source_port, "source")
+                target = real_redis_client(target_port, "target")
+                for key, key_bits in datasets.items():
+                    self.seed_reroaring_int_array(source, key, key_bits, chunk_size=128)
+                    self.assertEqual(source.execute(["R.BITCOUNT", key]), len(key_bits))
+                self.seed_reroaring_int_array(source, "outside-census1881", bits[:128], chunk_size=128)
+
+                rc, stdout, stderr = self.run_migrator(
+                    self.migrator_scan_args(
+                        source_port,
+                        target_port,
+                        manifest,
+                        "--pattern", "census1881:*",
+                        "--target-prefix", "native:",
+                        "--page-size", "64",
+                        "--pipeline-size", "64",
+                    )
+                )
+
+                self.assertEqual(rc, 0)
+                self.assertEqual(stderr, "")
+                for key, key_bits in datasets.items():
+                    self.assertIn(f"MIGRATED db=0 key={key} count={len(key_bits)}", stdout)
+                    self.assert_native_dataset(target, "native:" + key, key_bits)
+                self.assertEqual(target.execute(["EXISTS", "native:outside-census1881"]), 0)
+
+            data = json.loads(manifest.read_text())
+            entries = sorted(data["entries"], key=lambda entry: entry["key"])
+            self.assertEqual([entry["key"] for entry in entries], sorted(datasets))
+            for entry in entries:
+                key_bits = datasets[entry["key"]]
+                self.assertEqual(entry["state"], "committed")
+                self.assertEqual(entry["source_type"], "reroaring")
+                self.assertEqual(entry["destination_key"], "native:" + entry["key"])
+                self.assertEqual(entry["cardinality"], len(key_bits))
+                self.assertEqual(entry["validation"]["cardinality"], len(key_bits))
+                self.assertEqual(len(entry["full_diff_offsets"]), len(key_bits))
+            self.assertIn("census1881", source_name)
+
+    def test_real_croaring_census1881_roaring64_migration_preserves_dataset(self):
+        bits, source_name = load_census1881_realdata_bits(max_values=512, min_values=128)
+        self.assertGreater(len(bits), 100)
+        self.assertLessEqual(max(bits), 0xFFFFFFFF)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            source_proc, target_proc, source_port, target_port = self.start_pair(tmp)
+            with source_proc, target_proc:
+                source = real_redis_client(source_port, "source")
+                target = real_redis_client(target_port, "target")
+                self.seed_roaring64_int_array(source, "census1881-64", bits, chunk_size=128)
+                self.assertEqual(source.execute(["R64.BITCOUNT", "census1881-64"]), len(bits))
+
+                rc, stdout, stderr = self.run_migrator(
+                    self.migrator_args(
+                        source_port,
+                        target_port,
+                        manifest,
+                        "census1881-64",
+                        "--page-size", "128",
+                        "--pipeline-size", "128",
+                    )
+                )
+
+                self.assertEqual(rc, 0)
+                self.assertIn(f"MIGRATED db=0 key=census1881-64 count={len(bits)}", stdout)
+                self.assertEqual(stderr, "")
+                self.assert_native_dataset(target, "census1881-64", bits)
+
+            data = json.loads(manifest.read_text())
+            entry = data["entries"][0]
+            self.assertEqual(entry["state"], "committed")
+            self.assertEqual(entry["source_type"], "roaring64")
             self.assertEqual(entry["cardinality"], len(bits))
             self.assertEqual(entry["validation"]["cardinality"], len(bits))
             self.assertIn("census1881", source_name)
