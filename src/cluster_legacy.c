@@ -5237,7 +5237,7 @@ static void clusterNotifyTopologyChange(uint64_t change_flags) {
  * The cluster first becoming ready is delivered through this same path: the
  * OK/FAIL transition records a STATE reason (slot assignment at startup records
  * a SLOT reason too), so no dedicated "startup" notification is needed. */
-static void clusterFireTopologyChangeIfNeeded(void) {
+static void clusterFireTopologyChangeEventIfNeeded(void) {
     if (!server.cluster->topology_change_flags) return;
 
     /* No data payload beyond the change reasons: a subscribing module reads
