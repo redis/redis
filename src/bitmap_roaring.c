@@ -1120,7 +1120,7 @@ robj *createBitmapObjectFromRdbContainers(rio *rdb, uint64_t byte_len) {
                                          &max_payload_len) != C_OK)
             goto fail;
 
-        size_t payload_len;
+        size_t payload_len = 0;
         sds payload = bitmapLoadRdbContainerPayload(rdb, max_payload_len,
                                                    &payload_len);
         if (payload == NULL) goto fail;
