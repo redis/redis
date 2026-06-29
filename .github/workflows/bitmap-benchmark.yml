@@ -153,6 +153,7 @@ jobs:
         run: |
           python3 tools/bitmap-bench.py \
             --compare-before-src-dir "$GITHUB_WORKSPACE/before/src" \
+            --compare-before-native-src-dir "$GITHUB_WORKSPACE/before/src" \
             --compare-after-src-dir "$GITHUB_WORKSPACE/after/src" \
             --compare-module-src-dir "$GITHUB_WORKSPACE/module-host/src" \
             --compare-module-path "$REDIS_ROARING_MODULE" \
