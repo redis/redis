@@ -833,6 +833,49 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
+    test {native bitmap serialized payload endianness conversion round-trips} {
+        set dense [string repeat [binary format H* ff] 8192]
+
+        set trailing_zero [binary format H* 80]
+        append trailing_zero [string repeat [binary format H* 00] 1023]
+
+        # Build one mixed bitmap holding all three container kinds so the
+        # converter walks every payload section. Each 65536-bit chunk is
+        # 8192 bytes:
+        # chunk 0: 4800 consecutive set bits -> run container
+        # chunk 1: alternating bits, cardinality 8000 -> bitset container
+        # chunk 2: 64 isolated bits -> array container
+        # chunk 3: another run container, lifting the container count to the
+        #          CRoaring offset-header threshold so the offsets section is
+        #          present alongside the run bitmap.
+        set mixed [string repeat [binary format H* ff] 600]
+        append mixed [string repeat [binary format H* 00] 7592]
+        append mixed [string repeat [binary format H* aa] 2000]
+        append mixed [string repeat [binary format H* 00] 6192]
+        for {set i 0} {$i < 64} {incr i} {
+            append mixed [binary format H* 80][string repeat [binary format H* 00] 15]
+        }
+        append mixed [string repeat [binary format H* 00] 7168]
+        append mixed [string repeat [binary format H* ff] 600]
+
+        # An array-only bitmap spanning two containers serializes with the
+        # no-run cookie, covering the other header layout.
+        set sparse [binary format H* 80]
+        append sparse [string repeat [binary format H* 00] 8191]
+        append sparse [binary format H* 80]
+
+        foreach {name raw} [list dense $dense trailing-zero $trailing_zero mixed $mixed sparse $sparse] {
+            r set bitmap:endian:$name $raw
+            r bitmap convert bitmap:endian:$name
+            assert_equal OK [r debug bitmap-endian-check bitmap:endian:$name]
+            assert_equal [r debug bitmap-raw bitmap:endian:$name] $raw
+
+            r restore bitmap:endian:restored:$name 0 [r dump bitmap:endian:$name]
+            assert_equal bitmap [r type bitmap:endian:restored:$name]
+            assert_equal [r debug bitmap-raw bitmap:endian:restored:$name] $raw
+        }
+    }
+
     test {native bitmap RDB save is not bounded by current proto-max-bulk-len} {
         set limit 1048576
         set byte_len [expr {$limit + 1}]
