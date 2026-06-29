@@ -25,7 +25,7 @@ on:
         description: "Benchmark profile: full, smoke, small-sets, bitsets, or mixed-bitop"
         default: "full"
       report_view:
-        description: "Report view: combined, performance, memory, or payload"
+        description: "Report view: combined, performance, memory, payload, or accounting"
         default: "combined"
       request_scale:
         description: "Multiplier for command benchmark request counts"
