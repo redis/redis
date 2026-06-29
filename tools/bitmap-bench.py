@@ -2566,8 +2566,6 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row.get(BEFORE_NATIVE_LABEL),
             row["metric_direction"],
         )
-        if row["native_delta_percent"] is None:
-            row["native_delta_percent"] = row["core_vs_string_percent"]
         row["core_vs_module_percent"] = metric_delta_percent(
             row.get("redis_pr_native"),
             row.get(MODULE_RESULT_LABEL),
