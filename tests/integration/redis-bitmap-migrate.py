@@ -4,10 +4,14 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+import socket
 import socketserver
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -416,6 +420,226 @@ class RedisBitmapMigrateTests(unittest.TestCase):
             self.assertNotIn(temp_key, servers.target.target)
             data = json.loads(manifest.read_text())
             self.assertEqual(data["entries"][0]["state"], "committed")
+
+
+def free_tcp_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def redis_server_path():
+    return Path(os.environ.get("REDIS_SERVER", REPO_ROOT / "src" / "redis-server"))
+
+
+def redis_roaring_module_path():
+    raw = os.environ.get("REDIS_ROARING_MODULE")
+    if raw:
+        return Path(raw)
+    return REPO_ROOT.parent / "redis-roaring" / "build" / "libredis-roaring.so"
+
+
+def real_redis_client(port, name):
+    return migrate.RedisClient(migrate.RedisEndpoint(
+        "127.0.0.1",
+        port,
+        0,
+        None,
+        None,
+        2.0,
+        name,
+    ))
+
+
+class RedisProcess:
+    def __init__(self, server_path, port, data_dir, module_path=None):
+        self.server_path = Path(server_path)
+        self.port = port
+        self.data_dir = Path(data_dir)
+        self.module_path = Path(module_path) if module_path is not None else None
+        self.proc = None
+
+    def __enter__(self):
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        args = [
+            str(self.server_path),
+            "--port", str(self.port),
+            "--bind", "127.0.0.1",
+            "--protected-mode", "no",
+            "--save", "",
+            "--appendonly", "no",
+            "--dir", str(self.data_dir),
+            "--dbfilename", "dump.rdb",
+            "--loglevel", "warning",
+        ]
+        if self.module_path is not None:
+            args.extend(["--loadmodule", str(self.module_path)])
+        self.proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        self.wait_ready()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.proc is None:
+            return
+        if self.proc.poll() is None:
+            try:
+                real_redis_client(self.port, "shutdown").execute(["SHUTDOWN", "NOSAVE"])
+            except Exception:
+                pass
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait(timeout=5)
+
+    def wait_ready(self):
+        client = real_redis_client(self.port, "redis-server")
+        deadline = time.time() + 10
+        last_error = None
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                raise RuntimeError(f"redis-server exited early:\n{self.output()}")
+            try:
+                if client.execute(["PING"]) == "PONG":
+                    return
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.05)
+        raise RuntimeError(f"redis-server did not start: {last_error}")
+
+    def output(self):
+        if self.proc is None or self.proc.stdout is None:
+            return ""
+        if self.proc.poll() is None:
+            return ""
+        return self.proc.stdout.read()
+
+
+class RealRedisRoaringMigrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server_path = redis_server_path()
+        cls.module_path = redis_roaring_module_path()
+        missing = []
+        if not cls.server_path.is_file():
+            missing.append(f"REDIS_SERVER/src redis-server not found: {cls.server_path}")
+        if not cls.module_path.is_file():
+            missing.append(f"REDIS_ROARING_MODULE not found: {cls.module_path}")
+        if missing:
+            raise unittest.SkipTest("; ".join(missing))
+
+    def run_migrator(self, args):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            rc = migrate.main(args)
+        return rc, stdout.getvalue(), stderr.getvalue()
+
+    def start_pair(self, tmp):
+        source_port = free_tcp_port()
+        target_port = free_tcp_port()
+        source = RedisProcess(
+            self.server_path,
+            source_port,
+            Path(tmp) / "source",
+            self.module_path,
+        )
+        target = RedisProcess(self.server_path, target_port, Path(tmp) / "target")
+        return source, target, source_port, target_port
+
+    def migrator_args(self, source_port, target_port, manifest, key, *extra):
+        return [
+            "--source-host", "127.0.0.1",
+            "--source-port", str(source_port),
+            "--target-host", "127.0.0.1",
+            "--target-port", str(target_port),
+            "--manifest", str(manifest),
+            "--key", key,
+            "--apply",
+            "--assume-frozen",
+            "--page-size", "2",
+            "--socket-timeout", "2",
+            *extra,
+        ]
+
+    def assert_native_bits(self, client, key, set_bits, clear_bits):
+        self.assertEqual(migrate.decode_text(client.execute(["TYPE", key])), "bitmap")
+        self.assertIn(
+            "bitmap",
+            migrate.decode_text(client.execute(["OBJECT", "ENCODING", key])),
+        )
+        self.assertEqual(client.execute(["BITCOUNT", key]), len(set_bits))
+        for bit in set_bits:
+            self.assertEqual(client.execute(["GETBIT", key, str(bit)]), 1)
+        for bit in clear_bits:
+            self.assertEqual(client.execute(["GETBIT", key, str(bit)]), 0)
+
+    def test_real_reroaring_migration_preserves_bits_and_ttl(self):
+        bits = {1, 2, 5, 100, 65536}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            source_proc, target_proc, source_port, target_port = self.start_pair(tmp)
+            with source_proc, target_proc:
+                source = real_redis_client(source_port, "source")
+                target = real_redis_client(target_port, "target")
+                for bit in sorted(bits):
+                    source.execute(["R.SETBIT", "foo", str(bit), "1"])
+                source.execute(["PEXPIRE", "foo", "60000"])
+                source_ttl = source.execute(["PTTL", "foo"])
+
+                rc, stdout, stderr = self.run_migrator(
+                    self.migrator_args(source_port, target_port, manifest, "foo")
+                )
+
+                self.assertEqual(rc, 0)
+                self.assertIn("MIGRATED db=0 key=foo count=5", stdout)
+                self.assertEqual(stderr, "")
+                self.assert_native_bits(target, "foo", bits, {0, 3, 99, 65535})
+                target_ttl = target.execute(["PTTL", "foo"])
+                self.assertGreater(target_ttl, 0)
+                self.assertLessEqual(target_ttl, source_ttl + 1000)
+
+            data = json.loads(manifest.read_text())
+            entry = data["entries"][0]
+            self.assertEqual(entry["state"], "committed")
+            self.assertEqual(entry["source_type"], "reroaring")
+            self.assertEqual(entry["cardinality"], len(bits))
+            self.assertGreater(entry["validation"]["ttl_ms"], 0)
+
+    def test_real_roaring64_migration_preserves_in_cap_bits(self):
+        bits = {0, 63, 4096, 131072}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            source_proc, target_proc, source_port, target_port = self.start_pair(tmp)
+            with source_proc, target_proc:
+                source = real_redis_client(source_port, "source")
+                target = real_redis_client(target_port, "target")
+                for bit in sorted(bits):
+                    source.execute(["R64.SETBIT", "wide", str(bit), "1"])
+
+                rc, stdout, stderr = self.run_migrator(
+                    self.migrator_args(source_port, target_port, manifest, "wide")
+                )
+
+                self.assertEqual(rc, 0)
+                self.assertIn("MIGRATED db=0 key=wide count=4", stdout)
+                self.assertEqual(stderr, "")
+                self.assert_native_bits(target, "wide", bits, {1, 64, 4097})
+
+            data = json.loads(manifest.read_text())
+            entry = data["entries"][0]
+            self.assertEqual(entry["state"], "committed")
+            self.assertEqual(entry["source_type"], "roaring64")
+            self.assertEqual(entry["cardinality"], len(bits))
 
 
 if __name__ == "__main__":

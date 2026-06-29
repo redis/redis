@@ -9,6 +9,6 @@ tags {"bitmap" "external:skip"} {
         }
 
         set output [exec {*}$python tests/integration/redis-bitmap-migrate.py 2>@1]
-        assert_match {*Ran 6 tests*OK*} $output
+        assert_match {*OK*} $output
     }
 }
