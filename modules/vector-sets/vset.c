@@ -112,6 +112,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -1631,6 +1632,15 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     /* Case 2: COUNT option given, return an array of elements. */
     int allow_duplicates = (count < 0);
+
+    /* A negative count requests abs(count) elements (with duplicates), but
+     * LLONG_MIN has no representable positive counterpart: negating it is
+     * undefined behavior and its magnitude does not fit in the reply length.
+     * Reject it instead of building a reply with a negative array length,
+     * which would trip serverAssert(length >= 0) and crash the server. */
+    if (count == LLONG_MIN)
+        return RedisModule_ReplyWithError(ctx, "ERR COUNT value is out of range");
+
     long long abs_count = (count < 0) ? -count : count;
 
     /* Cap the count to the set size if we are not allowing duplicates. */
