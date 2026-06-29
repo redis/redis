@@ -908,38 +908,8 @@ start_server {tags {"tracking network logreqres:skip"}} {
 
         $rd_sg MSET public:a{t} 1 admin:b{t} 2
 
-        # Both clients should receive exactly {public:a{t}} for the
-        # public: prefix, and nothing for admin: (filtered out by ACL).
-        set c1_keys {}
-        set c2_keys {}
-        # Read invalidation messages: there are two prefixes, but only
-        # public: should have data for shareduser.
-        after 100
-        # $rd_sg is synchronous, so modified keys are already recorded
-        # on the server by the time we send PING. BCAST invalidations
-        # are flushed in beforeSleep before PONG, so they precede it
-        # on the wire. Drain all push messages until we hit the PONG.
-        $c1 PING
-        while 1 {
-            set resp [$c1 read]
-            if {[lindex $resp 0] eq "invalidate"} {
-                lappend c1_keys {*}[lindex $resp 1]
-            } else {
-                break
-            }
-        }
-        $c2 PING
-        while 1 {
-            set resp [$c2 read]
-            if {[lindex $resp 0] eq "invalidate"} {
-                lappend c2_keys {*}[lindex $resp 1]
-            } else {
-                break
-            }
-        }
-
-        assert_equal [lsort $c1_keys] [list public:a{t}]
-        assert_equal [lsort $c2_keys] [list public:a{t}]
+        assert_equal [$c1 read] [list invalidate [list public:a{t}]]
+        assert_equal [$c2 read] [list invalidate [list public:a{t}]]
 
         $c1 CLIENT TRACKING off
         $c1 read
