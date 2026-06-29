@@ -66,6 +66,7 @@ class FakeRedisServer(socketserver.ThreadingTCPServer):
         self.source_type = source_type
         self.bits = {b"foo": set(bits if bits is not None else {1, 2, 5, 100})}
         self.target = {}
+        self.target_byte_len = {}
         self.commands = []
         super().__init__(*args)
 
@@ -136,12 +137,28 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
                 if item in self.server.target:
                     deleted += 1
                     del self.server.target[item]
+                    self.server.target_byte_len.pop(item, None)
             return deleted
+        if name == b"SET":
+            value = command[2]
+            self.server.target[key] = {
+                bit
+                for byte_index, byte in enumerate(value)
+                for bit_index in range(8)
+                if byte & (1 << (7 - bit_index))
+                for bit in [byte_index * 8 + bit_index]
+            }
+            self.server.target_byte_len[key] = len(value)
+            return "OK"
         if name == b"SETBIT":
             offset = int(command[2])
             value = int(command[3])
             bits = self.server.target.setdefault(key, set())
             old = 1 if offset in bits else 0
+            self.server.target_byte_len[key] = max(
+                self.target_byte_len(key),
+                offset // 8 + 1,
+            )
             if value:
                 bits.add(offset)
             else:
@@ -151,13 +168,19 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
             return "OK"
         if name == b"DUMP":
             bits = sorted(self.server.target[key])
-            return b"payload:" + b",".join(str(bit).encode() for bit in bits)
+            return (
+                b"payload:"
+                + str(self.target_byte_len(key)).encode()
+                + b":"
+                + b",".join(str(bit).encode() for bit in bits)
+            )
         if name == b"RESTORE":
             payload = command[3]
-            values = payload.split(b":", 1)[1]
+            raw_byte_len, values = payload.split(b":", 2)[1:]
             self.server.target[key] = set() if not values else {
                 int(bit) for bit in values.split(b",") if bit
             }
+            self.server.target_byte_len[key] = int(raw_byte_len)
             return "OK"
         if name == b"TYPE":
             return "bitmap" if key in self.server.target else "none"
@@ -170,21 +193,46 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
         if name == b"BITCOUNT":
             return len(self.server.target[key])
         if name == b"BITPOS":
-            return min(self.server.target[key]) if self.server.target[key] else -1
+            bit = int(command[2])
+            bits = self.server.target[key]
+            if bit == 1:
+                return min(bits) if bits else -1
+            for offset in range(self.target_byte_len(key) * 8):
+                if offset not in bits:
+                    return offset
+            return -1
         if name == b"GETBIT":
             return 1 if int(command[2]) in self.server.target.get(key, set()) else 0
         if name == b"PTTL":
             return -1
         if name == b"RENAME":
-            self.server.target[command[2]] = self.server.target.pop(command[1])
+            source, destination = command[1], command[2]
+            source_byte_len = self.target_byte_len(source)
+            self.server.target[destination] = self.server.target.pop(source)
+            self.server.target_byte_len.pop(destination, None)
+            self.server.target_byte_len[destination] = self.server.target_byte_len.pop(
+                source,
+                source_byte_len,
+            )
             return "OK"
         if name == b"RENAMENX":
             source, destination = command[1], command[2]
             if destination in self.server.target:
                 return 0
+            source_byte_len = self.target_byte_len(source)
             self.server.target[destination] = self.server.target.pop(source)
+            self.server.target_byte_len[destination] = self.server.target_byte_len.pop(
+                source,
+                source_byte_len,
+            )
             return 1
         raise RuntimeError(f"unknown target command {name.decode()}")
+
+    def target_byte_len(self, key):
+        if key in self.server.target_byte_len:
+            return self.server.target_byte_len[key]
+        bits = self.server.target.get(key, set())
+        return max(bits) // 8 + 1 if bits else 0
 
 
 class ServerPair:
@@ -257,6 +305,37 @@ class RedisBitmapMigrateTests(unittest.TestCase):
             self.assertEqual(data["entries"][0]["state"], "committed")
             self.assertEqual(data["entries"][0]["cardinality"], 4)
             self.assertEqual(data["entries"][0]["validation"]["type"], "bitmap")
+
+    def test_apply_preserves_empty_source_as_empty_native_bitmap(self):
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits=set()) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--apply", "--assume-frozen", "--page-size", "2")
+            )
+
+            self.assertEqual(rc, 0)
+            self.assertIn("MIGRATED db=0 key=foo count=0", stdout)
+            self.assertEqual(stderr, "")
+            self.assertEqual(servers.target.target[b"foo"], set())
+            self.assertEqual(servers.target.target_byte_len[b"foo"], 0)
+
+            target = migrate.RedisClient(migrate.RedisEndpoint(
+                "127.0.0.1",
+                servers.target_port,
+                0,
+                None,
+                None,
+                1.0,
+                "target",
+            ))
+            self.assertEqual(target.execute(["BITPOS", "foo", "0"]), -1)
+            self.assertEqual(target.execute(["BITPOS", "foo", "1"]), -1)
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["state"], "committed")
+            self.assertEqual(data["entries"][0]["cardinality"], 0)
+            self.assertEqual(data["entries"][0]["validation"]["bitpos_0"], -1)
+            self.assertEqual(data["entries"][0]["validation"]["bitpos_1"], -1)
 
     def test_dry_run_records_plan_without_target_writes(self):
         with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={3, 9}) as servers:
