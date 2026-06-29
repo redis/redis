@@ -291,6 +291,12 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     where stream/array cache an `alloc_size` field; under
     `memory_tracking_enabled` every native bitmap write pays that walk, so
     either benchmark it as acceptable or add the cached field.
+  - Native `MEMORY USAGE` rows must not be forced down to match
+    `redis-roaring` module rows. The module's audited `mem_usage` callbacks
+    report CRoaring serialized-size proxies, while Redis core reports live
+    allocator-accounted key/object/value memory. Benchmark reports must keep
+    memory accounting diagnostics separate from serialized payload/storage
+    comparisons.
   - Materialization paths such as `BITMAP CONVERT ... STRING` and
     `DEBUG BITMAP-RAW` need benchmark coverage and explicit limits because
     they flatten native bitmaps. The current RDB persistence payload is a
