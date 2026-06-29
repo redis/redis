@@ -477,19 +477,31 @@ robj *createBitmapObjectWithLen(uint64_t byte_len) {
     return o;
 }
 
-robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
+static robj *createBitmapObjectFromStringWithOptions(const unsigned char *buf,
+                                                     size_t len, int optimize)
+{
 #if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 #endif
 
     bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
-    bitmap->roaring = bitmapObjectRoaringFromString(buf, len, 1);
+    bitmap->roaring = bitmapObjectRoaringFromString(buf, len, optimize);
     bitmapObjectRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
+}
+
+robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
+    return createBitmapObjectFromStringWithOptions(buf, len, 1);
+}
+
+robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf,
+                                             size_t len)
+{
+    return createBitmapObjectFromStringWithOptions(buf, len, 0);
 }
 
 robj *createBitmapObjectFromPortable(const unsigned char *buf, size_t len,
@@ -1614,29 +1626,99 @@ void bitmapObjectOptimize(robj *o) {
     bitmapObjectRefreshAllocSize(bitmap);
 }
 
+static void bitmapObjectMaterializeRawRange(unsigned char *raw,
+                                            size_t chunk_len,
+                                            uint32_t start, uint32_t end)
+{
+    uint32_t bit = start;
+
+    while (bit <= end) {
+        size_t byte = bit >> 3;
+        if (byte >= chunk_len) break;
+
+        if ((bit & 7) == 0 && bit + 7 <= end) {
+            size_t fill = ((size_t)end - bit + 1) >> 3;
+            size_t remaining = chunk_len - byte;
+            if (fill > remaining) fill = remaining;
+            memset(raw + byte, 0xff, fill);
+            bit += (uint32_t)(fill * 8);
+        } else {
+            raw[byte] |= 1 << (7 - (bit & 7));
+            bit++;
+        }
+    }
+}
+
+static void bitmapObjectMaterializeContainer(unsigned char *raw,
+                                             size_t byte_len,
+                                             uint64_t high48,
+                                             const container_t *container,
+                                             uint8_t typecode)
+{
+    const size_t container_bytes =
+        BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
+    uint64_t byte_base = high48 * container_bytes;
+    if (byte_base >= byte_len) return;
+
+    size_t chunk_len = byte_len - (size_t)byte_base;
+    if (chunk_len > container_bytes) chunk_len = container_bytes;
+    unsigned char *chunk = raw + (size_t)byte_base;
+
+    container = container_unwrap_shared(container, &typecode);
+    switch (typecode) {
+    case BITSET_CONTAINER_TYPE: {
+        const bitset_container_t *bitset = const_CAST_bitset(container);
+        size_t byte = 0;
+        for (int word = 0;
+             word < BITSET_CONTAINER_SIZE_IN_WORDS && byte < chunk_len;
+             word++)
+        {
+            uint64_t bits = bitset->words[word];
+            for (int lane = 0; lane < 8 && byte < chunk_len; lane++, byte++)
+                chunk[byte] = bitmapReverseByte((bits >> (lane * 8)) & 0xff);
+        }
+        break;
+    }
+    case ARRAY_CONTAINER_TYPE: {
+        const array_container_t *array = const_CAST_array(container);
+        for (int32_t i = 0; i < array->cardinality; i++) {
+            uint16_t offset = array->array[i];
+            size_t byte = offset >> 3;
+            if (byte >= chunk_len) break;
+            chunk[byte] |= 1 << (7 - (offset & 7));
+        }
+        break;
+    }
+    case RUN_CONTAINER_TYPE: {
+        const run_container_t *run = const_CAST_run(container);
+        for (int32_t i = 0; i < run->n_runs; i++) {
+            uint32_t start = run->runs[i].value;
+            uint32_t end = start + run->runs[i].length;
+            bitmapObjectMaterializeRawRange(chunk, chunk_len, start, end);
+        }
+        break;
+    }
+    default:
+        serverPanic("Unknown roaring bitmap container type");
+    }
+}
+
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
                                           size_t byte_len, int trymalloc)
 {
     sds raw = trymalloc ? sdstrynewlen(NULL, byte_len) :
                           sdsnewlen(NULL, byte_len);
     if (raw == NULL) return NULL;
-    roaring64_iterator_t *it = roaring64_iterator_create(roaring);
-    uint64_t values[1024];
-    uint64_t count;
 
-    do {
-        count = roaring64_iterator_read(it, values,
-                                        sizeof(values) / sizeof(values[0]));
-        for (uint64_t i = 0; i < count; i++) {
-            uint64_t offset = values[i];
-            size_t byte = offset >> 3;
-            int bit = 7 - (offset & 7);
-            serverAssert(byte < byte_len);
-            raw[byte] |= (1 << bit);
-        }
-    } while (count == sizeof(values) / sizeof(values[0]));
-
-    roaring64_iterator_free(it);
+    art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
+    while (it.value != NULL) {
+        roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
+        bitmapObjectMaterializeContainer(
+            (unsigned char *)raw, byte_len, bitmapArtKeyToHigh48(it.key),
+            roaring->containers[roaring64_leaf_index(leaf)],
+            roaring64_leaf_typecode(leaf));
+        art_iterator_next(&it);
+    }
     return raw;
 }
 

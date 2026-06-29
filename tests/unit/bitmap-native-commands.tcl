@@ -948,6 +948,19 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
+    test {BITOP mixed benchmark-shaped dense operands match string results} {
+        set a [binary format H* [string repeat 2f 4096]]
+        set b [binary format H* [string repeat 9a 4096]]
+        set c [binary format H* [string repeat f1 4096]]
+        set d [binary format H* [string repeat 6d 4096]]
+        set raws [list $a $b $c $d]
+
+        foreach op {and or xor diff diff1 andor one} {
+            assert_native_bitop_raws_match_string "mixed-benchmark:$op" \
+                $op $raws {1 3}
+        }
+    }
+
     test {BITOP mixed native source destination aliasing matches string results} {
         set a [binary format H* aa5500]
         set b [binary format H* 0ff0]
