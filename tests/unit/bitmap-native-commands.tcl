@@ -521,6 +521,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {0} [r bitfield bitmap:native:bitfield SET u1 23 0]
         assert_equal bitmap [r type bitmap:native:bitfield]
         assert_equal [binary format H* 0f0000] [r debug bitmap-raw bitmap:native:bitfield]
+
+        seed_native_bitmap bitmap:native:bitfield:clear {0}
+        assert_equal {2} [r bitfield bitmap:native:bitfield:clear SET u2 0 0]
+        assert_equal 0 [r bitcount bitmap:native:bitfield:clear]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:native:bitfield:clear]
     }
 
     test {BITFIELD signed INCRBY preserves native bitmap values} {
