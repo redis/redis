@@ -1891,6 +1891,8 @@ class RedisBitmapBench:
         }
         if self.args.mode == "module":
             extra["payload_format"] = "redis-roaring-module"
+        elif self.args.mode == "native":
+            extra["payload_format"] = "redis-native-containers"
         stall = canary.stats()
         if stall is not None:
             extra["stall"] = asdict(stall)
@@ -1925,6 +1927,8 @@ class RedisBitmapBench:
         }
         if self.args.mode == "module":
             extra["payload_format"] = "redis-roaring-module"
+        elif self.args.mode == "native":
+            extra["payload_format"] = "redis-native-containers"
         stall = canary.stats()
         if stall is not None:
             extra["stall"] = asdict(stall)

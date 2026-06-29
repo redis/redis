@@ -50,11 +50,11 @@ marked pending in the trackers.
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
 - **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores a
-  stable v2 marker, a portable-payload encoding id, the logical byte length, and
-  an endian-neutral CRoaring portable payload. The loader also accepts the
-  previous raw/range encodings and the previous same-version layout that wrote
-  logical byte length before encoding. AOF rewrite emits `RESTORE` with the
-  DUMP payload. The DD-10 baseline in
+  stable v2 marker, a Redis-owned container-stream encoding id, the logical
+  byte length, and endian-neutral container records. The loader also accepts
+  the previous raw/range encodings, previous v2 portable payloads, and the
+  previous same-version layout that wrote logical byte length before encoding.
+  AOF rewrite emits `RESTORE` with the DUMP payload. The DD-10 baseline in
   [#29](https://github.com/aviggiano/redis/issues/29) treats RESTORE input as
   untrusted; open [PR #44](https://github.com/aviggiano/redis/pull/44) is
   related review follow-up, not current `unstable` behavior.
@@ -172,9 +172,10 @@ design.
   surface). Call the choice and its version coupling out explicitly in the PR
   description.
 - Harden `RESTORE` for the new payload: always validate logical byte length,
-  portable payload deserialization, raw payload length for legacy raw inputs,
-  max-offset/cardinality invariants, and canonical range ordering for legacy
-  range inputs, with corrupt-payload tests.
+  bounded container payload lengths, container type/cardinality invariants,
+  max-offset invariants, raw payload length for legacy raw inputs, portable
+  payload deserialization for previous v2 inputs, and canonical range ordering
+  for legacy range inputs, with corrupt-payload tests.
 - The 64-bit indexing decision (Step 1) must be resolved before this step's
   RDB payload and type id are submitted upstream.
 - Add key introspection and module-facing type handling:
@@ -290,9 +291,11 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     where stream/array cache an `alloc_size` field; under
     `memory_tracking_enabled` every native bitmap write pays that walk, so
     either benchmark it as acceptable or add the cached field.
-  - Materialization paths such as `BITMAP CONVERT ... STRING`,
-    `DEBUG BITMAP-RAW`, and the current raw-byte persistence payload need
-    benchmark coverage and explicit limits because they flatten native bitmaps.
+  - Materialization paths such as `BITMAP CONVERT ... STRING` and
+    `DEBUG BITMAP-RAW` need benchmark coverage and explicit limits because
+    they flatten native bitmaps. The current RDB persistence payload is a
+    container stream and should be benchmarked separately from raw
+    materialization.
 - Keep redis-roaring migration tooling separate from Redis core.
 - Use the redis-roaring command inventory in
   `docs/redis-roaring-native-bitmap-design.md` to keep v1 Redis command scope
