@@ -85,8 +85,10 @@ DATASET_KEYS = {
 }
 
 MODULE_RESULT_LABEL = "redis_roaring_module"
+BEFORE_NATIVE_LABEL = "redis_before_native"
 COMPARE_LABELS = (
     "redis_before",
+    BEFORE_NATIVE_LABEL,
     "redis_pr_native",
     MODULE_RESULT_LABEL,
 )
@@ -328,6 +330,7 @@ class Workload:
     story: Optional[str] = None
     dataset: Optional[str] = None
     target_groups: tuple[str, ...] = ("bitsets",)
+    notes: Optional[str] = None
     native_only: bool = False
     stall_probe: bool = False
     custom_runner: Optional[str] = None
@@ -1266,6 +1269,7 @@ class RedisBitmapBench:
                 sample_key="bench:bitmap:bitop:and:native:dest",
                 story="Audience intersection", dataset="synthetic_mixed_all_native",
                 target_groups=("mixed-bitop",),
+                notes="native fast-result path skips run_optimize and shrink_to_fit",
             ),
             Workload(
                 "bitop_and_mixed",
@@ -1308,6 +1312,7 @@ class RedisBitmapBench:
                 sample_key="bench:bitmap:bitop:not:dest",
                 story="Exclusion / suppression", dataset="synthetic_clustered",
                 target_groups=("mixed-bitop",),
+                notes="native fast-result path skips run_optimize and shrink_to_fit",
             ),
             Workload(
                 "bitop_diff1_mixed",
@@ -1776,6 +1781,8 @@ class RedisBitmapBench:
         if workload.dataset:
             payload["dataset"] = workload.dataset
         payload["target_groups"] = list(workload.target_groups)
+        if workload.notes:
+            payload["notes"] = workload.notes
         payload.update(extra)
         return payload
 
@@ -2156,6 +2163,8 @@ class RedisBitmapBench:
             notes.extend(f"{k}={v}" for k, v in result.extra.items() if k.endswith("_ms") or k.endswith("_status"))
         if result.extra.get("payload_format"):
             notes.append(f"payload_format={result.extra['payload_format']}")
+        if result.extra.get("notes"):
+            notes.append(str(result.extra["notes"]))
         return {
             "mode": self.args.mode_label,
             "target_groups": ",".join(result.extra.get("target_groups", [])) or "-",
@@ -2408,6 +2417,8 @@ def parse_args() -> argparse.Namespace:
                         help="Maximum set bits to load from each realdata file")
     parser.add_argument("--compare-before-src-dir",
                         help="Run a legacy-mode baseline from this src directory")
+    parser.add_argument("--compare-before-native-src-dir",
+                        help="Optional native-mode baseline from this src directory")
     parser.add_argument("--compare-after-src-dir",
                         help="Run a native-mode candidate from this src directory")
     parser.add_argument("--compare-legacy-src-dir",
@@ -2438,40 +2449,30 @@ def run_compare(args: argparse.Namespace) -> int:
         csv_path = prefix.with_suffix(".csv")
     json_path.parent.mkdir(parents=True, exist_ok=True)
 
-    runs: list[dict[str, Any]] = [
-        {
-            "label": "redis_before",
-            "mode": "legacy",
-            "src_dir": args.compare_before_src_dir,
-            "port": args.port,
-            "module_path": None,
-        },
-        {
-            "label": "redis_pr_native",
-            "mode": "native",
-            "src_dir": args.compare_after_src_dir,
-            "port": args.port + 1,
-            "module_path": None,
-        },
-    ]
+    runs: list[dict[str, Any]] = []
+    next_port = args.port
+
+    def add_compare_run(label: str, mode: str, src_dir: str, module_path: Optional[str] = None) -> None:
+        nonlocal next_port
+        runs.append({
+            "label": label,
+            "mode": mode,
+            "src_dir": src_dir,
+            "port": next_port,
+            "module_path": module_path,
+        })
+        next_port += 1
+
+    add_compare_run("redis_before", "legacy", args.compare_before_src_dir)
+    if args.compare_before_native_src_dir:
+        add_compare_run(BEFORE_NATIVE_LABEL, "native", args.compare_before_native_src_dir)
+    add_compare_run("redis_pr_native", "native", args.compare_after_src_dir)
     if args.compare_module_src_dir or args.compare_module_path:
         if not args.compare_module_src_dir or not args.compare_module_path:
             raise BenchError("--compare-module-src-dir and --compare-module-path must be provided together")
-        runs.append({
-            "label": MODULE_RESULT_LABEL,
-            "mode": "module",
-            "src_dir": args.compare_module_src_dir,
-            "port": args.port + 2,
-            "module_path": args.compare_module_path,
-        })
+        add_compare_run(MODULE_RESULT_LABEL, "module", args.compare_module_src_dir, args.compare_module_path)
     if args.compare_legacy_src_dir:
-        runs.append({
-            "label": "redis_pr_legacy",
-            "mode": "legacy",
-            "src_dir": args.compare_legacy_src_dir,
-            "port": args.port + 2 + (1 if args.compare_module_src_dir else 0),
-            "module_path": None,
-        })
+        add_compare_run("redis_pr_legacy", "legacy", args.compare_legacy_src_dir)
 
     payloads = []
     with tempfile.TemporaryDirectory(prefix="bitmap-bench-compare-") as tmp:
@@ -2486,6 +2487,7 @@ def run_compare(args: argparse.Namespace) -> int:
             run_args.port = run["port"]
             run_args.module_path = run["module_path"]
             run_args.compare_before_src_dir = None
+            run_args.compare_before_native_src_dir = None
             run_args.compare_after_src_dir = None
             run_args.compare_legacy_src_dir = None
             run_args.compare_module_src_dir = None
@@ -2537,6 +2539,7 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row["target_groups"] = ",".join(first.get("extra", {}).get("target_groups", [])) or "-"
         row["metric"] = "time_per_op_us" if first.get("time_per_op_us") is not None else "elapsed_ms"
         row["metric_direction"] = "lower_is_better"
+        result_notes = []
         for label in all_labels:
             result = by_name[name].get(label)
             row[label] = compare_result_value(result) if result else missing_compare_value(label)
@@ -2549,12 +2552,22 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row[f"{label}_qps"] = compare_result_qps(result) if result else missing_compare_value(label)
             row[f"{label}_memory_bytes"] = result.get("memory_usage_bytes") if result else missing_compare_value(label)
             row[f"{label}_payload_bytes"] = result.get("payload_size_bytes") if result else missing_compare_value(label)
+            if result:
+                note = result.get("extra", {}).get("notes")
+                if note and note not in result_notes:
+                    result_notes.append(str(note))
         row["core_vs_string_percent"] = metric_delta_percent(
             row.get("redis_pr_native"),
             row.get("redis_before"),
             row["metric_direction"],
         )
-        row["native_delta_percent"] = row["core_vs_string_percent"]
+        row["native_delta_percent"] = metric_delta_percent(
+            row.get("redis_pr_native"),
+            row.get(BEFORE_NATIVE_LABEL),
+            row["metric_direction"],
+        )
+        if row["native_delta_percent"] is None:
+            row["native_delta_percent"] = row["core_vs_string_percent"]
         row["core_vs_module_percent"] = metric_delta_percent(
             row.get("redis_pr_native"),
             row.get(MODULE_RESULT_LABEL),
@@ -2580,7 +2593,7 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row.get(f"{MODULE_RESULT_LABEL}_payload_bytes"),
             "lower_is_better",
         )
-        notes = []
+        notes = result_notes[:]
         if row.get(MODULE_RESULT_LABEL) == "N/A":
             notes.append("No redis-roaring equivalent")
         if row["category"] == "persistence":
@@ -2653,16 +2666,18 @@ def append_performance_compare(lines: list[str], rows: list[dict[str, Any]]) -> 
         "",
         "## Performance",
         "",
-        "| Operation | Redis string | Redis core Roaring | redis-roaring module | Core delta |",
-        "| --- | ---: | ---: | ---: | --- |",
+        "| Operation | Redis string | Redis core Roaring before | Redis core Roaring after | redis-roaring module | Core delta | Native delta |",
+        "| --- | ---: | ---: | ---: | ---: | --- | --- |",
     ])
     for row in rows:
         lines.append(
             f"| {compare_operation_label(row)} | "
             f"{fmt_performance_cell(row, 'redis_before')} | "
+            f"{fmt_performance_cell(row, BEFORE_NATIVE_LABEL)} | "
             f"{fmt_performance_cell(row, 'redis_pr_native')} | "
             f"{fmt_performance_cell(row, MODULE_RESULT_LABEL)} | "
-            f"{fmt_delta_cell(row, 'core_vs_string_percent', 'core_vs_module_percent')} |"
+            f"{fmt_delta_cell(row, 'core_vs_string_percent', 'core_vs_module_percent')} | "
+            f"{fmt_native_delta_cell(row)} |"
         )
 
 
@@ -2753,6 +2768,11 @@ def fmt_delta_cell(row: dict[str, Any], string_delta: str, module_delta: str) ->
     return "<br>".join(parts) if parts else "-"
 
 
+def fmt_native_delta_cell(row: dict[str, Any]) -> str:
+    delta = row.get("native_delta_percent")
+    return f"{fmt_delta(delta)}% vs before native" if delta is not None else "-"
+
+
 def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fields = [
         "story",
@@ -2772,6 +2792,16 @@ def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "redis_before_qps",
         "redis_before_memory_bytes",
         "redis_before_payload_bytes",
+        BEFORE_NATIVE_LABEL,
+        f"{BEFORE_NATIVE_LABEL}_time_per_op_mean_us",
+        f"{BEFORE_NATIVE_LABEL}_time_per_op_median_us",
+        f"{BEFORE_NATIVE_LABEL}_time_per_op_min_us",
+        f"{BEFORE_NATIVE_LABEL}_time_per_op_max_us",
+        f"{BEFORE_NATIVE_LABEL}_time_per_op_stdev_us",
+        f"{BEFORE_NATIVE_LABEL}_time_per_op_cv_percent",
+        f"{BEFORE_NATIVE_LABEL}_qps",
+        f"{BEFORE_NATIVE_LABEL}_memory_bytes",
+        f"{BEFORE_NATIVE_LABEL}_payload_bytes",
         "redis_pr_native",
         "redis_pr_native_time_per_op_mean_us",
         "redis_pr_native_time_per_op_median_us",
