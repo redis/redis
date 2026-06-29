@@ -976,6 +976,58 @@ uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
     return roaring64_bitmap_range_cardinality(bitmap->roaring, start, end);
 }
 
+void bitmapObjectBench(const robj *o, uint64_t iterations,
+                       bitmapObjectBenchResult *result)
+{
+    bitmapObject *bitmap = getBitmapObject(o);
+    uint64_t bit_len = bitmap->byte_len * 8;
+    volatile uint64_t sink = 0;
+    long long start;
+
+    memset(result, 0, sizeof(*result));
+    result->iterations = iterations;
+    if (iterations == 0) return;
+
+    start = ustime();
+    for (uint64_t i = 0; i < iterations; i++)
+        sink += roaring64_bitmap_get_cardinality(bitmap->roaring);
+    result->direct_cardinality_us = ustime() - start;
+
+    start = ustime();
+    for (uint64_t i = 0; i < iterations; i++)
+        sink += bitmapObjectCardinality(o);
+    result->wrapper_cardinality_us = ustime() - start;
+
+    start = ustime();
+    for (uint64_t i = 0; i < iterations; i++)
+        sink += roaring64_bitmap_range_cardinality(bitmap->roaring, 0, bit_len);
+    result->direct_range_cardinality_us = ustime() - start;
+
+    start = ustime();
+    for (uint64_t i = 0; i < iterations; i++)
+        sink += bitmapObjectRangeCardinality(o, 0, bit_len);
+    result->wrapper_range_cardinality_us = ustime() - start;
+
+    if (!roaring64_bitmap_is_empty(bitmap->roaring)) {
+        start = ustime();
+        for (uint64_t i = 0; i < iterations; i++)
+            sink += roaring64_bitmap_minimum(bitmap->roaring);
+        result->direct_minimum_us = ustime() - start;
+    }
+
+    start = ustime();
+    for (uint64_t i = 0; i < iterations; i++)
+        sink += (uint64_t)bitmapObjectBitpos(o, 1, 0, bit_len, 0);
+    result->wrapper_bitpos_one_us = ustime() - start;
+
+    start = ustime();
+    for (uint64_t i = 0; i < iterations; i++)
+        sink += (uint64_t)bitmapObjectBitpos(o, 0, 0, bit_len, 0);
+    result->wrapper_bitpos_zero_us = ustime() - start;
+
+    result->sink = sink;
+}
+
 void bitmapObjectVisitSetBitRanges(const robj *o,
                                    bitmapObjectRangeCallback *callback,
                                    void *privdata)
@@ -998,17 +1050,41 @@ void bitmapObjectVisitSetBitRanges(const robj *o,
 static long long bitmapObjectFirstSetBit(bitmapObject *bitmap, uint64_t start,
                                          uint64_t end)
 {
-    long long result = -1;
+    roaring64_bitmap_t *r = bitmap->roaring;
 
     if (start >= end) return -1;
 
-    roaring64_iterator_t *it = roaring64_iterator_create(bitmap->roaring);
-    if (roaring64_iterator_move_equalorlarger(it, start)) {
-        uint64_t value = roaring64_iterator_value(it);
-        if (value < end) result = (long long)value;
+    art_key_chunk_t key[ART_KEY_BYTES];
+    bitmapArtKeyFromHigh48(start >> 16, key);
+    art_iterator_t it = art_lower_bound(&r->art, key);
+
+    while (it.value != NULL) {
+        uint64_t high48 = bitmapArtKeyToHigh48(it.key);
+        uint64_t container_base = high48 << 16;
+        uint16_t low16;
+
+        if (container_base >= end) break;
+
+        roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
+        uint8_t typecode = roaring64_leaf_typecode(leaf);
+        container_t *container = r->containers[roaring64_leaf_index(leaf)];
+
+        if (high48 == (start >> 16)) {
+            roaring_container_iterator_t container_it = {0};
+            if (container_iterator_lower_bound(container, typecode,
+                                               &container_it, &low16,
+                                               (uint16_t)(start & 0xffff))) {
+                uint64_t value = container_base + low16;
+                if (value < end) return (long long)value;
+            }
+        } else {
+            uint64_t value = container_base + container_minimum(container, typecode);
+            if (value < end) return (long long)value;
+        }
+
+        art_iterator_next(&it);
     }
-    roaring64_iterator_free(it);
-    return result;
+    return -1;
 }
 
 /* First clear bit in [from, 1<<16) within one container, or -1 if every bit

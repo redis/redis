@@ -46,6 +46,19 @@ uint64_t bitmapObjectLen(const robj *o);
 size_t bitmapObjectAllocSize(const robj *o);
 uint64_t bitmapObjectCardinality(const robj *o);
 uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start, uint64_t end);
+typedef struct bitmapObjectBenchResult {
+    uint64_t iterations;
+    uint64_t sink;
+    long long direct_cardinality_us;
+    long long wrapper_cardinality_us;
+    long long direct_range_cardinality_us;
+    long long wrapper_range_cardinality_us;
+    long long direct_minimum_us;
+    long long wrapper_bitpos_one_us;
+    long long wrapper_bitpos_zero_us;
+} bitmapObjectBenchResult;
+void bitmapObjectBench(const robj *o, uint64_t iterations,
+                       bitmapObjectBenchResult *result);
 typedef void bitmapObjectRangeCallback(uint64_t start, uint64_t end, void *privdata);
 void bitmapObjectVisitSetBitRanges(const robj *o, bitmapObjectRangeCallback *callback, void *privdata);
 long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
