@@ -1505,6 +1505,34 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
+#define BITOP_MIXED_RAW_MAX_BYTES (1024 * 1024)
+
+static int bitopUseMixedRawBytePath(robj **objects, unsigned long numkeys,
+                                    uint64_t maxlen)
+{
+    int has_string = 0;
+    int has_native = 0;
+
+    if (maxlen > BITOP_MIXED_RAW_MAX_BYTES) return 0;
+
+    for (unsigned long i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+        if (o == NULL) continue;
+
+        if (o->type == OBJ_BITMAP) {
+            uint64_t logical_len = bitmapObjectLen(o);
+            has_native = 1;
+            if (logical_len > BITOP_MIXED_RAW_MAX_BYTES) return 0;
+            if (bitmapObjectCardinality(o) < logical_len) return 0;
+        } else {
+            serverAssert(o->type == OBJ_STRING);
+            has_string = 1;
+        }
+    }
+
+    return has_string && has_native;
+}
+
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
@@ -1519,8 +1547,10 @@ void bitopCommand(client *c) {
     size_t minlen = 0;   /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
     robj *res_bitmap = NULL;   /* Resulting native bitmap. */
+    sds *materialized = NULL;  /* Native sources flattened for mixed raw path. */
     int has_native_bitmap = 0;
     int native_dest = 0;
+    int mixed_raw_path = 0;
 
     /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
@@ -1642,7 +1672,23 @@ void bitopCommand(client *c) {
     /* Compute the bit operation, if at least one source is not empty. */
     if (!maxlen) goto bitop_cleanup;
 
-    if (native_dest) {
+    mixed_raw_path = native_dest &&
+        bitopUseMixedRawBytePath(objects, numkeys, maxlen);
+
+    if (mixed_raw_path) {
+        materialized = zcalloc(sizeof(*materialized) * numkeys);
+        for (j = 0; j < numkeys; j++) {
+            if (objects[j] == NULL || objects[j]->type != OBJ_BITMAP) continue;
+            materialized[j] = bitmapObjectMaterialize(objects[j]);
+            if (materialized[j] == NULL) {
+                addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
+                goto bitop_error;
+            }
+            src[j] = (unsigned char *)materialized[j];
+        }
+    }
+
+    if (native_dest && !mixed_raw_path) {
         res_bitmap = bitmapObjectsBitopBitmap(op, objects, numkeys, maxlen);
         goto bitop_cleanup;
     }
@@ -1928,7 +1974,9 @@ bitop_cleanup:
     for (j = 0; j < numkeys; j++) {
         if (objects[j] && objects[j]->type == OBJ_STRING)
             decrRefCount(objects[j]);
+        if (materialized != NULL) sdsfree(materialized[j]);
     }
+    zfree(materialized);
     zfree(src);
     zfree(len);
     zfree(objects);
@@ -1936,6 +1984,14 @@ bitop_cleanup:
     /* Store the computed value into the target key */
     if (maxlen) {
         if (native_dest) {
+            if (res_bitmap == NULL) {
+                serverAssert(res != NULL);
+                res_bitmap = createBitmapObjectFromStringNoOptimize(
+                    res, sdslen((sds)res));
+                sdsfree((sds)res);
+                res = NULL;
+                serverAssert(res_bitmap != NULL);
+            }
             if (!has_native_bitmap) {
                 /* The native destination type came from this server's
                  * bitmap-default-roaring setting, not from the source types,
@@ -1963,6 +2019,19 @@ bitop_cleanup:
 out:
     serverAssert(maxlen <= (uint64_t)LLONG_MAX);
     addReplyLongLong(c,(long long)maxlen); /* Return the destination length in bytes. */
+    return;
+
+bitop_error:
+    for (j = 0; j < numkeys; j++) {
+        if (objects[j] && objects[j]->type == OBJ_STRING)
+            decrRefCount(objects[j]);
+        if (materialized != NULL) sdsfree(materialized[j]);
+    }
+    zfree(materialized);
+    zfree(src);
+    zfree(len);
+    zfree(objects);
+    sdsfree((sds)res);
 }
 
 typedef struct bitRange {
