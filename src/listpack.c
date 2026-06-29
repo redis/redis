@@ -945,6 +945,56 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
+/* Find pointer to the entry equal to the specified integer. Skip 'skip' entries
+ * between every comparison. Returns NULL when the field could not be found. */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p, int64_t intval, unsigned int skip) {
+    int skipcnt = 0;
+    unsigned char *value;
+    int64_t ll;
+    uint64_t entry_size = 123456789; /* initialized to avoid warning. */
+    uint32_t lp_bytes = lpBytes(lp);
+
+    if (!p)
+        p = lpFirst(lp);
+
+    while (p) {
+        if (skipcnt == 0) {
+            value = lpGetWithSize(p, &ll, NULL, &entry_size);
+            if (value) {
+                /* check the value doesn't reach outside the listpack before accessing it */
+                assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
+                int64_t strval;
+                if (ll > 0 && ll < 32 && lpStringToInt64((const char*)value, ll, &strval) && strval == intval)
+                    return p;
+            } else {
+                if (ll == intval)
+                    return p;
+            }
+
+            /* Reset skip count */
+            skipcnt = skip;
+            p += entry_size;
+        } else {
+            /* Skip entry */
+            skipcnt--;
+
+            /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
+            * `lpNext` will call `lpBytes`, will cause performance degradation */
+            p = lpSkip(p);
+        }
+
+        /* The next call to lpGetWithSize could read at most 8 bytes past `p`
+         * We use the slower validation call only when necessary. */
+        if (p + 8 >= lp + lp_bytes)
+            lpAssertValidEntry(lp, lp_bytes, p);
+        else
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
+        if (p[0] == LP_EOF) break;
+    }
+
+    return NULL;
+}
+
 /* Insert, delete or replace the specified string element 'elestr' of length
  * 'size' or integer element 'eleint' at the specified position 'p', with 'p'
  * being a listpack element pointer obtained with lpFirst(), lpLast(), lpNext(),
