@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+import warnings
 from pathlib import Path
 from urllib.request import urlretrieve
 from zipfile import ZipFile
@@ -70,12 +71,40 @@ class FakeRedisServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, mode, *args, source_type="reroaring", bits=None):
+    def __init__(
+        self,
+        mode,
+        *args,
+        source_type="reroaring",
+        bits=None,
+        expire_at_ms=None,
+        mutate_after_range=False,
+    ):
         self.mode = mode
         self.source_type = source_type
-        self.bits = {b"foo": set(bits if bits is not None else {1, 2, 5, 100})}
+        if bits is None:
+            self.bits = {b"foo": {1, 2, 5, 100}}
+        elif isinstance(bits, dict):
+            self.bits = {
+                key if isinstance(key, bytes) else str(key).encode("utf-8"): set(values)
+                for key, values in bits.items()
+            }
+        else:
+            self.bits = {b"foo": set(bits)}
+        if expire_at_ms is None:
+            self.source_expire_at_ms = {}
+        elif isinstance(expire_at_ms, dict):
+            self.source_expire_at_ms = {
+                key if isinstance(key, bytes) else str(key).encode("utf-8"): int(value)
+                for key, value in expire_at_ms.items()
+            }
+        else:
+            self.source_expire_at_ms = {key: int(expire_at_ms) for key in self.bits}
+        self.mutate_after_range = mutate_after_range
+        self.mutated_range_keys = set()
         self.target = {}
         self.target_byte_len = {}
+        self.target_expire_at_ms = {}
         self.commands = []
         super().__init__(*args)
 
@@ -126,14 +155,19 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
             values = self.server.bits[key]
             return max(values) if values else -1
         if name == b"PEXPIRETIME":
-            return -1
+            return self.server.source_expire_at_ms.get(key, -1)
         if name == b"DUMP":
             return b"source-payload"
         if name in {b"R.RANGEINTARRAY", b"R64.RANGEINTARRAY"}:
             values = sorted(self.server.bits[key])
             start = int(command[2])
             end = int(command[3])
-            return values[start:end + 1]
+            reply = values[start:end + 1]
+            if self.server.mutate_after_range and key not in self.server.mutated_range_keys:
+                next_offset = max(values) + 1 if values else 0
+                self.server.bits[key].add(next_offset)
+                self.server.mutated_range_keys.add(key)
+            return reply
         raise RuntimeError(f"unknown source command {name.decode()}")
 
     def target(self, command, name):
@@ -147,6 +181,7 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
                     deleted += 1
                     del self.server.target[item]
                     self.server.target_byte_len.pop(item, None)
+                    self.server.target_expire_at_ms.pop(item, None)
             return deleted
         if name == b"SET":
             value = command[2]
@@ -158,6 +193,7 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
                 for bit in [byte_index * 8 + bit_index]
             }
             self.server.target_byte_len[key] = len(value)
+            self.server.target_expire_at_ms.pop(key, None)
             return "OK"
         if name == b"SETBIT":
             offset = int(command[2])
@@ -184,12 +220,20 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
                 + b",".join(str(bit).encode() for bit in bits)
             )
         if name == b"RESTORE":
+            ttl = int(command[2])
             payload = command[3]
             raw_byte_len, values = payload.split(b":", 2)[1:]
             self.server.target[key] = set() if not values else {
                 int(bit) for bit in values.split(b",") if bit
             }
             self.server.target_byte_len[key] = int(raw_byte_len)
+            options = {part.upper() for part in command[4:]}
+            if ttl > 0 and b"ABSTTL" in options:
+                self.server.target_expire_at_ms[key] = ttl
+            elif ttl > 0:
+                self.server.target_expire_at_ms[key] = migrate.now_ms() + ttl
+            else:
+                self.server.target_expire_at_ms.pop(key, None)
             return "OK"
         if name == b"TYPE":
             return "bitmap" if key in self.server.target else "none"
@@ -213,27 +257,39 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
         if name == b"GETBIT":
             return 1 if int(command[2]) in self.server.target.get(key, set()) else 0
         if name == b"PTTL":
-            return -1
+            if key not in self.server.target:
+                return -2
+            expire_at = self.server.target_expire_at_ms.get(key)
+            if expire_at is None:
+                return -1
+            return max(expire_at - migrate.now_ms(), 0)
         if name == b"RENAME":
             source, destination = command[1], command[2]
             source_byte_len = self.target_byte_len(source)
+            source_expire_at = self.server.target_expire_at_ms.pop(source, None)
             self.server.target[destination] = self.server.target.pop(source)
             self.server.target_byte_len.pop(destination, None)
+            self.server.target_expire_at_ms.pop(destination, None)
             self.server.target_byte_len[destination] = self.server.target_byte_len.pop(
                 source,
                 source_byte_len,
             )
+            if source_expire_at is not None:
+                self.server.target_expire_at_ms[destination] = source_expire_at
             return "OK"
         if name == b"RENAMENX":
             source, destination = command[1], command[2]
             if destination in self.server.target:
                 return 0
             source_byte_len = self.target_byte_len(source)
+            source_expire_at = self.server.target_expire_at_ms.pop(source, None)
             self.server.target[destination] = self.server.target.pop(source)
             self.server.target_byte_len[destination] = self.server.target_byte_len.pop(
                 source,
                 source_byte_len,
             )
+            if source_expire_at is not None:
+                self.server.target_expire_at_ms[destination] = source_expire_at
             return 1
         raise RuntimeError(f"unknown target command {name.decode()}")
 
@@ -245,13 +301,21 @@ class FakeRedisHandler(socketserver.BaseRequestHandler):
 
 
 class ServerPair:
-    def __init__(self, source_type="reroaring", bits=None):
+    def __init__(
+        self,
+        source_type="reroaring",
+        bits=None,
+        expire_at_ms=None,
+        mutate_after_range=False,
+    ):
         self.source = FakeRedisServer(
             "source",
             ("127.0.0.1", 0),
             FakeRedisHandler,
             source_type=source_type,
             bits=bits,
+            expire_at_ms=expire_at_ms,
+            mutate_after_range=mutate_after_range,
         )
         self.target = FakeRedisServer("target", ("127.0.0.1", 0), FakeRedisHandler)
         self.threads = [
@@ -294,7 +358,9 @@ class RedisBitmapMigrateTests(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            rc = migrate.main(args)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ResourceWarning)
+                rc = migrate.main(args)
         return rc, stdout.getvalue(), stderr.getvalue()
 
     def test_apply_migrates_reroaring_key(self):
@@ -346,6 +412,32 @@ class RedisBitmapMigrateTests(unittest.TestCase):
             self.assertEqual(data["entries"][0]["validation"]["bitpos_0"], -1)
             self.assertEqual(data["entries"][0]["validation"]["bitpos_1"], -1)
 
+    def test_apply_restores_absolute_ttl(self):
+        expire_at = migrate.now_ms() + 60000
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={7, 9}, expire_at_ms=expire_at) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--apply", "--assume-frozen")
+            )
+
+            self.assertEqual(rc, 0)
+            self.assertIn("MIGRATED db=0 key=foo count=2", stdout)
+            self.assertEqual(stderr, "")
+            self.assertEqual(servers.target.target[b"foo"], {7, 9})
+            self.assertEqual(servers.target.target_expire_at_ms[b"foo"], expire_at)
+
+            restore_commands = [
+                command for command in servers.target.commands
+                if command and command[0].upper() == b"RESTORE"
+            ]
+            self.assertEqual(len(restore_commands), 1)
+            self.assertEqual(restore_commands[0][2], str(expire_at).encode())
+            self.assertIn(b"ABSTTL", [part.upper() for part in restore_commands[0]])
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["expire_at_ms"], expire_at)
+            self.assertGreater(data["entries"][0]["validation"]["ttl_ms"], 0)
+
     def test_dry_run_records_plan_without_target_writes(self):
         with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={3, 9}) as servers:
             manifest = Path(tmp) / "manifest.json"
@@ -359,6 +451,42 @@ class RedisBitmapMigrateTests(unittest.TestCase):
             data = json.loads(manifest.read_text())
             self.assertEqual(data["entries"][0]["state"], "dry_run")
             self.assertEqual(data["entries"][0]["cardinality"], 2)
+
+    def test_apply_uses_requested_db_for_source_and_target(self):
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={3, 9}) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--db", "2", "--key", "foo", "--apply", "--assume-frozen")
+            )
+
+            self.assertEqual(rc, 0)
+            self.assertIn("MIGRATED db=2 key=foo count=2", stdout)
+            self.assertEqual(stderr, "")
+            self.assertEqual(servers.target.target[b"foo"], {3, 9})
+            self.assertIn([b"SELECT", b"2"], servers.source.commands)
+            self.assertIn([b"SELECT", b"2"], servers.target.commands)
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["db"], 2)
+
+    def test_key_file_accepts_binary_key_names(self):
+        key = b"bitmap:\xff native"
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={key: {4, 12}}) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            key_file = Path(tmp) / "keys.txt"
+            key_file.write_bytes(key + b"\n")
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--key-file", str(key_file), "--apply", "--assume-frozen")
+            )
+
+            self.assertEqual(rc, 0)
+            self.assertIn("count=2", stdout)
+            self.assertEqual(stderr, "")
+            self.assertEqual(servers.target.target[key], {4, 12})
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["key_b64"], migrate.key_to_b64(key))
+            self.assertEqual(data["entries"][0]["destination_key_b64"], migrate.key_to_b64(key))
 
     def test_roaring64_above_cap_fails_by_default(self):
         wide = migrate.NATIVE_V1_MAX_BIT + 1
@@ -387,6 +515,59 @@ class RedisBitmapMigrateTests(unittest.TestCase):
             self.assertEqual(data["entries"][0]["state"], "skipped")
             self.assertEqual(data["entries"][0]["cap_policy"], "skip")
             self.assertIn(str(wide), data["entries"][0]["error"])
+
+    def test_apply_without_replace_preserves_existing_destination_and_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={1, 2, 5}) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            servers.target.target[b"foo"] = {77}
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--apply", "--assume-frozen")
+            )
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(stdout, "")
+            self.assertIn("FAILED db=0 key=foo", stderr)
+            self.assertIn("destination key already exists", stderr)
+            self.assertEqual(servers.target.target[b"foo"], {77})
+            self.assertFalse(any(key.endswith(b":build") or key.endswith(b":tmp") for key in servers.target.target))
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["state"], "failed")
+            self.assertEqual(data["entries"][0]["overwrite_policy"], "no-overwrite")
+            self.assertIn("destination key already exists", data["entries"][0]["error"])
+
+    def test_apply_replace_overwrites_existing_destination(self):
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={1, 2, 5}) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            servers.target.target[b"foo"] = {77}
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--apply", "--assume-frozen", "--replace")
+            )
+
+            self.assertEqual(rc, 0)
+            self.assertIn("MIGRATED db=0 key=foo count=3", stdout)
+            self.assertEqual(stderr, "")
+            self.assertEqual(servers.target.target[b"foo"], {1, 2, 5})
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["state"], "committed")
+            self.assertEqual(data["entries"][0]["overwrite_policy"], "replace")
+
+    def test_source_cardinality_change_during_export_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={1, 2, 5, 100}, mutate_after_range=True) as servers:
+            manifest = Path(tmp) / "manifest.json"
+            rc, stdout, stderr = self.run_migrator(
+                servers.args(manifest, "--apply", "--assume-frozen", "--page-size", "2")
+            )
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(stdout, "")
+            self.assertIn("source cardinality changed during export", stderr)
+            self.assertNotIn(b"foo", servers.target.target)
+
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data["entries"][0]["state"], "failed")
+            self.assertIn("source cardinality changed during export", data["entries"][0]["error"])
 
     def test_resume_imported_temp_key_commits_without_reexport(self):
         with tempfile.TemporaryDirectory() as tmp, ServerPair(bits={1, 2, 5, 100}) as servers:
