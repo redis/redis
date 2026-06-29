@@ -806,7 +806,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
-    test {native bitmap RDB uses compact portable payload for sparse bitmaps} {
+    test {native bitmap RDB uses compact container payload for sparse bitmaps} {
         set oldcomp [config_get_set rdbcompression yes]
 
         r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \

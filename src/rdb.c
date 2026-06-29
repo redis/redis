@@ -1120,6 +1120,7 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
 #define RDB_BITMAP_ENCODING_RAW 0
 #define RDB_BITMAP_ENCODING_RANGES 1
 #define RDB_BITMAP_ENCODING_PORTABLE 2
+#define RDB_BITMAP_ENCODING_CONTAINERS 3
 /* Native bitmap payloads used to start with the logical byte length. Use a
  * stable impossible legacy byte length as an in-payload version marker so old
  * payloads remain distinguishable without restoring the redundant raw byte
@@ -1134,21 +1135,14 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     if ((n = rdbSaveLen(rdb, RDB_BITMAP_FORMAT_VERSION_V2)) == -1) return -1;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_PORTABLE)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_CONTAINERS)) == -1) return -1;
     nwritten += n;
 
     if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
     nwritten += n;
 
-    sds payload = bitmapObjectSerializePortable(o);
-    if (payload == NULL) return -1;
-    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload,
-                              sdslen(payload))) == -1) {
-        sdsfree(payload);
-        return -1;
-    }
+    if ((n = bitmapObjectSaveRdbContainers(rdb, o)) == -1) return -1;
     nwritten += n;
-    sdsfree(payload);
 
     return nwritten;
 }
@@ -1305,6 +1299,10 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
         byte_len = rdbLoadLen(rdb, NULL);
         if (byte_len == RDB_LENERR) return NULL;
         return rdbLoadBitmapPortableObject(rdb, byte_len);
+    } else if (!legacy && encoding == RDB_BITMAP_ENCODING_CONTAINERS) {
+        byte_len = rdbLoadLen(rdb, NULL);
+        if (byte_len == RDB_LENERR) return NULL;
+        return createBitmapObjectFromRdbContainers(rdb, byte_len);
     }
     return NULL;
 }
