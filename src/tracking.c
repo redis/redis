@@ -586,8 +586,7 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
     while(raxNext(&ri)) {
         if (noloop_client && ri.data == noloop_client)
             continue;
-        if (check_acl &&
-            ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len, CMD_KEY_ACCESS) != ACL_OK)
+        if (check_acl && ACLUserCheckKeyPerm(u, (char *)ri.key, ri.key_len, CMD_KEY_ACCESS) != ACL_OK)
             continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
         body = sdscatlen(body,"$",1);
