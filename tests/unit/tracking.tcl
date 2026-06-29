@@ -940,23 +940,9 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $rd_sg SET a:1{t} val1
         $rd_sg SET b:1{t} val1
 
-        # Under usr_a, only a:* is visible.
-        # $rd_sg is synchronous, so modified keys are already recorded
-        # on the server by the time we send PING. BCAST invalidations
-        # are flushed in beforeSleep before PONG, so they precede it
-        # on the wire. Drain all push messages until we hit the PONG.
-        after 100
-        $tc PING
-        set keys {}
-        while 1 {
-            set resp [$tc read]
-            if {[lindex $resp 0] eq "invalidate"} {
-                lappend keys {*}[lindex $resp 1]
-            } else {
-                break
-            }
-        }
-        assert_equal $keys [list a:1{t}]
+        # Under usr_a only a:* is visible; b:1 is filtered out, so the client
+        # receives a single invalidation for a:1.
+        assert_equal [$tc read] [list invalidate [list a:1{t}]]
 
         # Re-AUTH as usr_b.
         $tc AUTH usr_b passB
@@ -966,18 +952,8 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $rd_sg SET a:2{t} val2
         $rd_sg SET b:2{t} val2
 
-        after 100
-        $tc PING
-        set keys {}
-        while 1 {
-            set resp [$tc read]
-            if {[lindex $resp 0] eq "invalidate"} {
-                lappend keys {*}[lindex $resp 1]
-            } else {
-                break
-            }
-        }
-        assert_equal $keys [list b:2{t}]
+        # Now only b:* is visible; a:2 is filtered out.
+        assert_equal [$tc read] [list invalidate [list b:2{t}]]
 
         $tc CLIENT TRACKING off
         $tc read
@@ -1010,18 +986,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $rd_sg ACL SETUSER setu resetkeys ~q:*
         $rd_sg EXEC
 
-        after 100
-        $tc PING
-        set keys {}
-        while 1 {
-            set resp [$tc read]
-            if {[lindex $resp 0] eq "invalidate"} {
-                lappend keys {*}[lindex $resp 1]
-            } else {
-                break
-            }
-        }
-        assert_equal $keys [list p:x{t}]
+        assert_equal [$tc read] [list invalidate [list p:x{t}]]
 
         $tc CLIENT TRACKING off
         $tc read
@@ -1090,18 +1055,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "tracking.acl"] 
         r ACL LOAD
         r EXEC
 
-        after 100
-        $tc PING
-        set keys {}
-        while 1 {
-            set resp [$tc read]
-            if {[lindex $resp 0] eq "invalidate"} {
-                lappend keys {*}[lindex $resp 1]
-            } else {
-                break
-            }
-        }
-        assert_equal $keys [list p:x{t}]
+        assert_equal [$tc read] [list invalidate [list p:x{t}]]
 
         $tc CLIENT TRACKING off
         $tc read
