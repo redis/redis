@@ -60,11 +60,34 @@ Use `benchmark_profile` to choose the workload family:
   `0.00 qps` rows.
 - `full`: all benchmark families.
 
-Use `report_view` to publish `performance`, `memory`, `payload`, or the
-default `combined` Markdown report. Performance rows use `time_per_op_us` as
-the primary metric and keep QPS as secondary data in JSON/CSV. Repeated samples
-also publish mean, median, min, max, standard deviation, and coefficient of
-variation fields for `time_per_op_us`.
+Use `report_view` to publish `performance`, `memory`, `payload`,
+`accounting`, or the default `combined` Markdown report. Performance rows use
+`time_per_op_us` as the primary metric and keep QPS as secondary data in
+JSON/CSV. Repeated samples also publish mean, median, min, max, standard
+deviation, and coefficient of variation fields for `time_per_op_us`.
+
+## Memory Accounting Audit
+
+Issue aviggiano/redis#120 audited the native bitmap memory rows against the
+`redis-roaring` module rows. The two `MEMORY USAGE` columns are not
+apples-to-apples live heap measurements:
+
+- Redis string and Redis core Roaring keys are reported by Redis core. They
+  include the object/key wrapper plus the value allocations Redis owns; native
+  Roaring additionally accounts the wrapper struct, CRoaring `roaring64`
+  bitmap, ART node arrays, container pointer array, and each container payload.
+- `redis-roaring` module keys are reported through the module data type
+  `mem_usage` callback. In the audited module revision
+  (`aviggiano/redis-roaring` `27b542f98f770f91abbb2d31b6f8e6574fd01f7c`), the
+  32-bit callback returns `roaring_bitmap_size_in_bytes()` and the 64-bit
+  callback returns `roaring64_bitmap_portable_size_in_bytes()`. Those are
+  CRoaring serialized-size proxies, not a full live allocation walk.
+
+Do not tune native Redis to match the module's callback-reported memory bytes
+by under-reporting native allocations. Use the report's Storage section for
+serialized representation size and the Accounting Diagnostics section for
+`MEMORY USAGE` / payload ratios. This keeps real representation overhead
+separate from module reporting artifacts.
 
 ## Local Examples
 
