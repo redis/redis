@@ -1,10 +1,11 @@
 # Redis-Roaring Migration Contract
 
-Issue [#34](https://github.com/aviggiano/redis/issues/34) is resolved for v1 by
-the [final adjudication](https://github.com/aviggiano/redis/issues/34#issuecomment-4832039784):
+Issue [#34](https://github.com/aviggiano/redis/issues/34) remains the Proposal A
+tracker. This document captures the current v1 direction from the linked
+[adjudication note](https://github.com/aviggiano/redis/issues/34#issuecomment-4832039784):
 use an external streaming migrator, for example `redis-bitmap-migrate`, as the
-supported path from `aviggiano/redis-roaring` deployments to Redis native bitmap
-values.
+intended path from `aviggiano/redis-roaring` deployments to Redis native bitmap
+values. Treat this as provisional until the tracker records the final decision.
 
 This repository provides that v1 tool as `tools/redis-bitmap-migrate.py`.
 
@@ -113,7 +114,8 @@ Each key entry must include at least:
 - DB index and key name;
 - source type, `reroaring` or `roaring64`;
 - TTL or absolute expire time;
-- cardinality, min set offset, max set offset, and maximum observed offset;
+- cardinality, min set offset, max set offset, and maximum observed offset
+  (`-1` or an equivalent nullable field for empty source bitmaps);
 - source digest or payload hash;
 - destination key and temporary key;
 - overwrite policy;
@@ -131,10 +133,15 @@ Validation cannot rely only on `BITCOUNT`. The minimum validation set is:
 
 - target type and encoding;
 - cardinality;
-- min and max set offsets;
-- boundary `GETBIT` checks around the first and last set offsets;
+- min and max set offsets, using `-1` or an omitted/nullable value when
+  cardinality is 0;
+- boundary `GETBIT` checks around the first and last set offsets; for
+  cardinality 0 these checks are skipped, and when the last set bit is
+  `4294967295` the post-max check is omitted or clamped because
+  `4294967296` is outside the v1 native bitmap range;
 - deterministic sampled `GETBIT` checks;
-- `BITPOS` parity where it applies;
+- `BITPOS` parity where it applies, including `BITPOS 1 == -1` and
+  `BITPOS 0 == -1` for an empty native bitmap;
 - full source-target offset diff for small keys.
 
 Tool implementations may add stronger payload or digest validation, but the

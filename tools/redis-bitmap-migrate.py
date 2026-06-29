@@ -653,7 +653,10 @@ class BitmapMigrator:
 
         with source.connection() as src, target.connection() as dst:
             dst.command(["DEL", build_key, temp_key])
-            dst.command(["SETBIT", build_key, "0", "0"])
+            if info.cardinality == 0:
+                dst.command(["SET", build_key, b""])
+            else:
+                dst.command(["SETBIT", build_key, "0", "0"])
             dst.command(["BITMAP", "CONVERT", build_key, "NATIVE"])
 
             if info.cardinality:
@@ -758,7 +761,12 @@ class BitmapMigrator:
             expected_min = -1 if info.cardinality == 0 else info.min_offset
             if bitpos != expected_min:
                 raise MigrateError(f"target BITPOS 1 {bitpos} != source min {expected_min}")
-            if info.cardinality:
+            if info.cardinality == 0:
+                bitpos_zero = int(conn.command(["BITPOS", temp_key, "0"]))
+                checks["bitpos_0"] = bitpos_zero
+                if bitpos_zero != -1:
+                    raise MigrateError(f"target BITPOS 0 {bitpos_zero} != empty native bitmap -1")
+            else:
                 if parse_uint(conn.command(["GETBIT", temp_key, str(info.min_offset)]), "GETBIT min") != 1:
                     raise MigrateError("target min offset is not set")
                 if parse_uint(conn.command(["GETBIT", temp_key, str(info.max_offset)]), "GETBIT max") != 1:
