@@ -57,6 +57,7 @@ void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectMaterializeForRDB(const robj *o);
 sds bitmapObjectSerializePortable(const robj *o);
+int bitmapObjectEndianRoundtripCheck(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITMAP_ROARING_H */
