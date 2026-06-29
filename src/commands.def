@@ -4989,6 +4989,65 @@ struct COMMAND_ARG BLMOVE_Args[] = {
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** BLMOVEM ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLMOVEM history */
+#define BLMOVEM_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLMOVEM tips */
+#define BLMOVEM_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLMOVEM key specs */
+keySpec BLMOVEM_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BLMOVEM wherefrom argument table */
+struct COMMAND_ARG BLMOVEM_wherefrom_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM whereto argument table */
+struct COMMAND_ARG BLMOVEM_whereto_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM how_many selector argument table */
+struct COMMAND_ARG BLMOVEM_how_many_selector_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exactly",ARG_TYPE_INTEGER,-1,"EXACTLY",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM how_many ordering argument table */
+struct COMMAND_ARG BLMOVEM_how_many_ordering_Subargs[] = {
+{MAKE_ARG("obo",ARG_TYPE_PURE_TOKEN,-1,"OBO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bulk",ARG_TYPE_PURE_TOKEN,-1,"BULK",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM how_many argument table */
+struct COMMAND_ARG BLMOVEM_how_many_Subargs[] = {
+{MAKE_ARG("selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_how_many_selector_Subargs},
+{MAKE_ARG("ordering",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_how_many_ordering_Subargs},
+};
+
+/* BLMOVEM argument table */
+struct COMMAND_ARG BLMOVEM_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_wherefrom_Subargs},
+{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_whereto_Subargs},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("how-many",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BLMOVEM_how_many_Subargs},
+};
+
 /********** BLMPOP ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -5224,6 +5283,64 @@ struct COMMAND_ARG LMOVE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_wherefrom_Subargs},
 {MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_whereto_Subargs},
+};
+
+/********** LMOVEM ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* LMOVEM history */
+#define LMOVEM_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* LMOVEM tips */
+#define LMOVEM_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* LMOVEM key specs */
+keySpec LMOVEM_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* LMOVEM wherefrom argument table */
+struct COMMAND_ARG LMOVEM_wherefrom_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM whereto argument table */
+struct COMMAND_ARG LMOVEM_whereto_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM how_many selector argument table */
+struct COMMAND_ARG LMOVEM_how_many_selector_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exactly",ARG_TYPE_INTEGER,-1,"EXACTLY",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM how_many ordering argument table */
+struct COMMAND_ARG LMOVEM_how_many_ordering_Subargs[] = {
+{MAKE_ARG("obo",ARG_TYPE_PURE_TOKEN,-1,"OBO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bulk",ARG_TYPE_PURE_TOKEN,-1,"BULK",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM how_many argument table */
+struct COMMAND_ARG LMOVEM_how_many_Subargs[] = {
+{MAKE_ARG("selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_how_many_selector_Subargs},
+{MAKE_ARG("ordering",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_how_many_ordering_Subargs},
+};
+
+/* LMOVEM argument table */
+struct COMMAND_ARG LMOVEM_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_wherefrom_Subargs},
+{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_whereto_Subargs},
+{MAKE_ARG("how-many",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=LMOVEM_how_many_Subargs},
 };
 
 /********** LMPOP ********************/
@@ -12529,6 +12646,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("pfselftest","An internal command for testing HyperLogLog values.","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,"hyperloglog",COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,0,PFSELFTEST_Tips,0,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG,PFSELFTEST_Keyspecs,0,NULL,0)},
 /* list */
 {MAKE_CMD("blmove","Pops an element from a list, pushes it to another list and returns it. Blocks until an element is available otherwise. Deletes the list if the last element was moved.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMOVE_History,0,BLMOVE_Tips,0,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMOVE_Keyspecs,2,NULL,5),.args=BLMOVE_Args},
+{MAKE_CMD("blmovem","Moves up to (or exactly) a number of elements from one list to another and returns them. Blocks until the elements are available otherwise. Deletes the source list if it becomes empty.","O(N) where N is the number of elements moved.","8.10.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMOVEM_History,0,BLMOVEM_Tips,0,blmovemCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMOVEM_Keyspecs,2,NULL,6),.args=BLMOVEM_Args},
 {MAKE_CMD("blmpop","Pops the first element from one of multiple lists. Blocks until an element is available otherwise. Deletes the list if the last element was popped.","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMPOP_History,0,BLMPOP_Tips,0,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMPOP_Keyspecs,1,blmpopGetKeys,5),.args=BLMPOP_Args},
 {MAKE_CMD("blpop","Removes and returns the first element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLPOP_History,1,BLPOP_Tips,0,blpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BLPOP_Keyspecs,1,NULL,2),.args=BLPOP_Args},
 {MAKE_CMD("brpop","Removes and returns the last element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BRPOP_History,1,BRPOP_Tips,0,brpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BRPOP_Keyspecs,1,NULL,2),.args=BRPOP_Args},
@@ -12537,6 +12655,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("linsert","Inserts an element before or after another element in a list.","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LINSERT_History,0,LINSERT_Tips,0,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LINSERT_Keyspecs,1,NULL,4),.args=LINSERT_Args},
 {MAKE_CMD("llen","Returns the length of a list.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LLEN_History,0,LLEN_Tips,0,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,LLEN_Keyspecs,1,NULL,1),.args=LLEN_Args},
 {MAKE_CMD("lmove","Returns an element after popping it from one list and pushing it to another. Deletes the list if the last element was moved.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMOVE_History,0,LMOVE_Tips,0,lmoveCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LMOVE_Keyspecs,2,NULL,4),.args=LMOVE_Args},
+{MAKE_CMD("lmovem","Moves up to (or exactly) a number of elements from one list to another and returns them. Deletes the source list if it becomes empty.","O(N) where N is the number of elements moved.","8.10.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMOVEM_History,0,LMOVEM_Tips,0,lmovemCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LMOVEM_Keyspecs,2,NULL,5),.args=LMOVEM_Args},
 {MAKE_CMD("lmpop","Returns multiple elements from a list after removing them. Deletes the list if the last element was popped.","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMPOP_History,0,LMPOP_Tips,0,lmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_LIST,LMPOP_Keyspecs,1,lmpopGetKeys,4),.args=LMPOP_Args},
 {MAKE_CMD("lpop","Returns the first elements in a list after removing it. Deletes the list if the last element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LPOP_History,1,LPOP_Tips,0,lpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,LPOP_Keyspecs,1,NULL,2),.args=LPOP_Args},
 {MAKE_CMD("lpos","Returns the index of matching elements in a list.","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LPOS_History,0,LPOS_Tips,0,lposCommand,-3,CMD_READONLY,ACL_CATEGORY_LIST,LPOS_Keyspecs,1,NULL,5),.args=LPOS_Args},
