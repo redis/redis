@@ -1240,6 +1240,27 @@ sds bitmapObjectSerializePortable(const robj *o) {
     return payload;
 }
 
+int bitmapObjectEndianRoundtripCheck(const robj *o) {
+#if BYTE_ORDER == BIG_ENDIAN
+    sds payload = bitmapObjectSerializePortable(o);
+    size_t len = sdslen(payload);
+    sds swapped = sdsnewlen(payload, len);
+
+    int ok = bitmapObjectPortableConvertEndian((unsigned char *)swapped,
+                                               len, 1) == C_OK &&
+             bitmapObjectPortableConvertEndian((unsigned char *)swapped,
+                                               len, 0) == C_OK &&
+             memcmp(swapped, payload, len) == 0;
+
+    sdsfree(swapped);
+    sdsfree(payload);
+    return ok ? C_OK : C_ERR;
+#else
+    UNUSED(o);
+    return C_OK;
+#endif
+}
+
 typedef struct bitmapBitopSource {
     const roaring64_bitmap_t *roaring;
     roaring64_bitmap_t *owned;
