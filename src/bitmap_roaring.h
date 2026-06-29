@@ -55,6 +55,10 @@ long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t en
 int bitmapObjectCanRepresentBit(uint64_t bitoffset);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
+uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
+                                         uint64_t bits);
+int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
+                                    uint64_t value);
 int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end);
 void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);

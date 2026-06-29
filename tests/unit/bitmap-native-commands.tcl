@@ -499,7 +499,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         # explicit end the logical length supplies the imaginary trailing
         # zero at bit 65568.
         seed_native_bitmap bitmap:native:run-edge {}
-        r bitfield bitmap:native:run-edge SET u32 65504 4294967295 SET u32 65536 4294967295
+        r bitfield bitmap:native:run-edge SET i64 65504 -1
+        assert_equal {-1} [r bitfield_ro bitmap:native:run-edge GET i64 65504]
         assert_equal 65504 [r bitpos bitmap:native:run-edge 1]
         assert_equal -1 [r bitpos bitmap:native:run-edge 0 65504 -1 bit]
         assert_equal 65568 [r bitpos bitmap:native:run-edge 0 8188]
@@ -520,6 +521,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {0} [r bitfield bitmap:native:bitfield SET u1 23 0]
         assert_equal bitmap [r type bitmap:native:bitfield]
         assert_equal [binary format H* 0f0000] [r debug bitmap-raw bitmap:native:bitfield]
+
+        seed_native_bitmap bitmap:native:bitfield:clear {0}
+        assert_equal {2} [r bitfield bitmap:native:bitfield:clear SET u2 0 0]
+        assert_equal 0 [r bitcount bitmap:native:bitfield:clear]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:native:bitfield:clear]
     }
 
     test {BITFIELD signed INCRBY preserves native bitmap values} {
