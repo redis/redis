@@ -1255,9 +1255,13 @@ int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
     if (add_count)
         roaring64_bitmap_add_many(bitmap->roaring, add_count,
                                   positions_to_add);
-    if (remove_count)
-        roaring64_bitmap_remove_many(bitmap->roaring, remove_count,
-                                     positions_to_remove);
+    if (remove_count) {
+        /* remove_many can keep same-container state after a removal deletes
+         * that container; BITFIELD clears may include already-clear bits after
+         * the last set bit. */
+        for (size_t j = 0; j < remove_count; j++)
+            roaring64_bitmap_remove(bitmap->roaring, positions_to_remove[j]);
+    }
     bitmapObjectRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
 
     return C_OK;
