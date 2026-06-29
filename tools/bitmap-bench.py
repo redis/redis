@@ -66,6 +66,9 @@ CSV_FIELDS = [
     "memory_bytes",
     "peak_bytes",
     "payload_bytes",
+    "memory_payload_overhead_bytes",
+    "memory_to_payload_ratio",
+    "memory_accounting_scope",
     "stall_ms",
     "notes",
 ]
@@ -90,6 +93,22 @@ COMPARE_LABELS = (
     "redis_pr_native",
     MODULE_RESULT_LABEL,
 )
+REDIS_MEMORY_ACCOUNTING_SCOPE = "redis-live-allocator"
+MODULE_MEMORY_ACCOUNTING_SCOPE = "module-callback-serialized-size"
+MEMORY_ACCOUNTING_SCOPE_DESCRIPTIONS = {
+    REDIS_MEMORY_ACCOUNTING_SCOPE: (
+        "Redis string and core Roaring rows use Redis `MEMORY USAGE`, which "
+        "includes the Redis object/key wrapper plus the live allocator-accounted "
+        "value allocations Redis owns."
+    ),
+    MODULE_MEMORY_ACCOUNTING_SCOPE: (
+        "redis-roaring rows use the module data type `mem_usage` callback. In "
+        "the audited module revision this callback returns CRoaring serialized "
+        "size (`roaring_bitmap_size_in_bytes()` or "
+        "`roaring64_bitmap_portable_size_in_bytes()`), so it is not an "
+        "apples-to-apples live heap measurement."
+    ),
+}
 PROFILE_GROUPS = {
     "full": ("small-sets", "bitsets", "mixed-bitop"),
     "small-sets": ("small-sets",),
@@ -2067,6 +2086,12 @@ class RedisBitmapBench:
             "port": self.port,
             "db": self.db,
             "environment": self.environment,
+            "memory_accounting": {
+                "scope": memory_accounting_scope_for_mode(self.args.mode),
+                "description": MEMORY_ACCOUNTING_SCOPE_DESCRIPTIONS[
+                    memory_accounting_scope_for_mode(self.args.mode)
+                ],
+            },
             "parameters": {
                 "benchmark_profile": self.args.benchmark_profile,
                 "report_view": self.args.report_view,
@@ -2156,6 +2181,10 @@ class RedisBitmapBench:
             notes.extend(f"{k}={v}" for k, v in result.extra.items() if k.endswith("_ms") or k.endswith("_status"))
         if result.extra.get("payload_format"):
             notes.append(f"payload_format={result.extra['payload_format']}")
+        scope = memory_accounting_scope_for_mode(self.args.mode)
+        notes.append(f"memory_accounting_scope={scope}")
+        memory_payload_overhead = numeric_diff(result.memory_usage_bytes, result.payload_size_bytes)
+        memory_payload_ratio = numeric_ratio(result.memory_usage_bytes, result.payload_size_bytes)
         return {
             "mode": self.args.mode_label,
             "target_groups": ",".join(result.extra.get("target_groups", [])) or "-",
@@ -2177,6 +2206,9 @@ class RedisBitmapBench:
             "memory_bytes": fmt_optional(result.memory_usage_bytes),
             "peak_bytes": fmt_optional(result.used_memory_peak),
             "payload_bytes": fmt_optional(result.payload_size_bytes),
+            "memory_payload_overhead_bytes": fmt_optional(memory_payload_overhead),
+            "memory_to_payload_ratio": fmt_float(memory_payload_ratio),
+            "memory_accounting_scope": scope,
             "stall_ms": fmt_float(result_stall_ms(result)),
             "notes": "; ".join(notes) if notes else "-",
         }
@@ -2316,8 +2348,30 @@ def result_stall_ms(result: Result) -> Optional[float]:
                         value = sample_stall.get(key)
                         if isinstance(value, (int, float)):
                             values.append(float(value))
-        return max(values) if values else None
+            return max(values) if values else None
     return None
+
+
+def memory_accounting_scope_for_mode(mode: str) -> str:
+    if mode == "module":
+        return MODULE_MEMORY_ACCOUNTING_SCOPE
+    return REDIS_MEMORY_ACCOUNTING_SCOPE
+
+
+def numeric_ratio(numerator: Any, denominator: Any) -> Optional[float]:
+    if not isinstance(numerator, (int, float)) or not isinstance(denominator, (int, float)):
+        return None
+    if denominator == 0:
+        return None
+    return float(numerator) / float(denominator)
+
+
+def numeric_diff(left: Any, right: Any) -> Optional[float]:
+    if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+        return None
+    if isinstance(left, int) and isinstance(right, int):
+        return left - right
+    return float(left) - float(right)
 
 
 def parse_args() -> argparse.Namespace:
@@ -2357,7 +2411,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-profile", choices=("full", "smoke", "small-sets", "bitsets", "mixed-bitop"),
                         default="full",
                         help="Workload profile to run when --only is not supplied")
-    parser.add_argument("--report-view", choices=("performance", "memory", "payload", "combined"),
+    parser.add_argument("--report-view", choices=("performance", "memory", "payload", "accounting", "combined"),
                         default="combined",
                         help="Compare Markdown sections to publish")
     parser.add_argument("--skip-persistence", action="store_true",
@@ -2522,6 +2576,10 @@ def run_compare(args: argparse.Namespace) -> int:
 def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_name: dict[str, dict[str, dict[str, Any]]] = {}
     all_labels = [payload.get("mode_label", payload.get("mode", "run")) for payload in payloads]
+    label_modes = {
+        payload.get("mode_label", payload.get("mode", "run")): payload.get("mode", "")
+        for payload in payloads
+    }
     for payload in payloads:
         label = payload.get("mode_label", payload.get("mode", "run"))
         for result in payload.get("results", []) + payload.get("persistence", []):
@@ -2549,6 +2607,18 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row[f"{label}_qps"] = compare_result_qps(result) if result else missing_compare_value(label)
             row[f"{label}_memory_bytes"] = result.get("memory_usage_bytes") if result else missing_compare_value(label)
             row[f"{label}_payload_bytes"] = result.get("payload_size_bytes") if result else missing_compare_value(label)
+            row[f"{label}_memory_payload_overhead_bytes"] = numeric_diff(
+                row[f"{label}_memory_bytes"],
+                row[f"{label}_payload_bytes"],
+            )
+            row[f"{label}_memory_to_payload_ratio"] = numeric_ratio(
+                row[f"{label}_memory_bytes"],
+                row[f"{label}_payload_bytes"],
+            )
+            row[f"{label}_memory_accounting_scope"] = (
+                memory_accounting_scope_for_mode(label_modes.get(label, ""))
+                if result else missing_compare_value(label)
+            )
         row["core_vs_string_percent"] = metric_delta_percent(
             row.get("redis_pr_native"),
             row.get("redis_before"),
@@ -2585,6 +2655,8 @@ def compare_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
             notes.append("No redis-roaring equivalent")
         if row["category"] == "persistence":
             notes.append("Payload formats are implementation-specific")
+        if row.get(f"{MODULE_RESULT_LABEL}_memory_bytes") != "N/A":
+            notes.append("module MEMORY USAGE is module-callback serialized-size, not live heap")
         row["notes"] = "; ".join(notes) if notes else "-"
         rows.append(row)
     return rows
@@ -2622,7 +2694,14 @@ def compare_markdown_lines(rows: list[dict[str, Any]], payloads: list[dict[str, 
             f"{markdown_runner_link(env)} |"
         )
 
-    lines.extend(["", "Delta columns are positive when Redis core Roaring is better."])
+    lines.extend([
+        "",
+        "Delta columns are positive when Redis core Roaring is better.",
+        "",
+        "Memory accounting note: Redis string and core Roaring `MEMORY USAGE` rows are live Redis object/key/value allocator estimates. "
+        "redis-roaring module `MEMORY USAGE` rows come from the module data type callback; the audited module callback reports CRoaring serialized-size bytes, not total live heap allocations. "
+        "Use the Accounting Diagnostics and Storage sections to separate representation payload size from reporting/accounting artifacts.",
+    ])
 
     if report_view in ("performance", "combined"):
         append_performance_compare(lines, rows)
@@ -2635,6 +2714,8 @@ def compare_markdown_lines(rows: list[dict[str, Any]], payloads: list[dict[str, 
             string_delta="memory_core_vs_string_percent",
             module_delta="memory_core_vs_module_percent",
         )
+    if report_view in ("memory", "accounting", "combined"):
+        append_accounting_diagnostics(lines, rows)
     if report_view in ("payload", "combined"):
         append_resource_compare(
             lines,
@@ -2694,6 +2775,35 @@ def append_resource_compare(lines: list[str], rows: list[dict[str, Any]], title:
         )
 
 
+def append_accounting_diagnostics(lines: list[str], rows: list[dict[str, Any]]) -> None:
+    diagnostic_rows = [
+        row for row in rows
+        if isinstance(row.get("redis_pr_native_memory_bytes"), (int, float))
+        and isinstance(row.get("redis_pr_native_payload_bytes"), (int, float))
+        and isinstance(row.get(f"{MODULE_RESULT_LABEL}_memory_bytes"), (int, float))
+        and isinstance(row.get(f"{MODULE_RESULT_LABEL}_payload_bytes"), (int, float))
+    ]
+    lines.extend([
+        "",
+        "## Accounting Diagnostics",
+        "",
+        "Reported memory is `MEMORY USAGE`; payload is the serialized Redis `DUMP`/RDB byte count captured by the same workload. "
+        "A high memory/payload ratio for core Roaring reflects live wrapper, ART, container, and allocator overhead that Redis intentionally accounts. "
+        "The redis-roaring module ratio reflects its callback-reported serialized-size proxy and should not be read as full live heap accounting.",
+        "",
+        "| Operation | Redis core Roaring memory / payload | redis-roaring module memory / payload | Core payload delta | Accounting note |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ])
+    for row in diagnostic_rows:
+        lines.append(
+            f"| {compare_operation_label(row)} | "
+            f"{fmt_memory_payload_cell(row, 'redis_pr_native')} | "
+            f"{fmt_memory_payload_cell(row, MODULE_RESULT_LABEL)} | "
+            f"{fmt_payload_delta(row)} | "
+            f"{accounting_note_for_row(row)} |"
+        )
+
+
 def compare_operation_label(row: dict[str, Any]) -> str:
     label = markdown_escape(row.get("workload", "-"))
     details = []
@@ -2709,6 +2819,34 @@ def compare_operation_label(row: dict[str, Any]) -> str:
     if details:
         label += f"<br><sub>{' / '.join(details)}</sub>"
     return label
+
+
+def fmt_memory_payload_cell(row: dict[str, Any], label: str) -> str:
+    memory = row.get(f"{label}_memory_bytes")
+    payload = row.get(f"{label}_payload_bytes")
+    ratio = row.get(f"{label}_memory_to_payload_ratio")
+    overhead = row.get(f"{label}_memory_payload_overhead_bytes")
+    if not isinstance(memory, (int, float)) or not isinstance(payload, (int, float)):
+        return "-"
+    details = [f"{fmt_any(memory)} / {fmt_any(payload)}"]
+    if isinstance(ratio, (int, float)):
+        details.append(f"{fmt_any(ratio)}x")
+    if isinstance(overhead, (int, float)):
+        details.append(f"+{fmt_any(overhead)} B")
+    return "<br>".join(details)
+
+
+def fmt_payload_delta(row: dict[str, Any]) -> str:
+    value = row.get("payload_core_vs_module_percent")
+    return "-" if value is None else f"{fmt_delta(value)}% vs module"
+
+
+def accounting_note_for_row(row: dict[str, Any]) -> str:
+    module_scope = row.get(f"{MODULE_RESULT_LABEL}_memory_accounting_scope")
+    core_scope = row.get("redis_pr_native_memory_accounting_scope")
+    if module_scope != MODULE_MEMORY_ACCOUNTING_SCOPE or core_scope != REDIS_MEMORY_ACCOUNTING_SCOPE:
+        return "Mixed or missing accounting scopes"
+    return "core live heap vs module callback"
 
 
 def fmt_performance_cell(row: dict[str, Any], label: str) -> str:
@@ -2772,6 +2910,9 @@ def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "redis_before_qps",
         "redis_before_memory_bytes",
         "redis_before_payload_bytes",
+        "redis_before_memory_payload_overhead_bytes",
+        "redis_before_memory_to_payload_ratio",
+        "redis_before_memory_accounting_scope",
         "redis_pr_native",
         "redis_pr_native_time_per_op_mean_us",
         "redis_pr_native_time_per_op_median_us",
@@ -2782,6 +2923,9 @@ def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "redis_pr_native_qps",
         "redis_pr_native_memory_bytes",
         "redis_pr_native_payload_bytes",
+        "redis_pr_native_memory_payload_overhead_bytes",
+        "redis_pr_native_memory_to_payload_ratio",
+        "redis_pr_native_memory_accounting_scope",
         MODULE_RESULT_LABEL,
         f"{MODULE_RESULT_LABEL}_time_per_op_mean_us",
         f"{MODULE_RESULT_LABEL}_time_per_op_median_us",
@@ -2792,6 +2936,9 @@ def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         f"{MODULE_RESULT_LABEL}_qps",
         f"{MODULE_RESULT_LABEL}_memory_bytes",
         f"{MODULE_RESULT_LABEL}_payload_bytes",
+        f"{MODULE_RESULT_LABEL}_memory_payload_overhead_bytes",
+        f"{MODULE_RESULT_LABEL}_memory_to_payload_ratio",
+        f"{MODULE_RESULT_LABEL}_memory_accounting_scope",
         "core_vs_string_percent",
         "core_vs_module_percent",
         "memory_core_vs_string_percent",
@@ -2809,6 +2956,9 @@ def write_compare_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "redis_pr_legacy_qps",
         "redis_pr_legacy_memory_bytes",
         "redis_pr_legacy_payload_bytes",
+        "redis_pr_legacy_memory_payload_overhead_bytes",
+        "redis_pr_legacy_memory_to_payload_ratio",
+        "redis_pr_legacy_memory_accounting_scope",
         "notes",
     ]
     with open(path, "w", newline="", encoding="utf-8") as fp:

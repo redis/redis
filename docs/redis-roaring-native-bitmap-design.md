@@ -132,6 +132,10 @@ Required before treating the current surface as final:
 - `TYPE`, `SCAN ... TYPE`, `COPY`, and `RedisModule_KeyType()` support for the
   new type.
 - Free, copy, memory usage, and active defrag handling for bitmap objects.
+  Memory usage means Redis live allocator-accounted key/object/value memory;
+  benchmark comparisons to `redis-roaring` module `MEMORY USAGE` must account
+  for that module's serialized-size callback and must not reduce native
+  accounting correctness to make the rows match.
 - Direct or materialization fallback support for every existing bitmap command
   that can observe a key Redis created itself.
 - Type transitions (creation and conversion) propagate explicitly and
