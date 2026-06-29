@@ -562,8 +562,6 @@ void trackingLimitUsedSlots(void) {
 sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
     raxIterator ri;
     uint64_t count = 0;
-    char buf[32];
-    size_t len;
 
     /* Build the bulk strings for the (filtered) keys in a single pass,
      * counting them as we go. The RESP array header needs the count up
@@ -574,6 +572,8 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
      * 'body' is grown on demand rather than reserved up front: the post-filter
      * key count is not known here, and reserving for raxSize(keys) would
      * over-allocate whenever the ACL/NOLOOP filter drops keys. */
+    char buf[32];
+    size_t len;
     sds body = sdsempty();
     raxStart(&ri,keys);
     raxSeek(&ri,"^",NULL,0);
