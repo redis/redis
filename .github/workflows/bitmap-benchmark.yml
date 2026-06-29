@@ -9,6 +9,9 @@ on:
       baseline_redis_ref:
         description: "Baseline Redis commit SHA/ref to build in legacy mode; use a full SHA for publishable numbers"
         default: "unstable"
+      baseline_native_redis_ref:
+        description: "Optional Redis commit SHA/ref to build in native mode for native-to-native deltas; empty disables it"
+        default: ""
       core_redis_ref:
         description: "Candidate Redis commit SHA/ref to build in native and legacy guardrail modes; empty means the workflow SHA"
         default: ""
@@ -58,6 +61,7 @@ jobs:
           fi
           echo "CORE_REDIS_REF=$core_ref" >> "$GITHUB_ENV"
           echo "BASELINE_REDIS_REF=${{ inputs.baseline_redis_ref }}" >> "$GITHUB_ENV"
+          echo "BASELINE_NATIVE_REDIS_REF=${{ inputs.baseline_native_redis_ref }}" >> "$GITHUB_ENV"
           echo "MODULE_HOST_REDIS_REF=${{ inputs.module_host_redis_ref }}" >> "$GITHUB_ENV"
           echo "REDIS_ROARING_REF=${{ inputs.redis_roaring_ref }}" >> "$GITHUB_ENV"
 
@@ -66,6 +70,13 @@ jobs:
         with:
           ref: ${{ inputs.baseline_redis_ref }}
           path: before
+
+      - name: Checkout native baseline
+        if: ${{ inputs.baseline_native_redis_ref != '' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.baseline_native_redis_ref }}
+          path: before-native
 
       - name: Checkout candidate
         uses: actions/checkout@v6
@@ -90,16 +101,26 @@ jobs:
       - name: Record checked-out SHAs
         run: |
           before_sha="$(git -C before rev-parse HEAD)"
+          before_native_sha=""
+          if [ -d before-native ]; then
+            before_native_sha="$(git -C before-native rev-parse HEAD)"
+          fi
           after_sha="$(git -C after rev-parse HEAD)"
           module_host_sha="$(git -C module-host rev-parse HEAD)"
           redis_roaring_sha="$(git -C redis-roaring rev-parse HEAD)"
           echo "BEFORE_SHA=$before_sha" >> "$GITHUB_ENV"
+          echo "BEFORE_NATIVE_SHA=$before_native_sha" >> "$GITHUB_ENV"
           echo "AFTER_SHA=$after_sha" >> "$GITHUB_ENV"
           echo "MODULE_HOST_SHA=$module_host_sha" >> "$GITHUB_ENV"
           echo "REDIS_ROARING_SHA=$redis_roaring_sha" >> "$GITHUB_ENV"
 
       - name: Build baseline
         working-directory: before
+        run: make -j"$(nproc)" REDIS_CFLAGS='-Werror'
+
+      - name: Build native baseline
+        if: ${{ inputs.baseline_native_redis_ref != '' }}
+        working-directory: before-native
         run: make -j"$(nproc)" REDIS_CFLAGS='-Werror'
 
       - name: Build candidate
@@ -134,6 +155,8 @@ jobs:
             echo "runner_label=${{ inputs.runner_label }}"
             echo "baseline_redis_ref_input=$BASELINE_REDIS_REF"
             echo "before_sha=$BEFORE_SHA"
+            echo "baseline_native_redis_ref_input=$BASELINE_NATIVE_REDIS_REF"
+            echo "before_native_sha=$BEFORE_NATIVE_SHA"
             echo "core_redis_ref_input=$CORE_REDIS_REF"
             echo "after_sha=$AFTER_SHA"
             echo "module_host_redis_ref_input=$MODULE_HOST_REDIS_REF"
@@ -151,8 +174,13 @@ jobs:
       - name: Run bitmap benchmark compare
         working-directory: after
         run: |
+          before_native_args=()
+          if [ -n "$BASELINE_NATIVE_REDIS_REF" ]; then
+            before_native_args=(--compare-before-native-src-dir "$GITHUB_WORKSPACE/before-native/src")
+          fi
           python3 tools/bitmap-bench.py \
             --compare-before-src-dir "$GITHUB_WORKSPACE/before/src" \
+            "${before_native_args[@]}" \
             --compare-after-src-dir "$GITHUB_WORKSPACE/after/src" \
             --compare-module-src-dir "$GITHUB_WORKSPACE/module-host/src" \
             --compare-module-path "$REDIS_ROARING_MODULE" \

@@ -1830,6 +1830,7 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
     bitmapBitopSource *sources;
     roaring64_bitmap_t *result = NULL;
     int optimize_result = 1;
+    int shrink_result = 1;
 
     serverAssert(numkeys > 0);
     serverAssert(maxlen <= BITMAP_OBJECT_MAX_BYTES);
@@ -1849,7 +1850,10 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
             else
                 roaring64_bitmap_clear(result);
         }
-        if (skip_optimize) optimize_result = 0;
+        if (skip_optimize) {
+            optimize_result = 0;
+            shrink_result = 0;
+        }
         break;
     }
     case BITOP_OR:
@@ -1868,8 +1872,10 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
         break;
     case BITOP_NOT:
         if (sources[0].owned == NULL && sources[0].roaring != NULL &&
-            maxlen <= BITMAP_BITOP_FAST_RESULT_MAX_BYTES)
+            maxlen <= BITMAP_BITOP_FAST_RESULT_MAX_BYTES) {
             optimize_result = 0;
+            shrink_result = 0;
+        }
         result = bitmapObjectCopyBitopSource(&sources[0]);
         roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         break;
@@ -1901,10 +1907,11 @@ robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
 
     bitmapObjectReleaseBitopSources(sources, numkeys);
 
-    /* Large or potentially run-friendly results still pay the conversion cost
-     * before being stored; small native steady-state results skip it above. */
+    /* Large or potentially run-friendly results still pay the conversion and
+     * compaction cost before being stored; small native steady-state results
+     * skip both full-result CRoaring walks above. */
     if (optimize_result) roaring64_bitmap_run_optimize(result);
-    roaring64_bitmap_shrink_to_fit(result);
+    if (shrink_result) roaring64_bitmap_shrink_to_fit(result);
     zfree(sources);
 
     bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
