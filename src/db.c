@@ -86,7 +86,7 @@ void updateLRM(robj *o) {
  * Example mapping of key lengths to bins:
  *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
  *
- * Since strings can be zero length, the histogram also tracks:
+ * Since strings and streams can be empty (zero length), the histogram also tracks:
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
