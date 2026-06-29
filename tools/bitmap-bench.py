@@ -1110,10 +1110,15 @@ class RedisBitmapBench:
             raise BenchError(f"unknown workload(s): {', '.join(sorted(unknown))}")
         unsupported = wanted - {w.name for w in workloads}
         if unsupported:
-            raise BenchError(
-                f"workload(s) not supported in {self.args.mode} mode: "
-                f"{', '.join(sorted(unsupported))}"
-            )
+            if getattr(self.args, "skip_unsupported_only", False):
+                wanted -= unsupported
+            else:
+                raise BenchError(
+                    f"workload(s) not supported in {self.args.mode} mode: "
+                    f"{', '.join(sorted(unsupported))}"
+                )
+        if not wanted:
+            return []
         return [w for w in workloads if w.name in wanted]
 
     def filter_workloads_by_profile(self, workloads: list[Workload]) -> list[Workload]:
@@ -2569,6 +2574,7 @@ def run_compare(args: argparse.Namespace) -> int:
             run_args.compare_module_src_dir = None
             run_args.compare_module_path = None
             run_args.compare_out = None
+            run_args.skip_unsupported_only = True
             run_args.json_out = str(Path(tmp) / f"{label}.json")
             run_args.csv_out = None
             run_args.markdown_out = None
