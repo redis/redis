@@ -112,6 +112,11 @@ as stable.
 
 - Keeping 64-bit makes redis-roaring `roaring64` migration conceptually direct,
   while 32-bit redis-roaring inputs can be widened.
+- The [#34 final adjudication](https://github.com/aviggiano/redis/issues/34#issuecomment-4832039784)
+  resolves v1 migration as an external streaming migrator. That tool must
+  enforce the issue-level native cap, default above-cap `roaring64` inputs to
+  `fail`, and avoid silent truncation even though the in-memory representation
+  uses `roaring64_bitmap_t`.
 - Bounded 32-bit v1 makes 32-bit redis-roaring inputs direct, but `roaring64`
   inputs must be rejected, down-converted only when safe, or deferred until a
   future wide native bitmap format exists.

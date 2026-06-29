@@ -63,6 +63,43 @@ jobs:
               ./runtest --verbose --single integration/corrupt-dump --only "/^corrupt payload: bitmap" --dump-logs
             '
 
+  test-redis-roaring-migrator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Checkout redis-roaring
+        uses: actions/checkout@v6
+        with:
+          repository: aviggiano/redis-roaring
+          path: redis-roaring
+      - name: Build Redis
+        run: make -j"$(nproc)" REDIS_CFLAGS='-Werror' MALLOC=libc
+      - name: Build redis-roaring module
+        run: |
+          git -C redis-roaring submodule update --init --recursive deps/CRoaring deps/hiredis
+          (
+            cd redis-roaring/src
+            ../deps/CRoaring/amalgamation.sh
+          )
+          cmake -S redis-roaring -B redis-roaring/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_ROARING_TESTS=OFF \
+            -DDISABLE_TESTS=ON
+          cmake --build redis-roaring/build --target redis-roaring --parallel "$(nproc)"
+          module_path="$(find "$GITHUB_WORKSPACE/redis-roaring/build" -type f -name 'libredis-roaring*.so' | head -n 1)"
+          test -n "$module_path"
+          echo "REDIS_ROARING_MODULE=$module_path" >> "$GITHUB_ENV"
+      - name: Run redis-roaring migrator integration
+        run: |
+          python3 -m py_compile tools/redis-bitmap-migrate.py tests/integration/redis-bitmap-migrate.py
+          mkdir -p "$RUNNER_TEMP/croaring-realdata"
+          REDIS_SERVER="$GITHUB_WORKSPACE/src/redis-server" \
+          REDIS_ROARING_MODULE="$REDIS_ROARING_MODULE" \
+          REDIS_DOWNLOAD_CROARING_REALDATA=1 \
+          REDIS_CROARING_REALDATA_DIR="$RUNNER_TEMP/croaring-realdata" \
+            python3 tests/integration/redis-bitmap-migrate.py
+
   build-debian-old:
     runs-on: ubuntu-latest
     container: debian:buster
