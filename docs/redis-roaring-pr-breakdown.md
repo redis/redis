@@ -58,6 +58,16 @@ marked pending in the trackers.
   [#29](https://github.com/aviggiano/redis/issues/29) treats RESTORE input as
   untrusted; open [PR #44](https://github.com/aviggiano/redis/pull/44) is
   related review follow-up, not current `unstable` behavior.
+- **redis-roaring migration**: the
+  [#34 final adjudication](https://github.com/aviggiano/redis/issues/34#issuecomment-4832039784)
+  resolves v1 around an external streaming migrator, not a Redis core legacy
+  payload loader. The tool contract is fail-closed: final write freeze or
+  dual-write/change tracking plus a verified final pass, mandatory durable
+  manifest, target-native RESTORE payloads into temporary keys, validation
+  before atomic rename or replacement, TTL and DB preservation, and explicit
+  above-cap policy defaulting to `fail`. Offline RDB transcoding is deferred as
+  a possible future expert mode. See
+  `docs/redis-roaring-migration-contract.md`.
 
 The determinism invariant is unchanged and now covers the new paths: type
 transitions always reach replicas and the AOF as explicit RESTOREs of the
@@ -302,18 +312,32 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     they flatten native bitmaps. The current RDB persistence payload is a
     container stream and should be benchmarked separately from raw
     materialization.
-- Keep redis-roaring migration tooling separate from Redis core.
+- Keep redis-roaring migration tooling separate from Redis core. The v1
+  contract is the external streaming migrator documented in
+  `docs/redis-roaring-migration-contract.md`; Redis core must not add legacy
+  `reroaring` / `roaring64` payload loading or `R.*` / `R64.*` compatibility
+  prefixes.
 - Use the redis-roaring command inventory in
   `docs/redis-roaring-native-bitmap-design.md` to keep v1 Redis command scope
   separate from migration-tool-only compatibility work.
-- Export redis-roaring keys from old Redis with module loaded.
-- Import into new Redis using native Redis bitmap-compatible representation.
+- Export redis-roaring keys from old Redis with the module loaded, through
+  bounded/probed commands such as `R.RANGEINTARRAY` / `R64.RANGEINTARRAY` or
+  validated module payload decoding.
+- Import into new Redis by generating target-native bitmap RESTORE payloads,
+  writing them to manifest-owned temporary keys, validating, and atomically
+  renaming or replacing destination keys.
 - Tooling must understand both module input types: `reroaring` 32-bit payloads
   and `roaring64` 64-bit payloads. Integer-array command families
   (`SETINTARRAY`, `GETINTARRAY`, `RANGEINTARRAY`, `APPENDINTARRAY`, and
   `DELETEINTARRAY`, with `R64.*` equivalents) are migration-tool concerns, not
   Redis core commands.
-- Include downtime-oriented migration docs and validation tooling.
+- Preserve TTL and DB index, reject best-effort live `SCAN` as a correctness
+  guarantee by itself, and default above-cap `roaring64` inputs to `fail` with
+  explicit `skip` allowed only with a loud manifest report. Silent truncation and
+  v1 split mode are out of scope.
+- Include downtime-oriented migration docs, manifest/resume semantics, temp-key
+  cleanup, crash-recovery coverage, and validation tooling that goes beyond
+  `BITCOUNT`.
 
 ## Upstream Packaging
 

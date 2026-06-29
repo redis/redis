@@ -39,7 +39,10 @@ number counter - see the breakdown document for the current mapping).
 ## Non-Goals
 
 - Redis core does not import legacy redis-roaring module RDB payloads. Migration
-  from module-backed deployments should remain external tooling.
+  from module-backed deployments should remain external tooling. The
+  [#34 final adjudication](https://github.com/aviggiano/redis/issues/34#issuecomment-4832039784)
+  resolves v1 in favor of the external streaming migrator contract documented in
+  `docs/redis-roaring-migration-contract.md`.
 - Generic string commands do not silently materialize native bitmap values back
   into strings.
 - This document does not claim upstream maintainer approval for tracker issues
@@ -78,6 +81,7 @@ the command-facing docs and tests for this boundary.
 | Generic string command boundary | Pending clarification for final audit scope and whether `BITMAP CONVERT ... STRING` is the only v1 materialization escape hatch. | Draft behavior is implemented: native bitmaps reject generic string commands with `WRONGTYPE`; explicit conversion back to string is supported while materialization fits `proto-max-bulk-len`. | [#22](https://github.com/aviggiano/redis/issues/22), [PR #8](https://github.com/aviggiano/redis/pull/8), [PR #39](https://github.com/aviggiano/redis/pull/39) |
 | Persistence, `DUMP` / `RESTORE`, and AOF rewrite | Settled for the current V2 direction: persist a Redis-owned, endian-neutral container stream rather than an opaque CRoaring portable blob, and keep RESTORE-based rewrite for native bitmap values. | Implemented with `RDB_TYPE_BITMAP`, a stable v2 marker plus container encoding, `DUMP` / `RESTORE`, AOF rewrite as `RESTORE`, always-on payload validation, load compatibility for accepted legacy raw/range payloads, and load compatibility for the previous v2 portable payload. See `docs/redis-roaring-native-bitmap-rdb-format.md`. | [#29](https://github.com/aviggiano/redis/issues/29), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43), related open [PR #44](https://github.com/aviggiano/redis/pull/44) |
 | Replication determinism | Ready locally: explicit `RESTORE`/`DUMP` propagation is the v1 deterministic baseline; sparse/container-specific propagation remains future work; replicas must be upgraded before native bitmap creation or conversion is enabled. | Implemented. Config-dependent native creations and conversions queue `RESTORE ... REPLACE [ABSTTL]`, native bitmap AOF rewrite emits `RESTORE`, and tests cover incremental AOF, rewrite, and replication convergence across mismatched local config. | [#28](https://github.com/aviggiano/redis/issues/28), [PR #9](https://github.com/aviggiano/redis/pull/9), [PR #13](https://github.com/aviggiano/redis/pull/13) |
+| redis-roaring migration contract | Ready locally: v1 uses an external streaming migrator with fail-closed validation, a durable manifest, explicit cap policy, and no Redis core legacy payload loader or `R.*` / `R64.*` compatibility surface. Offline RDB transcoding is deferred as a possible future expert mode. | Documented in `docs/redis-roaring-migration-contract.md`; no Redis core command or RDB-loader change is required for this decision. | [#34](https://github.com/aviggiano/redis/issues/34) |
 | Introspection, copy, modules, and notifications | Module/keyspace-notification details are still pending final clarification. | `TYPE`, `SCAN ... TYPE`, `COPY`, `RedisModule_KeyType()`, `NOTIFY_BITMAP`, and type-change notifications exist in the draft implementation. | [#33](https://github.com/aviggiano/redis/issues/33), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43) |
 | Memory accounting, active defrag, and fork-child dismissal | Pending clarification around accounting policy, allocator hooks, and defrag acceptability. | Implemented draft lifecycle coverage exists, with follow-up review cleanup tracked separately. | [#32](https://github.com/aviggiano/redis/issues/32), [PR #18](https://github.com/aviggiano/redis/pull/18), [PR #43](https://github.com/aviggiano/redis/pull/43), [#45](https://github.com/aviggiano/redis/issues/45) |
 | Test and benchmark gate | Pending clarification for required benchmark scope and acceptable event-loop stall bounds. | Correctness coverage exists across native type, command, oracle, corruption, replication, AOF, and module tests. Redis-specific benchmark harness remains open. | [#35](https://github.com/aviggiano/redis/issues/35), [#46](https://github.com/aviggiano/redis/issues/46), [#47](https://github.com/aviggiano/redis/issues/47) |
@@ -115,6 +119,34 @@ names are therefore compatibility wrappers around behavior covered by
 | `R.OPTIMIZE` and `R64.OPTIMIZE` | Force CRoaring container optimization. | Not needed for v1 | Native Redis owns encoding optimization; migration tooling may optimize generated payloads internally. |
 | `R.STAT` | Return module/container statistics for `reroaring` and `roaring64` keys. | Not needed for v1 | Use `MEMORY USAGE`, `OBJECT ENCODING`, benchmark tooling, or debug-only inspection for native stats if needed. |
 | Module payloads: `reroaring`, `roaring64` | Module RDB / `DUMP` payloads are not native Redis bitmap payloads. | Migration-tool-only | Required. Tooling must read both module type names: `reroaring` uses CRoaring 32-bit serialized payloads and should be promoted to native `roaring64_bitmap_t`; `roaring64` uses CRoaring 64-bit portable payloads and can be validated/transcoded to the native bitmap RDB / `DUMP` representation when all set offsets fit the v1 native cap. Values beyond native bitmap offset limits must fail migration or follow an explicit tool policy. Redis core must not load these module payloads directly. |
+
+## Redis-Roaring Migration Contract
+
+The [#34 final adjudication](https://github.com/aviggiano/redis/issues/34#issuecomment-4832039784)
+resolves v1 migration in favor of Proposal A: an external streaming migrator,
+such as `redis-bitmap-migrate`, that runs while the source Redis still has
+redis-roaring loaded and imports validated native bitmap values into the target
+Redis. The detailed contract is in
+`docs/redis-roaring-migration-contract.md`.
+
+The v1 migrator must be fail-closed. It must preserve TTL and DB index, write a
+durable manifest, use manifest-owned temporary keys, validate before final
+rename or replacement, and default above-cap `roaring64` inputs to failure. An
+explicit `skip` policy may be supported only with a manifest entry and a loud
+report. Silent truncation and v1 split mode are out of scope.
+
+The native import fast path should use target Redis native bitmap `RESTORE`
+payloads generated by the actual target encoder/version. Tooling must not
+hand-roll a native bitmap wire format from design notes. Best-effort live
+`SCAN` alone is also out of scope as a correctness guarantee; the supported
+flow requires a final write freeze or dual-write/change tracking plus a verified
+final pass.
+
+Proposal B, an offline RDB transcoder, is deferred as a possible future
+expert-only mode because it must preserve the full RDB grammar and fails at
+whole-file startup granularity. Redis core still must not load legacy
+`reroaring` / `roaring64` payloads directly, and it still must not expose
+`R.*` / `R64.*` compatibility prefixes.
 
 ## Native Bitmap Exposure Gate
 
