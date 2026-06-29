@@ -23,6 +23,8 @@ void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
 robj *createBitmapObjectWithLen(uint64_t byte_len);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
+robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf,
+                                             size_t len);
 robj *createBitmapObjectFromPortable(const unsigned char *buf, size_t len,
                                      uint64_t byte_len);
 robj *bitmapTypeDup(const robj *o);
