@@ -1218,11 +1218,10 @@ run_solo {defrag} {
             r config set maxmemory 0
 
             # Build a template bitmap with 50 array containers of 64 values
-            # each, then RESTORE it under many names. Every RESTORE
-            # deserializes a fresh burst of container allocations, so
-            # consecutive keys interleave inside the same jemalloc size
-            # classes and deleting every other key later produces real
-            # fragmentation there.
+            # each, then COPY it under many names. Every copy creates fresh
+            # container allocations, so consecutive keys interleave inside the
+            # same jemalloc size classes and deleting every other key later
+            # produces real fragmentation there.
             set rd [redis_deferring_client]
             set count 0
             for {set j 0} {$j < 50} {incr j} {
@@ -1238,11 +1237,10 @@ run_solo {defrag} {
             set template_raw [r get bitmap:template]
             r bitmap convert bitmap:template
             assert_equal bitmap [r type bitmap:template]
-            set template_dump [r dump bitmap:template]
 
             set frag_keys 400
             for {set k 0} {$k < $frag_keys} {incr k} {
-                $rd restore bitmap:frag:$k 0 $template_dump
+                $rd copy bitmap:template bitmap:frag:$k
                 incr count
                 discard_replies_every $rd $count 100 100
             }
@@ -1274,7 +1272,7 @@ run_solo {defrag} {
             r bitmap convert bigbitmap1
             assert_equal bitmap [r type bigbitmap1]
 
-            # Free every other restored bitmap to punch holes into the
+            # Free every other copied bitmap to punch holes into the
             # container size classes.
             for {set k 1} {$k < $frag_keys} {incr k 2} {
                 $rd del bitmap:frag:$k
