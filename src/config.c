@@ -3442,6 +3442,23 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+/* When stream-stats is turned off, zero the per-db INFO `stream` histograms so
+ * they hold no stale samples while disabled; re-enabling starts from a clean
+ * slate and fills in lazily (a reload rebuilds them exactly). Apply hooks run
+ * only on runtime CONFIG SET, so the dbs are always initialized here. */
+static int applyStreamStats(const char **err) {
+    UNUSED(err);
+    if (!server.stream_stats) {
+        for (int j = 0; j < server.dbnum; j++) {
+            kvstoreMetadata *meta = kvstoreGetMetadata(server.db[j].keys);
+            if (meta)
+                memset(meta->distrib_cgroups_pel, 0,
+                       sizeof(meta->distrib_cgroups_pel));
+        }
+    }
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3497,6 +3514,7 @@ standardConfig static_configs[] = {
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
+    createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
