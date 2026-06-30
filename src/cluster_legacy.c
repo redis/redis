@@ -5402,8 +5402,6 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(myself->numslots == 0);
 
     int was_master = clusterNodeIsMaster(myself);
-    /* Demotion or a replica re-pointing to a new primary are both role changes. */
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
     if (was_master) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
@@ -5421,6 +5419,10 @@ void clusterSetMaster(clusterNode *n) {
 
     /* Cancel all ASM tasks when switching into slave */
     if (was_master) clusterAsmCancel(NULL, "switching to replica");
+
+    /* Role change is now applied (a demotion, or a replica re-pointing to a new
+     * primary); notify modules. */
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
 }
 
 /* -----------------------------------------------------------------------------
