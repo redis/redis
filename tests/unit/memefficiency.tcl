@@ -1272,7 +1272,7 @@ run_solo {defrag} {
             r bitmap convert bigbitmap1
             assert_equal bitmap [r type bigbitmap1]
 
-            # Free every other restored bitmap to punch holes into the
+            # Free every other copied bitmap to punch holes into the
             # container size classes.
             for {set k 1} {$k < $frag_keys} {incr k 2} {
                 $rd del bitmap:frag:$k
