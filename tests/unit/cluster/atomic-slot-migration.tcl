@@ -2833,6 +2833,37 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         R 1 flushall
     }
 
+    test "Test REDISMODULE_CTX_FLAGS_FROM_ASM is set while applying ASM commands" {
+        R 0 flushall
+        R 1 flushall
+
+        # A command executed outside of ASM is not flagged as ASM.
+        R 1 asm.keyless_cmd
+        assert_equal 0 [R 1 asm.read_asm_flag]
+
+        # Replicate asm.keyless_cmd at the start of the migration, so that it is
+        # applied on the destination node (and its replica) as part of the ASM
+        # operation.
+        set keyname [slot_key 0 modulekey]
+        R 0 asm.replicate_module_command 1 $keyname "value"
+
+        setup_slot_migration_with_delay 0 1 0 100
+        wait_for_asm_done
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+
+        # Destination node applied the command from the ASM channel.
+        assert_equal 1 [R 1 asm.read_asm_flag]
+        # Destination's replica applied the command while the ASM import was active.
+        assert_equal 1 [R 4 asm.read_asm_flag]
+
+        # cleanup
+        R 0 asm.replicate_module_command 0 "" ""
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 flushall
+        R 1 flushall
+    }
+
     test "Test subcommand propagation during slot migration" {
         R 0 flushall
         R 1 flushall

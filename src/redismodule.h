@@ -221,11 +221,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_DEBUG_ENABLED (1<<25)
 /* Trim is in progress due to slot migration. */
 #define REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS (1<<26)
+/* The command is being executed as part of an atomic slot migration (ASM). */
+#define REDISMODULE_CTX_FLAGS_FROM_ASM (1<<27)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<27)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<28)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.

@@ -53,6 +53,7 @@ sds asmDumpActiveImportTask(void);
 int asmReplicaHandleMasterTask(sds task_info);
 void asmFinalizeMasterTask(void);
 int asmIsTrimInProgress(void);
+int asmIsExecutingTask(client *c);
 int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc);
 void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);

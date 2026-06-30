@@ -3614,6 +3614,31 @@ int asmIsBgTrimRunning(void) {
     return asmManager->bg_trim_running > 0;
 }
 
+/* Returns 1 if the command represented by client 'c' is being executed as part
+ * of an atomic slot migration (ASM) operation.
+ *
+ * - On the destination node, the commands streamed over the ASM channels are
+ *   applied by an internal client flagged with CLIENT_ASM_IMPORTING.
+ * - On a replica of the destination node, the master brackets the ASM import
+ *   with `CLUSTER SYNCSLOTS CONF ASM-TASK` messages in the replication stream.
+ *   While such an import task is active, commands coming from the master link
+ *   are considered part of the ASM operation. */
+int asmIsExecutingTask(client *c) {
+    if (!server.cluster_enabled || !c) return 0;
+
+    /* Destination node: internal client applying data from the ASM channels. */
+    if (c->flags & CLIENT_ASM_IMPORTING) return 1;
+
+    /* Replica: commands replicated from the master while an import task is
+     * active are considered part of the ASM operation. */
+    if ((c->flags & CLIENT_MASTER) && asmManager && asmManager->master_task) {
+        asmTask *task = asmManager->master_task;
+        if (task->operation == ASM_IMPORT && task->state != ASM_COMPLETED && task->state != ASM_FAILED)
+            return 1;
+    }
+    return 0;
+}
+
 /* Check if there is any trim job in progress. */
 int asmIsTrimInProgress(void) {
     if (!server.cluster_enabled) return 0;

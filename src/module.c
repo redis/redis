@@ -3991,6 +3991,8 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *                                         context.
  *  * REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS: Trim is in progress due to slot
  *                                            migration.
+ *  * REDISMODULE_CTX_FLAGS_FROM_ASM: The command is being executed as part of an
+ *                                    atomic slot migration (ASM)
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
     int flags = 0;
@@ -4006,6 +4008,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
             if (ctx->client->resp == 3) {
                 flags |= REDISMODULE_CTX_FLAGS_RESP3;
             }
+            /* Command executed as part of an atomic slot migration. */
+            if (asmIsExecutingTask(ctx->client))
+                flags |= REDISMODULE_CTX_FLAGS_FROM_ASM;
         }
 
         /* For DIRTY flags, we need the blocked client if used */

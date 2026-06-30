@@ -439,14 +439,30 @@ int getClusterTrimEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 /* A keyless command to test module command replication. */
 int moduledata = 0;
+
+/* Records whether the REDISMODULE_CTX_FLAGS_FROM_ASM flag was set the last time
+ * keylessCmd ran. -1 means the command has not run yet. */
+long long lastCmdFromAsm = -1;
+
 int keylessCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     moduledata++;
+    /* Record whether this command is being executed in an ASM context. */
+    lastCmdFromAsm = !!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_FROM_ASM);
     RedisModule_ReplyWithLongLong(ctx, moduledata);
     return REDISMODULE_OK;
 }
+
+/* Return the ASM context flag recorded by the last keylessCmd execution. */
+int readAsmFlag(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, lastCmdFromAsm);
+    return REDISMODULE_OK;
+}
+
 int readkeylessCmdVal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(argv);
@@ -575,6 +591,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.read_keyless_cmd_val", readkeylessCmdVal, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.read_asm_flag", readAsmFlag, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.sanity", sanity, "", 0, 0, 0) == REDISMODULE_ERR)
