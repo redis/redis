@@ -100,6 +100,7 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
+    int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
 } asmBgTrimState;
 
 typedef struct asmTrimJob {
@@ -3089,6 +3090,29 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
+
+        /* Update distrib_cgroups_pel delta (INFO `stream`): one sample per
+         * consumer group. Bg slot trim frees stream keys without going through
+         * streamKeyRemoved, so record each group's PEL size here. Done before the
+         * keysizes row lookup below, so it stays reachable regardless of whether
+         * streams are a tracked keysizes type. Gated like the live histogram. */
+        if (server.stream_stats && kv->type == OBJ_STREAM) {
+            stream *s = kv->ptr;
+            if (s->cgroups && raxSize(s->cgroups)) {
+                raxIterator ri;
+                raxStart(&ri, s->cgroups);
+                raxSeek(&ri, "^", NULL, 0);
+                while (raxNext(&ri)) {
+                    streamCG *cg = ri.data;
+                    uint64_t pel = raxSize(cg->pel);
+                    int bin = (pel == 0) ? 0 : log2ceil(pel) + 1;
+                    debugServerAssert(bin < MAX_KEYSIZES_BINS);
+                    trim_job->bg->delta_distrib_cgroups_pel[bin]++;
+                }
+                raxStop(&ri);
+            }
+        }
+
         int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);
         if (!keysizes_row) continue; /* untracked type, e.g. OBJ_MODULE */
 
@@ -3122,6 +3146,14 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 meta->keysizes_hist[row][bin] -= job->bg->delta_keysizes_hist[row][bin];
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
+        }
+        /* distrib_cgroups_pel is a single-row histogram (not per-type).
+         * Clamp at 0: a runtime stream-stats toggle can leave the live
+         * histogram holding fewer samples than the delta accounts for. */
+        for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+            int64_t d = job->bg->delta_distrib_cgroups_pel[bin];
+            int64_t *cur = &meta->distrib_cgroups_pel[bin];
+            *cur = (*cur > d) ? (*cur - d) : 0;
         }
     }
 
