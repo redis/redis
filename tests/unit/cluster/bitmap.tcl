@@ -1,3 +1,5 @@
+source tests/support/cluster.tcl
+
 start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
     test "Native bitmap BITOP works with hash-slot-tagged keys" {
         set slot [R 0 cluster keyslot "{bitop}foo"]
