@@ -766,8 +766,9 @@ void printBits(unsigned char *p, unsigned long count) {
 
 /* This helper function used by bitmap commands parses the bit offset argument,
  * making sure an error is returned if it is negative or does not fit a signed
- * 64-bit integer. Representation-specific bitmap limits are checked by the
- * command paths after parsing.
+ * 64-bit integer. Write paths and legacy string read paths apply the
+ * client-visible proto-max-bulk-len limit separately; native bitmap reads can
+ * address sparse offsets inside the native v1 cap and read unset bits as zero.
  *
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
@@ -782,23 +783,19 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     /* Handle #<offset> form. */
     if (p[0] == '#' && hash && bits > 0) usehash = 1;
 
-    if (string2ll(p+usehash,plen-usehash,&loffset) == 0) {
+    if (string2ll(p+usehash,plen-usehash,&loffset) == 0 || loffset < 0) {
         addReplyError(c,err);
         return C_ERR;
     }
 
-    /* Adjust the offset by 'bits' for #<offset> form. */
+    /* Adjust the offset by 'bits' for #<offset> form, rejecting products
+     * that overflow the 64-bit offset space. */
     if (usehash) {
-        if (loffset < 0 || loffset > LLONG_MAX / bits) {
+        if (loffset > LLONG_MAX / bits) {
             addReplyError(c,err);
             return C_ERR;
         }
         loffset *= bits;
-    }
-
-    if (loffset < 0) {
-        addReplyError(c,err);
-        return C_ERR;
     }
 
     *offset = loffset;
@@ -811,7 +808,7 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
 static int bitmapOffsetWithinProtoLimit(client *c, uint64_t bitoffset) {
     if (mustObeyClient(c) || (bitoffset >> 3) < (uint64_t)server.proto_max_bulk_len)
         return 1;
-    addReplyError(c, "bit offset is not an integer or out of range");
+    addReplyError(c, "bit offset is out of range");
     return 0;
 }
 
