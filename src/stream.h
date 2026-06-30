@@ -33,6 +33,14 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
+/* INFO `stream` section: per-database stream distribution histograms. Each
+ * enumerator selects a per-db histogram (in kvstoreMetadata), so a single
+ * update function serves every metric. STREAM_DISTRIB_MAX bounds loops. */
+typedef enum {
+    STREAM_DISTRIB_CGROUPS_PEL = 0, /* distrib_cgroups_pel */
+    STREAM_DISTRIB_MAX
+} streamDistribMetric;
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -219,8 +227,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
-int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
-int64_t streamTrimByID(stream *s, streamID minid, int approx);
+int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx);
+int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);

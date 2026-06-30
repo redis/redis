@@ -1267,6 +1267,7 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
+    int64_t distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`: per-cgroup PEL size */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -2596,6 +2597,7 @@ struct redisServer {
     /* Stream IDMP parameters */
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
+    int stream_stats;                   /* Enable stream stats for INFO `stream` section. */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */
