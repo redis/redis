@@ -83,10 +83,6 @@ if [ -n "$modules" ]; then
   done
 fi
 
-echo
-echo "==> Refreshing redis-full.conf via sync-redis-conf"
-"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="${modules:-none}"
-
 if [ -n "$failed" ]; then
   echo
   echo "ERROR: make build finished with module failure(s):$failed"
