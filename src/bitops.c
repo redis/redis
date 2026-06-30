@@ -2429,6 +2429,8 @@ void bitfieldGeneric(client *c, int flags) {
                 zfree(ops);
                 return;
             }
+            /* Native bitmap writes don't pass through lookupStringForBitCommand(),
+             * so validate the shared public write limit before key lookup. */
             if (!bitmapWriteOffsetWithinLimit(c,last_bit)) {
                 zfree(ops);
                 return;
@@ -2458,6 +2460,7 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (!readonly) {
         for (j = 0; j < numops; j++) {
+            if (ops[j].opcode != BITFIELDOP_GET) continue;
             if (!bitmapReadOffsetWithinLimit(c, ops[j].offset)) {
                 zfree(ops);
                 return;
