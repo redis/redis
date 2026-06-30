@@ -755,11 +755,6 @@ void printBits(unsigned char *p, unsigned long count) {
  * Bits related string commands: GETBIT, SETBIT, BITCOUNT, BITOP.
  * -------------------------------------------------------------------------- */
 
-/* ONE(A1, A2, ..., An) = X.
- * If X[i] is the i-th bit of X then:
- * X[i] == 1 if and only if there is m such that:
- * Am[i] == 1 and Al[i] == 0 for all l != m. */
-
 #define BITFIELDOP_GET 0
 #define BITFIELDOP_SET 1
 #define BITFIELDOP_INCRBY 2
