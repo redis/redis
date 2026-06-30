@@ -1111,6 +1111,25 @@ int dirExists(char *dname) {
     return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
 }
 
+/* Returns true when the directory is missing or contains no entries. */
+int dirIsEmpty(char *dname) {
+    DIR *dir;
+    struct dirent *entry;
+
+    if ((dir = opendir(dname)) == NULL) {
+        return errno == ENOENT;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        closedir(dir);
+        return 0;
+    }
+
+    closedir(dir);
+    return 1;
+}
+
 int dirCreateIfMissing(char *dname) {
     if (mkdir(dname, 0755) != 0) {
         if (errno != EEXIST) {

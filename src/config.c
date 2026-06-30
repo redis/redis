@@ -2401,6 +2401,18 @@ static int isValidAOFdirname(char *val, const char **err) {
     return 1;
 }
 
+static int isValidBackupdirname(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "backupdirname can't be empty";
+        return 0;
+    }
+    if (!pathIsBaseName(val)) {
+        *err = "backupdirname can't be a path, just a dirname";
+        return 0;
+    }
+    return 1;
+}
+
 static int isValidShutdownOnSigFlags(int val, const char **err) {
     /* Individual arguments are validated by createEnumConfig logic.
      * We just need to ensure valid combinations here. */
@@ -2611,7 +2623,9 @@ static int updateAppendonly(const char **err) {
         return 1;
 
     if (!server.aof_enabled && server.aof_state != AOF_OFF) {
-        stopAppendOnly();
+        /* Disabling AOF stops the MP-AOF INCR stream, so an open backup would
+         * no longer be continuous from BASE to SEAL. */
+        if (server.aof_state != AOF_OFF) stopAppendOnly();
     } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
         if (startAppendOnly() == C_ERR) {
             *err = "Unable to turn on AOF. Check server logs.";
@@ -3226,6 +3240,8 @@ standardConfig static_configs[] = {
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
+    createStringConfig("backupdirname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.backup_dirname, "backupdir", isValidBackupdirname, NULL),
+    createStringConfig("restoredir", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.restoredir, NULL, NULL, NULL),
     createStringConfig("server-cpulist", "server_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio-cpulist", "bio_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
     createStringConfig("aof-rewrite-cpulist", "aof_rewrite_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),

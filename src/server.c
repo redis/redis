@@ -1663,10 +1663,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Handle background operations on Redis databases. */
     databasesCron();
 
-    /* Start a scheduled AOF rewrite if this was requested by the user while
-     * a BGSAVE was in progress. */
+    /* Advance a BACKUP START that is waiting for an AOF rewrite slot. */
+    backupCron();
+
+    /* Start a scheduled AOF rewrite if this was requested while another state
+     * prevented it earlier. PENDING backups are advanced by backupCron above;
+     * INCREMENTING still suppresses rewrites. */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled &&
+        server.backup_state != BACKUP_STATE_PENDING &&
+        server.backup_state != BACKUP_STATE_INCREMENTING &&
         !aofRewriteLimited())
     {
         rewriteAppendOnlyFileBackground();
@@ -1702,9 +1708,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
 
-        /* Trigger an AOF rewrite if needed. */
+        /* Trigger an AOF rewrite if needed. BACKUP owns rewrite timing while
+         * it is pending or actively collecting BASE/INCR files. */
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
+            server.backup_state != BACKUP_STATE_PENDING &&
+            server.backup_state != BACKUP_STATE_SNAPSHOTTING &&
+            server.backup_state != BACKUP_STATE_INCREMENTING &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
@@ -2396,6 +2406,14 @@ void initServerConfig(void) {
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
     server.aof_state = AOF_OFF;
+    server.backup_state = BACKUP_STATE_IDLE;
+    server.backup_can_remove_aof_dir = 0;
+    server.backup_base_filename = NULL;
+    server.backup_incr_filename = NULL;
+    server.backup_manifest_filename = NULL;
+    server.backup_error = NULL;
+    server.backup_start_time = 0;
+    server.backup_end_time = 0;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
@@ -7611,6 +7629,15 @@ int checkForSentinelMode(int argc, char **argv, char *exec_name) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
+
+    /* If a restore directory is configured, load the dataset from it instead of
+     * the regular RDB/AOF, independent of the 'appendonly' setting. */
+    if (loadDataFromRestoreDir()) {
+        serverLog(LL_NOTICE, "DB restored from disk: %.3f seconds",
+            (float)(ustime()-start)/1000000);
+        return;
+    }
+
     if (server.aof_state == AOF_ON) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
