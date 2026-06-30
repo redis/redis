@@ -588,37 +588,45 @@ static int64_t getSignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
     return value;
 }
 
-static uint64_t getUnsignedBitfieldFromValue(robj *bitmap, unsigned char *string,
-                                             uint64_t offset, uint64_t bits)
+static uint64_t getUnsignedBitfieldFromValue(robj *o, uint64_t offset,
+                                             uint64_t bits)
 {
-    return bitmap != NULL ? getUnsignedBitfieldFromBitmapObject(bitmap, offset, bits) :
-                            getUnsignedBitfield(string, offset, bits);
+    if (o->type == OBJ_BITMAP)
+        return getUnsignedBitfieldFromBitmapObject(o, offset, bits);
+
+    serverAssert(o->type == OBJ_STRING);
+    return getUnsignedBitfield(o->ptr, offset, bits);
 }
 
-static int64_t getSignedBitfieldFromValue(robj *bitmap, unsigned char *string,
-                                          uint64_t offset, uint64_t bits)
+static int64_t getSignedBitfieldFromValue(robj *o, uint64_t offset,
+                                          uint64_t bits)
 {
-    return bitmap != NULL ? getSignedBitfieldFromBitmapObject(bitmap, offset, bits) :
-                            getSignedBitfield(string, offset, bits);
+    if (o->type == OBJ_BITMAP)
+        return getSignedBitfieldFromBitmapObject(o, offset, bits);
+
+    serverAssert(o->type == OBJ_STRING);
+    return getSignedBitfield(o->ptr, offset, bits);
 }
 
-static int setUnsignedBitfieldInValue(robj *bitmap, unsigned char *string,
-                                      uint64_t offset, uint64_t bits,
+static int setUnsignedBitfieldInValue(robj *o, uint64_t offset, uint64_t bits,
                                       uint64_t value)
 {
-    if (bitmap != NULL)
-        return setUnsignedBitfieldInBitmapObject(bitmap, offset, bits, value);
-    setUnsignedBitfield(string, offset, bits, value);
+    if (o->type == OBJ_BITMAP)
+        return setUnsignedBitfieldInBitmapObject(o, offset, bits, value);
+
+    serverAssert(o->type == OBJ_STRING);
+    setUnsignedBitfield(o->ptr, offset, bits, value);
     return C_OK;
 }
 
-static int setSignedBitfieldInValue(robj *bitmap, unsigned char *string,
-                                    uint64_t offset, uint64_t bits,
+static int setSignedBitfieldInValue(robj *o, uint64_t offset, uint64_t bits,
                                     int64_t value)
 {
-    if (bitmap != NULL)
-        return setSignedBitfieldInBitmapObject(bitmap, offset, bits, value);
-    setSignedBitfield(string, offset, bits, value);
+    if (o->type == OBJ_BITMAP)
+        return setSignedBitfieldInBitmapObject(o, offset, bits, value);
+
+    serverAssert(o->type == OBJ_STRING);
+    setSignedBitfield(o->ptr, offset, bits, value);
     return C_OK;
 }
 
@@ -2566,10 +2574,8 @@ void bitfieldGeneric(client *c, int flags) {
                 int64_t oldval, newval, wrapped, retval;
                 int overflow;
 
-                robj *bitmap = native_bitmap_write ? o : NULL;
-                unsigned char *string = native_bitmap_write ? NULL : o->ptr;
-                oldval = getSignedBitfieldFromValue(bitmap,string,
-                            thisop->offset,thisop->bits);
+                oldval = getSignedBitfieldFromValue(o,thisop->offset,
+                            thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
                     overflow = checkSignedBitfieldOverflow(oldval,
@@ -2589,8 +2595,8 @@ void bitfieldGeneric(client *c, int flags) {
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
                     if (strGrowSize || (oldval != newval)) {
-                        int ret = setSignedBitfieldInValue(bitmap,string,
-                                thisop->offset,thisop->bits,newval);
+                        int ret = setSignedBitfieldInValue(o,thisop->offset,
+                                thisop->bits,newval);
                         serverAssert(ret == C_OK);
                         changes++;
                     }
@@ -2603,10 +2609,8 @@ void bitfieldGeneric(client *c, int flags) {
                 uint64_t oldval, newval, retval, wrapped = 0;
                 int overflow;
 
-                robj *bitmap = native_bitmap_write ? o : NULL;
-                unsigned char *string = native_bitmap_write ? NULL : o->ptr;
-                oldval = getUnsignedBitfieldFromValue(bitmap,string,
-                            thisop->offset,thisop->bits);
+                oldval = getUnsignedBitfieldFromValue(o,thisop->offset,
+                            thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
                     newval = oldval + thisop->i64;
@@ -2626,8 +2630,8 @@ void bitfieldGeneric(client *c, int flags) {
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
                     if (strGrowSize || (oldval != newval)) {
-                        int ret = setUnsignedBitfieldInValue(bitmap,string,
-                                thisop->offset,thisop->bits,newval);
+                        int ret = setUnsignedBitfieldInValue(o,thisop->offset,
+                                thisop->bits,newval);
                         serverAssert(ret == C_OK);
                         changes++;
                     }
@@ -2639,12 +2643,12 @@ void bitfieldGeneric(client *c, int flags) {
             /* GET */
             if (o != NULL && o->type == OBJ_BITMAP) {
                 if (thisop->sign) {
-                    int64_t val = getSignedBitfieldFromValue(o,NULL,
-                            thisop->offset,thisop->bits);
+                    int64_t val = getSignedBitfieldFromValue(o,thisop->offset,
+                            thisop->bits);
                     addReplyLongLong(c,val);
                 } else {
-                    uint64_t val = getUnsignedBitfieldFromValue(o,NULL,
-                            thisop->offset,thisop->bits);
+                    uint64_t val = getUnsignedBitfieldFromValue(o,thisop->offset,
+                            thisop->bits);
                     addReplyLongLong(c,val);
                 }
                 continue;
@@ -2673,11 +2677,11 @@ void bitfieldGeneric(client *c, int flags) {
             /* Now operate on the copied buffer which is guaranteed
              * to be zero-padded. */
             if (thisop->sign) {
-                int64_t val = getSignedBitfieldFromValue(NULL,buf,
+                int64_t val = getSignedBitfield(buf,
                         thisop->offset-(byte*8),thisop->bits);
                 addReplyLongLong(c,val);
             } else {
-                uint64_t val = getUnsignedBitfieldFromValue(NULL,buf,
+                uint64_t val = getUnsignedBitfield(buf,
                         thisop->offset-(byte*8),thisop->bits);
                 addReplyLongLong(c,val);
             }
