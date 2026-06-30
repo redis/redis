@@ -1600,21 +1600,19 @@ void bitopCommand(client *c) {
             zfree(objects);
             return;
         }
-        uint64_t logical_len;
         if (kv->type == OBJ_BITMAP) {
             objects[j] = kv;
             src[j] = NULL;
-            logical_len = bitmapObjectLen(kv);
+            len[j] = bitmapObjectLen(kv);
             has_native_bitmap = 1;
         } else {
             objects[j] = getDecodedObject(kv);
             src[j] = objects[j]->ptr;
-            logical_len = sdslen(objects[j]->ptr);
+            len[j] = sdslen(objects[j]->ptr);
         }
         /* len[] feeds the string-only fast path, which never runs with native
          * sources; native logical lengths only contribute to maxlen. */
-        len[j] = (size_t)logical_len;
-        if (logical_len > maxlen) maxlen = logical_len;
+        if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
