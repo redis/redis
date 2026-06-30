@@ -766,9 +766,8 @@ void printBits(unsigned char *p, unsigned long count) {
 
 /* This helper function used by bitmap commands parses the bit offset argument,
  * making sure an error is returned if it is negative or does not fit a signed
- * 64-bit integer. Write paths and legacy string read paths apply the
- * client-visible proto-max-bulk-len limit separately; native bitmap reads can
- * address sparse offsets inside the native v1 cap and read unset bits as zero.
+ * 64-bit integer. Representation-specific bitmap limits are checked by the
+ * command paths after parsing.
  *
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
@@ -783,53 +782,42 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     /* Handle #<offset> form. */
     if (p[0] == '#' && hash && bits > 0) usehash = 1;
 
-    if (string2ll(p+usehash,plen-usehash,&loffset) == 0 || loffset < 0) {
+    if (string2ll(p+usehash,plen-usehash,&loffset) == 0) {
         addReplyError(c,err);
         return C_ERR;
     }
 
-    /* Adjust the offset by 'bits' for #<offset> form, rejecting products
-     * that overflow the 64-bit offset space. */
+    /* Adjust the offset by 'bits' for #<offset> form. */
     if (usehash) {
-        if (loffset > LLONG_MAX / bits) {
+        if (loffset < 0 || loffset > LLONG_MAX / bits) {
             addReplyError(c,err);
             return C_ERR;
         }
         loffset *= bits;
     }
 
+    if (loffset < 0) {
+        addReplyError(c,err);
+        return C_ERR;
+    }
+
     *offset = loffset;
     return C_OK;
 }
 
-static int bitmapOffsetWithinProtoLimit(client *c, uint64_t bitoffset, const char *err) {
+/* Public bitmap writes keep Redis' proto-max-bulk-len cap; string and
+ * missing-key reads use the same historical limit. Masters validate writes
+ * before propagation, so replicated commands skip it. */
+static int bitmapOffsetWithinProtoLimit(client *c, uint64_t bitoffset) {
     if (mustObeyClient(c) || (bitoffset >> 3) < (uint64_t)server.proto_max_bulk_len)
         return 1;
-    addReplyError(c, err);
+    addReplyError(c, "bit offset is not an integer or out of range");
     return 0;
-}
-
-/* Legacy string and missing-key reads keep the historical Redis bitmap offset
- * limit. Native bitmap reads apply the native cap after key lookup instead. */
-static int bitmapReadOffsetWithinLimit(client *c, uint64_t bitoffset) {
-    return bitmapOffsetWithinProtoLimit(c, bitoffset, "bit offset is out of range");
 }
 
 static int bitmapNativeOffsetWithinLimit(client *c, uint64_t maxbit) {
     if (bitmapObjectCanRepresentBit(maxbit)) return 1;
     addReplyError(c, "bit offset is out of range");
-    return 0;
-}
-
-/* Bitmap writes cannot address bits at or beyond proto-max-bulk-len bytes
- * (512MB by default), regardless of whether the value is stored as a string or
- * as a native bitmap. 'maxbit' must be the last bit the write can touch.
- * Returns 1 when 'maxbit' is writable, otherwise replies with the legacy
- * out-of-range error and returns 0. Commands obeying a master or the AOF skip
- * the check: the master already validated the write against its own limit. */
-static int bitmapWriteOffsetWithinLimit(client *c, uint64_t maxbit) {
-    if (bitmapOffsetWithinProtoLimit(c, maxbit, "bit offset is out of range"))
-        return 1;
     return 0;
 }
 
@@ -886,7 +874,7 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
     if (checkType(c,o,OBJ_STRING)) return NULL;
-    if (!bitmapWriteOffsetWithinLimit(c, maxbit)) return NULL;
+    if (!bitmapOffsetWithinProtoLimit(c, maxbit)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
@@ -1009,7 +997,7 @@ void setbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
-    if (!bitmapWriteOffsetWithinLimit(c, bitoffset))
+    if (!bitmapOffsetWithinProtoLimit(c, bitoffset))
         return;
 
     if (getLongFromObjectOrReply(c,c->argv[3],&on,err) != C_OK)
@@ -1153,7 +1141,7 @@ void getbitCommand(client *c) {
 
     kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
     if ((kv == NULL || kv->type != OBJ_BITMAP) &&
-        !bitmapReadOffsetWithinLimit(c, bitoffset))
+        !bitmapOffsetWithinProtoLimit(c, bitoffset))
         return;
     if (kv == NULL) {
         addReply(c, shared.czero);
@@ -2429,7 +2417,7 @@ void bitfieldGeneric(client *c, int flags) {
                 zfree(ops);
                 return;
             }
-            if (!bitmapWriteOffsetWithinLimit(c,last_bit)) {
+            if (!bitmapOffsetWithinProtoLimit(c,last_bit)) {
                 zfree(ops);
                 return;
             }
@@ -2458,7 +2446,7 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (!readonly) {
         for (j = 0; j < numops; j++) {
-            if (!bitmapReadOffsetWithinLimit(c, ops[j].offset)) {
+            if (!bitmapOffsetWithinProtoLimit(c, ops[j].offset)) {
                 zfree(ops);
                 return;
             }
@@ -2471,7 +2459,7 @@ void bitfieldGeneric(client *c, int flags) {
         o = lookupKeyRead(c->db,c->argv[1]);
         if (o == NULL || o->type != OBJ_BITMAP) {
             for (j = 0; j < numops; j++) {
-                if (!bitmapReadOffsetWithinLimit(c, ops[j].offset)) {
+                if (!bitmapOffsetWithinProtoLimit(c, ops[j].offset)) {
                     zfree(ops);
                     return;
                 }
