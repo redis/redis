@@ -1158,6 +1158,8 @@ static robj *rdbLoadBitmapRangeObject(rio *rdb, uint64_t byte_len,
     uint64_t bit_len = byte_len * 8;
     uint64_t range_count = rdbLoadLen(rdb, NULL);
     if (range_count == RDB_LENERR) return NULL;
+    /* A canonical range payload cannot contain more than every other bit as
+     * a one-bit run. Reject impossible counts before reading untrusted ranges. */
     if (range_count > (bit_len + 1) / 2) return NULL;
 
     robj *o = createBitmapObjectWithLen(byte_len);
