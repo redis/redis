@@ -2894,7 +2894,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         R 1 flushall
     }
 
-    test "Test REDISMODULE_CTX_FLAGS_FROM_SLOT_MIGRATION is set while applying ASM commands" {
+    test "Test REDISMODULE_CTX_FLAGS_SLOT_MIGRATION_IMPORT is set while applying ASM commands" {
         R 0 flushall
         R 1 flushall
 
