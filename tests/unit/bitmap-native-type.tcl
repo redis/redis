@@ -833,7 +833,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
-    test {native bitmap serialized payload endianness conversion round-trips} {
+    test {native bitmap container RDB payload round-trips across container shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
@@ -867,7 +867,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         foreach {name raw} [list dense $dense trailing-zero $trailing_zero mixed $mixed sparse $sparse] {
             r set bitmap:endian:$name $raw
             r bitmap convert bitmap:endian:$name
-            assert_equal OK [r debug bitmap-endian-check bitmap:endian:$name]
             assert_equal [r debug bitmap-raw bitmap:endian:$name] $raw
 
             r restore bitmap:endian:restored:$name 0 [r dump bitmap:endian:$name]
