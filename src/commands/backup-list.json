@@ -3,7 +3,7 @@
         "summary": "List the immutable backup file paths pinned so far.",
         "complexity": "O(1)",
         "group": "server",
-        "since": "8.6.0",
+        "since": "8.10.0",
         "arity": 2,
         "container": "BACKUP",
         "function": "backupCommand",

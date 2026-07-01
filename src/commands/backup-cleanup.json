@@ -3,7 +3,7 @@
         "summary": "Remove a sealed backup's files and return to idle.",
         "complexity": "O(1)",
         "group": "server",
-        "since": "8.6.0",
+        "since": "8.10.0",
         "arity": 2,
         "container": "BACKUP",
         "function": "backupCommand",

@@ -17,6 +17,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {BACKUP STATUS reports idle on a fresh instance} {
         assert_equal "idle" [backup_status_field state]
+        assert_equal "86400" [lindex [r config get backup-sealed-ttl] 1]
     }
 
     test {BACKUP read/no-op commands can execute inside transactions} {
@@ -133,6 +134,28 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         assert_equal "idle" [backup_status_field state]
         assert_equal "" [backup_status_field error]
         assert {[backup_dir_empty $bdir]}
+    }
+
+    test {BACKUP auto-cleans sealed backup after configured ttl} {
+        assert_equal "OK" [r config set backup-sealed-ttl 1]
+        r flushall
+        r set auto-cleanup-backup 1
+
+        assert_equal "OK" [r backup start]
+        wait_for_condition 50 100 {
+            [backup_status_field state] eq "incrementing"
+        } else {
+            fail "BACKUP did not reach the incrementing state"
+        }
+        assert_equal "OK" [r backup seal]
+        assert_equal "sealed" [backup_status_field state]
+
+        wait_for_condition 50 100 {
+            [backup_status_field state] eq "idle" && [backup_dir_empty $bdir]
+        } else {
+            fail "Sealed backup was not auto-cleaned"
+        }
+        assert_equal "OK" [r config set backup-sealed-ttl 86400]
     }
 
     test {appendonly-no backup does not remove preexisting appendonlydir files} {

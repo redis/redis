@@ -2294,6 +2294,7 @@ struct redisServer {
     sds backup_error;                /* Last backup failure/abort reason, or NULL. */
     time_t backup_start_time;        /* Unix time when the current/last backup started. */
     time_t backup_end_time;          /* Unix time when the current/last backup was sealed. */
+    time_t backup_sealed_ttl;        /* Seconds to keep SEALED backup files; 0 disables auto cleanup. */
 
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
@@ -3528,6 +3529,7 @@ void aofOpenIfNeededOnServerStart(void);
 void aofManifestFree(aofManifest *am);
 int loadDataFromRestoreDir(void);
 void backupCron(void);
+int backupIsInProgress(void);
 void backupSetFailed(const char *err);
 void backupAbortIfInProgress(const char *err);
 int aofDelHistoryFiles(void);

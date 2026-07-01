@@ -3088,6 +3088,11 @@ static void backupUnlinkFile(char *filename) {
     sdsfree(path);
 }
 
+/* Remove all artifact files from the backup directory. */
+static void backupRemoveArtifacts(void) {
+    removeFilesInDir(server.backup_dirname);
+}
+
 static void backupClearError(void) {
     if (server.backup_error) {
         sdsfree(server.backup_error);
@@ -3168,7 +3173,7 @@ void backupSetFailed(const char *err) {
         aofManifestFreeAndUpdate(aofManifestCreate());
     }
 
-    removeFilesInDir(server.backup_dirname);
+    backupRemoveArtifacts();
     backupClearArtifactFilenames();
     server.backup_can_remove_aof_dir = 0;
     server.backup_end_time = 0;
@@ -3209,7 +3214,6 @@ static void backupHandleSnapshotDone(void) {
 
     serverAssert(server.aof_manifest->base_aof_info);
     sds base_filename = server.aof_manifest->base_aof_info->file_name;
-
     if (backupLinkFile(base_filename) != C_OK) {
         backupSetFailed("failed to pin base file");
         return;
@@ -3221,9 +3225,12 @@ static void backupHandleSnapshotDone(void) {
 }
 
 /* Called from backgroundRewriteDoneHandler when the snapshot rewrite failed. */
-static void backupHandleSnapshotFailed(void) {
+static void backupHandleSnapshotFailed(const char *err) {
     if (server.backup_state != BACKUP_STATE_SNAPSHOTTING) return;
-    backupSetFailed("snapshot rewrite failed");
+
+    sds msg = sdscatfmt(sdsempty(), "snapshot rewrite failed: %s", err);
+    backupSetFailed(msg);
+    sdsfree(msg);
 }
 
 static const char *backupStateToString(int s) {
@@ -3279,6 +3286,20 @@ static int backupStartPendingSnapshot(void) {
 
 void backupCron(void) {
     backupStartPendingSnapshot();
+
+    /* Auto clean sealed backup. */
+    time_t now = server.unixtime;
+    if (server.backup_state == BACKUP_STATE_SEALED &&
+        server.backup_sealed_ttl &&
+        server.backup_end_time &&
+        now >= server.backup_end_time &&
+        now - server.backup_end_time >= server.backup_sealed_ttl)
+    {
+        serverLog(LL_NOTICE, "BACKUP: auto cleaning sealed backup after %lld seconds",
+                             (long long)(now - server.backup_end_time));
+        backupRemoveArtifacts();
+        backupResetState();
+    }
 }
 
 /* BACKUP START: begin a new backup window. */
@@ -3414,7 +3435,7 @@ static void backupCleanupCommand(client *c) {
         addReplyError(c, "Backup is in progress");
         return;
     }
-    removeFilesInDir(server.backup_dirname);
+    backupRemoveArtifacts();
     backupResetState();
     addReply(c, shared.ok);
 }
@@ -3481,11 +3502,6 @@ void backupCommand(client *c) {
 "    Return this help.",
 NULL
     };
-
-    if (c->argc != 2) {
-        addReplySubcommandSyntaxError(c);
-        return;
-    }
 
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "help")) {
@@ -3590,6 +3606,9 @@ int loadDataFromRestoreDir(void) {
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
+    int rewrite_success = 0;
+    char bgrewrite_error[256] = "";
+
     if (!bysignal && exitcode == 0) {
         char tmpfile[256];
         long long now = ustime();
@@ -3718,15 +3737,15 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
-        /* If a backup is waiting for its snapshot, pin the new BASE file. */
-        backupHandleSnapshotDone();
+        rewrite_success = 1;
     } else if (!bysignal && exitcode != 0) {
         server.aof_lastbgrewrite_status = C_ERR;
         server.stat_aofrw_consecutive_failures++;
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated with error");
-        backupHandleSnapshotFailed();
+        snprintf(bgrewrite_error, sizeof(bgrewrite_error),
+                 "child exited with code %d", exitcode);
     } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * triggering an error condition. */
@@ -3737,7 +3756,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);
-        backupHandleSnapshotFailed();
+        snprintf(bgrewrite_error, sizeof(bgrewrite_error),
+                 "child terminated by signal %d", bysignal);
     }
 
 cleanup:
@@ -3750,7 +3770,19 @@ cleanup:
     }
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
-    /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */
-    if (server.aof_state == AOF_WAIT_REWRITE)
+    /* Schedule a new rewrite only when AOF is enabled by config. BACKUP's
+     * appendonly-no temp AOF should fail instead of retrying internally. */
+    if (server.aof_state == AOF_WAIT_REWRITE && server.aof_enabled) {
         server.aof_rewrite_scheduled = 1;
+    }
+
+    /* Notify BACKUP after AOFRW cleanup, so BACKUP teardown cannot disturb the
+     * handler's own temp-file and child-state cleanup. */
+    if (rewrite_success) {
+        backupHandleSnapshotDone();
+    } else {
+        if (!bgrewrite_error[0])
+            snprintf(bgrewrite_error, sizeof(bgrewrite_error), "AOFRW failed to persist files");
+        backupHandleSnapshotFailed(bgrewrite_error);
+    }
 }

@@ -1663,16 +1663,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Handle background operations on Redis databases. */
     databasesCron();
 
-    /* Advance a BACKUP START that is waiting for an AOF rewrite slot. */
     backupCron();
 
     /* Start a scheduled AOF rewrite if this was requested while another state
-     * prevented it earlier. PENDING backups are advanced by backupCron above;
-     * INCREMENTING still suppresses rewrites. */
+     * prevented it earlier. */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled &&
-        server.backup_state != BACKUP_STATE_PENDING &&
-        server.backup_state != BACKUP_STATE_INCREMENTING &&
+        !backupIsInProgress() &&
         !aofRewriteLimited())
     {
         rewriteAppendOnlyFileBackground();
@@ -1708,13 +1705,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
 
-        /* Trigger an AOF rewrite if needed. BACKUP owns rewrite timing while
-         * it is pending or actively collecting BASE/INCR files. */
+        /* Trigger an AOF rewrite if needed. */
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
-            server.backup_state != BACKUP_STATE_PENDING &&
-            server.backup_state != BACKUP_STATE_SNAPSHOTTING &&
-            server.backup_state != BACKUP_STATE_INCREMENTING &&
+            !backupIsInProgress() &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {

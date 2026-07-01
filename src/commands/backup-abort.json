@@ -3,7 +3,7 @@
         "summary": "Cancel a backup that has not been sealed yet.",
         "complexity": "O(1)",
         "group": "server",
-        "since": "8.6.0",
+        "since": "8.10.0",
         "arity": 2,
         "container": "BACKUP",
         "function": "backupCommand",
