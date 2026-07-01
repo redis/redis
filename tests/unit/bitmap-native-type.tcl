@@ -845,8 +845,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         append trailing_zero [string repeat [binary format H* 00] 1023]
 
         # Build one mixed bitmap holding all three container kinds so the
-        # converter walks every payload section. Each 65536-bit chunk is
-        # 8192 bytes:
+        # RDB round-trip walks every container payload shape. Each 65536-bit
+        # chunk is 8192 bytes:
         # chunk 0: 4800 consecutive set bits -> run container
         # chunk 1: alternating bits, cardinality 8000 -> bitset container
         # chunk 2: 64 isolated bits -> array container
@@ -863,8 +863,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         append mixed [string repeat [binary format H* 00] 7168]
         append mixed [string repeat [binary format H* ff] 600]
 
-        # An array-only bitmap spanning two containers serializes with the
-        # no-run cookie, covering the other header layout.
+        # An array-only bitmap spanning two containers keeps sparse array
+        # payloads valid across more than one high48 bucket.
         set sparse [binary format H* 80]
         append sparse [string repeat [binary format H* 00] 8191]
         append sparse [binary format H* 80]
