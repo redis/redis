@@ -2325,27 +2325,6 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
-static int getBitfieldLastBit(uint64_t offset, int bits, uint64_t *last) {
-    uint64_t width = (uint64_t)bits - 1;
-
-    if (offset > UINT64_MAX - width) return C_ERR;
-    *last = offset + width;
-    return C_OK;
-}
-
-static int bitmapNativeBitfieldOpsWithinLimit(client *c, struct bitfieldOp *ops,
-                                              int numops) {
-    for (int j = 0; j < numops; j++) {
-        uint64_t last_bit;
-        if (getBitfieldLastBit(ops[j].offset,ops[j].bits,&last_bit) != C_OK) {
-            addReplyError(c,"bit offset is not an integer or out of range");
-            return 0;
-        }
-        if (!bitmapNativeOffsetWithinLimit(c,last_bit)) return 0;
-    }
-    return 1;
-}
-
 /* This implements both the BITFIELD command and the BITFIELD_RO command
  * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
  * GET subcommand is allowed, other subcommands will return an error. */
@@ -2415,13 +2394,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (opcode != BITFIELDOP_GET) {
-            uint64_t last_bit;
-
-            if (getBitfieldLastBit(bitoffset,bits,&last_bit) != C_OK) {
-                addReplyError(c,"bit offset is not an integer or out of range");
-                zfree(ops);
-                return;
-            }
+            uint64_t last_bit = bitoffset + bits - 1;
             /* Native bitmap writes don't pass through lookupStringForBitCommand(),
              * so validate the shared public write limit before key lookup. */
             if (!bitmapOffsetWithinProtoLimit(c,last_bit)) {
@@ -2451,37 +2424,13 @@ void bitfieldGeneric(client *c, int flags) {
         j += 3 - (opcode == BITFIELDOP_GET);
     }
 
-    if (!readonly) {
-        for (j = 0; j < numops; j++) {
-            if (ops[j].opcode != BITFIELDOP_GET) continue;
-            if (!bitmapOffsetWithinProtoLimit(c, ops[j].offset)) {
-                zfree(ops);
-                return;
-            }
-        }
-    }
-
     if (readonly) {
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string or bitmap. */
         o = lookupKeyRead(c->db,c->argv[1]);
-        if (o == NULL || o->type != OBJ_BITMAP) {
-            for (j = 0; j < numops; j++) {
-                if (!bitmapOffsetWithinProtoLimit(c, ops[j].offset)) {
-                    zfree(ops);
-                    return;
-                }
-            }
-        }
         if (o != NULL && checkStringOrBitmapType(c,o)) {
             zfree(ops);
             return;
-        }
-        if (o != NULL && o->type == OBJ_BITMAP) {
-            if (!bitmapNativeBitfieldOpsWithinLimit(c,ops,numops)) {
-                zfree(ops);
-                return;
-            }
         }
     } else {
         if (flags & BITFIELD_FLAG_READONLY) {
@@ -2505,8 +2454,7 @@ void bitfieldGeneric(client *c, int flags) {
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapNativeBitfieldOpsWithinLimit(c,ops,numops))
-        {
+            !bitmapNativeOffsetWithinLimit(c,highest_write_bit)) {
             zfree(ops);
             return;
         }
