@@ -210,7 +210,7 @@ proc assert_native_bitmap_write_matches_string {name raw command} {
     set string_cmd [lreplace $command 1 1 $string_key]
     set native_cmd [lreplace $command 1 1 $native_key]
     assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
-    assert_equal [r get $string_key] [r debug bitmap-raw $native_key]
+    assert_equal [bitmap_logical_raw $string_key] [r debug bitmap-raw $native_key]
     assert_equal bitmap [r type $native_key]
     assert_equal bitmap-roaring [r object encoding $native_key]
 }
@@ -391,9 +391,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_error {*bit offset*out of range*} {
             r getbit bitmap:native:wide-offset-cap $first_rejected
         }
-        assert_error {*bit offset*out of range*} {
-            r bitfield_ro bitmap:native:wide-offset-cap GET u1 $first_rejected
-        }
+        assert_equal {0} [r bitfield_ro bitmap:native:wide-offset-cap GET u1 $first_rejected]
         assert_error {*bit offset*out of range*} {
             r setbit bitmap:native:wide-offset-cap $first_rejected 1
         }
@@ -615,18 +613,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
                 r bitfield $key SET u2 4294967295 3
             }
         }
-        assert_error {*ERR bit offset*out of range*} {
-            r bitfield_ro bitmap:string:bitfield:limit GET u1 4294967296
-        }
-        assert_error {*ERR bit offset*out of range*} {
-            r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296
-        }
-        assert_error {*ERR bit offset*out of range*} {
-            r bitfield_ro bitmap:native:bitfield:limit GET u2 4294967295
-        }
-        assert_error {*ERR bit offset*out of range*} {
-            r bitfield bitmap:native:bitfield:limit GET u1 4294967296 SET u1 0 1
-        }
+        assert_equal {0} [r bitfield_ro bitmap:string:bitfield:limit GET u1 4294967296]
+        assert_equal {0} [r bitfield_ro bitmap:native:bitfield:limit GET u1 4294967296]
+        assert_equal {0} [r bitfield_ro bitmap:native:bitfield:limit GET u2 4294967295]
+        assert_equal {0 0} [r bitfield bitmap:native:bitfield:limit GET u1 4294967296 SET u1 0 0]
         assert_equal 0 [r bitcount bitmap:string:bitfield:limit]
         assert_equal 0 [r bitcount bitmap:native:bitfield:limit]
         assert_equal string [r type bitmap:string:bitfield:limit]

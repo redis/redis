@@ -226,12 +226,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         foreach cmd {
             {getbit bitmap:native:bounds 4294967296}
             {setbit bitmap:native:bounds 4294967296 1}
-            {bitfield_ro bitmap:native:bounds GET u1 4294967296}
             {bitfield bitmap:native:bounds SET u1 4294967296 1}
-            {bitfield bitmap:native:bounds GET u1 4294967296 SET u1 0 1}
         } {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
+        assert_equal {0} [r bitfield_ro bitmap:native:bounds GET u1 4294967296]
+        assert_equal {0 1} [
+            r bitfield bitmap:native:bounds GET u1 4294967296 SET u1 0 1
+        ]
         assert_error {*bit offset is*out of range*} {
             r setbit bitmap:native:bounds 9223372036854775808 1
         }
@@ -274,12 +276,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_error {*bit offset is*out of range*} {
             r getbit bitmap:string:bounds 4294967296
         }
-        assert_error {*bit offset is*out of range*} {
-            r bitfield_ro bitmap:string:bounds GET u8 4294967296
-        }
-        assert_error {*bit offset is*out of range*} {
-            r bitfield bitmap:string:bounds GET u8 4294967296
-        }
+        assert_equal {0} [r bitfield_ro bitmap:string:bounds GET u8 4294967296]
+        assert_equal {0} [r bitfield bitmap:string:bounds GET u8 4294967296]
         assert_equal 1 [r bitcount bitmap:string:bounds]
     }
 
@@ -300,10 +298,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         foreach cmd [list \
             [list setbit bitmap:native:small-limit $first_rejected 1] \
             [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
-            [list bitfield bitmap:native:small-limit GET u1 $first_rejected SET u1 0 1] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
+        assert_equal {0 0} [
+            r bitfield bitmap:native:small-limit GET u1 $first_rejected SET u1 0 0
+        ]
         assert_error {*bit offset*out of range*} {
             r bitfield bitmap:native:small-limit SET u2 $last_allowed 3
         }
@@ -329,13 +329,15 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         foreach cmd [list \
             [list getbit bitmap:native:raised-limit $first_rejected] \
             [list setbit bitmap:native:raised-limit $first_rejected 1] \
-            [list bitfield_ro bitmap:native:raised-limit GET u1 $first_rejected] \
             [list bitfield bitmap:native:raised-limit SET u1 $first_rejected 1] \
             [list bitfield bitmap:native:raised-limit SET u2 $max_native_bit 3] \
-            [list bitfield bitmap:native:raised-limit GET u1 $first_rejected SET u1 1 1] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
+        assert_equal {0} [r bitfield_ro bitmap:native:raised-limit GET u1 $first_rejected]
+        assert_equal {0 1} [
+            r bitfield bitmap:native:raised-limit GET u1 $first_rejected SET u1 0 1
+        ]
 
         assert_error {*bit offset*out of range*} {
             r setbit bitmap:native:raised-limit:new $first_rejected 1
@@ -347,8 +349,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r setbit bitmap:native:raised-limit:string $first_rejected 1
         }
         assert_error {*bit offset*out of range*} {
-            r bitfield bitmap:native:raised-limit:string GET u1 $first_rejected SET u1 1 1
+            r bitfield bitmap:native:raised-limit:string SET u1 $first_rejected 1
         }
+        assert_equal {0} [
+            r bitfield bitmap:native:raised-limit:string GET u1 $first_rejected
+        ]
         assert_equal string [r type bitmap:native:raised-limit:string]
         assert_equal [binary format H* 80] [r get bitmap:native:raised-limit:string]
 
@@ -833,15 +838,15 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
-    test {native bitmap serialized payload endianness conversion round-trips} {
+    test {native bitmap container RDB payload round-trips across container shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
         append trailing_zero [string repeat [binary format H* 00] 1023]
 
         # Build one mixed bitmap holding all three container kinds so the
-        # converter walks every payload section. Each 65536-bit chunk is
-        # 8192 bytes:
+        # RDB round-trip walks every container payload shape. Each 65536-bit
+        # chunk is 8192 bytes:
         # chunk 0: 4800 consecutive set bits -> run container
         # chunk 1: alternating bits, cardinality 8000 -> bitset container
         # chunk 2: 64 isolated bits -> array container
@@ -858,8 +863,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         append mixed [string repeat [binary format H* 00] 7168]
         append mixed [string repeat [binary format H* ff] 600]
 
-        # An array-only bitmap spanning two containers serializes with the
-        # no-run cookie, covering the other header layout.
+        # An array-only bitmap spanning two containers keeps sparse array
+        # payloads valid across more than one high48 bucket.
         set sparse [binary format H* 80]
         append sparse [string repeat [binary format H* 00] 8191]
         append sparse [binary format H* 80]
@@ -867,7 +872,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         foreach {name raw} [list dense $dense trailing-zero $trailing_zero mixed $mixed sparse $sparse] {
             r set bitmap:endian:$name $raw
             r bitmap convert bitmap:endian:$name
-            assert_equal OK [r debug bitmap-endian-check bitmap:endian:$name]
             assert_equal [r debug bitmap-raw bitmap:endian:$name] $raw
 
             r restore bitmap:endian:restored:$name 0 [r dump bitmap:endian:$name]

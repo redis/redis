@@ -7,28 +7,7 @@ payload shape or inspect its containers.
 
 ## Top-Level Framing
 
-`RDB_TYPE_BITMAP` writes an in-payload format marker followed by an encoding id:
-
-1. `format`: RDB length integer. Current v2 marker is `1 << 60`.
-2. `encoding`: RDB length integer.
-3. Encoding-specific fields.
-
-Encoding ids:
-
-| Id | Name | Write status | Load status |
-| ---: | --- | --- | --- |
-| `0` | raw | Compatibility only | Accepted |
-| `1` | ranges | Compatibility only | Accepted |
-| `2` | portable | Compatibility only | Accepted for previous v2 payloads |
-| `3` | containers | Current default | Accepted |
-
-Legacy same-type payloads that predate the v2 marker start directly with
-`byte_len`, followed by encoding `0` or `1`. The loader keeps accepting those
-raw/range forms.
-
-## Container Encoding
-
-The current default v2 encoding is `containers`:
+`RDB_TYPE_BITMAP` writes the final container stream directly:
 
 1. `byte_len`: logical bitmap byte length as an RDB length integer.
 2. `container_count`: number of 2^16-bit containers as an RDB length integer.
@@ -65,7 +44,3 @@ The loader rejects malformed payloads before exposing an object:
 - Cardinality must match the decoded container contents.
 - The highest set bit must be less than `byte_len * 8`.
 - Structural validation rejects unsorted arrays and invalid run layouts.
-
-Encoding `2` portable payloads remain load-compatible for existing artifacts,
-but new saves use encoding `3` so the RDB payload is Redis-owned and directly
-inspectable.

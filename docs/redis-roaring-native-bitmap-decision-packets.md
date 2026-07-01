@@ -57,13 +57,11 @@ as stable.
 - Dense/materializing native paths remain bounded by `proto-max-bulk-len` when
   that configured limit is lower; read-only native lookups can exceed a lower
   runtime limit only inside the 512 MiB v1 cap.
-- The current RDB path saves a native bitmap with a stable v2 marker followed
-  by an endian-neutral Redis-owned container stream. Load accepts current
-  container payloads, previous v2 portable payloads, and older raw/range
-  payloads above the server's current lower `proto-max-bulk-len` setting, but
-  rejects native bitmap logical lengths above the 512 MiB v1 cap, max offsets
-  above bit `4294967295`, malformed container payloads, and non-canonical
-  legacy range payloads with overlapping or adjacent ranges.
+- The current RDB path saves a native bitmap as an endian-neutral Redis-owned
+  container stream. Because this PR has not shipped, load accepts only the
+  final container payload rather than previous in-PR draft raw/range/portable
+  payloads. It rejects native bitmap logical lengths above the 512 MiB v1 cap,
+  max offsets above bit `4294967295`, and malformed container payloads.
 - Documentation now describes native 64-bit-capable internals with the bounded
   v1 native bitmap surface, leaving any future cap expansion as a separate
   decision.
