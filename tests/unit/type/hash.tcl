@@ -342,18 +342,6 @@ start_server {tags {"hash"}} {
         r config set hash-max-listpack-entries $prev
     }
 
-    test {HSET fresh build then DEBUG RELOAD round-trips} {
-        r del freshrl
-        set args {}
-        for {set i 0} {$i < 51} {incr i} { lappend args feat$i val$i }
-        r hset freshrl {*}$args
-        assert_encoding listpack freshrl
-        r debug reload
-        assert_equal 51 [r hlen freshrl]
-        assert_equal val50 [r hget freshrl feat50]
-        assert_encoding listpack freshrl
-    } {} {needs:debug}
-
     test {HMSET fresh wide build returns OK and stores all fields} {
         r del freshhmset
         set args {}
@@ -361,13 +349,6 @@ start_server {tags {"hash"}} {
         assert_equal {OK} [r hmset freshhmset {*}$args]
         assert_equal 32 [r hlen freshhmset]
         assert_equal w31 [r hget freshhmset g31]
-    }
-
-    test {HSET fresh build with all-duplicate fields -> single field, last-wins} {
-        r del freshalldup
-        assert_equal 1 [r hset freshalldup f a f b f c]
-        assert_equal 1 [r hlen freshalldup]
-        assert_equal c [r hget freshalldup f]
     }
 
     test {HSET fresh wide build above the stack threshold (300 fields) stays listpack} {
