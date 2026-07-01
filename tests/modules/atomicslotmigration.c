@@ -476,8 +476,8 @@ int getClusterTrimEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 /* A keyless command to test module command replication. */
 int moduledata = 0;
 
-/* Records whether the REDISMODULE_CTX_FLAGS_FROM_ASM flag was set the last time
- * keylessCmd ran. -1 means the command has not run yet. */
+/* Records whether the REDISMODULE_CTX_FLAGS_FROM_SLOT_MIGRATION flag was set the
+ * last time keylessCmd ran. -1 means the command has not run yet. */
 long long lastCmdFromAsm = -1;
 
 int keylessCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -486,7 +486,7 @@ int keylessCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argc);
     moduledata++;
     /* Record whether this command is being executed in an ASM context. */
-    lastCmdFromAsm = !!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_FROM_ASM);
+    lastCmdFromAsm = !!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_FROM_SLOT_MIGRATION);
     RedisModule_ReplyWithLongLong(ctx, moduledata);
     return REDISMODULE_OK;
 }
