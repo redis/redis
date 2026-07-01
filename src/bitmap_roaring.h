@@ -25,8 +25,6 @@ robj *createBitmapObjectWithLen(uint64_t byte_len);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
 robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf,
                                              size_t len);
-robj *createBitmapObjectFromPortable(const unsigned char *buf, size_t len,
-                                     uint64_t byte_len);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
 void dismissBitmapObject(robj *o, size_t size_hint);
@@ -80,10 +78,8 @@ int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end);
 void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectMaterializeForRDB(const robj *o);
-sds bitmapObjectSerializePortable(const robj *o);
 ssize_t bitmapObjectSaveRdbContainers(rio *rdb, const robj *o);
 robj *createBitmapObjectFromRdbContainers(rio *rdb, uint64_t byte_len);
-int bitmapObjectEndianRoundtripCheck(const robj *o);
 robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITMAP_ROARING_H */

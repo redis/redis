@@ -49,11 +49,10 @@ marked pending in the trackers.
   When the destination type decision depends on the local config (all-string
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
-- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores a
-  stable v2 marker, a Redis-owned container-stream encoding id, the logical
-  byte length, and endian-neutral container records. The loader also accepts
-  the previous raw/range encodings, previous v2 portable payloads, and the
-  previous same-version layout that wrote logical byte length before encoding.
+- **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores the
+  logical byte length followed by endian-neutral Redis-owned container records.
+  Since this PR has not shipped, the loader does not preserve compatibility for
+  previous in-PR draft raw/range/portable payloads.
   AOF rewrite emits `RESTORE` with the DUMP payload. The DD-10 baseline in
   [#29](https://github.com/aviggiano/redis/issues/29) treats RESTORE input as
   untrusted; open [PR #44](https://github.com/aviggiano/redis/pull/44) is
@@ -185,9 +184,7 @@ design.
   description.
 - Harden `RESTORE` for the new payload: always validate logical byte length,
   bounded container payload lengths, container type/cardinality invariants,
-  max-offset invariants, raw payload length for legacy raw inputs, portable
-  payload deserialization for previous v2 inputs, and canonical range ordering
-  for legacy range inputs, with corrupt-payload tests.
+  and max-offset invariants, with corrupt-payload tests.
 - The 64-bit indexing decision (Step 1) must be resolved before this step's
   RDB payload and type id are submitted upstream.
 - Add key introspection and module-facing type handling:
