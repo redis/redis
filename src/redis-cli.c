@@ -5554,7 +5554,10 @@ static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
         int dst_state = clusterManagerAsmTaskState(target, task_id, err);
         int src_state = clusterManagerAsmTaskState(source, task_id, err);
 
-        if (src_state == -1 || dst_state == -1) break; /* Handle reply errors. */
+        if (src_state == -1 || dst_state == -1) {
+            if (err != NULL && *err == NULL) *err = zstrdup("reply error");
+            break;
+        }
 
         /* The migration is only considered successful when both the target
          * and the source report "completed" */
