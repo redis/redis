@@ -1506,12 +1506,6 @@ static int bitopUseMixedRawBytePath(robj **objects, unsigned long numkeys,
     return has_string && has_native;
 }
 
-static robj *bitopNativeBitmapOp(bitmapBitop op, robj **objects,
-                                 unsigned long numkeys, uint64_t maxlen)
-{
-    return bitmapObjectsBitopBitmap(op, objects, numkeys, maxlen);
-}
-
 REDIS_NO_SANITIZE("alignment")
 static unsigned char *bitopStringOp(bitmapBitop op, unsigned char **src,
                                     size_t *len, unsigned long numkeys,
@@ -1947,7 +1941,7 @@ void bitopCommand(client *c) {
     }
 
     if (native_dest && !mixed_raw_path) {
-        res_bitmap = bitopNativeBitmapOp(op, objects, numkeys, maxlen);
+        res_bitmap = bitmapObjectsBitopBitmap(op, objects, numkeys, maxlen);
         goto bitop_cleanup;
     }
 
