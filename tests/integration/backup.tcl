@@ -271,6 +271,38 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         file delete -force $aofdir
     }
 
+    test {CONFIG SET appendonly yes while BACKUP START is pending} {
+        set aofdir [file join $backup_server_dir appendonlydir]
+        file delete -force $aofdir
+        r flushall
+        r set pending-enable-aof 1
+        r config set rdb-key-save-delay 1000000
+        r bgsave
+        wait_for_condition 50 100 {
+            [s rdb_bgsave_in_progress] == 1
+        } else {
+            fail "BGSAVE did not start"
+        }
+
+        assert_equal "OK" [r backup start]
+        assert_equal "pending" [backup_status_field state]
+        assert_equal "OK" [r config set appendonly yes]
+
+        r config set rdb-key-save-delay 0
+        wait_for_condition 100 100 {
+            [backup_status_field state] eq "incrementing"
+        } else {
+            fail "BACKUP did not leave pending after appendonly was enabled"
+        }
+
+        r set pending-enable-aof-after-start 1
+        assert_equal "OK" [r backup seal]
+        assert_equal 1 [s aof_enabled]
+        assert_equal "OK" [r backup cleanup]
+        assert_equal "OK" [r config set appendonly no]
+        file delete -force $aofdir
+    }
+
     test {Disabling AOF aborts an in-progress backup} {
         r config set appendonly yes
         waitForBgrewriteaof r
