@@ -59,7 +59,10 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         # distant bit keeps a second sparse container in the Roaring directory.
         r set bigbitmap [binary format H* [string repeat aa 8192]]
         r setbit bigbitmap 100000 1
-        r bitmap convert bigbitmap
+        set old [lindex [r config get bitmap-default-roaring] 1]
+        r config set bitmap-default-roaring yes
+        r setbit bigbitmap 0 [r getbit bigbitmap 0]
+        r config set bitmap-default-roaring $old
         assert_equal bitmap [r type bigbitmap]
 
         set digest [debug_digest]

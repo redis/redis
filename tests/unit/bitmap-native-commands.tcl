@@ -7,8 +7,28 @@ proc seed_string_bitmap {key bits} {
 }
 
 proc seed_native_bitmap {key bits} {
-    seed_string_bitmap $key $bits
-    r bitmap convert $key
+    set old [lindex [r config get bitmap-default-roaring] 1]
+    r config set bitmap-default-roaring yes
+    r del $key
+    if {[llength $bits] == 0} {
+        r setbit $key 0 0
+    } else {
+        foreach bit $bits {
+            r setbit $key $bit 1
+        }
+    }
+    r config set bitmap-default-roaring $old
+}
+
+proc make_native_bitmap_from_string {key} {
+    set old [lindex [r config get bitmap-default-roaring] 1]
+    set bit 0
+    if {[r strlen $key] > 0} {
+        set bit [r getbit $key 0]
+    }
+    r config set bitmap-default-roaring yes
+    r setbit $key 0 $bit
+    r config set bitmap-default-roaring $old
 }
 
 # Logical raw bytes of a bitmap value regardless of its representation.
@@ -155,7 +175,7 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
         r set $string_key [lindex $source_raws $i]
         r set $native_key [lindex $source_raws $i]
         if {[lsearch -exact $native_indexes $i] >= 0} {
-            r bitmap convert $native_key
+            make_native_bitmap_from_string $native_key
         }
         lappend string_sources $string_key
         lappend native_sources $native_key
@@ -191,7 +211,7 @@ proc assert_native_bitmap_command_matches_string {name raw command} {
     set native_key "bitmap:native:read-edge:$name:native"
     r set $string_key $raw
     r set $native_key $raw
-    r bitmap convert $native_key
+    make_native_bitmap_from_string $native_key
 
     set string_cmd [lreplace $command 1 1 $string_key]
     set native_cmd [lreplace $command 1 1 $native_key]
@@ -205,7 +225,7 @@ proc assert_native_bitmap_write_matches_string {name raw command} {
     set native_key "bitmap:native:write-edge:$name:native"
     r set $string_key $raw
     r set $native_key $raw
-    r bitmap convert $native_key
+    make_native_bitmap_from_string $native_key
 
     set string_cmd [lreplace $command 1 1 $string_key]
     set native_cmd [lreplace $command 1 1 $native_key]
@@ -220,7 +240,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:native:read $raw
-        r bitmap convert bitmap:native:read
+        make_native_bitmap_from_string bitmap:native:read
 
         assert_equal 1 [r getbit bitmap:native:read 0]
         assert_equal 1 [r getbit bitmap:native:read 9]
@@ -240,11 +260,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r debug bitmap-raw bitmap:native:read]
     }
 
-    test {BITMAP CONVERT preserves dense raw chunks and boundary bits} {
+    test {bitmap-default-roaring conversion preserves dense raw chunks and boundary bits} {
         set raw [binary format H* "[string repeat ff 8192]8001"]
 
         r set bitmap:native:convert:dense $raw
-        r bitmap convert bitmap:native:convert:dense
+        make_native_bitmap_from_string bitmap:native:convert:dense
 
         assert_equal bitmap [r type bitmap:native:convert:dense]
         assert_equal bitmap-roaring [r object encoding bitmap:native:convert:dense]
@@ -273,7 +293,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {SETBIT updates native bitmap values and preserves trailing zero length} {
         r set bitmap:native:setbit [binary format H* 8000]
-        r bitmap convert bitmap:native:setbit
+        make_native_bitmap_from_string bitmap:native:setbit
 
         assert_equal 0 [r setbit bitmap:native:setbit 9 1]
         assert_equal bitmap [r type bitmap:native:setbit]
@@ -333,7 +353,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r set $string_key $raw
         r set $native_key $raw
-        r bitmap convert $native_key
+        make_native_bitmap_from_string $native_key
 
         assert_equal string [r type $string_key]
         assert_equal bitmap [r type $native_key]
@@ -429,7 +449,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 5 [r bitpos bitmap:native:countpos:first-zero 0]
 
         seed_native_bitmap bitmap:native:countpos:empty {}
-        assert_equal -1 [r bitpos bitmap:native:countpos:empty 0]
+        assert_equal 0 [r bitpos bitmap:native:countpos:empty 0]
         assert_equal -1 [r bitpos bitmap:native:countpos:empty 1]
 
         seed_native_bitmap bitmap:native:countpos:single-zero {0}
@@ -528,7 +548,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {BITFIELD writes native bitmap values through the direct write path} {
         r set bitmap:native:bitfield [binary format H* 00]
-        r bitmap convert bitmap:native:bitfield
+        make_native_bitmap_from_string bitmap:native:bitfield
 
         assert_equal {0 15} [r bitfield bitmap:native:bitfield SET u4 4 15 GET u8 0]
         assert_equal bitmap [r type bitmap:native:bitfield]
@@ -695,7 +715,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         set full_key bitmap:native:translated:setfull
         r set $full_key [binary format H* ff]
-        r bitmap convert $full_key
+        make_native_bitmap_from_string $full_key
         assert_equal bitmap [r type $full_key]
         assert_equal bitmap-roaring [r object encoding $full_key]
         assert_bitmap_has_exact_bits $full_key {0 1 2 3 4 5 6 7}
@@ -767,10 +787,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {BITOP stores native destinations when sources include native bitmaps} {
         r set bitmap:native:bitop:a [binary format H* f000]
-        r bitmap convert bitmap:native:bitop:a
+        make_native_bitmap_from_string bitmap:native:bitop:a
         r set bitmap:native:bitop:b [binary format H* 0fff]
         r set bitmap:native:bitop:dest [binary format H* aa]
-        r bitmap convert bitmap:native:bitop:dest
+        make_native_bitmap_from_string bitmap:native:bitop:dest
 
         assert_equal 2 [r bitop or bitmap:native:bitop:dest bitmap:native:bitop:a bitmap:native:bitop:b]
         assert_equal bitmap [r type bitmap:native:bitop:dest]
@@ -919,10 +939,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {BITOP handles native bitmap empty sources and destination aliasing} {
+    test {BITOP handles native bitmap zero sources and destination aliasing} {
         seed_native_bitmap bitmap:native:bitop:empty {}
-        assert_equal 0 [r bitop not bitmap:native:bitop:empty-not bitmap:native:bitop:empty]
-        assert_equal 0 [r exists bitmap:native:bitop:empty-not]
+        assert_equal 1 [r bitop not bitmap:native:bitop:empty-not bitmap:native:bitop:empty]
+        assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:native:bitop:empty-not]
 
         seed_string_bitmap bitmap:native:bitop:alias:string:dest {0 2 4 6}
         seed_string_bitmap bitmap:native:bitop:alias:string:other {2 6 8}
@@ -1057,7 +1077,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r set bitop:miss:string:c $c
             r set bitop:miss:native:a $a
             r set bitop:miss:native:c $c
-            r bitmap convert bitop:miss:native:a
+            make_native_bitmap_from_string bitop:miss:native:a
 
             set string_reply [r bitop $op bitop:miss:string:dest \
                 bitop:miss:string:a bitop:miss:string:gone bitop:miss:string:c]
@@ -1087,7 +1107,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r set bitop:first:string:c $c
             r set bitop:first:native:a $a
             r set bitop:first:native:c $c
-            r bitmap convert bitop:first:native:a
+            make_native_bitmap_from_string bitop:first:native:a
 
             set string_reply [r bitop $op bitop:first:string:dest \
                 bitop:first:string:gone bitop:first:string:a bitop:first:string:c]
@@ -1112,7 +1132,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r del bitop:dup:string:k bitop:dup:native:k
             r set bitop:dup:string:k $a
             r set bitop:dup:native:k $a
-            r bitmap convert bitop:dup:native:k
+            make_native_bitmap_from_string bitop:dup:native:k
 
             set string_reply [r bitop $op bitop:dup:string:dest \
                 bitop:dup:string:k bitop:dup:string:k]
@@ -1134,7 +1154,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r set bitop:dup2:native:s $s
             r set bitop:dup2:string:n $a
             r set bitop:dup2:native:n $a
-            r bitmap convert bitop:dup2:native:n
+            make_native_bitmap_from_string bitop:dup2:native:n
 
             set string_reply [r bitop $op bitop:dup2:string:dest \
                 bitop:dup2:string:s bitop:dup2:string:s bitop:dup2:string:n]

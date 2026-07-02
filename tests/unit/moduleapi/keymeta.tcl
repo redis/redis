@@ -380,7 +380,10 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         r keymeta.set [cname 4] hashkey "hash_meta"
 
         r set bitmapkey [binary format H* 80400100080000]
-        r bitmap convert bitmapkey
+        set old [lindex [r config get bitmap-default-roaring] 1]
+        r config set bitmap-default-roaring yes
+        r setbit bitmapkey 0 [r getbit bitmapkey 0]
+        r config set bitmap-default-roaring $old
         r keymeta.set [cname 1] bitmapkey "bitmap_meta"
 
         # Trigger AOF rewrite
