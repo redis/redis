@@ -309,22 +309,26 @@ start_server {tags {"hash"}} {
 
     test {HSET fresh wide build - in-command duplicate fields are last-wins} {
         r del freshdup
-        # f1 appears 3 times; created counts unique fields only
-        assert_equal 2 [r hset freshdup f1 a f2 b f1 c f1 d]
-        assert_equal 2 [r hlen freshdup]
+        # >=5 distinct fields so the fresh-build fast path engages; f1 repeats
+        # (a->c->d) to exercise the fast-path dedup: created counts unique fields only.
+        assert_equal 5 [r hset freshdup f1 a f2 b f3 x f4 y f1 c f5 z f1 d]
+        assert_equal 5 [r hlen freshdup]
         assert_equal d [r hget freshdup f1]
         assert_equal b [r hget freshdup f2]
+        assert_equal z [r hget freshdup f5]
     }
 
     test {HSET fresh wide build - dedup keys on raw field bytes (123 vs 0123 distinct)} {
         # The fast path dedups fields through a dict keyed on the raw field sds
         # (byte compare), while listpack int-encoding happens per entry at append.
         # "123" int-encodes and "0123" stays a string: they must remain two fields.
+        # >=5 distinct fields so the fresh-build fast path engages.
         r del freshint
-        assert_equal 2 [r hset freshint 123 x 0123 y]
-        assert_equal 2 [r hlen freshint]
+        assert_equal 5 [r hset freshint 123 x 0123 y 5 a 05 b 999 c]
+        assert_equal 5 [r hlen freshint]
         assert_equal x [r hget freshint 123]
         assert_equal y [r hget freshint 0123]
+        assert_equal b [r hget freshint 05]
     }
 
     test {HSET fresh build crossing hash-max-listpack-entries converts to hashtable} {

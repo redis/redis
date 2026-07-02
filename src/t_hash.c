@@ -2229,9 +2229,12 @@ void hsetCommand(client *c) {
     hashTypeTryConversion(c->db, kv, c->argv, 2, c->argc-1);
 
     int numfields = (c->argc - 2) / 2;
-    if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields > 1 &&
-        lpLength(kv->ptr) == 0)
-    {
+    /* The fresh-build fast path pays for a transient dedup dict, which only pays
+     * off once the field count is large enough. A/B sweep on a fresh listpack hash
+     * (single dict pass vs the per-field loop) puts the crossover at ~5 fields:
+     * N=2 -8.7%, N=4 -3.0%, N=5 +7.3%, N=8 +8.2%, N=16 +29%, N=51 +111%. Below the
+     * threshold the per-field loop is cheaper, so gate the fast path at numfields>=5. */
+    if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields >= 5 && lpLength(kv->ptr) == 0) {
         /* Fresh wide build: single dict pass (last-wins) + one batch append. */
         created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
     } else {
