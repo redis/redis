@@ -788,6 +788,16 @@ static int configNeedsApply(standardConfig *config) {
            config->interface.apply;
 }
 
+static const char *configGetPrimaryName(standardConfig *config) {
+    return (config->flags & ALIAS_CONFIG) ? config->alias : config->name;
+}
+
+static int configIsSameConfig(standardConfig *a, standardConfig *b) {
+    if (a == b) return 1;
+    if (!((a->flags | b->flags) & ALIAS_CONFIG)) return 0; /* No alias, so not the same config. */
+    return !strcasecmp(configGetPrimaryName(a), configGetPrimaryName(b));
+}
+
 static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
     int i;
     const char *errstr = "unknown error";
@@ -883,7 +893,7 @@ void configSetCommand(client *c) {
 
         /* If this config appears twice then fail */
         for (j = 0; j < i; j++) {
-            if (set_configs[j] == config) {
+            if (configIsSameConfig(set_configs[j], config)) {
                 /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
                 errstr = "duplicate parameter";
                 err_arg_name = c->argv[2+i*2]->ptr;
