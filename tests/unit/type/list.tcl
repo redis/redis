@@ -1984,8 +1984,8 @@ foreach {type large} [array get largevalue] {
 
         test "LSET out of range 64-bit index is not truncated - $type" {
             create_$type mylist "99 98 $large 96 95"
-            # Out-of-range indexes must be rejected even when they would narrow
-            # to an in-range index on 64-bit builds (#15402).
+            # These indexes are out of range and must be rejected.
+            # As mentioned in #15402, they were truncated to a valid index.
             assert_error ERR*range* {r lset mylist 4294967296 foo}
             assert_error ERR*range* {r lset mylist 4294967298 foo}
             assert_error ERR*range* {r lset mylist -4294967296 foo}
