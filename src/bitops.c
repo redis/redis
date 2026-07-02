@@ -1015,9 +1015,7 @@ void setbitCommand(client *c) {
     int native_created = 0;
     int native_converted = 0;
 
-    if (bitmapDefaultRoaringEnabled(c) &&
-        (o == NULL || o->type == OBJ_STRING))
-    {
+    if (bitmapDefaultRoaringEnabled(c) && (o == NULL || o->type == OBJ_STRING)) {
         if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
 
         if (o == NULL) {
