@@ -1035,7 +1035,10 @@ void setbitCommand(client *c) {
              * first produce a native replacement so the write is not bounded
              * by the string representation. */
             native = bitmapObjectFromStringObject(o);
-            serverAssert(native != NULL);
+            if (native == NULL) {
+                addBitmapNativeLengthError(c);
+                return;
+            }
             native_converted = 1;
         }
     }

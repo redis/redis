@@ -1275,6 +1275,14 @@ test {corrupt payload: bitmap RDB validation} {
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:mismatched-raw-len]
 
+        set oversized_raw_len_payload [binary format H* $bitmap_type]
+        append oversized_raw_len_payload [bitmap_rdb_len 2]
+        append oversized_raw_len_payload [bitmap_rdb_len 536870913]
+        append oversized_raw_len_payload $dump_trailer
+        catch { r restore bitmap:oversized-raw-len 0 $oversized_raw_len_payload } err
+        assert_match "*Bad data format*" $err
+        assert_equal 0 [r exists bitmap:oversized-raw-len]
+
         set replace_target_raw [binary format H* a5]
         r set bitmap:replace-target $replace_target_raw
         r bitmap convert bitmap:replace-target
