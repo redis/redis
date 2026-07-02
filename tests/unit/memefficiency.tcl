@@ -56,6 +56,8 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
+    source tests/support/bitmap.tcl
+
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
             [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
