@@ -997,9 +997,6 @@ void setbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
-    if (!bitmapOffsetWithinProtoLimit(c, bitoffset))
-        return;
-
     if (getLongFromObjectOrReply(c,c->argv[3],&on,err) != C_OK)
         return;
 
@@ -1009,15 +1006,24 @@ void setbitCommand(client *c) {
         return;
     }
 
+    /* getBitOffsetFromArgument() only parses the signed offset. Keep SETBIT's
+     * public write limit checked before native/default-roaring can bypass the
+     * string helper that also enforces it. */
+    if (!bitmapOffsetWithinProtoLimit(c, bitoffset))
+        return;
+
     dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     robj *native = NULL;
+    /* Creation and conversion both propagate RESTORE, but installation differs:
+     * missing keys use dbAddByLink(), while converted strings preserve TTL and
+     * fire overwrite/type-change handling through setKeyByLink(). */
     int native_created = 0;
     int native_converted = 0;
 
-    if (bitmapDefaultRoaringEnabled(c) && (o == NULL || o->type == OBJ_STRING)) {
-        if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
-
+    if (o != NULL && o->type == OBJ_BITMAP) {
+        native = o;
+    } else if (bitmapDefaultRoaringEnabled(c) && (o == NULL || o->type == OBJ_STRING)) {
         if (o == NULL) {
             /* bitmap-default-roaring yes: newly created bitmap keys are native.
              * Build the object first, then add the final value with the
@@ -1043,7 +1049,6 @@ void setbitCommand(client *c) {
         size_t oldAllocSize = 0;
 
         byte = bitoffset >> 3;
-        if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
         bitval = bitmapObjectGetBit(native, bitoffset);
         if (byte >= oldlen || (!!bitval != on)) {
             if (!native_created && !native_converted && server.memory_tracking_enabled)
@@ -2393,12 +2398,6 @@ void bitfieldGeneric(client *c, int flags) {
 
         if (opcode != BITFIELDOP_GET) {
             uint64_t last_bit = bitoffset + bits - 1;
-            /* Native bitmap writes don't pass through lookupStringForBitCommand(),
-             * so validate the shared public write limit before key lookup. */
-            if (!bitmapOffsetWithinProtoLimit(c,last_bit)) {
-                zfree(ops);
-                return;
-            }
             readonly = 0;
             if (highest_write_bit < last_bit)
                 highest_write_bit = last_bit;
@@ -2434,6 +2433,10 @@ void bitfieldGeneric(client *c, int flags) {
         if (flags & BITFIELD_FLAG_READONLY) {
             zfree(ops);
             addReplyError(c, "BITFIELD_RO only supports the GET subcommand");
+            return;
+        }
+        if (!bitmapOffsetWithinProtoLimit(c,highest_write_bit)) {
+            zfree(ops);
             return;
         }
 

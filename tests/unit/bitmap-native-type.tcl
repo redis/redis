@@ -811,7 +811,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
-    test {native bitmap RDB uses compact container payload for sparse bitmaps} {
+    test {native bitmap RDB range payload keeps sparse bitmaps compact} {
         set oldcomp [config_get_set rdbcompression yes]
 
         r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
@@ -838,15 +838,15 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
-    test {native bitmap container RDB payload round-trips across container shapes} {
+    test {native bitmap tagged RDB payload round-trips across internal shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
         append trailing_zero [string repeat [binary format H* 00] 1023]
 
-        # Build one mixed bitmap holding all three container kinds so the
-        # RDB round-trip walks every container payload shape. Each 65536-bit
-        # chunk is 8192 bytes:
+        # Build one mixed bitmap holding all three internal container kinds so
+        # the RDB round-trip rehydrates them from observable bitmap data.
+        # Each 65536-bit chunk is 8192 bytes:
         # chunk 0: 4800 consecutive set bits -> run container
         # chunk 1: alternating bits, cardinality 8000 -> bitset container
         # chunk 2: 64 isolated bits -> array container
@@ -863,8 +863,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         append mixed [string repeat [binary format H* 00] 7168]
         append mixed [string repeat [binary format H* ff] 600]
 
-        # An array-only bitmap spanning two containers keeps sparse array
-        # payloads valid across more than one high48 bucket.
+        # An array-only bitmap spanning two containers keeps sparse data valid
+        # across more than one high48 bucket.
         set sparse [binary format H* 80]
         append sparse [string repeat [binary format H* 00] 8191]
         append sparse [binary format H* 80]
