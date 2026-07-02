@@ -4,6 +4,8 @@
 # Actually, we may not have many asserts in the test, since we just check for
 # crashes and the dump file inconsistencies.
 
+source tests/support/bitmap.tcl
+
 start_server {tags {"dismiss external:skip needs:debug"}} {
     # In other tests, although we test child process dumping RDB file, but
     # memory allocations of key/values are usually small, they couldn't cover
@@ -59,7 +61,7 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         # distant bit keeps a second sparse container in the Roaring directory.
         r set bigbitmap [binary format H* [string repeat aa 8192]]
         r setbit bigbitmap 100000 1
-        r bitmap convert bigbitmap
+        convert_string_bitmap_to_native r bigbitmap
         assert_equal bitmap [r type bigbitmap]
 
         set digest [debug_digest]

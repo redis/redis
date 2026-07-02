@@ -704,37 +704,6 @@ struct COMMAND_ARG BITFIELD_RO_Args[] = {
 {MAKE_ARG("get-block",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=BITFIELD_RO_get_block_Subargs},
 };
 
-/********** BITMAP CONVERT ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* BITMAP CONVERT history */
-#define BITMAP_CONVERT_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* BITMAP CONVERT tips */
-#define BITMAP_CONVERT_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* BITMAP CONVERT key specs */
-keySpec BITMAP_CONVERT_Keyspecs[1] = {
-{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* BITMAP CONVERT representation argument table */
-struct COMMAND_ARG BITMAP_CONVERT_representation_Subargs[] = {
-{MAKE_ARG("native",ARG_TYPE_PURE_TOKEN,-1,"NATIVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("string",ARG_TYPE_PURE_TOKEN,-1,"STRING",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* BITMAP CONVERT argument table */
-struct COMMAND_ARG BITMAP_CONVERT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("representation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITMAP_CONVERT_representation_Subargs},
-};
-
 /********** BITMAP HELP ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -754,7 +723,6 @@ struct COMMAND_ARG BITMAP_CONVERT_Args[] = {
 
 /* BITMAP command table */
 struct COMMAND_STRUCT BITMAP_Subcommands[] = {
-{MAKE_CMD("convert","Converts a bitmap key between the legacy string type and native bitmap type.","O(N) with N being the number of bytes of the string representation, or the number of set bits when converting back to a string.","8.10.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITMAP_CONVERT_History,0,BITMAP_CONVERT_Tips,0,bitmapCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,BITMAP_CONVERT_Keyspecs,1,NULL,2),.args=BITMAP_CONVERT_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITMAP_HELP_History,0,BITMAP_HELP_Tips,0,bitmapCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_BITMAP,BITMAP_HELP_Keyspecs,0,NULL,0)},
 {0}
 };
