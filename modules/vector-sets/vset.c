@@ -834,23 +834,38 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     int slot = hnsw_acquire_read_slot(vset->hnsw);
     if (ef > vset->hnsw->node_count) ef = vset->hnsw->node_count;
 
-    /* Perform search */
-    hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
-    float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    unsigned int found;
-    if (ground_truth) {
-        found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
-                    distances, slot, 0,
-                    filter_expr ? vectorSetFilterCallback : NULL,
-                    filter_expr);
-    } else {
-        if (filter_expr == NULL) {
-            found = hnsw_search(vset->hnsw, vec, ef, neighbors,
-                                distances, slot, 0);
+    /* Perform search. An empty HNSW index can only originate from invalid
+     * serialized data, but handle it defensively without invoking the search
+     * functions with k == 0. */
+    hnswNode **neighbors = NULL;
+    float *distances = NULL;
+    int found = 0;
+    if (ef != 0) {
+        neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
+        distances = RedisModule_Alloc(sizeof(float)*ef);
+        if (ground_truth) {
+            found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
+                        distances, slot, 0,
+                        filter_expr ? vectorSetFilterCallback : NULL,
+                        filter_expr);
         } else {
-            found = hnsw_search_with_filter(vset->hnsw, vec, ef, neighbors,
-                        distances, slot, 0, vectorSetFilterCallback,
-                        filter_expr, filter_ef);
+            if (filter_expr == NULL) {
+                found = hnsw_search(vset->hnsw, vec, ef, neighbors,
+                                    distances, slot, 0);
+            } else {
+                found = hnsw_search_with_filter(vset->hnsw, vec, ef, neighbors,
+                            distances, slot, 0, vectorSetFilterCallback,
+                            filter_expr, filter_ef);
+            }
+        }
+        if (found < 0) {
+            hnsw_release_read_slot(vset->hnsw,slot);
+            RedisModule_ReplyWithError(ctx, "ERR vector similarity search failed");
+            RedisModule_Free(vec);
+            RedisModule_Free(neighbors);
+            RedisModule_Free(distances);
+            if (filter_expr) exprFree(filter_expr);
+            return;
         }
     }
 
@@ -864,7 +879,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     long long arraylen = 0;
-    for (unsigned int i = 0; i < found && i < count; i++) {
+    for (int i = 0; i < found && (unsigned long)i < count; i++) {
         if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
@@ -903,8 +918,8 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     }
 
     RedisModule_Free(vec);
-    RedisModule_Free(neighbors);
-    RedisModule_Free(distances);
+    if (neighbors) RedisModule_Free(neighbors);
+    if (distances) RedisModule_Free(distances);
     if (filter_expr) exprFree(filter_expr);
 }
 
@@ -1976,6 +1991,12 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     if (RedisModule_IsIOError(rdb)) return NULL;
     uint32_t quant_type = hnsw_config & 0xff;
     uint32_t hnsw_m = (hnsw_config >> 8) & 0xffff;
+
+    if (elements == 0) {
+        RedisModule_LogIOError(rdb, "warning",
+            "Invalid vector set cardinality in RDB: elements must be positive");
+        return NULL;
+    }
 
     /* Validate dimension loaded from RDB to enforce invariants and
      * avoid absurd allocations or inconsistent state. */
