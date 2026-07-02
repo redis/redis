@@ -1045,10 +1045,18 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
                 set count [expr {$min_args + [randomInt 4]}]
 
                 for {set j 0} {$j < $count} {incr j} {
-                    lappend raws [randstring 0 128]
+                    set raw [randstring 0 128]
                     if {[expr {($i + $j) % 2}] == 0} {
+                        # The public SETBIT conversion path cannot create a
+                        # zero-length native bitmap after BITMAP CONVERT was
+                        # removed, so keep exact raw comparison inputs
+                        # representable for native sources.
+                        if {$raw eq ""} {
+                            set raw [binary format H* 00]
+                        }
                         lappend native_indexes $j
                     }
+                    lappend raws $raw
                 }
 
                 assert_native_bitop_raws_match_string "fuzz:$op:$i" \
@@ -1057,8 +1065,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
 
         for {set i 0} {$i < 12} {incr i} {
+            set raw [randstring 0 128]
+            if {$raw eq ""} {
+                set raw [binary format H* 00]
+            }
             assert_native_bitop_raws_match_string "fuzz:not:$i" \
-                not [list [randstring 0 128]] {0}
+                not [list $raw] {0}
         }
     }
 
