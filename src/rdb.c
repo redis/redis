@@ -1120,20 +1120,42 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
 static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     ssize_t n, nwritten = 0;
     uint64_t byte_len = bitmapObjectLen(o);
+    sds raw;
 
     if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
     nwritten += n;
 
-    if ((n = bitmapObjectSaveRdbContainers(rdb, o)) == -1) return -1;
+    raw = bitmapObjectMaterializeForRDB(o);
+    if (raw == NULL) return -1;
+
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)raw, sdslen(raw))) == -1) {
+        sdsfree(raw);
+        return -1;
+    }
     nwritten += n;
+    sdsfree(raw);
 
     return nwritten;
 }
 
 static robj *rdbLoadBitmapObject(rio *rdb) {
     uint64_t byte_len = rdbLoadLen(rdb, NULL);
+    sds raw;
+    robj *o;
+
     if (byte_len == RDB_LENERR) return NULL;
-    return createBitmapObjectFromRdbContainers(rdb, byte_len);
+    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+
+    raw = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
+    if (raw == NULL) return NULL;
+    if ((uint64_t)sdslen(raw) != byte_len) {
+        sdsfree(raw);
+        return NULL;
+    }
+
+    o = createBitmapObjectFromString((unsigned char *)raw, sdslen(raw));
+    sdsfree(raw);
+    return o;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
