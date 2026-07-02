@@ -89,6 +89,7 @@ DATASET_KEYS = {
 
 MODULE_RESULT_LABEL = "redis_roaring_module"
 BEFORE_NATIVE_LABEL = "redis_before_native"
+EMPTY_NATIVE_BITMAP_DUMP_PAYLOAD = b"\x1d\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 COMPARE_LABELS = (
     "redis_before",
     BEFORE_NATIVE_LABEL,
@@ -772,7 +773,12 @@ class RedisBitmapBench:
                 return
             current = self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])
             current_value = current[1].decode("utf-8") if isinstance(current[1], bytes) else str(current[1])
-            raw = self.client.execute(["GET", key]) or b""
+            raw = self.client.execute(["GET", key])
+            if raw is None:
+                raise BenchError(f"cannot convert missing key to native: {key}")
+            if len(raw) == 0:
+                self.client.execute(["RESTORE", key, "0", EMPTY_NATIVE_BITMAP_DUMP_PAYLOAD, "REPLACE"])
+                return
             bit = 1 if raw and (raw[0] & 0x80) else 0
             try:
                 self.set_default_roaring(True, required=True)
