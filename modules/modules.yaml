@@ -64,7 +64,7 @@
 modules:
   - name: redisbloom
     repo: https://github.com/redisbloom/redisbloom
-    ref: tal.ba/fix/bootstrap
+    ref: master
     target_module: redisbloom.so
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
