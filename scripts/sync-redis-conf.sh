@@ -104,20 +104,27 @@ if [ ! -f "$MODULES_MANIFEST_FILE" ]; then
 fi
 
 # Resolve the requested module set.
-#   unset / empty MODULES  → every manifest module (standalone `make sync-redis-conf`)
-#   MODULES=none           → explicitly no modules (redis-only build via build.sh)
-#   MODULES=<names>        → exactly those modules
+#   unset / empty MODULES / all / . / '*'  → every manifest module (same
+#                                             wildcard synonyms resolve_modules()
+#                                             accepts for every other script)
+#   MODULES=none                           → explicitly no modules (redis-only
+#                                             build via build.sh)
+#   MODULES=<names>                        → exactly those modules
 default_used=0
 requested_raw="${MODULES:-}"
 _modules_stripped="$(printf '%s' "$requested_raw" | tr -d '[:space:]')"
-if [ -z "$_modules_stripped" ]; then
-  requested="$(manifest_modules | tr '\n' ' ')"
-  default_used=1
-elif [ "$_modules_stripped" = "none" ]; then
-  requested=""
-else
-  requested="$requested_raw"
-fi
+case "$_modules_stripped" in
+  ''|all|.|'*')
+    requested="$(manifest_modules | tr '\n' ' ')"
+    default_used=1
+    ;;
+  none)
+    requested=""
+    ;;
+  *)
+    requested="$requested_raw"
+    ;;
+esac
 unset _modules_stripped
 # Collapse runs of whitespace to single spaces, trim ends.
 requested="$(printf '%s\n' "$requested" | xargs || true)"

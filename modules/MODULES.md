@@ -101,7 +101,7 @@ Name expansion:
 |---|---|
 | _(no args)_ | Every module listed in `modules.yaml` (default) |
 | `<name>` | One module (e.g. `redistimeseries`) |
-| `all` / `.` / `'*'` | Same as no args (quote the star so the shell doesn't glob) |
+| `all` / `.` | Same as no args |
 
 Examples:
 
@@ -159,12 +159,12 @@ auto-detects the host OS (Ubuntu, Alpine, AzureLinux, Mariner, macOS,
 dispatches to every selected module's installer in turn:
 
 ```bash
-make bootstrap [<name> ...|all|.|'*']
+make bootstrap [<name> ...|all|.]
 ```
 
 | Argument | Selects |
 |---|---|
-| _(no args)_ / `all` / `.` / `'*'` | Every cloned module |
+| _(no args)_ / `all` / `.` | Every cloned module |
 | `<name> [<name> ...]` | Only the listed modules |
 
 Each module's installer is self-contained — package manager, Python venv
@@ -244,7 +244,7 @@ Selection:
 | Argument | Selects |
 |---|---|
 | *(none)* | Load every cloned module |
-| `all` / `.` / `'*'` | Same as *(none)* |
+| `all` / `.` | Same as *(none)* |
 | `none` | Start Redis with no modules |
 | `<name> [<name> ...]` | Load only the listed modules |
 
@@ -460,7 +460,7 @@ Dispatch:
 |---|---|
 | `make test` | Redis tests only (`$(MAKE) -C src test`) |
 | `make test redis` / `none` | Same — Redis tests only (mirrors `make core`) |
-| `make test all` / `.` / `'*'` | `make test` in every cloned module; continues past failures and summarizes at the end |
+| `make test all` / `.` | `make test` in every cloned module; continues past failures and summarizes at the end |
 | `make test <module>` | `make test` in one module (full suite) |
 | `make test <module> <test_name>` | `make test TEST=<test_name>` in one module |
 | `make test <module> TEST=<name>` | Same, but for test names containing `:` (see below) |
@@ -633,7 +633,7 @@ No network access needed at build time — modules are already on disk.
 ## 10. Full command reference
 
 ```
-make bootstrap [<name> ...|all|.|'*']             # per-module OS deps + Python venv (re-run as needed)
+make bootstrap [<name> ...|all|.]             # per-module OS deps + Python venv (re-run as needed)
 
 make modules-update [<name> ...]             # idempotent: clones if missing, else updates to pin
 make modules-shallow <name> [<name> ...]     # re-clone module(s) shallow (--depth 1) to reclaim disk
@@ -644,14 +644,14 @@ make apply-redis-conf [<name> ...] \         # sync-redis-conf, then overwrite r
 make apply-redis-conf revert                 # strip Modules section from redis.conf
                                              #   (preserves core edits; revert without git checkout)
 
-make [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
-make all|build [<name> ...|all|.|'*'|redis|none] [VAR=value ...]
+make [<name> ...|all|.|redis|none] [VAR=value ...]
+make all|build [<name> ...|all|.|redis|none] [VAR=value ...]
 
 make run [<name> ...] [ARGS="<redis-server args>"]
 
 make test
 make test redis | none                       # Redis tests only (explicit)
-make test all | . | '*'
+make test all | .
 make test <module>
 make test <module> <test_name>
 make test <module> TEST=<name>               # required for names containing ':'

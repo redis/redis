@@ -52,6 +52,26 @@ ifeq ($(strip $(TARGET_MODULE)),)
   TARGET_MODULE := $(SRC_DIR)/bin/$(FULL_VARIANT)/$(MODULE_ARTIFACT)
 endif
 
+# Optional per-module build-env overrides, read generically from modules.yaml's
+# `build_env:` field (space-separated KEY=VALUE) rather than special-cased by
+# module name here — e.g. a module's own build script may default a flag
+# differently than this bundled build prefers (see modules.yaml's redisearch
+# entry for the current example: LTO / REDISEARCH_GENERATE_HEADERS /
+# INLINE_LSE_ATOMICS). Any module can opt in by adding a `build_env:` line to
+# its manifest entry; nothing here needs to change to support that.
+#
+# `LTO` specifically is skipped outside Linux: it requires clang+lld with an
+# LLVM version matching rustc, and RediSearch's own build.sh hard-errors
+# ("LTO is only supported on Linux") if it's forced on elsewhere. Left unset,
+# the module's own build script falls back to its own (non-LTO) default —
+# this isn't a redisearch special case, it's true of LTO for any module.
+MODULE_BUILD_ENV ?= $(call manifest-field,build_env,$(MODULE_NAME))
+$(foreach kv,$(MODULE_BUILD_ENV), \
+  $(eval _bk := $(word 1,$(subst =, ,$(kv)))) \
+  $(eval _bv := $(word 2,$(subst =, ,$(kv)))) \
+  $(eval _bskip := $(if $(filter LTO,$(_bk)),$(filter-out linux,$(OS)),)) \
+  $(if $(_bskip),,$(eval $(_bk) ?= $(_bv))$(eval export $(_bk))))
+
 # Common rules for all modules, based on per-module configuration
 
 all: $(TARGET_MODULE)

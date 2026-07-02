@@ -11,13 +11,13 @@ export MAKE
 
 .DEFAULT_GOAL := build
 
+# Used only by .DEFAULT:/install: below, for goals with no explicit rule in
+# this Makefile (e.g. `make distclean`, `make 32bit`) — those still recurse
+# into src/ only, matching upstream Redis. Modules are never part of this;
+# `make` / `make all` / `make build` route through scripts/build.sh instead,
+# which decides per-module inclusion from what's actually cloned under
+# modules/*/src, not from a build flag.
 SUBDIRS = src
-ifeq ($(BUILD_WITH_MODULES), yes)
-	ifeq ($(MAKECMDGOALS),32bit)
-    	$(error BUILD_WITH_MODULES=yes is not supported on 32 bit systems)
-	endif
-	SUBDIRS += modules
-endif
 
 # Manifest parser (modules.yaml → AVAILABLE_MODULES + helpers) shared with
 # per-module builds via modules/common.mk. The `sync-redis-conf` target lives
@@ -96,7 +96,7 @@ endif
 install:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
-# clean [<name> ...|all|.|'*'|redis|none] — Redis core + selected modules.
+# clean [<name> ...|all|.|redis|none] — Redis core + selected modules.
 # Same per-module dispatch as scripts/build.sh. Env vars set on the make
 # line (e.g. `make clean DEPS=1`) propagate to the per-module clean via
 # the shell environment.
@@ -109,15 +109,24 @@ clean:
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
 
-# build [<name> ...|all|.|'*'|redis|core|none] — Redis core + selected modules.
+# all — plain alias so a literal `make all` also routes through build (bare
+# `make` already does, via .DEFAULT_GOAL above). Deliberately just a
+# prerequisite with NO recipe of its own: giving it a real recipe (e.g.
+# calling scripts/build.sh directly) would make it re-run build's work a
+# second time whenever "all" is also used as a positional argument to a
+# DIFFERENT command (e.g. `make build all`) — Make only remakes a given
+# .PHONY target once per invocation, so a bare prerequisite avoids that.
+all: build
+
+# build [<name> ...|all|.|redis|core|none] — Redis core + selected modules.
 build:
 	@scripts/build.sh $(BUILD_ARGS)
 
-# bootstrap [<name> ...|all|.|'*'] — install per-module build/test prereqs.
+# bootstrap [<name> ...|all|.] — install per-module build/test prereqs.
 bootstrap:
 	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
-# deploy [<name> ...|all|.|'*'|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
+# deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
 #   Install Redis core + selected modules (default: every cloned module),
 #   then auto-rewrite redis.conf so its `loadmodule` lines point at the
 #   installed .so paths. PREFIX defaults to /usr/local (same as `make install`).
@@ -127,7 +136,7 @@ deploy: PREFIX ?= /usr/local
 deploy:
 	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
 
-# run [<name> ...|all|.|'*'|none] [ARGS="<redis-server flags>"]
+# run [<name> ...|all|.|none] [ARGS="<redis-server flags>"]
 run:
 	@ARGS='$(ARGS)' scripts/run.sh $(RUN_ARGS)
 
@@ -135,7 +144,7 @@ run:
 test:
 	@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
 
-# modules-update [<name> ...|all|.|'*'] [MODULES_UPDATE_SHALLOW=1]
+# modules-update [<name> ...|all|.] [MODULES_UPDATE_SHALLOW=1]
 #   Idempotent clone/refresh per modules.yaml.
 modules-update:
 	@MODULES_UPDATE_SHALLOW='$(MODULES_UPDATE_SHALLOW)' scripts/modules-update.sh $(MODULES_ARGS)
@@ -178,4 +187,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: all install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball

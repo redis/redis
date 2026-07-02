@@ -13,24 +13,14 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 
-available="$(manifest_modules | xargs)"
-cloned=""
-for name in $available; do
-  [ -d "modules/$name/src/.git" ] && cloned="$cloned $name"
-done
-cloned="$(echo "$cloned" | xargs)"
+cloned="$(cloned_modules)"
 
-requested="$*"
-if [ -z "$requested" ]; then
+if [ "$#" -eq 0 ]; then
   echo "Usage: make modules-shallow <name> [<name> ...]"
   echo "       make modules-shallow all   # or '.' or '*' (quote the star)"
   echo "Cloned modules: $cloned"
   exit 1
 fi
-
-for r in $requested; do
-  case "$r" in all|.|'*') requested="$cloned"; break ;; esac
-done
 
 if [ -z "$cloned" ]; then
   echo "ERROR: no cloned modules under modules/*/src"
@@ -38,13 +28,11 @@ if [ -z "$cloned" ]; then
   exit 1
 fi
 
-for name in $requested; do
-  case " $cloned " in *" $name "*) ;; *)
-    echo "ERROR: module '$name' is not cloned at modules/$name/src"
-    echo "Cloned modules: $cloned"
-    exit 1 ;;
-  esac
-done
+# resolve_modules() rejects mixing all/./'*' with explicit names (unlike the
+# old hand-rolled loop here, which silently expanded to every cloned module
+# the moment any one token matched a wildcard — dropping/ignoring whatever
+# else was on the command line before the destructive rm -rf below).
+requested="$(resolve_modules "$*" "$cloned")"
 
 for name in $requested; do
   echo "==> Removing existing clone modules/$name/src to re-clone shallow"

@@ -146,4 +146,16 @@ echo "==> Modules updated: $requested"
 echo "    Next: run 'make bootstrap [<name> ...]' to install per-module build/test deps."
 
 echo "==> Refreshing redis-full.conf via sync-redis-conf"
-"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="$requested" ASSUME_BUILT=1
+# Always sync the FULL manifest here, not just $requested — a partial update
+# (e.g. `make modules-update redisbloom`) must not drop every other module's
+# block from redis-full.conf. Each module's active/missing state is
+# independently derived from .so presence on disk, so passing the complete
+# list is safe even when only one module was actually touched.
+#
+# No ASSUME_BUILT=1 here (unlike `make tarball`, which sets it deliberately
+# to describe a future promise about what a not-yet-built release WILL
+# contain): this script only clones/refreshes sources, it never builds
+# anything, so the generated conf should truthfully reflect real on-disk
+# .so state — modules genuinely not built yet should show up as "missing",
+# not be claimed as loadable.
+"$MAKE_BIN" --no-print-directory sync-redis-conf MODULES="$available"

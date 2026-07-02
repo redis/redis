@@ -42,6 +42,19 @@
 #                                      # redis.conf; the .so basename does not
 #                                      # always match the module name (e.g.
 #                                      # redisjson produces rejson.so).
+#       build_env: <KEY=VALUE ...>     # optional, space-separated. Exported
+#                                      # before the module's build runs (see
+#                                      # modules/common.mk). Use when this
+#                                      # bundled build wants a different
+#                                      # default than the module's own build
+#                                      # script picks. redisearch's entry
+#                                      # below sets LTO=1 and
+#                                      # REDISEARCH_GENERATE_HEADERS=0 (this
+#                                      # bundle's preference, opposite of
+#                                      # RediSearch's own build.sh defaults)
+#                                      # and INLINE_LSE_ATOMICS=0 (avoids
+#                                      # SIGILL on pre-Armv8.1-a ARM cores —
+#                                      # Cortex-A72, Graviton1, RPi4).
 #
 # Notes:
 #   - `vector-sets` is intentionally absent — it lives in-tree under
@@ -59,6 +72,7 @@ modules:
     ref: tal.ba/fix/build_bootstrap
     target_module: search-community/redisearch.so
     loadmodule: ./modules/redisearch/redisearch.so
+    build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
     ref: tal.ba/fix/build_bootstrap
