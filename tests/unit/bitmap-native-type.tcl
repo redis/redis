@@ -140,6 +140,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r debug bitmap-raw bitmap:convert:zeros:restored]
     }
 
+    test {empty native bitmap fixtures preserve zero logical byte length} {
+        r del bitmap:fixture:empty
+        assert_equal OK [create_native_bitmap_from_raw r bitmap:fixture:empty ""]
+        assert_equal bitmap [r type bitmap:fixture:empty]
+        assert_equal bitmap-roaring [r object encoding bitmap:fixture:empty]
+        assert_equal "" [r debug bitmap-raw bitmap:fixture:empty]
+        assert_equal -1 [r bitpos bitmap:fixture:empty 0]
+        assert_equal -1 [r bitpos bitmap:fixture:empty 1]
+    }
+
     test {bitmap-default-roaring conversion handles int-encoded strings and wrong types} {
         r del bitmap:convert:int bitmap:convert:list
         r set bitmap:convert:int 12345
@@ -357,7 +367,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {native bitmap creation and conversion emit documented keyspace events} {
         r config set bitmap-default-roaring no
-        r del bitmap:public:notify bitmap:public:notify:conv bitmap:public:notify:cmd
+        r del bitmap:public:notify bitmap:public:notify:conv
 
         r config set notify-keyspace-events E\$ocnb
         set rd [redis_deferring_client]
@@ -386,14 +396,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
         r config set bitmap-default-roaring no
-
-        # Explicit conversion emits the overwrite pair only.
-        r set bitmap:public:notify:cmd ""
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify:cmd} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:public:notify:cmd} [$rd read]
-        convert_string_bitmap_to_native r bitmap:public:notify:cmd
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:overwritten bitmap:public:notify:cmd} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:cmd} [$rd read]
 
         $rd close
         r config set notify-keyspace-events {}

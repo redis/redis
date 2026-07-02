@@ -423,9 +423,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         seed_native_bitmap bitmap:native:countpos:first-zero {0 1 2 3 4 6}
         assert_equal 5 [r bitpos bitmap:native:countpos:first-zero 0]
 
-        seed_native_bitmap bitmap:native:countpos:zero-byte {}
-        assert_equal 0 [r bitpos bitmap:native:countpos:zero-byte 0]
-        assert_equal -1 [r bitpos bitmap:native:countpos:zero-byte 1]
+        seed_native_bitmap bitmap:native:countpos:empty {}
+        assert_equal -1 [r bitpos bitmap:native:countpos:empty 0]
+        assert_equal -1 [r bitpos bitmap:native:countpos:empty 1]
 
         seed_native_bitmap bitmap:native:countpos:single-zero {0}
         assert_equal 1 [r bitpos bitmap:native:countpos:single-zero 0]
@@ -912,7 +912,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {BITOP handles native bitmap destination aliasing} {
+    test {BITOP handles native bitmap empty sources and destination aliasing} {
+        seed_native_bitmap bitmap:native:bitop:empty {}
+        assert_equal 0 [r bitop not bitmap:native:bitop:empty-not bitmap:native:bitop:empty]
+        assert_equal 0 [r exists bitmap:native:bitop:empty-not]
+
         seed_string_bitmap bitmap:native:bitop:alias:string:dest {0 2 4 6}
         seed_string_bitmap bitmap:native:bitop:alias:string:other {2 6 8}
         seed_native_bitmap bitmap:native:bitop:alias:native:dest {0 2 4 6}

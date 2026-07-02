@@ -7,14 +7,19 @@ proc convert_string_bitmap_to_native {client key} {
     set old [lindex [$client config get bitmap-default-roaring] 1]
     set raw [$client get $key]
 
+    if {[string length $raw] == 0} {
+        set ttl [$client pttl $key]
+        if {$ttl < 0} {
+            set ttl 0
+        }
+        $client restore $key $ttl [empty_native_bitmap_dump_payload] replace
+        return OK
+    }
+
     $client config set bitmap-default-roaring yes
     set code [catch {
-        if {[string length $raw] == 0} {
-            $client setbit $key 0 0
-        } else {
-            binary scan [string index $raw 0] cu first_byte
-            $client setbit $key 0 [expr {($first_byte & 0x80) != 0}]
-        }
+        binary scan [string index $raw 0] cu first_byte
+        $client setbit $key 0 [expr {($first_byte & 0x80) != 0}]
     } result opts]
     $client config set bitmap-default-roaring $old
     if {$code != 0} {
@@ -32,14 +37,15 @@ proc create_native_bitmap_from_bits {client key bits} {
     set old [lindex [$client config get bitmap-default-roaring] 1]
 
     $client del $key
+    if {[llength $bits] == 0} {
+        $client restore $key 0 [empty_native_bitmap_dump_payload] replace
+        return OK
+    }
+
     $client config set bitmap-default-roaring yes
     set code [catch {
-        if {[llength $bits] == 0} {
-            $client setbit $key 0 0
-        } else {
-            foreach bit $bits {
-                $client setbit $key $bit 1
-            }
+        foreach bit $bits {
+            $client setbit $key $bit 1
         }
     } result opts]
     $client config set bitmap-default-roaring $old
@@ -55,4 +61,10 @@ proc seed_native_bitmap_raw {key raw} {
 
 proc seed_native_bitmap {key bits} {
     create_native_bitmap_from_bits r $key $bits
+}
+
+proc empty_native_bitmap_dump_payload {} {
+    # RDB_TYPE_BITMAP, byte_len 0, container_count 0, RDB_VERSION 15,
+    # followed by an all-zero checksum, which RESTORE accepts as no checksum.
+    return "\x1d\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 }
