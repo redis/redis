@@ -713,6 +713,7 @@ static void bitmapObjectDefragLeafContainer(roaring64_bitmap_t *r,
     container_t *moved = bitmapObjectDefragContainer(
         r->containers[index], bitmap, roaring64_leaf_typecode(leaf));
     if (moved != NULL) r->containers[index] = moved;
+    server.stat_active_defrag_scanned++;
 }
 
 void bitmapObjectDefrag(robj *o) {
