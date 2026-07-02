@@ -951,8 +951,7 @@ static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
     switch (type) {
     case ARRAY_CONTAINER_TYPE: {
         array_container_t *array = CAST_array(container);
-        dismissMemory(array->array,
-                      (size_t)array->capacity * sizeof(*array->array));
+        dismissMemory(array->array, (size_t)array->capacity * sizeof(*array->array));
         dismissMemory(array, sizeof(*array));
         break;
     }
