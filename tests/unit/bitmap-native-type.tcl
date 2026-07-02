@@ -811,7 +811,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
-    test {native bitmap RDB raw payload compresses sparse bitmaps} {
+    test {native bitmap RDB range payload keeps sparse bitmaps compact} {
         set oldcomp [config_get_set rdbcompression yes]
 
         r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
@@ -838,14 +838,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
-    test {native bitmap raw RDB payload round-trips across internal shapes} {
+    test {native bitmap tagged RDB payload round-trips across internal shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
         append trailing_zero [string repeat [binary format H* 00] 1023]
 
         # Build one mixed bitmap holding all three internal container kinds so
-        # the raw RDB round-trip rehydrates them from observable bitmap bytes.
+        # the RDB round-trip rehydrates them from observable bitmap data.
         # Each 65536-bit chunk is 8192 bytes:
         # chunk 0: 4800 consecutive set bits -> run container
         # chunk 1: alternating bits, cardinality 8000 -> bitset container
