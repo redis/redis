@@ -11,7 +11,6 @@
 #include "bio.h"
 #include "rio.h"
 #include "functions.h"
-#include "cluster.h"
 #include "cluster_asm.h"
 
 #include <signal.h>
@@ -41,10 +40,6 @@ int backupIsInProgress(void);
  * the temp INCR AOF. This variable is used to record the start offset, and
  * set the start offset of the real INCR AOF when the AOFRW is done. */
 static long long tempIncAofStartReplOffset = 0;
-/* Restoredir loading must be read-only. This flag disables old-style AOF
- * upgrade code in loadAppendOnlyFiles(), which would otherwise write/rename
- * files while server.aof_dirname temporarily points at the restore source. */
-static int aof_loading_from_restoredir = 0;
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -1490,6 +1485,57 @@ struct client *createAOFClient(void) {
     return c;
 }
 
+int loadPreLoadAOFFile(char *file) {
+    aofManifest* preload_am = aofManifestCreate();
+    aofInfo *ai = aofInfoCreate();
+    ai->file_name = sdsnew(file);
+    ai->file_seq = 1;
+    ai->file_type = AOF_FILE_TYPE_BASE;
+    preload_am->base_aof_info = ai;
+    preload_am->curr_base_file_seq = 1;
+    preload_am->dirty = 1;
+
+    /* We change server.aof_filename temporarily to skip upgradeAofIfNeeded */
+    char *tmp_aof_filename = server.aof_filename;
+    server.aof_filename = "";
+    char *tmp_aof_dirname = server.aof_dirname;
+    server.aof_dirname = "";
+    int ret = loadAppendOnlyFiles(preload_am);
+    aofManifestFree(preload_am);
+    server.aof_filename = tmp_aof_filename;
+    server.aof_dirname = tmp_aof_dirname;
+    return ret;
+}
+
+int loadPreLoadManifestFile(char *file) {
+    aofManifest* preload_am = aofLoadManifestFromFile(file);
+
+    /* We change server.aof_filename temporarily to skip upgradeAofIfNeeded */
+    char *tmp_aof_fullfilename = server.aof_filename;
+    server.aof_filename = "";
+    char *tmp_aof_dirname = server.aof_dirname;
+    /* Load preload manifest entries relative to the preload file directory. */
+    server.aof_dirname = getFilePath(file);
+    int ret = loadAppendOnlyFiles(preload_am);
+    /* Update server.master_repl_offset if possible. */
+    if (listLength(preload_am->incr_aof_list) > 0) {
+        aofInfo *ai = listNodeValue(listLast(preload_am->incr_aof_list));
+        if (ai->end_offset != -1) {
+            server.master_repl_offset = ai->end_offset;
+        } else {
+            /* If the INCR file doesn't have an end offset, we need to calculate
+             * the replication offset by the start offset plus the file size. */
+            server.master_repl_offset = (ai->start_offset == -1 ? 0 : ai->start_offset) +
+                                        getAppendOnlyFileSize(ai->file_name, NULL);
+        }
+    }
+    aofManifestFree(preload_am);
+    sdsfree(server.aof_dirname);
+    server.aof_filename = tmp_aof_fullfilename;
+    server.aof_dirname = tmp_aof_dirname;
+    return ret;
+}
+
 static int truncateAppendOnlyFile(char *filename, off_t valid_up_to) {
     if (valid_up_to == -1) {
         serverLog(LL_WARNING,"Last valid command offset is invalid");
@@ -1786,15 +1832,7 @@ cleanup:
     return ret;
 }
 
-/* Load the AOF files according the aofManifest pointed by am. */
-int loadAppendOnlyFiles(aofManifest *am) {
-    serverAssert(am != NULL);
-    int status, ret = AOF_OK;
-    long long start;
-    off_t total_size = 0, base_size = 0;
-    sds aof_name;
-    int total_num, aof_num = 0, last_file;
-
+void upgradeAofIfNeeded(aofManifest *am) {
     /* If the 'server.aof_filename' file exists in dir, we may be starting
      * from an old redis version. We will use enter upgrade mode in three situations.
      *
@@ -1804,7 +1842,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
      *    has only one base AOF record, and the file name of this base AOF is 'server.aof_filename',
      *    and the 'server.aof_filename' file not exist in 'server.aof_dirname' directory
      * */
-    if (!aof_loading_from_restoredir && fileExist(server.aof_filename)) {
+    if (fileExist(server.aof_filename)) {
         if (!dirExists(server.aof_dirname) ||
             (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) ||
             (am->base_aof_info != NULL && listLength(am->incr_aof_list) == 0 &&
@@ -1813,6 +1851,18 @@ int loadAppendOnlyFiles(aofManifest *am) {
             aofUpgradePrepare(am);
         }
     }
+}
+
+/* Load the AOF files according the aofManifest pointed by am. */
+int loadAppendOnlyFiles(aofManifest *am) {
+    serverAssert(am != NULL);
+    int status, ret = AOF_OK;
+    long long start;
+    off_t total_size = 0, base_size = 0;
+    sds aof_name;
+    int total_num, aof_num = 0, last_file;
+
+    upgradeAofIfNeeded(am);
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
         return AOF_NOT_EXIST;
@@ -3516,91 +3566,6 @@ NULL
     else if (!strcasecmp(sub, "status")) backupStatusCommand(c);
     else if (!strcasecmp(sub, "list")) backupListCommand(c);
     else addReplySubcommandSyntaxError(c);
-}
-
-static void backupUpdateReplOffsetFromManifest(aofManifest *am) {
-    if (listLength(am->incr_aof_list) == 0) return;
-
-    aofInfo *ai = listNodeValue(listLast(am->incr_aof_list));
-    if (ai->end_offset != -1) {
-        server.master_repl_offset = ai->end_offset;
-    } else {
-        server.master_repl_offset = (ai->start_offset == -1 ? 0 : ai->start_offset) +
-                                    getAppendOnlyFileSize(ai->file_name, NULL);
-    }
-}
-
-/* If 'restoredir' is configured and contains a manifest, load the dataset from
- * it (read-only), independent of the 'appendonly' setting. Missing or empty
- * restoredir means no restore; a non-empty restoredir without a valid manifest
- * is treated as a corrupt restore and aborts startup. */
-int loadDataFromRestoreDir(void) {
-    if (!server.restoredir) return 0;
-    if (!dirExists(server.restoredir)) {
-        serverLog(LL_NOTICE,
-            "Restore directory %s doesn't exist, skipping restore", server.restoredir);
-        return 0;
-    }
-    if (dirIsEmpty(server.restoredir)) {
-        serverLog(LL_NOTICE,
-            "Restore directory %s is empty, skipping restore", server.restoredir);
-        return 0;
-    }
-    if (server.aof_state == AOF_ON && !strcmp(server.restoredir, server.aof_dirname)) {
-        serverLog(LL_WARNING,
-            "Fatal error: restoredir must not be the same as appenddirname when appendonly is enabled");
-        exit(1);
-    }
-
-    sds am_name = getAofManifestFileName();
-    sds am_filepath = makePath(server.restoredir, am_name);
-    if (!fileExist(am_filepath)) {
-        serverLog(LL_WARNING,
-            "Fatal error: restore directory %s has no manifest %s",
-            server.restoredir, am_name);
-        sdsfree(am_name);
-        sdsfree(am_filepath);
-        exit(1);
-    }
-
-    /* Point the loader at the restore directory for the whole load. The
-     * aof_loading_from_restoredir guard keeps loadAppendOnlyFiles() from
-     * running compatibility upgrade code that would modify that directory. */
-    char *saved_dirname = server.aof_dirname;
-    int saved_load_truncated = server.aof_load_truncated;
-    off_t saved_corrupt_tail_max_size = server.aof_load_corrupt_tail_max_size;
-    server.aof_dirname = server.restoredir;
-    server.aof_load_truncated = 0;
-    server.aof_load_corrupt_tail_max_size = 0;
-    aofManifest *am = aofLoadManifestFromFile(am_filepath);
-    int saved_loading_from_restoredir = aof_loading_from_restoredir;
-    aof_loading_from_restoredir = 1;
-    int ret = loadAppendOnlyFiles(am);
-    aof_loading_from_restoredir = saved_loading_from_restoredir;
-    if (ret == AOF_OK) backupUpdateReplOffsetFromManifest(am);
-    server.aof_dirname = saved_dirname;
-    server.aof_load_truncated = saved_load_truncated;
-    server.aof_load_corrupt_tail_max_size = saved_corrupt_tail_max_size;
-
-    aofManifestFree(am);
-    sdsfree(am_name);
-    sdsfree(am_filepath);
-
-    if (ret != AOF_OK) {
-        serverLog(LL_WARNING,
-            "Fatal error loading the dataset from restore directory %s",
-            server.restoredir);
-        exit(1);
-    }
-    if (server.aof_state == AOF_ON) {
-        /* The restore source is read-only and may describe a different dataset
-         * than the live appendonlydir. Rebuild local AOF from the restored
-         * in-memory data during aofOpenIfNeededOnServerStart(). */
-        // backupRemoveLiveAofDir();
-
-    }
-    serverLog(LL_NOTICE, "DB restored from directory %s", server.restoredir);
-    return 1;
 }
 
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.

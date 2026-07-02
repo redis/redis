@@ -2229,6 +2229,7 @@ struct redisServer {
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
+    char *preload_file;             /* [aof|rdb]:[filename] to preload on startup */
     int set_proc_title;             /* True if change proc title */
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
@@ -2286,7 +2287,6 @@ struct redisServer {
     /* Backup (MP-AOF based, see backupCommand in aof.c) */
     int backup_state;                /* BACKUP_STATE_* */
     char *backup_dirname;            /* Config: backupdirname, relative to dir (CONFIG SET allowed). */
-    char *restoredir;                /* Config: restore source dir (immutable, startup only). */
     int backup_can_remove_aof_dir;   /* 1 if stopping temp AOF may remove appendonlydir. */
     sds backup_base_filename;        /* Basename of the BASE file hard-linked into backupdirname. */
     sds backup_incr_filename;        /* Basename of the INCR file hard-linked into backupdirname. */
@@ -3517,7 +3517,10 @@ void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
+int loadPreLoadAOFFile(char *file);
+int loadPreLoadManifestFile(char *file);
 int loadAppendOnlyFiles(aofManifest *am);
+void upgradeAofIfNeeded(aofManifest *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void startAppendOnlyWithRetry(void);
@@ -3527,7 +3530,6 @@ void killAppendOnlyChild(void);
 void aofLoadManifestFromDisk(void);
 void aofOpenIfNeededOnServerStart(void);
 void aofManifestFree(aofManifest *am);
-int loadDataFromRestoreDir(void);
 void backupCron(void);
 int backupIsInProgress(void);
 void backupSetFailed(const char *err);

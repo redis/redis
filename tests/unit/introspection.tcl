@@ -639,7 +639,7 @@ start_server {tags {"introspection"}} {
             syslog-ident
             appendfilename
             appenddirname
-            restoredir
+            preload-file
             supervised
             syslog-facility
             databases

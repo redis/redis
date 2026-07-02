@@ -7,6 +7,24 @@ proc backup_dir_empty {dir} {
     return [expr {[file exists $dir] && [llength [glob -nocomplain -directory $dir *]] == 0}]
 }
 
+proc backup_save_rdb_as {path} {
+    assert_equal "OK" [r save]
+    set dir [lindex [r config get dir] 1]
+    file copy -force [file join $dir dump.rdb] $path
+}
+
+proc backup_write_local_aof {dir} {
+    set aof_dir [file join $dir appendonlydir]
+    file mkdir $aof_dir
+    set fp [open [file join $aof_dir appendonly.aof.1.incr.aof] w]
+    puts -nonewline $fp [formatCommand set local-aof-key should-not-load]
+    close $fp
+
+    set fp [open [file join $aof_dir appendonly.aof.manifest] w]
+    puts -nonewline $fp "file appendonly.aof.1.incr.aof seq 1 type i\n"
+    close $fp
+}
+
 tags {"backup external:skip"} {
 
 start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
@@ -108,25 +126,48 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
-    test {Restore a sealed backup via restoredir} {
+    test {Preload a sealed backup via preload-file manifest} {
         # Use the sealed backup produced by the previous test.
-        start_server [list overrides [list appendonly no restoredir $bdir]] {
+        set manifest [file join $bdir appendonly.aof.manifest]
+        start_server [list overrides [list appendonly no preload-file "aof:$manifest"]] {
             assert_equal 3 [r dbsize]
             assert_equal v1 [r get k1]
             assert_equal v2 [r get k2]
             assert_equal v3 [r get k3]
+            set preload_server_dir [lindex [r config get dir] 1]
+            assert {![file exists [file join $preload_server_dir appendonlydir appendonly.aof.manifest]]}
         }
+        assert {[file exists $manifest]}
     }
 
-    test {Restore a sealed backup via restoredir with appendonly enabled} {
-        start_server [list overrides [list appendonly yes restoredir $bdir]] {
+    test {Preload a sealed backup via preload-file manifest with appendonly enabled} {
+        set manifest [file join $bdir appendonly.aof.manifest]
+        start_server [list overrides [list appendonly yes preload-file "aof:$manifest"]] {
             assert_equal 3 [r dbsize]
             assert_equal v1 [r get k1]
             assert_equal v2 [r get k2]
             assert_equal v3 [r get k3]
-            set restore_server_dir [lindex [r config get dir] 1]
-            assert {[file exists [file join $restore_server_dir appendonlydir appendonly.aof.manifest]]}
+            set preload_server_dir [lindex [r config get dir] 1]
+            assert {[file exists [file join $preload_server_dir appendonlydir appendonly.aof.manifest]]}
         }
+        assert {[file exists $manifest]}
+    }
+
+    test {Preload a sealed backup via preload-file manifest skips local RDB} {
+        set manifest [file join $bdir appendonly.aof.manifest]
+        set local_dir [tmpdir preload.aof.local-rdb]
+        r flushall
+        r set local-rdb-key should-not-load
+        backup_save_rdb_as [file join $local_dir dump.rdb]
+
+        start_server [list overrides [list dir $local_dir appendonly no preload-file "aof:$manifest"]] {
+            assert_equal 3 [r dbsize]
+            assert_equal v1 [r get k1]
+            assert_equal v2 [r get k2]
+            assert_equal v3 [r get k3]
+            assert_equal 0 [r exists local-rdb-key]
+        }
+        assert {[file exists $manifest]}
     }
 
     test {BACKUP CLEANUP removes the sealed backup and returns to idle} {
@@ -156,6 +197,71 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             fail "Sealed backup was not auto-cleaned"
         }
         assert_equal "OK" [r config set backup-sealed-ttl 86400]
+    }
+
+    test {Preload an RDB file via preload-file} {
+        r flushall
+        r set preload-rdb-key value
+        r sadd preload-rdb-set one two
+        assert_equal "OK" [r save]
+
+        set preload_rdb [file join $backup_server_dir dump.rdb]
+        start_server [list overrides [list appendonly no preload-file "rdb:$preload_rdb"]] {
+            assert_equal 2 [r dbsize]
+            assert_equal value [r get preload-rdb-key]
+            assert_equal {one two} [lsort [r smembers preload-rdb-set]]
+            set preload_server_dir [lindex [r config get dir] 1]
+            assert {![file exists [file join $preload_server_dir appendonlydir appendonly.aof.manifest]]}
+        }
+    }
+
+    test {Preload an RDB file via preload-file with appendonly enabled} {
+        set preload_rdb [file join $backup_server_dir dump.rdb]
+        start_server [list overrides [list appendonly yes preload-file "rdb:$preload_rdb"]] {
+            assert_equal 2 [r dbsize]
+            assert_equal value [r get preload-rdb-key]
+            assert_equal {one two} [lsort [r smembers preload-rdb-set]]
+            set preload_server_dir [lindex [r config get dir] 1]
+            assert {[file exists [file join $preload_server_dir appendonlydir appendonly.aof.manifest]]}
+        }
+    }
+
+    test {Preload an RDB file via preload-file skips local RDB} {
+        r flushall
+        r set preload-rdb-key value
+        r sadd preload-rdb-set one two
+        set preload_rdb [file join $backup_server_dir preload-source.rdb]
+        backup_save_rdb_as $preload_rdb
+
+        set local_dir [tmpdir preload.rdb.local-rdb]
+        r flushall
+        r set local-rdb-key should-not-load
+        backup_save_rdb_as [file join $local_dir dump.rdb]
+
+        start_server [list overrides [list dir $local_dir appendonly no preload-file "rdb:$preload_rdb"]] {
+            assert_equal 2 [r dbsize]
+            assert_equal value [r get preload-rdb-key]
+            assert_equal {one two} [lsort [r smembers preload-rdb-set]]
+            assert_equal 0 [r exists local-rdb-key]
+        }
+    }
+
+    test {Preload an RDB file via preload-file skips local AOF} {
+        r flushall
+        r set preload-rdb-key value
+        r sadd preload-rdb-set one two
+        set preload_rdb [file join $backup_server_dir preload-source.rdb]
+        backup_save_rdb_as $preload_rdb
+
+        set local_dir [tmpdir preload.rdb.local-aof]
+        backup_write_local_aof $local_dir
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "rdb:$preload_rdb"]] {
+            assert_equal 2 [r dbsize]
+            assert_equal value [r get preload-rdb-key]
+            assert_equal {one two} [lsort [r smembers preload-rdb-set]]
+            assert_equal 0 [r exists local-aof-key]
+        }
     }
 
     test {appendonly-no backup does not remove preexisting appendonlydir files} {

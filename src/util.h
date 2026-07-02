@@ -64,6 +64,8 @@ int yesnotoi(char *s);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
+char *getFileExtension(char *path);
+sds getFilePath(char *path);
 int dirCreateIfMissing(char *dname);
 int dirExists(char *dname);
 int dirIsEmpty(char *dname);

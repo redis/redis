@@ -1101,6 +1101,21 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
+char *getFileExtension(char *path) {
+    char *pch = strrchr(path,'.');
+    if (!pch)
+        return NULL;
+    else
+        return pch+1;
+}
+
+sds getFilePath(char *path) {
+    if (pathIsBaseName(path)) return NULL;
+
+    char *pch = strrchr(path,'/');
+    return sdsnewlen(path, pch - path);
+}
+
 int fileExist(char *filename) {
     struct stat statbuf;
     return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
