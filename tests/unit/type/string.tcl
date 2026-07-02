@@ -1595,16 +1595,33 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     }
 
     test {Extended SET - mutually exclusive flags} {
+        r set mykey "hello"
+
         assert_error "*syntax error*" {r set mykey "world" NX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" NX}
+
         assert_error "*syntax error*" {r set mykey "world" XX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" XX}
+
         assert_error "*syntax error*" {r set mykey "world" NX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" NX}
+
         assert_error "*syntax error*" {r set mykey "world" XX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" XX}
+
         assert_error "*syntax error*" {r set mykey "world" NX IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef NX}
+
         assert_error "*syntax error*" {r set mykey "world" XX IFDNE 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDNE 0123456789abcdef XX}
 
         # IF* conditions are mutually exclusive with each other
         assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFNE "world"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "world" IFEQ "hello"}
         assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef IFDNE fedcba9876543210}
+
+        assert_equal "hello" [r get mykey]
     }
 
     test {DIGEST always returns exactly 16 hex characters with leading zeros} {
