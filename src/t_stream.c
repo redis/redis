@@ -8,6 +8,9 @@
  */
 
 #include "server.h"
+#ifdef REDIS_TEST
+#include "testhelp.h"
+#endif
 #include "endianconv.h"
 #include "stream.h"
 #include "xxhash.h"
@@ -483,6 +486,206 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
     streamIteratorStop(&si);
 }
 
+/* Rebuild a listpack node by removing tombstone entries. This is used to
+ * compact stream nodes after deletions have accumulated. If all entries are
+ * tombstones, the node is removed entirely. */
+static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsigned char *key, size_t key_len) {
+    unsigned char *p = lpFirst(lp);
+    serverAssert(lp != NULL);
+    serverAssert(p != NULL);
+    int64_t valid = lpGetInteger(p);
+    p = lpNext(lp,p); // Move past valid field
+    serverAssert(p != NULL);   // deleted field
+    // int64_t deleted = lpGetInteger(p);
+
+    if (valid == 0) {
+        s->alloc_size -= lpBytes(lp);
+        lpFree(lp);
+        raxRemove(s->rax,key,key_len,NULL);
+        return NULL;
+    }
+
+    size_t oldsize = lpBytes(lp);
+    unsigned char *newlp = lpNew(oldsize);
+
+    p = lpNext(lp,p); /* Move past deleted field. */
+    serverAssert(p != NULL);   // num-of-fields or master_field_count
+    // p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
+    // serverAssert(p != NULL);   // master fields
+    int64_t master_fields_count = lpGetInteger(p);
+
+    newlp = lpAppendInteger(newlp, valid);
+    newlp = lpAppendInteger(newlp, 0);
+    newlp = lpAppendInteger(newlp, master_fields_count);
+
+    p = lpNext(lp,p); /* Move to first master field */
+    serverAssert(p != NULL);
+    for (int64_t j = 0; j < master_fields_count; j++) {
+        int64_t field_len;
+        unsigned char buf[LP_INTBUF_SIZE];
+        unsigned char *field = lpGet(p,&field_len,buf);
+        newlp = lpAppend(newlp, field, field_len);
+        p = lpNext(lp,p);
+        serverAssert(p != NULL);
+    }
+    newlp = lpAppendInteger(newlp, 0); /* Master entry zero terminator. */
+    p = lpNext(lp,p); /* Move past the zero master entry terminator. */
+    serverAssert(p != NULL);
+    while (p) {
+        int64_t flags = lpGetInteger(p);
+        unsigned char *q = lpNext(lp,p); /* Move Past flags */
+        serverAssert(q != NULL);
+        int64_t ms_delta = lpGetInteger(q);
+        q = lpNext(lp,q); /* Move past ms_delta of entry_id */
+        serverAssert(q != NULL);
+        int64_t seq_delta = lpGetInteger(q); /* Move past seq_delta of entry_id */
+        q = lpNext(lp,q); /* Move past entry_id */
+        serverAssert(q != NULL);
+
+        /* Skip deleted entry */
+        if (flags & STREAM_ITEM_FLAG_DELETED) {
+            if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
+                int64_t numfields = lpGetInteger(q);
+                q = lpNext(lp,q); /* Move past numfields */
+                serverAssert(q != NULL);
+                for (int64_t i = 0; i < numfields; i++) {
+                    q = lpNext(lp,q);
+                    serverAssert(q != NULL);
+                    q = lpNext(lp,q);
+                    serverAssert(q != NULL);
+                }
+            } else {
+                for (int64_t i = 0; i < master_fields_count; i++) {
+                        q = lpNext(lp,q);
+                        serverAssert(q != NULL);
+                }
+                
+            }
+            q = lpNext(lp,q); /* Move past lp-count */
+            p = q;
+            continue;
+        }
+
+        /* Copy living entry */
+        newlp = lpAppendInteger(newlp, flags);
+        newlp = lpAppendInteger(newlp, ms_delta);
+        newlp = lpAppendInteger(newlp, seq_delta);
+
+        if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
+            int64_t numfields = lpGetInteger(q);
+            newlp = lpAppendInteger(newlp, numfields);
+            q = lpNext(lp,q); /* Move past numfields */
+            serverAssert(q != NULL);
+            for (int64_t i = 0; i < numfields; i++) {
+                int64_t field_len, value_len;
+                unsigned char buf[LP_INTBUF_SIZE];
+                unsigned char *field = lpGet(q,&field_len,buf);
+                serverAssert(field != NULL);
+                serverAssert(field_len >= 0);
+                newlp = lpAppend(newlp, field, field_len);
+                q = lpNext(lp,q); /* Move past field, now we are pointing to value */
+                serverAssert(q != NULL);
+                unsigned char *value = lpGet(q,&value_len,buf);
+                newlp = lpAppend(newlp, value, value_len);
+                q = lpNext(lp,q);
+                serverAssert(q != NULL);
+            }
+        } else {
+            for (int64_t i = 0; i < master_fields_count; i++) {
+                int64_t value_len;
+                unsigned char buf[LP_INTBUF_SIZE];
+                unsigned char *value = lpGet(q,&value_len,buf);
+                newlp = lpAppend(newlp, value, value_len);
+                q = lpNext(lp,q); /* Move past value */
+                serverAssert(q != NULL);
+            }
+        }
+
+        int64_t lp_count = lpGetInteger(q);
+        newlp = lpAppendInteger(newlp, lp_count);
+        q = lpNext(lp,q); /* Move past lp_count */
+        p = q;
+    }
+
+#ifdef REDIS_TEST
+    serverLog(LL_WARNING, "streamCompactListpack: before compaction");
+    streamLogListpackContent(lp);
+#endif
+    newlp = lpShrinkToFit(newlp);
+#ifdef REDIS_TEST
+    serverLog(LL_WARNING, "streamCompactListpack: after compaction");
+    streamLogListpackContent(newlp);
+#endif
+    s->alloc_size -= oldsize;
+    s->alloc_size += lpBytes(newlp);
+    lpFree(lp);
+    raxInsert(s->rax,key,key_len,newlp,NULL);
+    return newlp;
+}
+
+#ifdef REDIS_TEST
+/* Stream native regression test for trimming and listpack compaction. */
+int streamTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    stream *s = streamNew();
+    streamID ids[32];
+    robj *argv_obj[2];
+    int entries = 20;
+
+    argv_obj[0] = createStringObject("field", 5);
+    for (int j = 0; j < entries; j++) {
+        char value[32];
+        int len = snprintf(value, sizeof(value), "value-%02d", j);
+        argv_obj[1] = createStringObject(value, len);
+        if (streamAppendItem(s, argv_obj, 1, &ids[j], NULL, 0) != C_OK) {
+            printf("FAIL: streamAppendItem failed at entry %d\n", j);
+            decrRefCount(argv_obj[1]);
+            decrRefCount(argv_obj[0]);
+            freeStream(s);
+            return 1;
+        }
+        decrRefCount(argv_obj[1]);
+    }
+    decrRefCount(argv_obj[0]);
+
+    int64_t deleted = streamTrimByLength(s, 9, 0);
+    if (deleted != 11) {
+        printf("FAIL: expected 11 deleted entries, got %lld\n", (long long)deleted);
+        freeStream(s);
+        return 1;
+    }
+    if (s->length != 9) {
+        printf("FAIL: expected length 9 after trim, got %lu\n", s->length);
+        freeStream(s);
+        return 1;
+    }
+
+    for (int j = 0; j < entries; j++) {
+        int exists = streamEntryExists(s, &ids[j]);
+        if (j < 11) {
+            if (exists) {
+                printf("FAIL: old entry %d should be deleted\n", j);
+                freeStream(s);
+                return 1;
+            }
+        } else {
+            if (!exists) {
+                printf("FAIL: expected entry %d to remain\n", j);
+                freeStream(s);
+                return 1;
+            }
+        }
+    }
+
+    freeStream(s);
+    printf("streamTest: passed %d entries, compacted tombstones successfully\n", entries);
+    return 0;
+}
+#endif
+
 /* Adds a new item into the stream 's' having the specified number of
  * field-value pairs as specified in 'numfields' and stored into 'argv'.
  * Returns the new entry ID populating the 'added_id' structure.
@@ -842,7 +1045,7 @@ static void nackSetDeliveryCount(streamNACK *nack, int mode, long long retrycoun
  *    to be deleted.
  *
  * args->limit is the maximum number of entries to delete. The purpose is to
- * prevent this function from taking to long.
+ * prevent this function from taking too long.
  * If 'limit' is 0 then we do not limit the number of deleted entries.
  * Much like the 'approx', if 'limit' is smaller than the number of entries
  * that should be trimmed, there is a chance we will still have entries with
@@ -1021,7 +1224,15 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         entries -= deleted_from_lp;
         marked_deleted += deleted_from_lp;
         if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
-            /* TODO: perform a garbage collection. */
+            unsigned char *newlp = streamCompactListpack(s, lp, ri.key, ri.key_len);
+            if (newlp != NULL) {
+                lp = newlp;
+                p = lpFirst(lp);
+                p = lpNext(lp,p);
+                p = lpNext(lp,p);
+                p = lpNext(lp,p);
+                if (p) p = lpNext(lp,p);
+            }
         }
 
         /* Update the node with the new pointer. */
@@ -1627,8 +1838,16 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     streamIteratorStop(si);
     streamIteratorStart(si,s,&start,&end,si->rev);
 
-    /* TODO: perform a garbage collection here if the ratio between
-     * deleted and valid goes over a certain limit. */
+    // /* Compact the listpack if tombstones became too frequent. */
+    // if (s->length > 0) {
+    //     unsigned char *p = lpFirst(si->lp);
+    //     int64_t valid = lpGetInteger(p);
+    //     p = lpNext(si->lp,p);
+    //     int64_t deleted = lpGetInteger(p);
+    //     if (deleted > 0 && valid + deleted > 10 && deleted > valid/2) {
+    //         streamCompactListpack(s, si->lp, si->ri.key, si->ri.key_len);
+    //     }
+    // }
 }
 
 /* Stop the stream iterator. The only cleanup we need is to free the rax
