@@ -195,8 +195,8 @@ Selection:
 
 | Command | Selects |
 |---|---|
-| `make build` | Redis + every cloned module |
-| `make build core` | Redis only; skip modules |
+| `make build` / `make build all` / `make build .` | Redis + every cloned module |
+| `make build core` / `make build redis` / `make build none` | Redis only; skip modules |
 | `make build <name>` | Redis + only the named module |
 
 Invalid module names are detected **before** any compilation runs — you
@@ -459,7 +459,7 @@ Dispatch:
 | Command | Runs |
 |---|---|
 | `make test` | Redis tests only (`$(MAKE) -C src test`) |
-| `make test redis` / `none` | Same — Redis tests only (mirrors `make core`) |
+| `make test redis` / `none` | Same — Redis tests only (mirrors `make build core`) |
 | `make test all` / `.` | `make test` in every cloned module; continues past failures and summarizes at the end |
 | `make test <module>` | `make test` in one module (full suite) |
 | `make test <module> <test_name>` | `make test TEST=<test_name>` in one module |
@@ -526,11 +526,11 @@ code propagates directly.
 # First time:
 make modules-update                           # clone modules at pinned refs
 make bootstrap                                     # install per-module deps (per-OS install)
-make                                          # build Redis, then every module
+make build                                    # build Redis, then every module
 
 # Iterate:
 make modules-update redisbloom                # bump to the current pin (re-runs are safe)
-make                                          # rebuild
+make build                                    # rebuild
 make run redistimeseries redisbloom           # start Redis with just these two
 
 # Verify:
@@ -610,7 +610,7 @@ redis-<tag>/
 ```bash
 tar xzf redis-<tag>.tar.gz
 cd redis-<tag>
-gmake BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+gmake INSTALL_RUST_TOOLCHAIN=yes
 ```
 
 `redis.conf` is shipped unmodified, so it does **not** load any bundled
@@ -644,8 +644,8 @@ make apply-redis-conf [<name> ...] \         # sync-redis-conf, then overwrite r
 make apply-redis-conf revert                 # strip Modules section from redis.conf
                                              #   (preserves core edits; revert without git checkout)
 
-make [<name> ...|all|.|redis|none] [VAR=value ...]
-make all|build [<name> ...|all|.|redis|none] [VAR=value ...]
+make [<name> ...|all|.|redis|core|none] [VAR=value ...]
+make all|build [<name> ...|all|.|redis|core|none] [VAR=value ...]
 
 make run [<name> ...] [ARGS="<redis-server args>"]
 
