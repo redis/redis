@@ -2692,85 +2692,17 @@ void bitfieldroCommand(client *c) {
     bitfieldGeneric(c, BITFIELD_FLAG_READONLY);
 }
 
-/* BITMAP CONVERT key [NATIVE|STRING]
- *
- * Explicitly convert a bitmap key between the legacy string representation
- * and the native compressed one. This is the opt-in path while
- * bitmap-default-roaring is disabled: users move individual keys to native
- * bitmaps (or back) without changing how writes behave globally. Converting
- * to the type the key already has is a no-op that still replies OK. */
-static void bitmapConvertCommand(client *c) {
-    int to_native = 1;
-
-    if (c->argc == 4) {
-        char *target = c->argv[3]->ptr;
-        if (!strcasecmp(target, "native")) to_native = 1;
-        else if (!strcasecmp(target, "string")) to_native = 0;
-        else {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
-    }
-
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[2], shared.nokeyerr);
-    if (kv == NULL) return;
-    if (checkStringOrBitmapType(c, kv)) return;
-
-    robj *replacement;
-    if (to_native) {
-        if (kv->type == OBJ_BITMAP) {
-            addReply(c, shared.ok);
-            return;
-        }
-        replacement = bitmapObjectFromStringObject(kv);
-        if (replacement == NULL) {
-            addBitmapNativeLengthError(c);
-            return;
-        }
-    } else {
-        if (kv->type == OBJ_STRING) {
-            addReply(c, shared.ok);
-            return;
-        }
-        sds raw = bitmapObjectMaterialize(kv);
-        if (raw == NULL) {
-            addReplyError(c, "bitmap length exceeds proto-max-bulk-len, cannot convert to a string");
-            return;
-        }
-        replacement = createObject(OBJ_STRING, raw);
-    }
-
-    long long expire = getExpire(c->db, c->argv[2]->ptr, kv);
-    bitmapPropagateRestore(c, c->argv[2], replacement, expire);
-    /* setKey() fires the "overwritten" and "type_changed" events and signals
-     * watchers. Like every other representation transition the conversion
-     * reaches replicas and the AOF as an explicit RESTORE of the new value
-     * (with its TTL preserved): whether a replica could re-run the
-     * conversion depends on its own proto-max-bulk-len, so the command is
-     * never propagated verbatim. */
-    setKey(c, c->db, c->argv[2], &replacement, SETKEY_KEEPTTL);
-    server.dirty++;
-    addReply(c, shared.ok);
-}
-
 /* BITMAP <subcommand> ... — container for native bitmap subcommands. */
 void bitmapCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
 
     if (!strcasecmp(subcmd, "help") && c->argc == 2) {
         const char *help[] = {
-"CONVERT <key> [NATIVE|STRING]",
-"    Convert a bitmap key to the native compressed representation, or back",
-"    to a plain string. Defaults to NATIVE. Converting to the current",
-"    representation is a no-op. NATIVE changes TYPE to bitmap; STRING",
-"    changes TYPE back to string.",
+"HELP",
+"    Print this help.",
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(subcmd, "convert") &&
-               (c->argc == 3 || c->argc == 4))
-    {
-        bitmapConvertCommand(c);
     } else {
         addReplySubcommandSyntaxError(c);
     }

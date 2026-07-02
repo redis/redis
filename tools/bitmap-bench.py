@@ -767,7 +767,18 @@ class RedisBitmapBench:
 
     def convert_to_native(self, key: str) -> None:
         if self.args.mode == "native":
-            self.client.execute(["BITMAP", "CONVERT", key, "NATIVE"])
+            key_type = self.client.execute(["TYPE", key])
+            if key_type == b"bitmap" or key_type == "bitmap":
+                return
+            current = self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])
+            current_value = current[1].decode("utf-8") if isinstance(current[1], bytes) else str(current[1])
+            raw = self.client.execute(["GET", key]) or b""
+            bit = 1 if raw and (raw[0] & 0x80) else 0
+            try:
+                self.set_default_roaring(True, required=True)
+                self.client.execute(["SETBIT", key, "0", str(bit)])
+            finally:
+                self.client.execute(["CONFIG", "SET", "bitmap-default-roaring", current_value])
 
     def module_cmd(self, name: str) -> str:
         return f"{self.args.module_command_prefix}.{name}"
@@ -2493,7 +2504,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--src-dir", help="Path to src containing redis-server, redis-cli, and redis-benchmark")
     parser.add_argument("--mode", choices=("native", "legacy", "module"), default="native",
-                        help=("native uses bitmap-default-roaring/convert; legacy uses string bitmap data only; "
+                        help=("native uses bitmap-default-roaring; legacy uses string bitmap data only; "
                               "module uses redis-roaring R.* commands"))
     parser.add_argument("--mode-label", default="redis-pr-native",
                         help="Label written to JSON/CSV/Markdown output")

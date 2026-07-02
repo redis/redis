@@ -1,3 +1,5 @@
+source tests/support/bitmap.tcl
+
 proc seed_string_bitmap_olap {key bits} {
     r del $key
     r set $key ""
@@ -7,8 +9,7 @@ proc seed_string_bitmap_olap {key bits} {
 }
 
 proc seed_native_bitmap_olap {key bits} {
-    seed_string_bitmap_olap $key $bits
-    r bitmap convert $key
+    create_native_bitmap_from_bits r $key $bits
 }
 
 proc assert_olap_bitmap_has_exact_bits {key bits} {
