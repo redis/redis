@@ -12,10 +12,11 @@ start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
         array set node [$cluster masternode_for_slot $slot]
         set owner $node(link)
 
+        set old [lindex [$owner config get bitmap-default-roaring] 1]
+        $owner config set bitmap-default-roaring yes
         assert_equal 0 [$owner setbit "{bitop}foo" 1 1]
         assert_equal 0 [$owner setbit "{bitop}bar" 2 1]
-        assert_equal OK [$owner bitmap convert "{bitop}foo"]
-        assert_equal OK [$owner bitmap convert "{bitop}bar"]
+        $owner config set bitmap-default-roaring $old
         assert_equal bitmap [$owner type "{bitop}foo"]
         assert_equal bitmap-roaring [$owner object encoding "{bitop}foo"]
 

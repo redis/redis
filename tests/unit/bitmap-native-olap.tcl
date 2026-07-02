@@ -7,8 +7,17 @@ proc seed_string_bitmap_olap {key bits} {
 }
 
 proc seed_native_bitmap_olap {key bits} {
-    seed_string_bitmap_olap $key $bits
-    r bitmap convert $key
+    set old [lindex [r config get bitmap-default-roaring] 1]
+    r config set bitmap-default-roaring yes
+    r del $key
+    if {[llength $bits] == 0} {
+        r setbit $key 0 0
+    } else {
+        foreach bit $bits {
+            r setbit $key $bit 1
+        }
+    }
+    r config set bitmap-default-roaring $old
 }
 
 proc assert_olap_bitmap_has_exact_bits {key bits} {

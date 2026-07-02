@@ -3,16 +3,29 @@ set bitmapnotifymodule [file normalize tests/modules/bitmap_notify.so]
 set ::sparse_public_offset 65536
 set ::sparse_public_len 8193
 
+proc make_native_bitmap_from_string_client {client key} {
+    set old [lindex [$client config get bitmap-default-roaring] 1]
+    set bit 0
+    if {[$client strlen $key] > 0} {
+        set bit [$client getbit $key 0]
+    }
+    $client config set bitmap-default-roaring yes
+    $client setbit $key 0 $bit
+    $client config set bitmap-default-roaring $old
+}
+
+proc make_native_bitmap_from_string {key} {
+    make_native_bitmap_from_string_client r $key
+}
+
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {bitmap-default-roaring defaults to no} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
 
-    test {BITMAP HELP documents the observable bitmap type split} {
-        set help [join [r bitmap help] "\n"]
-
-        assert_match {*NATIVE changes TYPE to bitmap*} $help
-        assert_match {*STRING*changes TYPE back to string*} $help
+    test {BITMAP command is not part of the v1 public surface} {
+        assert_error {ERR unknown command 'bitmap'*} {r bitmap help}
+        assert_error {ERR unknown command 'bitmap'*} {r bitmap convert bitmap:missing}
     }
 
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
@@ -84,19 +97,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:convert]
         assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
 
-        r set bitmap:public:zero:existing ""
-        r bitmap convert bitmap:public:zero:existing
-        assert_equal "" [r debug bitmap-raw bitmap:public:zero:existing]
-        set dirty [s rdb_changes_since_last_save]
-        assert_equal 0 [r setbit bitmap:public:zero:existing 0 0]
-        assert_equal bitmap [r type bitmap:public:zero:existing]
-        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:existing]
-        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
-
-        set dirty [s rdb_changes_since_last_save]
-        assert_equal 0 [r setbit bitmap:public:zero:existing 0 0]
-        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:zero:existing]
-        assert_equal $dirty [s rdb_changes_since_last_save]
         r config set bitmap-default-roaring no
     }
 
@@ -116,39 +116,13 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {BITMAP CONVERT converts strings to native bitmaps and back} {
-        r config set bitmap-default-roaring no
-        set raw [binary format H* 80400100080000]
-
-        r del bitmap:convert
-        r set bitmap:convert $raw
-        r pexpire bitmap:convert 60000
-        assert_equal OK [r bitmap convert bitmap:convert]
-        assert_equal bitmap [r type bitmap:convert]
-        assert_equal bitmap-roaring [r object encoding bitmap:convert]
-        assert_equal $raw [r debug bitmap-raw bitmap:convert]
-        assert {[r pttl bitmap:convert] > 0}
-
-        # Idempotent in both directions.
-        assert_equal OK [r bitmap convert bitmap:convert]
-        assert_equal OK [r bitmap convert bitmap:convert NATIVE]
-        assert_equal bitmap [r type bitmap:convert]
-
-        assert_equal OK [r bitmap convert bitmap:convert STRING]
-        assert_equal string [r type bitmap:convert]
-        assert_equal $raw [r get bitmap:convert]
-        assert {[r pttl bitmap:convert] > 0}
-        assert_equal OK [r bitmap convert bitmap:convert STRING]
-        assert_equal string [r type bitmap:convert]
-    }
-
-    test {BITMAP CONVERT preserves all-zero logical byte length} {
+    test {bitmap-default-roaring conversion preserves all-zero logical byte length} {
         r config set bitmap-default-roaring no
         set raw [string repeat [binary format H* 00] 6]
 
         r del bitmap:convert:zeros bitmap:convert:zeros:restored
         r set bitmap:convert:zeros $raw
-        assert_equal OK [r bitmap convert bitmap:convert:zeros]
+        make_native_bitmap_from_string bitmap:convert:zeros
         assert_equal bitmap [r type bitmap:convert:zeros]
         assert_equal bitmap-roaring [r object encoding bitmap:convert:zeros]
         assert_equal 0 [r bitcount bitmap:convert:zeros]
@@ -160,20 +134,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap-roaring [r object encoding bitmap:convert:zeros:restored]
         assert_equal 0 [r bitcount bitmap:convert:zeros:restored]
         assert_equal $raw [r debug bitmap-raw bitmap:convert:zeros:restored]
-    }
-
-    test {BITMAP CONVERT handles int-encoded strings missing keys and wrong types} {
-        r del bitmap:convert:int bitmap:convert:list
-        r set bitmap:convert:int 12345
-        assert_equal int [r object encoding bitmap:convert:int]
-        assert_equal OK [r bitmap convert bitmap:convert:int]
-        assert_equal bitmap [r type bitmap:convert:int]
-        assert_equal "12345" [r debug bitmap-raw bitmap:convert:int]
-
-        assert_error {ERR no such key} {r bitmap convert bitmap:convert:missing}
-        r rpush bitmap:convert:list element
-        assert_error {WRONGTYPE*} {r bitmap convert bitmap:convert:list}
-        assert_error {*syntax*} {r bitmap convert bitmap:convert:int SIDEWAYS}
     }
 
     test {DEBUG DIGEST for native bitmaps includes trailing zero length} {
@@ -196,7 +156,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* [string repeat ff 1024]]
 
         r set bitmap:digest:converted $raw
-        assert_equal OK [r bitmap convert bitmap:digest:converted]
+        make_native_bitmap_from_string bitmap:digest:converted
 
         r config set bitmap-default-roaring yes
         for {set bit 0} {$bit < 8192} {incr bit} {
@@ -409,14 +369,6 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
         r config set bitmap-default-roaring no
 
-        # Explicit conversion emits the overwrite pair only.
-        r set bitmap:public:notify:cmd ""
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify:cmd} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:public:notify:cmd} [$rd read]
-        r bitmap convert bitmap:public:notify:cmd
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:overwritten bitmap:public:notify:cmd} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:cmd} [$rd read]
-
         $rd close
         r config set notify-keyspace-events {}
     }
@@ -487,7 +439,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         # One native source makes the destination native, even overwriting
         # the previous string destination.
         r set bitop:dest:n1 [binary format H* f0]
-        r bitmap convert bitop:dest:n1
+        make_native_bitmap_from_string bitop:dest:n1
         assert_equal 1 [r bitop or bitop:dest:out bitop:dest:n1 bitop:dest:s2]
         assert_equal bitmap [r type bitop:dest:out]
         assert_equal [binary format H* ff] [r debug bitmap-raw bitop:dest:out]
@@ -549,7 +501,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:raw $raw
-        assert_equal [r bitmap convert bitmap:raw] OK
+        make_native_bitmap_from_string bitmap:raw
         assert_equal [r type bitmap:raw] bitmap
         assert_equal [r object encoding bitmap:raw] bitmap-roaring
         assert_equal [r debug bitmap-raw bitmap:raw] $raw
@@ -561,7 +513,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r set bitmap:copy-source $raw
         r set bitmap:string-peer value
-        r bitmap convert bitmap:copy-source
+        make_native_bitmap_from_string bitmap:copy-source
 
         # SCAN gives no guarantee that one page covers the keyspace, so walk
         # the cursor to completion before asserting membership.
@@ -586,7 +538,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:string-boundary $raw
-        r bitmap convert bitmap:string-boundary
+        make_native_bitmap_from_string bitmap:string-boundary
 
         foreach command {
             {get bitmap:string-boundary}
@@ -630,7 +582,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:set-overwrite $raw
-        r bitmap convert bitmap:set-overwrite
+        make_native_bitmap_from_string bitmap:set-overwrite
         assert_equal bitmap [r type bitmap:set-overwrite]
 
         # Generic overwrite is the intended plain replacement path: SET
@@ -646,7 +598,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:nx-boundary bitmap:nx-other
         r set bitmap:nx-boundary $raw
-        r bitmap convert bitmap:nx-boundary
+        make_native_bitmap_from_string bitmap:nx-boundary
 
         # NX-style writes check only existence, never type: a native bitmap
         # counts as existing and stays untouched.
@@ -667,7 +619,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r set bitmap:surface $raw
         r set bitmap:surface:string $raw
-        r bitmap convert bitmap:surface
+        make_native_bitmap_from_string bitmap:surface
 
         # MGET reports non-string keys as nil, native bitmaps included.
         assert_equal [list {} $raw] [r mget bitmap:surface bitmap:surface:string]
@@ -695,8 +647,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         # native bitmap weight or data target behaves exactly like a
         # missing key: no weight for BY (sorts as 0), nil for GET, and no
         # materialization back to a string.
-        r bitmap convert weight_a
-        r bitmap convert data_a
+        make_native_bitmap_from_string weight_a
+        make_native_bitmap_from_string data_a
         assert_equal {a b} [r sort bitmap:sort:list BY weight_* GET #]
         assert_equal [list {} string-b] [r sort bitmap:sort:list BY weight_* GET data_*]
         assert_equal bitmap [r type weight_a]
@@ -708,7 +660,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del wh_a wh_b
         r hset wh_b f 1
         r set wh_a placeholder
-        r bitmap convert wh_a
+        make_native_bitmap_from_string wh_a
         assert_equal {a b} [r sort bitmap:sort:list BY wh_*->f GET #]
         assert_equal [list {} 1] [r sort bitmap:sort:list BY wh_*->f GET wh_*->f]
         assert_equal bitmap [r type wh_a]
@@ -718,7 +670,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:lua $raw
-        r bitmap convert bitmap:lua
+        make_native_bitmap_from_string bitmap:lua
 
         assert_equal 1 [r eval {return redis.call('getbit', KEYS[1], 0)} 1 bitmap:lua]
         assert_equal 4 [r eval {return redis.call('bitcount', KEYS[1])} 1 bitmap:lua]
@@ -730,7 +682,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* f0000000000000010000]
 
         r set bitmap:persist $raw
-        r bitmap convert bitmap:persist
+        make_native_bitmap_from_string bitmap:persist
 
         set payload [r dump bitmap:persist]
         r restore bitmap:restored 0 $payload
@@ -753,7 +705,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r set bitmap:restore:source $raw
         set string_payload [r dump bitmap:restore:source]
 
-        r bitmap convert bitmap:restore:source
+        make_native_bitmap_from_string bitmap:restore:source
         set bitmap_payload [r dump bitmap:restore:source]
         assert_equal bitmap [r type bitmap:restore:source]
         assert_equal bitmap-roaring [r object encoding bitmap:restore:source]
@@ -781,7 +733,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:rdb-run:a bitmap:rdb-run:b
         r set bitmap:rdb-run:a $raw
-        r bitmap convert bitmap:rdb-run:a
+        make_native_bitmap_from_string bitmap:rdb-run:a
         set original_usage [r memory usage bitmap:rdb-run:a]
 
         r restore bitmap:rdb-run:b 0 [r dump bitmap:rdb-run:a]
@@ -799,7 +751,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
         r set bitmap:rdb-frag:a $raw
-        r bitmap convert bitmap:rdb-frag:a
+        make_native_bitmap_from_string bitmap:rdb-frag:a
 
         set dump [r dump bitmap:rdb-frag:a]
         assert_lessthan [string length $dump] [expr {[string length $raw] + 128}] \
@@ -821,7 +773,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         set raw [r get bitmap:rdb-sparse:string]
         r set bitmap:rdb-sparse:native $raw
-        r bitmap convert bitmap:rdb-sparse:native
+        make_native_bitmap_from_string bitmap:rdb-sparse:native
 
         set native_dump [r dump bitmap:rdb-sparse:native]
         assert_lessthan [string length $native_dump] \
@@ -871,7 +823,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         foreach {name raw} [list dense $dense trailing-zero $trailing_zero mixed $mixed sparse $sparse] {
             r set bitmap:endian:$name $raw
-            r bitmap convert bitmap:endian:$name
+            make_native_bitmap_from_string bitmap:endian:$name
             assert_equal [r debug bitmap-raw bitmap:endian:$name] $raw
 
             r restore bitmap:endian:restored:$name 0 [r dump bitmap:endian:$name]
@@ -890,7 +842,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:rdb-raw-bulk-limit
         r set bitmap:rdb-raw-bulk-limit $raw
-        r bitmap convert bitmap:rdb-raw-bulk-limit
+        make_native_bitmap_from_string bitmap:rdb-raw-bulk-limit
         r config set proto-max-bulk-len $limit
 
         r debug reload
@@ -969,7 +921,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:s
 
         r set bitmap:module-boundary $raw
         r set bitmap:module-string $raw
-        r bitmap convert bitmap:module-boundary
+        make_native_bitmap_from_string bitmap:module-boundary
 
         assert_equal {bitmap 7 0 0} [r test.key_string_api bitmap:module-boundary]
         assert_equal {string 7 1 1} [r test.key_string_api bitmap:module-string]
@@ -993,7 +945,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         set raw [binary format H* 80000000000000000001]
 
         r set bitmap:aof $raw
-        r bitmap convert bitmap:aof
+        make_native_bitmap_from_string bitmap:aof
         set digest_before [debug_digest]
 
         r bgrewriteaof
@@ -1033,7 +985,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         r config set bitmap-default-roaring no
     }
 
-    test {AOF rewrite preserves deterministic bitmap and string transitions} {
+    test {AOF rewrite preserves deterministic bitmap and string values} {
         r flushall
         r config set appendonly yes
         waitForBgrewriteaof r
@@ -1041,11 +993,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
 
         set raw [binary format H* 80400100080000]
         r set bitmap:aof:transition:native $raw
-        r bitmap convert bitmap:aof:transition:native
+        make_native_bitmap_from_string bitmap:aof:transition:native
 
         r set bitmap:aof:transition:string $raw
-        r bitmap convert bitmap:aof:transition:string
-        r bitmap convert bitmap:aof:transition:string STRING
 
         assert_equal bitmap [r type bitmap:aof:transition:native]
         assert_equal string [r type bitmap:aof:transition:string]
@@ -1075,8 +1025,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
 
         r set bitmap:aof-incr:convert $raw
         r pexpire bitmap:aof-incr:convert 600000
-        r bitmap convert bitmap:aof-incr:convert
-        r bitmap convert bitmap:aof-incr:convert STRING
+        make_native_bitmap_from_string bitmap:aof-incr:convert
 
         set fp [open $aof r]
         fconfigure $fp -translation binary
@@ -1115,14 +1064,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
 
         assert_equal {} $forbidden
         assert_equal 1 $create_restore
-        assert_equal 2 $convert_restore
+        assert_equal 1 $convert_restore
 
         set digest_before [debug_digest]
         r debug loadaof
         assert_equal $digest_before [debug_digest]
         assert_equal bitmap [r type bitmap:aof-incr:create]
-        assert_equal string [r type bitmap:aof-incr:convert]
-        assert_equal $raw [r get bitmap:aof-incr:convert]
+        assert_equal bitmap [r type bitmap:aof-incr:convert]
+        assert_equal $raw [r debug bitmap-raw bitmap:aof-incr:convert]
     }
 }
 
@@ -1221,7 +1170,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal [$master debug digest] [$replica debug digest]
         }
 
-        test {BITMAP CONVERT replicates the conversion as RESTORE} {
+        test {bitmap-default-roaring conversion replicates as RESTORE} {
             set raw [binary format H* 80400100080000]
 
             $master config set bitmap-default-roaring no
@@ -1230,21 +1179,14 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal string [$replica type bitmap:public:repl:conv]
 
             # The conversion must arrive as the RESTORE effect, never as a
-            # replayed BITMAP CONVERT: whether the replica could re-run the
-            # conversion depends on its own configuration.
-            $master bitmap convert bitmap:public:repl:conv
+            # replayed SETBIT: whether the replica would choose native depends
+            # on its own configuration.
+            make_native_bitmap_from_string_client $master bitmap:public:repl:conv
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:conv]
             assert_equal bitmap-roaring [$replica object encoding bitmap:public:repl:conv]
             assert_equal $raw [$replica debug bitmap-raw bitmap:public:repl:conv]
-            assert_equal [$master debug digest] [$replica debug digest]
-
-            # And back: the string conversion also replicates as its effect.
-            $master bitmap convert bitmap:public:repl:conv STRING
-            wait_for_ofs_sync $master $replica
-            assert_equal string [$replica type bitmap:public:repl:conv]
-            assert_equal $raw [$replica get bitmap:public:repl:conv]
             assert_equal [$master debug digest] [$replica debug digest]
         }
 
@@ -1254,7 +1196,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             $master del bitmap:public:repl:restore:source bitmap:public:repl:restore:target
             $master set bitmap:public:repl:restore:source $raw
             set string_payload [$master dump bitmap:public:repl:restore:source]
-            $master bitmap convert bitmap:public:repl:restore:source
+            make_native_bitmap_from_string_client $master bitmap:public:repl:restore:source
             set bitmap_payload [$master dump bitmap:public:repl:restore:source]
 
             $master restore bitmap:public:repl:restore:target 0 $string_payload replace
@@ -1375,16 +1317,5 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "modules" "external:skip" "c
             assert_bitmap_notify_string $master $replica $key $value
         }
 
-        test {BITMAP CONVERT queues RESTORE before type_changed notification mutation} {
-            set key bitmap:notify-race:convert-type
-            set raw [binary format H* 80400100080000]
-            $master set $key $raw
-            wait_for_ofs_sync $master $replica
-
-            arm_bitmap_notify $master $key type_changed del
-            assert_equal OK [$master bitmap convert $key]
-
-            assert_bitmap_notify_no_key $master $replica $key
-        }
     }
 }

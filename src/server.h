@@ -4533,7 +4533,6 @@ void functionRestoreCommand(client *c);
 void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
-void bitmapCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);

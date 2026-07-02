@@ -1235,7 +1235,10 @@ run_solo {defrag} {
                 $rd read
             }
             set template_raw [r get bitmap:template]
-            r bitmap convert bitmap:template
+            set old_bitmap_default_roaring [lindex [r config get bitmap-default-roaring] 1]
+            r config set bitmap-default-roaring yes
+            r setbit bitmap:template 0 [r getbit bitmap:template 0]
+            r config set bitmap-default-roaring $old_bitmap_default_roaring
             assert_equal bitmap [r type bitmap:template]
 
             set frag_keys 400
@@ -1269,7 +1272,10 @@ run_solo {defrag} {
             assert_equal $expected_bits [r bitcount bigbitmap1]
             set expected_raw [r get bigbitmap1]
 
-            r bitmap convert bigbitmap1
+            set old_bitmap_default_roaring [lindex [r config get bitmap-default-roaring] 1]
+            r config set bitmap-default-roaring yes
+            r setbit bigbitmap1 0 [r getbit bigbitmap1 0]
+            r config set bitmap-default-roaring $old_bitmap_default_roaring
             assert_equal bitmap [r type bigbitmap1]
 
             # Free every other copied bitmap to punch holes into the
