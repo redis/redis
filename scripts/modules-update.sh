@@ -120,17 +120,14 @@ for name in $requested; do
           echo "==> $name already at $kind $ref"
         else
           echo "==> Moving $name to $kind $ref"
-          git -C "$dest" checkout -f "$ref" 2>/dev/null \
+          # Check out the resolved commit SHA, not "$ref" by name — a plain
+          # `git fetch` never updates dest's own local tag/branch ref, so
+          # checking out "$ref" here would silently re-select a STALE local
+          # ref if one already exists under that name (e.g. a branch's old
+          # tip, or a tag force-moved upstream to a new commit) instead of
+          # the just-fetched target.
+          git -C "$dest" checkout -f "$target" 2>/dev/null \
             || git -C "$dest" reset --hard FETCH_HEAD
-          # Branches move; tags don't. After `checkout master` we're on the
-          # LOCAL master, which still points at the clone-time tip — `fetch`
-          # only updated `refs/remotes/origin/master`. Fast-forward (or
-          # rewind) local to remote so re-running modules-update actually
-          # picks up upstream advances.
-          if [ "$kind" = "branch" ]; then
-            git -C "$dest" reset --hard "origin/$ref" 2>/dev/null \
-              || git -C "$dest" reset --hard FETCH_HEAD
-          fi
         fi
         ;;
     esac
