@@ -1011,7 +1011,7 @@ void setbitCommand(client *c) {
 
     dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-    robj *native = o;
+    robj *native = NULL;
     int native_created = 0;
     int native_converted = 0;
 
