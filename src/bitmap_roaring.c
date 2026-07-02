@@ -1,4 +1,14 @@
 #include "fmacros.h"
+/* CRoaring exposes target-specific inline helpers from public headers unless
+ * these macros are defined before inclusion. deps/Makefile uses the same
+ * flags for libcroaring; keep this translation unit portable without adding
+ * CRoaring feature switches to Redis' global CFLAGS. */
+#ifndef ROARING_DISABLE_X64
+#define ROARING_DISABLE_X64 1
+#endif
+#ifndef DISABLENEON
+#define DISABLENEON 1
+#endif
 #include <roaring/containers/array.h>
 #include <roaring/containers/bitset.h>
 #include <roaring/containers/containers.h>
