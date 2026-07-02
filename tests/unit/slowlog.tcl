@@ -50,13 +50,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r client setname foobar
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 6
+        assert_equal [llength $e] 7
         if {!$::external} {
             assert_equal [lindex $e 0] 106
         }
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]
+        assert_equal {default} [lindex $e 6]
     } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
@@ -191,6 +192,17 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert {[llength [r slowlog get]] == 1}
         set e [lindex [r slowlog get] 0]
         assert_equal {lastentry_client} [lindex $e 5]
+    } {} {needs:debug}
+
+    test {SLOWLOG - can log new user name} {
+        r config set slowlog-max-len 1
+        r ACL setuser slowlog_user on nopass +debug
+        r auth slowlog_user x
+        r debug sleep 0.2
+        r auth default x
+        assert {[llength [r slowlog get]] == 1}
+        set e [lindex [r slowlog get] 0]
+        assert_equal {slowlog_user} [lindex $e 6]
     } {} {needs:debug}
 
     test {SLOWLOG - can be disabled} {
