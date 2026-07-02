@@ -769,18 +769,17 @@ class RedisBitmapBench:
         if self.args.mode == "native":
             old = False
             try:
-                old = str(self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])[1]).lower() == "yes"
+                old = decode_text(self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])[1]).lower() == "yes"
             except BenchError:
                 old = False
-            self.set_default_roaring(True, required=True)
-            bit = 0
             try:
-                if int(self.client.execute(["STRLEN", key])) > 0:
-                    bit = int(self.client.execute(["GETBIT", key, "0"]))
-            except BenchError:
-                bit = 0
-            self.client.execute(["SETBIT", key, "0", str(bit)])
-            self.set_default_roaring(old, required=False)
+                if int(self.client.execute(["STRLEN", key])) == 0:
+                    return
+                self.set_default_roaring(True, required=True)
+                bit = int(self.client.execute(["GETBIT", key, "0"]))
+                self.client.execute(["SETBIT", key, "0", str(bit)])
+            finally:
+                self.set_default_roaring(old, required=False)
 
     def module_cmd(self, name: str) -> str:
         return f"{self.args.module_command_prefix}.{name}"
