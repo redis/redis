@@ -109,9 +109,6 @@ clean:
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
 
-all:
-	@$(MAKE) build
-
 # build [<name> ...|all|.|'*'|redis|core|none] — Redis core + selected modules.
 build:
 	@scripts/build.sh $(BUILD_ARGS)
@@ -181,4 +178,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: all install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball

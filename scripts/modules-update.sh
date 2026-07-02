@@ -106,16 +106,31 @@ for name in $requested; do
         git -C "$dest" fetch $depth_args origin "$ref" 2>/dev/null \
           || git -C "$dest" fetch $depth_args origin "refs/tags/$ref:refs/tags/$ref" 2>/dev/null \
           || git -C "$dest" fetch origin
-        git -C "$dest" checkout -f "$ref" 2>/dev/null \
-          || git -C "$dest" reset --hard FETCH_HEAD
-        # Branches move; tags don't. After `checkout master` we're on the
-        # LOCAL master, which still points at the clone-time tip — `fetch`
-        # only updated `refs/remotes/origin/master`. Fast-forward (or
-        # rewind) local to remote so re-running modules-update actually
-        # picks up upstream advances.
-        if [ "$kind" = "branch" ]; then
-          git -C "$dest" reset --hard "origin/$ref" 2>/dev/null \
+        current="$(git -C "$dest" rev-parse HEAD)" || {
+          echo "ERROR: git rev-parse HEAD failed in $dest" >&2
+          exit 1
+        }
+        # Peel to '^{commit}' so this compares correctly for annotated tags
+        # too — FETCH_HEAD for an annotated tag is the tag *object* SHA, not
+        # the commit SHA that HEAD (after a normal checkout) actually is;
+        # comparing the raw SHAs would never match and the fast path below
+        # would silently never trigger for that ref kind.
+        target="$(git -C "$dest" rev-parse -q --verify 'FETCH_HEAD^{commit}' 2>/dev/null || true)"
+        if [ -n "$target" ] && [ "$current" = "$target" ]; then
+          echo "==> $name already at $kind $ref"
+        else
+          echo "==> Moving $name to $kind $ref"
+          git -C "$dest" checkout -f "$ref" 2>/dev/null \
             || git -C "$dest" reset --hard FETCH_HEAD
+          # Branches move; tags don't. After `checkout master` we're on the
+          # LOCAL master, which still points at the clone-time tip — `fetch`
+          # only updated `refs/remotes/origin/master`. Fast-forward (or
+          # rewind) local to remote so re-running modules-update actually
+          # picks up upstream advances.
+          if [ "$kind" = "branch" ]; then
+            git -C "$dest" reset --hard "origin/$ref" 2>/dev/null \
+              || git -C "$dest" reset --hard FETCH_HEAD
+          fi
         fi
         ;;
     esac
