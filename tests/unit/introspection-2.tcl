@@ -161,6 +161,16 @@ start_server {tags {"introspection"}} {
         assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE zz 1443677133621497600 asdf}
     }
 
+    test {COMMAND GETKEYS numkeys overflow} {
+        # A numkeys near LONG_MAX must be rejected as a syntax error, not trigger a signed integer overflow (#15403).
+        set huge 9223372036854775807
+        assert_error "ERR Invalid arguments*" {r command getkeys LMPOP $huge k LEFT}
+        assert_error "ERR Invalid arguments*" {r command getkeys ZMPOP $huge k MIN}
+        assert_error "ERR Invalid arguments*" {r command getkeys ZUNION $huge k}
+        assert_error "ERR Invalid arguments*" {r command getkeys SINTERCARD $huge k}
+        assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE dst $huge k}
+    }
+
     test {COMMAND GETKEYSANDFLAGS MSETEX} {
         assert_equal {{k1 {OW update}}} [r command getkeysandflags msetex 1 k1 v1 ex 10]
         assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags msetex 2 k1 v1 k2 v2 ex 10]
