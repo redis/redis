@@ -4732,6 +4732,12 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
  * needed to mark the master in ODOWN state and trigger a failover. */
 #define SENTINEL_ASK_FORCED (1<<0)
 void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int flags) {
+    /* We don't need to send requests when the primary is not SDOWN */
+    if ((master->flags & SRI_S_DOWN) == 0) return;
+
+    char port[32];
+    ll2string(port,sizeof(port),master->addr->port);
+
     dictIterator di;
     dictEntry *de;
 
@@ -4739,8 +4745,6 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
     while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         mstime_t elapsed = mstime() - ri->last_master_down_reply_time;
-        char port[32];
-        int retval;
 
         /* If the master state from other sentinel is too old, we clear it. */
         if (elapsed > sentinel_ask_period*5) {
@@ -4754,15 +4758,13 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
          * 1) We believe it is down, or there is a failover in progress.
          * 2) Sentinel is connected.
          * 3) We did not receive the info within SENTINEL_ASK_PERIOD ms. */
-        if ((master->flags & SRI_S_DOWN) == 0) continue;
         if (ri->link->disconnected) continue;
         if (!(flags & SENTINEL_ASK_FORCED) &&
             mstime() - ri->last_master_down_reply_time < sentinel_ask_period)
             continue;
 
         /* Ask */
-        ll2string(port,sizeof(port),master->addr->port);
-        retval = redisAsyncCommand(ri->link->cc,
+        int retval = redisAsyncCommand(ri->link->cc,
                     sentinelReceiveIsMasterDownReply, ri,
                     "%s is-master-down-by-addr %s %s %llu %s",
                     sentinelInstanceMapCommand(ri,"SENTINEL"),
