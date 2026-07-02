@@ -525,6 +525,30 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
     return p;
 }
 
+/* Like lpNext() but seeks 'n' entries forward, returning the resulting entry or
+ * NULL if the end of the listpack is reached. n == 0 returns 'ele' unchanged. */
+unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n) {
+    size_t lpbytes = lpBytes(lp);
+    int validated = 1;
+    while (n && p) {
+        p = lpSkip(p);
+        /* Near the end, fully validate so the next lpSkip() can't run past
+         * the allocation; otherwise a cheap range check is enough, since
+         * lpSkip() reads at most 5 bytes of encoding from the entry start.*/
+        if (p + 5 >= lp + lpbytes) {
+            lpAssertValidEntry(lp, lpbytes, p);
+            validated = 1;
+        } else {
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lpbytes);
+            validated = 0;
+        }
+        if (p[0] == LP_EOF) return NULL;
+        n--;
+    }
+    if (p && !validated) lpAssertValidEntry(lp, lpbytes, p);
+    return p;
+}
+
 /* Step back to the start of the previous entry, without validating it. Caller
  * must ensure 'p' is not the first entry. */
 static inline unsigned char *lpSkipPrev(unsigned char *p) {
@@ -543,6 +567,28 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     if (p-lp == LP_HDR_SIZE) return NULL;
     p = lpSkipPrev(p);
     lpAssertValidEntry(lp, lpBytes(lp), p);
+    return p;
+}
+
+/* Like lpPrev() but seeks 'n' entries backward, returning the resulting entry
+ * or NULL if the front of the listpack is reached. n == 0 returns 'ele'. */
+unsigned char *lpPrevN(unsigned char *lp, unsigned char *p, unsigned long n) {
+    size_t lpbytes = lpBytes(lp);
+    int validated = 1;
+    while (n && p) {
+        if (p - lp == LP_HDR_SIZE) return NULL; /* First entry. */
+
+        /* Move to the previous entry, without fully validating it here.
+         * Here 'p' is at least LP_HDR_SIZE (6) bytes past lp, and the
+         * p-- inside lpSkipPrev() makes lpDecodeBacklen() read at most 5
+         * bytes (p[0] down to p[-4]), so it stays inside the allocation
+         * and never reads before lp. */
+        p = lpSkipPrev(p);
+        assert(p >= lp + LP_HDR_SIZE && p < lp + lpbytes);
+        validated = 0;
+        n--;
+    }
+    if (p && !validated) lpAssertValidEntry(lp, lpbytes, p);
     return p;
 }
 
@@ -1612,62 +1658,21 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
          * is past the half of the listpack. */
         if (index > (long)numele/2) {
             forward = 0;
-            /* Right to left scanning always expects a negative index. Convert
-             * our index to negative form. */
-            index -= numele;
+            index = (long)numele - index - 1; /* Backward steps from the last entry. */
         }
     } else {
         /* If the listpack length is unspecified, for negative indexes we
          * want to always scan right-to-left. */
-        if (index < 0) forward = 0;
-    }
-
-    size_t lpbytes = lpBytes(lp);
-    unsigned char *ele;
-    /* lpFirst()/lpLast() below already validate their returned entry, so if the
-     * scan loop never advances, 'ele' stays validated. */
-    int validated = 1;
-
-    if (forward) {
-        ele = lpFirst(lp);
-        while (index > 0 && ele) {
-            ele = lpSkip(ele);
-            /* Near the end, fully validate so the next lpSkip() can't run past
-             * the allocation; otherwise a cheap range check is enough, since
-             * lpSkip() reads at most 5 bytes of encoding from the entry start.*/
-            if (ele + 5 >= lp + lpbytes) {
-                lpAssertValidEntry(lp, lpbytes, ele);
-                validated = 1;
-            } else {
-                assert(ele >= lp + LP_HDR_SIZE && ele < lp + lpbytes);
-                validated = 0;
-            }
-            if (ele[0] == LP_EOF) { ele = NULL; break; }
-            index--;
-        }
-    } else {
-        ele = lpLast(lp);
-        while (index < -1 && ele) {
-            if (ele - lp == LP_HDR_SIZE) {
-                ele = NULL; /* First entry. */
-                break;
-            }
-
-            /* Move to the previous entry, without fully validating it here.
-             * Here 'ele' is at least LP_HDR_SIZE (6) bytes past lp, and the
-             * ele-- inside lpSkipPrev() makes lpDecodeBacklen() read at most 5
-             * bytes (ele[0] down to ele[-4]), so it stays inside the allocation
-             * and never reads before lp. */
-            ele = lpSkipPrev(ele);
-            assert(ele >= lp + LP_HDR_SIZE && ele < lp + lpbytes);
-            validated = 0;
-            index++;
+        if (index < 0) {
+            forward = 0;
+            index = -index - 1; /* Backward steps; -1 is the last entry. */
         }
     }
 
-    /* Validate the entry we return, unless it was already validated above. */
-    if (ele && !validated) lpAssertValidEntry(lp, lpbytes, ele);
-    return ele;
+    if (forward)
+        return lpNextN(lp, lpFirst(lp), index);
+    else
+        return lpPrevN(lp, lpLast(lp), index);
 }
 
 /* Same as lpFirst but without validation assert, to be used right before lpValidateNext. */
@@ -2726,11 +2731,11 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
-    TEST("lpSeek fast path: lpSkip() reads at most 5 header bytes") {
-        /* lpSeek()'s fast path only fully validates an entry when it lands
-         * within 5 bytes of the listpack end. This margin is safe only while
-         * lpSkip() reads at most 5 bytes from an entry start. If this ever
-         * fails, the margin in lpSeek() must grow to match. */
+    TEST("lpNextN fast path: lpSkip() reads at most 5 header bytes") {
+        /* lpNextN()'s fast path (used by lpSeek()) only fully validates an entry
+         * when it lands within 5 bytes of the listpack end. This margin is safe
+         * only while lpSkip() reads at most 5 bytes from an entry start. If this
+         * ever fails, the margin in lpNextN() must grow to match. */
         for (int b = 0; b <= 0xff; b++)
             assert(lpCurrentEncodedSizeBytes((unsigned char)b) <= 5);
     }
