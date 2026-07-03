@@ -2636,9 +2636,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries)
             hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
-        else if (deep_integrity_validation) {
-            /* In this mode, we need to guarantee that the server won't crash
-             * later when the ziplist is converted to a dict.
+        else if (deep_integrity_validation || isRestoreContext()) {
+            /* In the deep-validation mode or for untrusted RESTORE, we need to guarantee
+             * that the server won't crash later when the ziplist is converted to a dict.
              * Create a set (dict with no values) to for a dup search.
              * We can dismiss it as soon as we convert the ziplist to a hash. */
             dupSearchDict = dictCreate(&hashDictType);
@@ -2790,9 +2790,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             initDictExpireMetadata(o);
         } else {
             hashTypeConvert(NULL, o, OBJ_ENCODING_LISTPACK_EX);
-            if (deep_integrity_validation) {
-                /* In this mode, we need to guarantee that the server won't crash
-                * later when the listpack is converted to a dict.
+            if (deep_integrity_validation || isRestoreContext()) {
+                /* In the deep-validation mode or for untrusted RESTORE, we need to guarantee
+                * that the server won't crash later when the listpack is converted to a dict.
                 * Create a set (dict with no values) for dup search.
                 * We can dismiss it as soon as we convert the listpack to a hash. */
                 dupSearchDict = dictCreate(&hashDictType);

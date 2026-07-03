@@ -59,6 +59,26 @@ test {corrupt payload: valid zipped hash header, dup records} {
     }
 }
 
+test {corrupt payload: RDB_TYPE_HASH listpack with duplicate fields} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x04\x02\x01\x66\x01\x61\x01\x66\x01\x62\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: RDB_TYPE_HASH_METADATA listpackex with duplicate fields} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x16\x02\x00\x01\x66\x01\x61\x00\x01\x66\x01\x62\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: hash listpackex with invalid string TTL} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
