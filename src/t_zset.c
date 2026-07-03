@@ -4635,13 +4635,20 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        /* Hashtable encoding (generic implementation) */
+        /* Only skiplist-encoded zsets reach here (listpack handled by CASE 2.5
+         * above). Their members are live SDS (zuiNext sets val->ele =
+         * zslGetNodeElement) and ZRANDMEMBER is read-only, so we BORROW those
+         * pointers into the dedup dict (sdsReplyDictType has a NULL key
+         * destructor) instead of sdsdup-copying every element, and emit them
+         * with addReplyBulkCBuffer (copies into the reply, takes no ownership).
+         * The removals below use dictUnlink + dictFreeUnlinkedEntry only (no
+         * sdsfree — the keys are borrowed and still owned by the zset). This
+         * drops `size` sds alloc+free per call. */
         dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
-            sds key = zuiNewSdsFromValue(&zval);
-            dictEntry *de = dictAddRaw(d, key, NULL);
+            dictEntry *de = dictAddRaw(d, zval.ele, NULL);
             serverAssert(de);
             if (withscores)
                 dictSetDoubleVal(de, zval.score);
@@ -4653,7 +4660,6 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             dictEntry *de;
             de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
-            sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);
             size--;
         }
@@ -4666,7 +4672,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         while ((de = dictNext(&di)) != NULL) {
             if (withscores && c->resp > 2)
                 addReplyArrayLen(c,2);
-            addReplyBulkSds(c, dictGetKey(de));
+            sds ele = dictGetKey(de);
+            addReplyBulkCBuffer(c, ele, sdslen(ele));
             if (withscores)
                 addReplyDouble(c, dictGetDoubleVal(de));
         }
