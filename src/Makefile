@@ -153,17 +153,22 @@ FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(OPT) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 
-# Detect libzstd via pkg-config, fall back to -lzstd
-LIBZSTD_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libzstd && echo $$?)
-ifeq ($(LIBZSTD_PKGCONFIG),0)
-	LIBZSTD_CFLAGS=$(shell $(PKG_CONFIG) --cflags libzstd)
-	LIBZSTD_LIBS=$(shell $(PKG_CONFIG) --libs libzstd)
-else
-	LIBZSTD_CFLAGS=
-	LIBZSTD_LIBS=-lzstd
+# Replication compression (opt-in via BUILD_COMPRESSION=yes). When enabled the
+# replication stream can be compressed with libzstd; when disabled libzstd is
+# not required to build Redis and the compression code compiles to no-ops.
+ifeq ($(BUILD_COMPRESSION),yes)
+	# Detect libzstd via pkg-config, fall back to -lzstd
+	LIBZSTD_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libzstd && echo $$?)
+	ifeq ($(LIBZSTD_PKGCONFIG),0)
+		LIBZSTD_CFLAGS=$(shell $(PKG_CONFIG) --cflags libzstd)
+		LIBZSTD_LIBS=$(shell $(PKG_CONFIG) --libs libzstd)
+	else
+		LIBZSTD_CFLAGS=
+		LIBZSTD_LIBS=-lzstd
+	endif
+	FINAL_CFLAGS+=-DUSE_COMPRESSION=1 $(LIBZSTD_CFLAGS)
+	FINAL_LIBS+=$(LIBZSTD_LIBS)
 endif
-FINAL_CFLAGS+=$(LIBZSTD_CFLAGS)
-FINAL_LIBS+=$(LIBZSTD_LIBS)
 DEBUG=-g -ggdb
 
 # Linux ARM32 needs -latomic at linking time
@@ -430,6 +435,7 @@ persist-settings: distclean
 	echo OPT=$(OPT) >> .make-settings
 	echo MALLOC=$(MALLOC) >> .make-settings
 	echo BUILD_TLS=$(BUILD_TLS) >> .make-settings
+	echo BUILD_COMPRESSION=$(BUILD_COMPRESSION) >> .make-settings
 	echo USE_SYSTEMD=$(USE_SYSTEMD) >> .make-settings
 	echo CFLAGS=$(CFLAGS) >> .make-settings
 	echo LDFLAGS=$(LDFLAGS) >> .make-settings

@@ -228,7 +228,7 @@ client *createClient(connection *conn) {
     c->sockname = NULL;
     c->client_list_node = NULL;
     c->io_thread_client_list_node = NULL;
-    listInitNode(&c->io_thread_compression_clients_node, c);
+    c->io_thread_compression_clients_node = NULL;
     c->postponed_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
@@ -2231,8 +2231,7 @@ void freeClient(client *c) {
 
     /* Log link disconnection with slave */
     if (clientTypeIsSlave(c)) {
-        int is_rdb_ch = c->flags & CLIENT_REPL_RDB_CHANNEL;
-        const char *type = is_rdb_ch ? " (rdbchannel)" : "";
+        const char *type = c->flags & CLIENT_REPL_RDB_CHANNEL ? " (rdbchannel)" : "";
         serverLog(LL_NOTICE,"Connection with replica%s %s lost.", type,
             replicationGetSlaveName(c));
     }

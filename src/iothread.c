@@ -136,11 +136,10 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
         listLinkNodeTail(t->pending_clients_to_main_thread, c->io_thread_client_list_node);
         c->io_thread_client_list_node = NULL;
 
-        if (listSearchKey(t->compression_clients, c) ==
-            &c->io_thread_compression_clients_node)
-        {
-            listUnlinkNode(t->compression_clients,
-                           &c->io_thread_compression_clients_node);
+        if (c->io_thread_compression_clients_node) {
+            listDelNode(t->compression_clients,
+                        c->io_thread_compression_clients_node);
+            c->io_thread_compression_clients_node = NULL;
         }
     }
 }
@@ -199,11 +198,10 @@ void unbindClientFromIOThreadEventLoop(client *c) {
     IOThread *t = &IOThreads[c->tid];
     /* We need to remove the client from the compression_clients list so it
      * won't be processed in IOThreadCompressionCron anymore */
-    if (listSearchKey(t->compression_clients, c) ==
-        &c->io_thread_compression_clients_node)
-    {
-        listUnlinkNode(t->compression_clients,
-                       &c->io_thread_compression_clients_node);
+    if (c->io_thread_compression_clients_node) {
+        listDelNode(t->compression_clients,
+                    c->io_thread_compression_clients_node);
+        c->io_thread_compression_clients_node = NULL;
         clientDisableCompression(c);
     }
     resumeIOThread(c->tid);
@@ -812,10 +810,10 @@ int processClientsFromMainThread(IOThread *t) {
 
         /* Add the client to the compression clients list. */
         if (c->compression_state != NULL &&
-            listSearchKey(t->compression_clients, c) == NULL)
+            c->io_thread_compression_clients_node == NULL)
         {
-            listLinkNodeTail(t->compression_clients,
-                             &c->io_thread_compression_clients_node);
+            listAddNodeTail(t->compression_clients, c);
+            c->io_thread_compression_clients_node = listLast(t->compression_clients);
         }
 
         /* If the client has pending replies, write replies to client. */

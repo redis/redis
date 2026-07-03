@@ -59,6 +59,26 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
+/* Set the replication compression level. When Redis is built without
+ * compression support (BUILD_COMPRESSION=yes enables it) the level is always
+ * forced to 0, so replication compression stays completely disabled and the
+ * negotiation code paths (which only key off server.repl_compression) never
+ * kick in. repl-compression is an immutable config, so this runs once at
+ * startup. */
+void setReplCompression(int level) {
+#ifdef USE_COMPRESSION
+    server.repl_compression = level;
+#else
+    if (level > 0) {
+        serverLog(LL_WARNING,
+                  "repl-compression is set to %d but is ignored because Redis "
+                  "was not compiled with compression support (build with "
+                  "BUILD_COMPRESSION=yes to enable it).", level);
+    }
+    server.repl_compression = 0;
+#endif
+}
+
 
 /* A reference to diskless loading rio to abort it asynchronously. It's needed
  * for rdbchannel replication. While loading from rdbchannel connection, we may

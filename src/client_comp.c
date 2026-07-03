@@ -1,5 +1,7 @@
 #include "server.h"
 #include "client_comp.h"
+
+#ifdef USE_COMPRESSION
 #include <zstd.h>
 
 /* Abstraction over compression library */
@@ -689,4 +691,90 @@ int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
 
     return decompressed;
 }
+
+#else /* !USE_COMPRESSION */
+
+/* Redis was built without compression support (BUILD_COMPRESSION=yes enables it,
+ * pulling in libzstd). We still provide the full client_comp API as no-op
+ * fallbacks so the rest of the server doesn't need any #ifdefs. Replication
+ * compression can never be enabled at runtime in this build because the
+ * `repl-compression` config is capped to 0 (see config.c), so no compression
+ * state is ever created and the read/write helpers simply forward to the
+ * connection layer. */
+
+int clientCreateCompressionState(client *c, compressionDirection dir) {
+    UNUSED(c);
+    UNUSED(dir);
+    return 0;
+}
+
+void clientDestroyCompressionState(client *c) {
+    UNUSED(c);
+}
+
+int clientEnableCompression(client *c, compressionDirection dir) {
+    UNUSED(c);
+    UNUSED(dir);
+    return 0;
+}
+
+void clientDisableCompression(client *c) {
+    c->io_flags &= ~CLIENT_IO_COMPRESSION_ENABLED;
+}
+
+int compressAndWrite(client *c, int *tot_written) {
+    UNUSED(c);
+    if (tot_written) *tot_written = 0;
+    return 0;
+}
+
+int readFromBufAndDecompress(client *c, char *input_buf, size_t input_len,
+                             char *output_buf, size_t output_len, size_t *consumed)
+{
+    UNUSED(c);
+    UNUSED(input_buf);
+    UNUSED(input_len);
+    UNUSED(output_buf);
+    UNUSED(output_len);
+    if (consumed) *consumed = 0;
+    return 0;
+}
+
+int clientHasPendingCompressionFlush(client *c) {
+    UNUSED(c);
+    return 0;
+}
+
+int clientHasPendingCompressedData(client *c) {
+    UNUSED(c);
+    return 0;
+}
+
+int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
+    int w = connWrite(c->conn, data, len);
+    if (nwritten) *nwritten = (w > 0) ? w : 0;
+    return w;
+}
+
+int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
+    int r = connRead(c->conn, buf, buf_len);
+    if (nread_out) *nread_out = (r > 0) ? r : 0;
+    return r;
+}
+
+int clientCompressionHasPendingData(struct aeEventLoop *el) {
+    UNUSED(el);
+    return 0;
+}
+
+int clientCompressionProcessPendingData(struct aeEventLoop *el) {
+    UNUSED(el);
+    return 0;
+}
+
+void clientCompressionPendingRemove(client *c) {
+    UNUSED(c);
+}
+
+#endif /* USE_COMPRESSION */
 

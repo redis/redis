@@ -3066,6 +3066,10 @@ void initServer(void) {
     server.memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
     resetReplicationBuffer();
 
+    /* Force replication compression off if this build has no compression
+     * support. repl-compression is immutable, so this only needs to run once. */
+    setReplCompression(server.repl_compression);
+
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");

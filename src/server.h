@@ -1607,7 +1607,7 @@ typedef struct client {
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *io_thread_client_list_node; /* list node in io thread client list */
-    listNode io_thread_compression_clients_node; /* list node in io thread compression clients list */
+    listNode *io_thread_compression_clients_node; /* list node in io thread compression clients list */
     listNode *postponed_list_node; /* list node within the postponed list */
     void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
                                   * client. This is set in case of module authentication before the
@@ -3554,6 +3554,7 @@ void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+void setReplCompression(int level);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
