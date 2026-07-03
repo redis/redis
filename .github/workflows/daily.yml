@@ -52,8 +52,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -280,8 +279,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make MALLOC=libc REDIS_CFLAGS='-Werror'
+      run: make MALLOC=libc REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -315,8 +313,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE REDIS_CFLAGS='-Werror'
+      run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -351,7 +348,6 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        sudo dpkg --add-architecture i386
         sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
@@ -618,8 +614,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get update
@@ -652,8 +647,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get update
@@ -685,8 +679,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
+      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
         sudo apt-get update
@@ -716,8 +709,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
+      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
         sudo apt-get update
@@ -754,8 +746,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: |
-          make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update
@@ -796,8 +787,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: |
-          make SANITIZER=memory REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: make SANITIZER=memory REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update
@@ -841,8 +831,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: |
-          make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' SKIP_VEC_SETS=yes LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
+        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' SKIP_VEC_SETS=yes LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
       - name: testprep
         run: |
           sudo apt-get update
@@ -889,8 +878,7 @@ jobs:
       - name: make
         # TODO Investigate why jemalloc with clang TSan crash on start;
         # with gcc TSan, jemalloc works modulo sentinel tests hanging.
-        run: |
-          make SANITIZER=thread USE_JEMALLOC=no REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: make SANITIZER=thread USE_JEMALLOC=no REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update
@@ -1051,8 +1039,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror'
+      run: make REDIS_CFLAGS='-Werror'
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
@@ -1078,8 +1065,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror'
+      run: make REDIS_CFLAGS='-Werror'
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -1105,8 +1091,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror'
+      run: make REDIS_CFLAGS='-Werror'
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
@@ -1138,8 +1123,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
 
   test-freebsd:
     runs-on: ubuntu-latest
@@ -1165,7 +1149,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc devel/pkgconf
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
@@ -1262,8 +1246,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+      run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -1452,8 +1435,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
+      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -1481,8 +1463,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: |
-        make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get install tcl8.6 tclx
