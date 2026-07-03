@@ -7742,7 +7742,7 @@ void loadDataFromDisk(void) {
             createReplicationBacklog();
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
-        int rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
+        rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
         if (rdb_load_ret == RDB_OK) {
             loaded = 1;
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
