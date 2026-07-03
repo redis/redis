@@ -1811,6 +1811,40 @@ int rewriteConfig(char *path, int force_write) {
     return retval;
 }
 
+/* Rewrite only the Sentinel runtime state into a dedicated state file (the one
+ * configured via "sentinel state-config-file"), leaving the main configuration
+ * file - which may be owned by an external configuration management tool -
+ * untouched.
+ *
+ * Unlike rewriteConfig(), this does not emit the whole server configuration:
+ * only the "sentinel ..." directives are written, so the state file stays a
+ * self-contained snapshot of Sentinel's runtime state.
+ *
+ * On error -1 is returned and errno is set accordingly, otherwise 0. */
+int rewriteSentinelStateConfig(char *path) {
+    struct rewriteConfigState *state;
+    sds newcontent;
+    int retval;
+
+    /* Step 1: read the old state file (if any) into our rewrite state, so we
+     * retain comments and unrelated lines an operator may have added. */
+    if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
+
+    /* Step 2: rewrite only the Sentinel directives. */
+    rewriteConfigSentinelOption(state);
+
+    /* Step 3: remove orphaned Sentinel lines (state that no longer applies). */
+    rewriteConfigRemoveOrphaned(state);
+
+    /* Step 4: generate the new file content and write it out atomically. */
+    newcontent = rewriteConfigGetContentFromState(state);
+    retval = rewriteConfigOverwriteFile(path, newcontent);
+
+    sdsfree(newcontent);
+    rewriteConfigReleaseState(state);
+    return retval;
+}
+
 /*-----------------------------------------------------------------------------
  * Configs that fit one of the major types and require no special handling
  *----------------------------------------------------------------------------*/

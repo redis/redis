@@ -8177,7 +8177,12 @@ int main(int argc, char **argv) {
         }
 
         loadServerConfig(server.configfile, config_from_stdin, options);
-        if (server.sentinel_mode) loadSentinelConfigFromQueue();
+        if (server.sentinel_mode) {
+            /* Load the separate runtime state file (if configured) after the
+             * main config file, so its entries override the main config. */
+            sentinelLoadStateConfigFile();
+            loadSentinelConfigFromQueue();
+        }
         sdsfree(options);
     }
     if (server.sentinel_mode) sentinelCheckConfigFile();
