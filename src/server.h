@@ -2054,6 +2054,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    int debug_fork_fail;        /* Make the next redisFork() fail. (used by tests) */
     redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
@@ -2088,6 +2089,19 @@ struct redisServer {
     int execution_nesting;      /* Execution nesting level.
                                  * e.g. call(), async module stuff (timers, events, etc.),
                                  * cron stuff (active expire, eviction) */
+    uint8_t firing_keyed_post_notif_jobs; /* Non-zero while a per-key post-notification
+                                       * callback runs. The no-write guard: RM_Call is
+                                       * refused for the duration so the callback cannot
+                                       * touch the keyspace. */
+    uint8_t fire_keyed_jobs_between_subcommands; /* Non-zero when a per-key job
+                                       * (RM_AddPostNotificationJobForKey) is queued.
+                                       * Gates the explicit between-sub-command drains
+                                       * in execCommand (multi.c), scriptCall (script.c),
+                                       * and AOF replay (aof.c). */
+    uint8_t in_keyspace_notification;     /* >0 while inside a moduleNotifyKeyspaceEvent
+                                       * dispatch. Defines the scope from which
+                                       * RM_AddPostNotificationJobForKey may be called;
+                                       * a counter so nested notifications nest cleanly. */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -3146,6 +3160,7 @@ int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 void firePostExecutionUnitJobs(void);
+void firePerKeyJobsBetweenSubcommands(void);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
@@ -4126,6 +4141,7 @@ void getKeysFreeResult(getKeysResult *result);
 int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int *slot);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sunioncardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int sdiffcardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -4362,6 +4378,7 @@ void sunionCommand(client *c);
 void sunioncardCommand(client *c);
 void sunionstoreCommand(client *c);
 void sdiffCommand(client *c);
+void sdiffcardCommand(client *c);
 void sdiffstoreCommand(client *c);
 void sscanCommand(client *c);
 void syncCommand(client *c);

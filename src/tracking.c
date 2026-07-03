@@ -143,7 +143,7 @@ void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     if (!raxFindLink(PrefixTable,(unsigned char*)prefix,plen,&result,&link)) {
         bs = zmalloc(sizeof(*bs));
         bs->keys = raxNew();
-        bs->clients = raxNew();
+        bs->clients = raxNewEx(0, NULL, sizeof(client *));
         raxInsertAt(PrefixTable,(unsigned char*)prefix,plen,bs,NULL,&link);
     } else {
         bs = result;

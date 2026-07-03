@@ -970,6 +970,10 @@ NULL
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"fork-fail") && c->argc == 3)
+    {
+        server.debug_fork_fail = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
         replicationFeedSlaves(server.slaves, -1,
                 c->argv + 2, c->argc - 2);

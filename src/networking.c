@@ -2266,9 +2266,12 @@ void freeClient(client *c) {
     reqresReset(c, 1);
 #endif
 
-    /* Remove the contribution that this client gave to our
-     * incrementally computed memory usage. */
-    if (c->conn)
+    /* Remove the contribution that this client gave to our incrementally
+     * computed memory usage. The cached master must be included too: its conn
+     * was already detached by replicationCacheMaster(), so gating on c->conn
+     * alone would skip the subtraction and leak its size from
+     * mem_clients_normal on every discarded partial resync. */
+    if (c->conn || c == server.cached_master)
         server.stat_clients_type_memory[c->last_memory_type] -=
             c->last_memory_usage;
 
@@ -3133,6 +3136,8 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
 
     /* Create redis objects for all arguments. */
     for (pcmd->argc = 0, j = 0; j < argc; j++) {
+        /* Trim greedy allocation from sdssplitargs(). */
+        argv[j] = sdsRemoveFreeSpace(argv[j], 0);
         pcmd->argv[pcmd->argc] = createObject(OBJ_STRING,argv[j]);
         pcmd->argc++;
         pcmd->argv_len_sum += sdslen(argv[j]);

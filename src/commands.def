@@ -9059,6 +9059,32 @@ struct COMMAND_ARG SDIFF_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** SDIFFCARD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SDIFFCARD history */
+#define SDIFFCARD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SDIFFCARD tips */
+#define SDIFFCARD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SDIFFCARD key specs */
+keySpec SDIFFCARD_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
+};
+#endif
+
+/* SDIFFCARD argument table */
+struct COMMAND_ARG SDIFFCARD_Args[] = {
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /********** SDIFFSTORE ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -11339,7 +11365,9 @@ struct COMMAND_ARG XRANGE_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XREAD history */
-#define XREAD_History NULL
+commandHistory XREAD_History[] = {
+{"8.10.0","Added the `MAXCOUNT` and `MAXSIZE` options."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -11363,6 +11391,8 @@ struct COMMAND_ARG XREAD_streams_Subargs[] = {
 /* XREAD argument table */
 struct COMMAND_ARG XREAD_Args[] = {
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxcount",ARG_TYPE_INTEGER,-1,"MAXCOUNT",NULL,"8.10.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,"MAXSIZE",NULL,"8.10.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREAD_streams_Subargs},
 };
@@ -11371,7 +11401,10 @@ struct COMMAND_ARG XREAD_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XREADGROUP history */
-#define XREADGROUP_History NULL
+commandHistory XREADGROUP_History[] = {
+{"8.4.0","Added the `CLAIM` option."},
+{"8.10.0","Added the `MAXCOUNT` and `MAXSIZE` options."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -11402,8 +11435,10 @@ struct COMMAND_ARG XREADGROUP_streams_Subargs[] = {
 struct COMMAND_ARG XREADGROUP_Args[] = {
 {MAKE_ARG("group-block",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_group_block_Subargs},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxcount",ARG_TYPE_INTEGER,-1,"MAXCOUNT",NULL,"8.10.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,"MAXSIZE",NULL,"8.10.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("min-idle-time",ARG_TYPE_INTEGER,-1,"CLAIM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("min-idle-time",ARG_TYPE_INTEGER,-1,"CLAIM",NULL,"8.4.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_streams_Subargs},
 };
@@ -11621,8 +11656,8 @@ keySpec DELEX_Keyspecs[1] = {
 struct COMMAND_ARG DELEX_condition_Subargs[] = {
 {MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_STRING,-1,"IFDEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_STRING,-1,"IFDNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* DELEX argument table */
@@ -12133,8 +12168,8 @@ struct COMMAND_ARG SET_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_STRING,-1,"IFDEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_STRING,-1,"IFDNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* SET expiration argument table */
@@ -12573,6 +12608,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("sadd","Adds one or more members to a set. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SADD_History,1,SADD_Tips,0,saddCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,SADD_Keyspecs,1,NULL,2),.args=SADD_Args},
 {MAKE_CMD("scard","Returns the number of members in a set.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SCARD_History,0,SCARD_Tips,0,scardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SCARD_Keyspecs,1,NULL,1),.args=SCARD_Args},
 {MAKE_CMD("sdiff","Returns the difference of multiple sets.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFF_History,0,SDIFF_Tips,1,sdiffCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SDIFF_Keyspecs,1,NULL,1),.args=SDIFF_Args},
+{MAKE_CMD("sdiffcard","Returns the number of members of the difference between the first set and all successive sets.","O(N) where N is the total number of elements in all given sets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFFCARD_History,0,SDIFFCARD_Tips,0,sdiffcardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SDIFFCARD_Keyspecs,1,sdiffcardGetKeys,3),.args=SDIFFCARD_Args},
 {MAKE_CMD("sdiffstore","Stores the difference of multiple sets in a key.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFFSTORE_History,0,SDIFFSTORE_Tips,0,sdiffstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SDIFFSTORE_Keyspecs,2,NULL,2),.args=SDIFFSTORE_Args},
 {MAKE_CMD("sinter","Returns the intersect of multiple sets.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTER_History,0,SINTER_Tips,1,sinterCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SINTER_Keyspecs,1,NULL,1),.args=SINTER_Args},
 {MAKE_CMD("sintercard","Returns the number of members of the intersect of multiple sets.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTERCARD_History,0,SINTERCARD_Tips,0,sinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SINTERCARD_Keyspecs,1,sintercardGetKeys,3),.args=SINTERCARD_Args},
@@ -12640,8 +12676,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xnack","Releases claimed messages back to the group's PEL without acknowledging them, making them available for re-delivery.","O(1) for each message ID processed.","8.8.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XNACK_History,0,XNACK_Tips,0,xnackCommand,-7,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XNACK_Keyspecs,1,NULL,6),.args=XNACK_Args},
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args},
 {MAKE_CMD("xrange","Returns the messages from a stream within a range of IDs.","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XRANGE_History,1,XRANGE_Tips,0,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XRANGE_Keyspecs,1,NULL,4),.args=XRANGE_Args},
-{MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args},
-{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,6),.args=XREADGROUP_Args},
+{MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,1,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,5),.args=XREAD_Args},
+{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,2,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,8),.args=XREADGROUP_Args},
 {MAKE_CMD("xrevrange","Returns the messages from a stream within a range of IDs in reverse order.","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREVRANGE_History,1,XREVRANGE_Tips,0,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XREVRANGE_Keyspecs,1,NULL,4),.args=XREVRANGE_Args},
 {MAKE_CMD("xsetid","An internal command for replicating stream values.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSETID_History,1,XSETID_Tips,0,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XSETID_Keyspecs,1,NULL,4),.args=XSETID_Args},
 {MAKE_CMD("xtrim","Deletes messages from the beginning of a stream.","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XTRIM_History,2,XTRIM_Tips,1,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,XTRIM_Keyspecs,1,NULL,2),.args=XTRIM_Args},

@@ -2464,8 +2464,11 @@ sds ACLLoadFromFile(const char *filename) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
-            /* a MASTER client can do everything (and user = NULL) so we can skip it */
-            if (c->flags & CLIENT_MASTER)
+            /* Clients with no associated user (user = NULL) have nothing to
+             * re-resolve and must be skipped before dereferencing c->user.
+             * This covers MASTER clients as well as internal connections
+             * (CLIENT_INTERNAL), both of which run without a user. */
+            if (c->user == NULL)
                 continue;
             user *original = c->user;
             list *channels = NULL;
