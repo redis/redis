@@ -351,6 +351,9 @@ int compressAndWrite(client *c, int *tot_written) {
         int flush = mstime() - state->last_write > server.compression_max_latency;
         if (state->type->compress(state, flush) == -1) {
             clientDestroyCompressionState(c);
+            /* Set error connection state in order to disconnect the client.
+             * Compression write error is non-recoverable. */
+            c->conn->state = CONN_STATE_ERROR;
             return 1;
         }
     }
@@ -599,12 +602,8 @@ int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
         int written = 0;
         int err = compressAndWrite(c, &written);
         if (err) {
-            if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
-                if (nwritten) *nwritten = sock_written;
-                return -1;
-            }
-            /* Connection is still healthy, return what we managed to consume. */
-            break;
+            if (nwritten) *nwritten = sock_written;
+            return -1;
         }
         sock_written += written;
 
