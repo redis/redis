@@ -307,7 +307,8 @@ typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const
 typedef void (*RedisModuleNotificationWithSubkeysFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key, RedisModuleString **subkeys, int count);
 
 /* Function pointer type for post jobs */
-typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
 
 /* Keyspace notification subscriber information.
  * See RM_SubscribeToKeyspaceEvents() for more information. */
@@ -327,10 +328,25 @@ typedef struct RedisModuleKeyspaceSubscriber {
     int active;
 } RedisModuleKeyspaceSubscriber;
 
+/* A queued module post-notification job. A single queue holds both flavors:
+ *  - Regular jobs (RM_AddPostNotificationJob): key == NULL, `callback` is used.
+ *    They fire once at the end of the outermost execution unit and may write to
+ *    the keyspace (RM_Call).
+ *  - Per-key jobs (RM_AddPostNotificationJobForKey): key != NULL, `key_callback`
+ *    is used and receives the bound key. They may NOT write to the keyspace
+ *    (RM_Call is refused while they run), and they fire at the tail of every
+ *    call() (between MULTI/EXEC and script sub-commands) and during AOF replay,
+ *    as well as at the end of the execution unit. The key being non-NULL is what
+ *    marks a job as per-key; no separate flag is needed. */
 typedef struct RedisModulePostExecUnitJob {
     /* The module subscribed to the event */
     RedisModule *module;
-    RedisModulePostNotificationJobFunc callback;
+    union {
+        RedisModulePostNotifyJobFunc callback;           /* key == NULL */
+        RedisModulePostNotifyJobPerKeyFunc key_callback; /* key != NULL */
+    } cb;
+    RedisModuleString *key; /* NULL for a regular job; an owned reference for a
+                             * per-key job, freed after the callback runs. */
     void *pd;
     void (*free_pd)(void*);
     int dbid;
@@ -344,8 +360,13 @@ static list *moduleKeyspaceSubscribers;
 static int moduleKeyspaceSubscribersTypes = 0;
 static int moduleKeyspaceSubscribersWithSubkeysTypes = 0;
 
-/* The module post keyspace jobs list */
+/* The module post-notification jobs list. Holds both regular jobs
+ * (RM_AddPostNotificationJob) and per-key jobs (RM_AddPostNotificationJobForKey);
+ * see RedisModulePostExecUnitJob for how the two are distinguished and drained. */
 static list *modulePostExecUnitJobs;
+
+static int keyedPostNotifRMCallWarned = 0;
+static int keyedPostNotifNotifyWarned = 0;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -6812,7 +6833,9 @@ fmterr:
  * NULL is returned and errno is set to the following values:
  *
  * * EBADF: wrong format specifier.
- * * EINVAL: wrong command arity.
+ * * EINVAL: wrong command arity, or the command was issued from within a
+ *           per-key post-notification callback (RM_AddPostNotificationJobForKey),
+ *           where commands are not allowed.
  * * ENOENT: command does not exist.
  * * EPERM: operation in Cluster instance with key in non local slot.
  * * EROFS: operation in Cluster instance when a write command is sent
@@ -6896,6 +6919,28 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
          * handle this error and decide how to continue. It is not an error that
          * should be propagated to the user. */
         errno = EBADF;
+        goto cleanup;
+    }
+
+    /* Enforce the per-key post-notification contract: a per-key callback
+     * (registered via RM_AddPostNotificationJobForKey) MUST NOT issue
+     * commands. */
+    if (server.firing_keyed_post_notif_jobs) {
+        /* Calling a command from within a per-key post-notification callback is
+         * a misuse of the API. */
+        if (!keyedPostNotifRMCallWarned) {
+            serverLog(LL_WARNING,
+                      "RM_Call('%s') refused: commands are not allowed from "
+                      "within a per-key post-notification callback "
+                      "(RM_AddPostNotificationJobForKey).", cmdname);
+            keyedPostNotifRMCallWarned = 1;
+        }
+        errno = EINVAL;
+        if (error_as_call_replies) {
+            sds msg = sdsnew("RM_Call is not allowed from within a per-key "
+                             "post-notification callback");
+            reply = callReplyCreateError(msg, ctx);
+        }
         goto cleanup;
     }
 
@@ -9418,29 +9463,75 @@ int moduleHasSubscribersForKeyspaceEventWithSubkeys(int type) {
     return (moduleKeyspaceSubscribersWithSubkeysTypes & type) != 0;
 }
 
+/* Run a single queued post-notification job and free it (including the job's
+ * owned key reference for per-key jobs). Per-key jobs (key != NULL) run under
+ * the no-write guard that makes RM_Call refuse for the duration of the
+ * callback, and are passed the bound key. */
+static void executePostExecUnitJob(RedisModulePostExecUnitJob *job) {
+    RedisModuleCtx ctx;
+    moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
+    selectDb(ctx.client, job->dbid);
+
+    if (job->key) {
+        server.firing_keyed_post_notif_jobs = 1;
+        job->cb.key_callback(&ctx, job->key, job->pd);
+        server.firing_keyed_post_notif_jobs = 0;
+        decrRefCount(job->key);
+    } else {
+        job->cb.callback(&ctx, job->pd);
+    }
+    if (job->free_pd) job->free_pd(job->pd);
+
+    moduleFreeContext(&ctx);
+    zfree(job);
+}
+
 void firePostExecutionUnitJobs(void) {
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
      * recursive calls to firePostExecutionUnitJobs.
      * This is a special case where we need to increase 'execution_nesting'
      * but we do not want to update the cached time */
+    keyedPostNotifRMCallWarned = 0;
+    keyedPostNotifNotifyWarned = 0;
     enterExecutionUnit(0, 0);
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
         listDelNode(modulePostExecUnitJobs, ln);
-
-        RedisModuleCtx ctx;
-        moduleCreateContext(&ctx, job->module, REDISMODULE_CTX_TEMP_CLIENT);
-        selectDb(ctx.client, job->dbid);
-
-        job->callback(&ctx, job->pd);
-        if (job->free_pd) job->free_pd(job->pd);
-
-        moduleFreeContext(&ctx);
-        zfree(job);
+        executePostExecUnitJob(job);
     }
     exitExecutionUnit();
+}
+
+/* Fire the per-key jobs (those with a bound key), draining them from the shared
+ * queue and leaving regular jobs for the end-of-execution-unit drain in
+ * firePostExecutionUnitJobs. Invoked after each sub-command's call() returns
+ * (execCommand for MULTI/EXEC, scriptCall for EVAL/FCALL) so per-key effects are
+ * observable between sibling sub-commands, and from the AOF replay loop after
+ * each replayed single command.
+ *
+ * Per-key callbacks may not touch the keyspace: both RM_Call and
+ * RM_NotifyKeyspaceEvent are refused for the duration of the callback (see the
+ * server.firing_keyed_post_notif_jobs guard). They therefore cannot trigger
+ * notifications and cannot enqueue further jobs; the queue is stable across the
+ * scan and capturing the next node up front is safe. */
+void firePerKeyJobsBetweenSubcommands(void) {
+    keyedPostNotifRMCallWarned = 0;
+    keyedPostNotifNotifyWarned = 0;
+    enterExecutionUnit(0, 0);
+    listNode *ln = listFirst(modulePostExecUnitJobs);
+    while (ln) {
+        listNode *next = listNextNode(ln);
+        RedisModulePostExecUnitJob *job = listNodeValue(ln);
+        if (job->key) {
+            listDelNode(modulePostExecUnitJobs, ln);
+            executePostExecUnitJob(job);
+        }
+        ln = next;
+    }
+    exitExecutionUnit();
+    server.fire_keyed_jobs_between_subcommands = 0;
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -9460,18 +9551,102 @@ void firePostExecutionUnitJobs(void) {
  *
  * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) or
  * if the instance is a readonly replica. */
-int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
     if (server.loading|| (server.masterhost && server.repl_slave_ro)) {
         return REDISMODULE_ERR;
     }
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
-    job->callback = callback;
+    job->cb.callback = callback;
+    job->key = NULL;
     job->pd = privdata;
     job->free_pd = free_privdata;
     job->dbid = ctx->client->db->id;
 
     listAddNodeTail(modulePostExecUnitJobs, job);
+    return REDISMODULE_OK;
+}
+
+/* Sibling of `RM_AddPostNotificationJob` that fires per-key. May only be
+ * called from within a keyspace-notification handler (the single-key context
+ * the API is scoped to). Each call binds the job to the caller-supplied
+ * `key`, so multi-key commands such as MSET (which emit one notification per
+ * key) may register one job per affected key.
+ *
+ * Firing schedule (this is what distinguishes the per-key API from
+ * `RM_AddPostNotificationJob` — choosing this API opts into all of it):
+ *  - At the tail of every `call()`, so per-key effects are observable between
+ *    MULTI/EXEC and script (EVAL/FCALL) sub-commands.
+ *  - During AOF replay, at the tail of every replayed command (single commands
+ *    and each sub-command of MULTI/EXEC), so per-key state is rebuilt on reload.
+ *  - At the end of the outermost execution unit, for jobs registered outside a
+ *    sub-command loop (e.g. by a standalone command).
+ * The firing happens off the universal afterCommand() hot path — via explicit
+ * drains in execCommand (multi.c), scriptCall (script.c), and AOF replay — so
+ * standalone commands that don't use the feature pay nothing.
+ *
+ * Jobs fire in submission order. `key` must be a valid RedisModuleString; the
+ * implementation takes its own reference and the caller retains ownership of
+ * its own reference. `free_pd` may be NULL.
+ *
+ * Cross-phase contract:
+ *  - The callback MUST only touch non-replicated, non-AOF-persisted state,
+ *    such as module-attached key metadata via `RM_SetKeyMeta` /
+ *    `RM_GetKeyMeta`. The same callback fires on the master, on every
+ *    replica receiving master-propagated commands, and during AOF replay;
+ *    each instance maintains its own per-key state independently and they
+ *    converge because they all run the same callback over the same KSN
+ *    stream.
+ *  - Touching the keyspace from inside the callback (e.g.
+ *    `RM_Call(..., "!...")`) is a contract violation: on AOF replay it
+ *    amplifies the AOF; on a replica it diverges the replica from its
+ *    master. The runtime enforces this — RM_Call is refused (returns NULL
+ *    with errno == EINVAL and a warning logged, or a `-ERR` call-reply when
+ *    CALL_REPLIES_AS_ERRORS is requested) while a per-key callback runs.
+ *  - Firing a keyspace notification from inside the callback
+ *    (`RM_NotifyKeyspaceEvent` / `RM_NotifyKeyspaceEventWithSubkeys`) is
+ *    likewise refused (returns REDISMODULE_ERR with a warning logged): a
+ *    nested notification could enqueue further per-key jobs mid-drain, so the
+ *    callback is kept free of side effects on the post-notification queue.
+ *
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if called outside a
+ * keyspace-notification handler. The API is permitted on read-only replicas
+ * during AOF replay, so per-key state stays continuously in sync with
+ * the keyspace events the instance observes. */
+int RM_AddPostNotificationJobForKey(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *privdata, void (*free_privdata)(void*)) {
+
+    /* The API is only meaningful from inside a keyspace-notification handler:
+     * that is the single-key context the per-key contract is scoped to. */
+    if (!server.in_keyspace_notification) {
+        serverLog(LL_WARNING,
+            "API misuse detected in module %s: "
+            "RedisModule_AddPostNotificationJobForKey called outside a "
+            "keyspace-notification handler.",
+            ctx->module->name);
+        return REDISMODULE_ERR;
+    }
+
+    if (!callback || !key) {
+      serverLog(LL_WARNING,
+            "API misuse detected in module %s: "
+            "RedisModule_AddPostNotificationJobForKey called with NULL callback or key.",
+            ctx->module->name);
+      return REDISMODULE_ERR;
+    }
+
+    RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
+    job->module = ctx->module;
+    job->cb.key_callback = callback;
+    job->key = key;
+    incrRefCount(job->key);
+    job->pd = privdata;
+    job->free_pd = free_privdata;
+    job->dbid = ctx->client->db->id;
+    listAddNodeTail(modulePostExecUnitJobs, job);
+    /* A per-key job (key != NULL) always fires between sub-commands and during
+     * AOF replay - that is the meaning of choosing this API. Arm the hint that
+     * gates the explicit drains in execCommand/scriptCall/AOF replay. */
+    server.fire_keyed_jobs_between_subcommands = 1;
     return REDISMODULE_OK;
 }
 
@@ -9481,9 +9656,27 @@ int RM_GetNotifyKeyspaceEvents(void) {
     return server.notify_keyspace_events;
 }
 
+/* Enforce the per-key post-notification contract on the notification path: a
+ * per-key callback (registered via RM_AddPostNotificationJobForKey) MUST NOT
+ * fire keyspace notifications */
+static int keyedPostNotifBlocksNotification(RedisModuleCtx *ctx) {
+    if (!server.firing_keyed_post_notif_jobs) return 0;
+    if (!keyedPostNotifNotifyWarned) {
+        serverLog(LL_WARNING,
+            "RM_NotifyKeyspaceEvent refused in module %s: firing keyspace "
+            "notifications is not allowed from within a per-key "
+            "post-notification callback (RM_AddPostNotificationJobForKey).",
+            ctx->module ? ctx->module->name : "?");
+        keyedPostNotifNotifyWarned = 1;
+    }
+    return 1;
+}
+
 /* Expose notifyKeyspaceEvent to modules */
 int RM_NotifyKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     if (!ctx || !ctx->client)
+        return REDISMODULE_ERR;
+    if (keyedPostNotifBlocksNotification(ctx))
         return REDISMODULE_ERR;
     notifyKeyspaceEvent(type, (char *)event, key, ctx->client->db->id);
     return REDISMODULE_OK;
@@ -9500,6 +9693,8 @@ int RM_NotifyKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, Red
 int RM_NotifyKeyspaceEventWithSubkeys(RedisModuleCtx *ctx, int type, const char *event,
                                       RedisModuleString *key, RedisModuleString **subkeys, int count) {
     if (!ctx || !ctx->client)
+        return REDISMODULE_ERR;
+    if (keyedPostNotifBlocksNotification(ctx))
         return REDISMODULE_ERR;
     notifyKeyspaceEventWithSubkeys(type, (char *)event, key, ctx->client->db->id, subkeys, count);
     return REDISMODULE_OK;
@@ -9533,6 +9728,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
      * This is a special case where we need to increase 'execution_nesting'
      * but we do not want to update the cached time */
     enterExecutionUnit(0, 0);
+
+    /* Mark that we are inside a keyspace-notification dispatch. */
+    server.in_keyspace_notification++;
 
     listIter li;
     listNode *ln;
@@ -9581,6 +9779,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid,
         }
     }
 
+    server.in_keyspace_notification--;
     exitExecutionUnit();
 }
 
@@ -9597,6 +9796,22 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
         }
     }
     moduleUpdateKeyspaceSubscribersTypes();
+}
+
+/* Drop any post-notification jobs still queued for this module upon unloading. */
+void moduleUnregisterPostNotificationJobs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(modulePostExecUnitJobs, &li);
+    while ((ln = listNext(&li))) {
+        RedisModulePostExecUnitJob *job = ln->value;
+        if (job->module != module) continue;
+        if (job->free_pd) job->free_pd(job->pd);
+        if (job->key) decrRefCount(job->key);
+        listDelNode(modulePostExecUnitJobs, ln);
+        zfree(job);
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -9927,21 +10142,27 @@ int RM_ClusterCanAccessKeysInSlot(int slot) {
 /* Propagate commands along with slot migration.
  *
  * This function allows modules to add commands that will be sent to the
- * destination node before the actual slot migration begins. It should only be
- * called during the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
+ * destination node as part of the slot migration. It should only be called
+ * during one of the following events:
+ *
+ * * REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
+ *   the commands are delivered before the actual slot data migration begins.
+ *   This event is fired in the fork child process just before slot snapshot
+ *   delivery begins.
+ * * REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END:
+ *   the commands are delivered at the very end of the migration, just before
+ *   the STREAM-EOF is sent to the destination. This event is fired in the main
+ *   process while the slot writes are paused.
  *
  * This function can be called multiple times within the same event to
- * replicate multiple commands. All commands will be sent before the
- * actual slot data migration begins.
- *
- * Note: This function is only available in the fork child process just before
- *       slot snapshot delivery begins.
+ * replicate multiple commands.
  *
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * EINVAL: function arguments or format specifiers are invalid.
- * * EBADF: not called in the correct context, e.g. not called in the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
+ * * EBADF: not called in the correct context, e.g. not called in one of the
+ *          events listed above.
  * * ENOENT: command does not exist.
  * * ENOTSUP: command is cross-slot.
  * * ERANGE: command contains keys that are not within the migrating slot range.
@@ -9972,7 +10193,7 @@ int RM_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname
         return REDISMODULE_ERR;
     }
 
-    int ret = asmModulePropagateBeforeSlotSnapshot(cmd, argv, argc);
+    int ret = asmModulePropagateForSlotMigration(cmd, argv, argc);
     int saved_errno = errno;
 
     /* Release the argv. */
@@ -10944,7 +11165,7 @@ RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
     size_t usable;
     RedisModuleDict *d = zmalloc_usable(sizeof(*d), &usable);
     d->alloc_size = usable;
-    d->rax = raxNewWithMetadata(0, &d->alloc_size);
+    d->rax = raxNewEx(0, &d->alloc_size, 0);
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_DICT,d);
     return d;
 }
@@ -12594,11 +12815,22 @@ static uint64_t moduleEventVersions[] = {
  *
  * * RedisModuleEvent_ForkChild
  *
- *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born/dies
+ *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born or dies,
+ *     and around the fork itself so a multi-threaded module can bring its
+ *     background threads to a safe point before `fork()`. This matters because a
+ *     thread holding a lock (for example the allocator lock) at `fork()` time
+ *     would deadlock the child the first time it tries to take that lock.
+ *     `REDISMODULE_SUBEVENT_FORK_CHILD_PRE` is fired synchronously on the main
+ *     thread right before `fork()` (returning from the handler tells Redis the
+ *     module is ready); the module then resumes on
+ *     `REDISMODULE_SUBEVENT_FORK_CHILD_BORN` if the fork happened or on
+ *     `REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED` if it did not.
  *     The following sub events are available:
  *
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BORN`
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_DIED`
+ *     * `REDISMODULE_SUBEVENT_FORK_CHILD_PRE`
+ *     * `REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED`
  *
  * * RedisModuleEvent_EventLoop
  *
@@ -12652,7 +12884,10 @@ static uint64_t moduleEventVersions[] = {
  *     migration operation to let modules prepare for the ownership change and
  *     observe the completion of the slot migration. MIGRATE_MODULE_PROPAGATE
  *     event is triggered in the fork just before snapshot delivery; modules may
- *     use it to enqueue commands that will be delivered first. See
+ *     use it to enqueue commands that will be delivered first. The
+ *     MIGRATE_MODULE_PROPAGATE_END event is triggered in the main process at the
+ *     very end of the migration, just before the STREAM-EOF is sent; modules may
+ *     use it to enqueue commands that will be delivered last. See
  *     RedisModule_ClusterPropagateForSlotMigration() for details.
  *
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED`
@@ -12662,6 +12897,7 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END`
  *
  *     The data pointer can be casted to a RedisModuleClusterSlotMigrationInfo
  *     structure with the following fields:
@@ -13074,8 +13310,8 @@ void moduleInitModulesSystem(void) {
         exit(1);
     }
 
-    /* Create the timers radix tree. */
-    Timers = raxNew();
+    /* Create the timers radix tree. Key is a uint64_t timer ID (BE). */
+    Timers = raxNewEx(0, NULL, sizeof(uint64_t));
 
     /* Setup the event listeners data structures. */
     RedisModule_EventListeners = listCreate();
@@ -13349,6 +13585,7 @@ void moduleUnregisterCleanup(RedisModule *module) {
     moduleFreeAuthenticatedClients(module);
     moduleUnregisterCommands(module);
     moduleUnsubscribeNotifications(module);
+    moduleUnregisterPostNotificationJobs(module);
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
@@ -15245,7 +15482,7 @@ RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModule
         if (valueCB) {
             ret = valueCB(ctx, ri.data, ri.key, ri.key_len, &newdata);
             if (newdata)
-                raxSetData(ri.node, ri.data=newdata);
+                raxIteratorSetData(&ri, newdata);
         }
 
         /* Check if we need to interrupt defragmentation.
@@ -15596,6 +15833,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SubscribeToKeyspaceEventsWithSubkeys);
     REGISTER_API(UnsubscribeFromKeyspaceEventsWithSubkeys);
     REGISTER_API(AddPostNotificationJob);
+    REGISTER_API(AddPostNotificationJobForKey);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
     REGISTER_API(GetClusterNodeInfo);

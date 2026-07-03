@@ -445,6 +445,8 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
+"DEFRAG-FRAG-CACHE-STATS",
+"    Return hits counters for the defrag-side fragmentation cache.",
 "HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> [full]",
@@ -971,6 +973,10 @@ NULL
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"fork-fail") && c->argc == 3)
+    {
+        server.debug_fork_fail = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
         replicationFeedSlaves(server.slaves, -1,
                 c->argv + 2, c->argc - 2);
@@ -993,6 +999,11 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
+    } else if (!strcasecmp(c->argv[1]->ptr,"defrag-frag-cache-stats")) {
+        sds stats = sdsempty();
+        stats = sdscatprintf(stats, "defrag_frag_cache_hits:%lld\r\n", server.defrag_frag_cache.hits);
+        addReplyVerbatim(c,stats,sdslen(stats),"txt");
+        sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();

@@ -1,22 +1,17 @@
 {
-    "EVALSHA_RO": {
-        "summary": "Executes a read-only server-side Lua script by SHA1 digest.",
-        "complexity": "Depends on the script that is executed.",
-        "group": "scripting",
-        "since": "7.0.0",
+    "SDIFFCARD": {
+        "summary": "Returns the number of members of the difference between the first set and all successive sets.",
+        "complexity": "O(N) where N is the total number of elements in all given sets.",
+        "group": "set",
+        "since": "8.10.0",
         "arity": -3,
-        "function": "evalShaRoCommand",
-        "get_keys_function": "evalGetKeys",
+        "function": "sdiffcardCommand",
+        "get_keys_function": "sdiffcardGetKeys",
         "command_flags": [
-            "NOSCRIPT",
-            "SKIP_MONITOR",
-            "NO_MANDATORY_KEYS",
-            "STALE",
-            "SCRIPT_RUNNER",
             "READONLY"
         ],
         "acl_categories": [
-            "SCRIPTING"
+            "SET"
         ],
         "key_specs": [
             {
@@ -26,7 +21,7 @@
                 ],
                 "begin_search": {
                     "index": {
-                        "pos": 2
+                        "pos": 1
                     }
                 },
                 "find_keys": {
@@ -38,11 +33,12 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "Number of the elements in the resulting difference.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
-            {
-                "name": "sha1",
-                "type": "string"
-            },
             {
                 "name": "numkeys",
                 "type": "integer"
@@ -51,18 +47,14 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0,
-                "optional":true,
                 "multiple": true
             },
             {
-                "name": "arg",
-                "type": "string",
-                "optional":true,
-                "multiple": true
+                "token": "LIMIT",
+                "name": "limit",
+                "type": "integer",
+                "optional": true
             }
-        ],
-        "reply_schema": {
-            "description": "Return value depends on the script that is executed"
-        }
+        ]
     }
 }
