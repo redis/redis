@@ -971,14 +971,47 @@ test {corrupt payload: fuzzer findings - set with invalid length causes sscan to
     }
 }
 
-test {corrupt payload: zset listpack encoded with invalid length causes zscan to hang} {
+test {corrupt payload: zset listpack encoded with invalid length is rejected at load} {
+    # The listpack header's element count does not match its actual entries. Untrusted RESTORE now
+    # deep-validates and rejects it at load, rather than accepting it and crashing on a later access.
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
-        assert_equal {OK} [r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace]
-        assert_encoding listpack _zset
-        catch { r ZSCAN _zset 0 } err
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: zset listpack with NaN score} {
+    # RDB_TYPE_ZSET_LISTPACK with a "nan" score must be rejected at load (see #15414).
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore _nan_zset_lp 0 "\x11\x0f\x0f\x00\x00\x00\x02\x00\x81\x61\x02\x83\x6e\x61\x6e\x04\xff\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: zset listpack with duplicate members} {
+    # RDB_TYPE_ZSET_LISTPACK listpack with a duplicate member must be rejected at load (see #15415).
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore _dup_zset_lp 0 "\x11\x11\x11\x00\x00\x00\x04\x00\x81\x61\x02\x01\x01\x81\x61\x02\x02\x01\xff\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: zset listpack with odd element count} {
+    # RDB_TYPE_ZSET_LISTPACK listpack: a trailing member with no score must be rejected at load.
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore _odd_zset_lp 0 "\x11\x0f\x0f\x00\x00\x00\x03\x00\x81\x61\x02\x01\x01\x81\x62\x02\xff\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 

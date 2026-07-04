@@ -2393,6 +2393,29 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
     return ret;
 }
 
+/* Scan a zset listpack for a non-finite (NaN) score. The listpack alternates
+ * [member, score, member, score, ...]. lpValidateIntegrityAndDups() validates
+ * the listpack structure and duplicate members, but not score finiteness, so a
+ * crafted "nan" score is otherwise accepted at load and later crashes
+ * zslInsert()'s serverAssert(!isnan(score)) when a write converts the zset to a
+ * skiplist. The skiplist load path (RDB_TYPE_ZSET/_2) already rejects NaN
+ * directly; this lets the listpack path do the same. Returns 1 if any score is
+ * NaN, 0 otherwise.
+ *
+ * The caller must have deep-validated the listpack first, so every member is
+ * followed by a score (even element count is guaranteed) - hence the assert. */
+static int zsetListpackHasNanScore(unsigned char *lp) {
+    unsigned char *eptr = lpFirst(lp);
+    while (eptr != NULL) {
+        unsigned char *sptr = lpNext(lp, eptr);
+        serverAssert(sptr != NULL);
+        if (isnan(zzlGetScore(sptr)))
+            return 1;
+        eptr = lpNext(lp, sptr);
+    }
+    return 0;
+}
+
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL.
  *
@@ -3187,7 +3210,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 2)) {
+                /* Deep-validate untrusted RESTORE payloads, not only when sanitize-dump-payload is
+                 * enabled. The shallow check accepts malformed listpacks (duplicate members, odd
+                 * element count, corrupt entries, header/count mismatch) that later crash on access
+                 * or on the listpack->skiplist conversion. Deep validation safely walks the entries
+                 * (bounds-checked) and rejects them at load. */
+                if (!lpValidateIntegrityAndDups(encoded, encoded_len,
+                        deep_integrity_validation || isRestoreContext(), 2)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -3196,6 +3225,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
                 o->type = OBJ_ZSET;
                 o->encoding = OBJ_ENCODING_LISTPACK;
+
+                /* Structural validation above does not check score finiteness. A crafted NaN score
+                 * would still be accepted and later crash zslInsert() on a listpack->skiplist
+                 * conversion. Scan for it under the same condition that ran deep validation, so the
+                 * listpack is already known to be well-formed here. */
+                if ((deep_integrity_validation || isRestoreContext()) && zsetListpackHasNanScore(o->ptr)) {
+                    rdbReportCorruptRDB("Zset listpack with NaN score detected");
+                    decrRefCount(o);
+                    return NULL;
+                }
+
                 if (zsetLength(o) == 0) {
                     decrRefCount(o);
                     goto emptykey;
