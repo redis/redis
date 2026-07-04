@@ -8,9 +8,6 @@
  */
 
 #include "server.h"
-#ifdef REDIS_TEST
-#include "testhelp.h"
-#endif
 #include "endianconv.h"
 #include "stream.h"
 #include "xxhash.h"
@@ -486,17 +483,18 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
     streamIteratorStop(&si);
 }
 
-/* Rebuild a listpack node by removing tombstone entries. This is used to
- * compact stream nodes after deletions have accumulated. If all entries are
- * tombstones, the node is removed entirely. */
+/* Rebuild a stream node by removing entries marked as deleted.
+ *
+ * If the node contains no live entries, remove it from the radix tree,
+ * free the old listpack, and return NULL.
+ *
+ * Otherwise, rebuild a new listpack with only live entries from the old listpack 
+ * and return the new listpack.
+ */
 static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsigned char *key, size_t key_len) {
     unsigned char *p = lpFirst(lp);
-    serverAssert(lp != NULL);
-    serverAssert(p != NULL);
     int64_t valid = lpGetInteger(p);
-    p = lpNext(lp,p); // Move past valid field
-    serverAssert(p != NULL);   // deleted field
-    // int64_t deleted = lpGetInteger(p);
+    p = lpNext(lp,p); // Move to deleted field
 
     if (valid == 0) {
         s->alloc_size -= lpBytes(lp);
@@ -508,10 +506,7 @@ static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsign
     size_t oldsize = lpBytes(lp);
     unsigned char *newlp = lpNew(oldsize);
 
-    p = lpNext(lp,p); /* Move past deleted field. */
-    serverAssert(p != NULL);   // num-of-fields or master_field_count
-    // p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
-    // serverAssert(p != NULL);   // master fields
+    p = lpNext(lp,p); /* Move to master-fields-count field. */
     int64_t master_fields_count = lpGetInteger(p);
 
     newlp = lpAppendInteger(newlp, valid);
@@ -519,49 +514,41 @@ static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsign
     newlp = lpAppendInteger(newlp, master_fields_count);
 
     p = lpNext(lp,p); /* Move to first master field */
-    serverAssert(p != NULL);
     for (int64_t j = 0; j < master_fields_count; j++) {
         int64_t field_len;
         unsigned char buf[LP_INTBUF_SIZE];
         unsigned char *field = lpGet(p,&field_len,buf);
         newlp = lpAppend(newlp, field, field_len);
         p = lpNext(lp,p);
-        serverAssert(p != NULL);
     }
     newlp = lpAppendInteger(newlp, 0); /* Master entry zero terminator. */
-    p = lpNext(lp,p); /* Move past the zero master entry terminator. */
-    serverAssert(p != NULL);
+    p = lpNext(lp,p); /* Move to the first entry's flags field. */
     while (p) {
         int64_t flags = lpGetInteger(p);
-        unsigned char *q = lpNext(lp,p); /* Move Past flags */
-        serverAssert(q != NULL);
+        unsigned char *q = lpNext(lp,p); /* Move to the ms-delta field (entry-id) */
         int64_t ms_delta = lpGetInteger(q);
-        q = lpNext(lp,q); /* Move past ms_delta of entry_id */
-        serverAssert(q != NULL);
-        int64_t seq_delta = lpGetInteger(q); /* Move past seq_delta of entry_id */
-        q = lpNext(lp,q); /* Move past entry_id */
-        serverAssert(q != NULL);
+        q = lpNext(lp,q); /* Move to seq_delta of entry_id */
+        int64_t seq_delta = lpGetInteger(q);
+        q = lpNext(lp,q); /* Move to num-fields */
 
         /* Skip deleted entry */
         if (flags & STREAM_ITEM_FLAG_DELETED) {
             if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
+                /* If SAMEFIELDS flag is not set, entry contains both fields and values */
                 int64_t numfields = lpGetInteger(q);
-                q = lpNext(lp,q); /* Move past numfields */
-                serverAssert(q != NULL);
+                q = lpNext(lp,q); /* Move to first field */
                 for (int64_t i = 0; i < numfields; i++) {
-                    q = lpNext(lp,q);
-                    serverAssert(q != NULL);
-                    q = lpNext(lp,q);
-                    serverAssert(q != NULL);
+                    q = lpNext(lp,q); /* Skip field */
+                    q = lpNext(lp,q); /* Skip value */
                 }
             } else {
+                /* If SAMEFIELDS flag is set, entry contains only values */
                 for (int64_t i = 0; i < master_fields_count; i++) {
-                        q = lpNext(lp,q);
-                        serverAssert(q != NULL);
+                        q = lpNext(lp,q); /* Skip value */
                 }
                 
             }
-            q = lpNext(lp,q); /* Move past lp-count */
+            q = lpNext(lp,q); /* Move to next entry */
             p = q;
             continue;
         }
@@ -574,21 +561,16 @@ static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsign
         if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
             int64_t numfields = lpGetInteger(q);
             newlp = lpAppendInteger(newlp, numfields);
-            q = lpNext(lp,q); /* Move past numfields */
-            serverAssert(q != NULL);
+            q = lpNext(lp,q); /* Move to first field */
             for (int64_t i = 0; i < numfields; i++) {
                 int64_t field_len, value_len;
                 unsigned char buf[LP_INTBUF_SIZE];
                 unsigned char *field = lpGet(q,&field_len,buf);
-                serverAssert(field != NULL);
-                serverAssert(field_len >= 0);
                 newlp = lpAppend(newlp, field, field_len);
                 q = lpNext(lp,q); /* Move past field, now we are pointing to value */
-                serverAssert(q != NULL);
                 unsigned char *value = lpGet(q,&value_len,buf);
                 newlp = lpAppend(newlp, value, value_len);
-                q = lpNext(lp,q);
-                serverAssert(q != NULL);
+                q = lpNext(lp,q); /* Move to next field */
             }
         } else {
             for (int64_t i = 0; i < master_fields_count; i++) {
@@ -596,14 +578,13 @@ static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsign
                 unsigned char buf[LP_INTBUF_SIZE];
                 unsigned char *value = lpGet(q,&value_len,buf);
                 newlp = lpAppend(newlp, value, value_len);
-                q = lpNext(lp,q); /* Move past value */
-                serverAssert(q != NULL);
+                q = lpNext(lp,q); /* Move to next value */
             }
         }
 
         int64_t lp_count = lpGetInteger(q);
         newlp = lpAppendInteger(newlp, lp_count);
-        q = lpNext(lp,q); /* Move past lp_count */
+        q = lpNext(lp,q); /* Move to next entry */
         p = q;
     }
 
@@ -613,7 +594,6 @@ static unsigned char *streamCompactListpack(stream *s, unsigned char *lp, unsign
     raxInsert(s->rax,key,key_len,newlp,NULL);
     return newlp;
 }
-
 
 /* Adds a new item into the stream 's' having the specified number of
  * field-value pairs as specified in 'numfields' and stored into 'argv'.
@@ -1156,21 +1136,15 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             unsigned char *newlp = streamCompactListpack(s, lp, ri.key, ri.key_len);
             if (newlp != NULL) {
                 lp = newlp;
-                p = lpFirst(lp);
-                p = lpNext(lp,p);
-                p = lpNext(lp,p);
-                p = lpNext(lp,p);
-                if (p) p = lpNext(lp,p);
                 raxIteratorSetData(&ri,lp);
             } else {
                 raxSeek(&ri,">=",ri.key,ri.key_len);
                 continue;
             }
-        } else {
-            /* Update the node with the new pointer. */
+        } else {    /* Update the node with the new pointer. */
             raxIteratorSetData(&ri,lp);
         }
-
+        
         /* If the node is eligible for removal but we couldn't remove it due to delete strategy
          * constraints (we need to check each entry individually), continue to the next node
          * instead of stopping here. */
@@ -1742,6 +1716,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         s->alloc_size -= oldsize;
         lpFree(lp);
         raxRemove(s->rax,si->ri.key,si->ri.key_len,NULL);
+        lp = NULL;
     } else {
         /* In the base case we alter the counters of valid/deleted entries. */
         lp = lpReplaceInteger(lp,&p,aux-1);
@@ -1759,6 +1734,17 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     /* Update the number of entries counter. */
     s->length--;
 
+    /* Compact the listpack if tombstones became too frequent. */
+    if (lp != NULL) {
+        unsigned char *q = lpFirst(lp);
+        int64_t valid = lpGetInteger(q);
+        q = lpNext(lp,q);
+        int64_t deleted = lpGetInteger(q);
+        if (deleted > 0 && valid + deleted > 10 && deleted > valid/2) {
+            lp = streamCompactListpack(s, lp, si->ri.key, si->ri.key_len);
+        }
+    }
+
     /* Re-seek the iterator to fix the now messed up state. */
     streamID start, end;
     if (si->rev) {
@@ -1770,17 +1756,6 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     }
     streamIteratorStop(si);
     streamIteratorStart(si,s,&start,&end,si->rev);
-
-    // /* Compact the listpack if tombstones became too frequent. */
-    // if (s->length > 0) {
-    //     unsigned char *p = lpFirst(si->lp);
-    //     int64_t valid = lpGetInteger(p);
-    //     p = lpNext(si->lp,p);
-    //     int64_t deleted = lpGetInteger(p);
-    //     if (deleted > 0 && valid + deleted > 10 && deleted > valid/2) {
-    //         streamCompactListpack(s, si->lp, si->ri.key, si->ri.key_len);
-    //     }
-    // }
 }
 
 /* Stop the stream iterator. The only cleanup we need is to free the rax

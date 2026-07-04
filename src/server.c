@@ -7906,7 +7906,6 @@ typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
-int streamTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7934,7 +7933,6 @@ struct redisTest {
     {"bitmap", bitopsTest},
     {"rax", raxTest},
     {"zset", zsetTest},
-    {"stream", streamTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
 };
