@@ -40,6 +40,11 @@ Pass module names to either step to scope it: `make modules-update redisbloom re
 `make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
 the dependency install.
 
+> **Note:** `make bootstrap` currently only provisions the dependencies for a
+> **non-LTO build** (`LTO=0`, the default). If you need an **LTO build**
+> (`LTO=1`), `make bootstrap` won't install everything required — install the
+> extra LTO dependencies manually before building.
+
 ### 2. Build — `make build`
 
 Builds Redis first, then each cloned module against that Redis.
