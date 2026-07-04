@@ -4072,6 +4072,11 @@ void himportPrepareCommand(client *c) {
  * map positionally onto the fieldset's fields, and the key is stored directly in
  * template encoding using the fieldset's shared template. */
 void himportSetCommand(client *c) {
+    /* Lookup existing key. */
+    dictEntryLink link;
+    kvobj *existing = lookupKeyWriteWithLink(c->db, c->argv[2], &link);
+    if (checkType(c, existing, OBJ_HASH)) return;
+
     /* Lookup fieldset. */
     sds fieldset_name = c->argv[3]->ptr;
     himportFieldset *fs = himportFieldsetGet(c, fieldset_name);
@@ -4105,8 +4110,12 @@ void himportSetCommand(client *c) {
     }
 
     robj *o = createHashObjectFromTemplate(tmpl, values, 0);
+    if (values != stack_values) zfree(values);
 
-    /* How to propagate this write to replicas/AOF/ASM?. Ideally we'd mirror how 
+    setKeyByLink(c, c->db, c->argv[2], &o,
+                 existing ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST, &link);
+
+    /* How to propagate this write to replicas/AOF/ASM?. Ideally we'd mirror how
      * the client does it (a HIMPORT PREPARE for the fields, then a SET), but
      * propagating the fields separately gets complex once replicas, sub-replicas
      * and atomic slot migration are in the picture. So we send the fields
@@ -4137,17 +4146,11 @@ void himportSetCommand(client *c) {
     }
     preventCommandPropagation(c);
 
-    /* Set key (overwrites existing key of any type). */
-    setKey(c, c->db, c->argv[2], &o, 0);
-
     /* Notify keyspace listeners, matching HSET's semantics. */
     robj **fields_robj = hashTemplateGetFieldRobjs(tmpl);
     notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hset", c->argv[2], c->db->id,
                                    fields_robj, (int) field_count);
     server.dirty++;
-
-    /* Free heap-allocated values buffer if used. */
-    if (values != stack_values) zfree(values);
 
     addReply(c, shared.ok);
 }

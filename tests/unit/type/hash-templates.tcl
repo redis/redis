@@ -269,14 +269,13 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_error "*no such fieldset*" {r himport set myhash nosuchfs alice alice@example.com 25}
     }
 
-    test {HIMPORT SET replaces existing string key} {
+    test {HIMPORT SET refuses to overwrite a non-hash key (WRONGTYPE)} {
         r del myhash
         r himport prepare user name email age
         r set myhash "string value"
-        r himport set myhash user charlie charlie@example.com 30
-        assert_encoding $encoding myhash
-        assert_equal [r type myhash] {hash}
-        assert_equal [r hget myhash name] {charlie}
+        assert_error "WRONGTYPE*" {r himport set myhash user charlie charlie@example.com 30}
+        assert_equal [r type myhash] {string}
+        assert_equal [r get myhash] {string value}
     }
 
     test {HIMPORT SET replaces existing regular hash} {

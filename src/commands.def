@@ -4315,7 +4315,7 @@ struct COMMAND_ARG HIMPORT_PREPARE_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* HIMPORT SET key specs */
 keySpec HIMPORT_SET_Keyspecs[1] = {
-{NULL,CMD_KEY_RW|CMD_KEY_INSERT|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 

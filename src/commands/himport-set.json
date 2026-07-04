@@ -17,8 +17,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "RW",
-                    "INSERT",
+                    "OW",
                     "UPDATE"
                 ],
                 "begin_search": {
