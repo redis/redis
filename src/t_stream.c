@@ -8,6 +8,9 @@
  */
 
 #include "server.h"
+#ifdef REDIS_TEST
+#include "testhelp.h"
+#endif
 #include "endianconv.h"
 #include "stream.h"
 #include "xxhash.h"
