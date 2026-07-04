@@ -684,8 +684,13 @@ NULL
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
-
-        strenc = strEncoding(kv->encoding);
+        /* Mask shim (remove before merge): report legacy encoding name. */
+        if (server.hash_template_mask_encoding &&
+            (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+             kv->encoding == OBJ_ENCODING_TMPL_ARRAY))
+            strenc = hashTemplateEquivalentEncoding(kv);
+        else
+            strenc = strEncoding(kv->encoding);
 
         char extra[138] = {0};
         if (kv->encoding == OBJ_ENCODING_QUICKLIST) {

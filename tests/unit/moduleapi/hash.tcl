@@ -18,8 +18,8 @@ start_server {tags {"modules external:skip"}} {
         assert_equal 0 [r hash.set k "xa" new stuff not inserted]
         assert_equal 1 [r hash.set k "x" squirrel ofcourse]
         assert_equal 1 [r hash.set k "" sushi :delete: none :delete:]
-        r hgetall k
-    } {squirrel ofcourse banana no what nothing something nice}
+        lsort [r hgetall k]
+    } {banana nice no nothing ofcourse something squirrel what}
 
     test {Module hash - set (override) NX expired field successfully} {
         r debug set-active-expire 0
@@ -168,6 +168,15 @@ start_server {tags {"modules external:skip"}} {
         run_cmd_verify_hist {r hash.hget_expired H1 f1} {db0_HASH:1=1}
         r debug set-active-expire 1
         run_cmd_verify_hist {after 5} {} 50
+    }
+
+    test {Module hash - RM_HashSet auto-converts to template} {
+        r config set hash-min-template-entries 1
+        r del htmpl
+        r hash.set htmpl "a" f1 v1 f2 v2 f3 v3
+        assert_equal [r object encoding htmpl] "template-listpack"
+        assert_equal [lsort [r hgetall htmpl]] {f1 f2 f3 v1 v2 v3}
+        r config set hash-min-template-entries 0
     }
 
     test "Unload the module - hash" {

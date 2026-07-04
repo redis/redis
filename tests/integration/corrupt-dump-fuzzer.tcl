@@ -75,6 +75,19 @@ if 0 {
     # create bigger objects with 10 items (more than a single ziplist / listpack)
     generate_collections big 10
 
+    # Hash templates: cover all four DUMP types. Value encoding depends on whether
+    # the VALUES fit a listpack; the field-name format depends on whether the fields
+    # fit in a listpack. 
+    r himport prepare fs_lp_lp f0 f1 f2                          ;# TMPL_LP + FIELDS_LP
+    r himport set htmpl_lp_lp fs_lp_lp 0 1 2
+    r himport prepare fs_arr_raw f0 f1 f2 f3 f4 f5 f6 f7 f8 f9   ;# TMPL_ARRAY + FIELDS_RAW (count > 5)
+    r himport set htmpl_arr_raw fs_arr_raw 0 1 2 3 4 5 6 7 8 9
+    r himport prepare fs_lp_raw f0 f1 [string repeat x 70]       ;# TMPL_LP + FIELDS_RAW (long field name)
+    r himport set htmpl_lp_raw fs_lp_raw 0 1 2
+    r himport prepare fs_arr_lp f0 f1 f2                         ;# TMPL_ARRAY + FIELDS_LP (long value)
+    r himport set htmpl_arr_lp fs_arr_lp 0 1 [string repeat y 70]
+    r himport discardall
+
     # make sure our big stream also has a listpack record that has different
     # field names than the master recorded
     r xadd streambig * item 1 value 1

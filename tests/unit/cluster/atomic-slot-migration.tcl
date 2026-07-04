@@ -687,6 +687,41 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 
+    test "Slot migration preserves template-encoded hashes" {
+        R 0 flushall
+        R 1 flushall
+        R 0 config set hash-min-template-entries 0
+        R 1 config set hash-min-template-entries 0
+        
+        # key with template-listpack encoding
+        set lp_key [slot_key 0 htmpllp]
+        R 1 himport prepare fieldset1 name email age
+        R 1 himport set $lp_key fieldset1 alice alice@example.com 25
+        assert_equal {template-listpack} [R 1 object encoding $lp_key]
+        
+        # key with template-array encoding
+        set ar_key [slot_key 0 htmplar]
+        R 1 himport prepare fieldset2 f1 f2 f3
+        R 1 himport set $ar_key fieldset2 v1 [string repeat x 100] v3
+        assert_equal {template-array} [R 1 object encoding $ar_key]
+
+        # migrate slot 0-100 to R 0 and verify both encodings/data survive
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        
+        # verify the encoding and data of template-listpack
+        assert_equal {template-listpack} [R 0 object encoding $lp_key]
+        assert_equal {age 25 name alice email alice@example.com} [R 0 hgetall $lp_key]
+        
+        # verify the encoding and data of template-array
+        assert_equal {template-array} [R 0 object encoding $ar_key]
+        assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [R 0 hgetall $ar_key]
+
+        # migrate slot 0-100 back to R 1
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
     proc asm_basic_error_handling_test {operation channel all_states} {
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
@@ -3194,5 +3229,78 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
         assert_equal {{0 5461}} [R 0 asm.cluster_get_local_slot_ranges]
         assert_equal {{5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
         assert_equal {{10923 16383}} [R 2 asm.cluster_get_local_slot_ranges]
+    }
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    # A template-encoded HIMPORT SET issued to the SOURCE while a slot migration
+    # is in progress.
+    test "ASM forwards a live HIMPORT SET on the source to dest master+replica" {
+        R 0 flushall
+        # Migrate slots 0-100 from node 0 to node 1, with a per-key save delay
+        # so the live HIMPORT writes below land while the migration is still streaming.
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 2 1000000]
+
+        # Write template keys during ASM
+        set lp_short_fields [slot_key 0 lp1]
+        R 0 himport prepare fieldset1 f1 f2 f3 f4 f5
+        R 0 himport set $lp_short_fields fieldset1 v1 v2 v3 v4 v5
+        assert_equal {template-listpack} [R 0 object encoding $lp_short_fields]
+        
+        set lp_long_fields [slot_key 0 lp2]
+        R 0 himport prepare fieldset2 f1 f2 f3 [string repeat e 100]
+        R 0 himport set $lp_long_fields fieldset2 v1 v2 v3 v4
+        assert_equal {template-listpack} [R 0 object encoding $lp_long_fields]
+        
+        set arr_short_fields [slot_key 0 ar1]
+        R 0 himport prepare fieldset3 f1 f2 f3
+        R 0 himport set $arr_short_fields fieldset3 v1 [string repeat z 100] v3
+        assert_equal {template-array} [R 0 object encoding $arr_short_fields]
+        
+        set arr_long_fields [slot_key 0 ar2]
+        R 0 himport prepare fieldset4 f1 f2 f3 [string repeat y 100]
+        R 0 himport set $arr_long_fields fieldset4 v1 v2 v3 [string repeat y 100]
+        assert_equal {template-array} [R 0 object encoding $arr_long_fields]
+        
+        # Wait for the migration to complete
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # All keys reached destination
+        assert_equal {template-listpack} [R 1 object encoding $lp_short_fields]
+        assert_equal {f1 v1 f2 v2 f3 v3 f4 v4 f5 v5} [R 1 hgetall $lp_short_fields]
+        assert_equal {template-listpack} [R 1 object encoding $lp_long_fields]
+        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat e 100] v4" [R 1 hgetall $lp_long_fields]
+        assert_equal {template-array} [R 1 object encoding $arr_short_fields]
+        assert_equal "f1 v1 f2 [string repeat z 100] f3 v3" [R 1 hgetall $arr_short_fields]
+        assert_equal {template-array}  [R 1 object encoding $arr_long_fields]
+        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat y 100] [string repeat y 100]" [R 1 hgetall $arr_long_fields]
+
+        # All keys reached destination replica
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal {template-listpack} [R 4 object encoding $lp_short_fields]
+        assert_equal {f1 v1 f2 v2 f3 v3 f4 v4 f5 v5} [R 4 hgetall $lp_short_fields]
+        assert_equal {template-listpack} [R 4 object encoding $lp_long_fields]
+        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat e 100] v4" [R 4 hgetall $lp_long_fields]
+        assert_equal {template-array} [R 4 object encoding $arr_short_fields]
+        assert_equal "f1 v1 f2 [string repeat z 100] f3 v3" [R 4 hgetall $arr_short_fields]
+        assert_equal {template-array} [R 4 object encoding $arr_long_fields]
+        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat y 100] [string repeat y 100]" [R 4 hgetall $arr_long_fields]
+
+        # DEL frees the templates on master + replica.
+        foreach k [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields] {
+            R 1 del $k
+        }
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        foreach k [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields] {
+            assert_equal 0 [R 1 exists $k]
+            assert_equal 0 [R 4 exists $k]
+        }
+        wait_for_condition 50 100 {
+            [status [Rn 1] hash_template_keys] == 0 && [status [Rn 4] hash_template_keys] == 0
+        } else {
+            fail "templates not drained (dest=[status [Rn 1] hash_template_keys] replica=[status [Rn 4] hash_template_keys])"
+        }
     }
 }

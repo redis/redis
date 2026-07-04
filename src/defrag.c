@@ -780,6 +780,43 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
 }
 
+/* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
+ * hashtable/set/array paths) so a wide template hash can't stall defrag. */
+void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr, *newhta;
+    if ((newhta = activeDefragAlloc(hta))) ob->ptr = hta = newhta;
+    if (hta->tmpl->field_count > server.active_defrag_max_scan_fields) {
+        defragLater(ctx, ob);
+    } else {
+        for (unsigned long long i = 0; i < hta->tmpl->field_count; i++) {
+            sds newsds = activeDefragSds(hta->values[i]);
+            if (newsds) hta->values[i] = newsds;
+        }
+    }
+}
+
+/* Incremental defrag of a TMPL_ARRAY's values; cursor = next index.
+ * Returns 1 if time is up (more to do), 0 when done. */
+long scanLaterTmplArray(robj *ob, unsigned long *cursor, monotime endtime) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr;
+    unsigned long long n = hta->tmpl->field_count;
+    long iterations = 0;
+    while (*cursor < n) {
+        sds newsds = activeDefragSds(hta->values[*cursor]);
+        if (newsds) hta->values[*cursor] = newsds;
+        server.stat_active_defrag_scanned++;
+        (*cursor)++;
+        if (++iterations > 128) {
+            if (getMonotonicUs() > endtime) return 1;
+            iterations = 0;
+        }
+    }
+    *cursor = 0;
+    return 0;
+}
+
 /* Defrag callback for radix tree iterator, called for each node,
  * used in order to defrag the nodes allocations. */
 int defragRaxNode(raxNode **noderef, void *privdata) {
@@ -1184,6 +1221,11 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
                 lpt->lp = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_TMPL_LP) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            defragTmplArray(ctx, ob);
         } else {
             serverPanic("Unknown hash encoding");
         }
@@ -1312,6 +1354,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             scanLaterZset(ob, cursor);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
+        } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            return scanLaterTmplArray(ob, cursor, endtime);
         } else if (ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM) {
             return scanLaterStreamListpacks(ob, cursor, endtime);
         } else if (ob->type == OBJ_MODULE) {
@@ -1644,6 +1688,37 @@ static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     return DEFRAG_DONE;
 }
 
+/* Defrag the hash template registry: each template's field-name array and the
+ * field-name strings it holds. These are template-owned and read only on the main
+ * thread, so relocating them needs no registry lock. The template struct itself
+ * and the by_id array are left in place: TMPL_ARRAY keys hold a direct template
+ * pointer and BIO lazyfree threads read by_id, so neither can be moved here. */
+static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
+    unsigned long *cursor = ctx;
+    hashTemplateRegistry *reg = server.htemplates;
+    if (reg == NULL || reg->by_id == NULL) return DEFRAG_DONE;
+
+    unsigned long iterations = 0;
+    while (*cursor < reg->by_id_next) {
+        hashTemplate *tmpl = reg->by_id[*cursor];
+        (*cursor)++;
+        if (tmpl == NULL) continue; /* freed or never-used slot */
+
+        sds *newfields = activeDefragAlloc(tmpl->fields);
+        if (newfields) tmpl->fields = newfields;
+        for (unsigned long long i = 0; i < tmpl->field_count; i++) {
+            sds newsds = activeDefragSds(tmpl->fields[i]);
+            if (newsds) tmpl->fields[i] = newsds;
+        }
+
+        if (++iterations > 64) {
+            iterations = 0;
+            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+        }
+    }
+    return DEFRAG_DONE;
+}
+
 /* Handles defragmentation of module global data. This is a stage function
  * that gets called periodically during the active defragmentation process. */
 static doneStatus defragModuleGlobals(void *ctx, monotime endtime) {
@@ -1973,6 +2048,10 @@ static void beginDefragCycle(void) {
     addDefragStage(defragStagePubsubKvstore, zfree, defrag_pubsubshard_ctx);
 
     addDefragStage(defragLuaScripts, NULL, NULL);
+
+    /* Add stage for the hash template registry (field-name arrays and strings). */
+    unsigned long *defrag_tmpl_cursor = zcalloc(sizeof(unsigned long));
+    addDefragStage(defragStageHashTemplates, zfree, defrag_tmpl_cursor);
 
     /* Add stages for modules. */
     dictIterator di;
