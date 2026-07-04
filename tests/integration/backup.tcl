@@ -35,7 +35,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {BACKUP STATUS reports idle on a fresh instance} {
         assert_equal "idle" [backup_status_field state]
-        assert_equal "86400" [lindex [r config get backup-sealed-ttl] 1]
+        assert_equal "0" [lindex [r config get backup-sealed-ttl] 1]
     }
 
     test {BACKUP read/no-op commands can execute inside transactions} {
@@ -196,7 +196,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         } else {
             fail "Sealed backup was not auto-cleaned"
         }
-        assert_equal "OK" [r config set backup-sealed-ttl 86400]
+        assert_equal "OK" [r config set backup-sealed-ttl 0]
     }
 
     test {Preload an RDB file via preload-file} {
