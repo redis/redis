@@ -919,6 +919,7 @@ char *hashTemplateEquivalentEncoding(robj *o) {
     if (o->encoding == OBJ_ENCODING_TMPL_LP) {
         unsigned char *lp = o->ptr;
         unsigned char *p = lpFirst(lp);
+        assert(p);
         p = lpNext(lp, p); /* skip template ID */
         for (unsigned long long i = 0; i < tmpl->field_count && p; i++) {
             unsigned int vlen;
@@ -950,6 +951,7 @@ char *hashTemplateEquivalentEncoding(robj *o) {
 /* Read the template ID stored as the first listpack entry. */
 static uint64_t hashTemplateLpGetTemplateId(unsigned char *lp) {
     unsigned char *p = lpFirst(lp);
+    serverAssert(p != NULL); /* id entry always present in a well-formed TMPL_LP */
     long long id;
     if (!lpGetIntegerValue(p, &id))
         serverPanic("TMPL_LP listpack header is not an integer template ID");
@@ -975,13 +977,26 @@ hashTemplate *hashTypeGetTemplate(robj *o) {
 /* Replace template ID in listpack. */
 unsigned char *hashTemplateLpSetTemplate(unsigned char *lp, hashTemplate *tmpl) {
     unsigned char *p = lpFirst(lp);
+    serverAssert(p != NULL); /* id entry always present in a well-formed TMPL_LP */
     return lpReplaceInteger(lp, &p, (long long)tmpl->id);
 }
 
 /* Get pointer to first value entry (skip template ID). */
 static unsigned char *hashTemplateLpFirstValue(unsigned char *lp) {
     unsigned char *p = lpFirst(lp);  /* template ID entry */
-    return lpNext(lp, p);            /* first value */
+    serverAssert(p != NULL);         /* id entry always present */
+    unsigned char *v = lpNext(lp, p);
+    serverAssert(v != NULL);         /* a TMPL_LP always holds >= 1 value */
+    return v;
+}
+
+/* Seek the value entry at template field index 'idx' (entry 0 is the template
+ * ID, so value idx lives at idx+1). A well-formed TMPL_LP always has this
+ * entry; so assert here rather than hand a NULL cursor. */
+static unsigned char *hashTemplateLpSeekValue(unsigned char *lp, long long idx) {
+    unsigned char *p = lpSeek(lp, idx + 1);
+    serverAssert(p != NULL);
+    return p;
 }
 
 /* Walk a TMPL_LP listpack once, filling vptrs[i] with a pointer to the entry
@@ -1017,6 +1032,49 @@ static unsigned char *hashTemplateLpCreate(hashTemplate *tmpl, sds *values) {
     for (unsigned long long i = 0; i < n; i++) {
         entries[i + 1].sval = (unsigned char *)values[i];
         entries[i + 1].slen = sdslen(values[i]);
+    }
+
+    unsigned char *lp = lpBatchInsert(NULL, NULL, LP_BEFORE, entries, n + 1, NULL);
+    if (entries != stack_entries) zfree(entries);
+
+    return lp;
+}
+
+typedef struct {
+    sds field;
+    unsigned char *vstr;
+    size_t vlen;
+    long long vll;
+} hashTypeFvPair;
+
+/* qsort comparator: order hashTypeFvPair by field name. */
+static int hashTypeFvPairCmp(const void *a, const void *b) {
+    return sdscmplen(((const hashTypeFvPair *)a)->field,
+                     ((const hashTypeFvPair *)b)->field);
+}
+
+/* Create TMPL_LP from field-value pairs */
+static unsigned char *hashTemplateLpCreateFromPairs(hashTemplate *tmpl,
+                                                    hashTypeFvPair *pairs,
+                                                    unsigned long long n) {
+    hashTemplateIncrKeyRef(tmpl);
+
+    /* +1 for template ID entry */
+    listpackEntry stack_entries[HASH_TMPL_STACK_ENTRIES + 1];
+    listpackEntry *entries = (n + 1 <= HASH_TMPL_STACK_ENTRIES + 1) ?
+                             stack_entries :
+                             zmalloc(sizeof(listpackEntry) * (n + 1));
+
+    entries[0].lval = (long long)tmpl->id;  /* template ID */
+    entries[0].sval = NULL;
+    for (unsigned long long i = 0; i < n; i++) {
+        if (pairs[i].vstr) {
+            entries[i + 1].sval = pairs[i].vstr;
+            entries[i + 1].slen = pairs[i].vlen;
+        } else {
+            entries[i + 1].sval = NULL;      /* int-encoded value */
+            entries[i + 1].lval = pairs[i].vll;
+        }
     }
 
     unsigned char *lp = lpBatchInsert(NULL, NULL, LP_BEFORE, entries, n + 1, NULL);
@@ -1602,9 +1660,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         if (idx < 0) return GETF_NOT_FOUND;
 
         if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-            /* Value at idx+1; the template ID is the first listpack entry. */
-            unsigned char *p = lpSeek(o->ptr, idx + 1);
-            if (!p) return GETF_NOT_FOUND;
+            unsigned char *p = hashTemplateLpSeekValue(o->ptr, idx);
             *vstr = lpGetValue(p, vlen, vll);
         } else {
             sds value = ((hashTemplateArray *)o->ptr)->values[idx];
@@ -1927,8 +1983,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             /* Field exists - update value in place. */
             if (o->encoding == OBJ_ENCODING_TMPL_LP) {
                 unsigned char *lp = o->ptr;
-                /* +1 to skip template ID entry */
-                unsigned char *p = lpSeek(lp, field_idx + 1);
+                unsigned char *p = hashTemplateLpSeekValue(lp, field_idx);
                 o->ptr = lpReplace(lp, &p, (unsigned char *)value, sdslen(value));
             } else {
                 hashTemplateArray *hta = o->ptr;
@@ -1958,7 +2013,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             if ((unsigned long long)insert_pos == tmpl->field_count) {
                 lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
             } else {
-                unsigned char *p = lpSeek(lp, insert_pos + 1);
+                unsigned char *p = hashTemplateLpSeekValue(lp, insert_pos);
                 lp = lpInsertString(lp, (unsigned char *)value, sdslen(value), p, LP_BEFORE, NULL);
             }
             hashTemplateDecrKeyRef(tmpl);
@@ -2285,7 +2340,7 @@ int hashTypeDelete(robj *o, void *field) {
                 if (o->encoding == OBJ_ENCODING_TMPL_LP) {
                     /* Delete value at idx (index 0 is template ID). */
                     unsigned char *lp = o->ptr;
-                    unsigned char *p = lpSeek(lp, idx + 1);
+                    unsigned char *p = hashTemplateLpSeekValue(lp, idx);
                     lp = lpDeleteRangeWithEntry(lp, &p, 1);
                     lp = hashTemplateLpSetTemplate(lp, new_tmpl);
                     o->ptr = lp;
@@ -2342,8 +2397,10 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
         }
         length = dictSize(d) - expiredItems;
     } else if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-        /* lpLength - 1: first entry is template ID, rest are values */
-        length = lpLength(o->ptr) - 1;
+        /* First entry is the template ID, the rest are values. */
+        unsigned long n = lpLength(o->ptr);
+        serverAssert(n >= 1);
+        length = n - 1;
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
         length = hta->tmpl->field_count;
@@ -2826,6 +2883,7 @@ static void hashTypeConvertTmplLpToArray(robj *o) {
     sds *values = zmalloc(sizeof(sds) * field_count);
     unsigned char *p = hashTemplateLpFirstValue(lp);
     for (unsigned long long i = 0; i < field_count; i++) {
+        serverAssert(p != NULL); /* value entry always present per field */
         unsigned int vlen;
         long long vll;
         unsigned char *vstr = lpGetValue(p, &vlen, &vll);
@@ -3008,13 +3066,6 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
     } else {
         serverPanic("Unknown hash encoding");
     }
-}
-
-/* qsort comparator for {field, value} pairs sorted by field name. */
-typedef struct { sds field; sds value; } hashTypeFvPair;
-static int hashTypeTryConvertCmpPair(const void *a, const void *b) {
-    return sdscmplen(((const hashTypeFvPair *)a)->field,
-                     ((const hashTypeFvPair *)b)->field);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -3252,24 +3303,21 @@ int hashTypeTryConvertToTemplate(robj *o,
     size_t i = 0;
     while (hashTypeNext(&hi, 0) != C_ERR) {
         pairs[i].field = hashTypeCurrentObjectNewSds(&hi, OBJ_HASH_KEY);
-        pairs[i].value = hashTypeCurrentObjectNewSds(&hi, OBJ_HASH_VALUE);
+        /* Keep the value as a pointer into the source (no copy); it is written
+         * into the new encoding below, while the source is still alive. */
+        hashTypeCurrentObject(&hi, OBJ_HASH_VALUE, &pairs[i].vstr,
+                              &pairs[i].vlen, &pairs[i].vll, NULL);
         i++;
     }
     hashTypeResetIterator(&hi);
 
-    qsort(pairs, num_fields, sizeof(*pairs), hashTypeTryConvertCmpPair);
+    qsort(pairs, num_fields, sizeof(*pairs), hashTypeFvPairCmp);
 
-    /* Materialize separate fields/values arrays from sorted pairs. */
+    /* Contiguous sorted field array for the template lookup/creation. */
     sds *fields = zmalloc(sizeof(sds) * num_fields);
-    sds *values = zmalloc(sizeof(sds) * num_fields);
-    for (size_t j = 0; j < num_fields; j++) {
-        fields[j] = pairs[j].field;
-        values[j] = pairs[j].value;
-    }
-    zfree(pairs);
+    for (size_t j = 0; j < num_fields; j++) fields[j] = pairs[j].field;
 
     int ret = 0;          /* 0 = left plain (not converted) */
-    int took_values = 0;  /* TMPL_ARRAY takes ownership of values; TMPL_LP copies */
 
     /* Are we converting a plain hash to template encoding during an RDB load with
      * hash-rdb-load-template-disassembly-threshold set? */
@@ -3294,29 +3342,30 @@ int hashTypeTryConvertToTemplate(robj *o,
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         /* LP → TMPL_LP */
-        unsigned char *new_lp = hashTemplateLpCreate(tmpl, values);
+        unsigned char *new_lp = hashTemplateLpCreateFromPairs(tmpl, pairs, num_fields);
         zfree(o->ptr);
         o->ptr = new_lp;
         o->encoding = OBJ_ENCODING_TMPL_LP;
     } else {
-        /* HT → TMPL_ARRAY (takes ownership of values). */
+        /* HT → TMPL_ARRAY */
+        sds *values = zmalloc(sizeof(sds) * num_fields);
+        for (size_t j = 0; j < num_fields; j++)
+            values[j] = pairs[j].vstr ?
+                        sdsnewlen(pairs[j].vstr, pairs[j].vlen) :
+                        sdsfromlonglong(pairs[j].vll);
         hashTemplateArray *hta = hashTemplateArrayCreate(tmpl, values, 1);
+        zfree(values);  /* array adopted the sds; free only the array */
         dictRelease(o->ptr);
         o->ptr = hta;
         o->encoding = OBJ_ENCODING_TMPL_ARRAY;
-        took_values = 1;
     }
 
     ret = 1;
 
 cleanup:
-    /* Fields are always copied into the template; values are copied by TMPL_LP
-     * but taken by TMPL_ARRAY, so free them unless the encoding took ownership. */
-    for (size_t j = 0; j < num_fields; j++) sdsfree(fields[j]);
-    if (!took_values)
-        for (size_t j = 0; j < num_fields; j++) sdsfree(values[j]);
+    for (size_t j = 0; j < num_fields; j++) sdsfree(pairs[j].field);
     zfree(fields);
-    zfree(values);
+    zfree(pairs);
     return ret;
 }
 
@@ -3486,8 +3535,7 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
         key->slen = sdslen(field);
 
         if (val) {
-            /* Get value at index (idx+1 to skip template ID entry). */
-            unsigned char *p = lpSeek(lp, idx + 1);
+            unsigned char *p = hashTemplateLpSeekValue(lp, idx);
             unsigned int vlen;
             long long vll;
             val->sval = lpGetValue(p, &vlen, &vll);

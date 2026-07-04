@@ -2822,12 +2822,19 @@ static int rdbLoadTemplateFields(rio *rdb, int deep, rdbTmplFields *out) {
             return C_ERR;
         }
         unsigned char *p = lpFirst(blob);
-        for (uint64_t i = 0; i < count; i++) {
+        uint64_t i = 0;
+        for (; i < count && p != NULL; i++) {
             unsigned int slen;
             long long lval;
             unsigned char *s = lpGetValue(p, &slen, &lval);
             fields[i] = s ? sdsnewlen(s, slen) : sdsfromlonglong(lval);
             p = lpNext(blob, p);
+        }
+        if (i != count || p != NULL) {
+            rdbReportCorruptRDB("template field blob entry count mismatch");
+            rdbFreeSdsArray(fields, i);
+            zfree(blob);
+            return C_ERR;
         }
         if (!hashTemplateValidateFields(fields, count)) {
             rdbReportCorruptRDB("template fields not strictly sorted");
