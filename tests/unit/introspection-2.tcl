@@ -159,9 +159,6 @@ start_server {tags {"introspection"}} {
 
     test {COMMAND GETKEYSANDFLAGS invalid args} {
         assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE zz 1443677133621497600 asdf}
-    }
-
-    test {COMMAND GETKEYS numkeys overflow} {
         # A numkeys near LONG_MAX must be rejected as a syntax error, not trigger a signed integer overflow (#15403).
         set huge 9223372036854775807
         assert_error "ERR Invalid arguments*" {r command getkeys LMPOP $huge k LEFT}
