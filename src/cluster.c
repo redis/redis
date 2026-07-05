@@ -280,7 +280,7 @@ void restoreCommand(client *c) {
      *   link  == NULL  -> an expired key might still be physically present and 
      *                     must be deleted. */
     int deleted = 0;
-    if (oldval || !link) {
+    if (replace && (oldval || !link)) {
         deleted = dbDelete(c->db,key);
         link = NULL; /* dbDelete invalidated the link */
     }
