@@ -10142,21 +10142,27 @@ int RM_ClusterCanAccessKeysInSlot(int slot) {
 /* Propagate commands along with slot migration.
  *
  * This function allows modules to add commands that will be sent to the
- * destination node before the actual slot migration begins. It should only be
- * called during the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
+ * destination node as part of the slot migration. It should only be called
+ * during one of the following events:
+ *
+ * * REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
+ *   the commands are delivered before the actual slot data migration begins.
+ *   This event is fired in the fork child process just before slot snapshot
+ *   delivery begins.
+ * * REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END:
+ *   the commands are delivered at the very end of the migration, just before
+ *   the STREAM-EOF is sent to the destination. This event is fired in the main
+ *   process while the slot writes are paused.
  *
  * This function can be called multiple times within the same event to
- * replicate multiple commands. All commands will be sent before the
- * actual slot data migration begins.
- *
- * Note: This function is only available in the fork child process just before
- *       slot snapshot delivery begins.
+ * replicate multiple commands.
  *
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * EINVAL: function arguments or format specifiers are invalid.
- * * EBADF: not called in the correct context, e.g. not called in the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
+ * * EBADF: not called in the correct context, e.g. not called in one of the
+ *          events listed above.
  * * ENOENT: command does not exist.
  * * ENOTSUP: command is cross-slot.
  * * ERANGE: command contains keys that are not within the migrating slot range.
@@ -10187,7 +10193,7 @@ int RM_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname
         return REDISMODULE_ERR;
     }
 
-    int ret = asmModulePropagateBeforeSlotSnapshot(cmd, argv, argc);
+    int ret = asmModulePropagateForSlotMigration(cmd, argv, argc);
     int saved_errno = errno;
 
     /* Release the argv. */
@@ -11159,7 +11165,7 @@ RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
     size_t usable;
     RedisModuleDict *d = zmalloc_usable(sizeof(*d), &usable);
     d->alloc_size = usable;
-    d->rax = raxNewWithMetadata(0, &d->alloc_size);
+    d->rax = raxNewEx(0, &d->alloc_size, 0);
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_DICT,d);
     return d;
 }
@@ -12878,7 +12884,10 @@ static uint64_t moduleEventVersions[] = {
  *     migration operation to let modules prepare for the ownership change and
  *     observe the completion of the slot migration. MIGRATE_MODULE_PROPAGATE
  *     event is triggered in the fork just before snapshot delivery; modules may
- *     use it to enqueue commands that will be delivered first. See
+ *     use it to enqueue commands that will be delivered first. The
+ *     MIGRATE_MODULE_PROPAGATE_END event is triggered in the main process at the
+ *     very end of the migration, just before the STREAM-EOF is sent; modules may
+ *     use it to enqueue commands that will be delivered last. See
  *     RedisModule_ClusterPropagateForSlotMigration() for details.
  *
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED`
@@ -12888,6 +12897,7 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END`
  *
  *     The data pointer can be casted to a RedisModuleClusterSlotMigrationInfo
  *     structure with the following fields:
@@ -13300,8 +13310,8 @@ void moduleInitModulesSystem(void) {
         exit(1);
     }
 
-    /* Create the timers radix tree. */
-    Timers = raxNew();
+    /* Create the timers radix tree. Key is a uint64_t timer ID (BE). */
+    Timers = raxNewEx(0, NULL, sizeof(uint64_t));
 
     /* Setup the event listeners data structures. */
     RedisModule_EventListeners = listCreate();
@@ -15472,7 +15482,7 @@ RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModule
         if (valueCB) {
             ret = valueCB(ctx, ri.data, ri.key, ri.key_len, &newdata);
             if (newdata)
-                raxSetData(ri.node, ri.data=newdata);
+                raxIteratorSetData(&ri, newdata);
         }
 
         /* Check if we need to interrupt defragmentation.

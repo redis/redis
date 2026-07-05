@@ -1822,8 +1822,39 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                     break;
             }
             if (j == setnum) {
-                /* There is no other set with this element. Add it. */
-                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                /* There is no other set with this element. Add or count it if cardinality_only. */
+                if (cardinality_only) {
+                    cardinality++;
+                    if (limit > 0 && cardinality >= limit) {
+                        break; /* We reached the limit, break from the while loop iterating sets[0] */
+                    }
+                } else {
+                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                }
+            }
+        }
+        setTypeResetIterator(&si);
+    } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 2 && cardinality_only && limit > 0) {
+        /* DIFF Algorithm 2b (cardinality-only with LIMIT):
+         *
+         * Collect sets[1..N] into a single auxiliary set and iterate
+         * the first set, counting elements absent from it with
+         * a single membership lookup each. This lets us stop as
+         * soon as LIMIT is reached. */
+        for (j = 1; j < setnum; j++) {
+            if (!sets[j].set) continue; /* non existing keys are like empty sets */
+
+            setTypeInitIterator(&si, sets[j].set);
+            while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1)
+                setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+            setTypeResetIterator(&si);
+        }
+
+        setTypeInitIterator(&si, sets[0].set);
+        while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+            if (!setTypeIsMemberAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT)) {
+                cardinality++;
+                if (cardinality >= limit) break; /* We reached the limit. */
             }
         }
         setTypeResetIterator(&si);
@@ -1966,6 +1997,38 @@ void sdiffCommand(client *c) {
 /* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0,0);
+}
+
+/* SDIFFCARD numkeys key [key ...] [LIMIT limit] */
+void sdiffcardCommand(client *c) {
+    long j;
+    long numkeys = 0;
+    long limit = 0; /* 0 means no limit. */
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL, SET_OP_DIFF, 1, 0, limit);
 }
 
 void sscanCommand(client *c) {

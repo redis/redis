@@ -2994,14 +2994,16 @@ void initServer(void) {
     server.fire_keyed_jobs_between_subcommands = 0;
     server.in_keyspace_notification = 0;
     server.clients = listCreate();
-    server.clients_index = raxNew();
+    server.clients_index = raxNewEx(0, NULL, sizeof(uint64_t));
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_with_pending_ref_reply = listCreate();
-    server.clients_timeout_table = raxNew();
+    /* clients_timeout_table key = 8 bytes BE mstime + 8 bytes client ID
+     * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
+    server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();

@@ -788,6 +788,16 @@ static int configNeedsApply(standardConfig *config) {
            config->interface.apply;
 }
 
+static const char *configGetPrimaryName(standardConfig *config) {
+    return (config->flags & ALIAS_CONFIG) ? config->alias : config->name;
+}
+
+static int configIsSameConfig(standardConfig *a, standardConfig *b) {
+    if (a == b) return 1;
+    if (!((a->flags | b->flags) & ALIAS_CONFIG)) return 0; /* No alias, so not the same config. */
+    return !strcasecmp(configGetPrimaryName(a), configGetPrimaryName(b));
+}
+
 static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
     int i;
     const char *errstr = "unknown error";
@@ -883,7 +893,7 @@ void configSetCommand(client *c) {
 
         /* If this config appears twice then fail */
         for (j = 0; j < i; j++) {
-            if (set_configs[j] == config) {
+            if (configIsSameConfig(set_configs[j], config)) {
                 /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
                 errstr = "duplicate parameter";
                 err_arg_name = c->argv[2+i*2]->ptr;
@@ -1794,7 +1804,7 @@ int rewriteConfig(char *path, int force_write) {
     /* Step 4: generate a new configuration file from the modified state
      * and write it into the original file. */
     newcontent = rewriteConfigGetContentFromState(state);
-    retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
+    retval = rewriteConfigOverwriteFile(path, newcontent);
 
     sdsfree(newcontent);
     rewriteConfigReleaseState(state);
@@ -3767,6 +3777,7 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
 
 int moduleSetNumericConfig(client *c, sds name, long long val, const char **err) {
     standardConfig *config = getMutableConfig(c, name, err);
+    if (!config) return 0;
     if (config->type != NUMERIC_CONFIG) return 0;
 
     sds old_value = config->interface.get(config);
