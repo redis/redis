@@ -371,7 +371,7 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
 
-/* Like lookupKeyWrite(), but also reports an optional insertion `link`:
+/* Like lookupKeyWrite(), but accepts ref to optional `link`
  *
  *   found & valid    -> returns the kvobj; link = the key's entry.
  *   absent           -> returns NULL;      link = the bucket to add it to.
