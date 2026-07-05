@@ -526,10 +526,10 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
 }
 
 /* Like lpNext() but seeks 'n' entries forward, returning the resulting entry or
- * NULL if the end of the listpack is reached. n == 0 returns 'ele' unchanged. */
+ * NULL if the end of the listpack is reached. n == 0 returns 'p' unchanged. */
 unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n) {
     size_t lpbytes = lpBytes(lp);
-    int validated = 1;
+    int validated = 1; /* If current entry is fully validated */
     while (n && p) {
         p = lpSkip(p);
         /* Near the end, fully validate so the next lpSkip() can't run past
@@ -571,10 +571,10 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
 }
 
 /* Like lpPrev() but seeks 'n' entries backward, returning the resulting entry
- * or NULL if the front of the listpack is reached. n == 0 returns 'ele'. */
+ * or NULL if the front of the listpack is reached. n == 0 returns 'p'. */
 unsigned char *lpPrevN(unsigned char *lp, unsigned char *p, unsigned long n) {
     size_t lpbytes = lpBytes(lp);
-    int validated = 1;
+    int validated = 1; /* If current entry is fully validated */
     while (n && p) {
         if (p - lp == LP_HDR_SIZE) return NULL; /* First entry. */
 
@@ -2738,6 +2738,39 @@ int listpackTest(int argc, char *argv[], int flags) {
          * ever fails, the margin in lpNextN() must grow to match. */
         for (int b = 0; b <= 0xff; b++)
             assert(lpCurrentEncodedSizeBytes((unsigned char)b) <= 5);
+    }
+
+    TEST("lpNextN / lpPrevN: seek N entries") {
+        lp = lpNew(0);
+        assert(lpNextN(lp, lpFirst(lp), 0) == NULL);
+        assert(lpNextN(lp, lpFirst(lp), 3) == NULL);
+        assert(lpPrevN(lp, lpLast(lp), 3) == NULL);
+        assert(lpPrevN(lp, lpLast(lp), 0) == NULL);
+
+        char buf[16];
+        int n = 16;
+        for (int i = 0; i < n; i++) {
+            int len = snprintf(buf, sizeof(buf), "item-%d", i);
+            lp = lpAppend(lp, (unsigned char*)buf, len);
+        }
+        unsigned char *first = lpFirst(lp);
+        unsigned char *last = lpLast(lp);
+
+        /* Every element is reachable both ways */
+        for (int k = 0; k < n; k++) {
+            int len = snprintf(buf, sizeof(buf), "item-%d", k);
+            verifyEntry(lpNextN(lp, first, k), (unsigned char*)buf, len);
+            len = snprintf(buf, sizeof(buf), "item-%d", n - 1 - k);
+            verifyEntry(lpPrevN(lp, last, k), (unsigned char*)buf, len);
+        }
+
+        /* n == 0 returns unchanged. */
+        assert(lpNextN(lp, first, 0) == first);
+        assert(lpPrevN(lp, last, 0)  == last);
+        /* n==1 from either end returns NULL */ 
+        assert(lpNextN(lp, last, 1)  == NULL);
+        assert(lpPrevN(lp, first, 1) == NULL);
+        lpFree(lp);
     }
 
     TEST("Compare strings with listpack entries") {
