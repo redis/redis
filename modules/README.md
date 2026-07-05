@@ -22,6 +22,21 @@ flow plus pointers upstream.
 The authoritative pin list is [modules.yaml](modules.yaml). To bump a
 module, edit its `ref:` there and run `make modules-update <name>`.
 
+## Building from a release tarball
+
+A release tarball (from `make tarball`) already bundles every module's
+source under `modules/<name>/src/`, so **do not** run `make modules-update`
+there — the sources are present and pinned. Just build:
+
+```sh
+cd redis-<version>
+export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+make -j "$(nproc)" all
+```
+
+`make modules-update` is only for the from-source dev flow below, where
+modules are cloned fresh from their upstream repos.
+
 
 ### 1. First-time provisioning — `make modules-update` + `make bootstrap`
 

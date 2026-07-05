@@ -287,7 +287,6 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -354,7 +353,6 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -430,7 +428,6 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -500,7 +497,6 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -558,7 +554,6 @@ Tested with the following Docker images:
    ```sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -657,7 +652,6 @@ Tested with the following Docker images:
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -755,7 +749,6 @@ Tested with the following Docker images:
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-   make modules-update
    make -j "$(nproc)" all
    ```
 
