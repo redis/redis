@@ -40,10 +40,13 @@ Pass module names to either step to scope it: `make modules-update redisbloom re
 `make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
 the dependency install.
 
-> **Note:** `make bootstrap` currently only provisions the dependencies for a
-> **non-LTO build** (`LTO=0`, the default). If you need an **LTO build**
-> (`LTO=1`), `make bootstrap` won't install everything required — install the
-> extra LTO dependencies manually before building.
+> **Note:** `make bootstrap` provisions the dependencies for a **non-LTO
+> build** on all supported OSes. The default build is now **`LTO=1`**, which
+> needs an extra, tightly-matched toolchain (Clang + lld at the LLVM version
+> Rust was built with) that `make bootstrap` does **not** install — if you
+> want the LTO build, install those LTO dependencies manually first.
+> For the bootstrap-supported non-LTO build, pass `LTO=0` explicitly:
+> `make build LTO=0`.
 
 ### 2. Build — `make build`
 

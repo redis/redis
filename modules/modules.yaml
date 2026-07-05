@@ -72,7 +72,7 @@ modules:
     ref: master
     target_module: search-community/redisearch.so
     loadmodule: ./modules/redisearch/redisearch.so
-    build_env: LTO=0 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
+    build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
     ref: tal.ba/fix/build_bootstrap
