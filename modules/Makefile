@@ -16,6 +16,7 @@ COMMON_MK := $(CURDIR)/common.mk
 # would clobber per-module Makefiles that set MODULE_NAME to their build-output
 # basename (e.g. redisjson uses MODULE_NAME=rejson.so as the .so filename).
 define submake
+	set -e; \
 	for dir in $(SUBDIRS); do \
 	  mkdir -p "$$dir"; \
 	  $(MAKE) -C "$$dir" -f "$(COMMON_MK)" $(1); \
