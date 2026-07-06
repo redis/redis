@@ -7,6 +7,16 @@
         "arity": -7,
         "function": "xreadCommand",
         "get_keys_function": "xreadGetKeys",
+        "history": [
+            [
+                "8.4.0",
+                "Added the `CLAIM` option."
+            ],
+            [
+                "8.10.0",
+                "Added the `MAXCOUNT` and `MAXSIZE` options."
+            ]
+        ],
         "command_flags": [
             "BLOCKING",
             "WRITE"
@@ -58,6 +68,20 @@
                 "optional": true
             },
             {
+                "token": "MAXCOUNT",
+                "name": "maxcount",
+                "type": "integer",
+                "optional": true,
+                "since": "8.10.0"
+            },
+            {
+                "token": "MAXSIZE",
+                "name": "maxsize",
+                "type": "integer",
+                "optional": true,
+                "since": "8.10.0"
+            },
+            {
                 "token": "BLOCK",
                 "name": "milliseconds",
                 "type": "integer",
@@ -67,7 +91,8 @@
                 "token": "CLAIM",
                 "name": "min-idle-time",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "8.4.0"
             },
             {
                 "name": "noack",

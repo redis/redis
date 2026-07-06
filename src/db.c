@@ -374,9 +374,10 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
 
 /* Like lookupKeyWrite(), but accepts ref to optional `link`
  *
- * link - If key found, updated to link the key.
- *        If key not found, updated to the bucket where the key should be added.
- *        If key not found and dict is empty, it is set to NULL
+ *   found & valid    -> returns the kvobj; link = the key's entry.
+ *   absent           -> returns NULL;      link = the bucket to add it to.
+ *   expired/trimmed  -> returns NULL;      link = NULL (key may still remain in the dict).
+ *   empty dict       -> returns NULL;      link = NULL.
  */
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link) {
     return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, link);
@@ -1040,8 +1041,19 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
         return -1;
     }
 
-    if (dbnum == -1 || dbnum == 0)
+    if (server.cluster_enabled && (dbnum == -1 || dbnum == 0)) {
+        /* Wiping the whole keyspace can't coexist with an active ASM task:
+         * On the migrating side, the flush would need to be propagated as a
+         * slot based command (FLUSHALL becomes SFLUSH <slots>) and forwarded
+         * to the ASM destination client even though it is a keyless command.
+         * On the importing side it would need to spare the slots still being
+         * imported. Rather than handle this complexity, we just cancel the ASM
+         * task. As this is not a common operation, the next ASM retry will
+         * succeed. Trim jobs are canceled too, since there is no data left to
+         * trim. */
+        clusterAsmCancel(NULL, "flush");
         asmCancelTrimJobs();
+    }
 
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
@@ -1346,9 +1358,6 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
         flags |= EMPTYDB_ASYNC;
         blocking_async = 1;
     }
-
-    /* Cancel all ASM tasks that overlap with the given slot ranges. */
-    clusterAsmCancelBySlotRangeArray(trim_ctx ? trim_ctx->slots : NULL, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -3567,6 +3576,11 @@ int sintercardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRe
 }
 
 int sunioncardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int sdiffcardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 1, 2, 1, argv, argc, result);
 }

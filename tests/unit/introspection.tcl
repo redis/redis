@@ -873,6 +873,7 @@ start_server {tags {"introspection"}} {
 
     test {CONFIG SET duplicate configs} {
         assert_error "ERR *duplicate*" {r config set maxmemory 10000001 maxmemory 10000002}
+        assert_error "ERR *duplicate*" {r config set busy-reply-threshold 100 lua-time-limit 200}
     }
 
     test {CONFIG SET set immutable} {
