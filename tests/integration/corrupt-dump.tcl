@@ -1241,6 +1241,14 @@ test {corrupt payload: bitmap RDB validation} {
             return $payload
         }
 
+        proc bitmap_rdb_lzf_string {compressed_len decoded_len compressed} {
+            set payload [binary format c 0xc3]
+            append payload [bitmap_rdb_len $compressed_len]
+            append payload [bitmap_rdb_len $decoded_len]
+            append payload $compressed
+            return $payload
+        }
+
         proc bitmap_raw_dump_payload {bitmap_type byte_len raw trailer} {
             set payload [binary format H* $bitmap_type]
             append payload [bitmap_rdb_len $byte_len]
@@ -1285,6 +1293,14 @@ test {corrupt payload: bitmap RDB validation} {
         catch { r restore bitmap:mismatched-raw-len 0 $mismatched_raw_len_payload } err
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:mismatched-raw-len]
+
+        set mismatched_lzf_len_payload [binary format H* $bitmap_type]
+        append mismatched_lzf_len_payload [bitmap_rdb_len 2]
+        append mismatched_lzf_len_payload [bitmap_rdb_lzf_string 1 3 [binary format c 0]]
+        append mismatched_lzf_len_payload $dump_trailer
+        catch { r restore bitmap:mismatched-lzf-len 0 $mismatched_lzf_len_payload } err
+        assert_match "*Bad data format*" $err
+        assert_equal 0 [r exists bitmap:mismatched-lzf-len]
 
         set oversized_raw_len_payload [binary format H* $bitmap_type]
         append oversized_raw_len_payload [bitmap_rdb_len 2]
