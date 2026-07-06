@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # build.sh — build Redis (src/) + selected modules.
 #
 # Usage:  scripts/build.sh [<name> ...|all|.|'*'|redis|core|none]
@@ -15,10 +15,14 @@
 # REDIS_SERVER is overridden so module test harnesses run against the
 # Redis we just built.
 # Failures are collected and reported at the end.
+#
+# This script backs the default `make` goal, so it must stay POSIX-sh
+# clean: Redis builds on systems whose only shell is busybox ash or dash
+# (e.g. the alpine:latest Daily CI containers install no bash).
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # tarball.sh — build a self-contained, reproducible Redis+modules tarball.
 #
 # Usage:  scripts/tarball.sh
@@ -14,9 +14,9 @@
 #   - modules/<name>/src/ at the pinned ref from modules.yaml, .git/.github stripped
 # Output tar is sorted, with mtimes set to the tag's commit timestamp, owner=0.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 
@@ -65,7 +65,13 @@ echo "==> Staging at $staging"
 rm -rf "$staging"
 mkdir -p "$work"
 echo "==> git archive Redis core @ $TAG → $work"
-git archive --format=tar "$TAG" | "$TAR" -x -C "$work"
+# Route through a temp file rather than `git archive | tar`: POSIX sh (dash)
+# has no `pipefail`, so a piped `git archive` failure would be masked by tar
+# exiting 0. The redirect makes a git failure trip `set -e`.
+_src_tar="$(mktemp)"
+git archive --format=tar "$TAG" > "$_src_tar"
+"$TAR" -x -C "$work" -f "$_src_tar"
+rm -f "$_src_tar"
 
 echo
 echo "==> Cloning bundled modules per modules.yaml"
@@ -182,11 +188,17 @@ if [ -z "$mtime" ]; then
   exit 1
 fi
 rm -f "$out"
+# Stage the uncompressed tar to a temp file, then gzip it — same reason as
+# above: without `pipefail`, a `tar | gzip` failure in tar would be hidden by
+# gzip succeeding. Separating the steps lets `set -e` catch a tar failure.
+_pkg_tar="$(mktemp)"
 ( cd "$staging" && "$TAR" \
     --sort=name \
     --mtime="@$mtime" \
     --owner=0 --group=0 --numeric-owner \
-    -c "$prefix" ) | gzip -n > "$out"
+    -c "$prefix" ) > "$_pkg_tar"
+gzip -n < "$_pkg_tar" > "$out"
+rm -f "$_pkg_tar"
 
 echo "==> Cleaning staging $staging"
 rm -rf "$staging"

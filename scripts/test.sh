@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # test.sh — dispatch test execution.
 #
 # Usage:  scripts/test.sh                            # Redis tests (make -C src test)
@@ -10,9 +10,9 @@
 #                       Make can't pass positionally). Positional <test_name>
 #                       wins if both are given.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

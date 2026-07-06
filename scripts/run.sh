@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # run.sh — start src/redis-server with selected modules auto-loaded.
 #
 # Usage:  scripts/run.sh [<name> ...|all|.|'*'|none]
@@ -12,9 +12,9 @@
 # Locates each module's .so via TARGET_MODULE in modules/<name>/Makefile
 # (handles redisjson → rejson.so), preferring <host_os>-<arch>-release/.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

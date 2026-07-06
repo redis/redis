@@ -16,7 +16,7 @@
 # `$(shell ...)` invocations. So this file translates the shell library
 # into Make functions.
 #
-# Each helper forks bash → manifest.sh → awk once per call. The manifest
+# Each helper forks sh → manifest.sh → awk once per call. The manifest
 # is tiny (<1 KB) and helpers are only invoked at parse time, not in
 # build hot loops, so the per-call cost is invisible in practice.
 #

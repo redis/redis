@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # bootstrap.sh — install per-module build/test prerequisites.
 #
 # Usage:  scripts/bootstrap.sh [<name> ...|all|.|'*']
@@ -11,9 +11,9 @@
 # Env: MAKE                       make binary (defaults to `make`)
 #      PIP_BREAK_SYSTEM_PACKAGES   forced to 1
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

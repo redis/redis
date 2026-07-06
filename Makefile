@@ -14,7 +14,7 @@ export MAKE
 # Used only by .DEFAULT:/install: below, for goals with no explicit rule in
 # this Makefile (e.g. `make distclean`, `make 32bit`) — those still recurse
 # into src/ only, matching upstream Redis. Modules are never part of this;
-# `make` / `make all` / `make build` route through scripts/build.sh instead,
+# `make` / `make build` route through scripts/build.sh instead,
 # which decides per-module inclusion from what's actually cloned under
 # modules/*/src, not from a build flag.
 SUBDIRS = src
@@ -46,6 +46,8 @@ GOALS_WITH_ARGS := \
     sync-redis-conf:SYNC_ARGS \
     apply-redis-conf:APPLY_ARGS
 
+GOAL_NAMES_WITH_ARGS := $(foreach pair,$(GOALS_WITH_ARGS),$(firstword $(subst :, ,$(pair))))
+
 # When <goal> is the top-level goal, stash trailing positional args into <var>
 # and turn each non-':'-bearing token into a no-op .PHONY target so .DEFAULT
 # below doesn't recurse into $(SUBDIRS) for them. Tokens containing ':' are
@@ -60,6 +62,10 @@ endef
 
 $(foreach pair,$(GOALS_WITH_ARGS), \
   $(eval $(call _capture_goal_args,$(firstword $(subst :, ,$(pair))),$(lastword $(subst :, ,$(pair))))))
+
+ifeq ($(filter $(firstword $(MAKECMDGOALS)),$(GOAL_NAMES_WITH_ARGS)),)
+all: build
+endif
 
 # `test` extra validation: positional names containing ':' (e.g. `file:test`)
 # would fail Make parsing, so force them through TEST=<name>.
@@ -108,15 +114,6 @@ clean:
 # scripts/ so the logic stays out of Make. See each script's header for full
 # usage. All scripts respect $(MAKE) and run from the repo root.
 # ----------------------------------------------------------------------------
-
-# all — plain alias so a literal `make all` also routes through build (bare
-# `make` already does, via .DEFAULT_GOAL above). Deliberately just a
-# prerequisite with NO recipe of its own: giving it a real recipe (e.g.
-# calling scripts/build.sh directly) would make it re-run build's work a
-# second time whenever "all" is also used as a positional argument to a
-# DIFFERENT command (e.g. `make build all`) — Make only remakes a given
-# .PHONY target once per invocation, so a bare prerequisite avoids that.
-all: build
 
 # build [<name> ...|all|.|redis|core|none] — Redis core + selected modules.
 build:
@@ -187,4 +184,4 @@ apply-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
 
-.PHONY: all install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball

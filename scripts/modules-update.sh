@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # modules-update.sh — clone or refresh modules per modules.yaml.
 #
 # Usage:  scripts/modules-update.sh [<name> ...|all|.|'*']
@@ -7,15 +7,15 @@
 # Env: MODULES_UPDATE_SHALLOW=1  clone with --depth 1
 #      MAKE                      make binary (defaults to `make`)
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 
 MAKE_BIN="${MAKE:-make}"
 
-available="$(manifest_modules | xargs)"
+available="$(manifest_modules | manifest_join_words)"
 requested="$*"
 if [ -z "$requested" ]; then
   echo "==> No module specified — defaulting to all ($available)"
