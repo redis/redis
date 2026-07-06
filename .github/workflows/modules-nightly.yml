@@ -1,0 +1,109 @@
+name: Modules Nightly
+
+# Verifies the from-source modules flow documented in modules/README.md on
+# every OS the bundled modules support (the same list the modules' own
+# nightlies build against), each inside a clean stock container image — no
+# prebuilt/docker-file images. The steps mirror the manual verbatim:
+#
+#   make modules-update            clone every module pinned in modules.yaml
+#   make bootstrap                 install per-module build/test prereqs
+#   make LTO=0                     build Redis + all modules (see LTO note)
+#   ./src/redis-server redis-full.conf   then `redis-cli MODULE LIST`
+#   make test all                  every module's suite
+#
+# The "install manual prerequisites" step deliberately installs only what a
+# user needs before the manual's first command can run at all (git, make,
+# CA certs — plus awk/find on minimal images and bash on alpine, where the
+# module orchestration scripts need it). Compilers and per-module toolchains
+# must come from `make bootstrap`; if they don't, the manual is broken on
+# that OS and this workflow exists to catch exactly that.
+
+on:
+  schedule:
+    - cron: '30 1 * * *'
+  workflow_dispatch:
+    inputs:
+      skiptests:
+        description: "set to 'modules' to skip the heavy 'make test all' step"
+        default: ''
+      use_repo:
+        description: 'repo owner and name'
+        default: 'redis/redis'
+      use_git_ref:
+        description: 'git branch or sha to use'
+        default: 'unstable'
+
+jobs:
+
+  test-modules:
+    name: test-modules-${{ matrix.osnick }}
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'redis/redis'
+    timeout-minutes: 300
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { osnick: focal,           image: 'ubuntu:20.04',                                family: apt  }
+          - { osnick: jammy,           image: 'ubuntu:22.04',                                family: apt  }
+          - { osnick: noble,           image: 'ubuntu:24.04',                                family: apt  }
+          - { osnick: resolute,        image: 'ubuntu:26.04',                                family: apt  }
+          - { osnick: bullseye,        image: 'debian:bullseye',                             family: apt  }
+          - { osnick: bookworm,        image: 'debian:bookworm',                             family: apt  }
+          - { osnick: trixie,          image: 'debian:trixie',                               family: apt  }
+          - { osnick: alma8,           image: 'almalinux:8',                                 family: dnf  }
+          - { osnick: alma9,           image: 'almalinux:9',                                 family: dnf  }
+          - { osnick: alma10,          image: 'almalinux:10',                                family: dnf  }
+          - { osnick: rocky8,          image: 'rockylinux:8',                                family: dnf  }
+          - { osnick: rocky9,          image: 'rockylinux:9',                                family: dnf  }
+          - { osnick: rocky10,         image: 'quay.io/rockylinux/rockylinux:10',            family: dnf  }
+          - { osnick: amazonlinux2,    image: 'amazonlinux:2',                               family: yum  }
+          - { osnick: amazonlinux2023, image: 'amazonlinux:2023',                            family: dnf  }
+          - { osnick: mariner2,        image: 'mcr.microsoft.com/cbl-mariner/base/core:2.0', family: tdnf }
+          - { osnick: azurelinux3,     image: 'mcr.microsoft.com/azurelinux/base/core:3.0',  family: tdnf }
+          - { osnick: alpine,          image: 'alpine:3',                                    family: apk  }
+    steps:
+    - name: install manual prerequisites
+      run: |
+        case '${{ matrix.family }}' in
+          apt)  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git make ca-certificates ;;
+          dnf)  dnf install -y git make gawk findutils ca-certificates ;;
+          yum)  yum install -y git make gawk findutils ca-certificates tar ;;
+          tdnf) tdnf install -y git make gawk findutils ca-certificates tar ;;
+          apk)  apk add git make bash ca-certificates ;;
+        esac
+    # Plain `git clone` instead of actions/checkout: node-based actions
+    # cannot start on the older-glibc images in this matrix (amazonlinux:2),
+    # and a real git checkout is what the manual assumes anyway.
+    - name: checkout
+      run: |
+        git init .
+        git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
+        git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+        git checkout FETCH_HEAD
+    - name: make modules-update
+      run: make modules-update
+    - name: make bootstrap
+      run: make bootstrap
+    # modules/README.md: `make bootstrap` provisions the non-LTO build only;
+    # the LTO=1 default needs a hand-installed Clang+lld toolchain, so CI
+    # builds with LTO=0.
+    - name: make (LTO=0)
+      run: make LTO=0
+    - name: run server with redis-full.conf, verify MODULE LIST
+      run: |
+        ./src/redis-server redis-full.conf --daemonize no &
+        i=0
+        until ./src/redis-cli ping 2>/dev/null | grep -q PONG; do
+          i=$((i+1)); [ "$i" -gt 60 ] && echo 'redis-server did not come up' && exit 1
+          sleep 1
+        done
+        ./src/redis-cli MODULE LIST | tee module-list.txt
+        for m in bf search ReJSON timeseries; do
+          grep -qx "$m" module-list.txt || { echo "MISSING MODULE: $m"; exit 1; }
+        done
+        ./src/redis-cli shutdown nosave || true
+    - name: make test all
+      if: ${{ !contains(github.event.inputs.skiptests, 'modules') }}
+      run: make test all
