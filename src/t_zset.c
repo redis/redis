@@ -1954,6 +1954,52 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
     }
 }
 
+/* Return the minimum or maximum score element from a non-empty sorted set.
+ * The returned SDS in 'ele' must be freed by the caller. */
+static void zsetGetMinMax(client *c, robj *zobj, sds *ele, double *score, int where) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+
+        eptr = lpSeek(zl, where == ZSET_MAX ? -2 : 0);
+        serverAssertWithInfo(c, zobj, eptr != NULL);
+        vstr = lpGetValue(eptr, &vlen, &vlong);
+        if (vstr == NULL)
+            *ele = sdsfromlonglong(vlong);
+        else
+            *ele = sdsnewlen(vstr, vlen);
+
+        sptr = lpNext(zl, eptr);
+        serverAssertWithInfo(c, zobj, sptr != NULL);
+        *score = zzlGetScore(sptr);
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplistNode *zln;
+
+        zln = (where == ZSET_MAX) ? zs->zsl->tail : zs->zsl->header->level[0].forward;
+        serverAssertWithInfo(c, zobj, zln != NULL);
+        *ele = sdsdup(zslGetNodeElement(zln));
+        *score = zln->score;
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+}
+
+static int zsetGetPositionOrReply(client *c, robj *arg, int *where) {
+    if (!strcasecmp(arg->ptr, "MIN")) {
+        *where = ZSET_MIN;
+    } else if (!strcasecmp(arg->ptr, "MAX")) {
+        *where = ZSET_MAX;
+    } else {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 /*-----------------------------------------------------------------------------
  * Sorted set commands
  *----------------------------------------------------------------------------*/
@@ -4290,42 +4336,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
     /* Remove the element. */
     do {
-        if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
-            unsigned char *zl = zobj->ptr;
-            unsigned char *eptr, *sptr;
-            unsigned char *vstr;
-            unsigned int vlen;
-            long long vlong;
-
-            /* Get the first or last element in the sorted set. */
-            eptr = lpSeek(zl,where == ZSET_MAX ? -2 : 0);
-            serverAssertWithInfo(c,zobj,eptr != NULL);
-            vstr = lpGetValue(eptr,&vlen,&vlong);
-            if (vstr == NULL)
-                ele = sdsfromlonglong(vlong);
-            else
-                ele = sdsnewlen(vstr,vlen);
-
-            /* Get the score. */
-            sptr = lpNext(zl,eptr);
-            serverAssertWithInfo(c,zobj,sptr != NULL);
-            score = zzlGetScore(sptr);
-        } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-            zset *zs = zobj->ptr;
-            zskiplist *zsl = zs->zsl;
-            zskiplistNode *zln;
-
-            /* Get the first or last element in the sorted set. */
-            zln = (where == ZSET_MAX ? zsl->tail :
-                                       zsl->header->level[0].forward);
-
-            /* There must be an element in the sorted set. */
-            serverAssertWithInfo(c,zobj,zln != NULL);
-            ele = sdsdup(zslGetNodeElement(zln));
-            score = zln->score;
-        } else {
-            serverPanic("Unknown sorted set encoding");
-        }
+        zsetGetMinMax(c, zobj, &ele, &score, where);
 
         serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
@@ -4775,14 +4786,8 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
-    if (!strcasecmp(c->argv[where_idx]->ptr, "MIN")) {
-        where = ZSET_MIN;
-    } else if (!strcasecmp(c->argv[where_idx]->ptr, "MAX")) {
-        where = ZSET_MAX;
-    } else {
-        addReplyErrorObject(c, shared.syntaxerr);
+    if (zsetGetPositionOrReply(c, c->argv[where_idx], &where) != C_OK)
         return;
-    }
 
     /* Parse the optional arguments. */
     for (j = where_idx + 1; j < c->argc; j++) {
@@ -4819,6 +4824,139 @@ void zmpopCommand(client *c) {
 /* BZMPOP timeout numkeys key [<key> ...] MIN|MAX [COUNT count] */
 void bzmpopCommand(client *c) {
     zmpopGenericCommand(c, 2, 1);
+}
+
+static void zmoveGenericCommand(client *c, robj *srckey, robj *dstkey, int where, robj *member) {
+    kvobj *sobj = lookupKeyWriteOrReply(c, srckey, shared.nullarray[c->resp]);
+    if (sobj == NULL || checkType(c, sobj, OBJ_ZSET)) return;
+
+    kvobj *dobj = lookupKeyWrite(c->db, dstkey);
+    if (checkType(c, dobj, OBJ_ZSET)) return;
+
+    /* ZMOVE is a no-op when source and destination are the same object. */
+    if (sobj == dobj) {
+        addReplyNullArray(c);
+        return;
+    }
+
+    /* Empty sorted sets are normally deleted, but keep this defensive guard for
+     * modules or future internal callers that may create one transiently. */
+    if (zsetLength(sobj) == 0) {
+        addReplyNullArray(c);
+        return;
+    }
+
+    sds ele;
+    double score;
+
+    if (member) {
+        if (zsetScore(sobj, member->ptr, &score) == C_ERR) {
+            addReplyNullArray(c);
+            return;
+        }
+        ele = sdsdup(member->ptr);
+    } else {
+        zsetGetMinMax(c, sobj, &ele, &score, where);
+    }
+
+    size_t src_old_size = 0, dst_old_size = 0;
+    if (server.memory_tracking_enabled)
+        src_old_size = kvobjAllocSize(sobj);
+
+    int64_t src_old_len = (int64_t)zsetLength(sobj);
+    serverAssertWithInfo(c, sobj, zsetDel(sobj, ele));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), sobj, src_old_size, kvobjAllocSize(sobj));
+
+    if (member) {
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zrem", srckey, c->db->id);
+    } else {
+        char *events[2] = {"zpopmin", "zpopmax"};
+        notifyKeyspaceEvent(NOTIFY_ZSET, events[where], srckey, c->db->id);
+    }
+
+    int64_t src_new_len = src_old_len - 1;
+    if (src_new_len == 0) {
+        dbDeleteSkipKeysizesUpdate(c->db, srckey);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", srckey, c->db->id);
+        src_new_len = -1;
+    }
+    updateKeysizesHist(c->db, OBJ_ZSET, src_old_len, src_new_len);
+    keyModified(c, c->db, srckey, src_new_len > 0 ? sobj : NULL, 1);
+    server.dirty++;
+
+    int64_t dst_old_len = 0;
+    if (!dobj) {
+        robj *newobj = zsetTypeCreate(1, sdslen(ele));
+        dobj = dbAdd(c->db, dstkey, &newobj);
+    } else {
+        dst_old_len = (int64_t)zsetLength(dobj);
+    }
+
+    if (server.memory_tracking_enabled)
+        dst_old_size = kvobjAllocSize(dobj);
+
+    int retflags = 0;
+    int retval = zsetAdd(dobj, score, ele, ZADD_IN_NONE, &retflags, NULL);
+    serverAssert(retval);
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dobj, dst_old_size, kvobjAllocSize(dobj));
+
+    if (retflags & ZADD_OUT_ADDED) {
+        updateKeysizesHist(c->db, OBJ_ZSET, dst_old_len, dst_old_len + 1);
+    }
+    if (retflags & (ZADD_OUT_ADDED | ZADD_OUT_UPDATED)) {
+        keyModified(c, c->db, dstkey, dobj, 1);
+        notifyKeyspaceEvent(NOTIFY_ZSET, "zadd", dstkey, c->db->id);
+        server.dirty++;
+    }
+
+    addReplyArrayLen(c, 2);
+    addReplyBulkCBuffer(c, ele, sdslen(ele));
+    addReplyDouble(c, score);
+    sdsfree(ele);
+
+    if (c->cmd->proc == bzmoveCommand) {
+        rewriteClientCommandVector(c, 4, shared.zmove, c->argv[1], c->argv[2], c->argv[3]);
+    }
+}
+
+/* ZMOVEMEMBER <source> <destination> <member> */
+void zmovememberCommand(client *c) {
+    zmoveGenericCommand(c, c->argv[1], c->argv[2], 0, c->argv[3]);
+}
+
+/* ZMOVE <source> <destination> MIN|MAX */
+void zmoveCommand(client *c) {
+    int where;
+    if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK)
+        return;
+    zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL);
+}
+
+/* BZMOVE <source> <destination> MIN|MAX <timeout> */
+void bzmoveCommand(client *c) {
+    mstime_t timeout;
+    int where;
+
+    if (zsetGetPositionOrReply(c, c->argv[3], &where) != C_OK)
+        return;
+    if (getTimeoutFromObjectOrReply(c, c->argv[4], &timeout, UNIT_SECONDS) != C_OK)
+        return;
+
+    robj *key = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c, key, OBJ_ZSET)) return;
+
+    if (key == NULL || zsetLength(key) == 0) {
+        if (c->flags & CLIENT_DENY_BLOCKING || equalStringObjects(c->argv[1], c->argv[2])) {
+            addReplyNullArray(c);
+        } else {
+            blockForKeys(c, BLOCKED_ZSET, c->argv + 1, 1, timeout, 0);
+        }
+    } else {
+        zmoveGenericCommand(c, c->argv[1], c->argv[2], where, NULL);
+    }
 }
 
 #ifdef REDIS_TEST

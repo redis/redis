@@ -1,0 +1,108 @@
+{
+    "ZMOVE": {
+        "summary": "Returns a highest- or lowest-scoring member after moving it from one sorted set to another. Deletes the source sorted set if the last member was moved.",
+        "complexity": "O(log(N)+log(M)) with N being the number of elements in the source sorted set and M being the number of elements in the destination sorted set.",
+        "group": "sorted_set",
+        "since": "8.8.0",
+        "arity": 4,
+        "function": "zmoveCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The source key does not exist, or source and destination are the same sorted set.",
+                    "type": "null"
+                },
+                {
+                    "description": "The moved member and its score.",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "Member",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Score",
+                            "type": "number"
+                        }
+                    ]
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 1
+            },
+            {
+                "name": "where",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "min",
+                        "type": "pure-token",
+                        "token": "MIN"
+                    },
+                    {
+                        "name": "max",
+                        "type": "pure-token",
+                        "token": "MAX"
+                    }
+                ]
+            }
+        ]
+    }
+}

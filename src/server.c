@@ -2290,6 +2290,7 @@ void createSharedObjects(void) {
     shared.blmove = createStringObject("BLMOVE",6);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    shared.zmove = createStringObject("ZMOVE",5);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
     shared.hset = createStringObject("HSET",4);
