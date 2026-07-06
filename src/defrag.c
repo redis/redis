@@ -1700,7 +1700,7 @@ static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
 
     unsigned long iterations = 0;
     while (*cursor < reg->by_id_next) {
-        hashTemplate *tmpl = reg->by_id[*cursor];
+        hashTemplate *tmpl = hashTemplateGetById(*cursor);
         (*cursor)++;
         if (tmpl == NULL) continue; /* freed or never-used slot */
 

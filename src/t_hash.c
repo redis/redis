@@ -328,7 +328,6 @@ static hashTemplateRegistry *htemplates = NULL;
 /* Forward declarations for template helpers. */
 static hashTemplate *hashTemplateGetOrCreateWithHash(uint64_t hash, sds *fields, unsigned long long field_count);
 static void hashTemplateDecrKeyRef(hashTemplate *tmpl);
-static hashTemplate *hashTemplateGetById(uint64_t id);
 static hashTemplate *hashTemplateLpGetTemplate(unsigned char *lp);
 static uint64_t hashTemplateLpGetTemplateId(unsigned char *lp);
 static unsigned char *hashTemplateLpCreate(hashTemplate *tmpl, sds *values);
@@ -352,53 +351,88 @@ static int hashTypeSdsArrayFitsLp(sds *arr, unsigned long long n) {
     return sum >= 0 && lpSafeToAdd(NULL, sum);
 }
 
-/* Allocate the smallest free template ID and register the template in by_id.
- * IDs are kept small (lowest free slot) because TMPL_LP stores the ID as a
- * listpack varint, so a small ID costs ~2 bytes per key.
- * Main-thread only (template creation), but a BIO lazyfree thread may read by_id
- * concurrently (hashTemplateLpFree), so the array is grown/written under the
- * lock that also guards pending_free_ids. */
-static uint64_t allocateTemplateId(hashTemplate *tmpl) {
-    pthread_mutex_lock(&htemplates->lock);
-    uint64_t id;
-    if (htemplates->by_id_inuse == htemplates->by_id_next) {
-        /* No freed slots: give out the next id, growing the array if needed.
-         * New slots are set to NULL so lookups of unused ids return NULL. */
-        if (htemplates->by_id_next == htemplates->by_id_cap) {
-            size_t old_cap = htemplates->by_id_cap;
-            htemplates->by_id_cap = old_cap ? old_cap * 2 : 16;
-            htemplates->by_id = zrealloc(htemplates->by_id,
-                                         sizeof(*htemplates->by_id) * htemplates->by_id_cap);
-            memset(htemplates->by_id + old_cap, 0,
-                   sizeof(hashTemplate *) * (htemplates->by_id_cap - old_cap));
-        }
-        id = htemplates->by_id_next++;
-    } else {
-        /* A freed id left a gap below by_id_next: reuse the lowest free slot. */
-        for (id = 0; id < htemplates->by_id_next; id++)
-            if (htemplates->by_id[id] == NULL) break;
+/* by_id is a chunked array: fixed-size chunks of template pointers. */
+#define TMPL_CHUNK_SIZE 128  /* template ids per chunk */
+
+typedef struct tmplIdChunk {
+    hashTemplate *slots[TMPL_CHUNK_SIZE]; /* id % TMPL_CHUNK -> template, NULL if free */
+    unsigned int used;               /* used slots; chunk freed when 0 */
+} tmplIdChunk;
+
+/* Get chunk holding 'id', allocating it on demand. */
+static tmplIdChunk *tmplIdGetOrCreateChunk(size_t id) {
+    size_t chunk_idx = id / TMPL_CHUNK_SIZE;
+    if (chunk_idx >= htemplates->by_id_cap) {
+        size_t old = htemplates->by_id_cap;
+        size_t ncap = old ? old * 2 : 8;
+        while (ncap <= chunk_idx) ncap *= 2;
+
+        htemplates->by_id = zrealloc(htemplates->by_id, ncap * sizeof(tmplIdChunk *));
+        memset(htemplates->by_id + old, 0, (ncap - old) * sizeof(tmplIdChunk *));
+        htemplates->by_id_cap = ncap;
     }
-    htemplates->by_id[id] = tmpl;
-    htemplates->by_id_inuse++;
+    if (htemplates->by_id[chunk_idx] == NULL) {
+        htemplates->by_id[chunk_idx] = zcalloc(sizeof(tmplIdChunk));
+        htemplates->by_id_chunks++;
+    }
+    return htemplates->by_id[chunk_idx];
+}
+
+/* Get lowest free id. Caller guarantees a gap exists. */
+static size_t tmplIdGetLowestFree(void) {
+    size_t chunk_idx = 0;
+    while (chunk_idx < htemplates->by_id_cap && htemplates->by_id[chunk_idx] &&
+           htemplates->by_id[chunk_idx]->used == TMPL_CHUNK_SIZE) {
+        chunk_idx++;
+    }
+    tmplIdChunk *chunk = chunk_idx < htemplates->by_id_cap ? htemplates->by_id[chunk_idx] : NULL;
+    size_t id = chunk_idx * TMPL_CHUNK_SIZE;
+    while (chunk && chunk->slots[id % TMPL_CHUNK_SIZE] != NULL) id++;
+    return id;
+}
+
+/* Store tmpl in by_id under the lowest free id and return that id (the caller
+ * sets tmpl->id). Low ids keep the TMPL_LP listpack id ~2 bytes per key.
+ * Main-thread only, but a BIO lazyfree thread reads by_id (hashTemplateLpFree),
+ * so writes take the lock. */
+static uint64_t tmplIdAllocate(hashTemplate *tmpl) {
+    pthread_mutex_lock(&htemplates->lock);
+
+    int no_gaps = dictSize(htemplates->by_fields) == htemplates->by_id_next;
+    size_t id = no_gaps ? htemplates->by_id_next++ : tmplIdGetLowestFree();
+    tmplIdChunk *chunk = tmplIdGetOrCreateChunk(id);
+    chunk->slots[id % TMPL_CHUNK_SIZE] = tmpl;
+    chunk->used++;
+
     pthread_mutex_unlock(&htemplates->lock);
     return id;
 }
 
 /* Recycle a template ID when template is freed. Main-thread only, but taken
  * under the lock since a BIO lazyfree thread may be reading by_id. */
-static void recycleTemplateId(uint64_t id) {
+static void tmplIdRecycle(uint64_t id) {
+    size_t chunk_idx = id / TMPL_CHUNK_SIZE;
+
     pthread_mutex_lock(&htemplates->lock);
-    htemplates->by_id[id] = NULL;
-    htemplates->by_id_inuse--;
+    tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
+    chunk->slots[id % TMPL_CHUNK_SIZE] = NULL;
+    /* Free the chunk once it holds no live ids so the id space shrinks. */
+    if (--chunk->used == 0) {
+        zfree(chunk);
+        htemplates->by_id[chunk_idx] = NULL;
+        htemplates->by_id_chunks--;
+    }
 
     /* This runs from the registry's key destructor, dictSize()==1 means it is
-     * the last one and the by_id index can be released. */
+     * the last one and the whole by_id array can be released. */
     if (dictSize(htemplates->by_fields) == 1) {
+        for (size_t i = 0; i < htemplates->by_id_cap; i++)
+            zfree(htemplates->by_id[i]);
         zfree(htemplates->by_id);
         htemplates->by_id = NULL;
         htemplates->by_id_cap = 0;
+        htemplates->by_id_chunks = 0;
         htemplates->by_id_next = 0;
-        htemplates->by_id_inuse = 0;
     }
     pthread_mutex_unlock(&htemplates->lock);
 }
@@ -406,9 +440,11 @@ static void recycleTemplateId(uint64_t id) {
 /* Lookup template by ID. Returns NULL if invalid. Main-thread only and lockless:
  * by_id is grown/freed only on the main thread; BIO threads read it under the
  * registry lock but never write it. */
-static hashTemplate *hashTemplateGetById(uint64_t id) {
-    if (id >= htemplates->by_id_cap) return NULL;
-    return htemplates->by_id[id];
+hashTemplate *hashTemplateGetById(uint64_t id) {
+    size_t chunk_idx = id / TMPL_CHUNK_SIZE;
+    if (chunk_idx >= htemplates->by_id_cap) return NULL;
+    tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
+    return chunk ? chunk->slots[id % TMPL_CHUNK_SIZE] : NULL;
 }
 
 /* Cache 'fields_lp' as tmpl's fields-listpack (blob -> template), taking
@@ -504,7 +540,7 @@ static void templateFieldsKeyDestructor(dict *d, void *key) {
     /* field_robjs is freed in hashTemplateDecrHoldRef when the last non-key
      * holder releases the template. */
     serverAssert(tmpl->field_robjs == NULL);
-    recycleTemplateId(tmpl->id);
+    tmplIdRecycle(tmpl->id);
     /* Drop the lazy fields-listpack blob and its by_fields_lp index entry. */
     if (tmpl->fields_lp) {
         dictDelete(htemplates->by_fields_lp, tmpl->fields_lp);
@@ -587,7 +623,7 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
 
     /* Whether DUMP can serialize the field names as one listpack blob. */
     tmpl->fits_in_listpack = hashTypeSdsArrayFitsLp(tmpl->fields, tmpl->field_count);
-    tmpl->id = allocateTemplateId(tmpl);
+    tmpl->id = tmplIdAllocate(tmpl);
     return tmpl;
 }
 
@@ -821,7 +857,8 @@ size_t hashTemplatesMemUsage(void) {
     return htemplates->total_mem_size + sizeof(*htemplates) +
            dictMemUsage(htemplates->by_fields) +
            dictMemUsage(htemplates->by_fields_lp) +
-           htemplates->by_id_cap * sizeof(hashTemplate *);
+           htemplates->by_id_cap * sizeof(tmplIdChunk *) +
+           htemplates->by_id_chunks * sizeof(tmplIdChunk);
 }
 
 /* Lazy-build the template's cached field robjs (one per field, in template

@@ -3932,10 +3932,10 @@ typedef struct hashTemplateRegistry {
     dict *by_fields_lp;         /* fields-listpack blob -> template lookup, used
                                  * to resolve template on RESTORE command in
                                  * O(1) without reading field names one by one. */
-    hashTemplate **by_id;       /* ID -> template lookup */
-    size_t by_id_cap;           /* Allocated slots in by_id array. */
-    size_t by_id_next;          /* Next id to hand out (= how many given out). */
-    size_t by_id_inuse;         /* How many of those ids are in use right now. */
+    struct tmplIdChunk **by_id; /* ID -> template lookup (chunked array). */
+    size_t by_id_cap;           /* How many chunk pointers by_id can hold. */
+    size_t by_id_chunks;        /* How many chunks are currently allocated. */
+    size_t by_id_next;          /* The next id that has never been used. */
     uint64_t *pending_free_ids; /* Ids of templates that hit zero refs on a BIO
                                  * lazyfree thread which can't touch the registry
                                  * itself. The main thread later drains this in
@@ -4046,6 +4046,7 @@ int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 void hashTemplatesInit(void);
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
+hashTemplate *hashTemplateGetById(uint64_t id);
 hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
 void hashTemplateIncrHoldRef(hashTemplate *tmpl);
