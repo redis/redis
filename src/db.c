@@ -373,9 +373,10 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
 
 /* Like lookupKeyWrite(), but accepts ref to optional `link`
  *
- * link - If key found, updated to link the key.
- *        If key not found, updated to the bucket where the key should be added.
- *        If key not found and dict is empty, it is set to NULL
+ *   found & valid    -> returns the kvobj; link = the key's entry.
+ *   absent           -> returns NULL;      link = the bucket to add it to.
+ *   expired/trimmed  -> returns NULL;      link = NULL (key may still remain in the dict).
+ *   empty dict       -> returns NULL;      link = NULL.
  */
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link) {
     return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, link);
