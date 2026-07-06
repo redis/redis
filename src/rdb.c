@@ -1139,22 +1139,92 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     return nwritten;
 }
 
+static sds rdbLoadBitmapLzfRawString(rio *rdb, uint64_t expected_len) {
+    uint64_t clen = rdbLoadLen(rdb, NULL);
+    uint64_t len = rdbLoadLen(rdb, NULL);
+    unsigned char *compressed = NULL;
+    sds raw = NULL;
+
+    if (clen == RDB_LENERR || len == RDB_LENERR) return NULL;
+    if (len != expected_len || clen == 0 || clen > len) return NULL;
+
+    compressed = ztrymalloc((size_t)clen);
+    raw = sdstrynewlen(SDS_NOINIT, (size_t)len);
+    if (compressed == NULL || raw == NULL) goto err;
+
+    if (rioRead(rdb, compressed, (size_t)clen) == 0) goto err;
+    if (lzf_decompress(compressed, (size_t)clen, raw, (size_t)len) != len) {
+        rdbReportCorruptRDB("Invalid LZF compressed string");
+        goto err;
+    }
+
+    zfree(compressed);
+    return raw;
+
+err:
+    zfree(compressed);
+    sdsfree(raw);
+    return NULL;
+}
+
+/* Native bitmap payloads carry the logical byte length before the Redis raw
+ * string. Validate the string's decoded length before allocating it so corrupt
+ * RESTORE/RDB input cannot hide a large payload behind a small bitmap length. */
+static sds rdbLoadBitmapRawString(rio *rdb, uint64_t expected_len) {
+    int isencoded;
+    uint64_t len = rdbLoadLen(rdb, &isencoded);
+    sds raw;
+
+    if (len == RDB_LENERR) return NULL;
+
+    if (isencoded) {
+        size_t raw_len = 0;
+        switch (len) {
+        case RDB_ENC_INT8:
+        case RDB_ENC_INT16:
+        case RDB_ENC_INT32:
+            raw = rdbLoadIntegerObject(rdb, (int)len, RDB_LOAD_SDS,
+                                       &raw_len, NULL);
+            if (raw != NULL && (uint64_t)raw_len != expected_len) {
+                sdsfree(raw);
+                raw = NULL;
+            }
+            return raw;
+        case RDB_ENC_LZF:
+            return rdbLoadBitmapLzfRawString(rdb, expected_len);
+        default:
+            rdbReportCorruptRDB("Unknown RDB string encoding type %llu",
+                                (unsigned long long)len);
+            return NULL;
+        }
+    }
+
+    if (len != expected_len) return NULL;
+    raw = sdstrynewlen(SDS_NOINIT, (size_t)len);
+    if (raw == NULL) {
+        serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING,
+                  "rdbLoadBitmapRawString failed allocating %llu bytes",
+                  (unsigned long long)len);
+        return NULL;
+    }
+    if (len && rioRead(rdb, raw, (size_t)len) == 0) {
+        sdsfree(raw);
+        return NULL;
+    }
+    return raw;
+}
+
 static robj *rdbLoadBitmapObject(rio *rdb) {
     uint64_t byte_len = rdbLoadLen(rdb, NULL);
-    size_t raw_len = 0;
     sds raw;
     robj *o;
 
     if (byte_len == RDB_LENERR) return NULL;
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
-    raw = rdbGenericLoadStringObjectUsable(rdb, RDB_LOAD_SDS, &raw_len, NULL);
+    raw = rdbLoadBitmapRawString(rdb, byte_len);
     if (raw == NULL) return NULL;
-    if ((uint64_t)raw_len != byte_len) {
-        sdsfree(raw);
-        return NULL;
-    }
-    o = createBitmapObjectFromString((unsigned char *)raw, raw_len);
+    o = createBitmapObjectFromString((unsigned char *)raw, sdslen(raw));
     sdsfree(raw);
     return o;
 }
