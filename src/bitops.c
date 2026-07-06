@@ -2692,22 +2692,6 @@ void bitfieldroCommand(client *c) {
     bitfieldGeneric(c, BITFIELD_FLAG_READONLY);
 }
 
-/* BITMAP <subcommand> ... — container for native bitmap subcommands. */
-void bitmapCommand(client *c) {
-    char *subcmd = c->argv[1]->ptr;
-
-    if (!strcasecmp(subcmd, "help") && c->argc == 2) {
-        const char *help[] = {
-"HELP",
-"    Print this help.",
-NULL
-        };
-        addReplyHelp(c, help);
-    } else {
-        addReplySubcommandSyntaxError(c);
-    }
-}
-
 #ifdef REDIS_TEST
 /* Test function to verify popcount implementations */
 int bitopsTest(int argc, char **argv, int flags) {

@@ -89,10 +89,6 @@ DATASET_KEYS = {
 
 MODULE_RESULT_LABEL = "redis_roaring_module"
 BEFORE_NATIVE_LABEL = "redis_before_native"
-EMPTY_NATIVE_BITMAP_DUMP_PAYLOAD = (
-    b"\x1d\x00\x81\xff\xff\xff\xff\xff\xff\xff\xfd\x00"
-    b"\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-)
 COMPARE_LABELS = (
     "redis_before",
     BEFORE_NATIVE_LABEL,
@@ -771,23 +767,19 @@ class RedisBitmapBench:
 
     def convert_to_native(self, key: str) -> None:
         if self.args.mode == "native":
-            key_type = self.client.execute(["TYPE", key])
-            if key_type == b"bitmap" or key_type == "bitmap":
-                return
-            current = self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])
-            current_value = current[1].decode("utf-8") if isinstance(current[1], bytes) else str(current[1])
-            raw = self.client.execute(["GET", key])
-            if raw is None:
-                raise BenchError(f"cannot convert missing key to native: {key}")
-            if len(raw) == 0:
-                self.client.execute(["RESTORE", key, "0", EMPTY_NATIVE_BITMAP_DUMP_PAYLOAD, "REPLACE"])
-                return
-            bit = 1 if raw and (raw[0] & 0x80) else 0
+            old = False
             try:
+                old = decode_text(self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])[1]).lower() == "yes"
+            except BenchError:
+                old = False
+            try:
+                if int(self.client.execute(["STRLEN", key])) == 0:
+                    return
                 self.set_default_roaring(True, required=True)
+                bit = int(self.client.execute(["GETBIT", key, "0"]))
                 self.client.execute(["SETBIT", key, "0", str(bit)])
             finally:
-                self.client.execute(["CONFIG", "SET", "bitmap-default-roaring", current_value])
+                self.set_default_roaring(old, required=False)
 
     def module_cmd(self, name: str) -> str:
         return f"{self.args.module_command_prefix}.{name}"
@@ -1535,8 +1527,17 @@ class RedisBitmapBench:
     def setup_bitfield_native_write(self) -> None:
         self.set_default_roaring(False, required=False)
         self.client.execute(["DEL", "bench:bitmap:bitfield:write"])
-        self.client.execute(["SET", "bench:bitmap:bitfield:write", b""])
-        self.convert_to_native("bench:bitmap:bitfield:write")
+        if self.args.mode == "native":
+            self.set_default_roaring(True, required=True)
+            try:
+                # No public zero-length native creation path remains after
+                # removing BITMAP CONVERT. Seed the smallest existing native
+                # bitmap so the measured BITFIELD command uses the native path.
+                self.client.execute(["SETBIT", "bench:bitmap:bitfield:write", "0", "0"])
+            finally:
+                self.set_default_roaring(False, required=False)
+        else:
+            self.client.execute(["SET", "bench:bitmap:bitfield:write", b""])
 
     def setup_bitop_mixed(self) -> None:
         keys = [
