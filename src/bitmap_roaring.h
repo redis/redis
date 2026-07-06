@@ -21,7 +21,6 @@
 
 void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
-robj *createBitmapObjectWithLen(uint64_t byte_len);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
 robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf,
                                              size_t len);
@@ -74,7 +73,6 @@ uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
                                          uint64_t bits);
 int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
                                     uint64_t value);
-int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end);
 void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectMaterializeForRDB(const robj *o);

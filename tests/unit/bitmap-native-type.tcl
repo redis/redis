@@ -746,7 +746,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r get bitmap:restore:target]
     }
 
-    test {native bitmap RDB restores run containers without capacity bloat} {
+    test {native bitmap raw RDB restores run containers without capacity bloat} {
         set raw ""
         for {set i 0} {$i < 32} {incr i} {
             append raw [string repeat [binary format H* ff] 600]
@@ -784,7 +784,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
-    test {native bitmap RDB range payload keeps sparse bitmaps compact} {
+    test {native bitmap raw RDB payload keeps sparse bitmaps compact with compression} {
         set oldcomp [config_get_set rdbcompression yes]
 
         r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
@@ -810,7 +810,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
-    test {native bitmap tagged RDB payload round-trips across internal shapes} {
+    test {native bitmap raw RDB payload round-trips across internal shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
