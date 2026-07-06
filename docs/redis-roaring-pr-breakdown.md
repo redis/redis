@@ -25,16 +25,15 @@ marked pending in the trackers.
 - **Default Roaring opt-in**: the `bitmap-roaring-{enabled,auto-convert,
   min-bytes,min-saving}` configs are replaced by a single
   `bitmap-default-roaring` boolean flag (`no` by default, or `yes`). With
-  `no`, plain writes keep creating string bitmaps.
+  `no`, plain writes preserve legacy string bitmap creation unless the key is
+  already native through load/restore/replication or a native BITOP source.
   With `yes`, bitmap-command writes create new keys as native and convert
   string values that bitmap writes touch, unconditionally (the size/saving
   thresholds and conversion amortization are gone along with the trial encodes
   they amortized).
-- **Command surface**: DD-01 settles v1 on the existing Redis bitmap API plus
-  configured native creation/conversion behavior. Redis core does not add
-  redis-roaring command prefixes or a public per-key conversion command; import
-  and rollback workflows belong in migration tooling or normal Redis writes.
-  See [#20](https://github.com/aviggiano/redis/issues/20).
+- **Public conversion surface**: v1 does not expose `BITMAP CONVERT` or any
+  threshold-based conversion configs. Native creation is controlled through
+  `bitmap-default-roaring yes` bitmap writes and native load/RESTORE paths.
 - **BITOP destination rule**: a BITOP destination is native when at least
   one source is native, and always native when `bitmap-default-roaring yes`.
   Native `BITOP` destinations are bounded by the 512 MiB native cap and by
@@ -86,8 +85,8 @@ using "PR N" for both invites confusion. GitHub PR numbers are written as
 The original plan used this gate to prevent public `OBJ_BITMAP` creation until
 Redis could safely own native bitmap keys everywhere they may flow. The current
 draft implementation exposes public creation through `bitmap-default-roaring
-yes` after implementing the safety paths below; DD-01 keeps explicit per-key
-conversion out of v1.
+yes` after implementing the safety paths below. Threshold configs and public
+conversion commands stay out of v1.
 
 The checklist remains:
 
@@ -223,13 +222,12 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
   explicitly converted.
 - Audit `SORT ... BY`/`GET` patterns, module/string APIs, and Lua script
   surfaces that read values as strings.
-- Keep explicit bitmap-to-string materialization out of generic string command
-  behavior. V1 has no public per-key conversion command. `BITOP` is not a
-  string materialization escape hatch; destinations are native whenever any
-  source is native, and are also native for string-only sources when
-  `bitmap-default-roaring yes` is set. Plain `SET` overwrites a native bitmap
-  key with a string like any other type. Generic string commands keep returning
-  `WRONGTYPE`.
+- Do not add a public bitmap-to-string conversion escape hatch in v1. `BITOP`
+  is not a string materialization escape hatch; destinations are native
+  whenever any source is native, and are also native for string-only sources
+  when `bitmap-default-roaring yes` is set. Plain `SET` overwrites a native
+  bitmap key with a string like any other type. Generic string commands keep
+  returning `WRONGTYPE`.
 
 ## Step 6: Minimal Configs and Public Native Bitmap Creation
 
@@ -237,8 +235,9 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
   The current draft surface is a single `bitmap-default-roaring yes|no` flag,
   defaulting to `no`.
 - With `bitmap-default-roaring no`, bitmap writes preserve string bitmap
-  creation. With `yes`, bitmap write commands create missing keys as native
-  Roaring bitmaps and convert existing strings before writing.
+  creation unless the key is already native. With `yes`, bitmap write commands
+  create missing keys as native Roaring bitmaps and convert existing strings
+  before writing.
 - The size/saving thresholds and trial encodes are intentionally omitted from
   the current design.
 - Enable public bitmap writes to create `OBJ_BITMAP` values only through the
@@ -300,8 +299,9 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     comparisons.
   - Materialization paths such as `DEBUG BITMAP-RAW` need benchmark coverage
     and explicit limits because they flatten native bitmaps. The current RDB
-    persistence payload is a container stream and should be benchmarked
-    separately from raw materialization.
+    persistence payload is a
+    container stream and should be benchmarked separately from raw
+    materialization.
 - Keep redis-roaring migration tooling separate from Redis core. The v1
   contract is the external streaming migrator documented in
   `docs/redis-roaring-migration-contract.md`. The reference implementation

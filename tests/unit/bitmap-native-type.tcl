@@ -10,13 +10,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
 
-    test {BITMAP HELP and command introspection omit explicit conversion commands} {
-        set help [join [r bitmap help] "\n"]
-
-        assert_match {*HELP*} $help
-        assert_no_match {*CONVERT*} $help
+    test {BITMAP command is not part of the v1 public surface} {
+        assert_equal {{}} [r command info bitmap]
         assert_equal {{}} [r command info bitmap|convert]
-        assert_error {*unknown subcommand*} {r bitmap convert bitmap:convert:missing}
+        assert_error {ERR unknown command 'bitmap'*} {r bitmap help}
+        assert_error {ERR unknown command 'bitmap'*} {r bitmap convert bitmap:convert:missing}
     }
 
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
