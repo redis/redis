@@ -101,12 +101,21 @@ install:
 # line (e.g. `make clean DEPS=1`) propagate to the per-module clean via
 # the shell environment.
 clean:
-	@scripts/clean.sh $(CLEAN_ARGS)
+	+@scripts/clean.sh $(CLEAN_ARGS)
 
 # ----------------------------------------------------------------------------
 # Module / build / test orchestration. Recipes are thin wrappers around
 # scripts/ so the logic stays out of Make. See each script's header for full
 # usage. All scripts respect $(MAKE) and run from the repo root.
+#
+# Recipes whose script re-invokes $(MAKE) are prefixed with '+' so GNU make
+# treats them as recursive and hands the -j jobserver through. Without it,
+# the pipe-style jobserver of make <= 4.3 (Debian bookworm, Ubuntu jammy and
+# older) gives the child closed fds and the sub-make silently falls back to
+# -j1 ("warning: jobserver unavailable") — `make -j "$(nproc)" all`, the
+# documented tarball build, would build serially. make >= 4.4 (fifo-style)
+# only masks this, so keep '+' on any new script-wrapping recipe that ends
+# up running make.
 # ----------------------------------------------------------------------------
 
 # all — plain alias so a literal `make all` also routes through build (bare
@@ -120,11 +129,11 @@ all: build
 
 # build [<name> ...|all|.|redis|core|none] — Redis core + selected modules.
 build:
-	@scripts/build.sh $(BUILD_ARGS)
+	+@scripts/build.sh $(BUILD_ARGS)
 
 # bootstrap [<name> ...|all|.] — install per-module build/test prereqs.
 bootstrap:
-	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
+	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
 #   Install Redis core + selected modules (default: every cloned module),
@@ -134,7 +143,7 @@ bootstrap:
 #   actual modules directory `make install` / `make deploy` write to.
 deploy: PREFIX ?= /usr/local
 deploy:
-	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
+	+@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
 
 # run [<name> ...|all|.|none] [ARGS="<redis-server flags>"]
 run:
@@ -142,12 +151,12 @@ run:
 
 # test [redis|all|<module> [<test_name>]] [TEST=<name>] — see scripts/test.sh.
 test:
-	@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
+	+@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
 
 # modules-update [<name> ...|all|.] [MODULES_UPDATE_SHALLOW=1]
 #   Idempotent clone/refresh per modules.yaml.
 modules-update:
-	@MODULES_UPDATE_SHALLOW='$(MODULES_UPDATE_SHALLOW)' scripts/modules-update.sh $(MODULES_ARGS)
+	+@MODULES_UPDATE_SHALLOW='$(MODULES_UPDATE_SHALLOW)' scripts/modules-update.sh $(MODULES_ARGS)
 
 # modules-shallow <name> [<name> ...] — re-clone selected modules with --depth 1.
 modules-shallow:
@@ -156,7 +165,7 @@ modules-shallow:
 # tarball TAG=<ref> [STAGING_DIR=...] [OUT_PATH=...] [TAR=...] [TARBALL_SKIP_MODULES_UPDATE=1]
 #   Reproducible Redis+modules source tarball.
 tarball:
-	@TAG='$(TAG)' STAGING_DIR='$(STAGING_DIR)' OUT_PATH='$(OUT_PATH)' \
+	+@TAG='$(TAG)' STAGING_DIR='$(STAGING_DIR)' OUT_PATH='$(OUT_PATH)' \
 	    TAR='$(TAR)' TARBALL_SKIP_MODULES_UPDATE='$(TARBALL_SKIP_MODULES_UPDATE)' \
 	    scripts/tarball.sh
 
