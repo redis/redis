@@ -189,6 +189,83 @@ start_server {
         assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer TIMEOUT 1000 STREAMS mystream >}
     }
 
+    # Count the total number of entries across all streams in an XREADGROUP reply.
+    proc xreadgroup_total_entries {res} {
+        set total 0
+        foreach stream $res {
+            incr total [llength [lindex $stream 1]]
+        }
+        return $total
+    }
+
+    test {XREADGROUP MAXCOUNT/MAXSIZE parameter validation} {
+        r DEL mystream1
+        r XGROUP CREATE mystream1 mygroup 0 MKSTREAM
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT 0 STREAMS mystream1 >}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXSIZE -1 STREAMS mystream1 >}
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREADGROUP GROUP mygroup c COUNT 50 MAXCOUNT 10 STREAMS mystream1 >}
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT foo STREAMS mystream1 >}
+    }
+
+    test {XREADGROUP MAXCOUNT caps new (">") and history (PEL) reads across streams} {
+        r DEL mystream{t}1 mystream{t}2 mystream{t}3
+        foreach s {mystream{t}1 mystream{t}2 mystream{t}3} {
+            for {set i 0} {$i < 100} {incr i} { r XADD $s * f v$i }
+            r XGROUP CREATE $s mygroup 0
+        }
+        # Per-stream COUNT 50 across 3 streams would yield 150, MAXCOUNT caps it.
+        set res [r XREADGROUP GROUP mygroup c1 COUNT 50 MAXCOUNT 80 STREAMS mystream{t}1 mystream{t}2 mystream{t}3 > > >]
+        assert_equal 80 [xreadgroup_total_entries $res]
+        # c1 now owns the 80 entries just delivered; re-read its history with a cap.
+        set res [r XREADGROUP GROUP mygroup c1 MAXCOUNT 25 STREAMS mystream{t}1 mystream{t}2 mystream{t}3 0 0 0]
+        assert_equal 25 [xreadgroup_total_entries $res]
+    }
+
+    test {XREADGROUP MAXSIZE limits the reply size across streams} {
+        r DEL stream{t}1 stream{t}2 stream{t}3
+        foreach s {stream{t}1 stream{t}2 stream{t}3} {
+            for {set i 0} {$i < 50} {incr i} { r XADD $s * f v$i }
+            r XGROUP CREATE $s g2 0
+        }
+        set full [r XREADGROUP GROUP g2 ca STREAMS stream{t}1 stream{t}2 stream{t}3 > > >]
+        r XGROUP CREATE stream{t}1 g3 0
+        r XGROUP CREATE stream{t}2 g3 0
+        r XGROUP CREATE stream{t}3 g3 0
+        set capped [r XREADGROUP GROUP g3 cb MAXSIZE 200 STREAMS stream{t}1 stream{t}2 stream{t}3 > > >]
+        assert {[xreadgroup_total_entries $capped] < [xreadgroup_total_entries $full]}
+        assert {[xreadgroup_total_entries $capped] >= 1}
+    }
+
+    test {XREADGROUP MAXSIZE still returns a single oversized message} {
+        r DEL bigstream
+        r XADD bigstream 1-1 f [string repeat x 5000]
+        r XADD bigstream 2-2 f v
+        r XGROUP CREATE bigstream bg 0
+        set res [r XREADGROUP GROUP bg c MAXSIZE 50 STREAMS bigstream >]
+        assert_equal 1 [xreadgroup_total_entries $res]
+        assert_equal 1-1 [lindex $res 0 1 0 0]
+    }
+
+    test {XREADGROUP MAXCOUNT honored after blocking unblock} {
+        r DEL stream{t}1 stream{t}2
+        r XGROUP CREATE stream{t}1 bg 0 MKSTREAM
+        r XGROUP CREATE stream{t}2 bg 0 MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP bg c BLOCK 20000 COUNT 2 MAXCOUNT 3 STREAMS stream{t}1 stream{t}2 > >
+        wait_for_blocked_client
+        # Add the entries atomically so the unblocked client is reprocessed once
+        # with all entries present, making the MAXCOUNT cap deterministic.
+        r MULTI
+        for {set i 0} {$i < 10} {incr i} {
+            r XADD stream{t}1 * f v$i
+            r XADD stream{t}2 * f v$i
+        }
+        r EXEC
+        set res [$rd read]
+        assert_equal 3 [xreadgroup_total_entries $res]
+        $rd close
+    }
+
     test {XREADGROUP will return only new elements} {
         r XADD mystream * a 1
         r XADD mystream * b 2

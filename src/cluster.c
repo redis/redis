@@ -222,9 +222,7 @@ void restoreCommand(client *c) {
 
     /* Make sure this key does not already exist here... */
     robj *key = c->argv[1];
-    kvobj *oldval = lookupKeyWrite(c->db,key);
-    int oldtype = oldval ? oldval->type : -1;
-    if (!replace && oldval) {
+    if (!replace && lookupKeyWrite(c->db,key) != NULL) {
         addReplyErrorObject(c,shared.busykeyerr);
         return;
     }
@@ -271,10 +269,21 @@ void restoreCommand(client *c) {
         return;
     }
 
-    /* Remove the old key if needed. */
+    /* Resolve the key's existence and its insertion link. On the common new-key
+     * path dbAddInternal() below reuses the link instead of probing again. */
+    dictEntryLink link = NULL;
+    kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
+    int oldtype = oldval ? oldval->type : -1;
+
+    /* Call dbDelete() only when a key is actually present:
+     *   oldval != NULL -> key exists.
+     *   link  == NULL  -> an expired key might still be physically present and 
+     *                     must be deleted. */
     int deleted = 0;
-    if (replace)
+    if (replace && (oldval || !link)) {
         deleted = dbDelete(c->db,key);
+        link = NULL; /* dbDelete invalidated the link */
+    }
 
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
@@ -293,7 +302,7 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
 
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;

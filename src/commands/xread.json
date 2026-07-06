@@ -5,6 +5,12 @@
         "since": "5.0.0",
         "arity": -4,
         "function": "xreadCommand",
+        "history": [
+            [
+                "8.10.0",
+                "Added the `MAXCOUNT` and `MAXSIZE` options."
+            ]
+        ],
         "get_keys_function": "xreadGetKeys",
         "command_flags": [
             "BLOCKING",
@@ -40,6 +46,20 @@
                 "name": "count",
                 "type": "integer",
                 "optional": true
+            },
+            {
+                "token": "MAXCOUNT",
+                "name": "maxcount",
+                "type": "integer",
+                "optional": true,
+                "since": "8.10.0"
+            },
+            {
+                "token": "MAXSIZE",
+                "name": "maxsize",
+                "type": "integer",
+                "optional": true,
+                "since": "8.10.0"
             },
             {
                 "token": "BLOCK",

@@ -322,12 +322,12 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
 
         if ((opt[0] == 'n' || opt[0] == 'N') &&
             (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-            !(args->flags & OBJ_SET_XX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
+            !(args->flags & (cond_mut_excl & ~OBJ_SET_NX)) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
         {
             args->flags |= OBJ_SET_NX;
         } else if ((opt[0] == 'x' || opt[0] == 'X') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(args->flags & OBJ_SET_NX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_XX)) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
         {
             args->flags |= OBJ_SET_XX;
         } else if ((opt[0] == 'g' || opt[0] == 'G') &&

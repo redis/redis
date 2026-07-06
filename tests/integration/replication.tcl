@@ -2003,3 +2003,36 @@ foreach type {script function} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server {} {
+        set replica [srv 0 client]
+
+        # Regression: discarding a cached master (after a failed partial
+        # resync) must reverse its contribution to mem_clients_normal.
+        # freeClient() once gated that subtraction on c->conn, but the cached
+        # master's conn was already detached by replicationCacheMaster(), so
+        # the subtraction was skipped and ~one master client (~16KB) leaked
+        # on every full resync.
+        test {mem_clients_normal accounting is reversed when cached master is discarded} {
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+            set base [s 0 mem_clients_normal]
+
+            # change-repl-id forces the next PSYNC to be a full resync, which
+            # discards the cached master via replicationDiscardCachedMaster().
+            for {set j 0} {$j < 10} {incr j} {
+                $master debug change-repl-id
+                $replica replicaof no one
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+            }
+            # Before the fix this grew by ~16KB per cycle; with it, at most one
+            # live master client remains.
+            assert_lessthan [expr {[s 0 mem_clients_normal] - $base}] 50000
+        }
+    }
+}

@@ -1329,3 +1329,34 @@ start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl e
     }
 }
 
+tags {modules external:skip cluster} {
+    set testmodule [file normalize tests/modules/internalsecret.so]
+
+    # A valid ACL file must exist at startup for `ACL LOAD` to be available.
+    set aclpath [file normalize tests/tmp/internalauth-acl-load.acl]
+    set fp [open $aclpath w]
+    puts $fp "user default on nopass ~* &* +@all"
+    close $fp
+
+    start_cluster 1 0 [list config_lines [list loadmodule $testmodule] overrides [list aclfile $aclpath]] {
+        test {ACL LOAD handles correctly an internal (NULL-user) connection present} {
+            set victim [redis_client]
+
+            # Promote the victim connection to an internal connection using the
+            # real internal secret. This sets c->user = NULL while leaving the
+            # client in server.clients, and does NOT set CLIENT_MASTER.
+            set secret [$victim internalauth.getinternalsecret]
+            assert_equal {OK} [$victim auth "internal connection" $secret]
+
+            # ACL LOAD iterates every client in server.clients.
+            assert_equal {OK} [r ACL LOAD]
+
+            # Confirm server it is responsive.
+            assert_equal {PONG} [r ping]
+
+            $victim close
+        }
+    }
+
+    file delete $aclpath
+}

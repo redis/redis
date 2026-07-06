@@ -321,6 +321,8 @@ unsigned long long memtoull(const char *p, int *err) {
         if (err) *err = 1;
         return 0;
     }
+    /* Clamp to ULLONG_MAX if the unit conversion overflows. */
+    if (val > ULLONG_MAX / mul) return ULLONG_MAX;
     return val*mul;
 }
 

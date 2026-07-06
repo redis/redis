@@ -836,7 +836,7 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
     while (raxNext(&ri)) {
         void *newdata = activeDefragAlloc(ri.data);
         if (newdata)
-            raxSetData(ri.node, ri.data=newdata);
+            raxIteratorSetData(&ri, newdata);
         server.stat_active_defrag_scanned++;
         if (++iterations > 128) {
             if (getMonotonicUs() > endtime) {
@@ -885,7 +885,7 @@ void defragRadixTree(rax **raxref, int defrag_data, raxDefragFunction *element_c
         if (defrag_data && !newdata)
             newdata = activeDefragAlloc(ri.data);
         if (newdata)
-            raxSetData(ri.node, ri.data=newdata);
+            raxIteratorSetData(&ri, newdata);
     }
     raxStop(&ri);
 }

@@ -525,17 +525,70 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
     return p;
 }
 
+/* Like lpNext() but seeks 'n' entries forward, returning the resulting entry or
+ * NULL if the end of the listpack is reached. n == 0 returns 'p' unchanged. */
+unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n) {
+    size_t lpbytes = lpBytes(lp);
+    int validated = 1; /* If current entry is fully validated */
+    while (n && p) {
+        p = lpSkip(p);
+        /* Near the end, fully validate so the next lpSkip() can't run past
+         * the allocation; otherwise a cheap range check is enough, since
+         * lpSkip() reads at most 5 bytes of encoding from the entry start.*/
+        if (p + 5 >= lp + lpbytes) {
+            lpAssertValidEntry(lp, lpbytes, p);
+            validated = 1;
+        } else {
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lpbytes);
+            validated = 0;
+        }
+        if (p[0] == LP_EOF) return NULL;
+        n--;
+    }
+    if (p && !validated) lpAssertValidEntry(lp, lpbytes, p);
+    return p;
+}
+
+/* Step back to the start of the previous entry, without validating it. Caller
+ * must ensure 'p' is not the first entry. */
+static inline unsigned char *lpSkipPrev(unsigned char *p) {
+    p--; /* Seek the last backlen byte of the previous element. */
+    uint64_t prevlen = lpDecodeBacklen(p);
+    prevlen += lpEncodeBacklenBytes(prevlen);
+    p -= prevlen-1; /* Seek the first byte of the previous entry. */
+    return p;
+}
+
 /* If 'p' points to an element of the listpack, calling lpPrev() will return
  * the pointer to the previous element (the one on the left), or NULL if 'p'
  * already pointed to the first element of the listpack. */
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     assert(p);
     if (p-lp == LP_HDR_SIZE) return NULL;
-    p--; /* Seek the first backlen byte of the last element. */
-    uint64_t prevlen = lpDecodeBacklen(p);
-    prevlen += lpEncodeBacklenBytes(prevlen);
-    p -= prevlen-1; /* Seek the first byte of the previous entry. */
+    p = lpSkipPrev(p);
     lpAssertValidEntry(lp, lpBytes(lp), p);
+    return p;
+}
+
+/* Like lpPrev() but seeks 'n' entries backward, returning the resulting entry
+ * or NULL if the front of the listpack is reached. n == 0 returns 'p'. */
+unsigned char *lpPrevN(unsigned char *lp, unsigned char *p, unsigned long n) {
+    size_t lpbytes = lpBytes(lp);
+    int validated = 1; /* If current entry is fully validated */
+    while (n && p) {
+        if (p - lp == LP_HDR_SIZE) return NULL; /* First entry. */
+
+        /* Move to the previous entry, without fully validating it here.
+         * Here 'p' is at least LP_HDR_SIZE (6) bytes past lp, and the
+         * p-- inside lpSkipPrev() makes lpDecodeBacklen() read at most 5
+         * bytes (p[0] down to p[-4]), so it stays inside the allocation
+         * and never reads before lp. */
+        p = lpSkipPrev(p);
+        assert(p >= lp + LP_HDR_SIZE && p < lp + lpbytes);
+        validated = 0;
+        n--;
+    }
+    if (p && !validated) lpAssertValidEntry(lp, lpbytes, p);
     return p;
 }
 
@@ -1605,32 +1658,21 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
          * is past the half of the listpack. */
         if (index > (long)numele/2) {
             forward = 0;
-            /* Right to left scanning always expects a negative index. Convert
-             * our index to negative form. */
-            index -= numele;
+            index = (long)numele - index - 1; /* Backward steps from the last entry. */
         }
     } else {
         /* If the listpack length is unspecified, for negative indexes we
          * want to always scan right-to-left. */
-        if (index < 0) forward = 0;
+        if (index < 0) {
+            forward = 0;
+            index = -index - 1; /* Backward steps; -1 is the last entry. */
+        }
     }
 
-    /* Forward and backward scanning is trivially based on lpNext()/lpPrev(). */
-    if (forward) {
-        unsigned char *ele = lpFirst(lp);
-        while (index > 0 && ele) {
-            ele = lpNext(lp,ele);
-            index--;
-        }
-        return ele;
-    } else {
-        unsigned char *ele = lpLast(lp);
-        while (index < -1 && ele) {
-            ele = lpPrev(lp,ele);
-            index++;
-        }
-        return ele;
-    }
+    if (forward)
+        return lpNextN(lp, lpFirst(lp), index);
+    else
+        return lpPrevN(lp, lpLast(lp), index);
 }
 
 /* Same as lpFirst but without validation assert, to be used right before lpValidateNext. */
@@ -2686,6 +2728,48 @@ int listpackTest(int argc, char *argv[], int flags) {
             vstr = lpGet(p, &vlen, NULL);
             assert(999-i == vlen);
         }
+        lpFree(lp);
+    }
+
+    TEST("lpNextN fast path: lpSkip() reads at most 5 header bytes") {
+        /* lpNextN()'s fast path (used by lpSeek()) only fully validates an entry
+         * when it lands within 5 bytes of the listpack end. This margin is safe
+         * only while lpSkip() reads at most 5 bytes from an entry start. If this
+         * ever fails, the margin in lpNextN() must grow to match. */
+        for (int b = 0; b <= 0xff; b++)
+            assert(lpCurrentEncodedSizeBytes((unsigned char)b) <= 5);
+    }
+
+    TEST("lpNextN / lpPrevN: seek N entries") {
+        lp = lpNew(0);
+        assert(lpNextN(lp, lpFirst(lp), 0) == NULL);
+        assert(lpNextN(lp, lpFirst(lp), 3) == NULL);
+        assert(lpPrevN(lp, lpLast(lp), 3) == NULL);
+        assert(lpPrevN(lp, lpLast(lp), 0) == NULL);
+
+        char buf[16];
+        int n = 16;
+        for (int i = 0; i < n; i++) {
+            int len = snprintf(buf, sizeof(buf), "item-%d", i);
+            lp = lpAppend(lp, (unsigned char*)buf, len);
+        }
+        unsigned char *first = lpFirst(lp);
+        unsigned char *last = lpLast(lp);
+
+        /* Every element is reachable both ways */
+        for (int k = 0; k < n; k++) {
+            int len = snprintf(buf, sizeof(buf), "item-%d", k);
+            verifyEntry(lpNextN(lp, first, k), (unsigned char*)buf, len);
+            len = snprintf(buf, sizeof(buf), "item-%d", n - 1 - k);
+            verifyEntry(lpPrevN(lp, last, k), (unsigned char*)buf, len);
+        }
+
+        /* n == 0 returns unchanged. */
+        assert(lpNextN(lp, first, 0) == first);
+        assert(lpPrevN(lp, last, 0)  == last);
+        /* n==1 from either end returns NULL */ 
+        assert(lpNextN(lp, last, 1)  == NULL);
+        assert(lpPrevN(lp, first, 1) == NULL);
         lpFree(lp);
     }
 

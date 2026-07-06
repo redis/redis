@@ -271,6 +271,11 @@ static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
         te = te->next;
     }
 
+    /* The list may hold only events marked AE_DELETED_EVENT_ID, leaving no
+     * earliest timer. Mirror the empty-list case above and report "no timer"
+     * instead of dereferencing a NULL earliest. */
+    if (earliest == NULL) return -1;
+
     monotime now = getMonotonicUs();
     return (now >= earliest->when) ? 0 : earliest->when - now;
 }

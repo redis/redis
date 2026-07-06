@@ -2295,6 +2295,30 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         assert_equal {item1} [R 3 lrange $listkey 0 -1]
     }
 
+    test "RM_ResetDataset and RM_RdbLoad will cancel slot migration task" {
+        # RM_ResetDataset and RM_RdbLoad both flush the whole dataset, so they
+        # must cancel any ASM task on that node.
+        foreach resetcmd {asm.reset_dataset asm.rdbload} {
+            # node 0 is the source (migrate task), node 1 the destination (import task)
+            foreach node {0 1} {
+                R 0 flushall
+                R 1 flushall
+                set task_id [setup_slot_migration_with_delay 0 1 0 100]
+                assert_equal 1 [CI $node cluster_slot_migration_active_tasks]
+
+                assert_equal "OK" [R $node $resetcmd]
+                assert_equal "canceled" [migration_status $node $task_id state]
+                assert_equal 0 [CI $node cluster_slot_migration_active_tasks]
+
+                # cleanup
+                R 0 config set rdb-key-save-delay 0
+                R 0 CLUSTER MIGRATION CANCEL ID $task_id
+                R 1 CLUSTER MIGRATION CANCEL ID $task_id
+                wait_for_asm_done
+            }
+        }
+    }
+
     test "Test RM_ClusterCanAccessKeysInSlot" {
         # Test invalid slots
         assert_equal 0 [R 0 asm.cluster_can_access_keys_in_slot -1]
@@ -2833,6 +2857,43 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         R 1 flushall
     }
 
+    test "Test module replicates commands at the end of slot migration " {
+        R 0 flushall
+        R 1 flushall
+
+        # asm.read_keyless_cmd_val returns a global counter that is never reset,
+        # so capture the baseline instead of assuming a fixed value.
+        set base_keyless [R 1 asm.read_keyless_cmd_val]
+
+        # Enable module command replication at the end only.
+        # The module will replicate on the MIGRATE_MODULE_PROPAGATE_END event:
+        #  1- A keyless command: asm.keyless_cmd
+        #  2- SET command for the end key and value
+        set endkeyname [slot_key 0 moduleendkey]
+        R 0 asm.replicate_module_command 1 $endkeyname "endvalue" 1
+
+        setup_slot_migration_with_delay 0 1 0 100
+        wait_for_asm_done
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+
+        # Verify the commands replicated at the end. The keyless command is
+        # propagated once at the end, so the counter increases by 1.
+        assert_equal [expr {$base_keyless + 1}] [R 1 asm.read_keyless_cmd_val]
+        assert_equal endvalue [R 1 get $endkeyname]
+
+        # Verify the commands are replicated to replica
+        R 4 readonly
+        assert_equal [expr {$base_keyless + 1}] [R 4 asm.read_keyless_cmd_val]
+        assert_equal endvalue [R 4 get $endkeyname]
+
+        # cleanup
+        R 0 asm.replicate_module_command 0 "" "" 1
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 flushall
+        R 1 flushall
+    }
+
     test "Test subcommand propagation during slot migration" {
         R 0 flushall
         R 1 flushall
@@ -3091,4 +3152,47 @@ start_server {tags "cluster external:skip"} {
         assert_equal $ranges {}
     }
 }
+}
+
+# redis-cli --cluster reshard/rebalance automatically uses atomic slot migration.
+#
+# 3 masters, no replicas. continuous_slot_allocation distributes slots as:
+#   node 0: 0-5461     (5462 slots)
+#   node 1: 5462-10922 (5461 slots)
+#   node 2: 10923-16383 (5461 slots)
+set testmodule [file normalize tests/modules/atomicslotmigration.so]
+start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000]] {
+    set id0 [R 0 cluster myid]
+    set id1 [R 1 cluster myid]
+
+    test "redis-cli --cluster reshard automatically uses atomic slot migration" {
+        # Move the lowest 1000 slots (0-999) from node 0 to node 1 using ASM.
+        clear_module_event_log
+        exec src/redis-cli --cluster reshard 127.0.0.1:[get_port 0] \
+            --cluster-from $id0 --cluster-to $id1 \
+            --cluster-slots 1000 --cluster-yes
+        wait_for_asm_done
+
+        # Non-empty event logs confirm redis-cli used ASM.
+        assert {[R 0 asm.get_cluster_event_log] ne {}}
+        assert {[R 1 asm.get_cluster_event_log] ne {}}
+
+        assert_equal {{1000 5461}} [R 0 asm.cluster_get_local_slot_ranges]
+        assert_equal {{0 999} {5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
+    }
+
+    test "redis-cli --cluster rebalance automatically uses atomic slot migration" {
+        # Rebalance distributes 16384 slots evenly across the 3 nodes.
+        # (0-999) will be moved back to node 0.
+        clear_module_event_log
+        exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
+        wait_for_asm_done
+        # Non-empty event logs confirm redis-cli used ASM.
+        assert {[R 1 asm.get_cluster_event_log] ne {}}
+        assert {[R 0 asm.get_cluster_event_log] ne {}}
+
+        assert_equal {{0 5461}} [R 0 asm.cluster_get_local_slot_ranges]
+        assert_equal {{5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
+        assert_equal {{10923 16383}} [R 2 asm.cluster_get_local_slot_ranges]
+    }
 }

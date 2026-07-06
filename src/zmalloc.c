@@ -962,7 +962,7 @@ size_t zmalloc_get_frag_smallbins(void) {
  *
  * refresh_stats indicates whether to refresh cached statistics.
  * For the meaning of the other parameters, please refer to the function implementation
- * and INFO's allocator_* in redis-doc. */
+ * and INFO's allocator_* at https://redis.io/docs/latest/commands/info/ */
 int zmalloc_get_allocator_info(int refresh_stats, size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
@@ -1015,7 +1015,7 @@ int zmalloc_get_allocator_info(int refresh_stats, size_t *allocated, size_t *act
  *
  * refresh_stats indicates whether to refresh cached statistics.
  * For the meaning of the other parameters, please refer to the function implementation
- * and INFO's allocator_* in redis-doc. */
+ * and INFO's allocator_* at https://redis.io/docs/latest/commands/info/ */
 int zmalloc_get_allocator_info_by_arena(unsigned int arena, int refresh_stats, size_t *allocated,
                                         size_t *active, size_t *resident, size_t *frag_smallbins_bytes)
 {

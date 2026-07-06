@@ -66,8 +66,11 @@
 #define CLUSTER_MANAGER_SLOTS               16384
 #define CLUSTER_MANAGER_PORT_INCR           10000 /* same as CLUSTER_PORT_INCR */
 #define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
+#define CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT 3600000 /* 60 minutes */
 #define CLUSTER_MANAGER_MIGRATE_PIPELINE    10
 #define CLUSTER_MANAGER_REBALANCE_THRESHOLD 2
+/* CLUSTER MIGRATION, used by ASM, is available starting with Redis 8.4.0. */
+#define CLUSTER_MANAGER_ASM_MIN_VERSION     "8.4.0"
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
@@ -116,6 +119,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS 1 << 10
 #define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
 #define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
+#define CLUSTER_MANAGER_CMD_FLAG_TIMEOUT        1 << 13
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -867,20 +871,16 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
     return numCommands;
 }
 
-/* Gets the server version string by calling INFO SERVER.
- * Stores the result in config.server_version.
- * When not connected, or not possible, returns NULL. */
-static sds cliGetServerVersion(void) {
+/* Gets the server version string from the given context by calling INFO SERVER.
+ * The caller owns the returned SDS. When not connected, or not possible,
+ * returns NULL. */
+static sds cliGetServerVersionFromContext(redisContext *ctx) {
     static const char *key = "\nredis_version:";
     redisReply *serverInfo = NULL;
     char *pos;
 
-    if (config.server_version != NULL) {
-        return config.server_version;
-    }
-
-    if (!context) return NULL;
-    serverInfo = redisCommand(context, "INFO SERVER");
+    if (!ctx) return NULL;
+    serverInfo = redisCommand(ctx, "INFO SERVER");
     if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
         freeReplyObject(serverInfo);
         return sdsempty();
@@ -897,12 +897,26 @@ static sds cliGetServerVersion(void) {
         if (end) {
             sds version = sdsnewlen(pos, end - pos);
             freeReplyObject(serverInfo);
-            config.server_version = version;
             return version;
         }
     }
     freeReplyObject(serverInfo);
     return NULL;
+}
+
+/* Gets the server version string by calling INFO SERVER.
+ * Stores the result in config.server_version.
+ * When not connected, or not possible, returns NULL. */
+static sds cliGetServerVersion(void) {
+    if (config.server_version != NULL) {
+        return config.server_version;
+    }
+
+    sds version = cliGetServerVersionFromContext(context);
+    if (version != NULL && sdslen(version) != 0) {
+        config.server_version = version;
+    }
+    return version;
 }
 
 static void cliLegacyInitHelp(dict *groups) {
@@ -2970,6 +2984,8 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.slots = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-timeout") && !lastarg) {
             config.cluster_manager_command.timeout = atoi(argv[++i]);
+            config.cluster_manager_command.flags |=
+                CLUSTER_MANAGER_CMD_FLAG_TIMEOUT;
         } else if (!strcmp(argv[i],"--cluster-pipeline") && !lastarg) {
             config.cluster_manager_command.pipeline = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-threshold") && !lastarg) {
@@ -3826,6 +3842,7 @@ typedef struct clusterManagerNode {
     int importing_count; /* Length of the importing array (importing slots*2) */
     float weight;   /* Weight used by rebalance */
     int balance;    /* Used by rebalance */
+    sds server_version;
 } clusterManagerNode;
 
 /* Data structure used to represent a sequence of cluster nodes. */
@@ -3943,11 +3960,11 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"fix", clusterManagerCommandFix, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners,fix-with-unreachable-masters"},
     {"reshard", clusterManagerCommandReshard, -1, "<host:port> or <host> <port> - separated by either colon or space",
-     "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>,"
+     "from <arg>,to <arg>,slots <arg>,yes,timeout <ms>,pipeline <arg>,"
      "replace"},
     {"rebalance", clusterManagerCommandRebalance, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
-     "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
+     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
@@ -4116,6 +4133,7 @@ static void freeClusterManagerNode(clusterManagerNode *node) {
         freeClusterManagerNodeFlags(node->flags_str);
         node->flags_str = NULL;
     }
+    if (node->server_version != NULL) sdsfree(node->server_version);
     zfree(node);
 }
 
@@ -4168,6 +4186,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_por
     node->replicas_count = 0;
     node->weight = 1.0f;
     node->balance = 0;
+    node->server_version = NULL;
     clusterManagerNodeResetSlots(node);
     return node;
 }
@@ -5423,6 +5442,169 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
     return 1;
 }
 
+static int clusterManagerSlotIntCompare(const void *s1, const void *s2) {
+    return (*(const int *)s1) - (*(const int *)s2);
+}
+
+/* CLUSTER MIGRATION task states */
+#define CLUSTER_ASM_NONE        0
+#define CLUSTER_ASM_IN_PROGRESS 1
+#define CLUSTER_ASM_CANCELED    2
+#define CLUSTER_ASM_COMPLETED   3
+
+/* Query the ASM task 'task_id' on 'node' via CLUSTER MIGRATION STATUS.
+ * Returns positive value if the task was found, 0 if not found,
+ * and -1 on other errors otherwise. */
+static int clusterManagerAsmTaskState(clusterManagerNode *node, sds task_id, char **err) {
+    redisReply *st = CLUSTER_MANAGER_COMMAND(node,
+        "CLUSTER MIGRATION STATUS ID %s", task_id);
+    if (!clusterManagerCheckRedisReply(node, st, err)) {
+        if (st) freeReplyObject(st);
+        return -1;
+    }
+
+    int state = CLUSTER_ASM_NONE;
+    if (st->type == REDIS_REPLY_ARRAY && st->elements > 0) {
+        redisReply *m = st->element[0];
+        for (size_t i = 0; i + 1 < m->elements; i += 2) {
+            redisReply *k = m->element[i], *v = m->element[i + 1];
+            if (k->type != REDIS_REPLY_STRING || v->type != REDIS_REPLY_STRING)
+                continue;
+            if (!strcmp(k->str, "state")) {
+                if (!strcmp(v->str, "canceled")) state = CLUSTER_ASM_CANCELED;
+                else if (!strcmp(v->str, "completed")) state = CLUSTER_ASM_COMPLETED;
+                else state = CLUSTER_ASM_IN_PROGRESS; /* Redis will retry even failed. */
+                break;
+            }
+        }
+    }
+    freeReplyObject(st);
+    return state;
+}
+
+/* Atomically move the given 'slots' to 'target' using ASM instead of
+ * per-key MIGRATE. The slots are merged into contiguous ranges and
+ * sent via "CLUSTER MIGRATION IMPORT <start end start end ...>".
+ * The task is then polled until both the target and the source report
+ * completion. A heartbeat dot is printed each second unless
+ * CLUSTER_MANAGER_OPT_QUIET is set in 'opts'.
+ *
+ * The source node is resolved by the target from its cluster topology.
+ * '--cluster-timeout' limits the wait; 0 means wait forever.
+ * Returns 1 on success, 0 on failure (sets '*err' if not NULL). */
+static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
+                                         clusterManagerNode *target,
+                                         int *slots, int num_slots, 
+                                         int opts, char **err)
+{
+    if (err != NULL) *err = NULL;
+    if (num_slots <= 0) return 1;
+
+    qsort(slots, num_slots, sizeof(int), clusterManagerSlotIntCompare);
+
+    /* Build "CLUSTER MIGRATION IMPORT <start end> ..." argv. */
+    char **argv = zcalloc((3 + num_slots * 2) * sizeof(char *));
+    argv[0] = "CLUSTER";
+    argv[1] = "MIGRATION";
+    argv[2] = "IMPORT";
+    int argv_idx = 3, start = slots[0];
+    for (int i = 1; i <= num_slots; i++) {
+        if (i == num_slots || slots[i] != slots[i - 1] + 1) {
+            argv[argv_idx++] = sdscatprintf(sdsempty(), "%d", start);
+            argv[argv_idx++] = sdscatprintf(sdsempty(), "%d", slots[i - 1]);
+            if (i < num_slots) start = slots[i];
+        }
+    }
+
+    /* Send CLUSTER MIGRATION IMPORT command. */
+    redisReply *reply = NULL;
+    redisAppendCommandArgv(target->context, argv_idx, (const char **)argv, NULL);
+    redisGetReply(target->context, (void **)&reply);
+    for (int i = 3; i < argv_idx; i++)
+        sdsfree(argv[i]);
+    zfree(argv);
+    /* Handle reply of CLUSTER MIGRATION IMPORT. */
+    if (!clusterManagerCheckRedisReply(target, reply, err)) {
+        if (reply) freeReplyObject(reply);
+        return 0;
+    }
+    if (reply->type != REDIS_REPLY_STRING) {
+        if (err != NULL)
+            *err = zstrdup("unexpected reply to CLUSTER MIGRATION IMPORT");
+        freeReplyObject(reply);
+        return 0;
+    }
+    sds task_id = sdsnewlen(reply->str, reply->len);
+    freeReplyObject(reply);
+
+    /* Print a message to inform the user the migration has started. */
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET))
+        printf("Waiting for migration task %s to complete", task_id);
+
+    /* Poll until completed/canceled/timeout. When the user did not explicitly
+     * set --cluster-timeout, ASM uses a larger default since a single task may
+     * migrate a large amount of data. */
+    int timeout = config.cluster_manager_command.timeout;
+    if (!(config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_TIMEOUT))
+        timeout = CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT;
+    long long start_time = mstime();
+    char errbuf[256];
+    int success = 0;
+    while (1) {
+        int dst_state = clusterManagerAsmTaskState(target, task_id, err);
+        int src_state = clusterManagerAsmTaskState(source, task_id, err);
+
+        if (src_state == -1 || dst_state == -1) {
+            if (err != NULL && *err == NULL) *err = zstrdup("reply error");
+            break;
+        }
+
+        /* The migration is only considered successful when both the target
+         * and the source report "completed" */
+        if (dst_state == CLUSTER_ASM_COMPLETED && src_state == CLUSTER_ASM_COMPLETED) {
+            success = 1;
+            break;
+        }
+
+        /* If either the target or the source reports "canceled", we stop
+         * waiting and declare the migration as failed. */
+        if (dst_state == CLUSTER_ASM_CANCELED || src_state == CLUSTER_ASM_CANCELED) {
+            if (err != NULL) *err = zstrdup("atomic slot migration is canceled");
+            break;
+        }
+
+        /* Check if timeout */
+        if (timeout > 0 && (mstime() - start_time) >= timeout) {
+            redisReply *c = CLUSTER_MANAGER_COMMAND(target, "CLUSTER MIGRATION CANCEL ID %s", task_id);
+            if (c) freeReplyObject(c);
+            if (err != NULL) {
+                snprintf(errbuf, sizeof(errbuf), "timed out after %d ms, task %s cancelled", timeout, task_id);
+                *err = zstrdup(errbuf);
+            }
+            break;
+        }
+
+        /* Heartbeat: print a dot each second so the user can see the
+         * migration is still in progress. */
+        if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) {
+            printf(".");
+            fflush(stdout);
+        }
+        sleep(1);
+    }
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) printf("\n");
+    sdsfree(task_id);
+
+    /* Update the node logical config. */
+    if (success && (opts & CLUSTER_MANAGER_OPT_UPDATE)) {
+        for (int i = 0; i < num_slots; i++) {
+            source->slots[slots[i]] = 0;
+            target->slots[slots[i]] = 1;
+        }
+    }
+    return success;
+}
+
 /* Flush the dirty node configuration by calling replicate for slaves or
  * adding the slots defined in the masters. */
 static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
@@ -5767,6 +5949,44 @@ invalid_friend:
             } else master->replicas_count++;
         }
     }
+    return 1;
+}
+
+/* Gets and caches the Redis server version for a cluster manager node. */
+static sds clusterManagerNodeGetServerVersion(clusterManagerNode *node) {
+    sds version = NULL;
+    if (node->server_version != NULL) return node->server_version;
+
+    if (node->context == NULL && !clusterManagerNodeConnect(node)) return NULL;
+
+    version = cliGetServerVersionFromContext(node->context);
+    if (version == NULL || sdslen(version) == 0) {
+        if (version) sdsfree(version);
+        return NULL;
+    }
+    node->server_version = version;
+    return node->server_version;
+}
+
+/* Returns true when ASM can be selected automatically for cluster slot moves. */
+static int clusterManagerShouldUseAtomicSlotMigration(void) {
+    if (cluster_manager.nodes == NULL) return 0;
+
+    sds min_version = sdsnew(CLUSTER_MANAGER_ASM_MIN_VERSION);
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        sds server_version = clusterManagerNodeGetServerVersion(n);
+        if (server_version == NULL ||
+            !versionIsSupported(server_version, min_version))
+        {
+            sdsfree(min_version);
+            return 0;
+        }
+    }
+    sdsfree(min_version);
     return 1;
 }
 
@@ -7683,7 +7903,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             } else {
                 clusterManagerNode *src =
                     clusterNodeForResharding(buf, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7700,7 +7921,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             } else {
                 clusterManagerNode *src =
                     clusterNodeForResharding(from, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7714,7 +7936,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             if (!all) {
                 clusterManagerNode *src =
                     clusterNodeForResharding(from, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7770,19 +7993,55 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             goto cleanup;
         }
     }
-    int opts = CLUSTER_MANAGER_OPT_VERBOSE;
-    listRewind(table, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        clusterManagerReshardTableItem *item = ln->value;
-        char *err = NULL;
-        result = clusterManagerMoveSlot(item->source, target, item->slot,
-                                        opts, &err);
-        if (!result) {
-            if (err != NULL) {
-                clusterManagerLogErr("clusterManagerMoveSlot failed: %s\n", err);
-                zfree(err);
+    if (clusterManagerShouldUseAtomicSlotMigration()) {
+        /* For each source, collect its slots and migrate them in one atomic
+         * call. CLUSTER MIGRATION IMPORT only accepts a single source per
+         * task, so we must issue one call per source node. */
+        int *slots_arr = zmalloc(listLength(table) * sizeof(int));
+        listRewind(sources, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            /* Scan the whole table, we don't rely on its items being grouped by source. */
+            clusterManagerNode *src = ln->value;
+            int slot_num = 0;
+            listIter ti;
+            listNode *tn;
+            listRewind(table, &ti);
+            while ((tn = listNext(&ti)) != NULL) {
+                clusterManagerReshardTableItem *it = tn->value;
+                if (it->source == src)
+                    slots_arr[slot_num++] = it->slot;
             }
-            goto cleanup;
+            if (slot_num == 0) continue;
+
+            printf("Moving %d slots from %s:%d to %s:%d\n",
+                    slot_num, src->ip, src->port, target->ip, target->port);
+            char *err = NULL;
+            result = clusterManagerAtomicMoveSlots(src, target, slots_arr, slot_num, 0, &err);
+            if (!result) {
+                if (err) {
+                    clusterManagerLogErr("clusterManagerAtomicMoveSlots: %s\n", err);
+                    zfree(err);
+                }
+                break;
+            }
+        }
+        zfree(slots_arr);
+        if (!result) goto cleanup;
+    } else {
+        int opts = CLUSTER_MANAGER_OPT_VERBOSE;
+        listRewind(table, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerReshardTableItem *item = ln->value;
+            char *err = NULL;
+            result = clusterManagerMoveSlot(item->source, target, item->slot,
+                                            opts, &err);
+            if (!result) {
+                if (err != NULL) {
+                    clusterManagerLogErr("clusterManagerMoveSlot failed: %s\n", err);
+                    zfree(err);
+                }
+                goto cleanup;
+            }
         }
     }
 cleanup:
@@ -7922,6 +8181,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     int src_idx = nodes_involved - 1;
     int simulate = config.cluster_manager_command.flags &
                    CLUSTER_MANAGER_CMD_FLAG_SIMULATE;
+    int use_asm = !simulate && clusterManagerShouldUseAtomicSlotMigration();
     while (dst_idx < src_idx) {
         clusterManagerNode *dst = weightedNodes[dst_idx];
         clusterManagerNode *src = weightedNodes[src_idx];
@@ -7946,11 +8206,35 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
                 result = 0;
                 goto end_move;
             }
+            int opts = CLUSTER_MANAGER_OPT_QUIET |
+                       CLUSTER_MANAGER_OPT_UPDATE;
             if (simulate) {
                 for (i = 0; i < table_len; i++) printf("#");
+            } else if (use_asm) {
+                /* Atomically migrate the whole batch of slots at once. */
+                int *slots = zmalloc(table_len * sizeof(int));
+                int ns = 0;
+                listRewind(table, &li);
+                while ((ln = listNext(&li)) != NULL) {
+                    clusterManagerReshardTableItem *item = ln->value;
+                    slots[ns++] = item->slot;
+                    assert(item->source == src);
+                }
+                char *err = NULL;
+                result = clusterManagerAtomicMoveSlots(src, dst, slots, ns, opts, &err);
+                if (!result) {
+                    clusterManagerLogErr("*** clusterManagerAtomicMoveSlots: "
+                                         "%s\n", err ? err : "(null)");
+                    zfree(err);
+                    zfree(slots);
+                    goto end_move;
+                }
+                zfree(slots);
+                for (i = 0; i < table_len; i++)
+                    printf("#");
+                fflush(stdout);
             } else {
-                int opts = CLUSTER_MANAGER_OPT_QUIET |
-                           CLUSTER_MANAGER_OPT_UPDATE;
+                /* Migrate slots one by one. */
                 listRewind(table, &li);
                 while ((ln = listNext(&li)) != NULL) {
                     clusterManagerReshardTableItem *item = ln->value;

@@ -155,6 +155,30 @@ typedef struct streamPropInfo {
     robj *groupname;
 } streamPropInfo;
 
+/* Parameters controlling how streamReplyWithRange() fetches and emits entries.
+ * Bundled into a struct so callers can use designated initializers and avoid a
+ * long, error-prone positional argument list. Fields left unset are zero, which
+ * matches "no group", "no propagation", "no limit", etc.; note that
+ * 'min_idle_time' must be set to -1 to disable the idle-time filter. */
+typedef struct streamReplyRangeArgs {
+    streamID *start;            /* Inclusive range start (NULL for open start). */
+    streamID *end;              /* Inclusive range end (NULL for open end). */
+    size_t count;               /* Max entries to emit (0 means unlimited). */
+    int rev;                    /* Iterate in reverse order if non-zero. */
+    long long min_idle_time;    /* Only serve PEL entries idle for this long;
+                                   -1 disables idle-time filtering. */
+    streamCG *group;            /* Consumer group, or NULL. */
+    streamConsumer *consumer;   /* Consumer within the group, or NULL. */
+    int flags;                  /* STREAM_RWR_* flags. */
+    streamPropInfo *spi;        /* Propagation info, or NULL for no propagation. */
+    unsigned long *propCount;   /* Out: number of propagated commands, or NULL. */
+    long long maxsize;          /* Byte budget for the reply (0 means unlimited).
+                                   Already includes the output-bytes baseline, so
+                                   MAXSIZE is checked against the absolute
+                                   c->net_output_bytes_curr_cmd. */
+    size_t emitted_before;      /* Entries already emitted before this call. */
+} streamReplyRangeArgs;
+
 /* Prototypes of exported APIs. */
 struct client;
 
@@ -168,7 +192,7 @@ struct client;
 stream *streamNew(void);
 void freeStream(stream *s);
 unsigned long streamLength(const robj *subject);
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount);
+size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args);
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);

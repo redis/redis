@@ -246,7 +246,7 @@ void createReplicationBacklog(void) {
     server.repl_backlog = zmalloc(sizeof(replBacklog));
     server.repl_backlog->ref_repl_buf_node = NULL;
     server.repl_backlog->unindexed_count = 0;
-    server.repl_backlog->blocks_index = raxNew();
+    server.repl_backlog->blocks_index = raxNewEx(0, NULL, sizeof(uint64_t));
     server.repl_backlog->histlen = 0;
     /* We don't have any data inside our buffer, but virtually the first
      * byte we have is the next byte that will be generated for the
@@ -307,7 +307,7 @@ void createReplicationBacklogIndex(listNode *ln) {
  * setting offset starts from 0 when master restart. */
 void rebaseReplicationBuffer(long long base_repl_offset) {
     raxFree(server.repl_backlog->blocks_index);
-    server.repl_backlog->blocks_index = raxNew();
+    server.repl_backlog->blocks_index = raxNewEx(0, NULL, sizeof(uint64_t));
     server.repl_backlog->unindexed_count = 0;
 
     listIter li;

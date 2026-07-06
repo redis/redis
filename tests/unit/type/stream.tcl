@@ -3099,6 +3099,97 @@ start_server {
         assert_equal $res {{lestream {{3-0 {k3 v3}}}}}
     }
 
+    # Count the total number of entries across all streams in an XREAD reply.
+    proc xread_total_entries {res} {
+        set total 0
+        foreach stream $res {
+            incr total [llength [lindex $stream 1]]
+        }
+        return $total
+    }
+
+    test {XREAD MAXCOUNT/MAXSIZE argument validation} {
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREAD COUNT 50 MAXCOUNT 10 STREAMS mcstream1{t} 0}
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREAD MAXCOUNT 0 STREAMS mcstream1{t} 0}
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREAD MAXCOUNT -1 STREAMS mcstream1{t} 0}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREAD MAXSIZE 0 STREAMS mcstream1{t} 0}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREAD MAXSIZE -5 STREAMS mcstream1{t} 0}
+        assert_error "*not an integer*" {r XREAD MAXCOUNT foo STREAMS mcstream1{t} 0}
+    }
+
+    test {XREAD MAXCOUNT caps total entries across streams} {
+        r DEL mcstream1{t} mcstream2{t} mcstream3{t}
+        for {set i 0} {$i < 100} {incr i} {
+            r XADD mcstream1{t} * f v$i
+            r XADD mcstream2{t} * f v$i
+            r XADD mcstream3{t} * f v$i
+        }
+        # Without MAXCOUNT, COUNT is per-stream: 50 * 3 = 150 entries.
+        set res [r XREAD COUNT 50 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 150 [xread_total_entries $res]
+        # With MAXCOUNT 80 the cumulative total is capped at 80.
+        set res [r XREAD COUNT 50 MAXCOUNT 80 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 80 [xread_total_entries $res]
+    }
+
+    test {XREAD MAXCOUNT without COUNT caps total entries} {
+        # No per-stream COUNT, only a cumulative cap.
+        set res [r XREAD MAXCOUNT 7 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 7 [xread_total_entries $res]
+        # All 7 entries come from the first stream (it has >= 7 entries).
+        assert_equal {mcstream1{t}} [lindex $res 0 0]
+        assert_equal 1 [llength $res]
+    }
+
+    test {XREAD MAXCOUNT equal to COUNT behaves like COUNT on a single stream} {
+        set a [r XREAD COUNT 10 STREAMS mcstream1{t} 0]
+        set b [r XREAD COUNT 10 MAXCOUNT 10 STREAMS mcstream1{t} 0]
+        assert_equal $a $b
+    }
+
+    test {XREAD MAXSIZE limits the reply size across streams} {
+        # The capped reply must contain fewer entries than the unbounded reply.
+        set full [r XREAD STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        set capped [r XREAD MAXSIZE 200 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert {[xread_total_entries $capped] < [xread_total_entries $full]}
+        assert {[xread_total_entries $capped] >= 1}
+    }
+
+    test {XREAD MAXSIZE still returns a single oversized message} {
+        r DEL bigstream
+        r XADD bigstream 1-1 f [string repeat x 5000]
+        # MAXSIZE is much smaller than the single entry, but it is still returned.
+        set res [r XREAD MAXSIZE 50 STREAMS bigstream 0]
+        assert_equal 1 [xread_total_entries $res]
+        assert_equal 1-1 [lindex $res 0 1 0 0]
+    }
+
+    test {XREAD MAXSIZE and MAXCOUNT together, whichever triggers first} {
+        # MAXCOUNT 5 is the tighter bound here.
+        set res [r XREAD MAXCOUNT 5 MAXSIZE 100000 STREAMS mcstream1{t} mcstream2{t} mcstream3{t} 0 0 0]
+        assert_equal 5 [xread_total_entries $res]
+    }
+
+    test {XREAD MAXSIZE budget is per-command inside MULTI/EXEC} {
+        r DEL stream
+        for {set i 0} {$i < 50} {incr i} {
+            r XADD stream * f v$i
+        }
+        set solo [r XREAD MAXSIZE 1000 STREAMS stream 0]
+        assert {[xread_total_entries $solo] > 1}
+
+        # A large reply before XREAD in the same EXEC must not consume its budget.
+        r MULTI
+        r XRANGE stream - +
+        r XREAD MAXSIZE 1000 STREAMS stream 0
+        set res [r EXEC]
+        set in_exec [lindex $res 1]
+        if {$::force_resp3} {
+            set in_exec [transfrom_map_to_tupple_array {XREAD} $in_exec]
+        }
+        assert_equal [xread_total_entries $solo] [xread_total_entries $in_exec]
+    }
+
     test "XREAD: read last element after XDEL (issue #13628)" {
         # Should return actual last element after XDEL of current last element
 
