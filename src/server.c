@@ -2416,7 +2416,6 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
-    server.debug_fork_fail = 0;
     server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
@@ -7428,36 +7427,18 @@ void closeChildUnusedResourceAfterFork(void) {
 
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
-    /* Guards against re-entrant RM_Fork from a FORK_CHILD_PRE event handler. */
-    static int fork_in_progress = 0;
+    if (isMutuallyExclusiveChildType(purpose)) {
+        if (hasActiveChildProcess()) {
+            errno = EEXIST;
+            return -1;
+        }
 
-    if (fork_in_progress ||
-        (isMutuallyExclusiveChildType(purpose) && hasActiveChildProcess()))
-    {
-        errno = EEXIST;
-        return -1;
-    }
-    fork_in_progress = 1;
-
-    /* Let multi-threaded modules reach a fork-safe point: a background thread
-     * holding a lock (e.g. the allocator lock) at fork() time would deadlock the
-     * child. Handlers run synchronously and resume on FORK_CHILD_BORN/CANCELLED */
-    moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                          REDISMODULE_SUBEVENT_FORK_CHILD_PRE,
-                          NULL);
-
-    if (isMutuallyExclusiveChildType(purpose))
         openChildInfoPipe();
+    }
 
     int childpid;
     long long start = ustime();
-    if (server.debug_fork_fail) { /* used by tests */
-        errno = EAGAIN;
-        childpid = -1;
-    } else {
-        childpid = fork();
-    }
-    if (childpid == 0) {
+    if ((childpid = fork()) == 0) {
         /* Child.
          *
          * The order of setting things up follows some reasoning:
@@ -7482,12 +7463,6 @@ int redisFork(int purpose) {
         if (childpid == -1) {
             int fork_errno = errno;
             if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
-            /* The fork we prepared for did not happen; let modules resume the
-             * background threads they quiesced on FORK_CHILD_PRE. */
-            moduleFireServerEvent(REDISMODULE_EVENT_FORK_CHILD,
-                                  REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED,
-                                  NULL);
-            fork_in_progress = 0;
             errno = fork_errno;
             return -1;
         }
@@ -7520,7 +7495,6 @@ int redisFork(int purpose) {
                               REDISMODULE_SUBEVENT_FORK_CHILD_BORN,
                               NULL);
     }
-    fork_in_progress = 0;
     return childpid;
 }
 
