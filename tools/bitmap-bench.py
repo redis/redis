@@ -767,7 +767,19 @@ class RedisBitmapBench:
 
     def convert_to_native(self, key: str) -> None:
         if self.args.mode == "native":
-            self.client.execute(["BITMAP", "CONVERT", key, "NATIVE"])
+            old = False
+            try:
+                old = decode_text(self.client.execute(["CONFIG", "GET", "bitmap-default-roaring"])[1]).lower() == "yes"
+            except BenchError:
+                old = False
+            try:
+                if int(self.client.execute(["STRLEN", key])) == 0:
+                    return
+                self.set_default_roaring(True, required=True)
+                bit = int(self.client.execute(["GETBIT", key, "0"]))
+                self.client.execute(["SETBIT", key, "0", str(bit)])
+            finally:
+                self.set_default_roaring(old, required=False)
 
     def module_cmd(self, name: str) -> str:
         return f"{self.args.module_command_prefix}.{name}"
@@ -1515,8 +1527,17 @@ class RedisBitmapBench:
     def setup_bitfield_native_write(self) -> None:
         self.set_default_roaring(False, required=False)
         self.client.execute(["DEL", "bench:bitmap:bitfield:write"])
-        self.client.execute(["SET", "bench:bitmap:bitfield:write", b""])
-        self.convert_to_native("bench:bitmap:bitfield:write")
+        if self.args.mode == "native":
+            self.set_default_roaring(True, required=True)
+            try:
+                # No public zero-length native creation path remains after
+                # removing BITMAP CONVERT. Seed the smallest existing native
+                # bitmap so the measured BITFIELD command uses the native path.
+                self.client.execute(["SETBIT", "bench:bitmap:bitfield:write", "0", "0"])
+            finally:
+                self.set_default_roaring(False, required=False)
+        else:
+            self.client.execute(["SET", "bench:bitmap:bitfield:write", b""])
 
     def setup_bitop_mixed(self) -> None:
         keys = [
@@ -2493,7 +2514,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--src-dir", help="Path to src containing redis-server, redis-cli, and redis-benchmark")
     parser.add_argument("--mode", choices=("native", "legacy", "module"), default="native",
-                        help=("native uses bitmap-default-roaring/convert; legacy uses string bitmap data only; "
+                        help=("native uses bitmap-default-roaring; legacy uses string bitmap data only; "
                               "module uses redis-roaring R.* commands"))
     parser.add_argument("--mode-label", default="redis-pr-native",
                         help="Label written to JSON/CSV/Markdown output")

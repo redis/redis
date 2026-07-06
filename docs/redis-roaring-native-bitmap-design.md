@@ -4,8 +4,8 @@
 > in this fork, not upstream maintainer approval. Design status and
 > implementation status are listed separately because several tracker decisions
 > are still moving. The current `unstable` implementation has `OBJ_BITMAP`,
-> `bitmap-roaring`, `bitmap-default-roaring`, `BITMAP CONVERT`, direct native
-> bitmap command support, and RESTORE-based type-transition propagation. DD-17
+> `bitmap-roaring`, `bitmap-default-roaring`, direct native bitmap command
+> support, and RESTORE-based type-transition propagation. DD-17
 > settled the v1 index-width rule: native bitmaps keep `roaring64_bitmap_t`
 > internally, but their logical length is capped at 512 MiB (max bit offset
 > `4294967295`). Bitmap writes also honor `proto-max-bulk-len`; read-only
@@ -25,8 +25,8 @@ number counter - see the breakdown document for the current mapping).
 
 - Keep the existing Redis bitmap command surface: `SETBIT`, `GETBIT`,
   `BITCOUNT`, `BITPOS`, `BITOP`, `BITFIELD`, and `BITFIELD_RO`.
-- Use a native `OBJ_BITMAP` type for values that opt in to bitmap conversion
-  or are created through the configured native-bitmap path.
+- Use a native `OBJ_BITMAP` type for values that are created through the
+  configured native-bitmap path or loaded from native bitmap payloads.
 - Allow native bitmap values to use a Roaring-backed internal encoding with an
   explicit logical byte length.
 - Preserve all existing behavior for legacy bitmap values that remain
@@ -64,7 +64,8 @@ the command-facing docs and tests for this boundary.
 - `TYPE key` returns `string` for legacy bitmap strings.
 - `TYPE key` returns `bitmap` for native bitmap values.
 - Bitmap-command writes may transition string bitmap values to `bitmap` when
-  native creation is enabled.
+  native creation is enabled, currently through `bitmap-default-roaring yes` or
+  native load/RESTORE/replication paths.
 - Generic string commands reject native bitmap values with `WRONGTYPE`; v1 does
   not include an explicit native-to-string materialization command.
 - `OBJECT ENCODING key` returns `bitmap-roaring` for the current native
@@ -77,10 +78,10 @@ the command-facing docs and tests for this boundary.
 | Observable type model | Ready locally: native bitmaps are an observable `OBJ_BITMAP` / `TYPE bitmap`, not transparent string compression. | Implemented. `OBJECT ENCODING` reports `bitmap-roaring`. | [#21](https://github.com/aviggiano/redis/issues/21), [PR #39](https://github.com/aviggiano/redis/pull/39) |
 | Internal encoding and logical length | Ready locally for Roaring-backed storage with explicit logical byte length and a bounded v1 native index space. | Implemented with `roaring64_bitmap_t`, `byte_len`, and a 512 MiB native logical length cap. | [#25](https://github.com/aviggiano/redis/issues/25), [PR #38](https://github.com/aviggiano/redis/pull/38) |
 | Public offset and index-width model | DD-17 resolved v1 in favor of 64-bit-capable internals with the safer bounded native surface, not a switch to 32-bit Roaring. | Native bitmaps are capped at 512 MiB / max bit `4294967295`; writes also obey `proto-max-bulk-len`, and read-only native lookups may exceed a lower current `proto-max-bulk-len` only within the native cap. | [#24](https://github.com/aviggiano/redis/issues/24), [#42](https://github.com/aviggiano/redis/issues/42), [PR #43](https://github.com/aviggiano/redis/pull/43) |
-| Creation and conversion controls | Ready locally for DD-03 boundary behavior: native bitmap creation is observable, but there is no v1 convert-back command. The remaining public command-surface cleanup is tracked by DD-01/DD-07. | Implemented with draft `BITMAP CONVERT` still present in current `unstable`. `no` preserves legacy string creation unless conversion is explicit; `yes` creates/converts native bitmaps on bitmap writes. | [#20](https://github.com/aviggiano/redis/issues/20), [#22](https://github.com/aviggiano/redis/issues/22), [#26](https://github.com/aviggiano/redis/issues/26), [PR #13](https://github.com/aviggiano/redis/pull/13), [PR #15](https://github.com/aviggiano/redis/pull/15) |
+| Creation and conversion controls | Ready locally: v1 keeps legacy string bitmap creation by default, omits threshold configs, and does not expose `BITMAP CONVERT`. | Implemented. `bitmap-default-roaring no` preserves legacy string creation unless the key is already native through load/RESTORE/replication or a native BITOP source; `yes` creates/converts native bitmaps on bitmap writes. | [#20](https://github.com/aviggiano/redis/issues/20), [#22](https://github.com/aviggiano/redis/issues/22), [#26](https://github.com/aviggiano/redis/issues/26), [PR #13](https://github.com/aviggiano/redis/pull/13), [PR #15](https://github.com/aviggiano/redis/pull/15) |
 | Existing bitmap commands | Ready locally: existing bitmap commands must work on both legacy strings and native bitmaps without fallback in `unstable`. | Implemented for `SETBIT`, `GETBIT`, `BITCOUNT`, `BITPOS`, `BITFIELD`, `BITFIELD_RO`, and `BITOP`, with parity/oracle coverage. | [#23](https://github.com/aviggiano/redis/issues/23), merged landing PRs [PR #40](https://github.com/aviggiano/redis/pull/40) and [PR #41](https://github.com/aviggiano/redis/pull/41); historical stacked PRs later landed through [PR #40](https://github.com/aviggiano/redis/pull/40): [PR #10](https://github.com/aviggiano/redis/pull/10), [PR #11](https://github.com/aviggiano/redis/pull/11), [PR #12](https://github.com/aviggiano/redis/pull/12) |
 | `BITOP` destination and dense `NOT` limits | Ready locally: mixed legacy/native `BITOP` preserves Redis return values; native destinations follow source type or `bitmap-default-roaring` and are bounded by the v1 native cap plus `proto-max-bulk-len` when lower; `NOT` is the dense/materializing case. | Implemented, including mixed-source alias coverage, native-destination limit guards, and oversized `NOT` coverage. | [#30](https://github.com/aviggiano/redis/issues/30), [#31](https://github.com/aviggiano/redis/issues/31), [PR #36](https://github.com/aviggiano/redis/pull/36), [PR #37](https://github.com/aviggiano/redis/pull/37) |
-| Generic string command boundary | Ready locally: bitmap commands support both legacy strings and native bitmaps; generic string commands reject native bitmap values with `WRONGTYPE`; v1 has no explicit native-to-string materialization command. | Implemented with regression coverage for generic string commands, string-adjacent reads, Lua, modules, and legacy string bitmap behavior. Plain `SET` can still replace any key with a string. | [#22](https://github.com/aviggiano/redis/issues/22), [PR #8](https://github.com/aviggiano/redis/pull/8), [PR #39](https://github.com/aviggiano/redis/pull/39) |
+| Generic string command boundary | Ready locally: bitmap commands support both legacy strings and native bitmaps; generic string commands reject native bitmap values with `WRONGTYPE`; ordinary writes such as `SET` can replace a native key with a string; v1 has no explicit native-to-string materialization command. | Implemented with regression coverage for generic string commands, string-adjacent reads, Lua, modules, and legacy string bitmap behavior. | [#22](https://github.com/aviggiano/redis/issues/22), [PR #8](https://github.com/aviggiano/redis/pull/8), [PR #39](https://github.com/aviggiano/redis/pull/39) |
 | Persistence, `DUMP` / `RESTORE`, and AOF rewrite | Settled for the current direction: persist a Redis-owned, endian-neutral container stream rather than an opaque CRoaring portable blob, and keep RESTORE-based rewrite for native bitmap values. | Implemented with `RDB_TYPE_BITMAP`, direct container-stream payloads, `DUMP` / `RESTORE`, AOF rewrite as `RESTORE`, and always-on payload validation. The PR has not shipped, so loaders do not preserve compatibility for earlier in-PR draft raw/range/portable bitmap payloads. See `docs/redis-roaring-native-bitmap-rdb-format.md`. | [#29](https://github.com/aviggiano/redis/issues/29), [PR #4](https://github.com/aviggiano/redis/pull/4), [PR #43](https://github.com/aviggiano/redis/pull/43), related open [PR #44](https://github.com/aviggiano/redis/pull/44) |
 | Replication determinism | Ready locally: explicit `RESTORE`/`DUMP` propagation is the v1 deterministic baseline; sparse/container-specific propagation remains future work; replicas must be upgraded before native bitmap creation or conversion is enabled. | Implemented. Config-dependent native creations and conversions queue `RESTORE ... REPLACE [ABSTTL]`, native bitmap AOF rewrite emits `RESTORE`, and tests cover incremental AOF, rewrite, and replication convergence across mismatched local config. | [#28](https://github.com/aviggiano/redis/issues/28), [PR #9](https://github.com/aviggiano/redis/pull/9), [PR #13](https://github.com/aviggiano/redis/pull/13) |
 | redis-roaring migration contract | Ready locally: v1 uses an external streaming migrator with fail-closed validation, a durable manifest, explicit cap policy, and no Redis core legacy payload loader or `R.*` / `R64.*` compatibility surface. Offline RDB transcoding is deferred as a possible future expert mode. | Redis core keeps the contract in `docs/redis-roaring-migration-contract.md`; the reference tool lives in `aviggiano/redis-roaring` via [aviggiano/redis-roaring#148](https://github.com/aviggiano/redis-roaring/pull/148). No Redis core command or RDB-loader change is required for this decision. | [#34](https://github.com/aviggiano/redis/issues/34) |
@@ -112,7 +113,7 @@ names are therefore compatibility wrappers around behavior covered by
 | redis-roaring-only family | Gap versus Redis bitmap commands | Classification | v1 migration/import note |
 | --- | --- | --- | --- |
 | `R.SETINTARRAY`, `R.GETINTARRAY`, `R.RANGEINTARRAY`, `R.APPENDINTARRAY`, `R.DELETEINTARRAY`, and `R64.*` equivalents | Treat set bits as sorted integer arrays, including range paging and append/delete mutations. | Migration-tool-only | Required. Export should stream set offsets from `reroaring` and `roaring64` keys; import should build native bitmaps only when every 32-bit or 64-bit integer-array offset fits the v1 native cap. `R.RANGEINTARRAY` / `R64.RANGEINTARRAY` are useful for paged command-based export. |
-| `R.SETBITARRAY`, `R.GETBITARRAY`, and `R64.*` equivalents | Use ASCII `0`/`1` bit-array strings rather than Redis raw bitmap strings. | Migration-tool-only | Optional compatibility format for tooling. Import can translate ASCII bit arrays to set offsets or target-native RESTORE payloads; Redis core v1 should keep compatibility in bitmap commands rather than adding string materialization commands. |
+| `R.SETBITARRAY`, `R.GETBITARRAY`, and `R64.*` equivalents | Use ASCII `0`/`1` bit-array strings rather than Redis raw bitmap strings. | Migration-tool-only | Optional compatibility format for tooling. Import can translate ASCII bit arrays to set offsets or target-native RESTORE payloads; Redis core should keep compatibility in bitmap commands rather than adding string materialization commands. |
 | `R.SETRANGE`, `R.SETFULL`, and `R64.*` equivalents | Create dense ranges or full universes of set bits. | Not needed for v1 | State migration can export the final set bits; command replay, if a tool supports it, can translate ranges outside Redis core. |
 | `R.GETBITS`, `R.CLEARBITS`, and `R64.*` equivalents | Bulk `GETBIT`, bulk clear-to-zero, and an optional cleared-count reply. | Future Redis command candidate | Useful as generic batch bitmap operations, but not required to migrate stored values. Replay tooling can lower `CLEARBITS` to repeated clears or direct payload edits. |
 | `R.CLEAR` and `R64.CLEAR` | Clear a module key without deleting the key name. | Not needed for v1 | Use `DEL` or an empty native bitmap during migration; no compatibility command is needed. |
@@ -158,9 +159,8 @@ whole-file startup granularity. Redis core still must not load legacy
 The original gate prevented public `OBJ_BITMAP` creation until the branch had
 enough type safety for Redis to own native bitmap keys everywhere they may
 flow. The current draft implementation has crossed that implementation gate and
-does expose native creation through `bitmap-default-roaring yes` and explicit
-`BITMAP CONVERT`, but the design gate remains open for the pending tracker
-decisions above.
+exposes native creation through `bitmap-default-roaring yes`, while keeping
+threshold configs and public conversion commands out of v1.
 
 Required before treating the current surface as final:
 
@@ -198,9 +198,6 @@ not re-run native bitmap creation or conversion policy locally.
   `bitmap-default-roaring yes` queues `RESTORE <key> <ttl> <DUMP payload>
   REPLACE [ABSTTL]` for AOF and replication, and suppresses propagation of the
   triggering command.
-- The current draft `BITMAP CONVERT` queues the same RESTORE form, preserving
-  TTL with `ABSTTL` when needed; the v1 command surface is still being cleaned
-  up under DD-01/DD-07.
 - `BITOP` results whose native destination is chosen from local
   `bitmap-default-roaring yes` also propagate the final serialized value.
   Results that are native because an input key is already native can propagate
@@ -214,27 +211,23 @@ not re-run native bitmap creation or conversion policy locally.
   for v1 correctness.
 - Version-skew policy is upgrade-first. Replicas and AOF replay targets must
   understand the native bitmap RDB/DUMP payload before operators enable native
-  bitmap creation or conversion on a master.
+  bitmap creation on a master.
 
 ## Creation and Conversion Surface
 
-The current `unstable` draft surface is a single `bitmap-default-roaring
-yes|no` flag, defaulting to `no`, plus draft `BITMAP CONVERT` support. DD-03 no
-longer depends on the explicit conversion command, and v1 should not expose a
-native-to-string materialization command.
+The v1 surface is a single `bitmap-default-roaring yes|no` flag, defaulting to
+`no`. Threshold-based selection configs and public conversion commands are out
+of scope for v1.
 
 - With `bitmap-default-roaring no`, bitmap writes keep creating strings unless
-  conversion is explicit.
+  the key is already native through load/restore/replication or a native BITOP
+  source.
 - With `bitmap-default-roaring yes`, bitmap write commands create missing keys
   as native Roaring bitmaps and convert existing string values before writing.
-- `BITMAP CONVERT <key> NATIVE` converts a legacy string bitmap to `bitmap`.
-- The current draft `BITMAP CONVERT <key> STRING` path is not part of DD-03's
-  final v1 boundary.
 - The size/saving thresholds and trial encodes from the early sketch are not in
-  the current draft.
+  the v1 design.
 
-The implementation exists, but the final v1 command/config shape is still
-tracked as pending clarification in [#20](https://github.com/aviggiano/redis/issues/20),
+This settles the command/config shape tracked in
 [#26](https://github.com/aviggiano/redis/issues/26).
 
 ## Oracle Test Strategy
@@ -269,13 +262,13 @@ stress:
   native cap is future work, not required for v1. See
   [#24](https://github.com/aviggiano/redis/issues/24) and
   [#42](https://github.com/aviggiano/redis/issues/42).
+- **Creation controls**: v1 preserves legacy string bitmap creation by default,
+  keeps threshold-based conversion configs out, and does not expose
+  `BITMAP CONVERT`. Native creation is controlled by `bitmap-default-roaring`
+  and by load/RESTORE/replication paths. See
+  [#26](https://github.com/aviggiano/redis/issues/26).
 
 ## Pending Decisions
-- **Conversion/public surface**: confirm whether `BITMAP CONVERT` is needed in
-  v1 and whether it is the only new user-facing bitmap command. DD-03 already
-  settles that v1 has no explicit native-to-string materialization command. See
-  [#20](https://github.com/aviggiano/redis/issues/20) and
-  [#26](https://github.com/aviggiano/redis/issues/26).
 - **Persistence format and AOF rewrite**: confirm whether the current
   `RDB_TYPE_BITMAP` container-stream payload layout and RESTORE-based AOF
   rewrite are the final upstream shape for this core type. The current
