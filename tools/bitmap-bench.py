@@ -1527,8 +1527,17 @@ class RedisBitmapBench:
     def setup_bitfield_native_write(self) -> None:
         self.set_default_roaring(False, required=False)
         self.client.execute(["DEL", "bench:bitmap:bitfield:write"])
-        self.client.execute(["SET", "bench:bitmap:bitfield:write", b""])
-        self.convert_to_native("bench:bitmap:bitfield:write")
+        if self.args.mode == "native":
+            self.set_default_roaring(True, required=True)
+            try:
+                # No public zero-length native creation path remains after
+                # removing BITMAP CONVERT. Seed the smallest existing native
+                # bitmap so the measured BITFIELD command uses the native path.
+                self.client.execute(["SETBIT", "bench:bitmap:bitfield:write", "0", "0"])
+            finally:
+                self.set_default_roaring(False, required=False)
+        else:
+            self.client.execute(["SET", "bench:bitmap:bitfield:write", b""])
 
     def setup_bitop_mixed(self) -> None:
         keys = [
