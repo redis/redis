@@ -1,5 +1,7 @@
 # tests of corrupt listpack payload with valid CRC
 
+source tests/support/bitmap.tcl
+
 # The fuzzer can cause corrupt the state in many places, which could
 # mess up the reply, so we decided to skip logreqres.
 tags {"dump" "corruption" "external:skip" "logreqres:skip"} {
@@ -75,19 +77,13 @@ if 0 {
     # create native bitmap keys (Roaring encoded): a small sparse one (array
     # container) and a bigger one mixing a dense run with a sparse tail in a
     # second 64K chunk (run + array containers)
-    set old_bitmap_default_roaring [lindex [r config get bitmap-default-roaring] 1]
-    r config set bitmap-default-roaring yes
     r setbit bitmap 7 1
     r setbit bitmap 100 1
     r setbit bitmap 4095 1
-    r config set bitmap-default-roaring $old_bitmap_default_roaring
+    convert_string_bitmap_to_native r bitmap
     r setrange bitmapbig 0 [string repeat "\xff" 1024]
     r setbit bitmapbig 100000 1
-    set old_bitmap_default_roaring [lindex [r config get bitmap-default-roaring] 1]
-    r config set bitmap-default-roaring yes
-    r setbit bitmapbig 0 [r getbit bitmapbig 0]
-    r config set bitmap-default-roaring $old_bitmap_default_roaring
-
+    convert_string_bitmap_to_native r bitmapbig
     # create bigger objects with 10 items (more than a single ziplist / listpack)
     generate_collections big 10
 

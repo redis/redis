@@ -12,6 +12,8 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
+source tests/support/bitmap.tcl
+
 proc test_memory_efficiency {range} {
     r flushall
     set rd [redis_deferring_client]
@@ -54,6 +56,8 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
+    source tests/support/bitmap.tcl
+
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
             [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
@@ -1235,10 +1239,7 @@ run_solo {defrag} {
                 $rd read
             }
             set template_raw [r get bitmap:template]
-            set old_bitmap_default_roaring [lindex [r config get bitmap-default-roaring] 1]
-            r config set bitmap-default-roaring yes
-            r setbit bitmap:template 0 [r getbit bitmap:template 0]
-            r config set bitmap-default-roaring $old_bitmap_default_roaring
+            convert_string_bitmap_to_native r bitmap:template
             assert_equal bitmap [r type bitmap:template]
 
             set frag_keys 400
@@ -1272,10 +1273,7 @@ run_solo {defrag} {
             assert_equal $expected_bits [r bitcount bigbitmap1]
             set expected_raw [r get bigbitmap1]
 
-            set old_bitmap_default_roaring [lindex [r config get bitmap-default-roaring] 1]
-            r config set bitmap-default-roaring yes
-            r setbit bigbitmap1 0 [r getbit bigbitmap1 0]
-            r config set bitmap-default-roaring $old_bitmap_default_roaring
+            convert_string_bitmap_to_native r bigbitmap1
             assert_equal bitmap [r type bigbitmap1]
 
             # Free every other copied bitmap to punch holes into the

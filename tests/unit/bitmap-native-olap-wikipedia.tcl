@@ -1,3 +1,5 @@
+source tests/support/bitmap.tcl
+
 proc seed_string_bitmap_wikipedia_olap {key bits} {
     r del $key
     r set $key ""
@@ -7,17 +9,7 @@ proc seed_string_bitmap_wikipedia_olap {key bits} {
 }
 
 proc seed_native_bitmap_wikipedia_olap {key bits} {
-    set old [lindex [r config get bitmap-default-roaring] 1]
-    r config set bitmap-default-roaring yes
-    r del $key
-    if {[llength $bits] == 0} {
-        r setbit $key 0 0
-    } else {
-        foreach bit $bits {
-            r setbit $key $bit 1
-        }
-    }
-    r config set bitmap-default-roaring $old
+    create_native_bitmap_from_bits r $key $bits
 }
 
 proc assert_wikipedia_olap_bitmap_has_exact_bits {key bits} {
