@@ -222,12 +222,15 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
   explicitly converted.
 - Audit `SORT ... BY`/`GET` patterns, module/string APIs, and Lua script
   surfaces that read values as strings.
+- Keep bitmap-command compatibility separate from generic string-command
+  compatibility: bitmap commands operate on both legacy string bitmap values
+  and native bitmap values, while generic string commands keep returning
+  `WRONGTYPE` for native bitmap values.
 - Do not add a public bitmap-to-string conversion escape hatch in v1. `BITOP`
   is not a string materialization escape hatch; destinations are native
   whenever any source is native, and are also native for string-only sources
   when `bitmap-default-roaring yes` is set. Plain `SET` overwrites a native
-  bitmap key with a string like any other type. Generic string commands keep
-  returning `WRONGTYPE`.
+  bitmap key with a string like any other type.
 
 ## Step 6: Minimal Configs and Public Native Bitmap Creation
 
@@ -299,9 +302,8 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     comparisons.
   - Materialization paths such as `DEBUG BITMAP-RAW` need benchmark coverage
     and explicit limits because they flatten native bitmaps. The current RDB
-    persistence payload is a
-    container stream and should be benchmarked separately from raw
-    materialization.
+    persistence payload is a container stream and should be benchmarked
+    separately from raw materialization.
 - Keep redis-roaring migration tooling separate from Redis core. The v1
   contract is the external streaming migrator documented in
   `docs/redis-roaring-migration-contract.md`. The reference implementation
