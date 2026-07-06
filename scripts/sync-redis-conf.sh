@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # sync-redis-conf.sh — (re)generate $REDIS_GEN_CONF from $REDIS_CONF + modules.yaml.
 #
 # Documented entry point is `make sync-redis-conf` (see the top-level
@@ -28,9 +28,9 @@
 # then rename). On any failure the temp file is cleaned up and the existing
 # $REDIS_GEN_CONF is left untouched.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/manifest.sh
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
@@ -127,7 +127,7 @@ case "$_modules_stripped" in
 esac
 unset _modules_stripped
 # Collapse runs of whitespace to single spaces, trim ends.
-requested="$(printf '%s\n' "$requested" | xargs || true)"
+requested="$(printf '%s\n' "$requested" | manifest_join_words)"
 
 # One-shot extract of every `name<TAB>loadmodule` pair from the manifest, so
 # subsequent lookups don't re-scan modules.yaml. The original recipe called
@@ -307,13 +307,19 @@ $CORE_BEGIN
 EOF
   # Extract the core section, stripping the ## MODULES ## placeholder block so
   # the generated Modules section takes its place below instead of duplicating.
-  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF" | \
-    awk -v hdr="$MODULES_PLACEHOLDER_HEADER" '
+  # extract_section is staged to a temp first (not piped straight into awk):
+  # POSIX sh has no `pipefail`, so a piped extract_section failure (e.g. a
+  # missing marker → exit 2) would be masked by awk exiting 0, silently
+  # emitting a truncated conf. The redirect lets `set -e` abort instead.
+  _core_tmp="$(mktemp)"
+  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF" > "$_core_tmp"
+  awk -v hdr="$MODULES_PLACEHOLDER_HEADER" '
       $0 == hdr           { skip=1; next }
       skip && /^#{8,} [A-Z]/ { skip=0 }
       skip                { next }
                           { print }
-    '
+    ' "$_core_tmp"
+  rm -f "$_core_tmp"
   cat <<EOF
 $CORE_END
 

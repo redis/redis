@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # modules-shallow.sh — re-clone given modules with --depth 1.
 #
 # Usage:  scripts/modules-shallow.sh <name> [<name> ...]
@@ -7,9 +7,9 @@
 # Removes existing modules/<name>/src and delegates to modules-update.sh
 # with MODULES_UPDATE_SHALLOW=1 so the clone path stays single-source-of-truth.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

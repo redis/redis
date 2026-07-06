@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # deploy.sh — build (via scripts/build.sh) then copy artifacts to $(PREFIX).
 #
 # Usage:  scripts/deploy.sh [<name> ...|all|.|'*'|redis|none]
@@ -24,9 +24,9 @@
 # Failures during build are surfaced from build.sh; failures during copy are
 # collected and reported at the end of this script.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

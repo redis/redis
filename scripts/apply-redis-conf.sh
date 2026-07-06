@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # apply-redis-conf.sh — apply the auto-generated Modules section into
 # $REDIS_CONF, or revert it.
 #
@@ -36,9 +36,9 @@
 #   - revert is idempotent — re-running on an already-core-only file just
 #            regenerates the banner.
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 REPO_ROOT="${REPO_ROOT:-$(cd -- "$SCRIPT_DIR/.." && pwd)}"
 cd "$REPO_ROOT"
 

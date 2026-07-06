@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # clean.sh — clean Redis (src/) + selected modules.
 #
 # Usage:  scripts/clean.sh [<name> ...|all|.|'*'|redis|none]
@@ -14,10 +14,13 @@
 #
 # Best-effort: a failure on one module doesn't block the rest. Exits 0
 # even on partial failure so a clean attempt is never destructive.
+#
+# Backs `make clean`, so like build.sh it must stay POSIX-sh clean —
+# no bashisms (see scripts/build.sh header).
 
-set -euo pipefail
+set -eu
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
 

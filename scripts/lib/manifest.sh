@@ -1,12 +1,15 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # scripts/lib/manifest.sh — dual-mode YAML manifest reader.
 #
 # This file is the single source of truth for parsing modules.yaml. It is
 # consumed two ways:
 #
-# 1. As a sourced shell library (the original mode), from other scripts:
+# 1. As a sourced shell library (the original mode), from other scripts,
+#    which must set SCRIPT_DIR (= <repo>/scripts) before sourcing — it
+#    seeds REPO_ROOT below:
 #
-#      SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+#      SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"                  # sh
+#      SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"   # bash
 #      . "$SCRIPT_DIR/lib/manifest.sh"
 #      modules="$(manifest_modules)"
 #
@@ -19,9 +22,16 @@
 #      scripts/lib/manifest.sh cloned
 #      scripts/lib/manifest.sh resolve <requested> <cloned> [extras]
 #
-# The dispatcher at the bottom of this file is guarded by a
-# BASH_SOURCE[0]==$0 check, so sourcing this file never accidentally runs
-# the CLI; existing `. lib/manifest.sh` callers continue to work unchanged.
+# The dispatcher at the bottom of this file is guarded by a $0-basename
+# check, so sourcing this file never accidentally runs the CLI; existing
+# `. lib/manifest.sh` callers continue to work unchanged.
+#
+# Both entry points run on bash-less systems: make executes this file via
+# its shebang at parse time (modules/manifest.mk), and `make`/`make clean`
+# source it from the sh scripts build.sh/clean.sh — busybox ash on the
+# alpine:latest Daily CI containers, dash on Debian/Ubuntu. So this file
+# must stay POSIX-sh clean (no bashisms). The remaining scripts/*.sh
+# callers are bash, which sources POSIX code unchanged.
 #
 # Shell-side functions exposed when sourced:
 #   manifest_modules                           - sorted module names from modules.yaml
@@ -52,10 +62,42 @@
 # against `repo:`. No nested structures, no inline comments after values, no
 # quoted strings.
 
-set -euo pipefail
+set -eu
 
-REPO_ROOT="${REPO_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# Executed-vs-sourced detection, POSIX edition: when this file is run
+# directly (shebang or `sh scripts/lib/manifest.sh`), $0 is this file's
+# path; when sourced, $0 is the caller's (a script path or the shell
+# binary). No sourcing caller is named manifest.sh, so the basename is a
+# reliable discriminator.
+case "${0##*/}" in
+  manifest.sh) _MANIFEST_SH_EXECUTED=1 ;;
+  *)           _MANIFEST_SH_EXECUTED=  ;;
+esac
+
+if [ -n "$_MANIFEST_SH_EXECUTED" ]; then
+  # Executed directly: this file lives at <repo>/scripts/lib/manifest.sh.
+  REPO_ROOT="${REPO_ROOT:-$(cd -- "$(dirname -- "$0")/../.." && pwd)}"
+else
+  # Sourced: POSIX sh has no BASH_SOURCE, so the caller must tell us where
+  # scripts/ is (every scripts/*.sh caller sets SCRIPT_DIR — see header).
+  REPO_ROOT="${REPO_ROOT:-$(cd -- "${SCRIPT_DIR:?manifest.sh: set SCRIPT_DIR before sourcing}/.." && pwd)}"
+fi
 MODULES_MANIFEST_FILE="${MODULES_MANIFEST_FILE:-$REPO_ROOT/modules/modules.yaml}"
+
+manifest_join_words() {
+  awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        if (seen) printf " "
+        printf "%s", $i
+        seen = 1
+      }
+    }
+    END {
+      if (seen) printf "\n"
+    }
+  '
+}
 
 manifest_modules() {
   awk '
@@ -134,7 +176,7 @@ cloned_modules() {
       cloned="$cloned $name"
     fi
   done
-  echo "$cloned" | xargs
+  printf '%s\n' "$cloned" | manifest_join_words
 }
 
 # Echo the resolved module list given user input + the set of cloned modules.
@@ -204,10 +246,10 @@ resolve_modules() {
 # ---------------------------------------------------------------------------
 # CLI dispatcher. Only runs when this file is executed directly
 # (`scripts/lib/manifest.sh <subcommand>`), not when it's sourced.
-# Sourcing detection: when sourced, $0 is the caller's $0 (a script name or
-# the shell binary); when executed directly, $0 == BASH_SOURCE[0].
+# Sourcing detection via the $0 basename — see _MANIFEST_SH_EXECUTED at
+# the top of this file.
 # ---------------------------------------------------------------------------
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+if [ -n "$_MANIFEST_SH_EXECUTED" ]; then
   _manifest_usage() {
     cat >&2 <<'USAGE'
 Usage: scripts/lib/manifest.sh <subcommand> [args]

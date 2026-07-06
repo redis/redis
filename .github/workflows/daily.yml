@@ -1138,7 +1138,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-          apk add build-base bash
+          apk add build-base
           make REDIS_CFLAGS='-Werror'
     - name: testprep
       run: apk add tcl procps tclx
@@ -1174,7 +1174,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-          apk add build-base bash
+          apk add build-base
           make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
     - name: testprep
       run: apk add tcl procps tclx
