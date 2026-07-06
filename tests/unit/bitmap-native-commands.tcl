@@ -271,6 +271,21 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 0 [r bitcount bitmap:native:setbit:loop]
     }
 
+    test {SETBIT updates existing native bitmap keys through direct native path} {
+        r config set bitmap-default-roaring yes
+        r del bitmap:native:setbit:existing
+
+        assert_equal 0 [r setbit bitmap:native:setbit:existing 5 1]
+        assert_equal bitmap [r type bitmap:native:setbit:existing]
+
+        r config set bitmap-default-roaring no
+        assert_equal 0 [r setbit bitmap:native:setbit:existing 6 1]
+        assert_equal bitmap [r type bitmap:native:setbit:existing]
+        assert_equal bitmap-roaring [r object encoding bitmap:native:setbit:existing]
+        assert_equal 1 [r getbit bitmap:native:setbit:existing 6]
+        assert_equal 2 [r bitcount bitmap:native:setbit:existing]
+    }
+
     test {SETBIT updates native bitmap values and preserves trailing zero length} {
         r set bitmap:native:setbit [binary format H* 8000]
         r bitmap convert bitmap:native:setbit
