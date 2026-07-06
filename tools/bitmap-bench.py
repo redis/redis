@@ -89,7 +89,10 @@ DATASET_KEYS = {
 
 MODULE_RESULT_LABEL = "redis_roaring_module"
 BEFORE_NATIVE_LABEL = "redis_before_native"
-EMPTY_NATIVE_BITMAP_DUMP_PAYLOAD = b"\x1d\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+EMPTY_NATIVE_BITMAP_DUMP_PAYLOAD = (
+    b"\x1d\x00\x81\xff\xff\xff\xff\xff\xff\xff\xfd\x00"
+    b"\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+)
 COMPARE_LABELS = (
     "redis_before",
     BEFORE_NATIVE_LABEL,
