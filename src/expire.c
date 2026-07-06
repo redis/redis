@@ -144,6 +144,49 @@ static inline int expirySamplingShouldSkipDict(dict *d, int didx) {
     return 0;
 }
 
+/* During atomic slot migration, keys that are being imported are in an
+ * intermediate state. We cannot expire them and therefore skip them. */
+static int expiryRandomSamplingShouldSkipDictIndex(int didx) {
+    return !clusterCanAccessKeysInSlot(didx);
+}
+
+/* Estimate the fraction of logically expired keys in the expires table of
+ * 'db' by inspecting up to 'count' keys picked at random locations. The
+ * number of keys checked is stored in 'sampled', and how many of them were
+ * found to be already expired in 'stale'.
+ *
+ * The active expire cycle advances db->expires_cursor sequentially and uses
+ * the staleness observed around the cursor to decide whether it is worth
+ * keeping scanning the current database. However that local estimate may be
+ * arbitrarily biased: for instance a long-running client SCAN lazily expires
+ * every key it visits, and since it traverses the keyspace in the same order
+ * used by the expires cursor, the slower cursor may end up sampling only
+ * regions that the SCAN front has just cleaned. In that case every cycle
+ * observes almost no expired keys and gives up immediately, while expired
+ * keys accumulate unreclaimed in the rest of the keyspace (issue #15411).
+ *
+ * The random sample provides a position independent estimate that is immune
+ * to this kind of bias. Keys are only inspected, never deleted here: the
+ * reclamation is left to the cursor driven scan, that guarantees complete
+ * coverage of the keyspace. */
+static void expiresStalenessProbe(redisDb *db, long long now, unsigned long count,
+                                  unsigned long *sampled, unsigned long *stale)
+{
+    dictEntry *des[count];
+
+    *sampled = *stale = 0;
+    int didx = kvstoreGetFairRandomDictIndex(db->expires,
+                                             expiryRandomSamplingShouldSkipDictIndex, 1, 0);
+    if (didx == -1) return;
+
+    unsigned int found = kvstoreDictGetSomeKeys(db->expires, didx, des, count);
+    for (unsigned int i = 0; i < found; i++) {
+        kvobj *kv = dictGetKV(des[i]);
+        if (kvobjGetExpire(kv) <= now) (*stale)++;
+    }
+    *sampled = found;
+}
+
 /* SubexpireCtx passed to activeSubexpiresCb() */
 typedef struct SubexpireCtx {
     uint32_t fieldsToExpireQuota;
@@ -389,6 +432,20 @@ void activeExpireCycle(int type) {
         if (kvstoreSize(db->expires))
             dbs_performed++;
 
+        /* Take a small random sample of the expires table to obtain a
+         * staleness estimate that does not depend on the position of the
+         * expires cursor: see the expiresStalenessProbe() top comment for
+         * the rationale. The sample contributes to the global stale keys
+         * estimator and, below, to the decision to keep scanning the
+         * current database. */
+        unsigned long probe_sampled = 0, probe_stale = 0;
+        if (kvstoreSize(db->expires)) {
+            expiresStalenessProbe(db, mstime(), config_keys_per_loop,
+                                  &probe_sampled, &probe_stale);
+            total_sampled += probe_sampled;
+            total_expired += probe_stale;
+        }
+
         /* Continue to expire if at the end of the cycle there are still
          * a big percentage of keys to expire, compared to the number of keys
          * we scanned. The percentage, stored in config_cycle_acceptable_stale
@@ -443,8 +500,15 @@ void activeExpireCycle(int type) {
 
             /* We don't repeat the cycle for the current database if the db is done
              * for scanning or an acceptable number of stale keys (logically expired
-             * but yet not reclaimed). */
-            repeat = db_done ? 0 : (data.sampled == 0 || (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
+             * but yet not reclaimed) was observed both around the cursor and in the
+             * random sample taken above. Considering the random sample too prevents
+             * an unrepresentative neighborhood of the cursor (for instance one just
+             * cleaned by a concurrent client SCAN) from stopping the cycle while the
+             * rest of the keyspace is full of expired keys. */
+            repeat = db_done ? 0 : (data.sampled == 0 ||
+                                    (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale ||
+                                    (probe_sampled &&
+                                     (probe_stale * 100 / probe_sampled) > config_cycle_acceptable_stale));
 
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of microseconds return to the
