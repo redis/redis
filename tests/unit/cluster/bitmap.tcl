@@ -1,4 +1,5 @@
 source tests/support/cluster.tcl
+source tests/support/bitmap.tcl
 
 start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
     test "Native bitmap BITOP works with hash-slot-tagged keys" {
@@ -14,8 +15,8 @@ start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
 
         assert_equal 0 [$owner setbit "{bitop}foo" 1 1]
         assert_equal 0 [$owner setbit "{bitop}bar" 2 1]
-        assert_equal OK [$owner bitmap convert "{bitop}foo"]
-        assert_equal OK [$owner bitmap convert "{bitop}bar"]
+        assert_equal OK [convert_string_bitmap_to_native $owner "{bitop}foo"]
+        assert_equal OK [convert_string_bitmap_to_native $owner "{bitop}bar"]
         assert_equal bitmap [$owner type "{bitop}foo"]
         assert_equal bitmap-roaring [$owner object encoding "{bitop}foo"]
 

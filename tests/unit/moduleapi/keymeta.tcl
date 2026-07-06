@@ -25,6 +25,8 @@
 # - LAZYFREE
 # ============================================================================
 
+source tests/support/bitmap.tcl
+
 set testmodule [file normalize tests/modules/test_keymeta.so]
 
 # Helper procedure to convert class ID to 4-char-id name
@@ -380,7 +382,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         r keymeta.set [cname 4] hashkey "hash_meta"
 
         r set bitmapkey [binary format H* 80400100080000]
-        r bitmap convert bitmapkey
+        convert_string_bitmap_to_native r bitmapkey
         r keymeta.set [cname 1] bitmapkey "bitmap_meta"
 
         # Trigger AOF rewrite
