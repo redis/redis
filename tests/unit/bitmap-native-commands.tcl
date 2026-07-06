@@ -1,3 +1,5 @@
+source tests/support/bitmap.tcl
+
 proc seed_string_bitmap {key bits} {
     r del $key
     r set $key ""
@@ -7,8 +9,7 @@ proc seed_string_bitmap {key bits} {
 }
 
 proc seed_native_bitmap {key bits} {
-    seed_string_bitmap $key $bits
-    r bitmap convert $key
+    create_native_bitmap_from_bits r $key $bits
 }
 
 # Logical raw bytes of a bitmap value regardless of its representation.
@@ -155,7 +156,7 @@ proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {
         r set $string_key [lindex $source_raws $i]
         r set $native_key [lindex $source_raws $i]
         if {[lsearch -exact $native_indexes $i] >= 0} {
-            r bitmap convert $native_key
+            convert_string_bitmap_to_native r $native_key
         }
         lappend string_sources $string_key
         lappend native_sources $native_key
@@ -191,8 +192,7 @@ proc assert_native_bitmap_command_matches_string {name raw command} {
     set native_key "bitmap:native:read-edge:$name:native"
     r set $string_key $raw
     r set $native_key $raw
-    r bitmap convert $native_key
-
+    convert_string_bitmap_to_native r $native_key
     set string_cmd [lreplace $command 1 1 $string_key]
     set native_cmd [lreplace $command 1 1 $native_key]
     assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
@@ -205,8 +205,7 @@ proc assert_native_bitmap_write_matches_string {name raw command} {
     set native_key "bitmap:native:write-edge:$name:native"
     r set $string_key $raw
     r set $native_key $raw
-    r bitmap convert $native_key
-
+    convert_string_bitmap_to_native r $native_key
     set string_cmd [lreplace $command 1 1 $string_key]
     set native_cmd [lreplace $command 1 1 $native_key]
     assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
@@ -220,8 +219,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:native:read $raw
-        r bitmap convert bitmap:native:read
-
+        convert_string_bitmap_to_native r bitmap:native:read
         assert_equal 1 [r getbit bitmap:native:read 0]
         assert_equal 1 [r getbit bitmap:native:read 9]
         assert_equal 0 [r getbit bitmap:native:read 10]
@@ -240,12 +238,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r debug bitmap-raw bitmap:native:read]
     }
 
-    test {BITMAP CONVERT preserves dense raw chunks and boundary bits} {
+    test {bitmap-default-roaring conversion preserves dense raw chunks and boundary bits} {
         set raw [binary format H* "[string repeat ff 8192]8001"]
 
         r set bitmap:native:convert:dense $raw
-        r bitmap convert bitmap:native:convert:dense
-
+        convert_string_bitmap_to_native r bitmap:native:convert:dense
         assert_equal bitmap [r type bitmap:native:convert:dense]
         assert_equal bitmap-roaring [r object encoding bitmap:native:convert:dense]
         assert_equal $raw [r debug bitmap-raw bitmap:native:convert:dense]
@@ -288,8 +285,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {SETBIT updates native bitmap values and preserves trailing zero length} {
         r set bitmap:native:setbit [binary format H* 8000]
-        r bitmap convert bitmap:native:setbit
-
+        convert_string_bitmap_to_native r bitmap:native:setbit
         assert_equal 0 [r setbit bitmap:native:setbit 9 1]
         assert_equal bitmap [r type bitmap:native:setbit]
         assert_equal bitmap-roaring [r object encoding bitmap:native:setbit]
@@ -348,8 +344,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r set $string_key $raw
         r set $native_key $raw
-        r bitmap convert $native_key
-
+        convert_string_bitmap_to_native r $native_key
         assert_equal string [r type $string_key]
         assert_equal bitmap [r type $native_key]
         assert_equal bitmap-roaring [r object encoding $native_key]
@@ -543,8 +538,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {BITFIELD writes native bitmap values through the direct write path} {
         r set bitmap:native:bitfield [binary format H* 00]
-        r bitmap convert bitmap:native:bitfield
-
+        convert_string_bitmap_to_native r bitmap:native:bitfield
         assert_equal {0 15} [r bitfield bitmap:native:bitfield SET u4 4 15 GET u8 0]
         assert_equal bitmap [r type bitmap:native:bitfield]
         assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield]
@@ -710,7 +704,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         set full_key bitmap:native:translated:setfull
         r set $full_key [binary format H* ff]
-        r bitmap convert $full_key
+        convert_string_bitmap_to_native r $full_key
         assert_equal bitmap [r type $full_key]
         assert_equal bitmap-roaring [r object encoding $full_key]
         assert_bitmap_has_exact_bits $full_key {0 1 2 3 4 5 6 7}
@@ -782,11 +776,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {BITOP stores native destinations when sources include native bitmaps} {
         r set bitmap:native:bitop:a [binary format H* f000]
-        r bitmap convert bitmap:native:bitop:a
+        convert_string_bitmap_to_native r bitmap:native:bitop:a
         r set bitmap:native:bitop:b [binary format H* 0fff]
         r set bitmap:native:bitop:dest [binary format H* aa]
-        r bitmap convert bitmap:native:bitop:dest
-
+        convert_string_bitmap_to_native r bitmap:native:bitop:dest
         assert_equal 2 [r bitop or bitmap:native:bitop:dest bitmap:native:bitop:a bitmap:native:bitop:b]
         assert_equal bitmap [r type bitmap:native:bitop:dest]
         assert_equal [binary format H* ffff] [r debug bitmap-raw bitmap:native:bitop:dest]
@@ -1072,8 +1065,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r set bitop:miss:string:c $c
             r set bitop:miss:native:a $a
             r set bitop:miss:native:c $c
-            r bitmap convert bitop:miss:native:a
-
+            convert_string_bitmap_to_native r bitop:miss:native:a
             set string_reply [r bitop $op bitop:miss:string:dest \
                 bitop:miss:string:a bitop:miss:string:gone bitop:miss:string:c]
             set native_reply [r bitop $op bitop:miss:native:dest \
@@ -1102,8 +1094,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r set bitop:first:string:c $c
             r set bitop:first:native:a $a
             r set bitop:first:native:c $c
-            r bitmap convert bitop:first:native:a
-
+            convert_string_bitmap_to_native r bitop:first:native:a
             set string_reply [r bitop $op bitop:first:string:dest \
                 bitop:first:string:gone bitop:first:string:a bitop:first:string:c]
             set native_reply [r bitop $op bitop:first:native:dest \
@@ -1127,8 +1118,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r del bitop:dup:string:k bitop:dup:native:k
             r set bitop:dup:string:k $a
             r set bitop:dup:native:k $a
-            r bitmap convert bitop:dup:native:k
-
+            convert_string_bitmap_to_native r bitop:dup:native:k
             set string_reply [r bitop $op bitop:dup:string:dest \
                 bitop:dup:string:k bitop:dup:string:k]
             set native_reply [r bitop $op bitop:dup:native:dest \
@@ -1149,8 +1139,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r set bitop:dup2:native:s $s
             r set bitop:dup2:string:n $a
             r set bitop:dup2:native:n $a
-            r bitmap convert bitop:dup2:native:n
-
+            convert_string_bitmap_to_native r bitop:dup2:native:n
             set string_reply [r bitop $op bitop:dup2:string:dest \
                 bitop:dup2:string:s bitop:dup2:string:s bitop:dup2:string:n]
             set native_reply [r bitop $op bitop:dup2:native:dest \

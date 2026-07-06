@@ -6,6 +6,8 @@
 # * some tests set sanitize-dump-payload to no and some to yet, depending on
 #   what we want to test
 
+source tests/support/bitmap.tcl
+
 tags {"dump" "corruption" "external:skip"} {
 
 # We only run OOM related tests on x86_64 and aarch64, as jemalloc on other
@@ -1203,7 +1205,7 @@ test {corrupt payload: bitmap RDB validation} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         r setbit bitmap:type-probe 1 1
-        r bitmap convert bitmap:type-probe
+        convert_string_bitmap_to_native r bitmap:type-probe
         set bitmap_probe_dump [r dump bitmap:type-probe]
         binary scan $bitmap_probe_dump H2 bitmap_type
         set dump_trailer [string range $bitmap_probe_dump end-9 end]
@@ -1340,7 +1342,7 @@ test {corrupt payload: bitmap RDB validation} {
 
         set replace_target_raw [binary format H* a5]
         r set bitmap:replace-target $replace_target_raw
-        r bitmap convert bitmap:replace-target
+        convert_string_bitmap_to_native r bitmap:replace-target
         r pexpire bitmap:replace-target 60000
         set replace_target_expire [r pexpiretime bitmap:replace-target]
         catch { r restore bitmap:replace-target 0 $mismatched_raw_len_payload replace } err

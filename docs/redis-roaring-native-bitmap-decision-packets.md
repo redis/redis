@@ -30,7 +30,7 @@ Useful source links:
 - Notification/module follow-up: https://github.com/aviggiano/redis/issues/33
 - Upstream design summary: https://github.com/redis/redis/issues/15296#issuecomment-4718567387
 - Allocation concern: https://github.com/redis/redis/issues/15296#issuecomment-4718795474
-- `BITMAP CONVERT` question: https://github.com/redis/redis/issues/15296#issuecomment-4725438966
+- Public conversion command question: https://github.com/redis/redis/issues/15296#issuecomment-4725438966
 - Notification and metadata comment: https://github.com/redis/redis/issues/15296#issuecomment-4727376355
 - PR review on high offsets: https://github.com/redis/redis/pull/15331#discussion_r3413389841
 - PR review on `NOTIFY_BITMAP`: https://github.com/redis/redis/pull/15331#discussion_r3412619066
@@ -118,9 +118,9 @@ as stable.
 - Bounded 32-bit v1 makes 32-bit redis-roaring inputs direct, but `roaring64`
   inputs must be rejected, down-converted only when safe, or deferred until a
   future wide native bitmap format exists.
-- If operators need rollback from native bitmap to string, either option is
-  bounded by `proto-max-bulk-len` because `BITMAP CONVERT key STRING` requires
-  materialization to a Redis string.
+- If operators need rollback from native bitmap to string, tooling must account
+  for the same `proto-max-bulk-len` materialization bound that applies to Redis
+  strings.
 
 ### Resolution
 
@@ -134,95 +134,36 @@ while read-only native lookups can exceed that lower runtime limit only inside
 the v1 cap. Lifting the native cap remains a future compatibility and
 performance decision.
 
-## Packet 2: `BITMAP CONVERT` v1
+## Packet 2: public conversion command v1
 
-### Decision Needed
+### Resolution
 
-Does v1 need `BITMAP CONVERT <key> [NATIVE|STRING]` as a public command, or
-should conversion happen only through `bitmap-default-roaring yes` writes and
-migration tooling?
+DD-01 is settled for v1: Redis core should not expose a public per-key
+conversion command. Conversion to native happens through existing bitmap writes
+when `bitmap-default-roaring yes` is configured, through native bitmap
+`RESTORE`/replication payloads, or through external migration tooling. Redis
+core also should not add redis-roaring `R.*` / `R64.*` command prefixes.
 
-### Facts and Current Implementation State
+### Final v1 Shape
 
-- The current branch implements `BITMAP CONVERT <key> [NATIVE|STRING]`.
-  Omitting the target defaults to `NATIVE`.
-- Converting to the current representation is a no-op that replies `OK`.
-- Missing keys return no-key error and non-string/non-bitmap values return
-  `WRONGTYPE`.
-- Conversion preserves TTL through `SETKEY_KEEPTTL`.
-- `NATIVE` conversion changes `TYPE` from `string` to `bitmap`; `STRING`
-  conversion changes it back to `string` only while the logical native length
-  can be materialized within `proto-max-bulk-len`.
-- The command is not propagated verbatim. The current branch queues a
-  `RESTORE ... REPLACE [ABSTTL]` payload for the resulting value so replicas
-  and AOF replay do not re-derive representation decisions from local config.
-- With `bitmap-default-roaring no`, this command is the only explicit per-key
-  opt-in path to native bitmaps. With `bitmap-default-roaring yes`, bitmap
-  writes can auto-convert strings they touch.
-- Explicit `BITMAP CONVERT` currently emits the shared overwrite/type-change
-  events from `setKey()`, but no separate `bitmap convert` command event.
-
-### Use Cases
-
-- Per-key opt-in while the global default remains legacy string bitmap
+- With `bitmap-default-roaring no`, bitmap writes preserve legacy string bitmap
   creation.
-- Per-key rollback to string before disabling native bitmap support or before
-  downgrade, when the value can still fit in a Redis string.
-- Migration tooling that wants an explicit, deterministic Redis-native type
-  transition without requiring a dummy bitmap write.
-- Test and operational workflows that need to move a key between
-  representations without changing all bitmap writes globally.
+- With `bitmap-default-roaring yes`, bitmap write commands create missing keys
+  as native bitmaps and convert existing string values before writing.
+- Config-dependent native creations and conversions propagate as explicit
+  `RESTORE ... REPLACE [ABSTTL]` effects so replicas and AOF replay do not
+  re-derive representation decisions from local config.
+- Native-to-string rollback is not a Redis core v1 command. Tooling can still
+  use ordinary Redis writes, validated payload workflows, or future migration
+  mechanisms where needed.
 
-### Alternatives
+### Consequences
 
-| Option | Benefits | Costs / Risks |
-| --- | --- | --- |
-| Keep public `BITMAP CONVERT` in v1 | Clear per-key opt-in and rollback; keeps `bitmap-default-roaring no` useful; gives migration scripts a stable primitive. | Adds a new public command to document and support; event/metadata semantics must be settled before release. |
-| Remove public conversion and rely on auto-conversion | Smaller command surface; answers the upstream concern that users may not need a separate command when auto-conversion exists. | No per-key opt-in under the legacy-preserving default; no native-to-string rollback command; migration scripts need another primitive; users may have to perform dummy writes to trigger conversion. |
-| Keep conversion as hidden/debug/admin-only for v1 | Preserves internal test/migration utility while avoiding an early public API. | Does not solve user rollback; risks depending on unsupported surface; still needs propagation, persistence, and metadata semantics. |
-
-### Compatibility Impact
-
-- Keeping the command is additive, but once documented it becomes an API that
-  clients, scripts, and migration tooling can depend on.
-- Removing it before external release has low compatibility cost for Redis
-  users but requires updating current branch tests, docs, and any migration
-  plan that assumes explicit conversion.
-- Removing it after release would be a breaking change unless an equivalent
-  per-key native/string conversion path exists.
-
-### Test Impact
-
-- Keeping the command requires focused tests for round-trip conversion, TTL
-  preservation, missing/wrong-type/no-op behavior, notification order, AOF and
-  replication propagation, and failure to convert oversized native values back
-  to string.
-- Removing the command requires deleting or rewriting current conversion tests
-  and adding replacement coverage for whatever migration or rollback mechanism
-  remains.
-- Any option still needs tests that conversion does not depend on replica
-  `bitmap-default-roaring` settings or local `proto-max-bulk-len` settings.
-
-### Migration Impact
-
-- Keeping `BITMAP CONVERT` gives migration tools a simple local step: import or
-  create a logical string bitmap, convert selected keys to native, validate,
-  and convert back to string for rollback when possible.
-- Without it, migration either enables `bitmap-default-roaring yes` globally,
-  uses RESTORE/DUMP payloads directly, or needs a separate migration-only
-  command/tool. Each alternative is harder to explain and harder to roll back
-  per key.
-- Rollback is inherently limited once a native bitmap cannot be materialized
-  within `proto-max-bulk-len`; the command should document that limit if kept.
-
-### Recommendation
-
-Keep `BITMAP CONVERT` in v1 if native bitmaps remain an observable type and the
-default remains `bitmap-default-roaring no`. The command is the cleanest
-per-key opt-in and rollback primitive.
-
-If maintainers decide to remove it, require an explicit replacement for both
-per-key migration and native-to-string rollback before changing the branch.
+- Current branch tests and docs should not assume a public conversion command.
+- Migration documentation should describe external tooling and native RESTORE
+  payload workflows instead of a Redis core conversion primitive.
+- Notification and module semantics only need to cover native creation and
+  conversion caused by existing bitmap writes and load/restore paths.
 
 ## Packet 3: Module and Keyspace Notification Semantics
 
@@ -245,8 +186,6 @@ rules should native bitmap creation and conversion use?
 - Current string-to-native conversion through a bitmap write uses `setKey()`,
   so subscribers see `overwritten`, then `type_changed`, then the trailing
   bitmap command event.
-- Current explicit `BITMAP CONVERT` uses `setKey()`, so subscribers see
-  `overwritten` and `type_changed`, but no separate command event.
 - Because conversion currently uses the overwrite path, module key-unlink
   callbacks run with overwrite flags and module key metadata is discarded
   except for expiration metadata.
@@ -262,8 +201,6 @@ rules should native bitmap creation and conversion use?
 | Event class | Reuse `NOTIFY_STRING` for bitmap commands | Minimizes notify classes. | Blurs the observable type split and makes module filtering less precise. |
 | Conversion event shape | Treat conversion as overwrite plus type change | Reuses shared DB semantics; watchers and modules already understand replacement. | Implies metadata loss and key-unlink callbacks; may overstate how destructive representation conversion should be. |
 | Conversion event shape | Treat conversion as type transition, preserving metadata | Matches the intuition that logical bitmap data is unchanged; avoids losing module metadata. | Requires a new DB transition path and clear module callback contract. |
-| Command event | Explicit `BITMAP CONVERT` emits only transition events | Current behavior; concise event stream. | No command-specific event for audit subscribers. |
-| Command event | Explicit `BITMAP CONVERT` emits transition plus bitmap `convert` event | Gives subscribers a command-shaped audit event. | Adds a new event name and ordering question. |
 | Ordering | Transition events before triggering command event | Current auto-conversion order; subscribers observing the command event see the new type. | Subscribers see multiple events for one command and may need documentation. |
 | Ordering | Triggering command event before transition events | Preserves "command happened first" intuition. | Subscribers observing the command event may still see the old type, which is awkward for modules. |
 
@@ -284,9 +221,7 @@ rules should native bitmap creation and conversion use?
 - Current tests cover bitmap notification class routing and the current
   `new`/`overwritten`/`type_changed`/command-event order.
 - If conversion preserves metadata, add tests that module metadata survives
-  explicit conversion and auto-conversion in both directions where supported.
-- If explicit conversion emits a command event, add Pub/Sub and module callback
-  tests for the event name and order.
+  string-to-native conversion caused by bitmap writes.
 - If key-unlink callbacks are skipped for conversion, add module tests proving
   overwrite callbacks still run for real overwrites and do not run for
   representation-only transitions.
@@ -310,8 +245,4 @@ command event for auto-conversion.
 Prefer preserving module key metadata during string/native bitmap conversion,
 with a dedicated type-transition path rather than the generic overwrite path.
 If that is too much for v1, document the overwrite semantics and metadata loss
-explicitly before exposing the command.
-
-For explicit `BITMAP CONVERT`, consider adding a bitmap-class `convert` event
-after the type transition so audit subscribers can distinguish an intentional
-conversion from a generic overwrite.
+explicitly for configured bitmap-write conversion.
