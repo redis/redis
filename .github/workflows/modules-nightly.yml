@@ -78,6 +78,7 @@ jobs:
     # and a real git checkout is what the manual assumes anyway.
     - name: checkout
       run: |
+        git config --global --add safe.directory "$(pwd)"
         git init .
         git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
         git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
