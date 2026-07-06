@@ -30,14 +30,12 @@ marked pending in the trackers.
   string values that bitmap writes touch, unconditionally (the size/saving
   thresholds and conversion amortization are gone along with the trial encodes
   they amortized).
-- **Explicit conversion command**: the current draft implements
-  `BITMAP CONVERT <key> [NATIVE|STRING]`. It replaces the old BITOP-copy
-  escape hatch in this fork, and `BITMAP CONVERT key STRING` is the draft path
-  back to a string while the logical length fits `proto-max-bulk-len`. Final
-  v1 approval for this public surface remains pending in
-  [#20](https://github.com/aviggiano/redis/issues/20),
-  [#22](https://github.com/aviggiano/redis/issues/22), and
-  [#26](https://github.com/aviggiano/redis/issues/26).
+- **Explicit conversion command**: the current draft still implements
+  `BITMAP CONVERT <key> [NATIVE|STRING]`, but DD-03 no longer depends on that
+  command for the string/native boundary. V1 should not expose an explicit
+  native-to-string materialization command; the remaining public conversion
+  surface cleanup is tracked in [#20](https://github.com/aviggiano/redis/issues/20)
+  and [#26](https://github.com/aviggiano/redis/issues/26).
 - **BITOP destination rule**: a BITOP destination is native when at least
   one source is native, and always native when `bitmap-default-roaring yes`.
   Native `BITOP` destinations are bounded by the 512 MiB native cap and by
@@ -227,16 +225,16 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
   explicitly converted.
 - Audit `SORT ... BY`/`GET` patterns, module/string APIs, and Lua script
   surfaces that read values as strings.
-- Decide whether Redis needs an explicit bitmap-to-string conversion escape
-  hatch; keep it out of generic string command behavior. Current draft surface:
-  `BITMAP CONVERT <key> [NATIVE|STRING]` is the explicit conversion command,
-  and `BITMAP CONVERT <key> STRING` is the path back to a legacy string while
-  the logical length fits `proto-max-bulk-len`. `BITOP` is not a string
-  materialization escape hatch; destinations are native whenever any source is
-  native, and are also native for string-only sources when
-  `bitmap-default-roaring yes` is set. Plain `SET` overwrites a native bitmap
-  key with a string like any other type. Generic string commands keep returning
-  `WRONGTYPE`; final v1 confirmation remains tracked in DD-01/DD-03/DD-07.
+- Keep bitmap-command compatibility separate from generic string-command
+  compatibility: bitmap commands operate on both legacy string bitmap values
+  and native bitmap values, while generic string commands keep returning
+  `WRONGTYPE` for native bitmap values.
+- Treat the current draft `BITMAP CONVERT` command as public-surface cleanup
+  tracked in DD-01/DD-07; DD-03 does not require a bitmap-to-string
+  materialization escape hatch. `BITOP` is not a string materialization escape
+  hatch; destinations are native whenever any source is native, and are also
+  native for string-only sources when `bitmap-default-roaring yes` is set. Plain
+  `SET` overwrites a native bitmap key with a string like any other type.
 
 ## Step 6: Minimal Configs and Public Native Bitmap Creation
 
@@ -306,11 +304,11 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     allocator-accounted key/object/value memory. Benchmark reports must keep
     memory accounting diagnostics separate from serialized payload/storage
     comparisons.
-  - Materialization paths such as `BITMAP CONVERT ... STRING` and
-    `DEBUG BITMAP-RAW` need benchmark coverage and explicit limits because
-    they flatten native bitmaps. The current RDB persistence payload is a
-    container stream and should be benchmarked separately from raw
-    materialization.
+  - Draft-only materialization helpers such as the current
+    `BITMAP CONVERT ... STRING` path and `DEBUG BITMAP-RAW` need benchmark
+    coverage and explicit limits while they exist because they flatten native
+    bitmaps. The current RDB persistence payload is a container stream and
+    should be benchmarked separately from raw materialization.
 - Keep redis-roaring migration tooling separate from Redis core. The v1
   contract is the external streaming migrator documented in
   `docs/redis-roaring-migration-contract.md`. The reference implementation
