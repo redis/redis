@@ -170,8 +170,6 @@ For a more visual and user-friendly experience, use [Redis Insight](https://redi
 
 Redis provides a variety of data types, processing engines, and capabilities to support a wide range of use cases:
 
-**Important:** Features marked with an asterisk (\*) require the bundled modules — run `make modules-update` once to clone them, then `make` / `make all` / `make build` (see [building Redis from source](#build-redis-from-source)) picks up whatever's cloned automatically.
-
 - [**String:**](https://redis.io/docs/latest/develop/data-types/strings) Sequences of bytes, including text, serialized objects, and binary arrays used for caching, counters, and bitwise operations.
 - [**JSON:**](https://redis.io/docs/latest/develop/data-types/json/) Nested JSON documents that are indexed and searchable using JSONPath expressions and with [Redis Search](https://redis.io/docs/latest/develop/ai/search-and-query/)
 - [**Array:**](https://redis.io/docs/latest/develop/data-types/arrays/) Sparse, index-addressable collection of string values
