@@ -1025,13 +1025,13 @@ make BUILD_TLS=yes
 To build with systemd support, you need systemd development libraries (such as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS), and the following flag:
 
 ```sh
-make build USE_SYSTEMD=yes
+make USE_SYSTEMD=yes
 ```
 
 To append a suffix to Redis program names, add the following flag:
 
 ```sh
-make build PROG_SUFFIX="-alt"
+make PROG_SUFFIX="-alt"
 ```
 
 You can build a 32 bit Redis binary using:
@@ -1086,13 +1086,13 @@ Selecting a non-default memory allocator when building Redis is done by setting 
 To force compiling against libc malloc, use:
 
 ```sh
-make build MALLOC=libc
+make MALLOC=libc
 ```
 
 To compile against jemalloc on Mac OS X systems, use:
 
 ```sh
-make build MALLOC=jemalloc
+make MALLOC=jemalloc
 ```
 
 ### Monotonic clock
@@ -1104,7 +1104,7 @@ On ARM aarch64 systems, the hardware clock is enabled by default because the ARM
 To build with support for the processor's internal instruction clock on other architectures, use:
 
 ```sh
-make build CFLAGS="-DUSE_PROCESSOR_CLOCK"
+make CFLAGS="-DUSE_PROCESSOR_CLOCK"
 ```
 
 ### Verbose build
@@ -1113,7 +1113,7 @@ Redis will build with a user-friendly colorized output by default.
 If you want to see a more verbose output, use the following:
 
 ```sh
-make build V=1
+make V=1
 ```
 
 ### Running Redis with TLS
@@ -1130,14 +1130,14 @@ For more details, please refer to the information provided by Intel [here](https
 By default, Redis with the Redis Query Engine supports SVS-VAMANA index with global 8-bit quantisation. To compile Redis with the Intel SVS-VAMANA optimisations, LeanVec and LVQ, use the following:
 
 ```sh
-make build BUILD_INTEL_SVS_OPT=yes
+make BUILD_INTEL_SVS_OPT=yes
 ```
 
 Alternatively, you can export the variable before running the build step for your platform:
 
 ```sh
 export BUILD_INTEL_SVS_OPT=yes
-make build
+make
 ```
 
 
