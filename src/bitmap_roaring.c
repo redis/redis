@@ -309,14 +309,6 @@ robj *createBitmapObject(void) {
     return o;
 }
 
-robj *createBitmapObjectWithLen(uint64_t byte_len) {
-    if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
-
-    robj *o = createBitmapObject();
-    getBitmapObject(o)->byte_len = byte_len;
-    return o;
-}
-
 static robj *createBitmapObjectFromStringWithOptions(const unsigned char *buf,
                                                      size_t len, int optimize)
 {
@@ -1143,26 +1135,6 @@ int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
             roaring64_bitmap_remove(bitmap->roaring, positions_to_remove[j]);
     }
     bitmapObjectRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
-
-    return C_OK;
-}
-
-/* Add bits in the half-open range [start,end). */
-int bitmapObjectAddRange(robj *o, uint64_t start, uint64_t end) {
-    bitmapObject *bitmap = getBitmapObject(o);
-    size_t old_size;
-
-    if (start >= end) return C_OK;
-    if (!bitmapObjectCanRepresentBit(end - 1))
-        return C_ERR;
-
-    uint64_t byte = (end - 1) >> 3;
-    if (byte + 1 > bitmap->byte_len)
-        bitmap->byte_len = byte + 1;
-
-    old_size = bitmapRoaringRangeAllocSize(bitmap->roaring, start, end);
-    roaring64_bitmap_add_range(bitmap->roaring, start, end);
-    bitmapObjectRefreshRangeAllocSize(bitmap, start, end, old_size);
 
     return C_OK;
 }

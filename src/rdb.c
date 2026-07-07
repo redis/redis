@@ -1117,9 +1117,27 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     return nwritten;
 }
 
-#define RDB_BITMAP_ENCODING_RAW (UINT64_MAX - 1)
-#define RDB_BITMAP_ENCODING_RANGES (UINT64_MAX - 2)
-#define RDB_BITMAP_RANGE_ESTIMATED_BYTES 10
+static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
+    ssize_t n, nwritten = 0;
+    uint64_t byte_len = bitmapObjectLen(o);
+    sds raw;
+
+    if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
+    nwritten += n;
+
+    raw = bitmapObjectMaterializeForRDB(o);
+    if (raw == NULL) return -1;
+    serverAssert((uint64_t)sdslen(raw) == byte_len);
+
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)raw, sdslen(raw))) == -1) {
+        sdsfree(raw);
+        return -1;
+    }
+    nwritten += n;
+    sdsfree(raw);
+
+    return nwritten;
+}
 
 static sds rdbLoadBitmapLzfRawString(rio *rdb, uint64_t expected_len) {
     uint64_t clen = rdbLoadLen(rdb, NULL);
@@ -1149,9 +1167,9 @@ err:
     return NULL;
 }
 
-/* Bitmap payloads carry the logical byte length before the raw string. Check
- * the string's encoded length before allocating so corrupt RESTORE/RDB input
- * cannot smuggle a larger raw payload behind a small declared bitmap length. */
+/* Native bitmap payloads carry the logical byte length before the Redis raw
+ * string. Validate the string's decoded length before allocating it so corrupt
+ * RESTORE/RDB input cannot hide a large payload behind a small bitmap length. */
 static sds rdbLoadBitmapRawString(rio *rdb, uint64_t expected_len) {
     int isencoded;
     uint64_t len = rdbLoadLen(rdb, &isencoded);
@@ -1196,168 +1214,19 @@ static sds rdbLoadBitmapRawString(rio *rdb, uint64_t expected_len) {
     return raw;
 }
 
-static int rdbBitmapShouldSaveRanges(const robj *o, uint64_t byte_len) {
-    uint64_t cardinality;
-
-    if (byte_len == 0) return 1;
-
-    cardinality = bitmapObjectCardinality(o);
-    if (cardinality == 0) return 1;
-    if (cardinality > UINT64_MAX / RDB_BITMAP_RANGE_ESTIMATED_BYTES)
-        return 0;
-
-    /* Each range is saved as start + length. The cardinality is an upper bound
-     * for range count, so this keeps the range path for sparse shapes without
-     * making dense alternating bitmaps worse than raw bytes. */
-    return cardinality * RDB_BITMAP_RANGE_ESTIMATED_BYTES < byte_len;
-}
-
-static void rdbBitmapCountRange(uint64_t start, uint64_t end, void *privdata) {
-    uint64_t *count = privdata;
-    UNUSED(start);
-    UNUSED(end);
-    (*count)++;
-}
-
-typedef struct rdbBitmapRangeSaveCtx {
-    rio *rdb;
-    ssize_t nwritten;
-    int error;
-} rdbBitmapRangeSaveCtx;
-
-static void rdbBitmapSaveRange(uint64_t start, uint64_t end, void *privdata) {
-    rdbBitmapRangeSaveCtx *ctx = privdata;
-    ssize_t n;
-
-    if (ctx->error) return;
-
-    if ((n = rdbSaveLen(ctx->rdb, start)) == -1) {
-        ctx->error = 1;
-        return;
-    }
-    ctx->nwritten += n;
-
-    if ((n = rdbSaveLen(ctx->rdb, end - start + 1)) == -1) {
-        ctx->error = 1;
-        return;
-    }
-    ctx->nwritten += n;
-}
-
-static ssize_t rdbSaveBitmapRanges(rio *rdb, const robj *o) {
-    uint64_t range_count = 0;
-    ssize_t n, nwritten = 0;
-    rdbBitmapRangeSaveCtx ctx = { .rdb = rdb, .nwritten = 0, .error = 0 };
-
-    bitmapObjectVisitSetBitRanges(o, rdbBitmapCountRange, &range_count);
-
-    if ((n = rdbSaveLen(rdb, range_count)) == -1) return -1;
-    nwritten += n;
-
-    bitmapObjectVisitSetBitRanges(o, rdbBitmapSaveRange, &ctx);
-    if (ctx.error) return -1;
-    nwritten += ctx.nwritten;
-    return nwritten;
-}
-
-static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
-    ssize_t n, nwritten = 0;
-    uint64_t byte_len = bitmapObjectLen(o);
-    sds raw;
-
-    if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
-    nwritten += n;
-
-    if (rdbBitmapShouldSaveRanges(o, byte_len)) {
-        if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_RANGES)) == -1)
-            return -1;
-        nwritten += n;
-        if ((n = rdbSaveBitmapRanges(rdb, o)) == -1) return -1;
-        nwritten += n;
-        return nwritten;
-    }
-
-    if ((n = rdbSaveLen(rdb, RDB_BITMAP_ENCODING_RAW)) == -1) return -1;
-    nwritten += n;
-
-    raw = bitmapObjectMaterializeForRDB(o);
-    if (raw == NULL) return -1;
-
-    if ((n = rdbSaveRawString(rdb, (unsigned char *)raw, sdslen(raw))) == -1) {
-        sdsfree(raw);
-        return -1;
-    }
-    nwritten += n;
-    sdsfree(raw);
-
-    return nwritten;
-}
-
-static robj *rdbLoadBitmapRanges(rio *rdb, uint64_t byte_len) {
-    uint64_t bit_len = byte_len * 8;
-    uint64_t range_count = rdbLoadLen(rdb, NULL);
-    uint64_t previous_end = 0;
-    int have_previous = 0;
-    robj *o;
-
-    if (range_count == RDB_LENERR) return NULL;
-    if (range_count > bit_len) return NULL;
-
-    o = createBitmapObjectWithLen(byte_len);
-    if (o == NULL) return NULL;
-
-    for (uint64_t i = 0; i < range_count; i++) {
-        uint64_t start = rdbLoadLen(rdb, NULL);
-        uint64_t len = rdbLoadLen(rdb, NULL);
-        uint64_t end;
-
-        if (start == RDB_LENERR || len == RDB_LENERR) goto fail;
-        if (len == 0 || start >= bit_len || len > bit_len - start)
-            goto fail;
-
-        end = start + len;
-        /* Ranges are persisted in canonical form: sorted, non-overlapping and
-         * non-adjacent. Adjacent records would describe the same value but make
-         * malformed payloads cheaper to construct than to canonicalize. */
-        if (have_previous && start <= previous_end) goto fail;
-
-        if (bitmapObjectAddRange(o, start, end) != C_OK) goto fail;
-        previous_end = end;
-        have_previous = 1;
-    }
-
-    bitmapObjectOptimize(o);
-    return o;
-
-fail:
-    decrRefCount(o);
-    return NULL;
-}
-
 static robj *rdbLoadBitmapObject(rio *rdb) {
     uint64_t byte_len = rdbLoadLen(rdb, NULL);
-    uint64_t encoding;
     sds raw;
     robj *o;
 
     if (byte_len == RDB_LENERR) return NULL;
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
-    encoding = rdbLoadLen(rdb, NULL);
-    if (encoding == RDB_LENERR) return NULL;
-
-    switch (encoding) {
-    case RDB_BITMAP_ENCODING_RAW:
-        raw = rdbLoadBitmapRawString(rdb, byte_len);
-        if (raw == NULL) return NULL;
-        o = createBitmapObjectFromString((unsigned char *)raw, sdslen(raw));
-        sdsfree(raw);
-        return o;
-    case RDB_BITMAP_ENCODING_RANGES:
-        return rdbLoadBitmapRanges(rdb, byte_len);
-    default:
-        return NULL;
-    }
+    raw = rdbLoadBitmapRawString(rdb, byte_len);
+    if (raw == NULL) return NULL;
+    o = createBitmapObjectFromString((unsigned char *)raw, sdslen(raw));
+    sdsfree(raw);
+    return o;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
