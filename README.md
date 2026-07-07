@@ -981,9 +981,9 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
    mkdir -p build_dir/etc
-   make -C redis-8.0 modules-update OS=macos
-   make -C redis-8.0 -j "$(nproc)" all OS=macos
-   make -C redis-8.0 install PREFIX=$(pwd)/build_dir OS=macos
+   make modules-update OS=macos
+   make -j "$(nproc)" all OS=macos
+   make install PREFIX=$(pwd)/build_dir OS=macos
    ```
 
 7. Run Redis
