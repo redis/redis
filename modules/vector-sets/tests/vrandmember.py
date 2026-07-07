@@ -61,15 +61,27 @@ class VRANDMEMBERCountOutOfRangeTest(TestCase):
         return "VRANDMEMBER COUNT=LLONG_MIN is rejected, not crashing"
 
     def test(self):
-        # A non-empty set is required to reach the COUNT handling.
-        fill_redis_with_vectors(self.redis, self.test_key, 10, 4)
+        llong_min = -9223372036854775808
 
         # LLONG_MIN has no representable positive magnitude, so negating it is
         # undefined behavior and the previous code produced a negative reply
         # array length, crashing the server via serverAssert(length >= 0)
-        # (issue #15384). It must now be rejected with a clean error.
+        # (issue #15384). The invalid count is now rejected up front, before the
+        # missing-key / empty-set fast paths, so it is caught regardless of
+        # whether the set has any members.
+
+        # Missing key: previously returned an empty array without ever looking
+        # at the count; it must be rejected too.
         try:
-            self.redis.execute_command('VRANDMEMBER', self.test_key, -9223372036854775808)
+            self.redis.execute_command('VRANDMEMBER', self.test_key, llong_min)
+            assert False, "VRANDMEMBER with LLONG_MIN count should error even for a missing key"
+        except redis.exceptions.ResponseError as e:
+            assert "out of range" in str(e).lower(), f"unexpected error: {e}"
+
+        # Non-empty set: same rejection.
+        fill_redis_with_vectors(self.redis, self.test_key, 10, 4)
+        try:
+            self.redis.execute_command('VRANDMEMBER', self.test_key, llong_min)
             assert False, "VRANDMEMBER with LLONG_MIN count should return an error"
         except redis.exceptions.ResponseError as e:
             assert "out of range" in str(e).lower(), f"unexpected error: {e}"
