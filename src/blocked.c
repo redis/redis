@@ -497,6 +497,7 @@ static blocking_type getBlockedTypeByType(int type) {
 static void signalKeyAsReadyLogic(redisDb *db, robj *key, int btype, int deleted) {
     readyList *rl;
 
+    /* The type can never block. */
     if (btype == BLOCKED_NONE)
         return;
 

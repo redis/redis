@@ -1562,12 +1562,22 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
         serverAssert(vals[i] != NULL);
     }
 
-    /* The moved block, read left-to-right in the destination, must equal:
-     *   - BULK: the source relative order of the block.
-     *   - OBO : the order produced by pushing each element as it was popped.
-     * Both reduce to "pop order, optionally reversed". */
-    int reverse_block = (ordering == LMOVEM_ORDER_OBO) ? (whereto == LIST_HEAD)
-                                                       : (wherefrom == LIST_TAIL);
+    /* Reorder the popped elements (vals[0] = first popped) into destination
+     * order: the left-to-right order the moved block will have in the
+     * destination, which is also the order we reply in.
+     *   - OBO : elements are inserted one-by-one as popped, reading in pop order
+     *           at the tail and reversed at the head.
+     *   - BULK: the block keeps the source's relative order: pop order when
+     *           popped from the head, reversed when popped from the tail.
+     * After this, vals[] holds exactly the destination order. */
+    if ((ordering == LMOVEM_ORDER_OBO) ? (whereto == LIST_HEAD)
+                                       : (wherefrom == LIST_TAIL)) {
+        for (long i = 0, j = count - 1; i < j; i++, j--) {
+            robj *tmp = vals[i];
+            vals[i] = vals[j];
+            vals[j] = tmp;
+        }
+    }
 
     /* Create the destination list if needed (never the case when samekey). */
     int dst_existed = (dstobj != NULL);
@@ -1581,26 +1591,20 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
     if (!samekey && server.memory_tracking_enabled)
         dst_oldsize = kvobjAllocSize(dstobj);
 
-    /* Reply with the moved elements in destination order, and push them so the
-     * destination block reads left-to-right as that same order. When pushing at
-     * the head we push in reverse so the final block keeps destination order. */
+    /* Reply with the moved elements in destination order. */
     addReplyArrayLen(c, count);
+    for (long i = 0; i < count; i++)
+        addReplyBulk(c, vals[i]);
+
+    /* Convert once for the whole batch (the conversion decision is order-independent). */
+    listTypeTryConversionAppend(dstobj, vals, 0, count - 1, NULL, NULL);
+
+    /* Insert the block into the destination so it reads left-to-right as vals[].
+     * A head push prepends, so push back-to-front to keep the order; a tail push
+     * appends, so push front-to-back. */
     for (long i = 0; i < count; i++) {
-        robj *v = reverse_block ? vals[count - 1 - i] : vals[i];
-        addReplyBulk(c, v);
-    }
-    if (whereto == LIST_TAIL) {
-        for (long i = 0; i < count; i++) {
-            robj *v = reverse_block ? vals[count - 1 - i] : vals[i];
-            listTypeTryConversionAppend(dstobj, &v, 0, 0, NULL, NULL);
-            listTypePush(dstobj, v, whereto);
-        }
-    } else {
-        for (long i = count - 1; i >= 0; i--) {
-            robj *v = reverse_block ? vals[count - 1 - i] : vals[i];
-            listTypeTryConversionAppend(dstobj, &v, 0, 0, NULL, NULL);
-            listTypePush(dstobj, v, whereto);
-        }
+        robj *v = (whereto == LIST_HEAD) ? vals[count - 1 - i] : vals[i];
+        listTypePush(dstobj, v, whereto);
     }
 
     /* listTypePush() copies the value, so we still own the popped references. */
