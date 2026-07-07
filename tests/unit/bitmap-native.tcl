@@ -307,7 +307,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set first_rejected [expr {$max_native_bit + 1}]
         set oldval [config_get_set proto-max-bulk-len $raised_limit]
 
-        r del bitmap:native:raised-limit bitmap:native:raised-limit:new
+        r del bitmap:native:raised-limit bitmap:native:raised-limit:new \
+            bitmap:native:raised-limit:string
         r config set bitmap-default-roaring yes
         assert_equal 0 [r setbit bitmap:native:raised-limit 0 1]
         assert_equal 0 [r getbit bitmap:native:raised-limit $max_native_bit]
@@ -333,10 +334,28 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         assert_equal 0 [r exists bitmap:native:raised-limit:new]
 
+        # A write past the native cap against an existing string is rejected
+        # by the conversion path and must leave the string untouched: SETBIT
+        # discards the trial native object, BITFIELD rejects before
+        # converting. Reads there pass the raised parse-time limit and see
+        # zeros past the end of the string.
+        r set bitmap:native:raised-limit:string [binary format H* 80]
+        assert_error {*bit offset*out of range*} {
+            r setbit bitmap:native:raised-limit:string $first_rejected 1
+        }
+        assert_error {*bit offset*out of range*} {
+            r bitfield bitmap:native:raised-limit:string SET u1 $first_rejected 1
+        }
+        assert_equal {0} [
+            r bitfield bitmap:native:raised-limit:string GET u1 $first_rejected
+        ]
+        assert_equal string [r type bitmap:native:raised-limit:string]
+        assert_equal [binary format H* 80] [r get bitmap:native:raised-limit:string]
+
         assert_equal 1 [r bitcount bitmap:native:raised-limit]
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitmap:native:raised-limit
+        r del bitmap:native:raised-limit bitmap:native:raised-limit:string
     }
 
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {

@@ -796,7 +796,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
      * caller's possibly stale replacement pointer, keeping the common path a
      * single lookup. */
     robj *val = *valref;
-    if (moduleKeyspaceEventSubscribed(NOTIFY_NEW | NOTIFY_OVERWRITTEN | NOTIFY_TYPE_CHANGED))
+    if (moduleHasSubscribersForKeyspaceEvent(NOTIFY_NEW | NOTIFY_OVERWRITTEN | NOTIFY_TYPE_CHANGED))
         val = lookupKeyReadWithFlags(db, key, LOOKUP_NOEFFECTS);
     keyModified(c,db,key,val,!(flags & SETKEY_NO_SIGNAL));
 }

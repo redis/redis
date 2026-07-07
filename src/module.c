@@ -833,14 +833,6 @@ static void moduleUpdateKeyspaceSubscribersTypes(void) {
     moduleKeyspaceSubscribersWithSubkeysTypes = subkeys_mask;
 }
 
-/* Return non-zero if at least one module keyspace-notification subscriber
- * listens to any of the event classes in 'type'. Lets hot paths skip
- * defensive work that is only needed when a module callback can run
- * synchronously and mutate the keyspace. */
-int moduleKeyspaceEventSubscribed(int type) {
-    return (moduleKeyspaceSubscribersTypes & type) != 0;
-}
-
 /* --------------------------------------------------------------------------
  * Service API exported to modules
  *

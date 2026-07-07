@@ -3162,7 +3162,6 @@ void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
-int moduleKeyspaceEventSubscribed(int type);
 void firePostExecutionUnitJobs(void);
 void firePerKeyJobsBetweenSubcommands(void);
 void moduleCallCommandFilters(client *c);
