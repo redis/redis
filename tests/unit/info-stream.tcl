@@ -162,11 +162,16 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_pel {$server FLUSHALL} {}
         seed_stream $server st 4
         $server xgroup create st g 0
-        # XCLAIM FORCE creates PEL entries for the listed (existing) IDs.
-        verify_pel {$server xclaim st g c 0 1-1 2-1 3-1 FORCE} {db0_PEL:2=1}
-        # Delete an entry from the stream, then XCLAIM purges its dangling PEL ref.
-        $server xdel st 1-1
-        verify_pel {$server xclaim st g c2 0 1-1 2-1 3-1 FORCE} {db0_PEL:2=1}
+        # XCLAIM FORCE creates PEL entries for the four (existing) IDs -> PEL=4.
+        # Bin boundaries are chosen so the later purge crosses one (4 -> "4",
+        # 3 -> "2"), otherwise the shrink would be invisible at this granularity.
+        verify_pel {$server xclaim st g c 0 1-1 2-1 3-1 4-1 FORCE} {db0_PEL:4=1}
+        # XDEL removes the stream entry but leaves its PEL reference dangling;
+        # XDEL does not touch the PEL, so the histogram must stay at 4.
+        verify_pel {$server xdel st 1-1} {db0_PEL:4=1}
+        # Re-claiming the now-dangling ID purges it from the PEL -> PEL=3, which
+        # crosses a bin boundary (4 -> "2"), so the purge is observable.
+        verify_pel {$server xclaim st g c2 0 1-1 2-1 3-1 4-1 FORCE} {db0_PEL:2=1}
     }
 
     test "STREAM-STATS - XAUTOCLAIM purges deleted PEL entries $suffix" {
