@@ -767,11 +767,9 @@ void printBits(unsigned char *p, unsigned long count) {
 #define BITFIELDOP_SET 1
 #define BITFIELDOP_INCRBY 2
 
-/* This helper function used by bitmap commands parses the bit offset argument,
- * making sure an error is returned if it is negative or does not fit a signed
- * 64-bit integer. Write paths and legacy string read paths apply the
- * client-visible proto-max-bulk-len limit separately; native bitmap reads can
- * address sparse offsets inside the native v1 cap and read unset bits as zero.
+/* This helper function used by GETBIT / SETBIT parses the bit offset argument
+ * making sure an error is returned if it is negative or if it overflows
+ * Redis 512 MB limit for the string value or more (server.proto_max_bulk_len).
  *
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
