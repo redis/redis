@@ -883,6 +883,9 @@ start_server {tags {"tracking network logreqres:skip"}} {
         assert_equal {PONG} [$rd read]
     }
 
+    # Intentionally use two clients authenticated as the same ACL user.
+    # This exercises reuse of the cached filtered BCAST reply for that user,
+    # while verifying both subscribers receive only keys allowed by the ACL.
     test {BCAST ACL filtering - two clients same user see only permitted keys} {
         clean_all
 
@@ -920,7 +923,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
         r ACL DELUSER shareduser
     }
 
-    test {BCAST re-AUTH re-buckets correctly with ACL filtering} {
+    test {BCAST ACL filtering uses new user after re-AUTH} {
         clean_all
 
         r ACL SETUSER usr_a on >passA ~a:* +@all
