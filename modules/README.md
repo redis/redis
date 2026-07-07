@@ -81,11 +81,11 @@ Starts `src/redis-server` with the selected modules auto-loaded via
 hardcoding platform paths.
 
 ```bash
-./src/redis-server redis-full.conf           #include all modules and redis configs 
-make run                                    # all built modules without configs
-make run redistimeseries redisbloom         # subset
+./src/redis-server redis-full.conf          # all modules + redis configs
+./src/redis-server redis.conf               # redis core only, no modules
+make run                                     # all built modules without configs
+make run redistimeseries redisbloom          # subset
 make run ARGS="--port 6400 --loglevel debug"
-./src/redis-server redis-full.conf
 ```
 
 Verify from another shell:
