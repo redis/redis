@@ -7113,8 +7113,11 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
     list *moved = listCreate();
     int src_count = listLength(sources), i = 0, tot_slots = 0, j;
     clusterManagerNode **sorted = zmalloc(src_count * sizeof(*sorted));
+    int *max_slots = zmalloc(src_count * sizeof(*max_slots));
+    float *remainders = zmalloc(src_count * sizeof(*remainders));
     listIter li;
     listNode *ln;
+
     listRewind(sources, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *node = ln->value;
@@ -7123,12 +7126,61 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
     }
     qsort(sorted, src_count, sizeof(clusterManagerNode *),
           clusterManagerSlotCountCompareDesc);
+
+    int assigned_total = 0;
     for (i = 0; i < src_count; i++) {
         clusterManagerNode *node = sorted[i];
-        float n = ((float) numslots / tot_slots * node->slots_count);
-        if (i == 0) n = ceil(n);
-        else n = floor(n);
-        int max = (int) n, count = 0;
+        float exact = ((float) numslots / tot_slots * node->slots_count);
+        int floor_slots = floor(exact);
+        max_slots[i] = floor_slots;
+        remainders[i] = exact - floor_slots;
+        assigned_total += floor_slots;
+    }
+
+    int remaining = numslots - assigned_total;
+    if (remaining > 0) {
+        typedef struct {
+            int idx;
+            float rem;
+            int slots_count;
+        } orderItem;
+        orderItem *order = zmalloc(src_count * sizeof(*order));
+        int k, best;
+
+        for (i = 0; i < src_count; i++) {
+            order[i].idx = i;
+            order[i].rem = remainders[i];
+            order[i].slots_count = sorted[i]->slots_count;
+        }
+
+        for (k = 0; k < src_count; k++) {
+            best = k;
+            for (j = k + 1; j < src_count; j++) {
+                if (order[j].rem > order[best].rem ||
+                    (order[j].rem == order[best].rem &&
+                     order[j].slots_count > order[best].slots_count) ||
+                    (order[j].rem == order[best].rem &&
+                     order[j].slots_count == order[best].slots_count &&
+                     order[j].idx < order[best].idx)) {
+                    best = j;
+                }
+            }
+            if (best != k) {
+                orderItem tmp = order[k];
+                order[k] = order[best];
+                order[best] = tmp;
+            }
+        }
+
+        for (i = 0; i < remaining; i++) {
+            max_slots[order[i].idx]++;
+        }
+        zfree(order);
+    }
+
+    for (i = 0; i < src_count; i++) {
+        clusterManagerNode *node = sorted[i];
+        int max = max_slots[i], count = 0;
         for (j = 0; j < CLUSTER_MANAGER_SLOTS; j++) {
             int slot = node->slots[j];
             if (!slot) continue;
@@ -7140,6 +7192,9 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
             count++;
         }
     }
+
+    zfree(max_slots);
+    zfree(remainders);
     zfree(sorted);
     return moved;
 }
