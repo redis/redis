@@ -32,6 +32,7 @@ This document serves as both a quick start guide to Redis and a detailed resourc
   - [Build and run Redis with all data structures - AlmaLinux 10.1+ / Rocky Linux 10.1+](#build-and-run-redis-with-all-data-structures---almalinux-101--rocky-linux-101)
   - [Build and run Redis with all data structures - Alpine 3.23+](#build-and-run-redis-with-all-data-structures---alpine-323)
   - [Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)](#build-and-run-redis-with-all-data-structures---macos-14-sonoma-15-sequoia-26-tahoe)
+  - [Using the pre-built build-environment image (Docker)](#using-the-pre-built-build-environment-image-docker)
   - [Building Redis - flags and general notes](#building-redis---flags-and-general-notes)
   - [Fixing build problems with dependencies or cached build options](#fixing-build-problems-with-dependencies-or-cached-build-options)
   - [Fixing problems building 32 bit binaries](#fixing-problems-building-32-bit-binaries)
@@ -366,27 +367,6 @@ Tested with the following Docker image:
 Tested with the following Docker image:
 
 - ubuntu:24.04
-
-> **Pre-built build environment image:** instead of running the apt-get
-> commands below by hand, you can build the bundled `docker/Dockerfile.noble`
-> image, which installs the base Redis build prerequisites and, for any
-> modules already cloned into `modules/<name>/src` (run `make modules-update`
-> first on a fresh checkout), their per-module system dependencies. The image
-> is intended as a build environment — mount the repo at runtime, then run
-> `make modules-update`/`make build`/`make run` inside the container.
->
-> ```bash
-> # Native architecture only:
-> docker build -f docker/Dockerfile.noble -t redis-build:noble .
->
-> # Multi-arch (requires `docker buildx` configured):
-> docker buildx build --platform linux/amd64,linux/arm64 \
->     -f docker/Dockerfile.noble -t redis-build:noble .
->
-> # Run with the working tree mounted:
-> docker run --rm -it -v "$PWD":/workspace -w /workspace redis-build:noble \
->     bash -lc 'make && make run'
-> ```
 
 1. Install required dependencies
 
@@ -991,6 +971,23 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    export LANG=en_US.UTF-8
    build_dir/bin/redis-server redis-full.conf
    ```
+
+### Using the pre-built build-environment image (Docker)
+
+The per-OS sections above build Redis natively — no Docker required. As an alternative, the repo ships `docker/Dockerfile.noble` (Ubuntu 24.04), a ready-made **build environment** that installs the base Redis build prerequisites and, for any modules already cloned into `modules/<name>/src` (run `make modules-update` first on a fresh checkout), their per-module system dependencies. You mount the repo at runtime and build inside the container:
+
+```bash
+# Native architecture only:
+docker build -f docker/Dockerfile.noble -t redis-build:noble .
+
+# Multi-arch (requires `docker buildx` configured):
+docker buildx build --platform linux/amd64,linux/arm64 \
+    -f docker/Dockerfile.noble -t redis-build:noble .
+
+# Run with the working tree mounted:
+docker run --rm -it -v "$PWD":/workspace -w /workspace redis-build:noble \
+    bash -lc 'make && make run'
+```
 
 ### Building Redis - flags and general notes
 
