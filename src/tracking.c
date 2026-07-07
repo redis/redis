@@ -628,8 +628,9 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
 
     /* Per-user proto cache.  Key: user * pointer (identity),
      * value: sds proto (may be NULL for users whose keys are all
-     * filtered out by ACL). */
-    dictType dt = { .hashFunction = dictPtrHash };
+     * filtered out by ACL). The value destructor frees the cached protos
+     * on dictRelease (dictSdsDestructor tolerates NULL values). */
+    dictType dt = { .hashFunction = dictPtrHash, .valDestructor = dictSdsDestructor };
     dict *user_cache = dictCreate(&dt);
 
     /* Send this array of keys to every client in the list. */
@@ -663,14 +664,7 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
     }
     raxStop(&ri);
 
-    /* Free all cached protos. */
-    dictIterator *cache_di = dictGetIterator(user_cache);
-    dictEntry *de;
-    while ((de = dictNext(cache_di)) != NULL) {
-        sds proto = dictGetVal(de);
-        if (proto) sdsfree(proto);
-    }
-    dictReleaseIterator(cache_di);
+    /* Frees the dict and all cached protos via the value destructor. */
     dictRelease(user_cache);
 
     /* Clean up: we can remove everything from this state, because we
