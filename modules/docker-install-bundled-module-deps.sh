@@ -30,6 +30,9 @@ fi
 # Reuse the single source-of-truth YAML reader instead of re-parsing here.
 # manifest_modules() reads $MODULES_MANIFEST_FILE, so point it at our manifest.
 MODULES_MANIFEST_FILE="$MANIFEST"
+# manifest.sh is POSIX sh and can't self-locate via BASH_SOURCE when sourced,
+# so it needs REPO_ROOT (or SCRIPT_DIR) set first. Our workspace root is it.
+REPO_ROOT="${REPO_ROOT:-$ROOT}"
 # shellcheck source=../scripts/lib/manifest.sh
 . "$MANIFEST_LIB"
 
