@@ -2144,43 +2144,31 @@ void hsetnxCommand(client *c) {
     server.dirty++;
 }
 
-/* Fast path for BUILDING a fresh (empty) listpack hash via a wide HSET/HMSET.
+/* Fast path for building a fresh (empty) listpack hash from a wide HSET/HMSET:
+ * fills the hash from the numfields (field,value) pairs in argv in O(n), instead
+ * of the per-field hashTypeSet() loop whose repeated lpFind() rescans make a wide
+ * fresh build O(n^2). In-command duplicate fields resolve last-wins and field
+ * order matches the per-field path (first-occurrence position), so the result is
+ * byte-identical to building the hash field by field.
  *
- * The per-field hashTypeSet() loop is O(n^2) for a wide HSET: each field runs a
- * full lpFind() over the listpack, which grows as earlier fields of the same
- * command are appended. For a freshly-created (empty) hash there is nothing to
- * look up or replace, so we build the (field,value) array once and append it with
- * a single lpBatchAppend() -> O(n) build (no rescans). Any HSET into a non-empty
- * hash, or with field TTLs (LISTPACK_EX) or hashtable encoding, takes the
- * unchanged per-field path (this helper is not called).
- *
- * Single pass over argv: a transient dict maps each field sds -> its slot index in
- * pairs[]. The first occurrence of a field appends a new slot (preserving argv
- * order); a later duplicate reuses that slot and overwrites its value, so
- * in-command duplicates resolve last-wins while keeping first-occurrence position.
- * The result is byte-identical to the per-field path, so the insertion order
- * callers and tests observe via HGETALL is preserved. sdsReplyDictType makes the
- * dict borrow the argv sds (no copy, no free); the slot index is stored in the
- * entry value (no allocation).
- *
- * pairs[] is on the stack for the common small case and heap-allocated when a
- * command carries more than HSET_LP_STACK_PAIRS fields (reachable on a fresh
- * listpack hash whenever hash-max-listpack-entries is >= numfields, e.g. 129..512
- * under the default 512 limit) -- lpBatchInsert() already heap-allocates its own
- * scratch for large batches, so this just matches it.
- *
- * Caller guarantees: o is an empty OBJ_ENCODING_LISTPACK hash, and
- * hashTypeTryConversion() has already run for this command -- so every value fits
- * hash-max-listpack-value, the total is lpSafeToAdd(), and numfields <=
- * hash-max-listpack-entries (else the object would already be a hashtable and we
- * would not be here). Hence no per-field length check and no post-build conversion
- * are needed. The dispatch only invokes this for numfields >= 2 (a single-field
- * HSET stays on the per-field path), though the build itself works for any >= 1.
+ * Caller guarantees: o is an empty OBJ_ENCODING_LISTPACK hash and
+ * hashTypeTryConversion() has already run for this command, so the result is
+ * guaranteed to fit a listpack (no per-field length checks and no post-build
+ * conversion needed).
  * Returns the number of fields created (unique fields, <= numfields). */
 #define HSET_LP_STACK_PAIRS 128
 static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0);
 
+    /* Single pass over argv: a transient dict maps each field sds -> its slot
+     * index in pairs[]. The first occurrence of a field appends a new slot
+     * (preserving argv order); a later duplicate reuses that slot and overwrites
+     * its value (last-wins). sdsReplyDictType borrows the argv sds (no copy, no
+     * free); the slot index is stored in the entry value (no allocation). The
+     * unique pairs are then written with a single lpBatchAppend(). pairs[] is on
+     * the stack for the common small case and heap-allocated for wider commands
+     * -- matching lpBatchInsert(), which heap-allocates its own scratch for
+     * large batches. */
     listpackEntry stackpairs[2 * HSET_LP_STACK_PAIRS];
     listpackEntry *pairs = (numfields <= HSET_LP_STACK_PAIRS) ? stackpairs :
                            zmalloc(sizeof(listpackEntry) * 2 * (size_t)numfields);
@@ -2230,10 +2218,8 @@ void hsetCommand(client *c) {
 
     int numfields = (c->argc - 2) / 2;
     /* The fresh-build fast path pays for a transient dedup dict, which only pays
-     * off once the field count is large enough. A/B sweep on a fresh listpack hash
-     * (single dict pass vs the per-field loop) puts the crossover at ~5 fields:
-     * N=2 -8.7%, N=4 -3.0%, N=5 +7.3%, N=8 +8.2%, N=16 +29%, N=51 +111%. Below the
-     * threshold the per-field loop is cheaper, so gate the fast path at numfields>=5. */
+     * off once the field count is large enough; 5 fields is a reasonable
+     * threshold, below it the per-field loop is cheaper. */
     if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields >= 5 && lpLength(kv->ptr) == 0) {
         /* Fresh wide build: single dict pass (last-wins) + one batch append. */
         created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
