@@ -1875,7 +1875,6 @@ static void asmStartImportTask(asmTask *task) {
 
     task->state = ASM_CONNECTING;
     task->start_time = server.mstime;
-    // backupAbortIfInProgress("atomic slot migration started");
     asmNotifyStateChange(task, ASM_EVENT_IMPORT_STARTED);
 
     task->main_channel_conn = connCreate(server.el, connTypeOfReplication());
@@ -2038,7 +2037,6 @@ void clusterSyncSlotsCommand(client *c) {
         sdsfree(slots_str);
 
         asmNotifyStateChange(task, ASM_EVENT_MIGRATE_STARTED);
-        // backupAbortIfInProgress("atomic slot migration started");
 
         /* Keep the client in the main thread to avoid data races between the
          * connWrite call below and the client's event handler in IO threads. */

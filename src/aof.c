@@ -32,7 +32,6 @@ int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
 void aof_background_fsync_and_close(int fd);
-int backupIsInProgress(void);
 
 /* When we call 'startAppendOnly', we will create a temp INCR AOF, and rename
  * it to the real INCR AOF name when the AOFRW is done, so if want to know the
@@ -3100,7 +3099,7 @@ int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am) {
  * appendonlydir.
  *
  * Lifecycle:
- * IDLE -> PENDING -> SNAPSHOTTING -> INCREMENTING -> SEALED -> CLEANUP -> IDLE.
+ * IDLE -> PENDING -> SNAPSHOTTING -> INCREMENTING -> SEALED.
  * Failures and ABORT move to FAILED; CLEANUP accepts SEALED/FAILED/IDLE.
  * -------------------------------------------------------------------------- */
 
@@ -3135,14 +3134,6 @@ static int backupLinkFile(char *filename) {
     sdsfree(src);
     sdsfree(dst);
     return ret;
-}
-
-/* Background unlink 'filename' (if set) from the backup directory. */
-static void backupUnlinkFile(char *filename) {
-    if (!filename) return;
-    sds path = makePath(server.backup_dirname, filename);
-    bg_unlink(path);
-    sdsfree(path);
 }
 
 /* Remove all artifact files from the backup directory. */
@@ -3182,9 +3173,12 @@ static void backupResetState(void) {
 
 /* Stop the AOF stream created only for an appendonly-no backup. If the user
  * enabled appendonly during the backup window, the live AOF no longer belongs
- * to BACKUP and must be kept. Returns 1 when the temp AOF was stopped. */
+ * to BACKUP and must be kept. */
 static void backupStopTempAofIfNeeded(void) {
-    if (server.aof_enabled || server.aof_state == AOF_OFF) return;
+    if (server.aof_enabled) return;
+
+    /* AOF already is off. */
+    if (server.aof_state == AOF_OFF) return;
 
     /* stopAppendOnly() clears aof_rewrite_scheduled flag, keep any manual
      * BGREWRITEAOF postponed while the backup window was open. */
@@ -3251,11 +3245,8 @@ static int backupWriteManifest(aofManifest *am) {
 
     sds name = getAofManifestFileName();
     int ret = writeAofManifestFileToDir(server.backup_dirname, buf);
-
     if (ret == C_OK) {
         server.backup_manifest_filename = sdsdup(name);
-    } else {
-        backupUnlinkFile(name);
     }
 
     sdsfree(buf);
@@ -3272,7 +3263,7 @@ static void backupHandleSnapshotDone(void) {
     serverAssert(server.aof_manifest->base_aof_info);
     sds base_filename = server.aof_manifest->base_aof_info->file_name;
     if (backupLinkFile(base_filename) != C_OK) {
-        backupSetFailed("failed to pin base file");
+        backupSetFailed("failed to pin snapshot file");
         return;
     }
     server.backup_base_filename = sdsnew(base_filename);
@@ -3427,8 +3418,8 @@ static void backupSealCommand(client *c) {
     serverAssert(listLength(server.aof_manifest->incr_aof_list) == 1);
     sds incr_name = getLastIncrAofName(server.aof_manifest);
     if (backupLinkFile(incr_name) != C_OK) {
-        backupSetFailed("failed to pin incr file");
-        addReplyError(c, "Can't pin the INCR file for the backup");
+        backupSetFailed("failed to pin INCR AOF");
+        addReplyError(c, "Can't pin the INCR AOF for the backup");
         return;
     }
     server.backup_incr_filename = sdsnew(incr_name);
@@ -3464,15 +3455,9 @@ static void backupSealCommand(client *c) {
         server.backup_state = BACKUP_STATE_SEALED;
     }
 
-    server.backup_end_time = time(NULL);
+    server.backup_end_time = server.unixtime;
     serverLog(LL_NOTICE, "BACKUP: sealed backup in %s", server.backup_dirname);
     addReply(c, shared.ok);
-}
-
-/* Abort an in-progress backup from runtime events that invalidate it. */
-void backupAbortIfInProgress(const char *err) {
-    if (backupIsInProgress())
-        backupSetFailed(err);
 }
 
 /* BACKUP ABORT: cancel a not-yet-sealed backup. */
@@ -3744,12 +3729,12 @@ cleanup:
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite only when AOF is enabled by config. BACKUP's
      * appendonly-no temp AOF should fail instead of retrying internally. */
-    if (server.aof_state == AOF_WAIT_REWRITE && server.aof_enabled) {
+    if (server.aof_state == AOF_WAIT_REWRITE && server.aof_enabled)
         server.aof_rewrite_scheduled = 1;
-    }
 
-    /* Notify BACKUP after AOFRW cleanup, so BACKUP teardown cannot disturb the
-     * handler's own temp-file and child-state cleanup. */
+    /* Notify BACKUP only after AOFRW has finished its own cleanup. The BACKUP
+     * callback may stop temp AOF or remove backup artifacts, so it must not run
+     * while the AOFRW handler is still cleaning child/temp-file state. */
     if (rewrite_success) {
         backupHandleSnapshotDone();
     } else {

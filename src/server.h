@@ -3571,7 +3571,6 @@ void aofManifestFree(aofManifest *am);
 void backupCron(void);
 int backupIsInProgress(void);
 void backupSetFailed(const char *err);
-void backupAbortIfInProgress(const char *err);
 int aofDelHistoryFiles(void);
 int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);

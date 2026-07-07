@@ -9,7 +9,6 @@
         "function": "backupCommand",
         "command_flags": [
             "ADMIN",
-            "LOADING",
             "STALE"
         ],
         "reply_schema": {

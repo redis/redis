@@ -9,12 +9,45 @@
         "function": "backupCommand",
         "command_flags": [
             "ADMIN",
-            "LOADING",
             "STALE"
         ],
         "reply_schema": {
             "type": "object",
-            "description": "Current backup state."
+            "description": "Current backup state.",
+            "additionalProperties": false,
+            "properties": {
+                "state": {
+                    "oneOf": [
+                        {
+                            "const": "idle"
+                        },
+                        {
+                            "const": "pending"
+                        },
+                        {
+                            "const": "snapshotting"
+                        },
+                        {
+                            "const": "incrementing"
+                        },
+                        {
+                            "const": "sealed"
+                        },
+                        {
+                            "const": "failed"
+                        }
+                    ]
+                },
+                "error": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "integer"
+                },
+                "end_time": {
+                    "type": "integer"
+                }
+            }
         }
     }
 }

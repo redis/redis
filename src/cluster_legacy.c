@@ -6162,7 +6162,6 @@ int clusterCommandSpecial(client *c) {
                 return 1;
             }
             server.cluster->migrating_slots_to[slot] = n;
-            // backupAbortIfInProgress("cluster slot migration started");
         } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
             if (server.cluster->slots[slot] == myself) {
                 addReplyErrorFormat(c,
@@ -6180,7 +6179,6 @@ int clusterCommandSpecial(client *c) {
                 return 1;
             }
             server.cluster->importing_slots_from[slot] = n;
-            // backupAbortIfInProgress("cluster slot migration started");
         } else if (!strcasecmp(c->argv[3]->ptr,"stable") && c->argc == 4) {
             /* CLUSTER SETSLOT <SLOT> STABLE */
             server.cluster->importing_slots_from[slot] = NULL;
