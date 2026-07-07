@@ -635,7 +635,7 @@ static void bitmapObjectDefragBitsetWords(bitmapObject *bitmap,
 static container_t *bitmapObjectDefragContainer(container_t *container,
                                                 bitmapObject *bitmap,
                                                 uint8_t type) {
-    void *moved;
+    void *new_container;
 
     if (container == NULL) return NULL;
 
@@ -643,29 +643,29 @@ static container_t *bitmapObjectDefragContainer(container_t *container,
     case ARRAY_CONTAINER_TYPE: {
         array_container_t *array = CAST_array(container);
         uint16_t *values;
-        if ((moved = bitmapObjectActiveDefragAlloc(bitmap, array)) != NULL)
-            array = (array_container_t *)moved;
+        if ((new_container = bitmapObjectActiveDefragAlloc(bitmap, array)) != NULL)
+            array = (array_container_t *)new_container;
         if (array->array != NULL &&
             (values = bitmapObjectActiveDefragAlloc(bitmap, array->array)) != NULL)
             array->array = values;
-        return (container_t *)moved;
+        return (container_t *)new_container;
     }
     case BITSET_CONTAINER_TYPE: {
         bitset_container_t *bitset = CAST_bitset(container);
-        if ((moved = bitmapObjectActiveDefragAlloc(bitmap, bitset)) != NULL)
-            bitset = (bitset_container_t *)moved;
+        if ((new_container = bitmapObjectActiveDefragAlloc(bitmap, bitset)) != NULL)
+            bitset = (bitset_container_t *)new_container;
         bitmapObjectDefragBitsetWords(bitmap, bitset);
-        return (container_t *)moved;
+        return (container_t *)new_container;
     }
     case RUN_CONTAINER_TYPE: {
         run_container_t *run = CAST_run(container);
         rle16_t *runs;
-        if ((moved = bitmapObjectActiveDefragAlloc(bitmap, run)) != NULL)
-            run = (run_container_t *)moved;
+        if ((new_container = bitmapObjectActiveDefragAlloc(bitmap, run)) != NULL)
+            run = (run_container_t *)new_container;
         if (run->runs != NULL &&
             (runs = bitmapObjectActiveDefragAlloc(bitmap, run->runs)) != NULL)
             run->runs = runs;
-        return (container_t *)moved;
+        return (container_t *)new_container;
     }
     default:
         serverPanic("Unknown roaring bitmap container type");
@@ -698,9 +698,9 @@ static roaring64_bitmap_t *bitmapObjectDefragTopLevel(robj *o) {
     return r;
 }
 
-static void bitmapObjectDefragLeafContainer(roaring64_bitmap_t *r,
-                                            bitmapObject *bitmap,
-                                            roaring64_leaf_t leaf) {
+static void bitmapObjectDefragLeafContainer(roaring64_bitmap_t *r, bitmapObject *bitmap,
+                                            roaring64_leaf_t leaf)
+{
     uint64_t index = roaring64_leaf_index(leaf);
     container_t *moved = bitmapObjectDefragContainer(
         r->containers[index], bitmap, roaring64_leaf_typecode(leaf));
@@ -770,58 +770,6 @@ uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
     if (start >= end || start >= bit_len) return 0;
     if (end > bit_len) end = bit_len;
     return roaring64_bitmap_range_cardinality(bitmap->roaring, start, end);
-}
-
-void bitmapObjectBench(const robj *o, uint64_t iterations,
-                       bitmapObjectBenchResult *result)
-{
-    bitmapObject *bitmap = getBitmapObject(o);
-    uint64_t bit_len = bitmap->byte_len * 8;
-    volatile uint64_t sink = 0;
-    long long start;
-
-    memset(result, 0, sizeof(*result));
-    result->iterations = iterations;
-    if (iterations == 0) return;
-
-    start = ustime();
-    for (uint64_t i = 0; i < iterations; i++)
-        sink += roaring64_bitmap_get_cardinality(bitmap->roaring);
-    result->direct_cardinality_us = ustime() - start;
-
-    start = ustime();
-    for (uint64_t i = 0; i < iterations; i++)
-        sink += bitmapObjectCardinality(o);
-    result->wrapper_cardinality_us = ustime() - start;
-
-    start = ustime();
-    for (uint64_t i = 0; i < iterations; i++)
-        sink += roaring64_bitmap_range_cardinality(bitmap->roaring, 0, bit_len);
-    result->direct_range_cardinality_us = ustime() - start;
-
-    start = ustime();
-    for (uint64_t i = 0; i < iterations; i++)
-        sink += bitmapObjectRangeCardinality(o, 0, bit_len);
-    result->wrapper_range_cardinality_us = ustime() - start;
-
-    if (!roaring64_bitmap_is_empty(bitmap->roaring)) {
-        start = ustime();
-        for (uint64_t i = 0; i < iterations; i++)
-            sink += roaring64_bitmap_minimum(bitmap->roaring);
-        result->direct_minimum_us = ustime() - start;
-    }
-
-    start = ustime();
-    for (uint64_t i = 0; i < iterations; i++)
-        sink += (uint64_t)bitmapObjectBitpos(o, 1, 0, bit_len, 0);
-    result->wrapper_bitpos_one_us = ustime() - start;
-
-    start = ustime();
-    for (uint64_t i = 0; i < iterations; i++)
-        sink += (uint64_t)bitmapObjectBitpos(o, 0, 0, bit_len, 0);
-    result->wrapper_bitpos_zero_us = ustime() - start;
-
-    result->sink = sink;
 }
 
 void bitmapObjectVisitSetBitRanges(const robj *o,

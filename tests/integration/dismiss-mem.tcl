@@ -60,8 +60,9 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         # bitmap: alternating bits force a large bitset container, and the
         # distant bit keeps a second sparse container in the Roaring directory.
         r set bigbitmap [binary format H* [string repeat aa 8192]]
-        r setbit bigbitmap 100000 1
-        convert_string_bitmap_to_native r bigbitmap
+        r config set bitmap-default-roaring yes
+        r setbit bigbitmap 100000 1 ;# converts the dense string to native
+        r config set bitmap-default-roaring no
         assert_equal bitmap [r type bigbitmap]
 
         set digest [debug_digest]

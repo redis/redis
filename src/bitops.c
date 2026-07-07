@@ -786,35 +786,27 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     /* Handle #<offset> form. */
     if (p[0] == '#' && hash && bits > 0) usehash = 1;
 
-    if (string2ll(p+usehash,plen-usehash,&loffset) == 0 || loffset < 0) {
+    if (string2ll(p+usehash,plen-usehash,&loffset) == 0) {
         addReplyError(c,err);
         return C_ERR;
     }
 
-    /* Adjust the offset by 'bits' for #<offset> form, rejecting products
-     * that overflow the 64-bit offset space. */
-    if (usehash) {
-        if (loffset > LLONG_MAX / bits) {
-            addReplyError(c,err);
-            return C_ERR;
-        }
-        loffset *= bits;
+    /* Adjust the offset by 'bits' for #<offset> form. */
+    if (usehash) loffset *= bits;
+
+    /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
+    if (loffset < 0 || (!mustObeyClient(c) && (loffset >> 3) >= server.proto_max_bulk_len))
+    {
+        addReplyError(c,err);
+        return C_ERR;
     }
 
     *offset = loffset;
     return C_OK;
 }
 
-/* Public bitmap writes keep Redis' proto-max-bulk-len cap; string and
- * missing-key reads use the same historical limit. Masters validate writes
- * before propagation, so replicated commands skip it. */
-static int bitmapOffsetWithinProtoLimit(client *c, uint64_t bitoffset) {
-    if (mustObeyClient(c) || (bitoffset >> 3) < (uint64_t)server.proto_max_bulk_len)
-        return 1;
-    addReplyError(c, "bit offset is out of range");
-    return 0;
-}
-
+/* Native bitmaps additionally cap offsets at their fixed representation
+ * limit, which matters when proto-max-bulk-len is raised above it. */
 static int bitmapNativeOffsetWithinLimit(client *c, uint64_t maxbit) {
     if (bitmapObjectCanRepresentBit(maxbit)) return 1;
     addReplyError(c, "bit offset is out of range");
@@ -874,7 +866,6 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
     if (checkType(c,o,OBJ_STRING)) return NULL;
-    if (!bitmapOffsetWithinProtoLimit(c, maxbit)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
@@ -1005,12 +996,6 @@ void setbitCommand(client *c) {
         addReplyError(c,err);
         return;
     }
-
-    /* getBitOffsetFromArgument() only parses the signed offset. Keep SETBIT's
-     * public write limit checked before native/default-roaring can bypass the
-     * string helper that also enforces it. */
-    if (!bitmapOffsetWithinProtoLimit(c, bitoffset))
-        return;
 
     dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
@@ -1143,12 +1128,6 @@ void getbitCommand(client *c) {
         return;
 
     kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
-    /* Native bitmaps have their own v1 cap, so reads can outlive a later
-     * proto-max-bulk-len reduction. Missing and string keys keep the legacy
-     * string bitmap read limit. */
-    if ((kv == NULL || kv->type != OBJ_BITMAP) &&
-        !bitmapOffsetWithinProtoLimit(c, bitoffset))
-        return;
     if (kv == NULL) {
         addReply(c, shared.czero);
         return;
@@ -1159,7 +1138,6 @@ void getbitCommand(client *c) {
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
     if (kv->type == OBJ_BITMAP) {
-        if (!bitmapNativeOffsetWithinLimit(c, bitoffset)) return;
         bitval = bitmapObjectGetBit(kv, bitoffset);
     } else if (sdsEncodedObject(kv)) {
         if (byte < sdslen(kv->ptr))
@@ -2371,7 +2349,7 @@ void bitfieldGeneric(client *c, int flags) {
     int string_created = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    uint64_t highest_write_bit = 0;
+    uint64_t highest_write_offset = 0;
     int native_bitmap_write = 0;
     int native_transition = 0;
     int native_transition_created = 0;
@@ -2427,10 +2405,9 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (opcode != BITFIELDOP_GET) {
-            uint64_t last_bit = bitoffset + bits - 1;
             readonly = 0;
-            if (highest_write_bit < last_bit)
-                highest_write_bit = last_bit;
+            if (highest_write_offset < bitoffset + bits - 1)
+                highest_write_offset = bitoffset + bits - 1;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
@@ -2465,10 +2442,6 @@ void bitfieldGeneric(client *c, int flags) {
             addReplyError(c, "BITFIELD_RO only supports the GET subcommand");
             return;
         }
-        if (!bitmapOffsetWithinProtoLimit(c,highest_write_bit)) {
-            zfree(ops);
-            return;
-        }
 
         /* Lookup by making room up to the farthest bit reached by
          * this operation. The link is reused by the string path below so the
@@ -2478,17 +2451,16 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* When bitmap-default-roaring is enabled, newly created bitmap keys
          * are native, and a write against an existing string value converts it
-         * first. The shared public bitmap write limit was validated above
-         * against the last bit touched, so a rejected command leaves the
-         * keyspace untouched. The transition reaches replicas and the AOF as
-         * an explicit RESTORE of the final state. */
+         * first. The transition reaches replicas and the AOF as an explicit
+         * RESTORE of the final state. */
         int default_roaring = bitmapDefaultRoaringEnabled(c) &&
                               (o == NULL || o->type == OBJ_STRING);
-        /* The public write limit was checked above. The native v1 cap is still
-         * separate when proto-max-bulk-len is raised, and the setters below
-         * assert success after this preflight. */
+        /* Per-offset limits were enforced at parse time. The native v1 cap is
+         * still separate when proto-max-bulk-len is raised above it, and the
+         * setters below assert success after this preflight, so a rejected
+         * command leaves the keyspace untouched. */
         if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapNativeOffsetWithinLimit(c,highest_write_bit)) {
+            !bitmapNativeOffsetWithinLimit(c,highest_write_offset)) {
             zfree(ops);
             return;
         }
@@ -2510,7 +2482,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
 
         if (o != NULL && o->type == OBJ_BITMAP) {
-            uint64_t byte = highest_write_bit >> 3;
+            uint64_t byte = highest_write_offset >> 3;
 
             strOldSize = bitmapObjectLen(o);
             strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
@@ -2519,7 +2491,7 @@ void bitfieldGeneric(client *c, int flags) {
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c,
-                highest_write_bit,o,native_bitmap_link,
+                highest_write_offset,o,native_bitmap_link,
                 &sOldSize,&sGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
@@ -2666,8 +2638,8 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (native_bitmap_write && strGrowSize) {
         uint64_t oldlen = bitmapObjectLen(o);
-        int bit = bitmapObjectGetBit(o, highest_write_bit);
-        int ret = bitmapObjectSetBit(o, highest_write_bit, bit);
+        int bit = bitmapObjectGetBit(o, highest_write_offset);
+        int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
         serverAssert(ret == C_OK);
         native_len_extended = oldlen != bitmapObjectLen(o);
     }
