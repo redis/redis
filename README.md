@@ -1005,10 +1005,10 @@ To build Redis with all the data structures (including JSON, time series, Bloom 
 
 ```sh
 make modules-update
-make build
+make
 ```
 
-`make build` (same as bare `make` / `make all`) always builds whatever's cloned under `modules/*/src` alongside Redis core — there's no separate flag to opt in. If nothing is cloned yet, you get a core-only build.
+`make` (same as `make build` / `make all`) always builds whatever's cloned under `modules/*/src` alongside Redis core — there's no separate flag to opt in. If nothing is cloned yet, you get a core-only build.
 
 To build Redis with just the core data structures — even if modules are already cloned — use:
 
@@ -1019,7 +1019,7 @@ make build redis
 To build with TLS support, you need OpenSSL development libraries (e.g. libssl-dev on Debian/Ubuntu) and the following flag in the make command:
 
 ```sh
-make build BUILD_TLS=yes
+make BUILD_TLS=yes
 ```
 
 To build with systemd support, you need systemd development libraries (such as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS), and the following flag:
