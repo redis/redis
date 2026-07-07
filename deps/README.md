@@ -146,5 +146,7 @@ In `src/roaring64.c` and the added `include/roaring/roaring64_internal.h`:
   helpers) so `src/bitmap_roaring.c` can walk every allocation behind a
   64-bit bitmap for MEMORY USAGE accounting, fork-child page dismissal and
   active defragmentation, exactly like it does for the 32-bit
-  `roaring_bitmap_t` whose layout upstream exposes publicly.
+  `roaring_bitmap_t` whose layout upstream exposes publicly. The long-term
+  plan is to propose an allocation-visitor/relocation helper API to upstream
+  CRoaring so future version bumps do not depend on this internal header.
 
