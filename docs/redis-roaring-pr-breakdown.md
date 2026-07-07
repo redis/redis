@@ -46,9 +46,10 @@ marked pending in the trackers.
   sources with `bitmap-default-roaring yes`) the result propagates as an
   explicit RESTORE.
 - **Persistence payload**: the current `RDB_TYPE_BITMAP` payload stores the
-  logical byte length followed by endian-neutral Redis-owned container records.
+  logical byte length followed by a Redis raw string containing the observable
+  bitmap bytes.
   Since this PR has not shipped, the loader does not preserve compatibility for
-  previous in-PR draft raw/range/portable payloads.
+  previous in-PR draft raw/range/container/portable payloads.
   AOF rewrite emits `RESTORE` with the DUMP payload. The DD-10 baseline in
   [#29](https://github.com/aviggiano/redis/issues/29) treats RESTORE input as
   untrusted; open [PR #44](https://github.com/aviggiano/redis/pull/44) is
@@ -300,10 +301,9 @@ work here is auditing the surfaces that bypass or sidestep plain type checks.
     allocator-accounted key/object/value memory. Benchmark reports must keep
     memory accounting diagnostics separate from serialized payload/storage
     comparisons.
-  - Materialization paths such as `DEBUG BITMAP-RAW` need benchmark coverage
-    and explicit limits because they flatten native bitmaps. The current RDB
-    persistence payload is a container stream and should be benchmarked
-    separately from raw materialization.
+  - Materialization paths such as `DEBUG BITMAP-RAW`, RDB save, and transition
+    propagation need benchmark coverage and explicit limits because they flatten
+    native bitmaps to observable raw bytes.
 - Keep redis-roaring migration tooling separate from Redis core. The v1
   contract is the external streaming migrator documented in
   `docs/redis-roaring-migration-contract.md`. The reference implementation

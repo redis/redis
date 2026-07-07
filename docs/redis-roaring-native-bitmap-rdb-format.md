@@ -2,32 +2,25 @@
 
 This note documents the Redis-owned native bitmap payload written under
 `RDB_TYPE_BITMAP` in this fork. It is intended for Redis, librdb, and external
-RDB/DUMP tooling; parsers do not need to link against CRoaring to identify the
-payload shape or inspect its containers.
+RDB/DUMP tooling; parsers do not need to link against CRoaring or understand
+CRoaring's private serialization format.
 
 ## Top-Level Framing
 
-`RDB_TYPE_BITMAP` writes the final container stream directly:
+`RDB_TYPE_BITMAP` writes the observable bitmap bytes directly:
 
 1. `byte_len`: logical bitmap byte length as an RDB length integer.
-2. `container_count`: number of 2^16-bit containers as an RDB length integer.
-3. `container_count` records in increasing `high48` order:
-   - `high48`: high 48 bits of the set-bit offsets in this container.
-   - `typecode`: `1` bitset, `2` array, or `3` run.
-   - `cardinality`: number of set bits in the container.
-   - `payload`: RDB raw string containing the container body.
+2. `raw`: an RDB raw string whose decoded length must equal `byte_len`.
 
-All multi-byte numbers inside a container `payload` are little-endian,
-independent of host architecture. The surrounding RDB length integers keep the
-normal Redis RDB integer encoding.
+The `raw` string is exactly the legacy Redis bitmap byte representation:
+bit offset `0` is the most significant bit of byte `0`, bit offset `7` is the
+least significant bit of byte `0`, and so on. Normal Redis string RDB encodings
+can still apply to the raw string, including integer encoding for short numeric
+byte sequences and LZF compression when enabled.
 
-Container payloads:
-
-| Typecode | Payload |
-| ---: | --- |
-| `1` bitset | `1024` little-endian `uint64_t` words, covering 65536 bits. |
-| `2` array | `cardinality` little-endian `uint16_t` bit positions, strictly increasing. |
-| `3` run | Little-endian `uint16_t run_count`, then `run_count` pairs of little-endian `uint16_t start` and `uint16_t length`; `length` is inclusive, so a single-bit run has length `0`. Runs must be sorted, non-overlapping, and non-adjacent. |
+There is no native-bitmap-specific encoding tag or draft compatibility marker in
+the payload. Earlier in-PR raw/range/container/portable draft formats were never
+released, so the loader rejects them instead of preserving load-only branches.
 
 ## Validation
 
@@ -35,12 +28,10 @@ The loader rejects malformed payloads before exposing an object:
 
 - `byte_len` must fit the native bitmap cap (`512 MiB` in the current v1
   bounded surface).
-- `container_count` must not exceed `ceil(byte_len / 8192)`.
-- Container `high48` values must be strictly increasing.
-- Typecodes are limited to array, bitset, and run; CRoaring shared-container
-  wrappers are never serialized.
-- Container payload lengths are bounded before allocation, then checked against
-  the exact length for their type.
-- Cardinality must match the decoded container contents.
-- The highest set bit must be less than `byte_len * 8`.
-- Structural validation rejects unsorted arrays and invalid run layouts.
+- The decoded raw string length must equal `byte_len`.
+- Unknown Redis string encodings, truncated raw strings, malformed LZF strings,
+  and mismatched lengths fail the load/RESTORE operation.
+
+After validation, Redis rebuilds the internal Roaring representation from the
+raw bitmap bytes. The on-disk payload therefore stays inspectable and independent
+of CRoaring internals while keeping the format simple for v1.
