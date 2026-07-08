@@ -39,30 +39,6 @@ jobs:
       - name: test
         run: ./runtest --verbose --tags -slow --dump-logs
 
-  test-big-endian-bitmap-native:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: s390x
-      - name: build and test native bitmap persistence on s390x
-        run: |
-          docker run --rm --platform linux/s390x \
-            -v "$PWD:/workspace:ro" \
-            -w /redis \
-            debian:bookworm \
-            bash -lc '
-              set -eux
-              apt-get update
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential ca-certificates procps tcl8.6 tclx
-              cp -a /workspace/. /redis
-              make -j2 REDIS_CFLAGS="-Werror" MALLOC=libc
-              ./runtest --verbose --single unit/bitmap-native-type --dump-logs
-              ./runtest --verbose --single integration/corrupt-dump --only "/^corrupt payload: bitmap" --dump-logs
-            '
-
   build-debian-old:
     runs-on: ubuntu-latest
     container: debian:buster

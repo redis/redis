@@ -2689,11 +2689,11 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
 
-    /* Bitmap AOF rewrite uses RESTORE with a DUMP payload, and that payload
-     * already includes key metadata. Emitting KEYMETA.SET after RESTORE would
-     * replay the same metadata twice on load. */
-    if (o->type != OBJ_BITMAP &&
-        (getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
+    /* Emit module key metadata via KEYMETA.SET, but skip it for bitmaps: their
+     * AOF rewrite uses RESTORE with a DUMP payload that already carries the
+     * metadata, so replaying KEYMETA.SET would apply it twice on load. */
+    int emit_key_meta = (o->type != OBJ_BITMAP) && getModuleMetaBits(o->metabits);
+    if (emit_key_meta && (keyMetaOnAof(r, key, o, dbid) == 0))
         return C_ERR;
 
     return C_OK;
