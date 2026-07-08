@@ -913,4 +913,33 @@ tags {"aof external:skip"} {
             assert {[$client get foo] eq "6"}
         }
     }
+
+    start_server {overrides {appendonly yes aof-use-rdb-preamble no auto-aof-rewrite-percentage 0}} {
+        # Vector Sets are the module type used to exercise this path. They can be
+        # excluded from the build (SKIP_VEC_SETS=yes, e.g. 32-bit builds), so run
+        # this test only when the VADD command is available.
+        if {[server_has_command vadd]} {
+            test "AOF rewrite of a module type without aof_rewrite fails gracefully" {
+                # Vector Sets register their module data type with a NULL
+                # aof_rewrite callback. A pure AOF rewrite (no RDB preamble) used
+                # to dereference that NULL pointer and crash the rewrite child
+                # process (#15387).
+                r VADD vk VALUES 3 1 2 3 elem1
+                assert_equal "vectorset" [r type vk]
+
+                set loglines [count_log_lines 0]
+                r bgrewriteaof
+                waitForBgrewriteaof r
+
+                # The server must stay up and the child must not die by signal.
+                assert_equal {PONG} [r ping]
+                assert_equal 1 [is_alive [srv pid]]
+                assert_equal 0 [count_log_message 0 "terminated by signal"]
+
+                # Instead, the rewrite fails with a clear, actionable error.
+                assert_equal "err" [status r aof_last_bgrewrite_status]
+                verify_log_message 0 "*does not implement the aof_rewrite callback*" $loglines
+            }
+        }
+    }
 }
