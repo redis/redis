@@ -2747,7 +2747,15 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     if (table == NULL) return 0;
     memset(table,0,sizeof(hnswNode*) * table_size);
 
-    /* First pass: populate the ID -> pointer hash table. */
+    /* First pass: populate the ID -> pointer hash table.
+     *
+     * Duplicate node IDs are rejected here as a corruption: a well-formed
+     * serialization always assigns a unique ID to each node. If duplicates
+     * were accepted, the reciprocal-links check below could pass at the ID
+     * level while the resolved pointer graph is actually non-reciprocal
+     * (link resolution stops at the first node with a matching ID). Such a
+     * graph leaves dangling links after a node is deleted, leading to a
+     * use-after-free on later access. */
     hnswNode *node = index->head;
     while(node) {
         uint64_t bucket = hnsw_hash_node_id(node->id) & (table_size-1);
@@ -2756,6 +2764,7 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 table[bucket] = node;
                 break;
             }
+            if (table[bucket]->id == node->id) goto corrupted;
             bucket = (bucket+1) & (table_size-1);
         }
         node = node->next;
