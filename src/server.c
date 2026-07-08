@@ -2789,10 +2789,11 @@ void closeListener(connListener *sfd) {
     int j;
 
     for (j = 0; j < sfd->count; j++) {
-        if (sfd->fd[j] == -1) continue;
-
-        aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
-        close(sfd->fd[j]);
+        if (sfd->fd[j] != -1) {
+            aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
+            close(sfd->fd[j]);
+        }
+        sfd->bindaddr_actual[j] = NULL;
     }
 
     sfd->count = 0;
@@ -2870,6 +2871,7 @@ int listenToPort(connListener *sfd) {
         if (server.socket_mark_id > 0) anetSetSockMarkId(NULL, sfd->fd[sfd->count], server.socket_mark_id);
         anetNonBlock(NULL,sfd->fd[sfd->count]);
         anetCloexec(sfd->fd[sfd->count]);
+        sfd->bindaddr_actual[sfd->count] = addr;
         sfd->count++;
     }
     return C_OK;

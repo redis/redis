@@ -51,6 +51,41 @@ test {CONFIG SET bind address} {
     }
 } {} {external:skip}
 
+start_server {args {--bind -203.0.113.1 127.0.0.1} tags {external:skip}} {
+    test {INFO SERVER reports the bind address of successfully created listeners} {
+        set info [r INFO SERVER]
+        set pattern {^listener[0-9]+:name=tcp[^\r\n]*}
+        assert {[regexp -line $pattern $info listener]}
+        assert_match {*,bind=127.0.0.1,*} $listener
+        assert_no_match {*,bind=-203.0.113.1,*} $listener
+
+        if {$::tls} {
+            set pattern {^listener[0-9]+:name=tls[^\r\n]*}
+            assert {[regexp -line $pattern $info listener]}
+            assert_match {*,bind=127.0.0.1,*} $listener
+            assert_no_match {*,bind=-203.0.113.1,*} $listener
+        }
+    }
+}
+
+start_server {tags {external:skip}} {
+    test {INFO SERVER reports the bind address of successfully recreated listeners} {
+        r CONFIG SET bind "-203.0.113.1 127.0.0.1"
+        set info [r INFO SERVER]
+        set pattern {^listener[0-9]+:name=tcp[^\r\n]*}
+        assert {[regexp -line $pattern $info listener]}
+        assert_match {*,bind=127.0.0.1,*} $listener
+        assert_no_match {*,bind=-203.0.113.1,*} $listener
+
+        if {$::tls} {
+            set pattern {^listener[0-9]+:name=tls[^\r\n]*}
+            assert {[regexp -line $pattern $info listener]}
+            assert_match {*,bind=127.0.0.1,*} $listener
+            assert_no_match {*,bind=-203.0.113.1,*} $listener
+        }
+    }
+}
+
 # Attempt to connect to host using a client bound to bindaddr,
 # and return a non-zero value if successful within specified
 # millisecond timeout, or zero otherwise.
