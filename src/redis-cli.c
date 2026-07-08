@@ -8479,7 +8479,9 @@ static void latencyModePrint(long long min, long long max, double avg,
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
 #define LATENCY_HISTOGRAM_MIN_VALUE 1L         /* >= 1 usec. */
-#define LATENCY_HISTOGRAM_MAX_VALUE 3000000L   /* <= 3 secs (usec precision). */
+#define LATENCY_HISTOGRAM_MAX_VALUE 60000000L  /* <= 60 secs (usec precision) — large
+                                                * enough to track a server stalled by
+                                                * a slow command, fork or swap. */
 static void latencyMode(void) {
     redisReply *reply;
     long long start, latency, min = 0, max = 0, tot = 0, count = 0;
@@ -8493,9 +8495,7 @@ static void latencyMode(void) {
      * matches min/max/avg. */
     struct hdr_histogram *histogram = NULL;
     if (config.latency_percentiles_count > 0 &&
-        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3,
-                 &histogram))
-    {
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3, &histogram)) {
         fprintf(stderr, "Failed to initialize latency histogram\n");
         exit(1);
     }
@@ -8537,9 +8537,8 @@ static void latencyMode(void) {
         /* Record the sample for percentile computation, clamping to the
          * histogram's trackable range. */
         if (histogram) {
-            hdr_record_value(histogram,
-                latency <= LATENCY_HISTOGRAM_MAX_VALUE ? latency :
-                                                         LATENCY_HISTOGRAM_MAX_VALUE);
+            if (latency > LATENCY_HISTOGRAM_MAX_VALUE) latency = LATENCY_HISTOGRAM_MAX_VALUE;
+            hdr_record_value(histogram, latency);
         }
 
         if (config.output == OUTPUT_STANDARD) {
