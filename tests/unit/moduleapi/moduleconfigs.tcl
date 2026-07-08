@@ -2,6 +2,11 @@ set testmodule [file normalize tests/modules/moduleconfigs.so]
 set testmoduletwo [file normalize tests/modules/moduleconfigstwo.so]
 
 start_server {tags {"modules external:skip"}} {
+    test {String config registration rejects invalid type-specific flags} {
+        r module load $testmodule invalid-flags
+        r module unload moduleconfigs
+    }
+
     r module load $testmodule
     test {Config get commands work} {
         # Make sure config get module config works
@@ -383,4 +388,3 @@ start_server {tags {"modules external:skip"}} {
         r module unload moduleconfigs
     }
 }
-

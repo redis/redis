@@ -1,4 +1,5 @@
 #include "redismodule.h"
+#include <errno.h>
 #include <string.h>
 #include <strings.h>
 #include <assert.h>
@@ -203,6 +204,28 @@ void cleanup(RedisModuleCtx *ctx) {
     }
 }
 
+int verifyInvalidStringConfigFlags(RedisModuleCtx *ctx) {
+    errno = 0;
+    if (RedisModule_RegisterStringConfig(ctx, "memory-string", "secret password", REDISMODULE_CONFIG_MEMORY,
+                                         getStringConfigCommand, setStringConfigCommand, NULL, NULL) != REDISMODULE_ERR ||
+        errno != EINVAL)
+    {
+        RedisModule_Log(ctx, "warning", "String config with REDISMODULE_CONFIG_MEMORY was not rejected with EINVAL");
+        return REDISMODULE_ERR;
+    }
+
+    errno = 0;
+    if (RedisModule_RegisterStringConfig(ctx, "bitflags-string", "secret password", REDISMODULE_CONFIG_BITFLAGS,
+                                         getStringConfigCommand, setStringConfigCommand, NULL, NULL) != REDISMODULE_ERR ||
+        errno != EINVAL)
+    {
+        RedisModule_Log(ctx, "warning", "String config with REDISMODULE_CONFIG_BITFLAGS was not rejected with EINVAL");
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -210,6 +233,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx, "moduleconfigs", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         RedisModule_Log(ctx, "warning", "Failed to init module");
         return REDISMODULE_ERR;
+    }
+
+    size_t len;
+    if (argc && !strcasecmp(RedisModule_StringPtrLen(argv[0], &len), "invalid-flags")) {
+        return verifyInvalidStringConfigFlags(ctx);
     }
 
     if (RedisModule_RegisterBoolConfig(ctx, "mutable_bool", 1, REDISMODULE_CONFIG_DEFAULT, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &mutable_bool_val) == REDISMODULE_ERR) {
@@ -276,7 +304,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     RedisModule_Log(ctx, "debug", "Registered configuration");
-    size_t len;
     if (argc && !strcasecmp(RedisModule_StringPtrLen(argv[0], &len), "noload")) {
         return REDISMODULE_OK;
     } else if (argc && !strcasecmp(RedisModule_StringPtrLen(argv[0], &len), "override-default")) {

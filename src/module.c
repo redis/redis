@@ -14360,7 +14360,7 @@ unsigned int maskModuleEnumConfigFlags(unsigned int flags) {
  * * EALREADY: The provided configuration name is already used. */
 int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
-    if (moduleConfigValidityCheck(module, name, flags, NUMERIC_CONFIG)) {
+    if (moduleConfigValidityCheck(module, name, flags, STRING_CONFIG)) {
         return REDISMODULE_ERR;
     }
     
