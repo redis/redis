@@ -443,6 +443,9 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->numMeta * sizeof(uint64_t));
     }
 
+    /* Finish accounting and expose the installed value before notifying
+     * "new" observers: a module notification callback may synchronously
+     * delete the key, which would leave 'kv' dangling. */
     updateKeysizesHist(db, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
@@ -787,11 +790,15 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbAddByLink(db, key, valref, link);
     }
 
-    /* Signal key modification and update LRM timestamp. The notifications
-     * above can synchronously let modules delete or replace the key, so look
-     * up the current value instead of dereferencing the caller's possibly
-     * stale replacement pointer. */
-    keyModified(c,db,key,lookupKeyReadWithFlags(db,key,LOOKUP_NOEFFECTS),!(flags & SETKEY_NO_SIGNAL));
+    /* Signal key modification and update LRM timestamp. Module subscribers of
+     * the notifications above can synchronously delete or replace the key;
+     * only in that case look up the current value instead of dereferencing the
+     * caller's possibly stale replacement pointer, keeping the common path a
+     * single lookup. */
+    robj *val = *valref;
+    if (moduleHasSubscribersForKeyspaceEvent(NOTIFY_NEW | NOTIFY_OVERWRITTEN | NOTIFY_TYPE_CHANGED))
+        val = lookupKeyReadWithFlags(db, key, LOOKUP_NOEFFECTS);
+    keyModified(c,db,key,val,!(flags & SETKEY_NO_SIGNAL));
 }
 
 /* During atomic slot migration, keys that are being imported are in an
