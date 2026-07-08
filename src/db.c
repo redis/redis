@@ -443,15 +443,12 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->numMeta * sizeof(uint64_t));
     }
 
-    /* Finish accounting and expose the installed value before notifying
-     * "new" observers: a module notification callback may synchronously
-     * delete the key, which would leave 'kv' dangling. */
+    signalKeyAsReady(db, key, kv->type);
+    notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     *valref = kv;
-    signalKeyAsReady(db, key, kv->type);
-    notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     return kv;
 }
 
