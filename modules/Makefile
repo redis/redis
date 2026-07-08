@@ -1,11 +1,29 @@
 
-SUBDIRS = redisjson redistimeseries redisbloom redisearch
+# Module list comes from modules.yaml in this directory (single source of
+# truth, also used by `make modules-update`, docker/Dockerfile.noble via
+# modules/docker-install-bundled-module-deps.sh, and modules/common.mk via
+# modules/manifest.mk).
+include manifest.mk
+SUBDIRS = $(AVAILABLE_MODULES)
 
+# Per-module dispatch: invoke common.mk inside modules/<name>/ — no per-module
+# Makefile stub required. Build data (target_module path, ref, repo) all comes
+# from modules.yaml; common.mk reads it via manifest-field.
+COMMON_MK := $(CURDIR)/common.mk
+
+# NOTE: do NOT pass MODULE_NAME on the cmdline. common.mk auto-derives it from
+# $(notdir $(CURDIR)) (the directory basename), and propagating a cmdline value
+# would clobber per-module Makefiles that set MODULE_NAME to their build-output
+# basename (e.g. redisjson uses MODULE_NAME=rejson.so as the .so filename).
 define submake
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $(1); done
+	set -e; \
+	for dir in $(SUBDIRS); do \
+	  mkdir -p "$$dir"; \
+	  $(MAKE) -C "$$dir" -f "$(COMMON_MK)" $(1); \
+	done
 endef
 
-all: prepare_source
+all: prepare_source handle-werrors
 	$(call submake,$@)
 
 get_source:
@@ -74,4 +92,18 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 	fi
 endif
 
-.PHONY: all clean distclean install $(SUBDIRS) setup_environment clean_environment install-rust uninstall-rust
+handle-werrors: get_source
+ifeq ($(DISABLE_WERRORS),yes)
+	@echo "Disabling -Werror for all modules"
+	@for dir in $(SUBDIRS); do \
+		echo "Processing $$dir"; \
+		find $$dir/src -type f \
+			\( -name "Makefile" \
+			-o -name "*.mk" \
+			-o -name "CMakeLists.txt" \) \
+			-exec sed -i.werrors_bak 's/-Werror//g' {} +; \
+		find $$dir/src -type f -name '*.werrors_bak' -delete; \
+	done
+endif
+
+.PHONY: all clean distclean pristine install $(SUBDIRS) get_source prepare_source setup_environment clean_environment install-rust uninstall-rust handle-werrors
