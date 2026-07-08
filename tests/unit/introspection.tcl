@@ -639,6 +639,7 @@ start_server {tags {"introspection"}} {
             syslog-ident
             appendfilename
             appenddirname
+            backupdirname
             preload-file
             supervised
             syslog-facility
@@ -769,7 +770,7 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
     
     test {CONFIG SET with multiple args} {
-        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5} backupdirname backupdir2 backup-sealed-ttl 10000003}
+        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5} backup-sealed-ttl 10000003}
 
         # Backup
         set backups {}

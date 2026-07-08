@@ -7694,7 +7694,7 @@ void loadDataFromDisk(void) {
                 serverLog(LL_NOTICE,"FATAL: pre-load from AOF failed! (%s) %s", server.preload_file+4, strerror(errno));
                 exit(1);
             }
-            return;
+            loaded = 1;
         } else if (!strncmp(server.preload_file, "rdb:/", 5)) {
             int rdbflags = RDBFLAGS_NONE;
             if (iAmMaster()) {
