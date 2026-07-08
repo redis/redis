@@ -164,10 +164,30 @@ static void monotonicInit_x86linux(void) {
         }
     }
 
-    /* Fallback 2 (last resort): runtime calibration — measure RDTSC ticks
-     * over a known CLOCK_MONOTONIC interval.  A single measurement can be
-     * perturbed by a context switch between the clock read and the TSC read,
-     * so take three and use the median.  */
+    /* Cross-check any nominal rate against one measurement.  The advertised
+     * frequency is the marketing value and the real TSC rate can differ by a
+     * few tenths of a percent (e.g. a "2.30GHz" part whose TSC ticks at
+     * ~2294 MHz); a rate error that size makes every measured duration
+     * proportionally wrong and accumulates as drift.  When the nominal value
+     * disagrees with a measured sample beyond calibration noise, distrust it
+     * and fall through to full calibration.  */
+    if (mono_ticksPerMicrosecond != 0) {
+        long measured = monotonicCalibrateOnce_x86linux();
+        if (measured > 0) {
+            long diff = labs(measured - mono_ticksPerMicrosecond);
+            if (diff * 1000 > mono_ticksPerMicrosecond) { /* > 0.1% apart */
+                fprintf(stderr, "monotonic: x86 linux, advertised clock rate "
+                        "(%ld ticks/us) is off the measured rate (%ld ticks/us), "
+                        "using calibration\n", mono_ticksPerMicrosecond, measured);
+                mono_ticksPerMicrosecond = 0;
+            }
+        }
+    }
+
+    /* Last resort: runtime calibration — measure RDTSC ticks over a known
+     * CLOCK_MONOTONIC interval.  A single measurement can be perturbed by a
+     * context switch between the clock read and the TSC read, so take three
+     * and use the median.  */
     if (mono_ticksPerMicrosecond == 0) {
         long samples[3];
         int valid = 0;
