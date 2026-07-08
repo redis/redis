@@ -4644,6 +4644,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
          * The removals below use dictUnlink + dictFreeUnlinkedEntry only (no
          * sdsfree — the keys are borrowed and still owned by the zset). This
          * drops `size` sds alloc+free per call. */
+        serverAssert(zsetobj->encoding == OBJ_ENCODING_SKIPLIST);
         dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
@@ -4672,6 +4673,10 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         while ((de = dictNext(&di)) != NULL) {
             if (withscores && c->resp > 2)
                 addReplyArrayLen(c,2);
+            /* The key is a borrowed pointer to the zset's own member sds.
+             * addReplyBulkSds() takes ownership and frees its argument, which
+             * here would free the sorted set's live member — use the
+             * copying, non-owning addReplyBulkCBuffer() instead. */
             sds ele = dictGetKey(de);
             addReplyBulkCBuffer(c, ele, sdslen(ele));
             if (withscores)
