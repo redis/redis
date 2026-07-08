@@ -67,10 +67,15 @@ static struct config {
     int numclients;
     redisAtomic int liveclients;
     int requests;
-    redisAtomic int requests_issued;
+    /* Every client thread does an RFO on these counters for each request
+     * issued and each reply consumed. Keep them on a dedicated cache line
+     * so the resulting coherence traffic does not keep invalidating the
+     * read-mostly fields (requests, pipeline) that the same hot paths
+     * read on every operation. */
+    redisAtomic int requests_issued __attribute__((aligned(CACHE_LINE_SIZE)));
     redisAtomic int requests_finished;
     redisAtomic int previous_requests_finished;
-    int last_printed_bytes;
+    int last_printed_bytes __attribute__((aligned(CACHE_LINE_SIZE)));
     long long previous_tick;
     int keysize;
     int datasize;
