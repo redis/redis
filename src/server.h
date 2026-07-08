@@ -1474,18 +1474,21 @@ typedef struct {
 #endif
 
 typedef struct client {
+    /* -- Cache line 0: main thread hot fields -- */
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
     connection *conn;
-    uint8_t tid;            /* Thread assigned ID this client is bound to. */
-    uint8_t running_tid;    /* Thread assigned ID this client is running on. */
-    uint8_t io_flags;       /* Accessed by both main and IO threads, but not modified concurrently */
-    uint8_t read_error;     /* Client read error: CLIENT_READ_* macros. */
     int resp;               /* RESP protocol version. Can be 2 or 3. */
+    int _pad0;              /* Explicit padding for alignment. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
     robj *lib_name;         /* The client library name as set by CLIENT SETINFO. */
     robj *lib_ver;          /* The client library version as set by CLIENT SETINFO. */
+    /* -- Cache line 1: IO thread hot fields -- */
+    uint8_t tid;            /* Thread assigned ID this client is bound to. */
+    uint8_t running_tid;    /* Thread assigned ID this client is running on. */
+    uint8_t io_flags;       /* Accessed by both main and IO threads, but not modified concurrently */
+    uint8_t read_error;     /* Client read error: CLIENT_READ_* macros. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
