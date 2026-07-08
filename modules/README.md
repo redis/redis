@@ -149,11 +149,12 @@ config:
 ./src/redis-server redis-full.conf
 ```
 
-Or apply it onto `redis.conf` once for a one-file launch path (see
-[MODULES.md §6.1](MODULES.md#61-applying-the-generated-config-make-apply-redis-conf)):
+Release tarballs (built with `make tarball`) bake the module config straight
+into `redis.conf` during packaging (see
+[MODULES.md §6.1](MODULES.md#61-baking-the-module-config-into-redisconf)), so
+from an extracted tarball you can also run:
 
 ```bash
-make apply-redis-conf
 ./src/redis-server redis.conf
 ```
 

@@ -43,8 +43,7 @@ GOALS_WITH_ARGS := \
     bootstrap:BOOTSTRAP_ARGS \
     deploy:DEPLOY_ARGS \
     test:TEST_ARGS \
-    sync-redis-conf:SYNC_ARGS \
-    apply-redis-conf:APPLY_ARGS
+    sync-redis-conf:SYNC_ARGS
 
 GOAL_NAMES_WITH_ARGS := $(foreach pair,$(GOALS_WITH_ARGS),$(firstword $(subst :, ,$(pair))))
 
@@ -86,16 +85,6 @@ ifeq ($(firstword $(MAKECMDGOALS)),sync-redis-conf)
   endif
 endif
 
-# Same glue for `apply-redis-conf <name> ...` — forwards positional args
-# into MODULES so the underlying script sees the subset. `revert` is
-# special: it stays in APPLY_ARGS (not in MODULES) so the script sees it
-# as the mode toggle. All other positional tokens flow into MODULES.
-ifeq ($(firstword $(MAKECMDGOALS)),apply-redis-conf)
-  ifneq ($(APPLY_ARGS),)
-    MODULES := $(filter-out revert,$(APPLY_ARGS))
-  endif
-endif
-
 .DEFAULT:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
@@ -125,10 +114,10 @@ bootstrap:
 
 # deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
 #   Install Redis core + selected modules (default: every cloned module),
-#   then auto-rewrite redis.conf so its `loadmodule` lines point at the
-#   installed .so paths. PREFIX defaults to /usr/local (same as `make install`).
-#   apply-redis-conf is called with PREFIX=$(PREFIX)/lib/redis/modules — the
-#   actual modules directory `make install` / `make deploy` write to.
+#   then rewrite the `loadmodule` paths in redis-full.conf (and redis.conf, if
+#   it carries a Modules block) to point at the installed .so paths under
+#   $(PREFIX)/lib/redis/modules. PREFIX defaults to /usr/local (same as
+#   `make install`). Done directly by scripts/deploy.sh — no apply step.
 deploy: PREFIX ?= /usr/local
 deploy:
 	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
@@ -168,20 +157,4 @@ sync-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/sync-redis-conf.sh
 
-# apply-redis-conf [<name> ...|revert] [MODULES="<names>"] [ASSUME_BUILT=1|yes|true]
-#   Default mode: run sync-redis-conf, then OVERWRITE redis.conf with the
-#   generated content. Destructive on the tracked redis.conf — use
-#   `make apply-redis-conf revert` to strip just the appended Modules section
-#   back out, or `git checkout -- redis.conf` to revert everything.
-#   Idempotent: re-running is safe because sync extracts only the Redis-core
-#   section between the BEGIN/END markers in redis.conf. Typical use: after
-#   extracting a release tarball + `make`, so
-#   `./src/redis-server redis.conf` auto-loads bundled modules.
-apply-redis-conf:
-	@REDIS_CONF='$(REDIS_CONF)' REDIS_GEN_CONF='$(REDIS_GEN_CONF)' \
-	    MODULES='$(strip $(MODULES))' ASSUME_BUILT='$(strip $(ASSUME_BUILT))' \
-	    MODULES_MANIFEST_FILE='$(MODULES_MANIFEST_FILE)' \
-	    PREFIX='$(PREFIX)' \
-	    scripts/apply-redis-conf.sh $(filter revert,$(APPLY_ARGS))
-
-.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf apply-redis-conf tarball
+.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf tarball

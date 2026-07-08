@@ -1,40 +1,24 @@
 #!/bin/sh
-# apply-redis-conf.sh — apply the auto-generated Modules section into
-# $REDIS_CONF, or revert it.
+# apply-redis-conf.sh — regenerate redis-full.conf and overwrite redis.conf
+# with it, so `./src/redis-server redis.conf` auto-loads the bundled modules.
 #
-# Documented entry point is `make apply-redis-conf`. Two modes:
-#
-#   apply  (default)
-#     Regenerate $REDIS_GEN_CONF via scripts/sync-redis-conf.sh, then
-#     overwrite $REDIS_CONF with it. After this, `./src/redis-server
-#     redis.conf` auto-loads the bundled modules — no need to point at
-#     redis-full.conf. Typical use: after `tar xzf redis-<tag>.tar.gz &&
-#     make` from a release tarball.
-#
-#   revert
-#     Inverse. Strip the auto-generated Modules section back out of
-#     $REDIS_CONF, leaving just the Redis-core section (with its
-#     BEGIN/END markers and banner intact).
+# Used by the tarball build (scripts/tarball.sh) so a release tarball ships a
+# single redis.conf that already contains all module configuration. Not part
+# of the normal local flow — for local runs just use `redis-server redis-full.conf`.
 #
 # Usage:
 #   scripts/apply-redis-conf.sh                       # apply
-#   scripts/apply-redis-conf.sh revert                # revert
 #   MODULES="redistimeseries redisjson" \
-#     scripts/apply-redis-conf.sh                     # apply, explicit subset
-#   ASSUME_BUILT=1 scripts/apply-redis-conf.sh        # apply, emit loadmodule
-#                                                       # even when .so missing
+#     scripts/apply-redis-conf.sh                     # explicit subset
+#   ASSUME_BUILT=1 scripts/apply-redis-conf.sh        # emit loadmodule even
+#                                                       # when .so missing
 #
-# Environment contract (apply mode): REDIS_CONF, REDIS_GEN_CONF, MODULES,
-# ASSUME_BUILT, MODULES_MANIFEST_FILE, PREFIX — all forwarded to
-# sync-redis-conf.sh unchanged. Revert mode reads only REDIS_CONF.
+# Env: REDIS_CONF, REDIS_GEN_CONF, MODULES, ASSUME_BUILT, MODULES_MANIFEST_FILE,
+#      PREFIX — all forwarded to sync-redis-conf.sh unchanged.
 #
-# Both modes are safe to re-run:
-#   - apply  is idempotent because sync-redis-conf extracts only the content
-#            between the `# >>> BEGIN: Redis-core config ... <<<` and matching
-#            END markers; a previously applied Modules section is simply
-#            ignored on the next pass and replaced with a fresh one.
-#   - revert is idempotent — re-running on an already-core-only file just
-#            regenerates the banner.
+# Idempotent: sync-redis-conf strips any previously appended Modules block
+# before re-appending a fresh one, so re-applying never duplicates it. Use
+# `git checkout -- redis.conf` to fully restore the original.
 
 set -eu
 
@@ -45,152 +29,25 @@ cd "$REPO_ROOT"
 REDIS_CONF="${REDIS_CONF:-redis.conf}"
 REDIS_GEN_CONF="${REDIS_GEN_CONF:-redis-full.conf}"
 
-# Parse positional args for the revert toggle.
-REVERT=0
-for arg in "$@"; do
-  case "$arg" in
-    revert|--revert) REVERT=1 ;;
-    *)
-      echo "ERROR: unknown arg '$arg' (expected 'revert' or no args)" >&2
-      exit 1
-      ;;
-  esac
-done
+if [ "$#" -ne 0 ]; then
+  echo "ERROR: apply-redis-conf.sh takes no arguments (got: $*)" >&2
+  exit 1
+fi
 
 if [ ! -f "$REDIS_CONF" ]; then
   echo "ERROR: $REDIS_CONF not found" >&2
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# APPLY mode
-# ---------------------------------------------------------------------------
-apply_mode() {
-  echo "==> Regenerating $REDIS_GEN_CONF from $REDIS_CONF"
-  "$SCRIPT_DIR/sync-redis-conf.sh"
+echo "==> Regenerating $REDIS_GEN_CONF from $REDIS_CONF"
+"$SCRIPT_DIR/sync-redis-conf.sh"
 
-  if [ ! -f "$REDIS_GEN_CONF" ]; then
-    echo "ERROR: sync-redis-conf did not produce $REDIS_GEN_CONF; refusing to apply" >&2
-    exit 1
-  fi
-
-  echo "==> Applying $REDIS_GEN_CONF -> $REDIS_CONF (overwriting)"
-  mv -f "$REDIS_GEN_CONF" "$REDIS_CONF"
-  echo "==> $REDIS_CONF now contains the generated module config"
-  echo "    ($REDIS_GEN_CONF removed; 'git diff $REDIS_CONF' to inspect)"
-  echo "    ('make apply-redis-conf revert' strips the Modules section back out;"
-  echo "     'git checkout -- $REDIS_CONF' reverts the file entirely)"
-}
-
-# ---------------------------------------------------------------------------
-# REVERT mode — strip the auto-generated Modules section
-# ---------------------------------------------------------------------------
-
-# Must stay in lockstep with sync-redis-conf.sh — these two scripts both own
-# the marker contract. Keep the strings byte-identical.
-CORE_BEGIN="# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<"
-CORE_END="# <<< END: Redis-core config (DO NOT REMOVE THIS MARKER) >>>"
-
-# Extract content between CORE_BEGIN and CORE_END (exclusive). Errors if
-# markers are missing, duplicated, or out of order. Same shape as the
-# extract_section in sync-redis-conf.sh — kept inline so revert stays
-# independent of sync (it doesn't need the manifest, modules, prefix, etc.).
-extract_section() {
-  awk -v begin="$1" -v end="$2" -v file="$3" '
-    $0 == begin {
-      if (in_section) {
-        printf "ERROR: %s: nested or duplicate BEGIN marker at line %d\n", file, NR > "/dev/stderr"
-        exit 2
-      }
-      begin_count++; in_section = 1; next
-    }
-    $0 == end {
-      if (!in_section) {
-        printf "ERROR: %s: END marker without matching BEGIN at line %d\n", file, NR > "/dev/stderr"
-        exit 2
-      }
-      end_count++; in_section = 0; next
-    }
-    in_section { print }
-    END {
-      if (begin_count == 0) {
-        printf "ERROR: %s: missing BEGIN marker (%s)\n", file, begin > "/dev/stderr"
-        printf "       Cannot revert — file does not contain a Redis-core section.\n" > "/dev/stderr"
-        exit 2
-      }
-      if (end_count == 0) {
-        printf "ERROR: %s: missing END marker (%s)\n", file, end > "/dev/stderr"
-        exit 2
-      }
-      if (begin_count > 1) {
-        printf "ERROR: %s: duplicate BEGIN marker (%d occurrences)\n", file, begin_count > "/dev/stderr"
-        exit 2
-      }
-      if (end_count > 1) {
-        printf "ERROR: %s: duplicate END marker (%d occurrences)\n", file, end_count > "/dev/stderr"
-        exit 2
-      }
-    }
-  ' "$3"
-}
-
-revert_mode() {
-  # Two tmpfiles so the extract step can fail cleanly without leaving a
-  # half-written redis.conf: first stage the extracted core, then assemble
-  # the final file from it, then atomically move into place.
-  local tmp_extract tmp_out
-  tmp_extract="$(mktemp "${REDIS_CONF}.extract.XXXXXX")"
-  tmp_out="$(mktemp "${REDIS_CONF}.tmp.XXXXXX")"
-  trap 'rm -f "$tmp_extract" "$tmp_out"' EXIT
-
-  echo "==> Extracting Redis-core section from $REDIS_CONF"
-  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF" > "$tmp_extract"
-
-  # Detect whether the source file had a Modules section appended (i.e. was
-  # previously applied). Purely cosmetic — drives the final status message.
-  local had_modules=0
-  if grep -q '^# >>> BEGIN section: Modules' "$REDIS_CONF"; then
-    had_modules=1
-  fi
-
-  {
-    cat <<EOF
-# ============================================================================
-# Redis-core configuration
-# ----------------------------------------------------------------------------
-# The block below, between the BEGIN/END markers, is the user-editable
-# Redis-core configuration.
-#
-# \`make sync-redis-conf\` extracts ONLY the content between BEGIN/END to build
-# redis-full.conf. Anything outside the markers (including this banner) is
-# ignored on every regeneration, so the banner is safe to keep here.
-#
-# Module load lines are NOT placed inside the markers — they belong in the
-# auto-generated Modules section below. To strip that section back out, run
-# \`make apply-redis-conf revert\`.
-# ============================================================================
-
-$CORE_BEGIN
-EOF
-    cat "$tmp_extract"
-    cat <<EOF
-$CORE_END
-EOF
-  } > "$tmp_out"
-
-  mv "$tmp_out" "$REDIS_CONF"
-  trap - EXIT
-  rm -f "$tmp_extract"
-
-  if [ "$had_modules" = "1" ]; then
-    echo "==> $REDIS_CONF reverted — Modules section removed; Redis-core section preserved"
-  else
-    echo "==> $REDIS_CONF already core-only — no Modules section to remove (banner regenerated)"
-  fi
-}
-
-if [ "$REVERT" = "1" ]; then
-  revert_mode
-else
-  apply_mode
+if [ ! -f "$REDIS_GEN_CONF" ]; then
+  echo "ERROR: sync-redis-conf did not produce $REDIS_GEN_CONF; refusing to apply" >&2
+  exit 1
 fi
+
+echo "==> Applying $REDIS_GEN_CONF -> $REDIS_CONF (overwriting)"
+mv -f "$REDIS_GEN_CONF" "$REDIS_CONF"
+echo "==> $REDIS_CONF now contains the generated module config"
+echo "    ('git checkout -- $REDIS_CONF' reverts the file)"

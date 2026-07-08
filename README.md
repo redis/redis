@@ -213,14 +213,13 @@ This section refers to building Redis from source. If you want to get up and run
 > **Configuration files**: the OS-specific sections below tell you to run
 > `./src/redis-server redis-full.conf`. `redis-full.conf` is the auto-generated
 > launch config produced by `make modules-update` — it's `redis.conf` plus the
-> `loadmodule` lines and per-module settings for the bundled modules. Edit
-> Redis-core settings in [`redis.conf`](redis.conf) (only inside the
-> `# >>> BEGIN: Redis-core config <<<` … `# <<< END: Redis-core config >>>`
-> markers); the next `make modules-update` (or `make sync-redis-conf`) regenerates
-> `redis-full.conf`. If you'd rather launch with `./src/redis-server redis.conf`,
-> run `make apply-redis-conf` once after the build — it merges the Modules
-> section into `redis.conf` (idempotent; revert with `make apply-redis-conf revert`).
-> See [modules/MODULES.md](modules/MODULES.md) for the full config flow.
+> `loadmodule` lines and per-module settings for the bundled modules, appended
+> after the core config. Edit Redis-core settings in [`redis.conf`](redis.conf);
+> the next `make modules-update` (or `make sync-redis-conf`) regenerates
+> `redis-full.conf`. Release tarballs bake the module config directly into
+> `redis.conf` during packaging, so from an extracted tarball you can also just
+> run `./src/redis-server redis.conf`. See
+> [modules/MODULES.md](modules/MODULES.md) for the full config flow.
 
 ### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
 

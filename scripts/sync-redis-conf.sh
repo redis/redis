@@ -76,23 +76,20 @@ fi
 # Marker strings used both as input filters and output framing. Single
 # source of truth so a future rename only happens here.
 #
-# CORE_BEGIN / CORE_END wrap the user-editable Redis-core configuration in
-# $REDIS_CONF. `sync-redis-conf` extracts ONLY the content between these
-# markers — anything outside them in $REDIS_CONF is ignored. This makes
-# `apply-redis-conf` idempotent: an applied redis.conf still has these
-# markers around its core section (plus an appended Modules section), so a
-# subsequent sync re-extracts just the core and regenerates Modules fresh.
-CORE_BEGIN="# >>> BEGIN: Redis-core config (DO NOT REMOVE THIS MARKER) <<<"
-CORE_END="# <<< END: Redis-core config (DO NOT REMOVE THIS MARKER) >>>"
+# The generated Modules section is fenced by MODULES_BEGIN / MODULES_END.
+# `redis.conf` itself carries no markers: sync emits it verbatim and appends
+# the Modules block after it. Regeneration stays idempotent by stripping any
+# previously-appended MODULES_BEGIN..MODULES_END block before re-appending
+# (so applying twice never duplicates it).
 MODULES_BEGIN="# >>> BEGIN section: Modules (regenerated on every sync) <<<"
 MODULES_END="# <<< END section: Modules <<<"
 LOADMODULE_BEGIN="# >>> BEGIN: loadmodule paths (replaced by make deploy) <<<"
 LOADMODULE_END="# <<< END: loadmodule paths <<<"
-PRIVATE_BEGIN="# >>> BEGIN redis-gen-conf:private <<<"
-PRIVATE_END="# <<< END redis-gen-conf:private <<<"
-# Header line that marks the ## MODULES ## block in redis.conf. Stripped from
-# the extracted core so the generated Modules section takes its place.
-MODULES_PLACEHOLDER_HEADER="################################## MODULES #####################################"
+# Private-block markers in a module's module.conf. Matched by PREFIX (the
+# trailing "<<<"/">>>" token is ignored) so modules that wrote either form are
+# handled uniformly — stripping is best-effort and never aborts the build.
+PRIVATE_BEGIN="# >>> BEGIN redis-gen-conf:private"
+PRIVATE_END="# <<< END redis-gen-conf:private"
 
 if [ ! -f "$REDIS_CONF" ]; then
   echo "ERROR: $REDIS_CONF not found" >&2
@@ -175,62 +172,42 @@ done
 
 # Filters reused below.
 #
-# strip_block: "skip lines between BEGIN/END markers, including the markers
-# themselves". Nesting is NOT supported: a nested BEGIN would simply re-arm
-# `skip`, an inner END would re-clear it. Files without markers are passed
-# through verbatim, so the filter is fully opt-in per module. Used to strip
-# per-module redis-gen-conf:private blocks from module.conf.
-strip_block() {
-  # strip_block <begin-marker> <end-marker> <file>
-  awk -v begin="$1" -v end="$2" '
-    $0 == begin { skip = 1; next }
-    $0 == end   { skip = 0; next }
-    !skip       { print }
-  ' "$3"
-}
-
-# extract_section: emit ONLY the lines between BEGIN and END markers
-# (exclusive). Validates that exactly one BEGIN and one END appear in the
-# right order; errors loudly otherwise. Used to pull the Redis-core section
-# out of $REDIS_CONF — anything outside the markers (e.g. an appended
-# Modules section after a previous apply) is ignored.
-extract_section() {
-  # extract_section <begin-marker> <end-marker> <file>
-  awk -v begin="$1" -v end="$2" -v file="$3" '
+# strip_modules_block: remove the [MODULES_BEGIN..MODULES_END] block (markers
+# included) from redis.conf and print the rest. A file with no markers passes
+# through verbatim. Marker structure is VALIDATED — malformed input is a hard
+# error (exit 2): a second BEGIN before END, an END with no BEGIN, or a BEGIN
+# left open at EOF. This is the sole idempotency guard for the Modules block,
+# and `apply-redis-conf` may overwrite redis.conf with the output, so it must
+# never silently truncate. Safe to be strict here: sync itself generates these
+# markers, so they are always well-formed.
+strip_modules_block() {
+  # strip_modules_block <file>
+  awk -v begin="$MODULES_BEGIN" -v end="$MODULES_END" -v file="$1" '
     $0 == begin {
-      if (in_section) {
-        printf "ERROR: %s: nested or duplicate BEGIN marker at line %d\n", file, NR > "/dev/stderr"
-        exit 2
-      }
-      begin_count++; in_section = 1; next
+      if (skip) { printf "ERROR: %s: nested/duplicate Modules BEGIN at line %d\n", file, NR > "/dev/stderr"; exit 2 }
+      skip = 1; next
     }
     $0 == end {
-      if (!in_section) {
-        printf "ERROR: %s: END marker without matching BEGIN at line %d\n", file, NR > "/dev/stderr"
-        exit 2
-      }
-      end_count++; in_section = 0; next
+      if (!skip) { printf "ERROR: %s: Modules END without matching BEGIN at line %d\n", file, NR > "/dev/stderr"; exit 2 }
+      skip = 0; next
     }
-    in_section { print }
-    END {
-      if (begin_count == 0) {
-        printf "ERROR: %s: missing BEGIN marker (%s)\n", file, begin > "/dev/stderr"
-        exit 2
-      }
-      if (end_count == 0) {
-        printf "ERROR: %s: missing END marker (%s)\n", file, end > "/dev/stderr"
-        exit 2
-      }
-      if (begin_count > 1) {
-        printf "ERROR: %s: duplicate BEGIN marker (%d occurrences)\n", file, begin_count > "/dev/stderr"
-        exit 2
-      }
-      if (end_count > 1) {
-        printf "ERROR: %s: duplicate END marker (%d occurrences)\n", file, end_count > "/dev/stderr"
-        exit 2
-      }
-    }
-  ' "$3"
+    !skip { print }
+    END { if (skip) { printf "ERROR: %s: Modules BEGIN without matching END\n", file > "/dev/stderr"; exit 2 } }
+  ' "$1"
+}
+
+# strip_private_block: remove a module.conf's redis-gen-conf:private block and
+# print the rest. Markers are matched by PREFIX ($PRIVATE_BEGIN/$PRIVATE_END —
+# the trailing token is ignored), so modules that wrote ">>>" vs "<<<" are both
+# handled. Best-effort/LENIENT: module.conf is module-authored, so a malformed
+# or missing block just leaves those lines in place — it never aborts the build.
+strip_private_block() {
+  # strip_private_block <file>
+  awk -v begin="$PRIVATE_BEGIN" -v end="$PRIVATE_END" '
+    index($0, begin) == 1 { skip = 1; next }
+    index($0, end)   == 1 { skip = 0; next }
+    !skip { print }
+  ' "$1"
 }
 
 # Display strings (the long-form list is replaced by <none> when empty so
@@ -257,74 +234,26 @@ tmp_out="$(mktemp "${REDIS_GEN_CONF}.tmp.XXXXXX")"
 trap 'rm -f "$LOOKUP_FILE" "$tmp_out"' EXIT
 
 {
+  # Emit the user's Redis-core config (all of $REDIS_CONF) verbatim first,
+  # minus any Modules block a previous \`apply-redis-conf\` may have appended
+  # — so regeneration is idempotent. strip_modules_block passes a marker-less file
+  # through unchanged, so a stock redis.conf is emitted as-is. No banner is
+  # prepended: the file simply is your redis.conf with the generated Modules
+  # block appended after it (so \`apply\` can copy it to redis.conf verbatim
+  # and \`revert\` restores the original by stripping just that block).
+  strip_modules_block "$REDIS_CONF"
   cat <<EOF
-# =============================================================================
-# redis-full.conf — auto-generated by \`make sync-redis-conf\`
-# =============================================================================
-#
-# Untracked, regenerated whenever \`make modules-update\` or \`make\`
-# runs (both call \`sync-redis-conf\` at the end). Two sections:
-#
-#   1. Redis-core config — the content extracted from $REDIS_CONF between
-#      the marker lines:
-#        $CORE_BEGIN
-#        $CORE_END
-#      Anything outside those markers in $REDIS_CONF is ignored. Edit
-#      $REDIS_CONF (inside the markers) to change Redis-core defaults; the
-#      next sync picks them up.
-#   2. Modules — only the modules requested by the caller (via the MODULES
-#      variable; defaults to all manifest modules when invoked standalone).
-#      Each requested module appears as an active \`loadmodule\` + inlined
-#      module.conf if its .so is present, or as a commented placeholder
-#      otherwise. Modules not in the request list are omitted entirely.
-#
-# Do NOT edit redis-full.conf — your edits will be overwritten.
+
+$MODULES_BEGIN
+# Auto-generated by \`make sync-redis-conf\` — do NOT edit this block by hand;
+# it is stripped and regenerated on every sync. Everything above is the
+# Redis-core config from $REDIS_CONF, emitted verbatim.
 #
 # Generated:    $generated_at
 # Requested:    $requested_display
 # Active:       $active_display
 # Missing .so:  $missing_display
 # Bad manifest: $bad_display
-# =============================================================================
-
-# ============================================================================
-# Redis-core configuration
-# ----------------------------------------------------------------------------
-# The block below, between the BEGIN/END markers, is the user-editable
-# Redis-core configuration.
-#
-# \`make sync-redis-conf\` extracts ONLY the content between BEGIN/END to build
-# redis-full.conf. Anything outside the markers (including this banner) is
-# ignored on every regeneration, so the banner is safe to keep here.
-#
-# The \`## MODULES ##\` section in redis.conf is a placeholder — sync-redis-conf
-# strips it from the extracted core and regenerates it with real loadmodule
-# lines + per-module config. To strip that generated section back out, run
-# \`make apply-redis-conf revert\`.
-# ============================================================================
-
-$CORE_BEGIN
-EOF
-  # Extract the core section, stripping the ## MODULES ## placeholder block so
-  # the generated Modules section takes its place below instead of duplicating.
-  # extract_section is staged to a temp first (not piped straight into awk):
-  # POSIX sh has no `pipefail`, so a piped extract_section failure (e.g. a
-  # missing marker → exit 2) would be masked by awk exiting 0, silently
-  # emitting a truncated conf. The redirect lets `set -e` abort instead.
-  _core_tmp="$(mktemp)"
-  extract_section "$CORE_BEGIN" "$CORE_END" "$REDIS_CONF" > "$_core_tmp"
-  awk -v hdr="$MODULES_PLACEHOLDER_HEADER" '
-      $0 == hdr           { skip=1; next }
-      skip && /^#{8,} [A-Z]/ { skip=0 }
-      skip                { next }
-                          { print }
-    ' "$_core_tmp"
-  rm -f "$_core_tmp"
-  cat <<EOF
-$CORE_END
-
-$MODULES_PLACEHOLDER_HEADER
-$MODULES_BEGIN
 
 EOF
 
@@ -368,7 +297,7 @@ EOF
     printf "# >>> BEGIN module: %s <<<\n" "$name"
     if [ -n "$so_full" ] && { [ -f "$so_full" ] || [ "$ASSUME_BUILT_FLAG" = "1" ]; }; then
       if [ -f "$conf" ]; then
-        strip_block "$PRIVATE_BEGIN" "$PRIVATE_END" "$conf"
+        strip_private_block "$conf"
       else
         printf "# (no %s found)\n" "$conf"
       fi
