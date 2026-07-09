@@ -1956,13 +1956,17 @@ int isHLLObject(robj *o) {
     return C_OK;
 }
 
-/* Check if the object is a String with a valid HLL representation.
+/* Check if the object holds a valid HLL representation. An HLL value is stored
+ * either as a plain string (classic) or, once promoted, as an OBJ_HLL; both
+ * carry the same raw blob, so either type is accepted here.
  * Return C_OK if this is true, otherwise reply to the client
  * with an error and return C_ERR. */
 int isHLLObjectOrReply(client *c, robj *o) {
     /* Key exists, check type */
-    if (checkType(c,o,OBJ_STRING))
-        return C_ERR; /* Error already sent. */
+    if (o->type != OBJ_STRING && o->type != OBJ_HLL) {
+        addReplyErrorObject(c,shared.wrongtypeerr);
+        return C_ERR;
+    }
 
     if (isHLLObject(o) != C_OK) {
         addReplyError(c,"-WRONGTYPE Key is not a valid "
@@ -1981,6 +1985,41 @@ robj *createHLLObjectFromBlob(sds blob) {
     return o;
 }
 
+/* Prepare the destination value of an HLL write for in-place modification:
+ * create it if 'kv' is NULL (a fresh sparse string), or unshare a plain string
+ * value (an OBJ_HLL value is always a private raw sds and needs no unsharing).
+ * 'link' must come from the lookupKeyWriteWithLink() that produced 'kv'.
+ * Captures the type and blob length before the write into oldtype and oldlen,
+ * for a later hllWriteFinalize() call. */
+static kvobj *hllPrepareWriteDest(client *c, robj *keyarg, kvobj *kv,
+                                  dictEntryLink *link, int *oldtype, uint64_t *oldlen)
+{
+    if (kv == NULL) {
+        robj *o = createHLLObject();
+        kv = dbAddByLink(c->db, keyarg, &o, link);
+    } else if (kv->type == OBJ_STRING) {
+        kv = dbUnshareStringValue(c->db, keyarg, kv);
+    }
+    *oldtype = kv->type;
+    *oldlen = sdslen(kv->ptr);
+    return kv;
+}
+
+/* Finalize an HLL write: promote the value to the OBJ_HLL type when the ultra
+ * dense backend is selected (the blob is unchanged) and update the per-type
+ * keysizes histogram for the size change and any type move. */
+static void hllWriteFinalize(redisDb *db, kvobj *kv, int oldtype, uint64_t oldlen) {
+    if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA && kv->type == OBJ_STRING)
+        kv->type = OBJ_HLL;
+    uint64_t newlen = sdslen(kv->ptr);
+    if (kv->type == oldtype) {
+        updateKeysizesHist(db, kv->type, oldlen, newlen);
+    } else {
+        updateKeysizesHist(db, oldtype, oldlen, -1);
+        updateKeysizesHist(db, kv->type, -1, newlen);
+    }
+}
+
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
     uint64_t oldlen;
@@ -1991,18 +2030,12 @@ void pfaddCommand(client *c) {
     struct hllhdr *hdr;
     int updated = 0, j;
 
-    if (kv == NULL) {
-        /* Create the key with a string value of the exact length to
-         * hold our HLL data structure. sdsnewlen() when NULL is passed
-         * is guaranteed to return bytes initialized to zero. */
-        robj *o = createHLLObject();
-        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
-        updated++;
-    } else {
-        if (isHLLObjectOrReply(c,kv) != C_OK) return;
-        kv = dbUnshareStringValue(c->db,c->argv[1],kv);
-    }
-    oldlen = stringObjectLen(kv);
+    int oldtype;
+    if (kv != NULL && isHLLObjectOrReply(c,kv) != C_OK) return;
+    if (kv == NULL) updated++;
+    /* Create the key if missing (sparse string), otherwise unshare it, and
+     * capture the pre-write type/length. */
+    kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldlen);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
 
@@ -2023,7 +2056,7 @@ void pfaddCommand(client *c) {
     }
 
     hdr = kv->ptr;
-    updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(kv));
+    hllWriteFinalize(c->db, kv, oldtype, oldlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
     if (updated) {
@@ -2140,7 +2173,11 @@ void pfcountCommand(client *c) {
         addReply(c,shared.czero);
     } else {
         if (isHLLObjectOrReply(c,o) != C_OK) return;
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
+        /* PFCOUNT caches the cardinality in the header, so it may modify the
+         * value, but as a read command it does not change the object type; an
+         * OBJ_HLL value is already a private raw sds and needs no unsharing. */
+        if (o->type == OBJ_STRING)
+            o = dbUnshareStringValue(c->db,c->argv[1],o);
 
         /* Check if the cached cardinality is valid. */
         hdr = o->ptr;
@@ -2216,15 +2253,10 @@ void pfmergeCommand(client *c) {
 
         /* Create / unshare the destination key's value if needed. */
         dictEntryLink link;
+        int oldtype;
+        uint64_t oldLen;
         kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
-        if (kv == NULL) {
-            robj *o = createHLLObject();
-            kv = dbAddByLink(c->db, c->argv[1], &o, &link);
-        } else {
-            kv = dbUnshareStringValue(c->db,c->argv[1],kv);
-        }
-
-        uint64_t oldLen = stringObjectLen(kv);
+        kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldLen);
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
 
@@ -2251,9 +2283,9 @@ void pfmergeCommand(client *c) {
 
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        hllWriteFinalize(c->db, kv, oldtype, oldLen);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
         server.dirty++;
         addReply(c,shared.ok);
         return;
@@ -2286,15 +2318,10 @@ void pfmergeCommand(client *c) {
         }
 
         dictEntryLink link;
+        int oldtype;
+        uint64_t oldLen;
         kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
-        if (kv == NULL) {
-            robj *o = createHLLObject();
-            kv = dbAddByLink(c->db, c->argv[1], &o, &link);
-        } else {
-            kv = dbUnshareStringValue(c->db,c->argv[1],kv);
-        }
-
-        uint64_t oldLen = stringObjectLen(kv);
+        kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldLen);
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
 
@@ -2313,9 +2340,9 @@ void pfmergeCommand(client *c) {
 
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        hllWriteFinalize(c->db, kv, oldtype, oldLen);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
         server.dirty++;
         addReply(c,shared.ok);
         return;
@@ -2340,15 +2367,10 @@ void pfmergeCommand(client *c) {
 
     /* Create / unshare the destination key. */
     dictEntryLink link;
+    int oldtype;
+    uint64_t oldLen;
     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
-    if (kv == NULL) {
-        robj *o = createHLLObject();
-        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
-    } else {
-        kv = dbUnshareStringValue(c->db,c->argv[1],kv);
-    }
-
-    uint64_t oldLen = stringObjectLen(kv);
+    kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldLen);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
 
@@ -2372,7 +2394,7 @@ void pfmergeCommand(client *c) {
      * since in theory this is a mass-add of elements. */
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
 
-    updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
+    hllWriteFinalize(c->db, kv, oldtype, oldLen);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -2566,7 +2588,8 @@ void pfdebugCommand(client *c) {
         return;
     }
     if (isHLLObjectOrReply(c,o) != C_OK) return;
-    o = dbUnshareStringValue(c->db,c->argv[2],o);
+    if (o->type == OBJ_STRING)
+        o = dbUnshareStringValue(c->db,c->argv[2],o);
     hdr = o->ptr;
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(o);
@@ -2576,12 +2599,13 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-            uint64_t oldlen = (uint64_t) stringObjectLen(o);
+            int oldtype = o->type;
+            uint64_t oldlen = sdslen(o->ptr);
             if (hllSparseToDense(o) == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(o));
+            hllWriteFinalize(c->db, o, oldtype, oldlen);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
             server.dirty++; /* Force propagation on encoding change. */
@@ -2658,7 +2682,8 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-            int64_t oldlen = (int64_t) stringObjectLen(o);
+            int oldtype = o->type;
+            uint64_t oldlen = sdslen(o->ptr);
             int todense_err;
             if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) {
                 todense_err = hllSparseToDenseUltra(o);
@@ -2669,7 +2694,7 @@ void pfdebugCommand(client *c) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(o));
+            hllWriteFinalize(c->db, o, oldtype, oldlen);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
             conv = 1;
