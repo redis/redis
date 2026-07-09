@@ -41,6 +41,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         assert_equal "" $s(error)
         assert_equal "0" $s(start_time)
         assert_equal "0" $s(end_time)
+        assert_equal 0 [s backup_in_progress]
         assert_equal "0" [lindex [r config get backup-sealed-ttl] 1]
     }
 
@@ -55,6 +56,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         } else {
             fail "BACKUP did not reach the incrementing state"
         }
+        assert_equal 1 [s backup_in_progress]
 
         # Writes during the window must be captured by the pinned INCR.
         r set k3 v3
@@ -66,6 +68,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         assert {[file exists [lindex $files 0]]}
 
         assert_equal "OK" [r backup seal]
+        assert_equal 0 [s backup_in_progress]
         array set s [r backup status]
         assert_equal "sealed" $s(state)
         assert_equal "" $s(error)

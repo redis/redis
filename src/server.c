@@ -6603,6 +6603,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "aof_last_write_status:%s\r\n", (server.aof_last_write_status == C_OK &&
                                              aof_bio_fsync_status == C_OK) ? "ok" : "err",
             "aof_last_cow_size:%zu\r\n", server.stat_aof_cow_bytes,
+            "backup_in_progress:%d\r\n", backupIsInProgress(),
             "module_fork_in_progress:%d\r\n", server.child_type == CHILD_TYPE_MODULE,
             "module_fork_last_cow_size:%zu\r\n", server.stat_module_cow_bytes));
 
