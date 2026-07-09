@@ -5613,10 +5613,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             hashTemplateLpCollectValuePtrs(hash->ptr, vptrs, field_count);
         }
 
-        for (unsigned long long i = 0; i < count; i++) {
-            unsigned long long fi = idx[i];
-            hrandfieldAddTmplReply(c, hash, tmpl, vptrs, fi, withvalues);
-        }
+        for (unsigned long long i = 0; i < count; i++)
+            hrandfieldAddTmplReply(c, hash, tmpl, vptrs, dix[i], withvalues);
         if (idx != stack_idx) zfree(idx);
         if (vptrs && vptrs != stack_vptrs) zfree(vptrs);
         goto out;
@@ -6032,7 +6030,8 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
     /* Template encodings don't support HFE. */
     if (hashObj->encoding == OBJ_ENCODING_TMPL_LP ||
-        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         hashTemplate *tmpl = hashTypeGetTemplate(hashObj);
 
         addReplyArrayLen(c, numFields);
@@ -6376,7 +6375,8 @@ void hpersistCommand(client *c) {
 
     /* Template encodings don't support HFE. */
     if (hashObj->encoding == OBJ_ENCODING_TMPL_LP ||
-        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         hashTemplate *tmpl = hashTypeGetTemplate(hashObj);
 
         addReplyArrayLen(c, numFields);
