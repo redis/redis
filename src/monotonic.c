@@ -6,6 +6,7 @@
 #include "redisassert.h"
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 
 /* The function pointer for clock retrieval.  */
 monotime (*getMonotonicUs)(void) = NULL;
@@ -125,6 +126,7 @@ static void monotonicInit_x86linux(void) {
     const size_t nmatch = 2;
     regmatch_t pmatch[nmatch];
     int constantTsc = 0;
+    long nominal_model = 0;
     int rc;
 
     /* Only use the TSC directly when the kernel itself trusts it: the active
@@ -156,17 +158,17 @@ static void monotonicInit_x86linux(void) {
     FILE *cpuinfo = fopen("/proc/cpuinfo", "r");
     if (cpuinfo != NULL) {
         while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (mono_ticksPerMicrosecond == 0 &&
+            if (nominal_model == 0 &&
                 regexec(&cpuGhzRegex, buf, nmatch, pmatch, 0) == 0) {
                 buf[pmatch[1].rm_eo] = '\0';
                 double ghz = atof(&buf[pmatch[1].rm_so]);
-                mono_ticksPerMicrosecond = (long)(ghz * 1000);
+                nominal_model = (long)(ghz * 1000);
             }
             if (!constantTsc &&
                 regexec(&constTscRegex, buf, 0, NULL, 0) == 0) {
                 constantTsc = 1;
             }
-            if (mono_ticksPerMicrosecond != 0 && constantTsc) break;
+            if (nominal_model != 0 && constantTsc) break;
         }
         fclose(cpuinfo);
     }
@@ -178,41 +180,41 @@ static void monotonicInit_x86linux(void) {
         return;
     }
 
-    /* Fallback 1: some CPUs (e.g. AMD, and Intel models without a frequency
-     * in the model name) don't advertise a GHz value in /proc/cpuinfo.  Some
-     * kernels expose the measured TSC frequency directly; prefer that when
-     * available.  */
-    if (mono_ticksPerMicrosecond == 0) {
-        FILE *khz = fopen("/sys/devices/system/cpu/cpu0/tsc_freq_khz", "r");
-        if (khz != NULL) {
-            long tsc_khz = 0;
-            if (fscanf(khz, "%ld", &tsc_khz) == 1 && tsc_khz > 0)
-                mono_ticksPerMicrosecond = tsc_khz / 1000;
-            fclose(khz);
-        }
+    /* Source 1: the kernel-measured TSC frequency, on kernels that expose it.
+     * This is the ground-truth rate (what the kernel itself uses for
+     * timekeeping), so when present it wins outright and needs no
+     * validation.  */
+    FILE *khz = fopen("/sys/devices/system/cpu/cpu0/tsc_freq_khz", "r");
+    if (khz != NULL) {
+        long tsc_khz = 0;
+        if (fscanf(khz, "%ld", &tsc_khz) == 1 && tsc_khz > 0)
+            mono_ticksPerMicrosecond = tsc_khz / 1000;
+        fclose(khz);
     }
 
-    /* Cross-check any nominal rate against one measurement.  The advertised
-     * frequency is the marketing value and the real TSC rate can differ by a
-     * few tenths of a percent (e.g. a "2.30GHz" part whose TSC ticks at
-     * ~2294 MHz); a rate error that size makes every measured duration
-     * proportionally wrong and accumulates as drift.  When the nominal value
-     * disagrees with a measured sample beyond calibration noise, distrust it
-     * and fall through to full calibration.  */
-    if (mono_ticksPerMicrosecond != 0) {
+    /* Source 2: the frequency advertised in the model name, cross-checked
+     * against one measurement.  The advertised frequency is the marketing
+     * value and the real TSC rate can differ by a few tenths of a percent
+     * (e.g. a "2.30GHz" part whose TSC ticks at ~2294 MHz); a rate error
+     * that size makes every measured duration proportionally wrong and
+     * accumulates as drift.  The nominal value is used only when a measured
+     * sample confirms it within calibration noise; on disagreement OR when
+     * no valid measurement could be taken, fall through to full
+     * calibration.  */
+    if (mono_ticksPerMicrosecond == 0 && nominal_model != 0) {
         long measured = monotonicCalibrateOnce_x86linux();
-        if (measured > 0) {
-            long diff = labs(measured - mono_ticksPerMicrosecond);
-            if (diff * 1000 > mono_ticksPerMicrosecond) { /* > 0.1% apart */
-                fprintf(stderr, "monotonic: x86 linux, advertised clock rate "
-                        "(%ld ticks/us) is off the measured rate (%ld ticks/us), "
-                        "using calibration\n", mono_ticksPerMicrosecond, measured);
-                mono_ticksPerMicrosecond = 0;
-            }
+        long diff = measured > 0 ? labs(measured - nominal_model) : LONG_MAX;
+        if (diff * 1000 <= nominal_model) { /* within 0.1% */
+            mono_ticksPerMicrosecond = nominal_model;
+        } else {
+            fprintf(stderr, "monotonic: x86 linux, advertised clock rate "
+                    "(%ld ticks/us) unconfirmed by the measured rate "
+                    "(%ld ticks/us), using calibration\n",
+                    nominal_model, measured);
         }
     }
 
-    /* Last resort: runtime calibration — measure RDTSC ticks over a known
+    /* Source 3 (last resort): runtime calibration — measure RDTSC ticks over a known
      * CLOCK_MONOTONIC interval.  A single measurement can be perturbed by a
      * context switch between the clock read and the TSC read, so take three
      * and use the median.  */
