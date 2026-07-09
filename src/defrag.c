@@ -1189,6 +1189,10 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         }
     } else if (ob->type == OBJ_STREAM) {
         defragStream(ctx, ob);
+    } else if (ob->type == OBJ_HLL) {
+        /* HLL is a single raw SDS allocation, never shared as a dict key. */
+        sds newsds = activeDefragSds((sds)ob->ptr);
+        if (newsds) ob->ptr = newsds;
 #ifdef ENABLE_GCRA
     } else if (ob->type == OBJ_GCRA) {
         /* GCRA object is just an allocation to a long long value */

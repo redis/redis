@@ -265,6 +265,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         }
         streamIteratorStop(&si);
+    } else if (o->type == OBJ_HLL) {
+        mixStringObjectDigest(digest,o); /* raw sds blob */
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         mixGCRAObjectDigest(digest, o);
@@ -1331,6 +1333,8 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
+    } else if (o->type == OBJ_HLL) {
+        serverLog(LL_WARNING,"HLL blob len: %zu", sdslen(o->ptr));
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
 #if UINTPTR_MAX == 0xffffffffffffffff

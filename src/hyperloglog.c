@@ -1924,44 +1924,61 @@ robj *createHLLObject(void) {
     return o;
 }
 
-/* Check if the object is a String with a valid HLL representation.
- * Return C_OK if this is true, otherwise reply to the client
- * with an error and return C_ERR. */
-int isHLLObjectOrReply(client *c, robj *o) {
+/* Check that the raw blob held by 'o' is a structurally valid HLL: "HYLL"
+ * magic, a known encoding, and the exact length for the dense and ultra
+ * encodings. Reads the blob via sdslen(), so it works whether 'o' is an
+ * OBJ_STRING (classic HLL) or an OBJ_HLL, and does not reply to any client.
+ * Returns C_OK / C_ERR. */
+int isHLLObject(robj *o) {
     struct hllhdr *hdr;
 
-    /* Key exists, check type */
-    if (checkType(c,o,OBJ_STRING))
-        return C_ERR; /* Error already sent. */
-
-    if (!sdsEncodedObject(o)) goto invalid;
-    if (stringObjectLen(o) < sizeof(*hdr)) goto invalid;
+    if (!sdsEncodedObject(o)) return C_ERR;
+    if (sdslen(o->ptr) < sizeof(*hdr)) return C_ERR;
     hdr = o->ptr;
 
     /* Magic should be "HYLL". */
     if (hdr->magic[0] != 'H' || hdr->magic[1] != 'Y' ||
-        hdr->magic[2] != 'L' || hdr->magic[3] != 'L') goto invalid;
+        hdr->magic[2] != 'L' || hdr->magic[3] != 'L') return C_ERR;
 
-    if (hdr->encoding > HLL_MAX_ENCODING) goto invalid;
+    if (hdr->encoding > HLL_MAX_ENCODING) return C_ERR;
 
     /* Dense representation string length should match exactly. */
     if (hdr->encoding == HLL_DENSE &&
-        stringObjectLen(o) != HLL_DENSE_SIZE) goto invalid;
+        sdslen(o->ptr) != HLL_DENSE_SIZE) return C_ERR;
 
-    /* UltraLogLog: precision must be exactly HLL_ULTRA_P and the string length exact. */
+    /* UltraLogLog: precision must be exactly HLL_ULTRA_P and the length exact. */
     if (hdr->encoding == HLL_ULTRA) {
         int up = HLL_ULTRA_GET_P(hdr);
-        if (up != HLL_ULTRA_P) goto invalid;
-        if (stringObjectLen(o) != HLL_ULTRA_DENSE_SIZE(up)) goto invalid;
+        if (up != HLL_ULTRA_P) return C_ERR;
+        if (sdslen(o->ptr) != HLL_ULTRA_DENSE_SIZE(up)) return C_ERR;
     }
 
-    /* All tests passed. */
     return C_OK;
+}
 
-invalid:
-    addReplyError(c,"-WRONGTYPE Key is not a valid "
-               "HyperLogLog string value.");
-    return C_ERR;
+/* Check if the object is a String with a valid HLL representation.
+ * Return C_OK if this is true, otherwise reply to the client
+ * with an error and return C_ERR. */
+int isHLLObjectOrReply(client *c, robj *o) {
+    /* Key exists, check type */
+    if (checkType(c,o,OBJ_STRING))
+        return C_ERR; /* Error already sent. */
+
+    if (isHLLObject(o) != C_OK) {
+        addReplyError(c,"-WRONGTYPE Key is not a valid "
+                   "HyperLogLog string value.");
+        return C_ERR;
+    }
+
+    return C_OK;
+}
+
+/* Wrap an existing HLL blob 'blob' (a raw sds, ownership transferred) as an
+ * OBJ_HLL object. The caller must have validated it with isHLLObject(). */
+robj *createHLLObjectFromBlob(sds blob) {
+    robj *o = createObject(OBJ_HLL, blob);
+    o->encoding = OBJ_ENCODING_RAW;
+    return o;
 }
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */

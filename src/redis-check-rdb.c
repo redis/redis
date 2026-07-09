@@ -89,6 +89,7 @@ char *rdb_type_string[] = {
     "stream-v4",
     "stream-v5",
     "array",
+    "hll",
 #ifdef ENABLE_GCRA
     "gcra",
 #endif

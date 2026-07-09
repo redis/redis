@@ -1759,6 +1759,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     NULL, /* module type is special */
     "stream",
     "array",
+    "hll",
 #ifdef ENABLE_GCRA
     "gcra"
 #endif
@@ -2436,6 +2437,7 @@ void copyCommand(client *c) {
         case OBJ_ZSET: newobj = zsetDup(o); break;
         case OBJ_HASH: newobj = hashTypeDup(o, &minHashExpire); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
+        case OBJ_HLL: newobj = createHLLObjectFromBlob(sdsdup(o->ptr)); break;
 #ifdef ENABLE_GCRA
         case OBJ_GCRA: newobj = gcraDup(o); break;
 #endif

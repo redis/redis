@@ -722,6 +722,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
         return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
+    case OBJ_HLL:
+        return rdbSaveType(rdb,RDB_TYPE_HLL);
 #ifdef ENABLE_GCRA
     case OBJ_GCRA:
         return rdbSaveType(rdb,RDB_TYPE_GCRA);
@@ -1475,6 +1477,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
         /* Save the all-time count of duplicate IIDs detected. */
         if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
+        nwritten += n;
+    } else if (o->type == OBJ_HLL) {
+        /* Save the HyperLogLog blob verbatim; it is a plain raw sds. */
+        if ((n = rdbSaveRawString(rdb,o->ptr,sdslen(o->ptr))) == -1) return -1;
         nwritten += n;
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
@@ -3775,6 +3781,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         o = createModuleObject(mt, ptr);
+    } else if (rdbtype == RDB_TYPE_HLL) {
+        /* Load the HyperLogLog blob (a raw sds) and validate its structure so
+         * a corrupt or unknown-encoding blob fails cleanly instead of being
+         * mis-read later. */
+        sds blob = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+        if (blob == NULL) return NULL;
+        o = createHLLObjectFromBlob(blob);
+        if (isHLLObject(o) != C_OK) {
+            rdbReportCorruptRDB("Invalid HyperLogLog object");
+            decrRefCount(o);
+            return NULL;
+        }
 #ifdef ENABLE_GCRA
     } else if (rdbtype == RDB_TYPE_GCRA) {
         uint64_t time = rdbLoadLen(rdb, NULL);
