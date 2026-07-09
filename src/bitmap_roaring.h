@@ -36,9 +36,9 @@ typedef enum bitmapBitop {
     BITOP_OR,
     BITOP_XOR,
     BITOP_NOT,
-    BITOP_DIFF,
-    BITOP_DIFF1,
-    BITOP_ANDOR,
+    BITOP_DIFF,  /* DIFF(X, A1, A2, ..., An) = X & !(A1 | A2 | ... | An) */
+    BITOP_DIFF1, /* DIFF1(X, A1, A2, ..., An) = !X & (A1 | A2 | ... | An) */
+    BITOP_ANDOR, /* ANDOR(X, A1, A2, ..., An) = X & (A1 | A2 | ... | An) */
     /* ONE(A1, A2, ..., An) = X.
      * If X[i] is the i-th bit of X then:
      * X[i] == 1 if and only if there is m such that:
