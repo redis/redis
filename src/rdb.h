@@ -81,18 +81,17 @@
 #define RDB_TYPE_STREAM_LISTPACKS_4 26        /* Stream with IDMP support */
 #define RDB_TYPE_STREAM_LISTPACKS_5 27        /* Stream with XNACK support (NACKed entries) */
 #define RDB_TYPE_ARRAY 28                     /* Array data type */
-#define RDB_TYPE_HLL 29                       /* HyperLogLog object (OBJ_HLL) */
+/* Opcode 29 is reserved for RDB_TYPE_GCRA (below); a persisted RDB opcode must
+ * never be reused, so RDB_TYPE_HLL takes 30 even though the OBJ_HLL in-memory
+ * type is compiled in unconditionally. */
 #ifdef ENABLE_GCRA
-#define RDB_TYPE_GCRA 30                      /* GCRA object */
+#define RDB_TYPE_GCRA 29                      /* GCRA object */
 #endif
+#define RDB_TYPE_HLL 30                       /* HyperLogLog object (OBJ_HLL) */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
-#ifdef ENABLE_GCRA
 #define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 30))
-#else
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 29))
-#endif
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_KEY_META   243   /* Key metadata (module metadata classes). */

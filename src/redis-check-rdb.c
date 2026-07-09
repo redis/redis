@@ -89,10 +89,12 @@ char *rdb_type_string[] = {
     "stream-v4",
     "stream-v5",
     "array",
-    "hll",
 #ifdef ENABLE_GCRA
     "gcra",
+#else
+    "", /* opcode 29 reserved for gcra */
 #endif
+    "hll",
 };
 
 /* Show a few stats collected into 'rdbstate' */
