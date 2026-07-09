@@ -603,24 +603,24 @@ start_server {tags {"hll"}} {
         assert_equal $before [r pfcount u13]
         r config set hll-ultra-precision 14
         r config set hll-sparse-max-bytes 3000
-    }
+    } undefined {needs:debug}
     test {ULL p=13: same-precision PFMERGE and multi-key PFCOUNT work} {
         r config set hll-dense-encoding ultra
         r config set hll-ultra-precision 13
         r config set hll-sparse-max-bytes 0
-        r del a13 b13 dst13
-        for {set i 0} {$i < 20000} {incr i} { r pfadd a13 "x-$i" }
-        for {set i 10000} {$i < 30000} {incr i} { r pfadd b13 "x-$i" }
+        r del a13{t} b13{t} dst13{t}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a13{t} "x-$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b13{t} "x-$i" }
         # union has 30000 distinct elements.
-        set merged [r pfcount a13 b13]
+        set merged [r pfcount a13{t} b13{t}]
         assert {abs($merged - 30000) < 1500}
-        r pfmerge dst13 a13 b13
-        assert_equal {ultra} [r pfdebug encoding dst13]
-        assert_equal 8192 [llength [r pfdebug getreg dst13]]
-        assert_equal $merged [r pfcount dst13]
+        r pfmerge dst13{t} a13{t} b13{t}
+        assert_equal {ultra} [r pfdebug encoding dst13{t}]
+        assert_equal 8192 [llength [r pfdebug getreg dst13{t}]]
+        assert_equal $merged [r pfcount dst13{t}]
         # Idempotent re-merge.
-        r pfmerge dst13 a13 b13
-        assert_equal $merged [r pfcount dst13]
+        r pfmerge dst13{t} a13{t} b13{t}
+        assert_equal $merged [r pfcount dst13{t}]
         r config set hll-ultra-precision 14
         r config set hll-sparse-max-bytes 3000
     }
@@ -628,13 +628,13 @@ start_server {tags {"hll"}} {
         r config set hll-dense-encoding ultra
         r config set hll-sparse-max-bytes 0
         r config set hll-ultra-precision 13
-        r del a13
-        r pfadd a13 x y z
+        r del a13{t}
+        r pfadd a13{t} x y z
         r config set hll-ultra-precision 14
-        r del c14
-        r pfadd c14 p q r
-        assert_error {*different precisions*} {r pfcount a13 c14}
-        assert_error {*different precisions*} {r pfmerge dst a13 c14}
+        r del c14{t}
+        r pfadd c14{t} p q r
+        assert_error {*different precisions*} {r pfcount a13{t} c14{t}}
+        assert_error {*different precisions*} {r pfmerge dst{t} a13{t} c14{t}}
         r config set hll-sparse-max-bytes 3000
     }
     test {ULL type: ultra config promotes new key to OBJ_HLL} {
@@ -666,6 +666,24 @@ start_server {tags {"hll"}} {
         assert_equal {hll} [r type t]
         r config set hll-dense-encoding classic
     }
+    test {ULL type: a promotion-only PFADD is still propagated} {
+        r flushall
+        r config set hll-dense-encoding classic
+        r pfadd hll a b c
+        assert_equal {string} [r type hll]
+        r config set hll-dense-encoding ultra
+        set repl [attach_to_replication_stream]
+        # 'a' is already present, so no register changes; only the type is
+        # promoted. The command must still reach replicas so they promote too.
+        r pfadd hll a
+        assert_equal {hll} [r type hll]
+        assert_replication_stream $repl {
+            {select *}
+            {pfadd hll a}
+        }
+        close_replication_stream $repl
+        r config set hll-dense-encoding classic
+    } undefined {needs:repl external:skip}
     test {ULL type: MEMORY USAGE and OBJECT work on an OBJ_HLL key} {
         r config set hll-dense-encoding ultra
         r del t
@@ -697,24 +715,24 @@ start_server {tags {"hll"}} {
         assert_equal $before [r pfcount t]
         assert_equal $dig [r debug digest-value t]
         r config set hll-dense-encoding classic
-    }
+    } undefined {needs:debug}
     test {ULL type: DUMP/RESTORE preserves the OBJ_HLL type} {
         r config set hll-dense-encoding ultra
-        r del t t2
-        r pfadd t a b c d e
-        set d [r dump t]
-        r restore t2 0 $d
-        assert_equal {hll} [r type t2]
-        assert_equal [r pfcount t] [r pfcount t2]
+        r del k{t} k2{t}
+        r pfadd k{t} a b c d e
+        set d [r dump k{t}]
+        r restore k2{t} 0 $d
+        assert_equal {hll} [r type k2{t}]
+        assert_equal [r pfcount k{t}] [r pfcount k2{t}]
         r config set hll-dense-encoding classic
     }
     test {ULL type: COPY preserves the OBJ_HLL type} {
         r config set hll-dense-encoding ultra
-        r del t t2
-        r pfadd t a b c d e
-        r copy t t2
-        assert_equal {hll} [r type t2]
-        assert_equal [r pfcount t] [r pfcount t2]
+        r del k{t} k2{t}
+        r pfadd k{t} a b c d e
+        r copy k{t} k2{t}
+        assert_equal {hll} [r type k2{t}]
+        assert_equal [r pfcount k{t}] [r pfcount k2{t}]
         r config set hll-dense-encoding classic
     }
     test {ULL type: AOF rewrite reconstructs the OBJ_HLL key} {
@@ -731,5 +749,5 @@ start_server {tags {"hll"}} {
         assert_equal $before [r pfcount t]
         r config set appendonly no
         r config set hll-dense-encoding classic
-    }
+    } undefined {needs:debug}
 }

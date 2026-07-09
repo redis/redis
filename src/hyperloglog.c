@@ -2026,17 +2026,20 @@ static kvobj *hllPrepareWriteDest(client *c, robj *keyarg, kvobj *kv,
 
 /* Finalize an HLL write: promote the value to the OBJ_HLL type when the ultra
  * dense backend is selected (the blob is unchanged) and update the per-type
- * keysizes histogram for the size change and any type move. */
-static void hllWriteFinalize(redisDb *db, kvobj *kv, int oldtype, uint64_t oldlen) {
+ * keysizes histogram for the size change and any type move. Returns 1 if the
+ * type was promoted, so the caller can propagate the change even when the
+ * registers were untouched (otherwise a replica would keep the old type). */
+static int hllWriteFinalize(redisDb *db, kvobj *kv, int oldtype, uint64_t oldlen) {
     if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA && kv->type == OBJ_STRING)
         kv->type = OBJ_HLL;
     uint64_t newlen = sdslen(kv->ptr);
     if (kv->type == oldtype) {
         updateKeysizesHist(db, kv->type, oldlen, newlen);
-    } else {
-        updateKeysizesHist(db, oldtype, oldlen, -1);
-        updateKeysizesHist(db, kv->type, -1, newlen);
+        return 0;
     }
+    updateKeysizesHist(db, oldtype, oldlen, -1);
+    updateKeysizesHist(db, kv->type, -1, newlen);
+    return 1;
 }
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
@@ -2075,14 +2078,16 @@ void pfaddCommand(client *c) {
     }
 
     hdr = kv->ptr;
-    hllWriteFinalize(c->db, kv, oldtype, oldlen);
+    /* A type promotion is a change that must reach replicas/AOF even when no
+     * register was updated, so treat it like a modification too. */
+    int promoted = hllWriteFinalize(c->db, kv, oldtype, oldlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-    if (updated) {
-        HLL_INVALIDATE_CACHE(hdr);
+    if (updated || promoted) {
+        if (updated) HLL_INVALIDATE_CACHE(hdr);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        server.dirty += updated;
+        server.dirty += updated ? updated : 1;
     }
     addReply(c, updated ? shared.cone : shared.czero);
 }
