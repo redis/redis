@@ -1,7 +1,11 @@
-CC ?= clang
+ifeq ($(origin CC),default)
+CC := clang
+endif
 
+ifneq ($(MAKECMDGOALS),clean)
 ifeq (,$(findstring clang,$(shell $(CC) --version 2>/dev/null | head -1)))
 $(error Redis fuzz targets require clang. Re-run with CC=clang)
+endif
 endif
 
 FUZZ_CFLAGS ?= -DREDIS_FUZZ -g -O1 -fno-omit-frame-pointer -fsanitize=fuzzer-no-link,address,undefined
