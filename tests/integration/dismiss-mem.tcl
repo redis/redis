@@ -57,11 +57,15 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
             r arset sparse_array [expr {$i * 5000}] $bigstr
         }
 
-        # bitmap: alternating bits force a large bitset container, and the
-        # distant bit keeps a second sparse container in the Roaring directory.
-        r set bigbitmap [binary format H* [string repeat aa 8192]]
+        # bitmap: cover all three roaring container types. The first 64K-bit
+        # chunk holds alternating bits (bitset container), the second chunk is
+        # all ones and collapses into a run container when the conversion
+        # run-optimizes, and the distant bit lands alone in a later chunk
+        # (sparse array container).
+        r set bigbitmap [binary format H* \
+            "[string repeat aa 8192][string repeat ff 8192]"]
         r config set bitmap-default-roaring yes
-        r setbit bigbitmap 100000 1 ;# converts the dense string to native
+        r setbit bigbitmap 200000 1 ;# converts the dense string to native
         r config set bitmap-default-roaring no
         assert_equal bitmap [r type bigbitmap]
 
