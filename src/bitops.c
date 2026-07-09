@@ -1846,23 +1846,29 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
 
     if (maxlen && bitopUseMixedRawBytePath(objects, numkeys, maxlen)) {
         /* Small result with dense native operands: materialize them and run
-         * the byte-wise string kernel, converting the raw result back. */
+         * the byte-wise string kernel, converting the raw result back. The
+         * materialized pointers go into a local array: the caller's src[]
+         * entries must stay NULL for native operands, its cleanup loop uses
+         * them to tell owned decoded strings from borrowed natives. */
         sds *materialized = zcalloc(sizeof(*materialized) * numkeys);
+        unsigned char **rawsrc = zmalloc(sizeof(*rawsrc) * numkeys);
         for (unsigned long j = 0; j < numkeys; j++) {
+            rawsrc[j] = src[j];
             if (objects[j] == NULL || objects[j]->type != OBJ_BITMAP) continue;
             /* Each operand length is at most BITOP_MIXED_RAW_MAX_BYTES, which
              * cannot exceed the proto-max-bulk-len floor of 1MB, so the
              * materialization cannot hit its length limit. */
             materialized[j] = bitmapObjectMaterialize(objects[j]);
             serverAssert(materialized[j] != NULL);
-            src[j] = (unsigned char *)materialized[j];
+            rawsrc[j] = (unsigned char *)materialized[j];
         }
-        unsigned char *res = bitopStringOp(op, src, len, numkeys, maxlen, minlen);
+        unsigned char *res = bitopStringOp(op, rawsrc, len, numkeys, maxlen, minlen);
         res_bitmap = createBitmapObjectFromStringNoOptimize(res, sdslen((sds)res));
         serverAssert(res_bitmap != NULL);
         sdsfree((sds)res);
         for (unsigned long j = 0; j < numkeys; j++) sdsfree(materialized[j]);
         zfree(materialized);
+        zfree(rawsrc);
     } else if (maxlen) {
         res_bitmap = bitmapObjectsBitopBitmap(op, objects, numkeys, maxlen);
     }
@@ -1992,8 +1998,12 @@ void bitopCommand(client *c) {
         bitopCommandBitmap(c, op, targetkey, objects, src, len, numkeys,
                            maxlen, minlen, has_native_bitmap);
         for (j = 0; j < numkeys; j++) {
-            if (objects[j] && objects[j]->type == OBJ_STRING)
-                decrRefCount(objects[j]);
+            /* Borrowed native operands may be freed by now: storing the
+             * result overwrites (or deletes) the target key, which can be
+             * one of the sources, and the store notifications can delete the
+             * others. Owned decoded strings hold a reference and are told
+             * apart by their src[] pointer, without dereferencing objects[]. */
+            if (src[j]) decrRefCount(objects[j]);
         }
         zfree(src);
         zfree(len);
