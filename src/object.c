@@ -1320,6 +1320,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         o->type == OBJ_ZSET ||
         o->type == OBJ_HASH ||
         o->type == OBJ_STREAM ||
+        o->type == OBJ_HLL ||
 #ifdef ENABLE_GCRA
         o->type == OBJ_GCRA ||
 #endif

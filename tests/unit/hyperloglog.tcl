@@ -593,6 +593,15 @@ start_server {tags {"hll"}} {
         assert_equal {hll} [r type t]
         r config set hll-dense-encoding classic
     }
+    test {ULL type: MEMORY USAGE and OBJECT work on an OBJ_HLL key} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t a b c d e
+        assert_equal {hll} [r type t]
+        assert {[r memory usage t] > 0}
+        assert_equal {raw} [r object encoding t]
+        r config set hll-dense-encoding classic
+    }
     test {ULL type: string commands are rejected on an OBJ_HLL key} {
         r config set hll-dense-encoding ultra
         r del t
