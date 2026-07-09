@@ -1,8 +1,14 @@
 #include "fmacros.h"
-/* CRoaring exposes target-specific inline helpers from public headers unless
- * these macros are defined before inclusion. deps/Makefile uses the same
- * flags for libcroaring; keep this translation unit portable without adding
- * CRoaring feature switches to Redis' global CFLAGS. */
+/* CRoaring's x64 (AVX2/AVX512) and NEON acceleration is disabled, for two
+ * reasons. First, build correctness: CRoaring exposes target-specific inline
+ * helpers from its public headers, so this translation unit's SIMD
+ * configuration must match the one deps/Makefile uses to build libcroaring
+ * (CROARING_CFLAGS defines the same two flags); mixing settings would compile
+ * incompatible inline definitions on the two sides of the library boundary.
+ * Second, portability: with the SIMD paths compiled out, the binary needs no
+ * -march flags or CPU runtime dispatch, matching how Redis builds its own
+ * bit-manipulation code. Revisit if benchmarks justify wiring CRoaring's
+ * runtime dispatch into the Redis build. */
 #ifndef ROARING_DISABLE_X64
 #define ROARING_DISABLE_X64 1
 #endif

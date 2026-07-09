@@ -1021,6 +1021,65 @@ static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
     return C_OK;
 }
 
+/* SETBIT against a native bitmap target: mutate the bitmap, install it in
+ * the keyspace when it was just created or converted from a string, and
+ * reply with the original bit value. 'o' is the existing value ('native'
+ * when the key already held a native bitmap), and 'link' the lookup link
+ * from setbitCommand() so the keyspace dict is probed only once. */
+static void setbitCommandBitmap(client *c, kvobj *o, robj *native,
+                                int created, int converted,
+                                uint64_t bitoffset, long on,
+                                dictEntryLink link)
+{
+    uint64_t oldlen = bitmapObjectLen(native);
+    uint64_t byte = bitoffset >> 3;
+    int changed = 0;
+    int bitval;
+    size_t oldAllocSize = 0;
+
+    bitval = bitmapObjectGetBit(native, bitoffset);
+    if (byte >= oldlen || (!!bitval != on)) {
+        if (!created && !converted && server.memory_tracking_enabled)
+            oldAllocSize = kvobjAllocSize(native);
+        /* bitmapResolveNativeTarget() already rejected offsets beyond the
+         * native cap. */
+        serverAssert(bitmapObjectSetBit(native, bitoffset, on) == C_OK);
+        changed = 1;
+    }
+
+    if (created) {
+        /* Queue the RESTORE payload before the keyspace notification:
+         * module subscribers may mutate or delete the key from their
+         * callback. */
+        bitmapPropagateRestore(c, c->argv[1], native, -1);
+        kvobj *kv = dbAddByLink(c->db, c->argv[1], &native, &link);
+        keyModified(c,c->db,c->argv[1],kv,1);
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+    } else if (converted) {
+        long long expire = getExpire(c->db, c->argv[1]->ptr, o);
+        bitmapPropagateRestore(c, c->argv[1], native, expire);
+        /* setKeyByLink() fires the "overwritten" and "type_changed"
+         * events and signals watchers. Like every type transition this
+         * reaches replicas and the AOF as an explicit RESTORE of the
+         * final state. */
+        setKeyByLink(c, c->db, c->argv[1], &native,
+                     SETKEY_KEEPTTL | SETKEY_ALREADY_EXIST, &link);
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+    } else if (changed) {
+        if (oldlen != bitmapObjectLen(native))
+            updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(native));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), native, oldAllocSize, kvobjAllocSize(native));
+        keyModified(c,c->db,c->argv[1],native,1);
+        notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    }
+
+    addReply(c, bitval ? shared.cone : shared.czero);
+}
+
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     char *err = "bit is not an integer or out of range";
@@ -1051,53 +1110,8 @@ void setbitCommand(client *c) {
         return;
 
     if (native != NULL) {
-        uint64_t oldlen = bitmapObjectLen(native);
-        int native_changed = 0;
-        size_t oldAllocSize = 0;
-
-        byte = bitoffset >> 3;
-        bitval = bitmapObjectGetBit(native, bitoffset);
-        if (byte >= oldlen || (!!bitval != on)) {
-            if (!native_created && !native_converted && server.memory_tracking_enabled)
-                oldAllocSize = kvobjAllocSize(native);
-            /* bitmapResolveNativeTarget() already rejected offsets beyond the
-             * native cap. */
-            serverAssert(bitmapObjectSetBit(native, bitoffset, on) == C_OK);
-            native_changed = 1;
-        }
-
-        if (native_created) {
-            /* Queue the RESTORE payload before the keyspace notification:
-             * module subscribers may mutate or delete the key from their
-             * callback. */
-            bitmapPropagateRestore(c, c->argv[1], native, -1);
-            dbAddByLink(c->db, c->argv[1], &native, &link);
-            keyModified(c,c->db,c->argv[1],
-                        lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS),1);
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-        } else if (native_converted) {
-            long long expire = getExpire(c->db, c->argv[1]->ptr, o);
-            bitmapPropagateRestore(c, c->argv[1], native, expire);
-            /* setKeyByLink() fires the "overwritten" and "type_changed"
-             * events and signals watchers. Like every type transition this
-             * reaches replicas and the AOF as an explicit RESTORE of the
-             * final state. */
-            setKeyByLink(c, c->db, c->argv[1], &native,
-                         SETKEY_KEEPTTL | SETKEY_ALREADY_EXIST, &link);
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-        } else if (native_changed) {
-            if (oldlen != bitmapObjectLen(native))
-                updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(native));
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), native, oldAllocSize, kvobjAllocSize(native));
-            keyModified(c,c->db,c->argv[1],native,1);
-            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-            server.dirty++;
-        }
-
-        addReply(c, bitval ? shared.cone : shared.czero);
+        setbitCommandBitmap(c, o, native, native_created, native_converted,
+                            bitoffset, on, link);
         return;
     }
 
@@ -1804,204 +1818,220 @@ static unsigned char *bitopStringOp(bitmapBitop op, unsigned char **src,
     return res;
 }
 
-typedef struct bitopSourceState {
-    robj **objects;
-    unsigned char **src;
-    size_t *len;
-    sds *materialized;
-    unsigned long numkeys;
-    uint64_t maxlen;
-    size_t minlen;
-    int has_native_bitmap;
-} bitopSourceState;
+/* BITOP whose result is a native bitmap: at least one source already is one
+ * (a property of the replicated dataset, identical on replicas), or
+ * bitmap-default-roaring is enabled on this server (a local decision,
+ * propagated as an explicit RESTORE of the result). Sources come from
+ * bitopCommand()'s lookup loop: native operands have objects[j] set with
+ * src[j] == NULL and len[j] holding their logical byte length. Computes the
+ * result, stores it into targetkey and replies with the destination length. */
+static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
+                               robj **objects, unsigned char **src,
+                               size_t *len, unsigned long numkeys,
+                               uint64_t maxlen, size_t minlen,
+                               int has_native_bitmap)
+{
+    robj *res_bitmap = NULL;
 
-static int bitopParseOperation(client *c, bitmapBitop *op) {
+    if (maxlen > BITMAP_OBJECT_MAX_BYTES) {
+        addBitmapNativeLengthError(c);
+        return;
+    }
+    /* Native transitions propagate RESTORE payloads of the materialized
+     * result, so it must stay inside the string materialization limit. */
+    if (!mustObeyClient(c) && maxlen > (uint64_t)server.proto_max_bulk_len) {
+        addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
+        return;
+    }
+
+    if (maxlen && bitopUseMixedRawBytePath(objects, numkeys, maxlen)) {
+        /* Small result with dense native operands: materialize them and run
+         * the byte-wise string kernel, converting the raw result back. */
+        sds *materialized = zcalloc(sizeof(*materialized) * numkeys);
+        for (unsigned long j = 0; j < numkeys; j++) {
+            if (objects[j] == NULL || objects[j]->type != OBJ_BITMAP) continue;
+            /* Each operand length is at most BITOP_MIXED_RAW_MAX_BYTES, which
+             * cannot exceed the proto-max-bulk-len floor of 1MB, so the
+             * materialization cannot hit its length limit. */
+            materialized[j] = bitmapObjectMaterialize(objects[j]);
+            serverAssert(materialized[j] != NULL);
+            src[j] = (unsigned char *)materialized[j];
+        }
+        unsigned char *res = bitopStringOp(op, src, len, numkeys, maxlen, minlen);
+        res_bitmap = createBitmapObjectFromStringNoOptimize(res, sdslen((sds)res));
+        serverAssert(res_bitmap != NULL);
+        sdsfree((sds)res);
+        for (unsigned long j = 0; j < numkeys; j++) sdsfree(materialized[j]);
+        zfree(materialized);
+    } else if (maxlen) {
+        res_bitmap = bitmapObjectsBitopBitmap(op, objects, numkeys, maxlen);
+    }
+
+    /* Store the computed value into the target key */
+    if (maxlen) {
+        if (!has_native_bitmap) {
+            /* The native destination type came from this server's
+             * bitmap-default-roaring setting, not from the source types, so
+             * replicas and the AOF receive the explicit result instead of
+             * re-running the command against their own configuration. The
+             * payload is queued before setKey() notifications: module
+             * subscribers may mutate or delete the key. */
+            bitmapPropagateRestore(c, targetkey, res_bitmap, -1);
+        }
+        setKey(c, c->db, targetkey, &res_bitmap, 0);
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
+    } else if (dbDelete(c->db,targetkey)) {
+        keyModified(c,c->db,targetkey,NULL,1);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
+        server.dirty++;
+    }
+    serverAssert(maxlen <= (uint64_t)LLONG_MAX);
+    addReplyLongLong(c,(long long)maxlen); /* Return the destination length in bytes. */
+}
+
+/* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
+void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
+    robj *targetkey = c->argv[2];
+    bitmapBitop op;
+    unsigned long j, numkeys;
+    robj **objects;      /* Array of source objects. */
+    unsigned char **src; /* Array of source strings pointers. */
+    size_t *len;         /* Array of length of src strings. */
+    uint64_t maxlen = 0; /* Max len among the input keys. */
+    size_t minlen = 0;   /* Min len among the input keys. */
+    unsigned char *res = NULL; /* Resulting string. */
+    int has_native_bitmap = 0;
 
+    /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
-        *op = BITOP_AND;
+        op = BITOP_AND;
     else if((opname[0] == 'o' || opname[0] == 'O') && !strcasecmp(opname,"or"))
-        *op = BITOP_OR;
+        op = BITOP_OR;
     else if((opname[0] == 'x' || opname[0] == 'X') && !strcasecmp(opname,"xor"))
-        *op = BITOP_XOR;
+        op = BITOP_XOR;
     else if((opname[0] == 'n' || opname[0] == 'N') && !strcasecmp(opname,"not"))
-        *op = BITOP_NOT;
+        op = BITOP_NOT;
     else if ((opname[0] == 'd' || opname[0] == 'D') && !strcasecmp(opname,"diff"))
-        *op = BITOP_DIFF;
+        op = BITOP_DIFF;
     else if ((opname[0] == 'd' || opname[0] == 'D') && !strcasecmp(opname,"diff1"))
-        *op = BITOP_DIFF1;
+        op = BITOP_DIFF1;
     else if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"andor"))
-        *op = BITOP_ANDOR;
+        op = BITOP_ANDOR;
     else if ((opname[0] == 'o' || opname[0] == 'O') && !strcasecmp(opname,"one"))
-        *op = BITOP_ONE;
+        op = BITOP_ONE;
     else {
         addReplyErrorObject(c,shared.syntaxerr);
-        return C_ERR;
+        return;
     }
 
     /* Sanity check: NOT accepts only a single key argument. */
-    if (*op == BITOP_NOT && c->argc != 4) {
+    if (op == BITOP_NOT && c->argc != 4) {
         addReplyError(c,"BITOP NOT must be called with a single source key.");
-        return C_ERR;
+        return;
     }
 
-    if ((*op == BITOP_DIFF || *op == BITOP_DIFF1 || *op == BITOP_ANDOR) &&
-        c->argc < 5)
-    {
+    if ((op == BITOP_DIFF || op == BITOP_DIFF1 || op == BITOP_ANDOR) && c->argc < 5) {
         sds opname_upper = sdsnew(opname);
         sdstoupper(opname_upper);
         addReplyErrorFormat(c,"BITOP %s must be called with at least two source keys.", opname_upper);
         sdsfree(opname_upper);
-        return C_ERR;
+        return;
     }
-    return C_OK;
-}
 
-static void bitopSourceStateInit(bitopSourceState *state, unsigned long numkeys) {
-    state->objects = zcalloc(sizeof(*state->objects) * numkeys);
-    state->src = zcalloc(sizeof(*state->src) * numkeys);
-    state->len = zcalloc(sizeof(*state->len) * numkeys);
-    state->materialized = NULL;
-    state->numkeys = numkeys;
-    state->maxlen = 0;
-    state->minlen = 0;
-    state->has_native_bitmap = 0;
-}
-
-static void bitopSourceStateFree(bitopSourceState *state) {
-    for (unsigned long j = 0; j < state->numkeys; j++) {
-        if (state->objects[j] && state->objects[j]->type == OBJ_STRING)
-            decrRefCount(state->objects[j]);
-        if (state->materialized != NULL) sdsfree(state->materialized[j]);
-    }
-    zfree(state->materialized);
-    zfree(state->src);
-    zfree(state->len);
-    zfree(state->objects);
-}
-
-static int bitopCollectSources(client *c, bitopSourceState *state) {
-    for (unsigned long j = 0; j < state->numkeys; j++) {
+    /* Lookup keys, and store pointers to the string objects into an array. */
+    numkeys = c->argc - 3;
+    src = zmalloc(sizeof(unsigned char*) * numkeys);
+    len = zmalloc(sizeof(size_t) * numkeys);
+    objects = zmalloc(sizeof(robj*) * numkeys);
+    for (j = 0; j < numkeys; j++) {
         kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
         /* Handle non-existing keys as empty strings. */
         if (kv == NULL) {
-            state->objects[j] = NULL;
-            state->src[j] = NULL;
-            state->len[j] = 0;
-            state->minlen = 0;
+            objects[j] = NULL;
+            src[j] = NULL;
+            len[j] = 0;
+            minlen = 0;
             continue;
         }
-        /* Return an error if one of the keys is not a string or bitmap. */
-        if (checkStringOrBitmapType(c, kv)) return C_ERR;
-        if (kv->type == OBJ_BITMAP) {
-            state->objects[j] = kv;
-            state->src[j] = NULL;
-            state->len[j] = bitmapObjectLen(kv);
-            state->has_native_bitmap = 1;
-        } else {
-            state->objects[j] = getDecodedObject(kv);
-            state->src[j] = state->objects[j]->ptr;
-            state->len[j] = sdslen(state->objects[j]->ptr);
+        /* Return an error if one of the keys is not a string or a native
+         * bitmap. */
+        if (checkStringOrBitmapType(c, kv)) {
+            unsigned long i;
+            for (i = 0; i < j; i++) {
+                if (objects[i] && objects[i]->type == OBJ_STRING)
+                    decrRefCount(objects[i]);
+            }
+            zfree(src);
+            zfree(len);
+            zfree(objects);
+            return;
         }
-        if (state->len[j] > state->maxlen) state->maxlen = state->len[j];
-        if (j == 0 || state->len[j] < state->minlen)
-            state->minlen = state->len[j];
+        if (kv->type == OBJ_BITMAP) {
+            /* Native operands are borrowed from the keyspace and consumed by
+             * the native path below through objects[]; len[] holds their
+             * logical byte length. */
+            objects[j] = kv;
+            src[j] = NULL;
+            len[j] = bitmapObjectLen(kv);
+            has_native_bitmap = 1;
+        } else {
+            objects[j] = getDecodedObject(kv);
+            src[j] = objects[j]->ptr;
+            len[j] = sdslen(objects[j]->ptr);
+        }
+        if (len[j] > maxlen) maxlen = len[j];
+        if (j == 0 || len[j] < minlen) minlen = len[j];
     }
-    return C_OK;
-}
 
-static int bitopValidateResultLimits(client *c, bitmapBitop op,
-                                     bitopSourceState *state, int native_dest)
-{
-    if (native_dest && state->maxlen > BITMAP_OBJECT_MAX_BYTES) {
-        addBitmapNativeLengthError(c);
-        return C_ERR;
+    /* Native bitmap sources, or a native destination configured through
+     * bitmap-default-roaring, take the dedicated native path; everything
+     * below keeps the string flow. */
+    if (has_native_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c))) {
+        bitopCommandBitmap(c, op, targetkey, objects, src, len, numkeys,
+                           maxlen, minlen, has_native_bitmap);
+        for (j = 0; j < numkeys; j++) {
+            if (objects[j] && objects[j]->type == OBJ_STRING)
+                decrRefCount(objects[j]);
+        }
+        zfree(src);
+        zfree(len);
+        zfree(objects);
+        return;
     }
 
-    /* Native destinations and BITOP NOT both need a bulk payload path: native
-     * transitions propagate RESTORE payloads, and NOT writes one dense result
-     * byte per source byte. Keep both inside the string materialization limit. */
-    if ((native_dest || op == BITOP_NOT) && !mustObeyClient(c) &&
-        state->maxlen > (uint64_t)server.proto_max_bulk_len)
+    /* NOT writes one dense result byte per source byte; keep the result
+     * inside the string materialization limit, like the native path above
+     * does for every operation. */
+    if (op == BITOP_NOT && !mustObeyClient(c) &&
+        maxlen > (uint64_t)server.proto_max_bulk_len)
     {
         addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
-        return C_ERR;
-    }
-    return C_OK;
-}
-
-static int bitopMaterializeNativeSources(client *c, bitopSourceState *state) {
-    state->materialized = zcalloc(sizeof(*state->materialized) * state->numkeys);
-    for (unsigned long j = 0; j < state->numkeys; j++) {
-        if (state->objects[j] == NULL || state->objects[j]->type != OBJ_BITMAP)
-            continue;
-        state->materialized[j] = bitmapObjectMaterialize(state->objects[j]);
-        if (state->materialized[j] == NULL) {
-            addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
-            return C_ERR;
+        for (j = 0; j < numkeys; j++) {
+            if (objects[j])
+                decrRefCount(objects[j]);
         }
-        state->src[j] = (unsigned char *)state->materialized[j];
-    }
-    return C_OK;
-}
-
-static int bitopExecute(client *c, bitmapBitop op, bitopSourceState *state,
-                        int native_dest, unsigned char **res,
-                        robj **res_bitmap)
-{
-    int mixed_raw_path;
-
-    /* Compute the bit operation, if at least one source is not empty. */
-    if (!state->maxlen) return C_OK;
-
-    mixed_raw_path = native_dest &&
-        bitopUseMixedRawBytePath(state->objects, state->numkeys,
-                                 state->maxlen);
-
-    if (mixed_raw_path && bitopMaterializeNativeSources(c, state) != C_OK)
-        return C_ERR;
-
-    if (native_dest && !mixed_raw_path) {
-        *res_bitmap = bitmapObjectsBitopBitmap(op, state->objects,
-                                               state->numkeys, state->maxlen);
-        return C_OK;
+        zfree(src);
+        zfree(len);
+        zfree(objects);
+        return;
     }
 
-    *res = bitopStringOp(op, state->src, state->len, state->numkeys,
-                         state->maxlen, state->minlen);
-    return C_OK;
-}
+    /* Compute the bit operation, if at least one string is not empty. */
+    if (maxlen)
+        res = bitopStringOp(op, src, len, numkeys, maxlen, minlen);
 
-static void bitopStoreResult(client *c, robj *targetkey, uint64_t maxlen,
-                             int native_dest, int has_native_bitmap,
-                             unsigned char *res, robj *res_bitmap)
-{
+    for (j = 0; j < numkeys; j++) {
+        if (objects[j])
+            decrRefCount(objects[j]);
+    }
+    zfree(src);
+    zfree(len);
+    zfree(objects);
+
     /* Store the computed value into the target key */
     if (maxlen) {
-        if (native_dest) {
-            if (res_bitmap == NULL) {
-                serverAssert(res != NULL);
-                res_bitmap = createBitmapObjectFromStringNoOptimize(
-                    res, sdslen((sds)res));
-                sdsfree((sds)res);
-                res = NULL;
-                serverAssert(res_bitmap != NULL);
-            }
-            if (!has_native_bitmap) {
-                /* The native destination type came from this server's
-                 * bitmap-default-roaring setting, not from the source types,
-                 * so replicas and the AOF receive the explicit result instead
-                 * of re-running the command against their own configuration.
-                 * The payload is queued before setKey() notifications:
-                 * module subscribers may mutate or delete the key. */
-                bitmapPropagateRestore(c, targetkey, res_bitmap, -1);
-            }
-            setKey(c, c->db, targetkey, &res_bitmap, 0);
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
-            goto out;
-        }
-
         robj *o = createObject(OBJ_STRING, res);
         setKey(c, c->db, targetkey, &o, 0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
@@ -2011,46 +2041,7 @@ static void bitopStoreResult(client *c, robj *targetkey, uint64_t maxlen,
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;
     }
-out:
-    serverAssert(maxlen <= (uint64_t)LLONG_MAX);
-    addReplyLongLong(c,(long long)maxlen); /* Return the destination length in bytes. */
-}
-
-/* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
-void bitopCommand(client *c) {
-    robj *targetkey = c->argv[2];
-    bitopSourceState sources;
-    bitmapBitop op;
-    unsigned char *res = NULL;
-    robj *res_bitmap = NULL;
-    int native_dest;
-
-    if (bitopParseOperation(c, &op) != C_OK) return;
-
-    bitopSourceStateInit(&sources, c->argc - 3);
-    if (bitopCollectSources(c, &sources) != C_OK) {
-        bitopSourceStateFree(&sources);
-        return;
-    }
-
-    /* The destination is a native bitmap when at least one source already is
-     * one (a property of the replicated dataset, identical on replicas), or
-     * when bitmap-default-roaring is enabled on this server (a local decision,
-     * propagated as the explicit result below). Otherwise it stays a string. */
-    native_dest = sources.has_native_bitmap ||
-                  (sources.maxlen && bitmapDefaultRoaringEnabled(c));
-
-    if (bitopValidateResultLimits(c, op, &sources, native_dest) != C_OK ||
-        bitopExecute(c, op, &sources, native_dest, &res, &res_bitmap) != C_OK)
-    {
-        bitopSourceStateFree(&sources);
-        sdsfree((sds)res);
-        return;
-    }
-
-    bitopSourceStateFree(&sources);
-    bitopStoreResult(c, targetkey, sources.maxlen, native_dest,
-                     sources.has_native_bitmap, res, res_bitmap);
+    addReplyLongLong(c,(long long)maxlen); /* Return the output string length in bytes. */
 }
 
 typedef struct bitRange {
