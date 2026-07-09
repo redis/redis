@@ -2288,6 +2288,10 @@ void createSharedObjects(void) {
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
     shared.lmove = createStringObject("LMOVE",5);
     shared.blmove = createStringObject("BLMOVE",6);
+    shared.lmovem = createStringObject("LMOVEM",6);
+    shared.exactly = createStringObject("EXACTLY",7);
+    shared.obo = createStringObject("OBO",3);
+    shared.bulk = createStringObject("BULK",4);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
     shared.multi = createStringObject("MULTI",5);
