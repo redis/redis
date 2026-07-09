@@ -574,20 +574,6 @@ static uint64_t getUnsignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
     return bitmapObjectGetUnsignedBitfield(o, offset, bits);
 }
 
-static int64_t getSignedBitfieldFromBitmapObject(robj *o, uint64_t offset,
-                                                 uint64_t bits)
-{
-    int64_t value;
-    union {uint64_t u; int64_t i;} conv;
-
-    conv.u = getUnsignedBitfieldFromBitmapObject(o, offset, bits);
-    value = conv.i;
-
-    if (bits < 64 && (value & ((uint64_t)1 << (bits-1))))
-        value |= ((uint64_t)-1) << bits;
-    return value;
-}
-
 static uint64_t getUnsignedBitfieldFromValue(robj *o, uint64_t offset,
                                              uint64_t bits)
 {
@@ -601,11 +587,25 @@ static uint64_t getUnsignedBitfieldFromValue(robj *o, uint64_t offset,
 static int64_t getSignedBitfieldFromValue(robj *o, uint64_t offset,
                                           uint64_t bits)
 {
-    if (o->type == OBJ_BITMAP)
-        return getSignedBitfieldFromBitmapObject(o, offset, bits);
+    int64_t value;
+    union {uint64_t u; int64_t i;} conv;
 
-    serverAssert(o->type == OBJ_STRING);
-    return getSignedBitfield(o->ptr, offset, bits);
+    /* Converting from unsigned to signed is undefined when the value does
+     * not fit, however here we assume two's complement and the original value
+     * was obtained from signed -> unsigned conversion, so we'll find the
+     * most significant bit set if the original value was negative.
+     *
+     * Note that two's complement is mandatory for exact-width types
+     * according to the C99 standard. */
+    conv.u = getUnsignedBitfieldFromValue(o, offset, bits);
+    value = conv.i;
+
+    /* If the top significant bit is 1, propagate it to all the
+     * higher bits for two's complement representation of signed
+     * integers. */
+    if (bits < 64 && (value & ((uint64_t)1 << (bits-1))))
+        value |= ((uint64_t)-1) << bits;
+    return value;
 }
 
 static int setUnsignedBitfieldInValue(robj *o, uint64_t offset, uint64_t bits,
@@ -803,14 +803,6 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     return C_OK;
 }
 
-/* Native bitmaps additionally cap offsets at their fixed representation
- * limit, which matters when proto-max-bulk-len is raised above it. */
-static int bitmapNativeOffsetWithinLimit(client *c, uint64_t maxbit) {
-    if (bitmapObjectCanRepresentBit(maxbit)) return 1;
-    addReplyError(c, "bit offset is out of range");
-    return 0;
-}
-
 /* This helper function for BITFIELD parses a bitfield type in the form
  * <sign><bits> where sign is 'u' or 'i' for unsigned and signed, and
  * the bits is a value between 1 and 64. However 64 bits unsigned integers
@@ -975,6 +967,60 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long
     decrRefCount(argv[4]);
 }
 
+/* SETBIT and BITFIELD share the decision of which representation a bitmap
+ * write should target. Returns C_ERR after replying to the client when the
+ * write cannot be represented natively; the keyspace is left untouched, which
+ * keeps multi-op BITFIELD writes all-or-nothing. On C_OK, *nativeref is the
+ * native object the caller must mutate (or NULL to keep using the string
+ * path): the existing value when it already is a native bitmap, and with
+ * bitmap-default-roaring enabled a new empty bitmap for missing keys
+ * (*created) or a native conversion of an existing string value (*converted).
+ * Creation and conversion both propagate RESTORE, but installation differs:
+ * missing keys use dbAddByLink(), while converted strings preserve TTL and
+ * fire overwrite/type-change handling through setKey()/setKeyByLink(). */
+static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
+                                     robj **nativeref, int *created,
+                                     int *converted)
+{
+    *nativeref = NULL;
+    *created = 0;
+    *converted = 0;
+
+    int is_native = o != NULL && o->type == OBJ_BITMAP;
+    int default_roaring = !is_native && bitmapDefaultRoaringEnabled(c) &&
+                          (o == NULL || o->type == OBJ_STRING);
+    if (!is_native && !default_roaring) return C_OK;
+
+    /* Per-offset limits were enforced at parse time against
+     * proto-max-bulk-len. The fixed native v1 cap is only lower when
+     * proto-max-bulk-len is raised above it; reject such writes here, before
+     * any object is created or converted, so the setters below cannot fail
+     * halfway through. */
+    if (!bitmapObjectCanRepresentBit(maxbit)) {
+        addReplyError(c, "bit offset is out of range");
+        return C_ERR;
+    }
+
+    if (is_native) {
+        *nativeref = o;
+    } else if (o == NULL) {
+        /* bitmap-default-roaring yes: newly created bitmap keys are native. */
+        *nativeref = createBitmapObject();
+        *created = 1;
+    } else {
+        /* bitmap-default-roaring yes: writes against existing strings first
+         * produce a native replacement so the write is not bounded by the
+         * string representation. */
+        *nativeref = bitmapObjectFromStringObject(o);
+        if (*nativeref == NULL) {
+            addBitmapNativeLengthError(c);
+            return C_ERR;
+        }
+        *converted = 1;
+    }
+    return C_OK;
+}
+
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     char *err = "bit is not an integer or out of range";
@@ -997,36 +1043,14 @@ void setbitCommand(client *c) {
 
     dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-    robj *native = NULL;
-    /* Creation and conversion both propagate RESTORE, but installation differs:
-     * missing keys use dbAddByLink(), while converted strings preserve TTL and
-     * fire overwrite/type-change handling through setKeyByLink(). */
-    int native_created = 0;
-    int native_converted = 0;
+    robj *native;
+    int native_created, native_converted;
 
-    if (o != NULL && o->type == OBJ_BITMAP) {
-        native = o;
-    } else if (bitmapDefaultRoaringEnabled(c) && (o == NULL || o->type == OBJ_STRING)) {
-        if (o == NULL) {
-            /* bitmap-default-roaring yes: newly created bitmap keys are native.
-             * Build the object first, then add the final value with the
-             * lookup link so the keyspace dict is probed only once. */
-            native = createBitmapObject();
-            native_created = 1;
-        } else {
-            /* bitmap-default-roaring yes: writes against existing strings
-             * first produce a native replacement so the write is not bounded
-             * by the string representation. */
-            native = bitmapObjectFromStringObject(o);
-            if (native == NULL) {
-                addBitmapNativeLengthError(c);
-                return;
-            }
-            native_converted = 1;
-        }
-    }
+    if (bitmapResolveNativeTarget(c, o, bitoffset, &native,
+                                  &native_created, &native_converted) != C_OK)
+        return;
 
-    if (native != NULL && native->type == OBJ_BITMAP) {
+    if (native != NULL) {
         uint64_t oldlen = bitmapObjectLen(native);
         int native_changed = 0;
         size_t oldAllocSize = 0;
@@ -1036,11 +1060,9 @@ void setbitCommand(client *c) {
         if (byte >= oldlen || (!!bitval != on)) {
             if (!native_created && !native_converted && server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(native);
-            if (bitmapObjectSetBit(native, bitoffset, on) != C_OK) {
-                if (native_created || native_converted) decrRefCount(native);
-                addReplyError(c, "bit offset is out of range");
-                return;
-            }
+            /* bitmapResolveNativeTarget() already rejected offsets beyond the
+             * native cap. */
+            serverAssert(bitmapObjectSetBit(native, bitoffset, on) == C_OK);
             native_changed = 1;
         }
 
@@ -1100,9 +1122,16 @@ void setbitCommand(client *c) {
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
 
-        /* If this is not a new key and size changed, then update the
-         * keysizes histogram. Otherwise, the histogram already
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
+        /* If this is not a new key and size changed, then update the keysizes
+         * histogram. Otherwise, the histogram already updated in
+         * lookupStringForBitCommand() by calling dbAdd(). Two deliberate
+         * differences from the upstream shape of this block, both caught by
+         * kvsUpdateHistogram's non-negative bin assert (see
+         * aviggiano/redis#168): the guard is "not created" rather than "old
+         * size not 0", since a pre-existing empty string that grows would
+         * never leave the zero-size bin; and the histogram is updated before
+         * the keyspace notification, whose module callbacks may delete the
+         * key and decrement the new-size bin. */
         if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
 
@@ -1458,6 +1487,15 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 
 #define BITOP_MIXED_RAW_MAX_BYTES (1024 * 1024)
 
+/* BITOP with both string and native bitmap sources can either walk the native
+ * operands per roaring container or materialize every native operand into raw
+ * bytes and run the flat string algorithm (with its SIMD fast paths). Decide
+ * for the latter only when it is clearly cheap: the result is small (maxlen at
+ * most BITOP_MIXED_RAW_MAX_BYTES, so each temporary buffer is bounded) and
+ * every native operand is fully materialized in the low maxlen*8 bit space,
+ * i.e. dense enough (cardinality of at least one set bit per logical byte on
+ * average) that a raw copy does not blow up a sparse bitmap into mostly-zero
+ * bytes. Returns 1 when the operands are mixed and all of the above holds. */
 static int bitopUseMixedRawBytePath(robj **objects, unsigned long numkeys,
                                     uint64_t maxlen)
 {
@@ -2447,31 +2485,20 @@ void bitfieldGeneric(client *c, int flags) {
          * are native, and a write against an existing string value converts it
          * first. The transition reaches replicas and the AOF as an explicit
          * RESTORE of the final state. */
-        int default_roaring = bitmapDefaultRoaringEnabled(c) &&
-                              (o == NULL || o->type == OBJ_STRING);
-        /* Per-offset limits were enforced at parse time. The native v1 cap is
-         * still separate when proto-max-bulk-len is raised above it, and the
-         * setters below assert success after this preflight, so a rejected
-         * command leaves the keyspace untouched. */
-        if ((default_roaring || (o != NULL && o->type == OBJ_BITMAP)) &&
-            !bitmapNativeOffsetWithinLimit(c,highest_write_offset)) {
+        robj *native;
+        int native_transition_converted;
+        if (bitmapResolveNativeTarget(c, o, highest_write_offset, &native,
+                                      &native_transition_created,
+                                      &native_transition_converted) != C_OK) {
             zfree(ops);
             return;
         }
-        if (default_roaring) {
-            if (o == NULL) {
-                o = createBitmapObject();
-                native_transition_created = 1;
-            } else {
+        if (native != NULL && native != o) {
+            /* getExpire() must read the still-installed string value before
+             * the converted object replaces it below. */
+            if (native_transition_converted)
                 native_transition_expire = getExpire(c->db, c->argv[1]->ptr, o);
-                robj *converted = bitmapObjectFromStringObject(o);
-                if (converted == NULL) {
-                    zfree(ops);
-                    addBitmapNativeLengthError(c);
-                    return;
-                }
-                o = converted;
-            }
+            o = native;
             native_transition = 1;
         }
 
@@ -2668,8 +2695,10 @@ void bitfieldGeneric(client *c, int flags) {
                                     oldAllocSize, kvobjAllocSize(o));
         } else if (!native_transition) {
             /* If this is not a new key and size changed, then update the
-             * keysizes histogram. Otherwise, the histogram already
-             * updated in lookupStringForBitCommand() by calling dbAdd(). */
+             * keysizes histogram. Otherwise, the histogram already updated
+             * in lookupStringForBitCommand() by calling dbAdd(). "Not
+             * created" rather than "old size not 0": see the same guard in
+             * setbitCommand() and aviggiano/redis#168. */
             if (!string_created && strGrowSize != 0)
                 updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
         }
