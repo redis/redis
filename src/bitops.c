@@ -850,7 +850,8 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  */
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
                                        kvobj *o, dictEntryLink link,
-                                       size_t *strOldSize, size_t *strGrowSize)
+                                       size_t *strOldSize, size_t *strGrowSize,
+                                       int *created)
 {
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
@@ -859,11 +860,13 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAddByLink(c->db,c->argv[1],&o,&link);
+        *created = 1;
         *strGrowSize = byte + 1;
         *strOldSize = 0;
     } else {
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         *strOldSize  = sdslen(o->ptr);
+        *created = 0;
         if (server.memory_tracking_enabled)
             oldAllocSize = kvobjAllocSize(o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
@@ -1099,8 +1102,9 @@ void setbitCommand(client *c) {
     }
 
     size_t strOldSize, strGrowSize;
+    int created = 0;
     o = lookupStringForBitCommand(c, bitoffset, o, link,
-                                  &strOldSize, &strGrowSize);
+                                  &strOldSize, &strGrowSize, &created);
     if (o == NULL) return;
 
     /* Get current values */
@@ -1121,10 +1125,14 @@ void setbitCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
 
-        /* If this is not a new key (old size not 0) and size changed, then
-         * update the keysizes histogram. Otherwise, the histogram already
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
+        /* If this is not a new key and size changed, then update the keysizes
+         * histogram. Otherwise, the histogram already updated in
+         * lookupStringForBitCommand() by calling dbAdd(). The guard must be
+         * "not created", not "old size not 0": a pre-existing empty string
+         * that grows here would otherwise never leave the zero-size bin and
+         * DEL would drive the new-size bin negative
+         * (kvsUpdateHistogram assert; see aviggiano/redis#168). */
+        if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
     }
 
@@ -2366,6 +2374,7 @@ void bitfieldGeneric(client *c, int flags) {
     uint64_t strOldSize = 0, strGrowSize = 0;
     size_t sOldSize = 0, sGrowSize = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
+    int string_created = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
     uint64_t highest_write_offset = 0;
@@ -2500,7 +2509,7 @@ void bitfieldGeneric(client *c, int flags) {
         } else {
             if ((o = lookupStringForBitCommand(c,
                 highest_write_offset,o,native_bitmap_link,
-                &sOldSize,&sGrowSize)) == NULL) {
+                &sOldSize,&sGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
             }
@@ -2681,10 +2690,12 @@ void bitfieldGeneric(client *c, int flags) {
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
                                     oldAllocSize, kvobjAllocSize(o));
         } else if (!native_transition) {
-            /* If this is not a new key (old size not 0) and size changed, then
-             * update the keysizes histogram. Otherwise, the histogram already
-             * updated in lookupStringForBitCommand() by calling dbAdd(). */
-            if ((strOldSize > 0) && (strGrowSize != 0))
+            /* If this is not a new key and size changed, then update the
+             * keysizes histogram. Otherwise, the histogram already updated
+             * in lookupStringForBitCommand() by calling dbAdd(). "Not
+             * created" rather than "old size not 0": see the same guard in
+             * setbitCommand() and aviggiano/redis#168. */
+            if (!string_created && strGrowSize != 0)
                 updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
         }
         
