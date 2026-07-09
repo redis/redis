@@ -17,18 +17,6 @@
  * cap. */
 #define BITMAP_OBJECT_MAX_BYTES (512ULL*1024*1024)
 
-void bitmapRoaringInit(void);
-robj *createBitmapObject(void);
-robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
-robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf,
-                                             size_t len);
-robj *bitmapTypeDup(const robj *o);
-void freeBitmapObject(robj *o);
-void dismissBitmapObject(robj *o, size_t size_hint);
-void bitmapObjectDefrag(robj *o);
-unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
-size_t bitmapObjectContainerCount(const robj *o);
-
 typedef enum bitmapBitop {
     BITOP_AND = 0,
     BITOP_OR,
@@ -44,6 +32,17 @@ typedef enum bitmapBitop {
     BITOP_ONE
 } bitmapBitop;
 
+void bitmapRoaringInit(void);
+robj *createBitmapObject(void);
+robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
+robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf, size_t len);
+robj *bitmapTypeDup(const robj *o);
+void freeBitmapObject(robj *o);
+void dismissBitmapObject(robj *o, size_t size_hint);
+void bitmapObjectDefrag(robj *o);
+unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor);
+size_t bitmapObjectContainerCount(const robj *o);
+
 uint64_t bitmapObjectLen(const robj *o);
 size_t bitmapObjectAllocSize(const robj *o);
 uint64_t bitmapObjectCardinality(const robj *o);
@@ -54,10 +53,8 @@ long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start, uint64_t en
 int bitmapObjectCanRepresentBit(uint64_t bitoffset);
 int bitmapObjectGetBit(const robj *o, uint64_t bitoffset);
 int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on);
-uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
-                                         uint64_t bits);
-int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
-                                    uint64_t value);
+uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits);
+int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value);
 void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectMaterializeForRDB(const robj *o);

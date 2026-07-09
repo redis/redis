@@ -2165,6 +2165,28 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:native:bitop:alias:native:dest]
     }
 
+    test {BITOP frees an aliased native destination without touching stale sources} {
+        # Regression: the destination's old value is also a source here, and
+        # both store branches dispose of it (the delete branch frees it
+        # outright), so bitopCommand()'s cleanup loop must not dereference
+        # the source objects afterwards.
+
+        # Delete branch: all-empty native sources with an aliased destination.
+        seed_native_bitmap bitmap:native:bitop:self:empty {}
+        assert_equal 0 [r bitop and bitmap:native:bitop:self:empty bitmap:native:bitop:self:empty]
+        assert_equal 0 [r exists bitmap:native:bitop:self:empty]
+
+        # Store branch: a self-targeting OR keeps the same bits.
+        seed_native_bitmap bitmap:native:bitop:self:or {0 3 70000}
+        assert_equal 8751 [r bitop or bitmap:native:bitop:self:or bitmap:native:bitop:self:or]
+        assert_equal bitmap [r type bitmap:native:bitop:self:or]
+        assert_equal 3 [r bitcount bitmap:native:bitop:self:or]
+        assert_equal {1 1 1} [list \
+            [r getbit bitmap:native:bitop:self:or 0] \
+            [r getbit bitmap:native:bitop:self:or 3] \
+            [r getbit bitmap:native:bitop:self:or 70000]]
+    }
+
     test {BITOP mixed native and string sources match string results for all operations} {
         set a [binary format H* f000ff]
         set b [binary format H* 0f0f]
