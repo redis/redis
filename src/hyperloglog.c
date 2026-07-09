@@ -2665,7 +2665,11 @@ void pfdebugCommand(client *c) {
         if (hdr->encoding == HLL_SPARSE) {
             int oldtype = o->type;
             uint64_t oldlen = sdslen(o->ptr);
-            if (hllSparseToDense(o) == C_ERR) {
+            /* Promote to the dense backend selected by the config, so a GETREG
+             * under "ultra" doesn't force the key to classic dense. */
+            int converr = (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) ?
+                          hllSparseToDenseUltra(o) : hllSparseToDense(o);
+            if (converr == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
