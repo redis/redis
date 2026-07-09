@@ -2377,6 +2377,34 @@ void pfmergeCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/* PFSETVALUE key value
+ *
+ * Internal command used to reconstruct an OBJ_HLL key during AOF rewrite and
+ * replication. An HLL that was promoted to its own type can't be recreated
+ * with SET (that would make a plain string), so its blob is replayed through
+ * this command. Not intended for direct use. */
+void pfSetValueCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *value = c->argv[2];
+
+    /* The value must be a structurally valid HLL blob. */
+    if (!sdsEncodedObject(value)) {
+        addReplyError(c,"Invalid HyperLogLog value");
+        return;
+    }
+    robj *o = createHLLObjectFromBlob(sdsdup(value->ptr));
+    if (isHLLObject(o) != C_OK) {
+        decrRefCount(o);
+        addReplyError(c,"Invalid HyperLogLog value");
+        return;
+    }
+
+    setKey(c,c->db,key,&o,0);
+    notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",key,c->db->id);
+    server.dirty++;
+    addReply(c,shared.ok);
+}
+
 /* ========================== Testing / Debugging  ========================== */
 
 /* PFSELFTEST

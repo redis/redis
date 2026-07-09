@@ -4515,6 +4515,7 @@ void pfaddCommand(client *c);
 void pfcountCommand(client *c);
 void pfmergeCommand(client *c);
 void pfdebugCommand(client *c);
+void pfSetValueCommand(client *c);
 int isHLLObject(robj *o);
 robj *createHLLObjectFromBlob(sds blob);
 void latencyCommand(client *c);
