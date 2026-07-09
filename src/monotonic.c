@@ -19,11 +19,39 @@ static char monotonic_info_string[32];
  * generally safe on modern systems, this link provides additional information
  * about use of the x86 TSC: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage
  *
- * On x86_64 Linux systems, the hardware clock is enabled by default when the
- * CPU advertises the 'constant_tsc' flag in /proc/cpuinfo.  The TSC frequency
- * is determined by runtime calibration (measuring RDTSC ticks over a known
- * wall-clock interval) which is more robust than parsing the "model name" GHz
- * string, since not all CPUs include a frequency in that field.
+ * On x86_64 Linux the hardware clock is enabled by default, with two safety
+ * gates and a layered frequency-detection chain.  The reasoning, for future
+ * generations:
+ *
+ * Reliability: rather than replicating the kernel's knowledge of broken TSCs
+ * (known-bad CPU quirk lists, boot-time sync tests, the clocksource watchdog
+ * that demotes a TSC that drifts at runtime), we simply require that the
+ * kernel's ACTIVE clocksource is "tsc".  Machines where Linux distrusts the
+ * TSC never satisfy that, so they transparently stay on the POSIX clock.
+ * 'constant_tsc' in /proc/cpuinfo is additionally required (fixed tick rate
+ * regardless of frequency scaling).
+ *
+ * Speed vs the VDSO: clock_gettime(CLOCK_MONOTONIC) on a tsc clocksource is
+ * a fast VDSO call (no context switch), but it still costs ~2-3x a raw
+ * RDTSC: the seqlock-protected read of the timekeeper data, the mult/shift
+ * conversion, ns scaling and the libc call.  The monotonic clock is read
+ * several times per command, so the difference is measurable end-to-end
+ * once the network stops being the bottleneck (measured on bare-metal
+ * Sapphire Rapids at 1KiB SET/GET, 2000 connections: +7-9% throughput at
+ * 8-16 io-threads; flat at 0-4 io-threads, which are network-bound).
+ *
+ * Tick rate: the frequency advertised in the "model name" cpuinfo string is
+ * the marketing value and can differ from the real TSC rate by a few tenths
+ * of a percent (e.g. a "2.30GHz" part whose TSC ticks at ~2294 MHz) — a rate
+ * error that size skews every measured duration and accumulates as drift.
+ * The kernel measures the true rate at boot, but does not expose it to
+ * userspace on mainline; the tsc_freq_khz sysfs file IS that kernel-measured
+ * value on kernels that carry the patch.  Calibrating RDTSC against
+ * CLOCK_MONOTONIC recovers the same kernel-measured rate indirectly, because
+ * with a tsc clocksource CLOCK_MONOTONIC itself advances at the kernel's
+ * calibrated TSC frequency.  Hence the chain: model-name parse, validated
+ * against one measured sample (calibration wins when they disagree beyond
+ * noise), then tsc_freq_khz, then median-of-3 calibration.
  *
  * On ARM aarch64 systems, the hardware clock is enabled by default because the
  * ARM Generic Timer is architecturally guaranteed to be available and monotonic
