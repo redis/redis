@@ -1,47 +1,50 @@
-# SPEC-01 Part A / §A.6.2 — cluster-bus node-ID impersonation regression test.
+# SPEC-01 Part B — cluster-bus node-ID impersonation is blocked by accept-side
+# tls-expected-peer-name verification.
 #
-# This test proves that outbound peer-name verification (Part A,
-# tls-expected-peer-name enforced in connTLSConnect) is NOT sufficient on its own:
-# a machine holding a certificate signed by the trusted CA but WITHOUT the cluster
-# identity SAN can still open an *inbound* cluster-bus connection and impersonate a
-# real cluster member by spoofing its (public) node ID in the packet header. No
-# handshake and no return link are required, so the outbound SAN check never fires.
+# Background (Threat model B): the cluster bus has no per-message authentication;
+# the sender of a packet is identified solely by the (public) node ID in the
+# header. A machine holding a certificate signed by the trusted CA but WITHOUT
+# the cluster identity SAN could therefore open an *inbound* cluster-bus
+# connection and forge a FAIL packet spoofing a real member's node ID, with no
+# handshake and no return link. Outbound verification (Part A) cannot stop this,
+# because the victim never dials the attacker.
 #
-# The cluster below runs with Part A fully active: every node uses a cert carrying
-# the cluster SAN (redis.local) and verifies tls-expected-peer-name on its outbound
-# connections. The "attacker" connects with tests/tls/redis.crt, which chains to the
-# same CA but has no SAN, and sends a forged FAIL packet. The victim still processes
-# it, because the accept side only validates the CA chain today.
+# Part B verifies the connecting peer's client certificate SAN on accept
+# (connSetVerifyName in clusterAcceptHandler), so a certificate lacking the
+# cluster identity cannot complete the TLS handshake and its forged packets are
+# never processed.
 #
-# >>> TRIPWIRE FOR PART B <<<
-# This test currently asserts the *vulnerable* behavior (the forged FAIL is
-# processed) so it passes and documents the gap. When Part B (accept-side
-# tls-expected-peer-name verification in connCreateAcceptedTLS / clusterAcceptHandler)
-# is implemented, the victim must REJECT the attacker's TLS connection and never
-# process the FAIL. At that point this test will start failing and MUST be inverted:
-#   - assert the "FAIL message received" log line does NOT appear, and
-#   - optionally assert the attacker's connection is dropped at the TLS handshake.
+# The cluster below runs with tls-expected-peer-name active: every node uses a
+# cert carrying the cluster SAN (redis.local) and verifies it in BOTH directions.
+# The "attacker" connects with tests/tls/redis.crt, which chains to the same CA
+# but has no SAN.
 
 if {$::tls} {
     set san_crt [format "%s/tests/tls/san.crt" [pwd]]
     set san_key [format "%s/tests/tls/san.key" [pwd]]
 
+    # Use the SAN cert for BOTH the server and client roles: with Part B, a node's
+    # outbound (client) cert is verified by the peer on accept, so it too must
+    # carry the cluster identity SAN. (The test harness otherwise configures a
+    # separate SAN-less client cert.)
     start_cluster 3 0 [list tags {external:skip cluster tls} \
             overrides [list tls-cert-file $san_crt tls-key-file $san_key \
+                            tls-client-cert-file $san_crt tls-client-key-file $san_key \
                             tls-expected-peer-name redis.local]] {
 
-        test "Cluster forms with tls-expected-peer-name active (Part A)" {
-            # Sanity: Part A verification does not break legitimate cluster bus
-            # connections, since every node's cert carries the expected SAN.
+        test "Cluster forms with tls-expected-peer-name active (both directions)" {
+            # Exercises the SAN check on both the outbound (Part A) and the
+            # accept-side (Part B) cluster-bus connections: legitimate members
+            # present a cert carrying the expected SAN, so the cluster still forms.
             wait_for_cluster_state ok
         }
 
-        test "Cluster bus accepts a forged FAIL from a non-member cert (Part A insufficient)" {
+        test "Cluster bus rejects a forged FAIL from a non-member cert (Part B)" {
             set CLUSTERMSG_TYPE_FAIL 3
             set CLUSTERMSG_MIN_LEN 2256
             set CLUSTER_NAMELEN 40
 
-            # Victim = node 0. It will process the forged packet.
+            # Victim = node 0.
             set target_host [srv 0 host]
             set target_bus_port [expr {[srv 0 port] + 10000}]
 
@@ -62,24 +65,38 @@ if {$::tls} {
             set loglines [count_log_lines 0]
 
             # The attacker cert (redis.crt) chains to the CA but carries no cluster
-            # SAN. Under Part A the victim's accept side validates only the chain, so
-            # this connection is accepted.
-            set fd [::tls::socket \
-                -cafile "$::tlsdir/ca.crt" \
-                -certfile "$::tlsdir/redis.crt" \
-                -keyfile "$::tlsdir/redis.key" \
-                $target_host $target_bus_port]
-            fconfigure $fd -translation binary -buffering full
-            puts -nonewline $fd $packet
-            flush $fd
+            # SAN. With Part B the victim verifies the client cert's SAN on accept
+            # and rejects the handshake, so the write never reaches packet
+            # processing. The client side may raise on the failed handshake, hence
+            # the catch.
+            catch {
+                set fd [::tls::socket \
+                    -cafile "$::tlsdir/ca.crt" \
+                    -certfile "$::tlsdir/redis.crt" \
+                    -keyfile "$::tlsdir/redis.key" \
+                    $target_host $target_bus_port]
+                fconfigure $fd -translation binary -buffering full
+                puts -nonewline $fd $packet
+                flush $fd
+            }
+            catch {close $fd}
 
-            # VULNERABLE BEHAVIOR (Part A): the victim processes the forged FAIL and
-            # logs it. See the TRIPWIRE note at the top of this file: invert this
-            # assertion once Part B rejects the connection.
-            wait_for_log_messages 0 {"*FAIL message received*about*"} $loglines 50 100
-            close $fd
+            # Give the victim a moment to (fail to) process anything on that link.
+            after 500
 
-            # The victim remains responsive after handling the forged packet.
+            # The forged FAIL must NOT have been processed: no node was marked
+            # failing on node 0's behalf. (A healthy cluster never emits FAIL.)
+            assert_equal 0 [count_log_message 0 "FAIL message received"]
+
+            # Node 2 must not be flagged failed in node 0's view.
+            set node2 {}
+            foreach n [get_cluster_nodes 0] {
+                if {[dict get $n id] eq $failed_target} { set node2 $n; break }
+            }
+            assert {$node2 ne {}}
+            assert_equal 0 [cluster_has_flag $node2 fail]
+
+            # The victim remains responsive.
             assert_equal [R 0 PING] {PONG}
         }
     }

@@ -917,6 +917,53 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
     return C_OK;
 }
 
+/* Configure the SSL object to verify the peer certificate's SAN/CN against the
+ * given space-separated list of expected name(s), in addition to CA chain
+ * validation. Used to bind server-to-server connections to a specific identity
+ * (tls-expected-peer-name) rather than trusting any CA-signed certificate. The
+ * name(s) come from local configuration, never from the wire. A subsequent
+ * handshake fails with X509_V_ERR_HOSTNAME_MISMATCH if no listed name matches.
+ * Returns C_OK on success, C_ERR if a name could not be applied or the value
+ * contained no usable name. */
+static int tlsSetVerifyName(SSL *ssl, const char *names) {
+    /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
+     * "*.example.com" still matches. */
+    SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+
+    char *copy = zstrdup(names);
+    char *saveptr = NULL;
+    int first = 1, ok = 1;
+    for (char *name = strtok_r(copy, " ", &saveptr);
+         name != NULL;
+         name = strtok_r(NULL, " ", &saveptr))
+    {
+        /* First name via SSL_set1_host (replaces), each subsequent via
+         * SSL_add1_host (appends); a match against any listed name succeeds. */
+        int r = first ? SSL_set1_host(ssl, name)
+                      : SSL_add1_host(ssl, name);
+        first = 0;
+        if (r != 1) { ok = 0; break; }
+    }
+    zfree(copy);
+
+    /* !ok: a name failed to apply. first still set: the value had no usable
+     * token (e.g. all whitespace). Either way, fail closed. */
+    return (ok && !first) ? C_OK : C_ERR;
+}
+
+/* Set the expected peer name(s) to verify on an already-created SSL connection.
+ * Used on the accepting side (e.g. the cluster bus) to verify the connecting
+ * peer's client certificate. No-op when name is empty. */
+static int connTLSSetVerifyName(connection *conn_, const char *name) {
+    tls_connection *conn = (tls_connection *) conn_;
+    if (!conn->ssl || !name || !name[0]) return C_OK;
+    if (tlsSetVerifyName(conn->ssl, name) != C_OK) {
+        serverLog(LL_WARNING, "Failed to set expected TLS peer name on accepted connection");
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 static int connTLSConnect(connection *conn_, const char *addr, int port, const char *src_addr, ConnectionCallbackFunc connect_handler) {
     tls_connection *conn = (tls_connection *) conn_;
     unsigned char addr_buf[sizeof(struct in6_addr)];
@@ -929,36 +976,10 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
         SSL_set_tlsext_host_name(conn->ssl, addr);
     }
 
-    /* When tls-expected-peer-name is configured, verify the peer certificate's
-     * SAN/CN against the configured name(s), in addition to CA chain validation.
-     * This binds outbound server-to-server connections (replication, cluster bus,
-     * MIGRATE) to a specific identity rather than trusting any CA-signed cert, and
-     * is verified against local config, never the dialed address. A mismatch fails
-     * the handshake with X509_V_ERR_HOSTNAME_MISMATCH. */
+    /* When tls-expected-peer-name is configured, verify the peer (server)
+     * certificate against the configured name(s) on this outbound connection. */
     if (server.tls_ctx_config.expected_peer_name && server.tls_ctx_config.expected_peer_name[0]) {
-        /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
-         * "*.example.com" still matches. */
-        SSL_set_hostflags(conn->ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-
-        char *names = zstrdup(server.tls_ctx_config.expected_peer_name);
-        char *saveptr = NULL;
-        int first = 1, ok = 1;
-        for (char *name = strtok_r(names, " ", &saveptr);
-             name != NULL;
-             name = strtok_r(NULL, " ", &saveptr))
-        {
-            /* First name via SSL_set1_host (replaces), each subsequent via
-             * SSL_add1_host (appends); a match against any listed name succeeds. */
-            int r = first ? SSL_set1_host(conn->ssl, name)
-                          : SSL_add1_host(conn->ssl, name);
-            first = 0;
-            if (r != 1) { ok = 0; break; }
-        }
-        zfree(names);
-
-        if (!ok || first) {
-            /* Failure to apply, or a value that contained no actual name, is a
-             * misconfiguration: fail closed rather than connect without the check. */
+        if (tlsSetVerifyName(conn->ssl, server.tls_ctx_config.expected_peer_name) != C_OK) {
             serverLog(LL_WARNING,
                 "Failed to set expected TLS peer name for outbound connection to %s", addr);
             conn->c.state = CONN_STATE_ERROR;
@@ -1281,6 +1302,7 @@ static ConnectionType CT_TLS = {
     /* TLS specified methods */
     .get_peer_cert = connTLSGetPeerCert,
     .get_peer_username = tlsGetPeerUsername,
+    .set_verify_name = connTLSSetVerifyName,
 };
 
 int RedisRegisterConnectionTypeTLS(void) {
