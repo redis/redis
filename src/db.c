@@ -787,15 +787,8 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbAddByLink(db, key, valref, link);
     }
 
-    /* Signal key modification and update LRM timestamp. Module subscribers of
-     * the notifications above can synchronously delete or replace the key;
-     * only in that case look up the current value instead of dereferencing the
-     * caller's possibly stale replacement pointer, keeping the common path a
-     * single lookup. */
-    robj *val = *valref;
-    if (moduleHasSubscribersForKeyspaceEvent(NOTIFY_NEW | NOTIFY_OVERWRITTEN | NOTIFY_TYPE_CHANGED))
-        val = lookupKeyReadWithFlags(db, key, LOOKUP_NOEFFECTS);
-    keyModified(c,db,key,val,!(flags & SETKEY_NO_SIGNAL));
+    /* Signal key modification and update LRM timestamp. */
+    keyModified(c,db,key,*valref,!(flags & SETKEY_NO_SIGNAL));
 }
 
 /* During atomic slot migration, keys that are being imported are in an

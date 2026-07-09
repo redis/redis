@@ -32,6 +32,10 @@
 #include "lzf.h"
 #include "rdb.h"
 
+/* Derived from the byte cap in bitmap_roaring.h; only this file needs the
+ * bit-offset form. */
+#define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
+
 /* Native bitmaps use Roaring internally. Client-visible command limits are
  * enforced by command handlers; the object cap protects encoding invariants. */
 typedef struct bitmapObject {
@@ -312,7 +316,7 @@ robj *createBitmapObject(void) {
 static robj *createBitmapObjectFromStringWithOptions(const unsigned char *buf,
                                                      size_t len, int optimize)
 {
-#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
+#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 #endif
 
