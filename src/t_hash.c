@@ -5678,7 +5678,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         }
 
         for (unsigned long long i = 0; i < count; i++)
-            hrandfieldAddTmplReply(c, hash, tmpl, vptrs, dix[i], withvalues);
+            hrandfieldAddTmplReply(c, hash, tmpl, vptrs, idx[i], withvalues);
         if (idx != stack_idx) zfree(idx);
         if (vptrs && vptrs != stack_vptrs) zfree(vptrs);
         goto out;
