@@ -563,4 +563,91 @@ start_server {tags {"hll"}} {
         r config set hll-sparse-max-bytes 3000
         r config set hll-dense-encoding classic
     }
+
+    test {ULL type: ultra config promotes new key to OBJ_HLL} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t a b c d e
+        assert_equal {hll} [r type t]
+        assert_equal {raw} [r object encoding t]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: classic config keeps OBJ_STRING (regression)} {
+        r config set hll-dense-encoding classic
+        r del t
+        r pfadd t a b c d e
+        assert_equal {string} [r type t]
+    }
+    test {ULL type: existing string HLL is promoted lazily on write} {
+        r config set hll-dense-encoding classic
+        r del t
+        r pfadd t a b c
+        assert_equal {string} [r type t]
+        r config set hll-dense-encoding ultra
+        # A read leaves the type unchanged...
+        r pfcount t
+        r pfdebug encoding t
+        assert_equal {string} [r type t]
+        # ...the first write promotes it.
+        r pfadd t x y z
+        assert_equal {hll} [r type t]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: string commands are rejected on an OBJ_HLL key} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t a b c
+        assert_equal {hll} [r type t]
+        assert_error {WRONGTYPE*} {r get t}
+        assert_error {WRONGTYPE*} {r append t x}
+        assert_error {WRONGTYPE*} {r setrange t 0 x}
+        assert_error {WRONGTYPE*} {r strlen t}
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: RDB reload preserves type, count and digest} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t {*}[lrange [split [string repeat "x " 200]] 0 199]
+        set before [r pfcount t]
+        set dig [r debug digest-value t]
+        r debug reload
+        assert_equal {hll} [r type t]
+        assert_equal $before [r pfcount t]
+        assert_equal $dig [r debug digest-value t]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: DUMP/RESTORE preserves the OBJ_HLL type} {
+        r config set hll-dense-encoding ultra
+        r del t t2
+        r pfadd t a b c d e
+        set d [r dump t]
+        r restore t2 0 $d
+        assert_equal {hll} [r type t2]
+        assert_equal [r pfcount t] [r pfcount t2]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: COPY preserves the OBJ_HLL type} {
+        r config set hll-dense-encoding ultra
+        r del t t2
+        r pfadd t a b c d e
+        r copy t t2
+        assert_equal {hll} [r type t2]
+        assert_equal [r pfcount t] [r pfcount t2]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: AOF rewrite reconstructs the OBJ_HLL key} {
+        r config set hll-dense-encoding ultra
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r del t
+        r pfadd t a b c d e
+        set before [r pfcount t]
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert_equal {hll} [r type t]
+        assert_equal $before [r pfcount t]
+        r config set appendonly no
+        r config set hll-dense-encoding classic
+    }
 }
