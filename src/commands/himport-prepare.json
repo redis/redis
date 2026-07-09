@@ -16,6 +16,9 @@
         "reply_schema": {
             "const": "OK"
         },
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS"
+        ],
         "arguments": [
             {
                 "name": "fieldset-name",

@@ -13,6 +13,9 @@
         "reply_schema": {
             "type": "integer",
             "description": "Number of fieldsets removed."
-        }
+        },
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS"
+        ]
     }
 }
