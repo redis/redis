@@ -2462,6 +2462,7 @@ struct redisServer {
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
     int hll_dense_encoding;      /* HLL_DENSE_ENCODING_CLASSIC or _ULTRA */
+    int hll_ultra_precision;     /* UltraLogLog precision for new dense keys */
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
     /* Stream IDMP parameters */

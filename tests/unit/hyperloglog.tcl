@@ -564,6 +564,58 @@ start_server {tags {"hll"}} {
         r config set hll-dense-encoding classic
     }
 
+    test {ULL p=13: 8 KB dense blob, ~33% smaller than classic p=14} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del u13
+        r pfadd u13 a b c d e
+        assert_equal {ultra} [r pfdebug encoding u13]
+        # ULL p=13 has 2^13 one-byte registers (dense blob = 16-byte header +
+        # 8192 = 8208 bytes, one third smaller than classic p=14's 12304).
+        assert_equal 8192 [llength [r pfdebug getreg u13]]
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: PFADD/PFCOUNT accurate at scale} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del u13
+        for {set i 0} {$i < 100000} {incr i} { r pfadd u13 "e-$i" }
+        set est [r pfcount u13]
+        # p=13 relative std error is ~0.84%; allow a comfortable 4% band so the
+        # test is not flaky on a single run.
+        assert {abs($est - 100000) < 4000}
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: precision survives RDB reload} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del u13
+        r pfadd u13 a b c d e
+        set before [r pfcount u13]
+        r debug reload
+        assert_equal 8192 [llength [r pfdebug getreg u13]]
+        assert_equal {ultra} [r pfdebug encoding u13]
+        assert_equal $before [r pfcount u13]
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: PFMERGE/PFCOUNT across this precision is rejected for now} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del a13 b13 dst13
+        r pfadd a13 x y z
+        r pfadd b13 p q r
+        assert_error {*not supported yet*} {r pfcount a13 b13}
+        assert_error {*not supported yet*} {r pfmerge dst13 a13 b13}
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
     test {ULL type: ultra config promotes new key to OBJ_HLL} {
         r config set hll-dense-encoding ultra
         r del t
