@@ -8,16 +8,14 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-/* Internal representability cap for native bitmap logical length. Keep v1
- * native bitmaps inside the same 32-bit bit index space as bounded Roaring
- * bitmaps: 512 MiB of logical bytes, max bit offset UINT32_MAX. Command
- * handlers still enforce the client-visible proto-max-bulk-len limit for
- * writes, dense/materializing paths, and legacy string reads when it is lower;
+/* Representability cap for native bitmap logical length. Keep v1 native
+ * bitmaps inside the same 32-bit bit index space as bounded Roaring bitmaps:
+ * 512 MiB of logical bytes, max bit offset UINT32_MAX. Command handlers still
+ * enforce the client-visible proto-max-bulk-len limit for writes,
+ * dense/materializing paths, and legacy string reads when it is lower;
  * read-only native lookups may exceed that lower runtime limit inside this
  * cap. */
-#define BITMAP_OBJECT_MAX_BYTES_RAW (512LL*1024*1024)
-#define BITMAP_OBJECT_MAX_BYTES ((uint64_t)BITMAP_OBJECT_MAX_BYTES_RAW)
-#define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
+#define BITMAP_OBJECT_MAX_BYTES (512ULL*1024*1024)
 
 void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
