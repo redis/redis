@@ -202,7 +202,8 @@ void clusterSlotStatsDecrNetworkBytesOutForReplication(long long len) {
 /* Upon SPUBLISH, two egress events are triggered.
  * 1) Internal propagation, for clients that are subscribed to the current node.
  * 2) External propagation, for other nodes within the same shard (could either be a primary or replica).
- *    This type is not aggregated, to stay consistent with server.stat_net_output_bytes aggregation.
+ *    This type is not aggregated, to stay consistent with the per-thread
+ *    IOThreads[].net_output_bytes aggregation.
  * This function covers the internal propagation component. */
 void clusterSlotStatsAddNetworkBytesOutForShardedPubSubInternalPropagation(client *c, int slot) {
     /* For a blocked client, c->slot could be pre-filled.

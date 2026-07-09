@@ -2977,7 +2977,7 @@ int writeToClient(client *c, int handler_installed) {
                 zmalloc_used_memory() < server.maxmemory) &&
                 is_normal_client) break;
         }
-        atomicIncr(server.stat_net_output_bytes, totwritten);
+        atomicIncr(IOThreads[c->running_tid].net_output_bytes, totwritten);
     }
     c->net_output_bytes += totwritten;
 
@@ -4110,7 +4110,7 @@ void readQueryFromClient(connection *conn) {
         }
         atomicIncr(server.stat_net_repl_input_bytes, network_read);
     } else {
-        atomicIncr(server.stat_net_input_bytes, network_read);
+        atomicIncr(IOThreads[c->running_tid].net_input_bytes, network_read);
     }
     c->net_input_bytes += network_read;
 
