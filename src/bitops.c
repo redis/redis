@@ -1125,12 +1125,8 @@ void getbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
-    kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
-    if (kv == NULL) {
-        addReply(c, shared.czero);
-        return;
-    }
-    if (checkStringOrBitmapType(c,kv)) return;
+    kvobj *kv = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
+    if (kv == NULL || checkStringOrBitmapType(c,kv)) return;
 
     /* Offsets past the end of the value read as 0, like any other unset bit. */
     byte = bitoffset >> 3;
