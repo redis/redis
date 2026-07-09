@@ -8495,7 +8495,8 @@ static void latencyMode(void) {
      * matches min/max/avg. */
     struct hdr_histogram *histogram = NULL;
     if (config.latency_percentiles_count > 0 &&
-        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3, &histogram)) {
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3, &histogram))
+    {
         fprintf(stderr, "Failed to initialize latency histogram\n");
         exit(1);
     }
