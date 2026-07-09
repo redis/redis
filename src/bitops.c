@@ -1121,19 +1121,23 @@ void setbitCommand(client *c) {
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
-        keyModified(c,c->db,c->argv[1],o,1);
-        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty++;
 
         /* If this is not a new key and size changed, then update the keysizes
          * histogram. Otherwise, the histogram already updated in
-         * lookupStringForBitCommand() by calling dbAdd(). The guard must be
-         * "not created", not "old size not 0": a pre-existing empty string
-         * that grows here would otherwise never leave the zero-size bin and
-         * DEL would drive the new-size bin negative
-         * (kvsUpdateHistogram assert; see aviggiano/redis#168). */
+         * lookupStringForBitCommand() by calling dbAdd(). Two deliberate
+         * differences from the upstream shape of this block, both caught by
+         * kvsUpdateHistogram's non-negative bin assert (see
+         * aviggiano/redis#168): the guard is "not created" rather than "old
+         * size not 0", since a pre-existing empty string that grows would
+         * never leave the zero-size bin; and the histogram is updated before
+         * the keyspace notification, whose module callbacks may delete the
+         * key and decrement the new-size bin. */
         if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
+
+        keyModified(c,c->db,c->argv[1],o,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
     }
 
     /* Return original value. */
