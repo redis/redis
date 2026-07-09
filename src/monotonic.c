@@ -225,7 +225,14 @@ static void monotonicInit_x86linux(void) {
         }
         if (valid > 0) {
             qsort(samples, valid, sizeof(long), longcmp);
-            mono_ticksPerMicrosecond = samples[valid/2];
+            /* Median for odd counts; mean of the two central samples when an
+             * even number survived (with exactly two, samples[valid/2] alone
+             * would systematically pick the higher one). */
+            if (valid % 2 == 0)
+                mono_ticksPerMicrosecond =
+                    (samples[valid/2 - 1] + samples[valid/2]) / 2;
+            else
+                mono_ticksPerMicrosecond = samples[valid/2];
         }
     }
 
