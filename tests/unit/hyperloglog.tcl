@@ -604,16 +604,37 @@ start_server {tags {"hll"}} {
         r config set hll-ultra-precision 14
         r config set hll-sparse-max-bytes 3000
     }
-    test {ULL p=13: PFMERGE/PFCOUNT across this precision is rejected for now} {
+    test {ULL p=13: same-precision PFMERGE and multi-key PFCOUNT work} {
         r config set hll-dense-encoding ultra
         r config set hll-ultra-precision 13
         r config set hll-sparse-max-bytes 0
         r del a13 b13 dst13
-        r pfadd a13 x y z
-        r pfadd b13 p q r
-        assert_error {*not supported yet*} {r pfcount a13 b13}
-        assert_error {*not supported yet*} {r pfmerge dst13 a13 b13}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a13 "x-$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b13 "x-$i" }
+        # union has 30000 distinct elements.
+        set merged [r pfcount a13 b13]
+        assert {abs($merged - 30000) < 1500}
+        r pfmerge dst13 a13 b13
+        assert_equal {ultra} [r pfdebug encoding dst13]
+        assert_equal 8192 [llength [r pfdebug getreg dst13]]
+        assert_equal $merged [r pfcount dst13]
+        # Idempotent re-merge.
+        r pfmerge dst13 a13 b13
+        assert_equal $merged [r pfcount dst13]
         r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: cross-precision PFMERGE/PFCOUNT is rejected} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r config set hll-ultra-precision 13
+        r del a13
+        r pfadd a13 x y z
+        r config set hll-ultra-precision 14
+        r del c14
+        r pfadd c14 p q r
+        assert_error {*different precisions*} {r pfcount a13 c14}
+        assert_error {*different precisions*} {r pfmerge dst a13 c14}
         r config set hll-sparse-max-bytes 3000
     }
     test {ULL type: ultra config promotes new key to OBJ_HLL} {

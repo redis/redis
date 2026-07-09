@@ -2098,24 +2098,33 @@ void pfcountCommand(client *c) {
      * the cardinality of the merge of the N HLLs specified. */
     if (c->argc > 2) {
         int j;
-        int has_ull = 0, has_classic = 0;
+        int has_ull = 0, has_classic = 0, ull_p = 0;
 
-        /* First pass: determine which encodings are present. */
+        /* First pass: determine which encodings (and ULL precisions) are
+         * present. UltraLogLogs of different precisions have different register
+         * layouts; merging across precisions is a follow-up, so require a single
+         * ULL precision here. */
         for (j = 1; j < c->argc; j++) {
             kvobj *o = lookupKeyRead(c->db,c->argv[j]);
             if (o == NULL) continue;
             if (isHLLObjectOrReply(c,o) != C_OK) return;
             hdr = o->ptr;
             if (hdr->encoding == HLL_ULTRA) {
-                has_ull = 1;
-                /* Merging UltraLogLogs of a non-default precision is not wired
-                 * up yet; reject it rather than mixing register layouts. */
-                if (HLL_ULTRA_GET_P(hdr) != HLL_ULTRA_P) {
-                    addReplyError(c,"PFCOUNT across UltraLogLogs of this "
-                                    "precision is not supported yet");
+                int sp = HLL_ULTRA_GET_P(hdr);
+                if (has_ull && sp != ull_p) {
+                    addReplyError(c,"PFCOUNT across UltraLogLogs of different "
+                                    "precisions is not supported yet");
                     return;
                 }
+                has_ull = 1; ull_p = sp;
             } else has_classic = 1;
+        }
+        /* Down-converting a ULL to classic rho assumes the classic p=14 index
+         * space, so a non-default ULL precision can't be mixed with classic. */
+        if (has_ull && has_classic && ull_p != HLL_ULTRA_P) {
+            addReplyError(c,"PFCOUNT mixing this UltraLogLog precision with the "
+                            "classic encoding is not supported yet");
+            return;
         }
 
         if (!has_ull) {
@@ -2135,21 +2144,23 @@ void pfcountCommand(client *c) {
             }
             addReplyLongLong(c,hllCount(hdr,NULL));
         } else if (!has_classic) {
-            /* All-ULL path: union in ULL domain, estimate with FGRA. */
-            uint8_t *acc = zcalloc(HLL_REGISTERS);
+            /* All-ULL path: union in ULL domain, estimate with FGRA. All
+             * sources share precision ull_p. */
+            size_t m = HLL_ULTRA_REGISTERS(ull_p);
+            uint8_t *acc = zcalloc(m);
             for (j = 1; j < c->argc; j++) {
                 kvobj *o = lookupKeyRead(c->db,c->argv[j]);
                 if (o == NULL) continue;
                 struct hllhdr *shdr = o->ptr;
                 uint8_t *src = shdr->registers;
-                for (int i = 0; i < HLL_REGISTERS; i++) {
+                for (size_t i = 0; i < m; i++) {
                     if (src[i]) {
                         uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
                         acc[i] = merged ? ullPack(merged) : 0; /* ullPack requires !=0 */
                     }
                 }
             }
-            addReplyLongLong(c, (long long)ullCountRegisters(acc, HLL_ULTRA_P));
+            addReplyLongLong(c, (long long)ullCountRegisters(acc, ull_p));
             zfree(acc);
         } else {
             /* Mixed path: down-convert ULL to classic rho, merge all into RAW. */
@@ -2251,24 +2262,33 @@ void pfmergeCommand(client *c) {
     int j;
     size_t oldsize = 0;
 
-    /* First pass: determine which encodings are present among all sources
-     * (including the dest argv[1], which is itself a source). */
-    int has_ull = 0, has_classic = 0;
+    /* First pass: determine which encodings (and ULL precisions) are present
+     * among all sources (including the dest argv[1], which is itself a source).
+     * UltraLogLogs of different precisions have different register layouts;
+     * merging across precisions is a follow-up, so require a single ULL
+     * precision here. */
+    int has_ull = 0, has_classic = 0, ull_p = 0;
     for (j = 1; j < c->argc; j++) {
         kvobj *o = lookupKeyRead(c->db, c->argv[j]);
         if (o == NULL) continue;
         if (isHLLObjectOrReply(c, o) != C_OK) return;
         hdr = o->ptr;
         if (hdr->encoding == HLL_ULTRA) {
-            has_ull = 1;
-            /* Merging UltraLogLogs of a non-default precision is not wired up
-             * yet; reject it rather than mixing register layouts. */
-            if (HLL_ULTRA_GET_P(hdr) != HLL_ULTRA_P) {
-                addReplyError(c,"PFMERGE across UltraLogLogs of this "
-                                "precision is not supported yet");
+            int sp = HLL_ULTRA_GET_P(hdr);
+            if (has_ull && sp != ull_p) {
+                addReplyError(c,"PFMERGE across UltraLogLogs of different "
+                                "precisions is not supported yet");
                 return;
             }
+            has_ull = 1; ull_p = sp;
         } else has_classic = 1;
+    }
+    /* Down-converting a ULL to classic rho assumes the classic p=14 index
+     * space, so a non-default ULL precision can't be mixed with classic. */
+    if (has_ull && has_classic && ull_p != HLL_ULTRA_P) {
+        addReplyError(c,"PFMERGE mixing this UltraLogLog precision with the "
+                        "classic encoding is not supported yet");
+        return;
     }
 
     if (!has_ull) {
@@ -2385,16 +2405,18 @@ void pfmergeCommand(client *c) {
         return;
     }
 
-    /* All-ULL path: union in ULL domain, result is a fresh ULL dense object.
-     * Note: dest (argv[1]) is included in the source scan above, so its current
-     * content is merged into acc before we overwrite it. */
-    uint8_t *acc = zcalloc(HLL_REGISTERS);
+    /* All-ULL path: union in ULL domain, result is a fresh ULL dense object at
+     * the shared precision ull_p. Note: dest (argv[1]) is included in the source
+     * scan above, so its current content is merged into acc before we overwrite
+     * it. */
+    size_t m = HLL_ULTRA_REGISTERS(ull_p);
+    uint8_t *acc = zcalloc(m);
     for (j = 1; j < c->argc; j++) {
         kvobj *o = lookupKeyRead(c->db, c->argv[j]);
         if (o == NULL) continue;
         struct hllhdr *shdr = o->ptr;
         uint8_t *src = shdr->registers;
-        for (int i = 0; i < HLL_REGISTERS; i++) {
+        for (size_t i = 0; i < m; i++) {
             if (src[i]) {
                 uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
                 acc[i] = merged ? ullPack(merged) : 0; /* ullPack requires !=0 */
@@ -2412,14 +2434,14 @@ void pfmergeCommand(client *c) {
         oldsize = kvobjAllocSize(kv);
 
     /* Build a fresh ULL dense sds and swap it in, mirroring hllSparseToDenseUltra. */
-    sds s = sdsnewlen(NULL, HLL_ULTRA_DENSE_SIZE(HLL_ULTRA_P));
+    sds s = sdsnewlen(NULL, HLL_ULTRA_DENSE_SIZE(ull_p));
     hdr = (struct hllhdr*)s;
     memcpy(hdr->magic, "HYLL", 4);
     hdr->encoding = HLL_ULTRA;
     hdr->notused[0] = 0; hdr->notused[1] = 0;
-    HLL_ULTRA_SET_P(hdr, HLL_ULTRA_P);
+    HLL_ULTRA_SET_P(hdr, ull_p);
     HLL_INVALIDATE_CACHE(hdr);
-    memcpy(hdr->registers, acc, HLL_REGISTERS);
+    memcpy(hdr->registers, acc, m);
     zfree(acc);
     sdsfree(kv->ptr);
     kv->ptr = s;
