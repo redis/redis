@@ -1590,10 +1590,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     monotime cron_start = getMonotonicUs();
 
     run_with_period(100) {
-        long long stat_net_input_bytes, stat_net_output_bytes;
+        long long stat_net_input_bytes = 0, stat_net_output_bytes = 0;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
-        atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
-        atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+        for (int j = 0; j < IO_THREADS_MAX_NUM; j++) {
+            long long in, out;
+            atomicGet(IOThreads[j].net_input_bytes, in);
+            atomicGet(IOThreads[j].net_output_bytes, out);
+            stat_net_input_bytes += in;
+            stat_net_output_bytes += out;
+        }
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
         monotime current_time = getMonotonicUs();
@@ -2947,6 +2952,8 @@ void resetServerStats(void) {
     for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
         atomicSet(IOThreads[j].io_reads_processed, 0);
         atomicSet(IOThreads[j].io_writes_processed, 0);
+        atomicSet(IOThreads[j].net_input_bytes, 0);
+        atomicSet(IOThreads[j].net_output_bytes, 0);
     }
     atomicSet(server.stat_client_qbuf_limit_disconnections, 0);
     server.stat_client_outbuf_limit_disconnections = 0;
@@ -2961,8 +2968,6 @@ void resetServerStats(void) {
     server.stat_rdb_saves = 0;
     server.stat_aofrw_consecutive_failures = 0;
     server.stat_rdb_consecutive_failures = 0;
-    atomicSet(server.stat_net_input_bytes, 0);
-    atomicSet(server.stat_net_output_bytes, 0);
     atomicSet(server.stat_net_repl_input_bytes, 0);
     atomicSet(server.stat_net_repl_output_bytes, 0);
     atomicSet(server.stat_net_repl_output_uncompressed_bytes, 0);
@@ -6728,8 +6733,17 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
             (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
         long long stat_client_qbuf_limit_disconnections;
-        atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
-        atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+        stat_net_input_bytes = 0;
+        stat_net_output_bytes = 0;
+        /* Sum over MAX, not io_threads_num: slots written before a
+         * runtime thread-count change must stay in the totals. */
+        for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
+            long long in, out;
+            atomicGet(IOThreads[j].net_input_bytes, in);
+            atomicGet(IOThreads[j].net_output_bytes, out);
+            stat_net_input_bytes += in;
+            stat_net_output_bytes += out;
+        }
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
         atomicGet(server.stat_client_qbuf_limit_disconnections, stat_client_qbuf_limit_disconnections);

@@ -1718,6 +1718,12 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     list *clients;                              /* IO thread managed clients. */
     redisAtomic long long io_reads_processed;   /* Number of read events processed */
     redisAtomic long long io_writes_processed;  /* Number of write events processed */
+    /* Byte counters live here for the same reason the event counters do:
+     * they are incremented on every read/write event by the owning thread,
+     * and as shared globals every IO thread would ping-pong one cache line
+     * per network syscall. Totals are summed at read time (INFO / cron). */
+    redisAtomic long long net_input_bytes;      /* Bytes read from network. */
+    redisAtomic long long net_output_bytes;     /* Bytes written to network. */
     list *compression_clients;                  /* Clients that write/read compressed data */
     size_t cronloops;
 } IOThread;
@@ -2223,10 +2229,8 @@ struct redisServer {
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
-    redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
-    redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
-    redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
-    redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
+    redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to total_net_input_bytes in 'info'. */
+    redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to total_net_output_bytes in 'info'. */
     redisAtomic long long stat_net_repl_output_uncompressed_bytes; /* Bytes read from repl buffer before being compressed and written during replication. */
     redisAtomic long long stat_net_repl_input_decompressed_bytes; /* Decompressed bytes after reading compressed data during replication. */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
