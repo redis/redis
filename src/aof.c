@@ -2506,7 +2506,9 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
 
 int rewriteBitmapObject(rio *r, robj *key, robj *o, int dbid) {
     rio payload;
-    createDumpPayload(&payload, o, key, dbid, 0);
+    /* Key metadata is emitted below through its AOF callbacks. Embedding it
+     * here would omit AOF-only classes and duplicate classes with both paths. */
+    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META);
 
     int ok = rioWriteBulkCount(r,'*',5) &&
              rioWriteBulkString(r,"RESTORE",7) &&
@@ -2689,11 +2691,10 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
 
-    /* Emit module key metadata via KEYMETA.SET, but skip it for bitmaps: their
-     * AOF rewrite uses RESTORE with a DUMP payload that already carries the
-     * metadata, so replaying KEYMETA.SET would apply it twice on load. */
-    int emit_key_meta = (o->type != OBJ_BITMAP) && getModuleMetaBits(o->metabits);
-    if (emit_key_meta && (keyMetaOnAof(r, key, o, dbid) == 0))
+    /* Emit module key metadata via KEYMETA.SET. Bitmap RESTORE payloads omit
+     * metadata here so AOF-only classes follow this same callback path. */
+    if (getModuleMetaBits(o->metabits) &&
+        (keyMetaOnAof(r, key, o, dbid) == 0))
         return C_ERR;
 
     return C_OK;

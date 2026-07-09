@@ -1182,11 +1182,9 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
 }
 
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
-                                          size_t byte_len, int trymalloc)
+                                          size_t byte_len)
 {
-    sds raw = trymalloc ? sdstrynewlen(NULL, byte_len) :
-                          sdsnewlen(NULL, byte_len);
-    if (raw == NULL) return NULL;
+    sds raw = sdsnewlen(NULL, byte_len);
 
     art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
     while (it.value != NULL) {
@@ -1200,26 +1198,25 @@ static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
     return raw;
 }
 
-static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited,
-                                      int trymalloc) {
+static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited) {
     bitmapObject *bitmap = getBitmapObject(o);
     if (proto_limited &&
         bitmap->byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
     if (bitmap->byte_len > (uint64_t)SIZE_MAX) return NULL;
     return bitmapObjectMaterializeRoaring(bitmap->roaring,
-                                          (size_t)bitmap->byte_len,
-                                          trymalloc);
+                                          (size_t)bitmap->byte_len);
 }
 
 /* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
  * logical length exceeds proto-max-bulk-len. */
 sds bitmapObjectMaterialize(const robj *o) {
-    return bitmapObjectMaterializeRaw(o, 1, 0);
+    return bitmapObjectMaterializeRaw(o, 1);
 }
 
-/* RDB raw payloads are persisted data, not client protocol bulk strings. */
+/* RDB raw payloads are persisted data, not client protocol bulk strings.
+ * DUMP serialization cannot fail, so Redis' allocator owns OOM handling. */
 sds bitmapObjectMaterializeForRDB(const robj *o) {
-    return bitmapObjectMaterializeRaw(o, 0, 1);
+    return bitmapObjectMaterializeRaw(o, 0);
 }
 
 typedef struct bitmapBitopSource {
