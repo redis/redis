@@ -70,7 +70,18 @@ static void append_bitfield(sds *resp, RedisFuzzInput *in, int readonly) {
     uint8_t subcmds[4];
     for (int i = 0; i < subcommands; i++) {
         subcmds[i] = redisFuzzByte(in) % (readonly ? 2 : 4);
-        argc += subcmds[i] == 3 ? 2 : 3;
+        switch (subcmds[i]) {
+        case 0:
+            argc += 3;
+            break;
+        case 1:
+        case 2:
+            argc += 4;
+            break;
+        default:
+            argc += 2;
+            break;
+        }
     }
 
     redisFuzzAppendArray(resp, argc);
