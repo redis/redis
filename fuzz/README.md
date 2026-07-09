@@ -18,6 +18,15 @@ The fuzz build uses libFuzzer with AddressSanitizer and UndefinedBehaviorSanitiz
 and forces `MALLOC=libc`, matching Redis sanitizer builds. Normal Redis builds are
 unchanged.
 
+## Seed corpora
+
+The checked-in seed files are binary inputs for the command generators, not RESP
+payloads. Regenerate them with:
+
+```sh
+fuzz/generate-seeds.sh
+```
+
 ## Run corpus smoke tests
 
 ```sh
