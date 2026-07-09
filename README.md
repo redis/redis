@@ -32,6 +32,7 @@ This document serves as both a quick start guide to Redis and a detailed resourc
   - [Build and run Redis with all data structures - AlmaLinux 10.1+ / Rocky Linux 10.1+](#build-and-run-redis-with-all-data-structures---almalinux-101--rocky-linux-101)
   - [Build and run Redis with all data structures - Alpine 3.23+](#build-and-run-redis-with-all-data-structures---alpine-323)
   - [Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)](#build-and-run-redis-with-all-data-structures---macos-14-sonoma-15-sequoia-26-tahoe)
+  - [Using the pre-built build-environment image (Docker)](#using-the-pre-built-build-environment-image-docker)
   - [Building Redis - flags and general notes](#building-redis---flags-and-general-notes)
   - [Fixing build problems with dependencies or cached build options](#fixing-build-problems-with-dependencies-or-cached-build-options)
   - [Fixing problems building 32 bit binaries](#fixing-problems-building-32-bit-binaries)
@@ -170,8 +171,6 @@ For a more visual and user-friendly experience, use [Redis Insight](https://redi
 
 Redis provides a variety of data types, processing engines, and capabilities to support a wide range of use cases:
 
-**Important:** Features marked with an asterisk (\*) require Redis to be compiled with the `BUILD_WITH_MODULES=yes` flag when [building Redis from source](#build-redis-from-source)
-
 - [**String:**](https://redis.io/docs/latest/develop/data-types/strings) Sequences of bytes, including text, serialized objects, and binary arrays used for caching, counters, and bitwise operations.
 - [**JSON:**](https://redis.io/docs/latest/develop/data-types/json/) Nested JSON documents that are indexed and searchable using JSONPath expressions and with [Redis Search](https://redis.io/docs/latest/develop/ai/search-and-query/)
 - [**Array:**](https://redis.io/docs/latest/develop/data-types/arrays/) Sparse, index-addressable collection of string values
@@ -210,6 +209,91 @@ Fully-managed Redis with real-time performance at scale.
 ## Build Redis from source
 
 This section refers to building Redis from source. If you want to get up and running with Redis quickly without needing to build from source see the [Getting started section](#getting-started).
+
+> **Configuration files**: the OS-specific sections below tell you to run
+> `./src/redis-server redis-full.conf`. `redis-full.conf` is the auto-generated
+> launch config produced by `make modules-update` — it's `redis.conf` plus the
+> `loadmodule` lines and per-module settings for the bundled modules, appended
+> after the core config. Edit Redis-core settings in [`redis.conf`](redis.conf);
+> the next `make modules-update` (or `make sync-redis-conf`) regenerates
+> `redis-full.conf`. Release tarballs bake the module config directly into
+> `redis.conf` during packaging, so from an extracted tarball you can also just
+> run `./src/redis-server redis.conf`. See
+> [modules/MODULES.md](modules/MODULES.md) for the full config flow.
+
+### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
+
+Tested with the following Docker image:
+
+- ubuntu:20.04
+
+1. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```sh
+   apt-get update
+   apt-get install -y sudo
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf gcc-10 g++-10 libtool
+   ```
+
+2. Use GCC 10 as the default compiler
+
+   Update the system's default compiler to GCC 10:
+
+   ```sh
+   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+   ```
+
+3. Install CMake
+
+   Install CMake using `pip3` and link it for system-wide access:
+
+   ```sh
+   pip3 install cmake==3.31.6
+   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
+   cmake --version
+   ```
+
+   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
+
+4. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```sh
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+5. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```sh
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+6. Build Redis
+
+   Set the necessary environment variables and compile Redis:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   make -j "$(nproc)" all
+   ```
+
+7. Run Redis
+
+   ```sh
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
 
 ### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)
 
@@ -266,7 +350,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -320,7 +404,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -389,7 +473,7 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -446,7 +530,7 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -544,7 +628,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -641,7 +725,7 @@ Tested with the following Docker images:
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
 
@@ -714,8 +798,9 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    export IGNORE_MISSING_DEPS=1
+   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -779,13 +864,16 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src/redis-<version>
 
-   export BUILD_TLS=yes BUILD_WITH_MODULES=yes
+   export BUILD_TLS=yes
    export INSTALL_RUST_TOOLCHAIN=yes LTO=1
    export RUST_DYN_CRT=1
    export PATH="/usr/lib/llvm21/bin:$PATH"
 
+   # Clone all bundled modules first — also satisfies the next step, which
+   # needs RedisJSON's Makefile on disk before patching it.
+   make modules-update
+
    # RedisJSON's bindgen must dlopen libclang.so; drop crt-static from its Rust flags.
-   make -C modules/redisjson get_source
    sed -i 's/^RUST_FLAGS=$/RUST_FLAGS += -C target-feature=-crt-static/' modules/redisjson/src/Makefile
 
    make -j "$(nproc)" all
@@ -864,15 +952,15 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    ```sh
    cd ~/src/redis-<version>
    export HOMEBREW_PREFIX="$(brew --prefix)"
-   export BUILD_WITH_MODULES=yes
    export BUILD_TLS=yes
    export LTO=0
    PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
    mkdir -p build_dir/etc
-   make -C redis-8.0 -j "$(nproc)" all OS=macos
-   make -C redis-8.0 install PREFIX=$(pwd)/build_dir OS=macos
+   make modules-update OS=macos
+   make -j "$(nproc)" all OS=macos
+   make install PREFIX=$(pwd)/build_dir OS=macos
    ```
 
 7. Run Redis
@@ -883,6 +971,23 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    build_dir/bin/redis-server redis-full.conf
    ```
 
+### Using the pre-built build-environment image (Docker)
+
+The per-OS sections above build Redis natively — no Docker required. As an alternative, the repo ships `docker/Dockerfile.noble` (Ubuntu 24.04), a ready-made **build environment** that installs the base Redis build prerequisites and, for any modules already cloned into `modules/<name>/src` (run `make modules-update` first on a fresh checkout), their per-module system dependencies. You mount the repo at runtime and build inside the container:
+
+```bash
+# Native architecture only:
+docker build -f docker/Dockerfile.noble -t redis-build:noble .
+
+# Multi-arch (requires `docker buildx` configured):
+docker buildx build --platform linux/amd64,linux/arm64 \
+    -f docker/Dockerfile.noble -t redis-build:noble .
+
+# Run with the working tree mounted:
+docker run --rm -it -v "$PWD":/workspace -w /workspace redis-build:noble \
+    bash -lc 'make && make run'
+```
+
 ### Building Redis - flags and general notes
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
@@ -890,18 +995,19 @@ We support big endian and little endian architectures, and both 32 bit and 64-bi
 
 It may compile on Solaris derived systems (for instance SmartOS) but our support for this platform is _best effort_ and Redis is not guaranteed to work as well as on Linux, OSX, and \*BSD.
 
-To build Redis with all the data structures (including JSON, time series, Bloom filter, cuckoo filter, count-min sketch, top-k, and t-digest) and with Redis Query Engine, make sure first that all the prerequisites are installed (see build instructions above, per operating system). You need to use the following flag in the make command:
+To build Redis with all the data structures (including JSON, time series, Bloom filter, cuckoo filter, count-min sketch, top-k, and t-digest) and with Redis Query Engine, make sure first that all the prerequisites are installed (see build instructions above, per operating system), then clone the bundled modules once and build:
 
 ```sh
-make BUILD_WITH_MODULES=yes
+make modules-update
+make
 ```
 
-Note: `BUILD_WITH_MODULES=yes` is not supported on 32 bit systems.
+`make` (same as `make build` / `make all`) always builds whatever's cloned under `modules/*/src` alongside Redis core — there's no separate flag to opt in. If nothing is cloned yet, you get a core-only build.
 
-To build Redis with just the core data structures, use:
+To build Redis with just the core data structures — even if modules are already cloned — use:
 
 ```sh
-make
+make build redis
 ```
 
 To build with TLS support, you need OpenSSL development libraries (e.g. libssl-dev on Debian/Ubuntu) and the following flag in the make command:

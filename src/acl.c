@@ -523,6 +523,17 @@ void ACLCopyUser(user *dst, user *src) {
     }
 }
 
+/* Set the user that client 'c' is authenticated as, performing any necessary
+ * bookkeeping for the switch. In particular, any pending BCAST tracking
+ * invalidations are flushed under the client's current ACL identity before
+ * c->user changes, so they are not re-filtered by the new user's key
+ * permissions in beforeSleep. */
+void clientSetUser(client *c, user *new_user) {
+    if (c->user != new_user)
+        trackingBroadcastFlushClientPrefixes(c);
+    c->user = new_user;
+}
+
 /* Given a command ID, this function set by reference 'word' and 'bit'
  * so that user->allowed_commands[word] will address the right word
  * where the corresponding bit for the provided ID is stored, and
@@ -1497,7 +1508,7 @@ void addAuthErrReply(client *c, robj *err) {
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
-        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)));
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -1787,6 +1798,28 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
         }
     }
     return ACL_DENIED_KEY;
+}
+
+/* Return 1 if user 'u' has unrestricted access (per the keyspec 'flags', e.g.
+ * CMD_KEY_ACCESS) to every key in the keyspace, 0 otherwise. A NULL user (the
+ * unrestricted connection) trivially qualifies.
+ *
+ * The check is conservative: it returns 1 only when access to all keys is
+ * provably granted (via '~*', '%R~*'/'%W~*', or the allkeys flag on some
+ * selector). Callers can use it to skip per-key ACLUserCheckKeyPerm() checks
+ * when the result is guaranteed to be ACL_OK for every key. */
+int ACLUserHasUnrestrictedKeyAccess(user *u, int flags) {
+    listIter li;
+    listNode *ln;
+
+    if (u == NULL) return 1;
+
+    listRewind(u->selectors,&li);
+    while((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        if (ACLSelectorHasUnrestrictedKeyAccess(s, flags)) return 1;
+    }
+    return 0;
 }
 
 /* Checks if the user can execute the given command with the added restriction
@@ -2147,6 +2180,12 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
      * disconnected if (some of) their channel permissions were revoked. */
     if (u) {
         ACLKillPubsubClientsIfNeeded(tempu, u);
+        /* Deliver pending BCAST tracking invalidations under the user's
+         * current permissions before overwriting them in place below.
+         * Otherwise beforeSleep would re-filter the already accumulated keys
+         * by the new (possibly stricter) permissions and drop invalidations
+         * for keys the client could previously read. */
+        trackingBroadcastInvalidationMessages(u);
     }
 
     /* Overwrite the user with the temporary user we modified above. */
@@ -2439,6 +2478,14 @@ sds ACLLoadFromFile(const char *filename) {
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
+        /* Deliver pending BCAST tracking invalidations under the pre-load ACL
+         * identities before mutating any user. In particular DefaultUser is
+         * overwritten in place below, which would otherwise cause its pending
+         * invalidations to be re-filtered by the new permissions in
+         * beforeSleep. A whole-table flush is appropriate here since the load
+         * may change many users at once. */
+        trackingBroadcastInvalidationMessages(NULL);
+
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
          * default user configuration in the old one. */
@@ -2484,7 +2531,7 @@ sds ACLLoadFromFile(const char *filename) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            c->user = new;
+            clientSetUser(c, new);
         }
 
         if (user_channels)
@@ -3244,7 +3291,7 @@ static void internalAuth(client *c) {
         c->authenticated = 1;
         /* Set the user to the unrestricted user, if it is not already set (default). */
         if (c->user != NULL) {
-            c->user = NULL;
+            clientSetUser(c, NULL);
             moduleNotifyUserChanged(c);
         }
         addReply(c, shared.ok);
