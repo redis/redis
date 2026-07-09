@@ -391,6 +391,8 @@ REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crccombine.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
+REDIS_FUZZ_TARGETS=../fuzz/fuzz_string_commands ../fuzz/fuzz_bitmap_commands
+REDIS_FUZZ_COMMON_OBJ=../fuzz/support/redis_fuzz.o
 ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) $(TLS_MODULE) module_tests
@@ -406,6 +408,10 @@ ifeq (0, $(words $(findstring $(MAKECMDGOALS), $(NODEPS))))
 endif
 
 .PHONY: all
+
+fuzz: $(REDIS_FUZZ_TARGETS)
+
+.PHONY: fuzz
 
 module_tests: $(REDIS_SERVER_NAME)
 	$(MAKE) -C ../tests/modules
@@ -446,6 +452,9 @@ endif
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a $(FINAL_LIBS)
 
+../fuzz/fuzz_%: ../fuzz/fuzz_%.o $(REDIS_FUZZ_COMMON_OBJ) $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a $(FINAL_LIBS)
+
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME)
@@ -478,6 +487,12 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:
 # depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
+
+../fuzz/%.o: ../fuzz/%.c .make-prerequisites
+	$(REDIS_CC) -I. -I../fuzz/support -MMD -o $@ -c $<
+
+../fuzz/support/%.o: ../fuzz/support/%.c .make-prerequisites
+	$(REDIS_CC) -I. -I../fuzz/support -MMD -o $@ -c $<
 
 # The following files are checked in and don't normally need to be rebuilt. They
 # are built only if python is available and their prereqs are modified.

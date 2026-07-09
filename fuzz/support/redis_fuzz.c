@@ -1,0 +1,182 @@
+#include "redis_fuzz.h"
+
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "crc64.h"
+#include "dict.h"
+#include "mt19937-64.h"
+#include "zmalloc.h"
+
+extern void redisOutOfMemoryHandler(size_t allocation_size);
+extern void initServerConfig(void);
+extern void initServer(void);
+
+static int redis_fuzz_initialized = 0;
+
+static connection *redisFuzzCreateConnection(int *peer_fd) {
+    int fds[2];
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == -1) return NULL;
+
+    connection *conn = connCreateAccepted(server.el, connectionTypeUnix(), fds[0], NULL);
+    if (connAccept(conn, NULL) == C_ERR) {
+        connClose(conn);
+        close(fds[1]);
+        return NULL;
+    }
+
+    *peer_fd = fds[1];
+    return conn;
+}
+
+void redisFuzzInit(void) {
+    if (redis_fuzz_initialized) return;
+
+    struct timeval tv;
+    tzset();
+    zmalloc_set_oom_handler(redisOutOfMemoryHandler);
+    gettimeofday(&tv, NULL);
+    srand((unsigned int)(time(NULL) ^ getpid() ^ tv.tv_usec));
+    srandom((unsigned int)(time(NULL) ^ getpid() ^ tv.tv_usec));
+    init_genrand64(((long long)tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
+    crc64_init();
+
+    uint8_t hashseed[16];
+    getRandomBytes(hashseed, sizeof(hashseed));
+    dictSetHashFunctionSeed(hashseed);
+
+    initServerConfig();
+    resetServerSaveParams();
+    server.port = 0;
+    server.tls_port = 0;
+    server.aof_enabled = 0;
+    server.protected_mode = 0;
+    ACLInit();
+    moduleInitModulesSystem();
+    connTypeInitialize();
+    keyMetaInit();
+    initServer();
+
+    redis_fuzz_initialized = 1;
+}
+
+void redisFuzzReset(void) {
+    updateCachedTime(0);
+    server.dirty += emptyData(-1, EMPTYDB_NO_FLAGS | EMPTYDB_NOFUNCTIONS, NULL);
+}
+
+void redisFuzzRunResp(sds resp) {
+    redisFuzzInit();
+    updateCachedTime(0);
+
+    int peer_fd = -1;
+    connection *conn = redisFuzzCreateConnection(&peer_fd);
+    if (!conn) {
+        serverPanic("Failed to create fuzz client connection: %s", strerror(errno));
+    }
+
+    client *c = createClient(conn);
+    c->querybuf = resp;
+    c->querybuf_peak = sdslen(resp);
+    if (processInputBuffer(c) == C_OK) {
+        freeClient(c);
+    }
+    close(peer_fd);
+
+    redisFuzzReset();
+}
+
+uint8_t redisFuzzByte(RedisFuzzInput *in) {
+    if (in->pos >= in->size) return 0;
+    return in->data[in->pos++];
+}
+
+long long redisFuzzChoice(RedisFuzzInput *in, long long count) {
+    if (count <= 0) return 0;
+    return redisFuzzByte(in) % count;
+}
+
+long long redisFuzzNumber(RedisFuzzInput *in, long long min, long long max) {
+    if (max <= min) return min;
+    unsigned long long value = 0;
+    for (int i = 0; i < 8; i++)
+        value = (value << 8) | redisFuzzByte(in);
+    return min + (long long)(value % (unsigned long long)(max - min + 1));
+}
+
+sds redisFuzzSlice(RedisFuzzInput *in, size_t maxlen) {
+    size_t len = redisFuzzByte(in);
+    size_t remaining = in->size - in->pos;
+    if (len > maxlen) len = maxlen;
+    if (len > remaining) len = remaining;
+    sds out = sdsnewlen(in->data + in->pos, len);
+    in->pos += len;
+    return out;
+}
+
+void redisFuzzAppendArray(sds *resp, int argc) {
+    *resp = sdscatfmt(*resp, "*%i\r\n", argc);
+}
+
+void redisFuzzAppendBulk(sds *resp, const char *data, size_t len) {
+    *resp = sdscatfmt(*resp, "$%U\r\n", (unsigned long long)len);
+    *resp = sdscatlen(*resp, data, len);
+    *resp = sdscatlen(*resp, "\r\n", 2);
+}
+
+void redisFuzzAppendBulkCString(sds *resp, const char *str) {
+    redisFuzzAppendBulk(resp, str, strlen(str));
+}
+
+void redisFuzzAppendBulkSds(sds *resp, sds value) {
+    redisFuzzAppendBulk(resp, value, sdslen(value));
+}
+
+void redisFuzzAppendSmallNumber(sds *resp, RedisFuzzInput *in) {
+    static const char *special[] = {
+        "-9223372036854775808",
+        "-2147483649",
+        "-1",
+        "0",
+        "1",
+        "7",
+        "8",
+        "31",
+        "32",
+        "63",
+        "64",
+        "127",
+        "128",
+        "255",
+        "256",
+        "511",
+        "512",
+        "1024",
+        "4096",
+        "16384",
+        "9223372036854775807",
+        "not-an-int"
+    };
+
+    if (redisFuzzChoice(in, 4) == 0) {
+        sds raw = redisFuzzSlice(in, 16);
+        redisFuzzAppendBulkSds(resp, raw);
+        sdsfree(raw);
+        return;
+    }
+
+    redisFuzzAppendBulkCString(resp, special[redisFuzzChoice(in, sizeof(special) / sizeof(special[0]))]);
+}
+
+void redisFuzzAppendKey(sds *resp, RedisFuzzInput *in) {
+    static const char *keys[] = {
+        "k0", "k1", "k2", "k3", "{slot}a", "{slot}b", "dst", "src"
+    };
+    redisFuzzAppendBulkCString(resp, keys[redisFuzzChoice(in, sizeof(keys) / sizeof(keys[0]))]);
+}
