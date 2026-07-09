@@ -21,6 +21,7 @@
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
@@ -926,6 +927,43 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
     /* Check whether addr is an IP address, if not, use the value for Server Name Indication */
     if (inet_pton(AF_INET, addr, addr_buf) != 1 && inet_pton(AF_INET6, addr, addr_buf) != 1) {
         SSL_set_tlsext_host_name(conn->ssl, addr);
+    }
+
+    /* When tls-expected-peer-name is configured, verify the peer certificate's
+     * SAN/CN against the configured name(s), in addition to CA chain validation.
+     * This binds outbound server-to-server connections (replication, cluster bus,
+     * MIGRATE) to a specific identity rather than trusting any CA-signed cert, and
+     * is verified against local config, never the dialed address. A mismatch fails
+     * the handshake with X509_V_ERR_HOSTNAME_MISMATCH. */
+    if (server.tls_ctx_config.expected_peer_name && server.tls_ctx_config.expected_peer_name[0]) {
+        /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
+         * "*.example.com" still matches. */
+        SSL_set_hostflags(conn->ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+
+        char *names = zstrdup(server.tls_ctx_config.expected_peer_name);
+        char *saveptr = NULL;
+        int first = 1, ok = 1;
+        for (char *name = strtok_r(names, " ", &saveptr);
+             name != NULL;
+             name = strtok_r(NULL, " ", &saveptr))
+        {
+            /* First name via SSL_set1_host (replaces), each subsequent via
+             * SSL_add1_host (appends); a match against any listed name succeeds. */
+            int r = first ? SSL_set1_host(conn->ssl, name)
+                          : SSL_add1_host(conn->ssl, name);
+            first = 0;
+            if (r != 1) { ok = 0; break; }
+        }
+        zfree(names);
+
+        if (!ok || first) {
+            /* Failure to apply, or a value that contained no actual name, is a
+             * misconfiguration: fail closed rather than connect without the check. */
+            serverLog(LL_WARNING,
+                "Failed to set expected TLS peer name for outbound connection to %s", addr);
+            conn->c.state = CONN_STATE_ERROR;
+            return C_ERR;
+        }
     }
 
     /* Initiate Socket connection first */

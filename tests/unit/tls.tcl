@@ -115,6 +115,109 @@ start_server {tags {"tls"}} {
             }
         }
 
+        test {TLS: tls-expected-peer-name accepts a matching certificate SAN} {
+            # Master presents a cert whose SAN contains redis.local / cluster.local.
+            set san_crt [format "%s/tests/tls/san.crt" [pwd]]
+            set san_key [format "%s/tests/tls/san.key" [pwd]]
+            start_server [list overrides [list tls-cert-file $san_crt tls-key-file $san_key]] {
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                start_server [list overrides [list tls-expected-peer-name "redis.local"]] {
+                    set replica [srv 0 client]
+                    $replica replicaof $master_host $master_port
+                    wait_for_condition 50 100 {
+                        [string match {*master_link_status:up*} [$replica info replication]]
+                    } else {
+                        fail "Replication link did not come up with a matching tls-expected-peer-name"
+                    }
+                }
+            }
+        }
+
+        test {TLS: tls-expected-peer-name rejects a mismatching certificate SAN} {
+            set san_crt [format "%s/tests/tls/san.crt" [pwd]]
+            set san_key [format "%s/tests/tls/san.key" [pwd]]
+            start_server [list overrides [list tls-cert-file $san_crt tls-key-file $san_key]] {
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                start_server [list overrides [list tls-expected-peer-name "wrong.example.com"]] {
+                    set replica [srv 0 client]
+                    $replica replicaof $master_host $master_port
+                    # The link must never reach "up": the peer cert has no matching SAN.
+                    set never_up 1
+                    for {set i 0} {$i < 20} {incr i} {
+                        if {[string match {*master_link_status:up*} [$replica info replication]]} {
+                            set never_up 0
+                            break
+                        }
+                        after 100
+                    }
+                    assert_equal 1 $never_up
+                }
+            }
+        }
+
+        test {TLS: tls-expected-peer-name matches any of multiple listed names} {
+            set san_crt [format "%s/tests/tls/san.crt" [pwd]]
+            set san_key [format "%s/tests/tls/san.key" [pwd]]
+            start_server [list overrides [list tls-cert-file $san_crt tls-key-file $san_key]] {
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                # Start with a single non-matching name so the link stays down; then set a
+                # space-separated list via CONFIG SET (a single argument, so it is not split)
+                # whose second entry (cluster.local) is present in the cert SAN.
+                start_server [list overrides [list tls-expected-peer-name "absent.example.com"]] {
+                    set replica [srv 0 client]
+                    $replica replicaof $master_host $master_port
+                    set never_up 1
+                    for {set i 0} {$i < 20} {incr i} {
+                        if {[string match {*master_link_status:up*} [$replica info replication]]} {
+                            set never_up 0
+                            break
+                        }
+                        after 100
+                    }
+                    assert_equal 1 $never_up
+                    $replica config set tls-expected-peer-name "absent.example.com cluster.local"
+                    wait_for_condition 50 100 {
+                        [string match {*master_link_status:up*} [$replica info replication]]
+                    } else {
+                        fail "Replication link did not come up when the cert matched the second listed name"
+                    }
+                }
+            }
+        }
+
+        test {TLS: tls-expected-peer-name takes effect on CONFIG SET at runtime} {
+            set san_crt [format "%s/tests/tls/san.crt" [pwd]]
+            set san_key [format "%s/tests/tls/san.key" [pwd]]
+            start_server [list overrides [list tls-cert-file $san_crt tls-key-file $san_key]] {
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                start_server [list overrides [list tls-expected-peer-name "wrong.example.com"]] {
+                    set replica [srv 0 client]
+                    $replica replicaof $master_host $master_port
+                    # Wrong name: the link stays down.
+                    set never_up 1
+                    for {set i 0} {$i < 20} {incr i} {
+                        if {[string match {*master_link_status:up*} [$replica info replication]]} {
+                            set never_up 0
+                            break
+                        }
+                        after 100
+                    }
+                    assert_equal 1 $never_up
+                    # Correct the expected name at runtime; the next reconnect should succeed.
+                    $replica config set tls-expected-peer-name "redis.local"
+                    wait_for_condition 50 100 {
+                        [string match {*master_link_status:up*} [$replica info replication]]
+                    } else {
+                        fail "Replication link did not recover after correcting tls-expected-peer-name at runtime"
+                    }
+                }
+            }
+        }
+
         test {TLS: switch between tcp and tls ports} {
             set srv_port [srv 0 port]
 
