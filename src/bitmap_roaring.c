@@ -1248,18 +1248,35 @@ static int bitmapObjectsUseMixedRawBitop(robj **objects, size_t numkeys,
         if (o == NULL) continue;
 
         if (o->type == OBJ_BITMAP) {
-            uint64_t logical_len = bitmapObjectLen(o);
             has_native = 1;
-            /* At least one set bit per logical byte is a conservative signal
-             * that flattening is preferable to sparse container algebra. */
-            if (bitmapObjectCardinality(o) < logical_len) return 0;
         } else {
             serverAssert(o->type == OBJ_STRING);
             has_string = 1;
         }
     }
 
-    return has_string && has_native;
+    if (!has_string || !has_native) return 0;
+
+    /* Cardinality is a full container walk, so only pay it after the cheap
+     * type scan proves this is a genuinely mixed operation. Keep the sum of
+     * all retained native buffers within the same cap as an individual result;
+     * otherwise many small operands could make the temporary memory unbounded.
+     * At least one set bit per logical byte is a conservative signal that
+     * flattening is preferable to sparse container algebra. */
+    uint64_t materialized_bytes = 0;
+    for (size_t i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+        if (o == NULL || o->type != OBJ_BITMAP) continue;
+
+        uint64_t logical_len = bitmapObjectLen(o);
+        if (logical_len > BITMAP_BITOP_FAST_RESULT_MAX_BYTES -
+                          materialized_bytes)
+            return 0;
+        materialized_bytes += logical_len;
+        if (bitmapObjectCardinality(o) < logical_len) return 0;
+    }
+
+    return 1;
 }
 
 static uint64_t bitmapRawBitopLoadWord(const bitmapRawBitopSource *source,
