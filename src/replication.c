@@ -2757,7 +2757,7 @@ void readSyncBulkPayload(connection *conn) {
     /* If we agreed on compression with the master then setup compression on the
      * master client. At this point we're done reading all non compressed payload
      * from the master */
-    if (server.repl_master_compression_level)
+    if (server.repl_master_compression_level > 0)
         clientEnableCompression(server.master, DECOMPRESS);
 
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
@@ -4221,7 +4221,10 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
     int ret = C_OK;
     client *c = ctx->client;
 
-    if (server.repl_master_compression_level > 0)
+    int compressed_stream = (c->flags & CLIENT_MASTER) &&
+        !(c->flags & CLIENT_ASM_IMPORTING) &&
+        (server.repl_master_compression_level > 0);
+    if (compressed_stream)
         serverAssert(server.master->compression_state);
 
     blockingOperationStarts();
@@ -4235,7 +4238,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
             /* Consumed bytes from the current block in the current iteration. */
             size_t consumed = 0;
 
-            if (server.repl_master_compression_level > 0) {
+            if (compressed_stream) {
                 c->querybuf = sdsMakeRoomFor(c->querybuf, PROTO_IOBUF_LEN);
 
                 size_t qblen = sdslen(c->querybuf);
