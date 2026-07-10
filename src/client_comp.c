@@ -328,7 +328,7 @@ void clientDisableCompression(client *c) {
  * immediately so this call may not write anything to socket.
  * Force flushes the compressed buffer according to compression_max_latency.
  * Return number of bytes written to socket or -1 on socket write error. */
-int compressAndWrite(client *c, int *tot_written) {
+int clientCompressAndWrite(client *c, int *tot_written) {
     if (c->compression_level <= 0)
         return 0;
 
@@ -452,7 +452,7 @@ int decompressInto(compressionState *state, char *buf, size_t buflen) {
  * Note, that we may have enough compressed data inside input buf so that decompressing
  * it will exceed output_len. The function must be ran in a loop until input_buf
  * is fully consumed - so make sure to have free space in output_buf on each call. */
-int readFromBufAndDecompress(client *c, char *input_buf, size_t input_len,
+int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
                              char *output_buf, size_t output_len, size_t *consumed)
 {
     compressionState *state = c->compression_state;
@@ -600,7 +600,7 @@ int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
 
         /* Write whatever we have available in the compressed buffer */
         int written = 0;
-        int err = compressAndWrite(c, &written);
+        int err = clientCompressAndWrite(c, &written);
         if (err) {
             if (nwritten) *nwritten = sock_written;
             return -1;
@@ -616,7 +616,7 @@ int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
      * socket received `sock_written` compressed bytes. Track the uncompressed
      * size here so callers don't have to be compression-aware. */
     if (consumed > 0)
-        atomicIncr(server.stat_net_repl_uncompressed_bytes, consumed);
+        atomicIncr(server.stat_net_repl_output_uncompressed_bytes, consumed);
     return consumed;
 }
 
@@ -686,7 +686,7 @@ int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
      * off the socket. Track the decompressed size here so callers don't have to
      * be compression-aware. */
     if (decompressed > 0)
-        atomicIncr(server.stat_net_repl_decompressed_bytes, decompressed);
+        atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
 
     return decompressed;
 }
@@ -721,13 +721,13 @@ void clientDisableCompression(client *c) {
     c->io_flags &= ~CLIENT_IO_COMPRESSION_ENABLED;
 }
 
-int compressAndWrite(client *c, int *tot_written) {
+int clientCompressAndWrite(client *c, int *tot_written) {
     UNUSED(c);
     if (tot_written) *tot_written = 0;
     return 0;
 }
 
-int readFromBufAndDecompress(client *c, char *input_buf, size_t input_len,
+int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
                              char *output_buf, size_t output_len, size_t *consumed)
 {
     UNUSED(c);

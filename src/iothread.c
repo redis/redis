@@ -137,8 +137,7 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
         c->io_thread_client_list_node = NULL;
 
         if (c->io_thread_compression_clients_node) {
-            listDelNode(t->compression_clients,
-                        c->io_thread_compression_clients_node);
+            listDelNode(t->compression_clients, c->io_thread_compression_clients_node);
             c->io_thread_compression_clients_node = NULL;
         }
     }
@@ -199,8 +198,7 @@ void unbindClientFromIOThreadEventLoop(client *c) {
     /* We need to remove the client from the compression_clients list so it
      * won't be processed in IOThreadCompressionCron anymore */
     if (c->io_thread_compression_clients_node) {
-        listDelNode(t->compression_clients,
-                    c->io_thread_compression_clients_node);
+        listDelNode(t->compression_clients, c->io_thread_compression_clients_node);
         c->io_thread_compression_clients_node = NULL;
         clientDisableCompression(c);
     }
@@ -919,7 +917,7 @@ void IOThreadCompressionCron(IOThread *t) {
         if (c->io_flags & CLIENT_IO_CLOSE_ASAP) continue;
         serverAssert(c->compression_state);
 
-        /* Usually compressAndWrite will be called at the end of
+        /* Usually clientCompressAndWrite will be called at the end of
          * consumeAndTryWriteCompressed but when compression maximum latency ms
          * have passed we want to force flush to the compression buffer so we
          * don't have much delays between writes to the socket */
@@ -928,7 +926,7 @@ void IOThreadCompressionCron(IOThread *t) {
             serverAssert(c->flags & CLIENT_SLAVE);
 
             int written = 0;
-            int err = compressAndWrite(c, &written);
+            int err = clientCompressAndWrite(c, &written);
             if (err) {
                 freeClientAsync(c);
                 continue;

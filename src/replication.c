@@ -1570,7 +1570,6 @@ void replconfCommand(client *c) {
              * that 'ack' might be received before we detect bgsave is done. */
             if (c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM)
                 replicaPutOnline(c);
-
             /* Note: this command does not reply anything! */
             return;
         } else if (!strcasecmp(c->argv[j]->ptr,"getack")) {
@@ -3346,9 +3345,7 @@ void syncWithMaster(connection *conn) {
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF compression. */
         if (err[0] == '-') {
-            serverLog(LL_NOTICE,
-                      "(Non critical) Replication compression not enabled: %s",
-                      err);
+            serverLog(LL_NOTICE, "(Non critical) Replication compression not enabled: %s", err);
             server.repl_compression = 0;
             server.repl_master_compression_level = 0;
         } else {
@@ -4243,17 +4240,17 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
 
                 size_t qblen = sdslen(c->querybuf);
                 size_t avail = sdsavail(c->querybuf);
-                int decompressed = readFromBufAndDecompress(c, o->buf + processed,
-                                                            o->used - processed,
-                                                            c->querybuf + qblen,
-                                                            avail,
-                                                            &consumed);
+                int decompressed = clientReadBufAndDecompress(c, o->buf + processed,
+                                                              o->used - processed,
+                                                              c->querybuf + qblen,
+                                                              avail,
+                                                              &consumed);
                 serverAssert(decompressed >= 0);
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
 
-                atomicIncr(server.stat_net_repl_decompressed_bytes, decompressed);
+                atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
             } else {
                 size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
                 c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);

@@ -2737,7 +2737,7 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten) {
     return C_OK;
 }
 
-static inline int _writeToClientSlaveIOThread(client *c, ssize_t *nwritten) {
+static inline int _writeToClientSlaveInIOThread(client *c, ssize_t *nwritten) {
     replBufBlock *o = listNodeValue(c->io_curr_repl_node);
     /* The IO thread must not send data beyond the bound position. */
     size_t pos = c->io_curr_repl_node == c->io_bound_repl_node ?
@@ -2747,16 +2747,16 @@ static inline int _writeToClientSlaveIOThread(client *c, ssize_t *nwritten) {
          * compression is active `consumed` is how many uncompressed bytes were
          * taken from the repl buffer while `sock_written` is how many bytes were
          * actually written to the socket. Without compression they are equal. */
-        int sock_written = 0;
+        int network_written = 0;
         int consumed = clientConnWrite(c, o->buf+c->io_curr_block_pos,
-                                       pos-c->io_curr_block_pos, &sock_written);
+                                       pos-c->io_curr_block_pos, &network_written);
 
         if (consumed <= 0) return C_ERR;
 
         /* *nwritten counts bytes actually put on the socket (compressed when
          * compression is active), while `consumed` is how many bytes were read
          * from the repl buffer node. */
-        *nwritten += sock_written;
+        *nwritten += network_written;
         c->io_curr_block_pos += consumed;
     }
     /* If we fully sent the object and there are more nodes to send, go to the next one. */
@@ -2777,7 +2777,7 @@ static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
     serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
 
     if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-        return _writeToClientSlaveIOThread(c, nwritten);
+        return _writeToClientSlaveInIOThread(c, nwritten);
     }
 
     replBufBlock *o = listNodeValue(c->ref_repl_buf_node);
