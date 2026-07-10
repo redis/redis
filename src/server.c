@@ -8007,6 +8007,7 @@ typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
+int hashtableTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8025,6 +8026,7 @@ struct redisTest {
     {"sds", sdsTest},
     {"mstr", mstrTest},
     {"dict", dictTest},
+    {"hashtable", hashtableTest},
     {"listpack", listpackTest},
     {"kvstore", kvstoreTest},
     {"fwtree", fwtreeTest},
