@@ -703,11 +703,11 @@ static int bcastStateHasUser(bcastState *bs, user *u) {
  * could previously read. No-op if 'c' is not a BCAST tracking client. */
 void trackingBroadcastFlushClientPrefixes(client *c) {
     if (!(c->flags & CLIENT_TRACKING_BCAST)) return;
-    if (c->client_tracking_prefixes == NULL) return;
+    if (c->pubsub_data->client_tracking_prefixes == NULL) return;
     if (TrackingTable == NULL || !server.tracking_clients) return;
 
     raxIterator ri;
-    raxStart(&ri,c->client_tracking_prefixes);
+    raxStart(&ri,c->pubsub_data->client_tracking_prefixes);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         void *result;
