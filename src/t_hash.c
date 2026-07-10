@@ -3152,18 +3152,16 @@ struct rdbLoadTemplateCtx {
     int stop_creating;        /* One-way latch: stop creating new templates. */
 };
 
-/* Each tracked few-key template maps to a list of these: the stable keyspace
- * object plus the db it lives in. Disassembly needs the db to fix the per-slot
- * allocation-size histogram (the compact TMPL size was recorded by
- * dbAddRDBLoad against that db's slot). A single context spans the whole RDB,
- * which may select multiple dbs, so the db must be tracked per object. */
+/* A hash to disassemble at end of load, identified by db + key name. */
 typedef struct rdbLoadTemplateCtxKvRef {
-    kvobj *kv;
     redisDb *db;
+    sds key;
 } rdbLoadTemplateCtxKvRef;
 
 static void rdbLoadTemplateCtxKvRefListFree(void *ref) {
-    zfree(ref);
+    rdbLoadTemplateCtxKvRef *r = ref;
+    sdsfree(r->key);
+    zfree(r);
 }
 
 static void rdbLoadTemplateCtxListValDestructor(dict *d, void *val) {
@@ -3216,8 +3214,8 @@ void rdbLoadTemplateCtxRecord(rdbLoadTemplateCtx *ctx, robj *kv, redisDb *db) {
         l = dictGetVal(de);
     }
     rdbLoadTemplateCtxKvRef *ref = zmalloc(sizeof(*ref));
-    ref->kv = kv;
     ref->db = db;
+    ref->key = sdsdup(kvobjGetKey(kv));
     listAddNodeTail(l, ref);
 }
 
@@ -3246,7 +3244,8 @@ void rdbLoadTemplateCtxDisassemble(rdbLoadTemplateCtx *ctx) {
         int disassembled = 0;
         while ((ln = listNext(&li)) != NULL) {
             rdbLoadTemplateCtxKvRef *ref = listNodeValue(ln);
-            kvobj *o = ref->kv;
+            kvobj *o = dbFind(ref->db, ref->key);
+            if (o == NULL) continue;
             size_t oldsize = kvobjAllocSize(o);
             if (o->encoding == OBJ_ENCODING_TMPL_LP)
                 hashTypeConvertTmplLp(o, OBJ_ENCODING_LISTPACK);
