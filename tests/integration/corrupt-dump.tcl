@@ -1280,6 +1280,17 @@ test {corrupt payload: bitmap RDB validation} {
         assert_equal [r type bitmap:valid-raw] bitmap
         assert_equal [r debug bitmap-raw bitmap:valid-raw] $valid_raw
 
+        # rdbSaveRawString may encode decimal-looking bitmap bytes as an
+        # integer. Exact-length loading must preserve that valid encoding.
+        set valid_integer_payload [binary format H* $bitmap_type]
+        append valid_integer_payload [bitmap_rdb_len 1]
+        append valid_integer_payload [binary format H* c001]
+        append valid_integer_payload $dump_trailer
+        r restore bitmap:valid-integer 0 $valid_integer_payload
+        assert_equal bitmap [r type bitmap:valid-integer]
+        assert_equal [binary format H* 31] \
+            [r debug bitmap-raw bitmap:valid-integer]
+
         set bad_string_encoding_payload [binary format H* $bitmap_type]
         append bad_string_encoding_payload [bitmap_rdb_len 2]
         append bad_string_encoding_payload [binary format c 0xc4]
@@ -1302,6 +1313,8 @@ test {corrupt payload: bitmap RDB validation} {
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:mismatched-lzf-len]
 
+        # The outer logical length is only two bytes. Reject the oversized
+        # inner length before attempting to allocate its decoded buffer.
         set oversized_raw_len_payload [binary format H* $bitmap_type]
         append oversized_raw_len_payload [bitmap_rdb_len 2]
         append oversized_raw_len_payload [bitmap_rdb_len 536870913]

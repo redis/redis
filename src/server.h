@@ -3552,7 +3552,9 @@ int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
 int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
+#define DUMP_PAYLOAD_SKIP_CHECKSUM (1<<0)
+#define DUMP_PAYLOAD_AOF_REWRITE (1<<1)
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags);
 
 /* Child info */
 void openChildInfoPipe(void);

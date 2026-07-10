@@ -392,7 +392,9 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 /* Load an LZF compressed string in RDB format. The returned value
  * changes according to 'flags'. For more info check the
  * rdbGenericLoadStringObject() function. */
-void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable) {
+static void *rdbLoadLzfStringObjectInternal(rio *rdb, int flags,
+                                            size_t *lenptr, size_t *usable,
+                                            uint64_t expected_len) {
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
     int robjFlag = !(plainFlag || sdsFlag); /* not plain/sds */
@@ -403,6 +405,10 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable
 
     if ((clen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+    /* Exact-length callers use an outer framing length. Check both LZF
+     * lengths before allocating either the compressed or decoded buffer. */
+    if (expected_len != RDB_LENERR &&
+        (len != expected_len || clen > len)) return NULL;
     if ((c = ztrymalloc(clen)) == NULL) {
         serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)clen);
         goto err;
@@ -443,6 +449,11 @@ err:
         sdsfree(val);
     }
     return NULL;
+}
+
+void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable) {
+    return rdbLoadLzfStringObjectInternal(rdb, flags, lenptr, usable,
+                                          RDB_LENERR);
 }
 
 /* Save a string object as [len][data] on disk. If the object is a string
@@ -523,11 +534,15 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  *
  * On I/O error NULL is returned.
  */
-void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size_t *usable) {
+static void *rdbGenericLoadStringObjectUsableInternal(rio *rdb, int flags,
+                                                       size_t *lenptr,
+                                                       size_t *usable,
+                                                       uint64_t expected_len) {
     void *buf;
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
     int robjFlag = !(plainFlag || sdsFlag); /* not plain/sds */
+    debugServerAssert(expected_len == RDB_LENERR || sdsFlag);
 
     int isencoded;
     unsigned long long len;
@@ -539,15 +554,31 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
         switch(len) {
         case RDB_ENC_INT8:
         case RDB_ENC_INT16:
-        case RDB_ENC_INT32:
-            return rdbLoadIntegerObject(rdb,len,flags,lenptr,usable);
+        case RDB_ENC_INT32: {
+            size_t integer_len;
+            void *result = rdbLoadIntegerObject(
+                rdb, len, flags,
+                expected_len == RDB_LENERR ? lenptr : &integer_len, usable);
+            if (result == NULL || expected_len == RDB_LENERR) return result;
+            if (integer_len != expected_len) {
+                sdsfree(result);
+                return NULL;
+            }
+            if (lenptr) *lenptr = integer_len;
+            return result;
+        }
         case RDB_ENC_LZF:
-            return rdbLoadLzfStringObject(rdb,flags,lenptr,usable);
+            return rdbLoadLzfStringObjectInternal(
+                rdb, flags, lenptr, usable, expected_len);
         default:
             rdbReportCorruptRDB("Unknown RDB string encoding type %llu",len);
             return NULL;
         }
     }
+
+    /* Callers with an outer framing length must reject a mismatch before the
+     * raw string allocation, not after the payload has been materialized. */
+    if (expected_len != RDB_LENERR && len != expected_len) return NULL;
 
     /* return robj */
     if (robjFlag) {
@@ -589,8 +620,20 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
     return buf;
 }
 
+void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size_t *usable) {
+    return rdbGenericLoadStringObjectUsableInternal(
+        rdb, flags, lenptr, usable, RDB_LENERR);
+}
+
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     return rdbGenericLoadStringObjectUsable(rdb,flags,lenptr,NULL);
+}
+
+/* Load a string whose decoded length is fixed by an outer RDB framing field.
+ * The exact length is checked before allocating raw or LZF-decoded storage. */
+static sds rdbLoadStringObjectExact(rio *rdb, uint64_t expected_len) {
+    return rdbGenericLoadStringObjectUsableInternal(
+        rdb, RDB_LOAD_SDS, NULL, NULL, expected_len);
 }
 
 robj *rdbLoadStringObject(rio *rdb) {
@@ -1147,14 +1190,9 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
     if (byte_len == RDB_LENERR) return NULL;
     if (byte_len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 
-    raw = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
+    raw = rdbLoadStringObjectExact(rdb, byte_len);
     if (raw == NULL) return NULL;
-    /* The logical byte length precedes the string payload; reject corrupt
-     * RESTORE/RDB input where the two disagree. */
-    if ((uint64_t)sdslen(raw) != byte_len) {
-        sdsfree(raw);
-        return NULL;
-    }
+    serverAssert((uint64_t)sdslen(raw) == byte_len);
     o = createBitmapObjectFromString((unsigned char *)raw, sdslen(raw));
     sdsfree(raw);
     return o;
@@ -1660,7 +1698,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
 
     /* if needed save key metadata  */
     if (getModuleMetaBits(val->metabits)) {
-        if (rdbSaveKeyMetadata(rdb, key, val, dbid) == -1)
+        if (rdbSaveKeyMetadata(rdb, key, val, dbid, 0) == -1)
             return -1;
     }
 

@@ -408,20 +408,18 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         assert_match "*KEYMETA.SET*[cname 2]*key2*metadata_c2*" $aof_content
         assert_match "*KEYMETA.SET*[cname 3]*key2*metadata_c3*" $aof_content
         assert_match "*KEYMETA.SET*[cname 4]*hashkey*hash_meta*" $aof_content
+        assert_match "*KEYMETA.SET*[cname 1]*bitmapkey*bitmap_meta*" $aof_content
         assert_match "*RESTORE*bitmapkey*" $aof_content
 
         # Verify the RESP format is correct by checking for the command structure
         # The AOF should contain: *4 (array of 4 elements)
         assert_match "*\$11*KEYMETA.SET*" $aof_content
-        # Bitmap rewrite uses RESTORE with an embedded DUMP payload that already
-        # carries key metadata, so it must not emit a duplicate KEYMETA.SET.
+        # Bitmap RESTORE omits metadata so every class uses its AOF callback.
         set keymeta_count [regexp -all {KEYMETA\.SET} $aof_content]
-        assert_equal $keymeta_count 4
+        assert_equal $keymeta_count 5
 
-        # Skipping the KEYMETA.SET is only correct if the metadata really is
-        # inside the RESTORE payload: load the rewritten AOF back (the module
-        # stays loaded, so class registration survives) and verify the bitmap
-        # key still carries its metadata.
+        # Load the rewritten AOF back. The module stays loaded, so class
+        # registration survives and KEYMETA.SET can restore the metadata.
         r debug loadaof
         assert_equal bitmap [r type bitmapkey]
         assert_equal "bitmap_meta" [r keymeta.get [cname 1] bitmapkey]
@@ -919,6 +917,86 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
         assert_equal $size_without_meta $size_with_meta
     }
 } {} {external:skip needs:save}
+
+test "AOF: native bitmap rewrite preserves AOF-only metadata" {
+    start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
+        r module load $testmodule
+        r debug enable-keymeta-runtime-registration 1
+
+        # The test module always installs an AOF callback. Omitting RDBSAVE and
+        # RDBLOAD makes this metadata class intentionally AOF-only.
+        assert_equal 1 [r keymeta.register [cname 1] 1 "ALLOWIGNORE"]
+
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        r config set aof-use-rdb-preamble no
+        waitForBgrewriteaof r
+
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:aof-only-meta 1000 1
+        r config set bitmap-default-roaring no
+        r keymeta.set [cname 1] bitmap:aof-only-meta "aof_only_meta"
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+
+        set aof_dir [lindex [r config get dir] 1]
+        set aof_base_filename [lindex [r config get appendfilename] 1]
+        set aof_files [glob -nocomplain -directory $aof_dir appendonlydir/${aof_base_filename}.*.base.aof]
+        assert {[llength $aof_files] > 0}
+        set fp [open [lindex [lsort $aof_files] end] r]
+        set aof_content [read $fp]
+        close $fp
+
+        assert_match "*RESTORE*bitmap:aof-only-meta*" $aof_content
+        assert_match "*KEYMETA.SET*[cname 1]*bitmap:aof-only-meta*aof_only_meta*" $aof_content
+        assert_equal 1 [regexp -all {KEYMETA\.SET} $aof_content]
+
+        r debug loadaof
+        assert_equal bitmap [r type bitmap:aof-only-meta]
+        assert_equal "aof_only_meta" \
+            [r keymeta.get [cname 1] bitmap:aof-only-meta]
+    }
+} {} {external:skip}
+
+test "AOF: native bitmap rewrite preserves RDB-only metadata" {
+    start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
+        r module load $testmodule
+        r debug enable-keymeta-runtime-registration 1
+
+        assert_equal 1 [r keymeta.register [cname 1] 1 \
+            "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
+
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        r config set aof-use-rdb-preamble no
+        waitForBgrewriteaof r
+
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:rdb-only-meta 1000 1
+        r config set bitmap-default-roaring no
+        r keymeta.set [cname 1] bitmap:rdb-only-meta "rdb_only_meta"
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+
+        set aof_dir [lindex [r config get dir] 1]
+        set aof_base_filename [lindex [r config get appendfilename] 1]
+        set aof_files [glob -nocomplain -directory $aof_dir appendonlydir/${aof_base_filename}.*.base.aof]
+        assert {[llength $aof_files] > 0}
+        set fp [open [lindex [lsort $aof_files] end] r]
+        set aof_content [read $fp]
+        close $fp
+
+        assert_match "*RESTORE*bitmap:rdb-only-meta*" $aof_content
+        assert_no_match "*KEYMETA.SET*" $aof_content
+
+        r debug loadaof
+        assert_equal bitmap [r type bitmap:rdb-only-meta]
+        assert_equal "rdb_only_meta" \
+            [r keymeta.get [cname 1] bitmap:rdb-only-meta]
+    }
+} {} {external:skip}
 
 test "Creating key metadata not during OnLoad should fail" {
     # Start server without enabling keymeta runtime registration debug flag

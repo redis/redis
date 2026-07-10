@@ -1837,9 +1837,13 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
         addBitmapNativeLengthError(c);
         return;
     }
-    /* Native transitions propagate RESTORE payloads of the materialized
-     * result, so it must stay inside the string materialization limit. */
-    if (!mustObeyClient(c) && maxlen > (uint64_t)server.proto_max_bulk_len) {
+    /* NOT materializes a dense result, and all-string native transitions
+     * propagate a RESTORE payload. Existing native operands for other ops
+     * stay compressed and propagate the original BITOP, like strings do. */
+    if (!mustObeyClient(c) &&
+        maxlen > (uint64_t)server.proto_max_bulk_len &&
+        (op == BITOP_NOT || !has_native_bitmap))
+    {
         addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
         return;
     }

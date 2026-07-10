@@ -2042,6 +2042,34 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             bitop:not:native:out bitop:not:native:sentinel
     }
 
+    test {non-NOT native BITOP survives lowering proto-max-bulk-len} {
+        set limit 1048576
+        set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
+        set last_bit [expr {($limit + 1) * 8 - 1}]
+
+        r config set bitmap-default-roaring yes
+        assert_equal 0 [r setbit bitop:limit:native $last_bit 1]
+        r config set bitmap-default-roaring no
+        assert_equal 0 [r setbit bitop:limit:string $last_bit 1]
+
+        r config set proto-max-bulk-len $limit
+        assert_equal [expr {$limit + 1}] \
+            [r bitop or bitop:limit:native:out bitop:limit:native]
+        assert_equal [expr {$limit + 1}] \
+            [r bitop or bitop:limit:string:out bitop:limit:string]
+        assert_equal bitmap [r type bitop:limit:native:out]
+        assert_equal string [r type bitop:limit:string:out]
+        assert_equal 1 [r bitcount bitop:limit:native:out]
+
+        r config set proto-max-bulk-len [expr {$limit + 1}]
+        assert_equal [r get bitop:limit:string:out] \
+            [r debug bitmap-raw bitop:limit:native:out]
+
+        r config set proto-max-bulk-len $oldval
+        r del bitop:limit:native bitop:limit:string \
+            bitop:limit:native:out bitop:limit:string:out
+    }
+
     test {BITOP native bitmap sources match string bitmap results for all operations} {
         set a {0 4 5 6 20}
         set b {1 5 6 21}
