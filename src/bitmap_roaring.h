@@ -35,7 +35,6 @@ typedef enum bitmapBitop {
 void bitmapRoaringInit(void);
 robj *createBitmapObject(void);
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len);
-robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf, size_t len);
 robj *bitmapTypeDup(const robj *o);
 void freeBitmapObject(robj *o);
 void dismissBitmapObject(robj *o, size_t size_hint);
@@ -58,6 +57,6 @@ int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uin
 void bitmapObjectOptimize(robj *o);
 sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectMaterializeForRDB(const robj *o);
-robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
+robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITMAP_ROARING_H */

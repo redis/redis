@@ -1366,6 +1366,11 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
         }
+    } else if (o->type == OBJ_BITMAP) {
+        serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
+                  (unsigned long long)bitmapObjectLen(o));
+        serverLog(LL_WARNING,"Bitmap allocation size: %zu",
+                  bitmapObjectAllocSize(o));
     } else if (o->type == OBJ_LIST) {
         serverLog(LL_WARNING,"List length: %d", (int) listTypeLength(o));
     } else if (o->type == OBJ_SET) {
