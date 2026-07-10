@@ -2691,6 +2691,8 @@ void readSyncBulkPayload(connection *conn) {
      * we are starting a new history. */
     memcpy(server.replid,server.master->replid,sizeof(server.replid));
     server.master_repl_offset = server.master->reploff;
+    /* The offset jumped, reset the flush marker */
+    server.repl_last_flush_offset = server.master_repl_offset;
     clearReplicationId2();
 
     /* Let's create the replication backlog if needed. Slaves need to
