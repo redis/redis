@@ -1198,8 +1198,8 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
 }
 
 test {corrupt payload: bitmap RDB validation} {
-    # Payload layout: type byte RDB_TYPE_BITMAP, logical byte length,
-    # raw string payload, 2-byte RDB version,
+    # Payload layout: type byte RDB_TYPE_BITMAP, one raw string payload,
+    # 2-byte RDB version,
     # 8-byte CRC
     # (stale in the corrupted variants; checksum validation is skipped above).
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
@@ -1249,31 +1249,37 @@ test {corrupt payload: bitmap RDB validation} {
             return $payload
         }
 
-        proc bitmap_raw_dump_payload {bitmap_type byte_len raw trailer} {
+        proc bitmap_raw_dump_payload {bitmap_type raw trailer} {
+            set payload [binary format H* $bitmap_type]
+            append payload [bitmap_rdb_string $raw]
+            append payload $trailer
+            return $payload
+        }
+
+        proc bitmap_declared_raw_dump_payload {bitmap_type byte_len trailer} {
             set payload [binary format H* $bitmap_type]
             append payload [bitmap_rdb_len $byte_len]
-            append payload [bitmap_rdb_string $raw]
             append payload $trailer
             return $payload
         }
 
         set valid_raw [binary format H* 4440]
 
-        set huge_len_payload [bitmap_raw_dump_payload \
-            $bitmap_type [expr {1 << 60}] $valid_raw $dump_trailer]
+        set huge_len_payload [bitmap_declared_raw_dump_payload \
+            $bitmap_type [expr {1 << 60}] $dump_trailer]
 
         catch { r restore bitmap:huge-len 0 $huge_len_payload } err
         assert_match "*Bad data format*" $err
         assert_equal PONG [r ping]
 
-        set over_native_cap_payload [bitmap_raw_dump_payload \
-            $bitmap_type 536870913 "" $dump_trailer]
+        set over_native_cap_payload [bitmap_declared_raw_dump_payload \
+            $bitmap_type 536870913 $dump_trailer]
         catch { r restore bitmap:over-native-cap 0 $over_native_cap_payload } err
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:over-native-cap]
 
         set valid_raw_payload [bitmap_raw_dump_payload \
-            $bitmap_type [string length $valid_raw] $valid_raw $dump_trailer]
+            $bitmap_type $valid_raw $dump_trailer]
 
         r config set sanitize-dump-payload yes
         r restore bitmap:valid-raw 0 $valid_raw_payload
@@ -1281,9 +1287,8 @@ test {corrupt payload: bitmap RDB validation} {
         assert_equal [r debug bitmap-raw bitmap:valid-raw] $valid_raw
 
         # rdbSaveRawString may encode decimal-looking bitmap bytes as an
-        # integer. Exact-length loading must preserve that valid encoding.
+        # integer. Bounded loading must preserve that valid encoding.
         set valid_integer_payload [binary format H* $bitmap_type]
-        append valid_integer_payload [bitmap_rdb_len 1]
         append valid_integer_payload [binary format H* c001]
         append valid_integer_payload $dump_trailer
         r restore bitmap:valid-integer 0 $valid_integer_payload
@@ -1292,33 +1297,35 @@ test {corrupt payload: bitmap RDB validation} {
             [r debug bitmap-raw bitmap:valid-integer]
 
         set bad_string_encoding_payload [binary format H* $bitmap_type]
-        append bad_string_encoding_payload [bitmap_rdb_len 2]
         append bad_string_encoding_payload [binary format c 0xc4]
         append bad_string_encoding_payload $dump_trailer
         catch { r restore bitmap:bad-string-encoding 0 $bad_string_encoding_payload } err
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:bad-string-encoding]
 
-        set mismatched_raw_len_payload [bitmap_raw_dump_payload \
-            $bitmap_type 2 [binary format H* 44] $dump_trailer]
-        catch { r restore bitmap:mismatched-raw-len 0 $mismatched_raw_len_payload } err
+        # A compressed length larger than its decoded length is invalid and
+        # must be rejected before allocating either buffer.
+        set invalid_lzf_lengths_payload [binary format H* $bitmap_type]
+        append invalid_lzf_lengths_payload \
+            [bitmap_rdb_lzf_string 2 1 ""]
+        append invalid_lzf_lengths_payload $dump_trailer
+        catch { r restore bitmap:invalid-lzf-lengths 0 $invalid_lzf_lengths_payload } err
         assert_match "*Bad data format*" $err
-        assert_equal 0 [r exists bitmap:mismatched-raw-len]
+        assert_equal 0 [r exists bitmap:invalid-lzf-lengths]
 
-        set mismatched_lzf_len_payload [binary format H* $bitmap_type]
-        append mismatched_lzf_len_payload [bitmap_rdb_len 2]
-        append mismatched_lzf_len_payload [bitmap_rdb_lzf_string 1 3 [binary format c 0]]
-        append mismatched_lzf_len_payload $dump_trailer
-        catch { r restore bitmap:mismatched-lzf-len 0 $mismatched_lzf_len_payload } err
+        # Reject an oversized decoded LZF length before allocating the
+        # compressed or decoded buffer.
+        set oversized_lzf_len_payload [binary format H* $bitmap_type]
+        append oversized_lzf_len_payload \
+            [bitmap_rdb_lzf_string 1 536870913 ""]
+        append oversized_lzf_len_payload $dump_trailer
+        catch { r restore bitmap:oversized-lzf-len 0 $oversized_lzf_len_payload } err
         assert_match "*Bad data format*" $err
-        assert_equal 0 [r exists bitmap:mismatched-lzf-len]
+        assert_equal 0 [r exists bitmap:oversized-lzf-len]
 
-        # The outer logical length is only two bytes. Reject the oversized
-        # inner length before attempting to allocate its decoded buffer.
-        set oversized_raw_len_payload [binary format H* $bitmap_type]
-        append oversized_raw_len_payload [bitmap_rdb_len 2]
-        append oversized_raw_len_payload [bitmap_rdb_len 536870913]
-        append oversized_raw_len_payload $dump_trailer
+        # Reject the raw string length before attempting to allocate it.
+        set oversized_raw_len_payload [bitmap_declared_raw_dump_payload \
+            $bitmap_type 536870913 $dump_trailer]
         catch { r restore bitmap:oversized-raw-len 0 $oversized_raw_len_payload } err
         assert_match "*Bad data format*" $err
         assert_equal 0 [r exists bitmap:oversized-raw-len]
@@ -1328,7 +1335,7 @@ test {corrupt payload: bitmap RDB validation} {
         convert_string_bitmap_to_native r bitmap:replace-target
         r pexpire bitmap:replace-target 60000
         set replace_target_expire [r pexpiretime bitmap:replace-target]
-        catch { r restore bitmap:replace-target 0 $mismatched_raw_len_payload replace } err
+        catch { r restore bitmap:replace-target 0 $oversized_raw_len_payload replace } err
         assert_match "*Bad data format*" $err
         assert_equal bitmap [r type bitmap:replace-target]
         assert_equal bitmap-roaring [r object encoding bitmap:replace-target]
@@ -1336,7 +1343,7 @@ test {corrupt payload: bitmap RDB validation} {
         assert_equal $replace_target_expire [r pexpiretime bitmap:replace-target]
 
         r config set sanitize-dump-payload no
-        catch { r restore bitmap:shallow-mismatched-raw-len 0 $mismatched_raw_len_payload } err
+        catch { r restore bitmap:shallow-oversized-raw-len 0 $oversized_raw_len_payload } err
         assert_match "*Bad data format*" $err
         r restore bitmap:shallow 0 $valid_raw_payload
         assert_equal [r type bitmap:shallow] bitmap
