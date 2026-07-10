@@ -2256,6 +2256,23 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
+    test {BITOP mixed AVX512-shaped operands and scalar tails match string results} {
+        set raws {}
+        set patterns {2f 9a f1 6d 87 3c d2 55}
+        for {set i 0} {$i < 8} {incr i} {
+            # Eight sources with minlen >= 10000 select the AVX512 kernel when
+            # available. Unequal lengths ending off the 64-byte boundary also
+            # exercise the portable zero-padded tail on every platform.
+            lappend raws [binary format H* [string repeat \
+                [lindex $patterns $i] [expr {10000 + $i}]]]
+        }
+
+        foreach op {and or xor diff diff1 andor one} {
+            assert_native_bitop_raws_match_string "mixed-avx512:$op" \
+                $op $raws {0 2 4 6}
+        }
+    }
+
     test {BITOP mixed native source destination aliasing matches string results} {
         set a [binary format H* aa5500]
         set b [binary format H* 0ff0]
