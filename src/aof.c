@@ -2932,6 +2932,11 @@ int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
+    if (server.backup_state == BACKUP_STATE_SNAPSHOTTING ||
+        server.backup_state == BACKUP_STATE_INCREMENTING)
+    {
+        return C_ERR;
+    }
 
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
         serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
@@ -3327,6 +3332,14 @@ static int backupStartPendingSnapshot(void) {
             return C_ERR;
         }
     }
+    /* BACKUP can only enter SNAPSHOTTING after an AOFRW child has actually
+     * been forked. startAppendOnly() may return OK for scheduled rewrites in
+     * generic AOF paths, so keep this as a sanity check for the backup path. */
+    if (server.child_type != CHILD_TYPE_AOF) {
+        backupSetFailed("failed to start AOF rewrite child for backup");
+        return C_ERR;
+    }
+
     server.backup_start_time = server.unixtime;
     server.backup_state = BACKUP_STATE_SNAPSHOTTING;
     return C_OK;
