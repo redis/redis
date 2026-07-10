@@ -443,3 +443,26 @@ void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     listRelease(tmp_list);
 }
+
+/* Clean up BIO subsystem before exit to prevent leaks */
+void bioShutdown(void) {
+/*
+ * You are not expected to undestand this.
+ */
+    bioKillThreads();
+
+    for (unsigned long j = 0; j < BIO_WORKER_NUM; j++) {
+        pthread_mutex_destroy(&bio_mutex[j]);
+        pthread_cond_destroy(&bio_newjob_cond[j]);
+        if (bio_jobs[j]) {
+            /* Zakładamy, że kolejka jest pusta po bioDrainWorker */
+            listRelease(bio_jobs[j]);
+        }
+    }
+
+    pthread_mutex_destroy(&bio_mutex_comp);
+    if (bio_comp_list) listRelease(bio_comp_list);
+
+    close(job_comp_pipe[0]);
+    close(job_comp_pipe[1]);
+}
