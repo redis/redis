@@ -1750,8 +1750,7 @@ start_server {tags {"hash" "memory" "needs:debug" "cluster:skip"}
             # 20000 plain hashes; record total growth and one key's size.
             set mem_before [s used_memory]
             set rd [redis_deferring_client]
-            for {set i 0} {$i < 20000} {incr i} { $rd hset plain:$i {*}$hset_pairs }
-            for {set i 0} {$i < 20000} {incr i} { $rd read }
+            deferred_batch $rd 20000 { $rd hset plain:$i {*}$hset_pairs }
             $rd close
             assert_equal [r object encoding plain:0] $plain_enc
             set plain_total  [expr {[s used_memory] - $mem_before}]
@@ -1763,8 +1762,7 @@ start_server {tags {"hash" "memory" "needs:debug" "cluster:skip"}
             set mem_before [s used_memory]
             set rd [redis_deferring_client]
             $rd himport prepare template {*}$field_names; $rd read
-            for {set i 0} {$i < 20000} {incr i} { $rd himport set tmpl:$i template {*}$field_values }
-            for {set i 0} {$i < 20000} {incr i} { $rd read }
+            deferred_batch $rd 20000 { $rd himport set tmpl:$i template {*}$field_values }
             $rd close
             assert_equal [r object encoding tmpl:0] $tmpl_enc
             assert_equal [r hget tmpl:0 shared_field_name_00] shared_value_num_000
