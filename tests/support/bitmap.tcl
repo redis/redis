@@ -64,8 +64,8 @@ proc seed_native_bitmap {key bits} {
 }
 
 proc empty_native_bitmap_dump_payload {} {
-    # RDB_TYPE_BITMAP, byte_len 0, empty raw string, RDB_VERSION 15, followed
-    # by an all-zero checksum. RESTORE accepts the zero checksum in test-built
+    # RDB_TYPE_BITMAP, empty raw string, RDB_VERSION 15, followed by an
+    # all-zero checksum. RESTORE accepts the zero checksum in test-built
     # payloads.
-    return [binary format H* 1d00000f000000000000000000]
+    return [binary format H* 1d000f000000000000000000]
 }

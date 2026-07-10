@@ -319,31 +319,19 @@ robj *createBitmapObject(void) {
     return o;
 }
 
-static robj *createBitmapObjectFromStringWithOptions(const unsigned char *buf,
-                                                     size_t len, int optimize)
-{
+robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
 #if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 #endif
 
     bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
-    bitmap->roaring = bitmapObjectRoaringFromString(buf, len, optimize);
+    bitmap->roaring = bitmapObjectRoaringFromString(buf, len, 1);
     bitmapObjectRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
-}
-
-robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
-    return createBitmapObjectFromStringWithOptions(buf, len, 1);
-}
-
-robj *createBitmapObjectFromStringNoOptimize(const unsigned char *buf,
-                                             size_t len)
-{
-    return createBitmapObjectFromStringWithOptions(buf, len, 0);
 }
 
 robj *bitmapTypeDup(const robj *o) {
@@ -1346,8 +1334,8 @@ static roaring64_bitmap_t *bitmapObjectExactlyOneBitopSources(bitmapBitopSource 
  * length equals the longest source. The operation never materializes flat
  * bytes; the BITOP NOT length guard lives at the command layer because
  * complementing is inherently dense. */
-robj *bitmapObjectsBitopBitmap(bitmapBitop op, robj **objects, size_t numkeys,
-                               uint64_t maxlen)
+robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
+                         uint64_t maxlen)
 {
     bitmapBitopSource *sources;
     roaring64_bitmap_t *result = NULL;
