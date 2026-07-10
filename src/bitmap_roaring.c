@@ -38,6 +38,19 @@
 #include "lzf.h"
 #include "rdb.h"
 
+/* Reuse the established string BITOP vector kernels after bounded native
+ * operands have been materialized. Their scalar tail remains local below. */
+#ifdef HAVE_AVX2
+unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
+                              bitmapBitop op, unsigned long numkeys,
+                              unsigned long minlen);
+#endif
+#ifdef HAVE_AVX512
+unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
+                                 bitmapBitop op, unsigned long numkeys,
+                                 unsigned long minlen);
+#endif
+
 /* Derived from the byte cap in bitmap_roaring.h; only this file needs the
  * bit-offset form. */
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
@@ -1212,6 +1225,181 @@ typedef struct bitmapBitopSource {
     roaring64_bitmap_t *owned;
 } bitmapBitopSource;
 
+typedef struct bitmapRawBitopSource {
+    const unsigned char *raw;
+    sds owned;
+    size_t len;
+} bitmapRawBitopSource;
+
+/* Dense mixed operands are cheaper to flatten and combine as machine words
+ * than to convert every string source into a temporary Roaring bitmap. Keep
+ * this path deliberately narrow: native-only and sparse workloads retain
+ * Roaring algebra, while the size cap bounds all temporary raw buffers. */
+static int bitmapObjectsUseMixedRawBitop(robj **objects, size_t numkeys,
+                                         uint64_t maxlen)
+{
+    int has_string = 0;
+    int has_native = 0;
+
+    if (maxlen > BITMAP_BITOP_FAST_RESULT_MAX_BYTES) return 0;
+
+    for (size_t i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+        if (o == NULL) continue;
+
+        if (o->type == OBJ_BITMAP) {
+            uint64_t logical_len = bitmapObjectLen(o);
+            has_native = 1;
+            /* At least one set bit per logical byte is a conservative signal
+             * that flattening is preferable to sparse container algebra. */
+            if (bitmapObjectCardinality(o) < logical_len) return 0;
+        } else {
+            serverAssert(o->type == OBJ_STRING);
+            has_string = 1;
+        }
+    }
+
+    return has_string && has_native;
+}
+
+static uint64_t bitmapRawBitopLoadWord(const bitmapRawBitopSource *source,
+                                       size_t offset)
+{
+    uint64_t word = 0;
+    if (offset >= source->len) return 0;
+
+    size_t copy = source->len - offset;
+    if (copy > sizeof(word)) copy = sizeof(word);
+    memcpy(&word, source->raw + offset, copy);
+    return word;
+}
+
+static uint64_t bitmapRawBitopWord(bitmapBitop op,
+                                   bitmapRawBitopSource *sources,
+                                   size_t numkeys, size_t offset)
+{
+    uint64_t output = bitmapRawBitopLoadWord(&sources[0], offset);
+
+    switch (op) {
+    case BITOP_AND:
+        for (size_t i = 1; i < numkeys; i++)
+            output &= bitmapRawBitopLoadWord(&sources[i], offset);
+        break;
+    case BITOP_OR:
+        for (size_t i = 1; i < numkeys; i++)
+            output |= bitmapRawBitopLoadWord(&sources[i], offset);
+        break;
+    case BITOP_XOR:
+        for (size_t i = 1; i < numkeys; i++)
+            output ^= bitmapRawBitopLoadWord(&sources[i], offset);
+        break;
+    case BITOP_NOT:
+        output = ~output;
+        break;
+    case BITOP_DIFF:
+    case BITOP_DIFF1:
+    case BITOP_ANDOR: {
+        uint64_t disjunction = 0;
+        for (size_t i = 1; i < numkeys; i++)
+            disjunction |= bitmapRawBitopLoadWord(&sources[i], offset);
+        if (op == BITOP_DIFF)
+            output &= ~disjunction;
+        else if (op == BITOP_DIFF1)
+            output = ~output & disjunction;
+        else
+            output &= disjunction;
+        break;
+    }
+    case BITOP_ONE: {
+        uint64_t common = 0;
+        for (size_t i = 1; i < numkeys; i++) {
+            uint64_t word = bitmapRawBitopLoadWord(&sources[i], offset);
+            common |= output & word;
+            output ^= word;
+            output &= ~common;
+        }
+        break;
+    }
+    default:
+        serverPanic("Unknown native bitmap BITOP");
+    }
+
+    return output;
+}
+
+static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
+                                                       robj **objects,
+                                                       size_t numkeys,
+                                                       size_t maxlen)
+{
+    bitmapRawBitopSource *sources = zcalloc(sizeof(*sources) * numkeys);
+    unsigned char **raw_sources = zmalloc(sizeof(*raw_sources) * numkeys);
+    size_t minlen = maxlen;
+
+    for (size_t i = 0; i < numkeys; i++) {
+        robj *o = objects[i];
+        if (o == NULL) {
+            raw_sources[i] = NULL;
+            minlen = 0;
+            continue;
+        }
+
+        if (o->type == OBJ_BITMAP) {
+            sources[i].len = (size_t)bitmapObjectLen(o);
+            /* The mixed-path cap, rather than proto-max-bulk-len, bounds this
+             * internal temporary so lowering the protocol limit cannot change
+             * whether an otherwise valid native BITOP succeeds. */
+            sources[i].owned = bitmapObjectMaterializeRaw(o, 0);
+            serverAssert(sources[i].owned != NULL);
+            sources[i].raw = (unsigned char *)sources[i].owned;
+        } else {
+            serverAssert(o->type == OBJ_STRING);
+            sources[i].len = sdslen(o->ptr);
+            sources[i].raw = (unsigned char *)o->ptr;
+        }
+        raw_sources[i] = (unsigned char *)sources[i].raw;
+        if (sources[i].len < minlen) minlen = sources[i].len;
+    }
+
+    sds raw_result = sdsnewlen(SDS_NOINIT, maxlen);
+    size_t offset = 0;
+    int used_vector = 0;
+#ifdef HAVE_AVX512
+    if (__builtin_cpu_supports("avx512f") && minlen >= 10000 && numkeys >= 8) {
+        offset = bitopCommandAVX512(raw_sources,
+                                    (unsigned char *)raw_result, op,
+                                    (unsigned long)numkeys,
+                                    (unsigned long)minlen);
+        used_vector = 1;
+    }
+#endif
+#ifdef HAVE_AVX2
+    if (!used_vector && __builtin_cpu_supports("avx2")) {
+        offset = bitopCommandAVX(raw_sources, (unsigned char *)raw_result, op,
+                                (unsigned long)numkeys,
+                                (unsigned long)minlen);
+    }
+#else
+    UNUSED(used_vector);
+#endif
+    for (; offset + sizeof(uint64_t) <= maxlen; offset += sizeof(uint64_t)) {
+        uint64_t output = bitmapRawBitopWord(op, sources, numkeys, offset);
+        memcpy(raw_result + offset, &output, sizeof(output));
+    }
+    if (offset < maxlen) {
+        uint64_t output = bitmapRawBitopWord(op, sources, numkeys, offset);
+        memcpy(raw_result + offset, &output, maxlen - offset);
+    }
+
+    roaring64_bitmap_t *result = bitmapObjectRoaringFromString(
+        (unsigned char *)raw_result, maxlen, 0);
+    sdsfree(raw_result);
+    for (size_t i = 0; i < numkeys; i++) sdsfree(sources[i].owned);
+    zfree(raw_sources);
+    zfree(sources);
+    return result;
+}
+
 static int bitmapRoaringHasRunContainers(const roaring64_bitmap_t *roaring) {
     art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
     while (it.value != NULL) {
@@ -1328,12 +1516,13 @@ static roaring64_bitmap_t *bitmapObjectExactlyOneBitopSources(bitmapBitopSource 
     return result;
 }
 
-/* Compute a BITOP over string and native bitmap sources entirely in roaring
- * space and return the result as a new native bitmap object whose logical
- * length is 'maxlen', matching the string semantics where the destination
- * length equals the longest source. The operation never materializes flat
- * bytes; the BITOP NOT length guard lives at the command layer because
- * complementing is inherently dense. */
+/* Compute a BITOP over string and native bitmap sources and return the result
+ * as a new native bitmap object whose logical length is 'maxlen', matching the
+ * string semantics where the destination length equals the longest source.
+ * Sparse, large and native-only operations stay entirely in Roaring space;
+ * bounded dense mixed operands use the raw-word path above. The BITOP NOT
+ * length guard lives at the command layer because complementing is inherently
+ * dense. */
 robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
                          uint64_t maxlen)
 {
@@ -1344,6 +1533,15 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
 
     serverAssert(numkeys > 0);
     serverAssert(maxlen <= BITMAP_OBJECT_MAX_BYTES);
+
+    if (bitmapObjectsUseMixedRawBitop(objects, numkeys, maxlen)) {
+        result = bitmapObjectsMixedRawBitop(op, objects, numkeys,
+                                            (size_t)maxlen);
+        optimize_result = 0;
+        shrink_result = 0;
+        sources = NULL;
+        goto bitop_result;
+    }
 
     sources = zcalloc(sizeof(*sources) * numkeys);
     bitmapObjectPrepareBitopSources(objects, sources, numkeys);
@@ -1417,6 +1615,7 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
 
     bitmapObjectReleaseBitopSources(sources, numkeys);
 
+bitop_result:
     /* Large or potentially run-friendly results still pay the conversion and
      * compaction cost before being stored; small native steady-state results
      * skip both full-result CRoaring walks above. */
