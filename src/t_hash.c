@@ -1071,7 +1071,7 @@ static unsigned char *hashTemplateLpCreate(hashTemplate *tmpl, sds *values) {
         entries[i + 1].slen = sdslen(values[i]);
     }
 
-    unsigned char *lp = lpBatchInsert(NULL, NULL, LP_BEFORE, entries, n + 1, NULL);
+    unsigned char *lp = lpNewWithEntries(entries, n + 1);
     if (entries != stack_entries) zfree(entries);
 
     return lp;
@@ -1114,7 +1114,7 @@ static unsigned char *hashTemplateLpCreateFromPairs(hashTemplate *tmpl,
         }
     }
 
-    unsigned char *lp = lpBatchInsert(NULL, NULL, LP_BEFORE, entries, n + 1, NULL);
+    unsigned char *lp = lpNewWithEntries(entries, n + 1);
     if (entries != stack_entries) zfree(entries);
 
     return lp;
