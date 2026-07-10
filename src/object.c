@@ -483,9 +483,38 @@ robj *createSetListpackObject(void) {
 }
 
 robj *createHashObject(void) {
-    unsigned char *zl = lpNew(0);
-    robj *o = createObject(OBJ_HASH, zl);
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_HASH, lp);
     o->encoding = OBJ_ENCODING_LISTPACK;
+    return o;
+}
+
+robj *createHashListpackExObject(void) {
+    unsigned char *lp = lpNew(0);
+    listpackEx *lpt = listpackExCreate();
+    lpt->lp = lp;
+    robj *o = createObject(OBJ_HASH, lpt);
+    o->encoding = OBJ_ENCODING_LISTPACK_EX;
+    return o;
+}
+
+static robj *createHashHashtableObjectInternal(dictType *type)
+{
+    dict *ht = dictCreate(type);
+    robj *o = createObject(OBJ_HASH, ht);
+    o->encoding = OBJ_ENCODING_HT;
+    return o;
+}
+
+robj *createHashHashtableObject(void)
+{
+    return createHashHashtableObjectInternal(&entryHashDictType);
+}
+
+robj *createHashHashtableWithHFEObject(void)
+{
+    robj *o = createHashHashtableObjectInternal(&entryHashDictTypeWithHFE);
+    initDictExpireMetadata(o);
     return o;
 }
 

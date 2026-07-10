@@ -2631,17 +2631,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         original_len = len;
         if (len == 0) goto emptykey;
 
-        o = createHashObject();
-
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries)
-            hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
+            o = createHashHashtableObject();
         else if (deep_integrity_validation) {
+            o = createHashObject();
             /* In this mode, we need to guarantee that the server won't crash
              * later when the ziplist is converted to a dict.
              * Create a set (dict with no values) to for a dup search.
              * We can dismiss it as soon as we convert the ziplist to a hash. */
             dupSearchDict = dictCreate(&hashDictType);
+        } else {
+            o = createHashObject();
         }
 
         /* Load every field and value into the listpack */
@@ -2781,15 +2782,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (len == RDB_LENERR) return NULL;
         original_len = len;
         if (len == 0) goto emptykey;
-        /* TODO: create listpackEx or HT directly*/
-        o = createHashObject();
+
+        /* Create listpackEx or HT directly */
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries) {
-            hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
-            dictTypeAddMeta((dict**)&o->ptr, &entryHashDictTypeWithHFE);
-            initDictExpireMetadata(o);
+            o = createHashHashtableWithHFEObject();
         } else {
-            hashTypeConvert(NULL, o, OBJ_ENCODING_LISTPACK_EX);
+            o = createHashListpackExObject();
             if (deep_integrity_validation) {
                 /* In this mode, we need to guarantee that the server won't crash
                 * later when the listpack is converted to a dict.
