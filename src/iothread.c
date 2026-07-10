@@ -928,7 +928,8 @@ void IOThreadCompressionCron(IOThread *t) {
             int written = 0;
             int err = clientCompressAndWrite(c, &written);
             if (err) {
-                freeClientAsync(c);
+                if (connGetState(c->conn) != CONN_STATE_CONNECTED)
+                    freeClientAsync(c);
                 continue;
             }
 

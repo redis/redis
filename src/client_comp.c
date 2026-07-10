@@ -602,8 +602,12 @@ int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
         int written = 0;
         int err = clientCompressAndWrite(c, &written);
         if (err) {
-            if (nwritten) *nwritten = sock_written;
-            return -1;
+            if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
+                if (nwritten) *nwritten = sock_written;
+                return -1;
+            }
+            /* Connection is still healthy, return what we managed to consume. */
+            break;
         }
         sock_written += written;
 
