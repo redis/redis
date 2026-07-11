@@ -278,6 +278,10 @@ void HelloTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     }
 }
 
+size_t HelloTypeAllocSize(const void *value) {
+    return HelloTypeMemUsage(value);
+}
+
 /* The goal of this function is to return the amount of memory used by
  * the HelloType value. */
 size_t HelloTypeMemUsage(const void *value) {
@@ -314,6 +318,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .rdb_load = HelloTypeRdbLoad,
         .rdb_save = HelloTypeRdbSave,
         .aof_rewrite = HelloTypeAofRewrite,
+        .alloc_size = HelloTypeAllocSize,
         .mem_usage = HelloTypeMemUsage,
         .free = HelloTypeFree,
         .digest = HelloTypeDigest

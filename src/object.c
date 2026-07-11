@@ -1413,7 +1413,7 @@ size_t kvobjAllocSize(kvobj *o) {
     } else if (o->type == OBJ_BITMAP) {
         asize += bitroarAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
-        /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
+        asize += moduleGetAllocSize(o);
     }
     return asize;
 }
