@@ -1368,7 +1368,7 @@ size_t kvobjAllocSize(kvobj *o) {
         redisArray *ar = o->ptr;
         asize += ar->alloc_size;
     } else if (o->type == OBJ_MODULE) {
-        /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
+        asize += moduleGetAllocSize(o);
     }
     return asize;
 }
