@@ -718,7 +718,8 @@ static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
     unsigned long long new_count;
     
     atomicDecr(htemplates->total_key_refs, 1);
-    atomicIncrGet(tmpl->key_refcount, new_count, -1);
+    /* Sync, not relaxed: orders freeing tmpl. */
+    atomicIncrGetWithSync(tmpl->key_refcount, new_count, -1);
     serverAssert(new_count != (unsigned long long)-1); /* underflow guard */
     
     if (new_count != 0) return;

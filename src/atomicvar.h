@@ -101,6 +101,8 @@
 } while(0)
 #define atomicIncrGet(var, newvalue_var, count) \
     newvalue_var = atomicIncr(var,count) + count
+#define atomicIncrGetWithSync(var, newvalue_var, count) \
+    newvalue_var = atomic_fetch_add_explicit(&var,(count),memory_order_seq_cst) + (count)
 #define atomicDecr(var,count) atomic_fetch_sub_explicit(&var,(count),memory_order_relaxed)
 #define atomicGet(var,dstvar) do { \
     dstvar = atomic_load_explicit(&var,memory_order_relaxed); \
@@ -125,6 +127,8 @@
 #define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicIncrGet(var, newvalue_var, count) \
     newvalue_var = __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
+#define atomicIncrGetWithSync(var, newvalue_var, count) \
+    newvalue_var = __atomic_add_fetch(&var,(count),__ATOMIC_SEQ_CST)
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
 } while(0)
@@ -149,6 +153,9 @@
 
 #define atomicIncr(var,count) __sync_add_and_fetch(&var,(count))
 #define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = __sync_add_and_fetch(&var,(count))
+/* __sync builtins already issue a full memory barrier. */
+#define atomicIncrGetWithSync(var, newvalue_var, count) \
     newvalue_var = __sync_add_and_fetch(&var,(count))
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __sync_fetch_and_add(&var,(count)); \
