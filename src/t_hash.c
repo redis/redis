@@ -1044,6 +1044,7 @@ static unsigned char *hashTemplateLpCreate(hashTemplate *tmpl, sds *values) {
     }
 
     unsigned char *lp = lpNewWithEntries(entries, n + 1);
+    serverAssert(lp != NULL);
     if (entries != stack_entries) zfree(entries);
 
     return lp;
@@ -1087,6 +1088,7 @@ static unsigned char *hashTemplateLpCreateFromPairs(hashTemplate *tmpl,
     }
 
     unsigned char *lp = lpNewWithEntries(entries, n + 1);
+    serverAssert(lp != NULL);
     if (entries != stack_entries) zfree(entries);
 
     return lp;
