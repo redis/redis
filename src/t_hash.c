@@ -3987,143 +3987,113 @@ typedef struct himportFieldset {
     int *value_order;   /* Maps tmpl index -> user argv field index (pre-computed). */
 } himportFieldset;
 
-/* Container for client's HIMPORT fieldsets (sorted by name). */
-typedef struct himportFieldsetList {
-    int64_t count;
-    int64_t cap;
-    himportFieldset *arr;
-} himportFieldsetList;
+/* Per-client HIMPORT fieldsets: name->fieldset dict + last-used cache. */
+typedef struct himportFieldsets {
+    dict *dict;              /* fieldset name -> himportFieldset. */
+    himportFieldset *last;   /* Last-used fieldset cache, or NULL. */
+    size_t mem_usage;        /* Total mem_usage of fieldsets. */
+} himportFieldsets;
 
-/* Free a fieldset. */
-static void himportFieldsetFree(himportFieldset *fs) {
-    if (!fs) return;
-    if (fs->name) sdsfree(fs->name);
+/* dict value destructor. */
+static void himportFsDictValDestructor(dict *d, void *val) {
+    UNUSED(d);
+    himportFieldset *fs = val;
+    sdsfree(fs->name);
     if (fs->tmpl) hashTemplateDecrHoldRef(fs->tmpl);
     if (fs->value_order) zfree(fs->value_order);
+    zfree(fs);
+}
+static dictType himportFsDictType = {
+    .hashFunction = dictSdsHash,
+    .keyCompare = dictSdsKeyCompare,
+    .valDestructor = himportFsDictValDestructor,
+};
+
+/* Memory usage for one fieldset: the fieldset + the full template it pins. */
+static size_t himportFieldsetMemUsage(himportFieldset *fs) {
+    return sizeof(*fs) + sdsZmallocSize(fs->name) +
+           (size_t)fs->tmpl->field_count * sizeof(int) + fs->tmpl->mem_size;
 }
 
-/* Binary search for fieldset by name. Returns index if found,
- * or -(insertion_point + 1) if not found. */
-static int64_t himportFieldsetSearch(himportFieldsetList *list, sds name) {
-    int64_t lo = 0, hi = list->count - 1;
-    while (lo <= hi) {
-        int64_t mid = lo + (hi - lo) / 2;
-        int cmp = sdscmplen(list->arr[mid].name, name);
-        if (cmp == 0) return mid;
-        if (cmp < 0) lo = mid + 1;
-        else hi = mid - 1;
-    }
-    return -(lo + 1);
+/* Get fieldset by name. Checks the last-used cache first. */
+static himportFieldset *himportFieldsetsGet(client *c, sds name) {
+    if (!c->himport_fieldsets) return NULL;
+    
+    himportFieldsets *fieldsets = c->himport_fieldsets;
+    if (fieldsets->last && sdscmplen(fieldsets->last->name, name) == 0)
+        return fieldsets->last;
+
+    dictEntry *de = dictFind(fieldsets->dict, name);
+    if (!de) return NULL;
+    
+    /* Cache last used and return */
+    fieldsets->last = dictGetVal(de);
+    return fieldsets->last;
 }
 
-/* Get fieldset by name from client's fieldset list. */
-static himportFieldset *himportFieldsetGet(client *c, sds name) {
-    himportFieldsetList *list = c->himport_fieldsets;
-    if (!list) return NULL;
-
-    int64_t idx = himportFieldsetSearch(list, name);
-    return (idx >= 0) ? &list->arr[idx] : NULL;
-}
-
-/* Add or replace a fieldset in client's fieldset list. */
-static void himportFieldsetAdd(client *c, sds name,
-                               hashTemplate *tmpl,
-                               int *value_order)
-{
-    himportFieldsetList *list = c->himport_fieldsets;
-    himportFieldset newfs = {name, tmpl, value_order};
-
-    if (!list) {
-        list = zmalloc(sizeof(himportFieldsetList));
-        list->cap = 4;
-        list->arr = zmalloc(sizeof(himportFieldset) * list->cap);
-        list->arr[0] = newfs;
-        list->count = 1;
-        c->himport_fieldsets = list;
-        return;
+/* Add or replace a fieldset. */
+static void himportFieldsetsAdd(client *c, sds name, hashTemplate *tmpl, int *value_order) {
+    himportFieldsets *fieldsets = c->himport_fieldsets;
+    if (!fieldsets) {
+        fieldsets = zcalloc(sizeof(*fieldsets));
+        fieldsets->dict = dictCreate(&himportFsDictType);
+        c->himport_fieldsets = fieldsets;
     }
 
-    int64_t idx = himportFieldsetSearch(list, name);
-    if (idx >= 0) {
-        /* Overwrite existing. */
-        himportFieldsetFree(&list->arr[idx]);
-        list->arr[idx] = newfs;
-        return;
+    /* Replace any existing binding: drop its memory and cache. */
+    dictEntry *old = dictUnlink(fieldsets->dict, name);
+    if (old) {
+        himportFieldset *ofs = dictGetVal(old);
+        if (fieldsets->last == ofs) fieldsets->last = NULL;
+        fieldsets->mem_usage -= himportFieldsetMemUsage(ofs);
+        dictFreeUnlinkedEntry(fieldsets->dict, old);
     }
 
-    /* Insert at sorted position. */
-    int64_t pos = -(idx + 1);
-    if (list->count >= list->cap) {
-        list->cap *= 2;
-        list->arr = zrealloc(list->arr, sizeof(himportFieldset) * list->cap);
-    }
-    if (pos < list->count) {
-        memmove(&list->arr[pos + 1], &list->arr[pos],
-                sizeof(himportFieldset) * (list->count - pos));
-    }
-    list->arr[pos] = newfs;
-    list->count++;
+    himportFieldset *fs = zmalloc(sizeof(*fs));
+    fs->name = name;
+    fs->tmpl = tmpl;
+    fs->value_order = value_order;
+    dictAdd(fieldsets->dict, fs->name, fs);
+    fieldsets->mem_usage += himportFieldsetMemUsage(fs);
 }
 
 /* Remove a fieldset by name. Returns 1 if removed, 0 if not found. */
-static int himportFieldsetRemove(client *c, sds name) {
-    int64_t idx = -1;
-    himportFieldsetList *list = c->himport_fieldsets;
+static int himportFieldsetsRemove(client *c, sds name) {
+    if (!c->himport_fieldsets) return 0;
+    himportFieldsets *fieldsets = c->himport_fieldsets;
 
-    if (!list || (idx = himportFieldsetSearch(list, name)) < 0)
-        return 0;
+    dictEntry *de = dictUnlink(fieldsets->dict, name); 
+    if (!de) return 0;
 
-    himportFieldsetFree(&list->arr[idx]);
-    if (idx < list->count - 1) {
-        memmove(&list->arr[idx], &list->arr[idx + 1],
-                sizeof(himportFieldset) * (list->count - 1 - idx));
-    }
+    himportFieldset *fs = dictGetVal(de);
+    if (fieldsets->last == fs) fieldsets->last = NULL;
+    fieldsets->mem_usage -= himportFieldsetMemUsage(fs);
+    dictFreeUnlinkedEntry(fieldsets->dict, de);
 
-    list->count--;
-    if (list->count == 0) {
-        zfree(list->arr);
-        zfree(list);
-        c->himport_fieldsets = NULL;
-    }
+    /* Free the container if this was the last fieldset. */
+    if (dictSize(fieldsets->dict) == 0)
+        himportFieldsetsFree(c);
     return 1;
 }
 
-/* Free client's fieldset list. Called from freeClient().
- * Returns the number of fieldsets that were removed. */
-int64_t himportFieldsetFreeList(client *c) {
-    himportFieldsetList *list = c->himport_fieldsets;
-    if (!list) return 0;
-
-    int64_t removed = list->count;
-    for (int64_t i = 0; i < list->count; i++)
-        himportFieldsetFree(&list->arr[i]);
-
-    zfree(list->arr);
-    zfree(list);
+/* Free client's fieldsets. Called from freeClient(). Returns the count freed. */
+int64_t himportFieldsetsFree(client *c) {
+    if (!c->himport_fieldsets) return 0;
+    
+    himportFieldsets *fieldsets = c->himport_fieldsets;
+    int64_t removed = dictSize(fieldsets->dict);
+    dictRelease(fieldsets->dict);
+    zfree(fieldsets);
     c->himport_fieldsets = NULL;
     return removed;
 }
 
-/* Memory used by this client's HIMPORT fieldset bindings, for maxmemory-clients. */
-size_t himportFieldsetMemOverhead(client *c) {
-    himportFieldsetList *list = c->himport_fieldsets;
-    if (!list) return 0;
-
-    size_t mem = sizeof(himportFieldsetList);
-    mem += (size_t)list->cap * sizeof(himportFieldset);
-    for (int64_t i = 0; i < list->count; i++) {
-        himportFieldset *fs = &list->arr[i];
-        if (fs->name) mem += sdsZmallocSize(fs->name);
-        if (fs->tmpl) {
-            mem += fs->tmpl->field_count * sizeof(int);
-            unsigned long long key_refs;
-            atomicGet(fs->tmpl->key_refcount, key_refs);
-            unsigned long long holders = fs->tmpl->hold_refcount + key_refs;
-            if (holders < 1) holders = 1; /* This fieldset is a holder. */
-            mem += fs->tmpl->mem_size / holders;
-        }
-    }
-    return mem;
+/* Memory used by this client's HIMPORT fieldset bindings, for maxmemory-clients.
+ * O(1): the per-fieldset sum is tracked incrementally in fieldsets->mem_usage. */
+size_t himportFieldsetsMemOverhead(client *c) {
+    himportFieldsets *fieldsets = c->himport_fieldsets;
+    if (!fieldsets) return 0;
+    return sizeof(*fieldsets) + dictMemUsage(fieldsets->dict) + fieldsets->mem_usage;
 }
 
 /* Context for himportCmpFieldIdx, set before qsort call. */
@@ -4181,7 +4151,7 @@ void himportPrepareCommand(client *c) {
     hashTemplateIncrHoldRef(tmpl);
     zfree(sorted_fields);
 
-    himportFieldsetAdd(c, sdsdup(fieldset_name), tmpl, field_order);
+    himportFieldsetsAdd(c, sdsdup(fieldset_name), tmpl, field_order);
     addReply(c, shared.ok);
 }
 
@@ -4198,7 +4168,7 @@ void himportSetCommand(client *c) {
 
     /* Lookup fieldset. */
     sds fieldset_name = c->argv[3]->ptr;
-    himportFieldset *fs = himportFieldsetGet(c, fieldset_name);
+    himportFieldset *fs = himportFieldsetsGet(c, fieldset_name);
     if (!fs) {
         addReplyError(c, "no such fieldset");
         return;
@@ -4292,13 +4262,13 @@ void himportSetCommand(client *c) {
 /* HIMPORT DISCARD <fieldset> 
  * Remove the fieldset from this client's fieldset list. */
 void himportDiscardCommand(client *c) {
-    addReplyLongLong(c, himportFieldsetRemove(c, c->argv[2]->ptr));
+    addReplyLongLong(c, himportFieldsetsRemove(c, c->argv[2]->ptr));
 }
 
 /* HIMPORT DISCARDALL 
  * Remove all fieldsets from this client. */
 void himportDiscardallCommand(client *c) {
-    addReplyLongLong(c, himportFieldsetFreeList(c));
+    addReplyLongLong(c, himportFieldsetsFree(c));
 }
 
 /* Parse expire time from argument and do boundary checks. */

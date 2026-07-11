@@ -1675,7 +1675,7 @@ typedef struct client {
     size_t stat_total_read_events; /* Number of times readQueryFromClient() was called */
     size_t stat_avg_pipeline_length_sum; /* Sum of pipeline lengths for computing average */
     size_t stat_avg_pipeline_length_cnt; /* Count of pipeline length samples */
-    void *himport_fieldsets;      /* Session-local HIMPORT fieldsets (name -> himportFieldset*, dict*) */
+    void *himport_fieldsets;      /* Session-local HIMPORT fieldsets */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
@@ -4072,8 +4072,8 @@ size_t hashTemplatesMemUsage(void);
 size_t hashTemplateRegistrySize(void);
 size_t hashTemplateKeyCount(void);
 char *hashTemplateEquivalentEncoding(robj *o); /* TODO: temporary test shim, remove before merge */
-int64_t himportFieldsetFreeList(client *c);
-size_t himportFieldsetMemOverhead(client *c);
+int64_t himportFieldsetsFree(client *c);
+size_t himportFieldsetsMemOverhead(client *c);
 
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o, int accurate);

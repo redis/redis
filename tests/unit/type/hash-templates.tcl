@@ -330,42 +330,34 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert {$discarded < $after}
     }
 
-    test {HIMPORT PREPARE attributes pinned template memory to client} {
-        proc cur_tot_mem {} {
-            regexp {tot-mem=(\d+)} [r client info] -> m
-            return $m
+    test {HIMPORT PREPARE/DISCARD accounting does not drift} {
+        proc prepare_100 {} {
+            for {set i 0} {$i < 100} {incr i} {
+                set fields {}
+                for {set f 0} {$f < 64} {incr f} { lappend fields "field_${i}_${f}" }
+                r himport prepare fieldset$i {*}$fields
+            }
         }
-
-        # Case A: 100 fieldsets that all share ONE template (same field names).
-        # Holder-proportional attribution splits the single template's footprint
-        # across its 100 holders, so its total contribution is ~one template.
+        # Measure how much memory 100 fieldsets add.
         r himport discardall
-        set base [cur_tot_mem]
-        set shared_fields {}
-        for {set f 0} {$f < 64} {incr f} { lappend shared_fields "sf_$f" }
-        for {set i 0} {$i < 100} {incr i} {
-            r himport prepare shared$i {*}$shared_fields
-        }
-        set shared_mem [expr {[cur_tot_mem] - $base}]
+        set empty [cur_tot_mem]
+        prepare_100
+        set overhead [expr {[cur_tot_mem] - $empty}]
         r himport discardall
 
-        # Case B: same count/size, but each fieldset pins a UNIQUE template
-        # (distinct field names). Each template has a single holder, so its full
-        # footprint is attributed -> ~100 templates worth of memory.
-        set base [cur_tot_mem]
-        for {set i 0} {$i < 100} {incr i} {
-            set fields {}
-            for {set f 0} {$f < 64} {incr f} { lappend fields "uf_${i}_$f" }
-            r himport prepare uniq$i {*}$fields
+        # After clearing, memory must return near $empty. tot-mem has some buffer
+        # noise, so allow half a cycle of overhead; a leak would add much more.
+        set tol [expr {$overhead / 2}]
+        for {set cycle 0} {$cycle < 4} {incr cycle} {
+            prepare_100
+            # Clear with DISCARDALL on even cycles, one-by-one DISCARD on odd ones.
+            if {$cycle % 2} {
+                for {set i 0} {$i < 100} {incr i} { r himport discard fieldset$i }
+            } else {
+                r himport discardall
+            }
+            assert {abs([cur_tot_mem] - $empty) < $tol}
         }
-        set unique_mem [expr {[cur_tot_mem] - $base}]
-        r himport discardall
-
-        # Both cases pay the same 'name + value_order cost'; the only difference 
-        # is the pinned template footprint. A shared template's footprint is split
-        # across its holders, so the unique case (one holder each) attributes far
-        # more memory.
-        assert {$unique_mem > $shared_mem * 2}
     }
 
     test {HIMPORT PREPARE state can trigger maxmemory-clients eviction} {

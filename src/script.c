@@ -324,7 +324,7 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
     /* HIMPORT fieldsets are scoped to a single script invocation. */
-    himportFieldsetFreeList(run_ctx->c);
+    himportFieldsetsFree(run_ctx->c);
 
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);

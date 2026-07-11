@@ -2060,7 +2060,7 @@ void clearClientConnectionState(client *c) {
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
     discardTransaction(c);
-    himportFieldsetFreeList(c);
+    himportFieldsetsFree(c);
 
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
@@ -2341,7 +2341,7 @@ void freeClient(client *c) {
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
-    himportFieldsetFreeList(c);
+    himportFieldsetsFree(c);
     if (c->name) decrRefCount(c->name);
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
@@ -5231,7 +5231,7 @@ size_t getClientMemoryUsage(client *c) {
     mem += multiStateMemOverhead(c);
 
     /* Add memory overhead of this client's HIMPORT fieldset bindings. */
-    mem += himportFieldsetMemOverhead(c);
+    mem += himportFieldsetsMemOverhead(c);
 
     /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
      * to the strings themselves because they aren't stored per client. */
