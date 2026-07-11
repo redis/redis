@@ -152,6 +152,28 @@ tags "modules external:skip" {
             assert_equal "hset myhash 4 f1 f2 f3 f4" [lindex $events 0]
             r del myhash
             r himport discard fieldset4
+
+            # Large field count: many fields all delivered as subkeys. Fixed-width
+            # names so the sorted template order matches numeric order.
+            set nfields 129
+            set fields {}
+            set vals {}
+            for {set i 1} {$i <= $nfields} {incr i} {
+                lappend fields [format f%03d $i]
+                lappend vals v$i
+            }
+            r himport prepare bigfs {*}$fields
+            r keyspace.reset_subkey_events
+            r himport set myhash bigfs {*}$vals
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            set ev [lindex $events 0]
+            assert_equal "hset" [lindex $ev 0]
+            assert_equal "myhash" [lindex $ev 1]
+            assert_equal $nfields [lindex $ev 2]
+            assert_equal $fields [lrange $ev 3 end]
+            r del myhash
+            r himport discard bigfs
         }
 
         test "Subkey notification: HDEL triggers module subkey callback" {

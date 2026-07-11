@@ -3936,9 +3936,6 @@ typedef struct hashTemplate {
                           * RESTORE find the template with one O(1) blob lookup.*/
     mstime_t fields_lp_last_used; /* Last time fields_lp was used, for cron idle reclaim. */
     unsigned int fits_in_listpack;  /* 1 if fields fit in listpack (DUMP serializes them as LP blob) */
-    robj **field_robjs;  /* Lazy-built cached field-name robjs (one per field, in
-                          * template order), used for keyspace subkey
-                          * notifications. Owns the robjs. */
 } hashTemplate;
 
 /* Global registry for hash templates. */
@@ -3960,8 +3957,7 @@ typedef struct hashTemplateRegistry {
     pthread_mutex_t lock;       /* Guards the only cross-thread state: the
                                  * pending_free_ids queue and the by_id array
                                  * (both touched by BIO threads). Everything else
-                                 * (registry, hold_refcount, field_robjs) is
-                                 * main-thread only. */
+                                 * (registry, hold_refcount) is main-thread only. */
     redisAtomic size_t total_key_refs; /* Sum of key_refcount across all templates. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
                                  * attached fields_lp blobs. Tracked incrementally

@@ -537,9 +537,6 @@ static int templateFieldsKeyCompare(dictCmpCache *cache,
 static void templateFieldsKeyDestructor(dict *d, void *key) {
     UNUSED(d);
     hashTemplate *tmpl = key;
-    /* field_robjs is freed in hashTemplateDecrHoldRef when the last non-key
-     * holder releases the template. */
-    serverAssert(tmpl->field_robjs == NULL);
     tmplIdRecycle(tmpl->id);
     /* Drop the lazy fields-listpack blob and its by_fields_lp index entry. */
     if (tmpl->fields_lp) {
@@ -612,7 +609,6 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
     tmpl->fields = zmalloc(sizeof(sds) * field_count);
     tmpl->fields_lp = NULL; /* Lazy built on first save/lookup. */
     tmpl->fields_lp_last_used = 0;
-    tmpl->field_robjs = NULL; /* Lazy built on first keyspace notification. */
     tmpl->mem_size = sizeof(*tmpl) + sizeof(sds) * field_count;
 
     for (unsigned long long i = 0; i < field_count; i++) {
@@ -703,23 +699,12 @@ static void hashTemplateFreeIfUnreferenced(hashTemplate *tmpl) {
 }
 
 /* Drop one hold-ref (a client's prepared fieldset, or an in-progress RDB load).
- * Main-thread only, no lock. When the last holder leaves, free the cached
- * field_robjs and, if no keys reference tmpl either, free tmpl. */
+ * Main-thread only, no lock. When the last holder leaves, free tmpl if no keys
+ * reference it either. */
 void hashTemplateDecrHoldRef(hashTemplate *tmpl) {
     serverAssert(tmpl->hold_refcount > 0);
     tmpl->hold_refcount--;
     if (tmpl->hold_refcount > 0) return;
-
-    /* field_robjs caches the field-name robjs used for keyspace notifications.
-     * HIMPORT SET can only target this template while a client has it prepared
-     * (a hold-ref via HIMPORT PREPARE); with no holders left no such write can
-     * happen, so the cache is dead weight - free it. */
-    if (tmpl->field_robjs) {
-        for (unsigned long long i = 0; i < tmpl->field_count; i++)
-            decrRefCount(tmpl->field_robjs[i]);
-        zfree(tmpl->field_robjs);
-        tmpl->field_robjs = NULL;
-    }
 
     hashTemplateFreeIfUnreferenced(tmpl);
 }
@@ -859,20 +844,6 @@ size_t hashTemplatesMemUsage(void) {
            dictMemUsage(htemplates->by_fields_lp) +
            htemplates->by_id_cap * sizeof(tmplIdChunk *) +
            htemplates->by_id_chunks * sizeof(tmplIdChunk);
-}
-
-/* Lazy-build the template's cached field robjs (one per field, in template
- * order) for use in keyspace subkey notifications. */
-static robj **hashTemplateGetFieldRobjs(hashTemplate *tmpl) {
-    if (!tmpl->field_robjs) {
-        unsigned long long n = tmpl->field_count;
-        tmpl->field_robjs = zmalloc(sizeof(robj *) * n);
-        for (unsigned long long i = 0; i < n; i++) {
-            sds field = tmpl->fields[i];
-            tmpl->field_robjs[i] = createStringObject(field, sdslen(field));
-        }
-    }
-    return tmpl->field_robjs;
 }
 
 /* Find field index in tmpl using binary search (fields are sorted).
@@ -4294,12 +4265,27 @@ void himportSetCommand(client *c) {
     }
     preventCommandPropagation(c);
 
-    /* Notify keyspace listeners, matching HSET's semantics. */
-    robj **fields_robj = hashTemplateGetFieldRobjs(tmpl);
+    /* Notify keyspace listeners (HSET semantics). Build the field-name subkeys
+     * only when a subkey consumer exists; the "hset" event fires either way. */
+    robj stack_fobjs[HASH_TMPL_STACK_ENTRIES];
+    robj *stack_fptrs[HASH_TMPL_STACK_ENTRIES];
+    robj *fobjs = NULL;
+    robj **fields_robj = NULL;
+    int heap = 0;
+    if (isSubkeyNotifyEnabled(NOTIFY_HASH)) {
+        heap = field_count > HASH_TMPL_STACK_ENTRIES;
+        fobjs = heap ? zmalloc(sizeof(robj) * field_count) : stack_fobjs;
+        fields_robj = heap ? zmalloc(sizeof(robj *) * field_count) : stack_fptrs;
+        for (unsigned long long i = 0; i < field_count; i++) {
+            initStaticStringObject(fobjs[i], tmpl->fields[i]);
+            fields_robj[i] = &fobjs[i];
+        }
+    }
     notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hset", c->argv[2], c->db->id,
-                                   fields_robj, (int) field_count);
-    server.dirty++;
+                                   fields_robj, fields_robj ? (int)field_count : 0);
+    if (heap) { zfree(fobjs); zfree(fields_robj); }
 
+    server.dirty++;
     addReply(c, shared.ok);
 }
 
