@@ -265,6 +265,9 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -331,6 +334,9 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -385,6 +391,9 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -454,6 +463,9 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -511,6 +523,9 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -608,6 +623,9 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -705,6 +723,9 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -779,6 +800,9 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -800,7 +824,6 @@ Tested with the following Docker images:
    cd /usr/src/redis-<version>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    export IGNORE_MISSING_DEPS=1
-   make modules-update
    make -j "$(nproc)" all
    ```
 
@@ -846,6 +869,9 @@ Tested with the following Docker image:
    ```sh
    mkdir -p /usr/src
    cd /usr/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -934,6 +960,9 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
 
    ```sh
    cd ~/src
+   # Redis 8.10 and above — full release that bundles the modules (<tag>, e.g. redis-docker-10):
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # Older than 8.10 — plain source archive (no modules bundled):
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
@@ -958,7 +987,6 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
    export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
    mkdir -p build_dir/etc
-   make modules-update OS=macos
    make -j "$(nproc)" all OS=macos
    make install PREFIX=$(pwd)/build_dir OS=macos
    ```
