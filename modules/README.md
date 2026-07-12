@@ -28,21 +28,16 @@ A release tarball (from `make tarball`) already bundles every module's
 source under `modules/<name>/src/`, so **do not** run `make modules-update`
 there — the sources are present and pinned.
 
-**Redis 8.10 and above** — the tarball ships the built modules; just build
-Redis:
+These instructions apply to Redis 8.10 and above; the tarball ships the
+built modules, so just build Redis. For the full per-OS prerequisites and
+build steps, see [Build Redis from source](../README.md#build-redis-from-source).
+For versions lower than 8.10, see the
+[8.8 build instructions](https://github.com/redis/redis/tree/8.8#build-redis-from-source).
 
 ```sh
 cd redis-<version>
 export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
 make -j "$(nproc)" all
-```
-
-**Older than 8.10** — build the bundled module sources with the release:
-
-```sh
-cd redis-<version>
-export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
-make -j "$(nproc)" all BUILD_WITH_MODULES=yes
 ```
 
 `make modules-update` is only for the from-source dev flow below, where
