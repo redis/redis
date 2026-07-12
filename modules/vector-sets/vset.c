@@ -1566,7 +1566,13 @@ int VINFO_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
  * With negative count: N random members (with possible duplicates).
  *
  * If the key doesn't exist, returns NULL if count is not given, or
- * an empty array if a count was given. */
+ * an empty array if a count was given.
+ *
+ * A count of LLONG_MIN is rejected up front, before the missing-key and
+ * empty-set fast paths, so an invalid count is rejected consistently: negating
+ * it to get abs(count) is undefined behavior and its magnitude does not fit in
+ * the reply length, which would otherwise trip serverAssert(length >= 0) and
+ * crash the server. */
 int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
@@ -1586,14 +1592,7 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         if (count == 0) {
             return RedisModule_ReplyWithEmptyArray(ctx);
         }
-        /* A negative count requests abs(count) elements (with duplicates), but
-         * LLONG_MIN has no representable positive counterpart: negating it is
-         * undefined behavior and its magnitude does not fit in the reply length.
-         * Reject it up front, before the missing-key and empty-set fast paths
-         * that would otherwise return an empty array without validating it, so
-         * an invalid count is rejected consistently. Otherwise building a reply
-         * with a negative array length would trip serverAssert(length >= 0) and
-         * crash the server. */
+        /* Negating LLONG_MIN to get abs(count) is UB and overflows the reply length. */
         if (count == LLONG_MIN) {
             return RedisModule_ReplyWithError(ctx,
                 "ERR COUNT value is out of range");
