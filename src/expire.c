@@ -320,8 +320,11 @@ void activeExpireCycle(int type) {
          * for time limit, unless the percentage of estimated stale keys is
          * too high. Also never repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
+        /* stat_expired_stale_perc is a 0..1 fraction; config is a percent
+         * (ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE is 10 meaning 10%). Compare
+         * like units so a high stale estimate can still force a FAST cycle. */
         if (!timelimit_exit &&
-            server.stat_expired_stale_perc < config_cycle_acceptable_stale)
+            server.stat_expired_stale_perc * 100 < config_cycle_acceptable_stale)
             return;
 
         if (start < last_fast_cycle + (long long)config_cycle_fast_duration*2)
