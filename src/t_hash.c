@@ -448,7 +448,7 @@ hashTemplate *hashTemplateGetById(uint64_t id) {
 
 /* Cache 'fields_lp' as tmpl's fields-listpack (blob -> template), taking
  * ownership. Last one wins: a stale blob already attached is dropped. */
-void hashTemplateAttachFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp) {
+void hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp) {
     if (tmpl->fields_lp) {
         dictDelete(htemplates->by_fields_lp, tmpl->fields_lp);
         htemplates->total_mem_size -= lpBytes(tmpl->fields_lp);
@@ -460,15 +460,12 @@ void hashTemplateAttachFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp) {
     htemplates->total_mem_size += lpBytes(fields_lp);
 }
 
-/* Return tmpl's fields listpack ([f0][f1]...[fN-1]), lazily creating it on the
- * first use. Fields lp is used for fast template lookup on RESTORE payload.
- * See htemplates->by_fields_lp */
-unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl) {
+/* Return tmpl's fields listpack, building it on first use. 'index' also adds the
+ * blob to the by_fields_lp lookup (used on RESTORE) */
+unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int index) {
     tmpl->fields_lp_last_used = server.mstime;
     if (tmpl->fields_lp) return tmpl->fields_lp;
 
-    /* Build in one pass: lpBatchAppend reallocs once, whereas a per-field
-     * lpAppend loop reallocs on every field (O(n^2) for wide templates). */
     listpackEntry stack_ent[HASH_TMPL_STACK_ENTRIES];
     listpackEntry *ent = (tmpl->field_count <= HASH_TMPL_STACK_ENTRIES) ?
                          stack_ent : zmalloc(sizeof(listpackEntry) * tmpl->field_count);
@@ -476,10 +473,12 @@ unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl) {
         ent[i].sval = (unsigned char *)tmpl->fields[i];
         ent[i].slen = sdslen(tmpl->fields[i]);
     }
-    unsigned char *lp = lpBatchAppend(lpNew(0), ent, tmpl->field_count);
+    unsigned char *lp = lpNewWithEntries(ent, tmpl->field_count);
     if (ent != stack_ent) zfree(ent);
 
-    hashTemplateAttachFieldsLp(tmpl, lp);
+    if (index) hashTemplateIndexFieldsLp(tmpl, lp);
+    else tmpl->fields_lp = lp; /* not indexed */
+
     return lp;
 }
 
