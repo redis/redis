@@ -2593,6 +2593,15 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
 
     if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+    /* Serialized nodes always carry a real unique ID (>= 1). id==0 is the
+     * in-memory "auto-assign" sentinel used by hnsw_node_new(); accepting it
+     * here rewrites the ID and can collide with later nodes that claim that
+     * auto-assigned value, defeating ID uniqueness. */
+    if (id == 0) return NULL;
+    /* Levels above HNSW_MAX_LEVEL never occur in legitimate indexes
+     * (random_level() is capped). Reject them so untrusted RESTORE/RDB
+     * payloads cannot inflate max_level past structures sized for the cap. */
+    if (level > HNSW_MAX_LEVEL) return NULL;
     int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
@@ -2747,17 +2756,33 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     if (table == NULL) return 0;
     memset(table,0,sizeof(hnswNode*) * table_size);
 
-    /* First pass: populate the ID -> pointer hash table. */
+    /* First pass: populate the ID -> pointer hash table.
+     *
+     * Duplicate node IDs are rejected as corruption: a well-formed
+     * serialization always assigns a unique ID to each node. If duplicates
+     * were accepted, the reciprocal-links check below could pass at the ID
+     * level while the resolved pointer graph is non-reciprocal (link
+     * resolution stops at the first table entry with a matching ID). Such a
+     * graph can leave dangling neighbor pointers after a node is deleted,
+     * leading to a use-after-free on later access. */
     hnswNode *node = index->head;
     while(node) {
         uint64_t bucket = hnsw_hash_node_id(node->id) & (table_size-1);
+        int inserted = 0;
         for (uint64_t j = 0; j < table_size; j++) {
             if (table[bucket] == NULL) {
                 table[bucket] = node;
+                inserted = 1;
                 break;
             }
+            /* Same ID already mapped: reject before link resolution. */
+            if (table[bucket]->id == node->id) goto corrupted;
             bucket = (bucket+1) & (table_size-1);
         }
+        /* Table is sized ~2x node_count; failure to insert means the probe
+         * found neither an empty slot nor a duplicate — treat as corruption
+         * rather than silently dropping the node from the ID map. */
+        if (!inserted) goto corrupted;
         node = node->next;
     }
 
