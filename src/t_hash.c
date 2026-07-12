@@ -730,12 +730,9 @@ static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
     }
 }
 
-/* Free the templates queued by BIO threads. Main-thread only (serverCron). An id
- * is freed only if its template still has no references; anything already freed
- * or referenced again in the meantime is skipped.
- *
- * Processes incrementally with a time limit to avoid blocking the main thread
- * when draining large batches (e.g. after FLUSHALL). */
+/* Free the templates queued by BIO threads. A template is freed only if it still
+ * has no references. Processes incrementally with a time limit to avoid blocking 
+ * the main thread when draining large batches (e.g. after FLUSHALL). */
 static void hashTemplateDrainPendingFree(void) {
     /* Drain state kept across serverCron cycles (main-thread only). */
     static uint64_t *batch = NULL;
@@ -792,19 +789,21 @@ static void hashTemplateDrainPendingFree(void) {
 
 typedef struct {
     hashTemplate *tmpls[FIELDS_LP_BATCH];
-    int n;
+    int collected; /* idle blobs gathered into tmpls[] */
+    int scanned;   /* blobs scanned this window */
 } fieldsLpReclaimCtx;
 
 /* dictScan callback: collect templates whose fields_lp is idle. */
 static void fieldsLpReclaimCollect(void *privdata, const dictEntry *de, dictEntry **plink) {
     UNUSED(plink);
     fieldsLpReclaimCtx *ctx = privdata;
-    if (ctx->n >= FIELDS_LP_BATCH) return;
+    if (ctx->collected >= FIELDS_LP_BATCH) return;
 
     hashTemplate *tmpl = dictGetVal((dictEntry *)de);
     if (tmpl->fields_lp == NULL) return;
-    if (server.mstime - tmpl->fields_lp_last_used < HASH_TEMPLATE_FIELDS_LP_IDLE_MS) return;
-    ctx->tmpls[ctx->n++] = tmpl;
+    ctx->scanned++;
+    if (server.mstime - tmpl->fields_lp_last_used < HASH_TEMPLATE_FIELDS_LP_IDLE_MS) return; /* still in use */
+    ctx->tmpls[ctx->collected++] = tmpl;
 }
 
 /* Reclaim fields_lp blobs idle longer than HASH_TEMPLATE_FIELDS_LP_IDLE_MS.
@@ -816,19 +815,22 @@ static void hashTemplatesCleanupFieldsLpCron(void) {
     if (!d || dictSize(d) == 0) return;
 
     long long start = ustime();
-    long long timelimit = 1000000 / server.hz / 50;  /* 2% of a hz cycle */
+    long long timelimit = 1000000 / server.hz / 200;  /* 0.5% of a hz cycle (~0.5ms) */
     if (timelimit <= 0) timelimit = 1;
 
     while (1) {
         /* Collect a small batch, then free it */
-        fieldsLpReclaimCtx ctx = { .n = 0 };
+        fieldsLpReclaimCtx ctx = { .collected = 0 };
         int steps = 0;
 
         do {
             cursor = dictScan(d, cursor, fieldsLpReclaimCollect, &ctx);
-        } while (cursor != 0 && ++steps < 16 && ctx.n < FIELDS_LP_BATCH);
+        } while (cursor != 0 && ++steps < 16 && ctx.collected < FIELDS_LP_BATCH);
 
-        for (int i = 0; i < ctx.n; i++) {
+        /* Blobs present but none idle: nothing to reclaim now, stop (e.g. ASM). */
+        if (ctx.collected == 0 && ctx.scanned > 0) break;
+
+        for (int i = 0; i < ctx.collected; i++) {
             hashTemplate *tmpl = ctx.tmpls[i];
             if (tmpl->fields_lp == NULL) continue;
 

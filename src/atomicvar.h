@@ -154,7 +154,6 @@
 #define atomicIncr(var,count) __sync_add_and_fetch(&var,(count))
 #define atomicIncrGet(var, newvalue_var, count) \
     newvalue_var = __sync_add_and_fetch(&var,(count))
-/* __sync builtins already issue a full memory barrier. */
 #define atomicIncrGetWithSync(var, newvalue_var, count) \
     newvalue_var = __sync_add_and_fetch(&var,(count))
 #define atomicGetIncr(var,oldvalue_var,count) do { \
