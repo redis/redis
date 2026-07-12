@@ -14,7 +14,6 @@
 #include "redisassert.h"
 #include "ebuckets.h"
 #include "entry.h"
-#include "cluster_asm.h"
 #include "vector.h"
 #include <math.h>
 
@@ -738,7 +737,7 @@ static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
  *
  * Processes incrementally with a time limit to avoid blocking the main thread
  * when draining large batches (e.g. after FLUSHALL). */
-void hashTemplateDrainPendingFree(void) {
+static void hashTemplateDrainPendingFree(void) {
     /* Drain state kept across serverCron cycles (main-thread only). */
     static uint64_t *batch = NULL;
     static size_t batch_count = 0;
@@ -772,7 +771,8 @@ void hashTemplateDrainPendingFree(void) {
         if (tmpl != NULL) hashTemplateFreeIfUnreferenced(tmpl);
         pos++;
 
-        if (ustime() - start > timelimit) break;
+        /* Check the clock every 16 frees. */
+        if ((pos & 15) == 0 && ustime() - start > timelimit) break;
     }
 
     /* Done with this batch? */
@@ -788,37 +788,67 @@ void hashTemplateDrainPendingFree(void) {
  * generated due to DUMP/RESTORE propagation master->repica or ASM */
 #define HASH_TEMPLATE_FIELDS_LP_IDLE_MS 5000
 
-/* Blobs sampled per cron call. Small: cache reclaim is low priority. */
-#define HASH_TEMPLATE_FIELDS_LP_SAMPLE_PER_CALL 32
+/* Max idle blobs collected per batch. */
+#define FIELDS_LP_BATCH 64
+
+typedef struct {
+    hashTemplate *tmpls[FIELDS_LP_BATCH];
+    int n;
+} fieldsLpReclaimCtx;
+
+/* dictScan callback: collect templates whose fields_lp is idle. */
+static void fieldsLpReclaimCollect(void *privdata, const dictEntry *de, dictEntry **plink) {
+    UNUSED(plink);
+    fieldsLpReclaimCtx *ctx = privdata;
+    if (ctx->n >= FIELDS_LP_BATCH) return;
+
+    hashTemplate *tmpl = dictGetVal((dictEntry *)de);
+    if (tmpl->fields_lp == NULL) return;
+    if (server.mstime - tmpl->fields_lp_last_used < HASH_TEMPLATE_FIELDS_LP_IDLE_MS) return;
+    ctx->tmpls[ctx->n++] = tmpl;
+}
 
 /* Reclaim fields_lp blobs idle longer than HASH_TEMPLATE_FIELDS_LP_IDLE_MS.
  * These blobs are built lazily during DUMP/RESTORE/ASM for O(1) template lookup;
  * once idle they are dead weight (rebuilt on the next DUMP if needed). */
-void hashTemplatesCleanupFieldsLpCron(void) {
+static void hashTemplatesCleanupFieldsLpCron(void) {
+    static unsigned long cursor = 0;
     dict *d = htemplates ? htemplates->by_fields_lp : NULL;
     if (!d || dictSize(d) == 0) return;
 
-    /* Skip while importing: deleting the blobs may slowdown ASM. */
-    if (asmImportInProgress()) return;
+    long long start = ustime();
+    long long timelimit = 1000000 / server.hz / 50;  /* 2% of a hz cycle */
+    if (timelimit <= 0) timelimit = 1;
 
-    dictEntry *des[HASH_TEMPLATE_FIELDS_LP_SAMPLE_PER_CALL];
-    unsigned int n = dictGetSomeKeys(d, des, HASH_TEMPLATE_FIELDS_LP_SAMPLE_PER_CALL);
+    while (1) {
+        /* Collect a small batch, then free it */
+        fieldsLpReclaimCtx ctx = { .n = 0 };
+        int steps = 0;
 
-    /* Resolve templates before deleting any: a delete can relocate the other
-     * sampled entries during rehashing. */
-    hashTemplate *tmpls[HASH_TEMPLATE_FIELDS_LP_SAMPLE_PER_CALL];
-    for (unsigned int i = 0; i < n; i++) tmpls[i] = dictGetVal(des[i]);
+        do {
+            cursor = dictScan(d, cursor, fieldsLpReclaimCollect, &ctx);
+        } while (cursor != 0 && ++steps < 16 && ctx.n < FIELDS_LP_BATCH);
 
-    for (unsigned int i = 0; i < n; i++) {
-        hashTemplate *tmpl = tmpls[i];
-        if (tmpl->fields_lp == NULL) continue;
-        if (server.mstime - tmpl->fields_lp_last_used < HASH_TEMPLATE_FIELDS_LP_IDLE_MS)
-            continue;
-        dictDelete(d, tmpl->fields_lp);
-        htemplates->total_mem_size -= lpBytes(tmpl->fields_lp);
-        lpFree(tmpl->fields_lp);
-        tmpl->fields_lp = NULL;
+        for (int i = 0; i < ctx.n; i++) {
+            hashTemplate *tmpl = ctx.tmpls[i];
+            if (tmpl->fields_lp == NULL) continue;
+
+            dictDelete(d, tmpl->fields_lp);
+            htemplates->total_mem_size -= lpBytes(tmpl->fields_lp);
+            lpFree(tmpl->fields_lp);
+            tmpl->fields_lp = NULL;
+        }
+
+        if (cursor == 0) break; /* completed a full sweep */
+        if (ustime() - start > timelimit) break;   /* out of time budget */
     }
+}
+
+/* Template registry maintenance, once per serverCron cycle. */
+void hashTemplatesCron(void) {
+    if (!htemplates) return;
+    hashTemplateDrainPendingFree();
+    hashTemplatesCleanupFieldsLpCron();
 }
 
 /* Get number of templates in the registry. */

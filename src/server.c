@@ -1802,13 +1802,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         pendingCommandPoolCron();
     }
 
-    /* Reclaim templates a BIO lazyfree thread brought to zero references (it
-     * enqueues their ids since it can't touch the registry). Cheap when empty. */
-    hashTemplateDrainPendingFree();
-
-    /* Sweep idle fields_lp blobs (built lazily for DUMP/RESTORE/ASM, dead weight
-     * afterwards). Every 100ms; cheap when there is nothing to reclaim. */
-    run_with_period(100) hashTemplatesCleanupFieldsLpCron();
+    /* Template registry maintenance. */
+    hashTemplatesCron();
 
     /* Resize tracking keys table if needed. This is also done at every
      * command execution, but we want to be sure that if the last command
