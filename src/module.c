@@ -9318,11 +9318,11 @@ void moduleReleaseGIL(void) {
  *
  * Live replicas and incremental AOF replay apply the conversion through an
  * internal metadata-preserving RESTORE. Subscribers there receive `restore`
- * with REDISMODULE_NOTIFY_GENERIC, `overwritten` with
- * REDISMODULE_NOTIFY_OVERWRITTEN, then `type_changed` with
- * REDISMODULE_NOTIFY_TYPE_CHANGED. Replay does not emit REDISMODULE_NOTIFY_NEW
- * or fire a key-unlink callback, and callbacks observe the installed bitmap
- * unless an earlier callback mutates the key.
+ * with REDISMODULE_NOTIFY_GENERIC, followed by `type_changed` with
+ * REDISMODULE_NOTIFY_TYPE_CHANGED. Replay does not emit
+ * REDISMODULE_NOTIFY_NEW or REDISMODULE_NOTIFY_OVERWRITTEN or fire a key-unlink
+ * callback, and callbacks observe the installed bitmap unless an earlier
+ * callback mutates the key.
  *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
