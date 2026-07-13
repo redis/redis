@@ -275,7 +275,19 @@ Tested with the following Docker image:
    sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
    ```
 
-5. Download the Redis source
+5. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+6. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -287,7 +299,7 @@ Tested with the following Docker image:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-6. Extract the source archive
+7. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -295,18 +307,6 @@ Tested with the following Docker image:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-7. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 8. Build Redis
@@ -366,7 +366,19 @@ Tested with the following Docker image:
    sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
    ```
 
-4. Download the Redis source
+4. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+5. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -378,7 +390,7 @@ Tested with the following Docker image:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-5. Extract the source archive
+6. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -386,18 +398,6 @@ Tested with the following Docker image:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-6. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 7. Build Redis
@@ -445,7 +445,19 @@ Tested with the following Docker image:
    sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
    ```
 
-3. Download the Redis source
+3. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+4. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -457,7 +469,7 @@ Tested with the following Docker image:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-4. Extract the source archive
+5. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -465,18 +477,6 @@ Tested with the following Docker image:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-5. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -527,7 +527,19 @@ Tested with the following Docker image:
 
    Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
 
-3. Download the Redis source
+3. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+4. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -539,7 +551,7 @@ Tested with the following Docker image:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-4. Extract the source archive
+5. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -547,18 +559,6 @@ Tested with the following Docker image:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-5. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -620,7 +620,19 @@ Tested with the following Docker images:
    sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
    ```
 
-3. Download the Redis source
+3. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+4. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -632,7 +644,7 @@ Tested with the following Docker images:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-4. Extract the source archive
+5. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -640,18 +652,6 @@ Tested with the following Docker images:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-5. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -739,7 +739,19 @@ Tested with the following Docker images:
    cmake --version
    ```
 
-4. Download the Redis source
+4. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+5. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -751,7 +763,7 @@ Tested with the following Docker images:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-5. Extract the source archive
+6. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -759,18 +771,6 @@ Tested with the following Docker images:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-6. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 7. Build Redis
@@ -851,7 +851,19 @@ Tested with the following Docker images:
    cmake --version
    ```
 
-4. Download the Redis source
+4. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+5. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -863,7 +875,7 @@ Tested with the following Docker images:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-5. Extract the source archive
+6. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -871,18 +883,6 @@ Tested with the following Docker images:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-6. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 7. Build Redis
@@ -938,7 +938,19 @@ Tested with the following Docker images:
 
    On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain installed in the "Install the Rust toolchain" step below. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
 
-3. Download the Redis source
+3. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+4. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -950,7 +962,7 @@ Tested with the following Docker images:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-4. Extract the source archive
+5. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -958,18 +970,6 @@ Tested with the following Docker images:
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-5. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -1016,7 +1016,19 @@ Tested with the following Docker image:
    pip install addict toml jinja2 ramp-packer
    ```
 
-2. Download the Redis source
+2. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
+
+   ```sh
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-musl
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
+   ```
+
+3. Download the Redis source
 
    Download a specific version of the Redis source code archive from GitHub.
 
@@ -1029,24 +1041,12 @@ Tested with the following Docker image:
    wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
-3. Extract the source archive
+4. Extract the source archive
 
    ```sh
    cd /usr/src
    tar xvf redis-full.tar.gz
    rm redis-full.tar.gz
-   ```
-
-4. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-musl
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 5. Build Redis
