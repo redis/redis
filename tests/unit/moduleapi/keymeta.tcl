@@ -120,6 +120,35 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         assert_equal $classes($cid) $cid
     }
 
+    test {KEYMETA - bitmap auto-conversion preserves metadata and expiration} {
+        r config set bitmap-default-roaring no
+        r set bitmap:meta:setbit [binary format H* 80]
+        setupKeyMeta bitmap:meta:setbit 7 1 0
+        set setbit_expire [r pexpiretime bitmap:meta:setbit]
+
+        r set bitmap:meta:bitfield [binary format H* 80]
+        setupKeyMeta bitmap:meta:bitfield 7 1 0
+        set bitfield_expire [r pexpiretime bitmap:meta:bitfield]
+
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit bitmap:meta:setbit 0 0]
+        assert_equal {1} [r bitfield bitmap:meta:bitfield SET u1 0 0]
+        r config set bitmap-default-roaring no
+
+        foreach {key expire_at} [list \
+            bitmap:meta:setbit $setbit_expire \
+            bitmap:meta:bitfield $bitfield_expire] {
+            assert_equal bitmap [r type $key]
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal $expire_at [r pexpiretime $key]
+            for {set cid 1} {$cid <= 7} {incr cid} {
+                assert_equal "meta$cid" [r keymeta.get [cname $cid] $key]
+            }
+        }
+
+        flushallAndVerifyCleanup
+    }
+
     # Validates metadata behavior across COPY/RENAME/MOVE operations
     # with varying numbers of metadata classes (1-7), key expiration states,
     # key types (string/hash), hash field expiration, and metadata class flags
@@ -770,6 +799,55 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         assert_match "*Bad data format*" $err
 
         flushallAndVerifyCleanup
+    }
+}
+
+start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no enable-debug-command yes}} {
+    test {AOF: bitmap auto-conversion RESTORE carries module metadata} {
+        r module load $testmodule
+        r debug enable-keymeta-runtime-registration 1
+        assert_equal 1 [r keymeta.register [cname 1] 1 \
+            "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
+        set aof [get_last_incr_aof_path r]
+
+        r set bitmap:aof-convert-meta [binary format H* 80]
+        r keymeta.set [cname 1] bitmap:aof-convert-meta "conversion_meta"
+        r pexpire bitmap:aof-convert-meta 600000
+        set expire_at [r pexpiretime bitmap:aof-convert-meta]
+
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit bitmap:aof-convert-meta 0 0]
+        r config set bitmap-default-roaring no
+        assert_equal bitmap [r type bitmap:aof-convert-meta]
+        assert_equal "conversion_meta" \
+            [r keymeta.get [cname 1] bitmap:aof-convert-meta]
+
+        set fp [open $aof r]
+        fconfigure $fp -translation binary
+        set restore_count 0
+        set keymeta_set_count 0
+        while {1} {
+            set cmd [read_from_aof $fp]
+            if {$cmd eq ""} break
+            if {[lindex $cmd 0] eq "restore" &&
+                [lindex $cmd 1] eq "bitmap:aof-convert-meta"} {
+                incr restore_count
+            } elseif {[lindex $cmd 0] eq "keymeta.set"} {
+                incr keymeta_set_count
+            }
+        }
+        close $fp
+        assert_equal 1 $restore_count
+        assert_equal 0 $keymeta_set_count
+
+        # KEYMETA.SET is absent, so the metadata can survive replay only when
+        # the conversion's RESTORE carries it.
+        r debug loadaof
+        assert_equal bitmap [r type bitmap:aof-convert-meta]
+        assert_equal bitmap-roaring [r object encoding bitmap:aof-convert-meta]
+        assert_equal $expire_at [r pexpiretime bitmap:aof-convert-meta]
+        assert_equal "conversion_meta" \
+            [r keymeta.get [cname 1] bitmap:aof-convert-meta]
     }
 }
 
