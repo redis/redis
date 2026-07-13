@@ -236,15 +236,19 @@ Tested with the following Docker image:
    ```sh
    apt-get update
    apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf gcc-10 g++-10 libtool
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
    ```
 
-2. Use GCC 10 as the default compiler
+2. Use GCC 11 as the default compiler
 
-   Update the system's default compiler to GCC 10:
+   Ubuntu 20.04 packages at most GCC 10, but RediSearch's C++ code needs C++20 library features (e.g. `std::bit_cast`) that only libstdc++ 11+ provides — clang compiles against the headers of the newest GCC installed. Install GCC 11 from the ubuntu-toolchain-r PPA and make it the default:
 
    ```sh
-   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+   sudo apt-get install -y --no-install-recommends software-properties-common gnupg
+   sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+   sudo apt-get update
+   sudo apt-get install -y --no-install-recommends gcc-11 g++-11
+   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 --slave /usr/bin/g++ g++ /usr/bin/g++-11
    ```
 
 3. Install CMake
