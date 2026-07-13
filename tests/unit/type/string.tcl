@@ -863,8 +863,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_encoding "int" bar
         lappend res [r get bar]
     } {12 12}
-
-
+    
     # coverage for kvobjComputeSize
     test {MEMORY USAGE - STRINGS} {
         set sizes {1 5 8 15 16 17 31 32 33 63 64 65 127 128 129 255 256 257}
