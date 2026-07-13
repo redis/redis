@@ -394,12 +394,12 @@ void keyMetaSpecCleanup(KeyMetaSpec *kms) {
 }
 
 /* Merge module metadata loaded from a RESTORE payload into an existing key.
- * A representation transition keeps metadata that is already attached to the
- * logical key. Payload metadata fills classes that are missing (for example,
- * an AOF replay may not have recreated an RDB-only class before the
- * transition). When both sides carry a value for the same class, discard the
- * freshly loaded copy through the class free callback and keep the existing
- * value. This function consumes the metadata owned by `kms`. */
+ * A representation transition keeps target-only metadata classes that are
+ * already attached to the logical key. Values present in the payload are
+ * authoritative: they fill missing classes and replace stale target values.
+ * Replaced values are released through the class free callback without an
+ * unlink callback because the logical key survives. This function consumes
+ * the metadata owned by `kms`. */
 void keyMetaMergeFromSpec(redisDb *db, kvobj **kvref, KeyMetaSpec *kms) {
     kvobj *kv = *kvref;
     uint64_t *pMeta = kms->meta + KEY_META_ID_MAX - 1;
@@ -417,13 +417,14 @@ void keyMetaMergeFromSpec(redisDb *db, kvobj **kvref, KeyMetaSpec *kms) {
             serverAssert(pClass->state == CLASS_STATE_INUSE);
 
             uint64_t existing = pClass->conf.reset_value;
-            int has_existing = keyMetaGetMetadata(keyMetaId, kv, &existing) &&
+            int has_target = keyMetaGetMetadata(keyMetaId, kv, &existing);
+            int has_existing = has_target &&
                                existing != pClass->conf.reset_value;
 
-            if (has_existing) {
-                if (loaded != pClass->conf.reset_value && pClass->conf.free)
-                    pClass->conf.free(kvobjGetKey(kv), loaded);
-            } else if (loaded != pClass->conf.reset_value) {
+            if (has_existing && pClass->conf.free)
+                pClass->conf.free(kvobjGetKey(kv), existing);
+
+            if (loaded != pClass->conf.reset_value || has_target) {
                 kv = keyMetaSetMetadata(db, kv, keyMetaId, loaded);
                 serverAssert(kv != NULL);
             }
