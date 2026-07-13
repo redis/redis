@@ -53,6 +53,77 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 static long long callback_call_count = 0;
 static long long string_callback_call_count = 0;
 static long long bitmap_callback_call_count = 0;
+
+#define BITMAP_TRANSITION_LOG_MAX 16
+#define BITMAP_TRANSITION_LOG_ENTRY_MAX 128
+static char bitmap_transition_log[BITMAP_TRANSITION_LOG_MAX][BITMAP_TRANSITION_LOG_ENTRY_MAX];
+static int bitmap_transition_log_count = 0;
+static long long bitmap_transition_unlink_count = 0;
+
+static int IsBitmapTransitionKey(const RedisModuleString *key) {
+    static const char prefix[] = "bitmap:transition:";
+    size_t len;
+    const char *key_str = RedisModule_StringPtrLen(key, &len);
+    return len >= sizeof(prefix) - 1 &&
+           memcmp(key_str, prefix, sizeof(prefix) - 1) == 0;
+}
+
+static const char *KeyTypeName(int type) {
+    switch (type) {
+    case REDISMODULE_KEYTYPE_EMPTY: return "empty";
+    case REDISMODULE_KEYTYPE_STRING: return "string";
+    case REDISMODULE_KEYTYPE_BITMAP: return "bitmap";
+    default: return "other";
+    }
+}
+
+static const char *NotificationClassName(int type) {
+    switch (type) {
+    case REDISMODULE_NOTIFY_BITMAP: return "bitmap";
+    case REDISMODULE_NOTIFY_OVERWRITTEN: return "overwritten";
+    case REDISMODULE_NOTIFY_TYPE_CHANGED: return "type_changed";
+    default: return "other";
+    }
+}
+
+static void LogBitmapTransitionNotification(RedisModuleCtx *ctx, int type,
+                                            const char *event,
+                                            RedisModuleString *key)
+{
+    if (!IsBitmapTransitionKey(key) ||
+        bitmap_transition_log_count == BITMAP_TRANSITION_LOG_MAX)
+    {
+        return;
+    }
+
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    int key_type = RedisModule_KeyType(redis_key);
+    snprintf(bitmap_transition_log[bitmap_transition_log_count],
+             BITMAP_TRANSITION_LOG_ENTRY_MAX, "%s %s %s", event,
+             NotificationClassName(type), KeyTypeName(key_type));
+    bitmap_transition_log_count++;
+    RedisModule_CloseKey(redis_key);
+}
+
+static void DeleteBitmapTransitionKey(RedisModuleCtx *ctx, RedisModuleString *key) {
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "DEL", "s!", key);
+    RedisModule_Assert(reply != NULL);
+    RedisModule_FreeCallReply(reply);
+}
+
+static void BitmapTransitionKeyUnlink(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                                      uint64_t subevent, void *data)
+{
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(eid);
+    REDISMODULE_NOT_USED(subevent);
+
+    RedisModuleKeyInfoV1 *info = data;
+    const RedisModuleString *key = RedisModule_GetKeyNameFromModuleKey(info->key);
+    if (IsBitmapTransitionKey(key))
+        bitmap_transition_unlink_count++;
+}
+
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     callback_call_count++;
@@ -148,11 +219,27 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
 }
 
 static int KeySpace_NotificationModuleBitmap(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-    REDISMODULE_NOT_USED(ctx);
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-    REDISMODULE_NOT_USED(key);
     bitmap_callback_call_count++;
+    LogBitmapTransitionNotification(ctx, type, event, key);
+    if (strcmp(RedisModule_StringPtrLen(key, NULL),
+               "bitmap:transition:delete-bitmap") == 0)
+    {
+        DeleteBitmapTransitionKey(ctx, key);
+    }
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationBitmapTransition(RedisModuleCtx *ctx, int type,
+                                                 const char *event,
+                                                 RedisModuleString *key)
+{
+    LogBitmapTransitionNotification(ctx, type, event, key);
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
+        strcmp(RedisModule_StringPtrLen(key, NULL),
+               "bitmap:transition:delete-type") == 0)
+    {
+        DeleteBitmapTransitionKey(ctx, key);
+    }
     return REDISMODULE_OK;
 }
 
@@ -465,6 +552,48 @@ int GetBitmapCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_OK;
 }
 
+static int ResetBitmapTransitionCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    bitmap_transition_log_count = 0;
+    bitmap_transition_unlink_count = 0;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int GetBitmapTransitionCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModule_ReplyWithArray(ctx, bitmap_transition_log_count);
+    for (int i = 0; i < bitmap_transition_log_count; i++) {
+        RedisModule_ReplyWithStringBuffer(ctx, bitmap_transition_log[i],
+                                          strlen(bitmap_transition_log[i]));
+    }
+    return REDISMODULE_OK;
+}
+
+static int GetBitmapTransitionUnlinkCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    return RedisModule_ReplyWithLongLong(ctx, bitmap_transition_unlink_count);
+}
+
+static int GetKeyTypeCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    RedisModule_ReplyWithCString(ctx, KeyTypeName(type));
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
 static int CmdUnsub(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         return RedisModule_WrongArity(ctx);
@@ -535,6 +664,17 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx,
+        REDISMODULE_NOTIFY_OVERWRITTEN | REDISMODULE_NOTIFY_TYPE_CHANGED,
+        KeySpace_NotificationBitmapTransition) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key,
+        BitmapTransitionKeyUnlink) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -590,6 +730,22 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.bitmap_callback_count", GetBitmapCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.reset_bitmap_transition", ResetBitmapTransitionCommand, "", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_bitmap_transition", GetBitmapTransitionCommand, "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.bitmap_transition_unlink_count", GetBitmapTransitionUnlinkCountCommand, "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.key_type", GetKeyTypeCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
