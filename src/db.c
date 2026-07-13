@@ -1257,10 +1257,11 @@ void flushAllDataAndResetRDB(int flags) {
 
 /* Block client for blocking ASYNC FLUSH operation (FLUSH*, SFLUSH). */
 void blockClientForAsyncFlush(client *c) {
+    initClientBlockingState(c);
     /* measure bg job till completion as elapsed time of flush command */
-    elapsedStart(&c->bstate.lazyfreeStartTime);
+    elapsedStart(&c->bstate->lazyfreeStartTime);
 
-    c->bstate.timeout = 0;
+    c->bstate->timeout = 0;
     /* We still need to perform cleanup operations for the command, including
      * updating the replication offset, so mark this command as pending to
      * avoid command from being reset during unblock. */
@@ -1311,7 +1312,7 @@ void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots
     server.current_client = c;
 
     /* Don't update blocked_us since command was processed in bg by lazy_free thread */
-    updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate.lazyfreeStartTime), 0);
+    updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate->lazyfreeStartTime), 0);
 
     /* Only SFLUSH command pass user data pointer. */
     if (slots)

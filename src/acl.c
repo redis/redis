@@ -2012,7 +2012,7 @@ int ACLShouldKillPubsubClient(client *c, list *upcoming) {
         /* Check for pattern violations. */
         dictIterator di;
         dictEntry *de;
-        dictInitIterator(&di, c->pubsub_patterns);
+        dictInitIterator(&di, c->pubsub_data->pubsub_patterns);
         while (!kill && ((de = dictNext(&di)) != NULL)) {
             o = dictGetKey(de);
             int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
@@ -2023,7 +2023,7 @@ int ACLShouldKillPubsubClient(client *c, list *upcoming) {
         /* Check for channel violations. */
         if (!kill) {
             /* Check for global channels violation. */
-            dictInitIterator(&di, c->pubsub_channels);
+            dictInitIterator(&di, c->pubsub_data->pubsub_channels);
 
             while (!kill && ((de = dictNext(&di)) != NULL)) {
                 o = dictGetKey(de);
@@ -2034,7 +2034,7 @@ int ACLShouldKillPubsubClient(client *c, list *upcoming) {
         }
         if (!kill) {
             /* Check for shard channels violation. */
-            dictInitIterator(&di, c->pubsubshard_channels);
+            dictInitIterator(&di, c->pubsub_data->pubsubshard_channels);
             while (!kill && ((de = dictNext(&di)) != NULL)) {
                 o = dictGetKey(de);
                 int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);

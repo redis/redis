@@ -668,6 +668,18 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
+void initClientModuleData(client *c) {
+    if (c->module_data) return;
+    c->module_data = zcalloc(sizeof(ClientModuleData));
+}
+
+void freeClientModuleData(client *c) {
+    if (!c->module_data) return;
+    zfree(c->module_data->module_blocked_client);
+    zfree(c->module_data);
+    c->module_data = NULL;
+}
+
 client *moduleAllocTempClient(void) {
     client *c = NULL;
 
@@ -708,11 +720,11 @@ void moduleReleaseTempClient(client *c) {
     c->flags = CLIENT_MODULE;
     c->user = NULL; /* Root user */
     c->cmd = c->lastcmd = c->realcmd = NULL;
-    if (c->bstate.async_rm_call_handle) {
-        RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+    if (c->bstate && c->bstate->async_rm_call_handle) {
+        RedisModuleAsyncRMCallPromise *promise = c->bstate->async_rm_call_handle;
         promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
         freeRedisModuleAsyncRMCallPromise(promise);
-        c->bstate.async_rm_call_handle = NULL;
+        c->bstate->async_rm_call_handle = NULL;
     }
     moduleTempClients[moduleTempClientCount++] = c;
 }
@@ -915,7 +927,7 @@ static CallReply *moduleParseReply(client *c, RedisModuleCtx *ctx) {
 
 void moduleCallCommandUnblockedHandler(client *c) {
     RedisModuleCtx ctx;
-    RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+    RedisModuleAsyncRMCallPromise *promise = c->bstate->async_rm_call_handle;
     serverAssert(promise);
     RedisModule *module = promise->module;
     if (!promise->on_unblocked) {
@@ -7180,7 +7192,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 .ctx = (ctx->flags & REDISMODULE_CTX_AUTO_MEMORY) ? ctx : NULL,
         };
         reply = callReplyCreatePromise(promise);
-        c->bstate.async_rm_call_handle = promise;
+        c->bstate->async_rm_call_handle = promise;
         if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
@@ -8304,7 +8316,7 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
 
 /* Returns 1 if the client already in the moduleUnblocked list, 0 otherwise. */
 int isModuleClientUnblocked(client *c) {
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
 
     return bc->unblocked == 1;
 }
@@ -8322,7 +8334,7 @@ int isModuleClientUnblocked(client *c) {
  * The structure RedisModuleBlockedClient will be always deallocated when
  * running the list of clients blocked by a module that need to be unblocked. */
 void unblockClientFromModule(client *c) {
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
 
     /* Call the disconnection callback if any. Note that
      * bc->disconnect_callback is set to NULL if the client gets disconnected
@@ -8387,8 +8399,9 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
-    c->bstate.module_blocked_handle = zcalloc(sizeof(RedisModuleBlockedClient));
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    initClientBlockingState(c);
+    c->bstate->module_blocked_handle = zcalloc(sizeof(RedisModuleBlockedClient));
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
     ctx->module->blocked_clients++;
 
     /* We need to handle the invalid operation of calling modules blocking
@@ -8417,7 +8430,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     if (timeout_ms) {
         mstime_t now = mstime();
         if (timeout_ms > LLONG_MAX - now) {
-            c->bstate.module_blocked_handle = NULL;
+            c->bstate->module_blocked_handle = NULL;
             addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
             return bc;
         }
@@ -8425,21 +8438,21 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     }
 
     if (islua || ismulti) {
-        c->bstate.module_blocked_handle = NULL;
+        c->bstate->module_blocked_handle = NULL;
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
     } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
-        c->bstate.module_blocked_handle = NULL;
+        c->bstate->module_blocked_handle = NULL;
         addReplyError(c, "Blocking module command called from a Reply callback context");
     } else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
-        c->bstate.module_blocked_handle = NULL;
+        c->bstate->module_blocked_handle = NULL;
         addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
             blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
-            c->bstate.timeout = timeout;
+            c->bstate->timeout = timeout;
             blockClient(c,BLOCKED_MODULE);
         }
     }
@@ -8536,7 +8549,7 @@ void moduleUnregisterAuthCBs(RedisModule *module) {
 /* Search for & attempt next module auth callback after skipping the ones already attempted.
  * Returns the result of the module auth callback. */
 int attemptNextAuthCb(client *c, robj *username, robj *password, robj **err) {
-    int handle_next_callback = c->module_auth_ctx == NULL;
+    int handle_next_callback = (!c->module_data || c->module_data->module_auth_ctx == NULL);
     RedisModuleAuthCtx *cur_auth_ctx = NULL;
     listNode *ln;
     listIter li;
@@ -8546,7 +8559,7 @@ int attemptNextAuthCb(client *c, robj *username, robj *password, robj **err) {
         cur_auth_ctx = listNodeValue(ln);
         /* Skip over the previously attempted auth contexts. */
         if (!handle_next_callback) {
-            handle_next_callback = cur_auth_ctx == c->module_auth_ctx;
+            handle_next_callback = cur_auth_ctx == c->module_data->module_auth_ctx;
             continue;
         }
         /* Remove the module auth complete flag before we attempt the next cb. */
@@ -8555,7 +8568,8 @@ int attemptNextAuthCb(client *c, robj *username, robj *password, robj **err) {
         moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
         ctx.client = c;
         *err = NULL;
-        c->module_auth_ctx = cur_auth_ctx;
+        initClientModuleData(c);
+        c->module_data->module_auth_ctx = cur_auth_ctx;
         result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
         moduleFreeContext(&ctx);
         if (result == REDISMODULE_AUTH_HANDLED) break;
@@ -8571,8 +8585,8 @@ int attemptNextAuthCb(client *c, robj *username, robj *password, robj **err) {
  * return the result of the reply callback. */
 int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, robj **err) {
     int result = REDISMODULE_AUTH_NOT_HANDLED;
-    if (!c->module_blocked_client) return result;
-    RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *) c->module_blocked_client;
+    if (!c->module_data || !c->module_data->module_blocked_client) return result;
+    RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *) c->module_data->module_blocked_client;
     bc->client = c;
     if (bc->auth_reply_cb) {
         RedisModuleCtx ctx;
@@ -8585,7 +8599,7 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, r
         moduleFreeContext(&ctx);
     }
     moduleInvokeFreePrivDataCallback(c, bc);
-    c->module_blocked_client = NULL;
+    c->module_data->module_blocked_client = NULL;
     c->lastcmd->microseconds += bc->background_duration;
     bc->module->blocked_clients--;
     zfree(bc);
@@ -8613,7 +8627,7 @@ int checkModuleAuthentication(client *c, robj *username, robj *password, robj **
         serverAssert(result == REDISMODULE_AUTH_HANDLED);
         return AUTH_BLOCKED;
     }
-    c->module_auth_ctx = NULL;
+    c->module_data->module_auth_ctx = NULL;
     if (result == REDISMODULE_AUTH_NOT_HANDLED) {
         c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
         return AUTH_NOT_HANDLED;
@@ -8634,7 +8648,7 @@ int checkModuleAuthentication(client *c, robj *username, robj *password, robj **
  * This function returns 1 if client was served (and should be unblocked) */
 int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     int served = 0;
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
      * in the unblocking list for any reason (including RM_UnblockClient()
@@ -8830,14 +8844,14 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
 /* This API is used by the Redis core to unblock a client that was blocked
  * by a module. */
 void moduleUnblockClient(client *c) {
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
     moduleUnblockClientByHandle(bc,NULL);
 }
 
 /* Return true if the client 'c' was blocked by a module using
  * RM_BlockClientOnKeys(). */
 int moduleClientIsBlockedOnKeys(client *c) {
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
     return bc->blocked_on_keys;
 }
 
@@ -8952,7 +8966,7 @@ void moduleHandleBlockedClients(void) {
         /* Hold onto the blocked client if module auth is in progress. The reply callback is invoked
          * when the client is reprocessed. */
         if (c && clientHasModuleAuthInProgress(c)) {
-            c->module_blocked_client = bc;
+            c->module_data->module_blocked_client = bc;
         } else {
             /* Free privdata if any. */
             moduleInvokeFreePrivDataCallback(c, bc);
@@ -9017,10 +9031,10 @@ void moduleHandleBlockedClients(void) {
  * moduleBlockedClientTimedOut().
  */
 int moduleBlockedClientMayTimeout(client *c) {
-    if (c->bstate.btype != BLOCKED_MODULE)
+    if (c->bstate->btype != BLOCKED_MODULE)
         return 1;
 
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
     return (bc && bc->timeout_callback != NULL);
 }
 
@@ -9033,7 +9047,7 @@ int moduleBlockedClientMayTimeout(client *c) {
  * of the client synchronously. This ensures that we can reply to the client before
  * resetClient() is called. */
 void moduleBlockedClientTimedOut(client *c) {
-    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    RedisModuleBlockedClient *bc = c->bstate->module_blocked_handle;
 
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_TIMEOUT);
@@ -10642,16 +10656,16 @@ static void eventLoopHandleOneShotEvents(void) {
  * A client's user can be changed through the AUTH command, module
  * authentication, and when a client is freed. */
 void moduleNotifyUserChanged(client *c) {
-    if (c->auth_callback) {
-        c->auth_callback(c->id, c->auth_callback_privdata);
+    if (!c->module_data || !c->module_data->auth_callback) return;
 
-        /* The callback will fire exactly once, even if the user remains
-         * the same. It is expected to completely clean up the state
-         * so all references are cleared here. */
-        c->auth_callback = NULL;
-        c->auth_callback_privdata = NULL;
-        c->auth_module = NULL;
-    }
+    c->module_data->auth_callback(c->id, c->module_data->auth_callback_privdata);
+
+    /* The callback will fire exactly once, even if the user remains
+     * the same. It is expected to completely clean up the state
+     * so all references are cleared here. */
+    c->module_data->auth_callback = NULL;
+    c->module_data->auth_callback_privdata = NULL;
+    c->module_data->auth_module = NULL;
 }
 
 void revokeClientAuthentication(client *c) {
@@ -10674,9 +10688,9 @@ static void moduleFreeAuthenticatedClients(RedisModule *module) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (!c->auth_module) continue;
+        if (!c->module_data || !c->module_data->auth_module) continue;
 
-        RedisModule *auth_module = (RedisModule *) c->auth_module;
+        RedisModule *auth_module = (RedisModule *) c->module_data->auth_module;
         if (auth_module == module) {
             revokeClientAuthentication(c);
         }
@@ -11039,9 +11053,10 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     }
 
     if (callback) {
-        ctx->client->auth_callback = callback;
-        ctx->client->auth_callback_privdata = privdata;
-        ctx->client->auth_module = ctx->module;
+        initClientModuleData(ctx->client);
+        ctx->client->module_data->auth_callback = callback;
+        ctx->client->module_data->auth_callback_privdata = privdata;
+        ctx->client->module_data->auth_module = ctx->module;
     }
 
     if (client_id) {

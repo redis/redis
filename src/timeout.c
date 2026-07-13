@@ -19,8 +19,8 @@
  * Otherwise 0 is returned and no operation is performed. */
 int checkBlockedClientTimeout(client *c, mstime_t now) {
     if (c->flags & CLIENT_BLOCKED &&
-        c->bstate.timeout != 0
-        && c->bstate.timeout < now)
+        c->bstate->timeout != 0
+        && c->bstate->timeout < now)
     {
         /* Handle blocking operation specific timeout. */
         unblockClientOnTimeout(c);
@@ -94,8 +94,8 @@ void decodeTimeoutKey(unsigned char *buf, uint64_t *toptr, client **cptr) {
  * to handle blocked clients timeouts. The client is not added to the list
  * if its timeout is zero (block forever). */
 void addClientToTimeoutTable(client *c) {
-    if (c->bstate.timeout == 0) return;
-    uint64_t timeout = c->bstate.timeout;
+    if (c->bstate->timeout == 0) return;
+    uint64_t timeout = c->bstate->timeout;
     unsigned char buf[CLIENT_ST_KEYLEN];
     encodeTimeoutKey(buf,timeout,c);
     if (raxTryInsert(server.clients_timeout_table,buf,sizeof(buf),NULL,NULL))
@@ -107,7 +107,7 @@ void addClientToTimeoutTable(client *c) {
 void removeClientFromTimeoutTable(client *c) {
     if (!(c->flags & CLIENT_IN_TO_TABLE)) return;
     c->flags &= ~CLIENT_IN_TO_TABLE;
-    uint64_t timeout = c->bstate.timeout;
+    uint64_t timeout = c->bstate->timeout;
     unsigned char buf[CLIENT_ST_KEYLEN];
     encodeTimeoutKey(buf,timeout,c);
     raxRemove(server.clients_timeout_table,buf,sizeof(buf),NULL);

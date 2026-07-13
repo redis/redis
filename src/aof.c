@@ -1471,7 +1471,8 @@ struct client *createAOFClient(void) {
 
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
-    c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+    initClientReplicationData(c);
+    c->repl_data->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
     return c;
 }
 

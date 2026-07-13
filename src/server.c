@@ -4504,20 +4504,18 @@ int processCommand(client *c) {
 
     const uint64_t cmd_flags = getCommandFlags(c);
 
-    int is_read_command = (cmd_flags & CMD_READONLY) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
-    int is_write_command = (cmd_flags & CMD_WRITE) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    int is_denyoom_command = (cmd_flags & CMD_DENYOOM) ||
-                             (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_DENYOOM));
-    int is_denystale_command = !(cmd_flags & CMD_STALE) ||
-                               (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_STALE));
-    int is_denyloading_command = !(cmd_flags & CMD_LOADING) ||
-                                 (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
-    int is_may_replicate_command = (cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
-                                   (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    int is_deny_async_loading_command = (cmd_flags & CMD_NO_ASYNC_LOADING) ||
-                                        (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
+    int is_exec = (c->mstate && c->cmd->proc == execCommand);
+    int ms_flags = is_exec ? c->mstate->cmd_flags : 0;
+    int ms_inv_flags = is_exec ? c->mstate->cmd_inv_flags : 0;
+
+    int is_read_command = (cmd_flags | ms_flags) & CMD_READONLY;
+    int is_write_command = (cmd_flags | ms_flags) & CMD_WRITE;
+    int is_denyoom_command = (cmd_flags | ms_flags) & CMD_DENYOOM;
+    int is_denystale_command = (~cmd_flags | ms_inv_flags) & CMD_STALE;
+    int is_denyloading_command = (~cmd_flags | ms_inv_flags) & CMD_LOADING;
+    int is_may_replicate_command = (cmd_flags | ms_flags) & (CMD_WRITE | CMD_MAY_REPLICATE);
+    int is_deny_async_loading_command = (cmd_flags | ms_flags) & CMD_NO_ASYNC_LOADING;
+
     int obey_client = mustObeyClient(c);
 
     if (authRequired(c)) {
@@ -4806,7 +4804,7 @@ int areCommandKeysInSameSlot(client *c, int *hashslot) {
 
     if (c->cmd->proc == execCommand) {
         if (!(c->flags & CLIENT_MULTI)) return 1;
-        else ms = &c->mstate;
+        else ms = c->mstate;
     }
 
     /* If client is in multi-exec, we need to check the slot of all keys
@@ -4994,7 +4992,7 @@ int isReadyToShutdown(void) {
         client *replica = listNodeValue(ln);
         /* Don't count migration destination replicas. */
         if (replica->flags & CLIENT_ASM_MIGRATING) continue;
-        if (replica->repl_ack_off != server.master_repl_offset) return 0;
+        if (replica->repl_data->repl_ack_off != server.master_repl_offset) return 0;
     }
     return 1;
 }
@@ -5052,16 +5050,16 @@ int finishShutdown(void) {
             paused = 1;
         }
 
-        if (replica->repl_ack_off != server.master_repl_offset) {
+        if (replica->repl_data->repl_ack_off != server.master_repl_offset) {
             num_lagging_replicas++;
-            long lag = replica->replstate == SLAVE_STATE_ONLINE ?
-                time(NULL) - replica->repl_ack_time : 0;
+            long lag = replica->repl_data->replstate == SLAVE_STATE_ONLINE ?
+                time(NULL) - replica->repl_data->repl_ack_time : 0;
             serverLog(LL_NOTICE,
                       "Lagging replica %s reported offset %lld behind master, lag=%ld, state=%s.",
                       replicationGetSlaveName(replica),
-                      server.master_repl_offset - replica->repl_ack_off,
+                      server.master_repl_offset - replica->repl_data->repl_ack_off,
                       lag,
-                      replstateToString(replica->replstate));
+                      replstateToString(replica->repl_data->replstate));
         }
 
         if (paused) resumeIOThread(replica->tid);
@@ -6790,11 +6788,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 server.unixtime - server.repl_down_since : 0 ;
 
             if (server.master) {
-                slave_repl_offset = server.master->reploff;
-                slave_read_repl_offset = server.master->read_reploff;
+                slave_repl_offset = server.master->repl_data->reploff;
+                slave_read_repl_offset = server.master->repl_data->read_reploff;
             } else if (server.cached_master) {
-                slave_repl_offset = server.cached_master->reploff;
-                slave_read_repl_offset = server.cached_master->read_reploff;
+                slave_repl_offset = server.cached_master->repl_data->reploff;
+                slave_read_repl_offset = server.cached_master->repl_data->read_reploff;
             }
 
             info = sdscatprintf(info, FMTARGS(
@@ -6863,7 +6861,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
-                char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
+                char ip[NET_IP_STR_LEN], *slaveip = slave->repl_data->slave_addr;
                 int port;
                 long lag = 0;
 
@@ -6884,16 +6882,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                         continue;
                     slaveip = ip;
                 }
-                const char *state = replstateToString(slave->replstate);
+                const char *state = replstateToString(slave->repl_data->replstate);
                 if (state[0] == '\0') continue;
-                if (slave->replstate == SLAVE_STATE_ONLINE)
-                    lag = time(NULL) - slave->repl_ack_time;
+                if (slave->repl_data->replstate == SLAVE_STATE_ONLINE)
+                    lag = time(NULL) - slave->repl_data->repl_ack_time;
 
                 info = sdscatprintf(info,
                     "slave%d:ip=%s,port=%d,state=%s,"
                     "offset=%lld,lag=%ld,io-thread=%d\r\n",
-                    slaveid,slaveip,slave->slave_listening_port,state,
-                    slave->repl_ack_off, lag, slave->tid);
+                    slaveid,slaveip,slave->repl_data->slave_listening_port,state,
+                    slave->repl_data->repl_ack_off, lag, slave->tid);
                 slaveid++;
             }
         }
@@ -7119,6 +7117,7 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
+    initClientReplicationData(c);
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);
     addReply(c,shared.ok);
