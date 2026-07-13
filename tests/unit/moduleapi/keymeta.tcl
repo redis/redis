@@ -871,6 +871,55 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
             [r keymeta.get [cname 1] bitmap:aof-convert-meta]
     }
 
+    test {AOF: bitmap conversion replaces stale serialized metadata from the base file} {
+        r config set auto-aof-rewrite-percentage 0
+
+        set key bitmap:aof-convert-stale-meta
+        r set $key [binary format H* 80]
+        r keymeta.set [cname 1] $key "base_meta"
+        r pexpire $key 600000
+        set expire_at [r pexpiretime $key]
+
+        # The base AOF contains an older serialized value. KEYMETA.SET is not
+        # itself persisted, so the conversion RESTORE must replace that stale
+        # target value with the authoritative metadata in its DUMP payload.
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        set incr_aof [get_last_incr_aof_path r]
+        r keymeta.set [cname 1] $key "conversion_meta"
+
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit $key 0 0]
+        r config set bitmap-default-roaring no
+        assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
+
+        set fp [open $incr_aof r]
+        fconfigure $fp -translation binary
+        set conversion_restore 0
+        set keymeta_set_count 0
+        while {1} {
+            set cmd [read_from_aof $fp]
+            if {$cmd eq ""} break
+            if {[lindex $cmd 0] eq "restore" && [lindex $cmd 1] eq $key} {
+                assert {[lsearch -exact $cmd KEEPMETADATA] >= 0}
+                incr conversion_restore
+            } elseif {[lindex $cmd 0] eq "keymeta.set"} {
+                incr keymeta_set_count
+            }
+        }
+        close $fp
+        assert_equal 1 $conversion_restore
+        assert_equal 0 $keymeta_set_count
+
+        set active_before [r keymeta.active]
+        r debug loadaof
+        assert_equal bitmap [r type $key]
+        assert_equal bitmap-roaring [r object encoding $key]
+        assert_equal $expire_at [r pexpiretime $key]
+        assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
+        assert_equal $active_before [r keymeta.active]
+    }
+
     test {AOF: bitmap auto-conversion retains AOF-only metadata from the base file} {
         assert_equal 2 [r keymeta.register [cname 2] 1 "ALLOWIGNORE"]
         r config set auto-aof-rewrite-percentage 0
@@ -937,7 +986,7 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
         wait_for_sync $replica
         $replica config set replica-read-only no
 
-        test {Replication: bitmap conversion preserves target metadata and frees serialized duplicates} {
+        test {Replication: bitmap conversion preserves target-only metadata and replaces serialized duplicates} {
             set keys [list bitmap:repl-meta:setbit bitmap:repl-meta:bitfield]
             foreach key $keys {
                 $master set $key [binary format H* 80]
@@ -951,11 +1000,11 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                 $replica keymeta.set [cname 1] $key "local_only_meta"
 
                 # The primary carries both serialized values. The replica has
-                # one duplicate to retain and leaves the other class missing
-                # so the RESTORE payload must fill it.
+                # one stale value to replace and leaves the other class missing
+                # so the RESTORE payload must cover both merge paths.
                 $master keymeta.set [cname 2] $key "serialized_meta"
             }
-            $replica keymeta.set [cname 2] [lindex $keys 0] "serialized_meta"
+            $replica keymeta.set [cname 2] [lindex $keys 0] "stale_serialized_meta"
             assert_equal 4 [$master keymeta.active]
             assert_equal 3 [$replica keymeta.active]
 
@@ -981,8 +1030,8 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                     assert_equal "serialized_meta" \
                         [$client keymeta.get [cname 2] $key]
                 }
-                # The replica freed one deserialized duplicate and attached
-                # the other payload value, leaving exactly two classes/key.
+                # The replica replaced and freed one stale value, then attached
+                # the missing payload value, leaving exactly two classes/key.
                 assert_equal 4 [$client keymeta.active]
             }
 
