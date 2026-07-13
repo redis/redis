@@ -30,7 +30,8 @@ void clientDestroyCompressionState(struct client *c);
 int clientEnableCompression(struct client *c, compressionDirection dir);
 void clientDisableCompression(struct client *c);
 
-int clientCompressAndWrite(struct client *c, int *tot_written);
+int clientCompressAndWrite(struct client *c, int *tot_written, int force_flush);
+int clientFlushCompressedData(struct client *c);
 int clientReadBufAndDecompress(struct client *c, char *input_buf, size_t input_len,
                              char *output_buf, size_t output_len,
                              size_t *consumed);

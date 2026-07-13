@@ -932,16 +932,17 @@ void IOThreadCompressionCron(IOThread *t) {
         if (c->io_flags & CLIENT_IO_CLOSE_ASAP) continue;
         serverAssert(c->compression_state);
 
-        /* Usually clientCompressAndWrite will be called at the end of
-         * consumeAndTryWriteCompressed but when compression maximum latency ms
-         * have passed we want to force flush to the compression buffer so we
-         * don't have much delays between writes to the socket */
+        /* Backstop flush. Data is normally flushed as soon as a replica catches
+         * up (see _writeToClientSlaveInIOThread), but this bounds latency for
+         * anything still buffered (including compressed output left unwritten by
+         * a full socket) once compression_max_latency ms have passed, or drives
+         * an in-progress flush to completion. */
         if (clientHasPendingCompressionFlush(c)) {
             /* Only master/replica clients support client compression for now. */
             serverAssert(c->flags & CLIENT_SLAVE);
 
             int written = 0;
-            int err = clientCompressAndWrite(c, &written);
+            int err = clientCompressAndWrite(c, &written, 1);
             if (err) {
                 if (connGetState(c->conn) != CONN_STATE_CONNECTED)
                     freeClientAsync(c);

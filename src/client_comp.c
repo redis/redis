@@ -32,6 +32,10 @@ struct compressionState {
         ZSTD_DStream *zstdDCtx;  /* Zstd decompression ctx */
     } ctx;
     int write_flush_pending;    /* write flush not yet completed */
+    int frame_open;             /* Data has been fed to the compressor with
+                                 * ZSTD_e_continue but the frame has not been
+                                 * ended/flushed yet, so buffered data is still
+                                 * waiting to be sent. */
     int read_flush_pending;    /* read flush not yet completed */
     mstime_t last_write;  /* Time since last write. Used to check if it's time
                            * to flush the buffer */
@@ -115,6 +119,8 @@ static int zstdCompress(compressionState *st, int flush) {
         .pos  = st->output.written
     };
 
+    size_t consumed_before = input.pos;
+
     ZSTD_EndDirective directive;
     /* We use ZSTD_e_end instead of ZSTD_e_flush when we want to flush zstd's.
      * This flushes zstd's internal buffers but also ends the current frame.
@@ -141,6 +147,16 @@ static int zstdCompress(compressionState *st, int flush) {
      * this flag raised we know we are in the process of flushing data, i.e we
      * cannot use ZSTD_e_continue before we have flushed it all. */
     st->write_flush_pending = (directive == ZSTD_e_end && ret > 0);
+
+    /* Track whether an un-ended frame still holds buffered data. Feeding input
+     * with ZSTD_e_continue opens a frame; a fully completed ZSTD_e_end (ret == 0)
+     * ends it. This lets callers cheaply tell when there is buffered data worth
+     * force flushing (e.g. once a replica has caught up). */
+    if (directive == ZSTD_e_end) {
+        if (ret == 0) st->frame_open = 0;
+    } else if (input.pos > consumed_before) {
+        st->frame_open = 1;
+    }
 
     st->input.consumed = input.pos;
     st->output.written = output.pos;
@@ -221,6 +237,7 @@ int compressionStateCreate(client *c) {
     st->type = &zstdType;
     st->last_write = 0;
     st->write_flush_pending = 0;
+    st->frame_open = 0;
     st->read_flush_pending = 0;
     st->dir = CD_INVALID;
     st->pending_data_node = NULL;
@@ -326,9 +343,11 @@ void clientDisableCompression(client *c) {
 /* Compress any data sent for compression (see clientConnWrite) and
  * write to socket. Compression library may not return compressed data
  * immediately so this call may not write anything to socket.
- * Force flushes the compressed buffer according to compression_max_latency.
+ * When `force_flush` is set the compressor's frame is ended and flushed
+ * regardless of `compression_max_latency`, otherwise the buffer is only flushed
+ * once `compression_max_latency` ms have passed since the last write.
  * Return number of bytes written to socket or -1 on socket write error. */
-int clientCompressAndWrite(client *c, int *tot_written) {
+int clientCompressAndWrite(client *c, int *tot_written, int force_flush) {
     if (c->compression_level <= 0)
         return 0;
 
@@ -345,10 +364,11 @@ int clientCompressAndWrite(client *c, int *tot_written) {
     }
 
     if (state->output.written < state->output.size) {
-        /* Force flush after `compression_max_latency` ms have passed.
-         * Note, this only makes sense when we have enough space for compressing
-         * data. */
-        int flush = mstime() - state->last_write > server.compression_max_latency;
+        /* Force flush when requested or after `compression_max_latency` ms have
+         * passed. Note, this only makes sense when we have enough space for
+         * compressing data. */
+        int flush = force_flush ||
+                    mstime() - state->last_write >= server.compression_max_latency;
         if (state->type->compress(state, flush) == -1) {
             clientDestroyCompressionState(c);
             /* Set error connection state in order to disconnect the client.
@@ -386,6 +406,24 @@ int clientCompressAndWrite(client *c, int *tot_written) {
         state->last_write = mstime();
 
     return 0;
+}
+
+/* Force flush the compressor's currently buffered frame to the socket. This is
+ * used to promptly deliver data to a replica that has caught up with the
+ * replication stream, so it doesn't have to wait for the periodic
+ * compression_max_latency flush. It's a no-op when there's nothing buffered.
+ * Returns the number of bytes written to the socket, or -1 on write error (the
+ * connection state is set so the caller disconnects the client). */
+int clientFlushCompressedData(client *c) {
+    compressionState *state = c->compression_state;
+    if (state == NULL || state->dir != COMPRESS) return 0;
+
+    /* Nothing is buffered in the compressor, so there is nothing to flush. */
+    if (!state->frame_open && !state->write_flush_pending) return 0;
+
+    int written = 0;
+    if (clientCompressAndWrite(c, &written, 1) != 0) return -1;
+    return written;
 }
 
 /* Decompress input compressed data and put it in `buf`. If decompressed data
@@ -602,9 +640,12 @@ int clientConnWrite(client *c, const void *data, size_t len, int *nwritten) {
         state->input.written += to_consume;
         consumed += to_consume;
 
-        /* Write whatever we have available in the compressed buffer */
+        /* Write whatever we have available in the compressed buffer. We don't
+         * force a flush here so data keeps batching into the current frame;
+         * the frame is flushed either once the replica catches up (see
+         * clientFlushCompressedData) or after compression_max_latency ms. */
         int written = 0;
-        int err = clientCompressAndWrite(c, &written);
+        int err = clientCompressAndWrite(c, &written, 0);
         if (err) {
             if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
                 if (nwritten) *nwritten = sock_written;
@@ -729,9 +770,15 @@ void clientDisableCompression(client *c) {
     c->io_flags &= ~CLIENT_IO_COMPRESSION_ENABLED;
 }
 
-int clientCompressAndWrite(client *c, int *tot_written) {
+int clientCompressAndWrite(client *c, int *tot_written, int force_flush) {
     UNUSED(c);
+    UNUSED(force_flush);
     if (tot_written) *tot_written = 0;
+    return 0;
+}
+
+int clientFlushCompressedData(client *c) {
+    UNUSED(c);
     return 0;
 }
 

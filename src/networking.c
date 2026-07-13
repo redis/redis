@@ -2764,6 +2764,21 @@ static inline int _writeToClientSlaveInIOThread(client *c, ssize_t *nwritten) {
         c->io_curr_repl_node = listNextNode(c->io_curr_repl_node);
         c->io_curr_block_pos = 0;
     }
+
+    /* If the replica has drained all currently available replication data (it
+     * "caught up"), force flush any data still buffered in its compressor so it
+     * reaches the replica now instead of waiting for the periodic
+     * repl-compression-max-latency flush. Under sustained load the replica won't
+     * be caught up between writes, so the compressor keeps batching data into
+     * the current frame. No-op when compression is inactive or nothing is
+     * buffered. */
+    if (c->io_curr_repl_node == c->io_bound_repl_node &&
+        c->io_curr_block_pos == c->io_bound_block_pos)
+    {
+        int flushed = clientFlushCompressedData(c);
+        if (flushed < 0) return C_ERR;
+        *nwritten += flushed;
+    }
     return C_OK;
 }
 
