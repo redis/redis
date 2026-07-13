@@ -92,10 +92,14 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 	fi
 endif
 
-handle-werrors: get_source
+# No get_source dependency: stripping -Werror only touches sources already on
+# disk, so it must never trigger a clone. The `all` path clones separately via
+# its prepare_source prerequisite; a module with no src/ is simply skipped here.
+handle-werrors:
 ifeq ($(DISABLE_WERRORS),yes)
 	@echo "Disabling -Werror for all modules"
 	@for dir in $(SUBDIRS); do \
+		[ -d "$$dir/src" ] || continue; \
 		echo "Processing $$dir"; \
 		find $$dir/src -type f \
 			\( -name "Makefile" \
