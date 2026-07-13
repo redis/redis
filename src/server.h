@@ -4141,6 +4141,7 @@ int clientTotalPubSubSubscriptionCount(client *c);
 dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
 int pubsubUserIsNoAuth(user *u);
+user *pubsubEntryOwner(client *c, dictEntry *de);
 void pubsubStampCurrentUser(client *c);
 
 /* Keyspace events notification */

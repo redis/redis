@@ -66,6 +66,20 @@ int pubsubUserIsNoAuth(user *u) {
     return u == &pubsubNoAuthUser;
 }
 
+/* Effective ACL owner of a client subscription entry. Never returns NULL:
+ *   - a stamped value             -> that user* (a real user, or the sentinel)
+ *   - NULL value, real c->user    -> c->user (owned by the current identity)
+ *   - NULL value, c->user == NULL -> the no-auth sentinel
+ * A NULL c->user resolves to the sentinel because such a subscription is owned
+ * by a no-auth context — the same thing a stamped sentinel denotes. Callers can
+ * therefore compare or pass the result to pubsubUserIsNoAuth() without a NULL
+ * guard; it never matches a real registered user. */
+user *pubsubEntryOwner(client *c, dictEntry *de) {
+    user *stamped = dictGetVal(de);
+    if (stamped) return stamped;
+    return c->user ? c->user : &pubsubNoAuthUser;
+}
+
 /*
  * Pub/Sub type for global channels.
  */

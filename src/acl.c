@@ -2043,16 +2043,6 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
-/* Effective owner of a client subscription entry: the stored provenance user*,
- * or the client's current user when the value is still NULL ("owned by whoever
- * c->user is now"). May be NULL (no-auth current client) or the no-auth
- * sentinel; ACL callers always compare against a real registered user, so
- * neither ever matches and such subscriptions are correctly left alone. */
-static inline user *pubsubEntryOwner(client *c, dictEntry *de) {
-    user *stamped = dictGetVal(de);
-    return stamped ? stamped : c->user;
-}
-
 /* Return 1 if any entry in dict `d` whose effective owner is `owner` violates
  * the `upcoming` channel list. */
 static int aclDictHasViolatingOwnedEntry(client *c, dict *d, user *owner,
@@ -2352,30 +2342,6 @@ int ACLLoadConfiguredUsers(void) {
     return C_OK;
 }
 
-/* This function loads the ACL from the specified filename: every line
- * is validated and should be either empty, a comment, or in the format
- * used to specify users in the redis.conf configuration or in the ACL file,
- * that is:
- *
- *  user <username> ... rules ...
- *
- * Lines starting with '#' are treated as comments and ignored. Note that
- * comments will be lost after ACL SAVE rewrites the file. Empty lines are
- * also allowed.
- *
- * One important part of implementing ACL LOAD, that uses this function, is
- * to avoid ending with broken rules if the ACL file is invalid for some
- * reason, so the function will attempt to validate the rules before loading
- * each user. For every line that will be found broken the function will
- * collect an error message.
- *
- * IMPORTANT: If there is at least a single error, nothing will be loaded
- * and the rules will remain exactly as they were.
- *
- * At the end of the process, if no errors were found in the whole file then
- * NULL is returned. Otherwise an SDS string describing in a single line
- * a description of all the issues found is returned. */
-
 /* ACL LOAD phase 1 (read-only): validate a client's Pub/Sub subscriptions
  * against the freshly-loaded ACL. Returns C_OK if the client may keep all its
  * subscriptions, or C_ERR if it must be killed because a provenance user
@@ -2398,9 +2364,8 @@ static int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_chan
         dictInitIterator(&di, d);
         while ((de = dictNext(&di)) != NULL) {
             user *owner = pubsubEntryOwner(c, de);
-            /* No-auth-origin subscriptions (NULL current user or sentinel) are
-             * never ACL channel-restricted. */
-            if (owner == NULL || pubsubUserIsNoAuth(owner)) continue;
+            /* No-auth-origin subscriptions are never ACL channel-restricted. */
+            if (pubsubUserIsNoAuth(owner)) continue;
             sds owner_name = owner->name;
 
             list *channels = NULL;
@@ -2457,6 +2422,29 @@ static void pubsubACLLoadRekeyClient(client *c) {
     pubsubACLLoadRekeyDict(c->pubsubshard_channels);
 }
 
+/* This function loads the ACL from the specified filename: every line
+ * is validated and should be either empty, a comment, or in the format
+ * used to specify users in the redis.conf configuration or in the ACL file,
+ * that is:
+ *
+ *  user <username> ... rules ...
+ *
+ * Lines starting with '#' are treated as comments and ignored. Note that
+ * comments will be lost after ACL SAVE rewrites the file. Empty lines are
+ * also allowed.
+ *
+ * One important part of implementing ACL LOAD, that uses this function, is
+ * to avoid ending with broken rules if the ACL file is invalid for some
+ * reason, so the function will attempt to validate the rules before loading
+ * each user. For every line that will be found broken the function will
+ * collect an error message.
+ *
+ * IMPORTANT: If there is at least a single error, nothing will be loaded
+ * and the rules will remain exactly as they were.
+ *
+ * At the end of the process, if no errors were found in the whole file then
+ * NULL is returned. Otherwise an SDS string describing in a single line
+ * a description of all the issues found is returned. */
 sds ACLLoadFromFile(const char *filename) {
     FILE *fp;
     char buf[1024];
