@@ -2323,7 +2323,7 @@ struct redisServer {
 
     /* Backup (MP-AOF based, see backupCommand in aof.c) */
     int backup_state;                /* BACKUP_STATE_* */
-    char *backup_dirname;            /* Config: backupdirname, relative to dir (CONFIG SET allowed). */
+    char *backup_dirname;            /* Name of the backup directory. */
     int backup_can_remove_aof_dir;   /* 1 if stopping temp AOF may remove appendonlydir. */
     sds backup_base_filename;        /* Basename of the BASE file hard-linked into backupdirname. */
     sds backup_incr_filename;        /* Basename of the INCR file hard-linked into backupdirname. */
