@@ -356,6 +356,37 @@ tags "modules external:skip" {
         }
     }
 
+    start_server [list overrides [list loadmodule "$testmodule" appendonly yes \
+        appendfsync always save {} aof-use-rdb-preamble yes \
+        auto-aof-rewrite-percentage 0]] {
+        test "Keyspace notifications: incremental AOF conversion replay preserves callback contract" {
+            set key bitmap:transition:replay
+
+            r config set bitmap-default-roaring no
+            r set $key [binary format H* ff]
+
+            # Put the original string in the RDB preamble so startup emits no
+            # keyspace event for it. The incremental file then contains only
+            # the conversion RESTORE for this key.
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            r config set bitmap-default-roaring yes
+            assert_equal {{}} [r bitfield $key \
+                OVERFLOW FAIL INCRBY u8 0 1]
+            assert_equal bitmap [r keyspace.key_type $key]
+
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal bitmap [r keyspace.key_type $key]
+            assert_equal {{restore generic bitmap} {type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+        }
+    }
+
     # Replication test: replica module receives subkey notifications
     start_server [list overrides [list loadmodule "$testmodule"]] {
         set master [srv 0 client]
@@ -378,16 +409,16 @@ tags "modules external:skip" {
                 assert_equal string [$replica keyspace.key_type $key]
                 assert_equal OK [$replica keyspace.reset_bitmap_transition]
 
-                # The replica applies the synthetic RESTORE in place. It keeps
-                # RESTORE's event sequence but emits no "new" and does not
-                # invoke the key-unlink server event.
+                # The replica applies the synthetic RESTORE in place. It emits
+                # "restore" then "type_changed", but no "new" or "overwritten",
+                # and does not invoke the key-unlink server event.
                 $master config set bitmap-default-roaring yes
                 assert_equal {{}} [$master bitfield $key \
                     OVERFLOW FAIL INCRBY u8 0 1]
                 wait_for_ofs_sync $master $replica
 
                 assert_equal bitmap [$replica keyspace.key_type $key]
-                assert_equal {{restore generic bitmap} {overwritten overwritten bitmap} {type_changed type_changed bitmap}} \
+                assert_equal {{restore generic bitmap} {type_changed type_changed bitmap}} \
                     [$replica keyspace.get_bitmap_transition]
                 assert_equal 0 [$replica keyspace.bitmap_transition_unlink_count]
 

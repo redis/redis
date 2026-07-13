@@ -375,14 +375,13 @@ void restoreCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
     KSN_INVALIDATE_KVOBJ(kv);
 
-    /* Emit REPLACE notifications when the destination existed, whether it was
-     * deleted normally or retained for an in-place representation transition. */
-    if (deleted || transition) {
+    /* Ordinary REPLACE reports an overwrite. KEEPMETADATA retains the logical
+     * key for an in-place representation transition, so nothing was
+     * overwritten even though the value type may have changed. */
+    if (deleted)
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
-        if (oldtype != kvtype) {
-            notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
-        }
-    }
+    if ((deleted || transition) && oldtype != kvtype)
+        notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
     addReply(c,shared.ok);
     server.dirty++;
 }
