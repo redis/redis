@@ -295,11 +295,14 @@ Tested with the following Docker image:
 
 7. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 8. Build Redis
@@ -383,11 +386,14 @@ Tested with the following Docker image:
 
 6. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 7. Build Redis
@@ -459,11 +465,14 @@ Tested with the following Docker image:
 
 5. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -538,11 +547,14 @@ Tested with the following Docker image:
 
 5. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -628,11 +640,14 @@ Tested with the following Docker images:
 
 5. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -744,11 +759,14 @@ Tested with the following Docker images:
 
 6. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 7. Build Redis
@@ -853,11 +871,14 @@ Tested with the following Docker images:
 
 6. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 7. Build Redis
@@ -937,11 +958,14 @@ Tested with the following Docker images:
 
 5. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 6. Build Redis
@@ -1011,11 +1035,14 @@ Tested with the following Docker image:
 
 4. Install the Rust toolchain
 
-   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
 
    ```sh
-   cd /usr/src/redis-<version>
-   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-musl
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && ./install.sh)
+   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
    ```
 
 5. Build Redis
