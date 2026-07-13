@@ -1566,13 +1566,7 @@ int VINFO_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
  * With negative count: N random members (with possible duplicates).
  *
  * If the key doesn't exist, returns NULL if count is not given, or
- * an empty array if a count was given.
- *
- * A count of LLONG_MIN is rejected up front, before the missing-key and
- * empty-set fast paths, so an invalid count is rejected consistently: negating
- * it to get abs(count) is undefined behavior and its magnitude does not fit in
- * the reply length, which would otherwise trip serverAssert(length >= 0) and
- * crash the server. */
+ * an empty array if a count was given. */
 int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
