@@ -393,6 +393,49 @@ void keyMetaSpecCleanup(KeyMetaSpec *kms) {
     kms->metabits = 0;
 }
 
+/* Merge module metadata loaded from a RESTORE payload into an existing key.
+ * A representation transition keeps metadata that is already attached to the
+ * logical key. Payload metadata fills classes that are missing (for example,
+ * an AOF replay may not have recreated an RDB-only class before the
+ * transition). When both sides carry a value for the same class, discard the
+ * freshly loaded copy through the class free callback and keep the existing
+ * value. This function consumes the metadata owned by `kms`. */
+void keyMetaMergeFromSpec(redisDb *db, kvobj **kvref, KeyMetaSpec *kms) {
+    kvobj *kv = *kvref;
+    uint64_t *pMeta = kms->meta + KEY_META_ID_MAX - 1;
+
+    /* Expiration is reconciled by RESTORE from its explicit TTL argument. */
+    if (kms->metabits & KEY_META_MASK_EXPIRE)
+        pMeta--;
+
+    uint32_t mbits = kms->metabits >> KEY_META_ID_MODULE_FIRST;
+    int keyMetaId = KEY_META_ID_MODULE_FIRST;
+    while (mbits) {
+        if (mbits & 1) {
+            KeyMetaClass *pClass = &keyMetaClass[keyMetaId];
+            uint64_t loaded = *pMeta--;
+            serverAssert(pClass->state == CLASS_STATE_INUSE);
+
+            uint64_t existing = pClass->conf.reset_value;
+            int has_existing = keyMetaGetMetadata(keyMetaId, kv, &existing) &&
+                               existing != pClass->conf.reset_value;
+
+            if (has_existing) {
+                if (loaded != pClass->conf.reset_value && pClass->conf.free)
+                    pClass->conf.free(kvobjGetKey(kv), loaded);
+            } else if (loaded != pClass->conf.reset_value) {
+                kv = keyMetaSetMetadata(db, kv, keyMetaId, loaded);
+                serverAssert(kv != NULL);
+            }
+        }
+        mbits >>= 1;
+        keyMetaId++;
+    }
+
+    keyMetaSpecInit(kms);
+    *kvref = kv;
+}
+
 int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
     static int countDownNotice = 0;
     static rio *lastRdb = NULL;
