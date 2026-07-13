@@ -894,13 +894,13 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 }
 
 /* Public commands create native bitmaps, or convert string values they write
- * to, only when bitmap-default-roaring is enabled and never while obeying a
+ * to, only when bitmap-default-native is enabled and never while obeying a
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state, so masters propagate every type transition as
  * an explicit RESTORE (see bitmapPropagateRestore()) instead of letting
  * replicas re-derive it from their local configuration. */
-static int bitmapDefaultRoaringEnabled(client *c) {
-    return server.bitmap_default_roaring && !mustObeyClient(c);
+static int bitmapDefaultNativeEnabled(client *c) {
+    return server.bitmap_default_native && !mustObeyClient(c);
 }
 
 /* Convert a string value of any encoding into a native bitmap object holding
@@ -912,10 +912,6 @@ static robj *bitmapObjectFromStringObject(robj *o) {
                                                 sdslen(decoded->ptr));
     decrRefCount(decoded);
     return bitmap;
-}
-
-static void addBitmapNativeLengthError(client *c) {
-    addReplyError(c, "bitmap length exceeds native bitmap limit");
 }
 
 /* Propagate a bitmap representation transition as RESTORE ... REPLACE
@@ -988,7 +984,7 @@ static void bitmapInstallConvertedValue(client *c, robj *key, robj **bitmapref,
  * keeps multi-op BITFIELD writes all-or-nothing. On C_OK, *nativeref is the
  * native object the caller must mutate (or NULL to keep using the string
  * path): the existing value when it already is a native bitmap, and with
- * bitmap-default-roaring enabled a new empty bitmap for missing keys
+ * bitmap-default-native enabled a new empty bitmap for missing keys
  * (*created) or a native conversion of an existing string value (*converted).
  * Creation and conversion both propagate RESTORE, but installation differs:
  * missing keys use dbAddByLink(), while converted strings replace only the
@@ -1002,9 +998,9 @@ static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
     *converted = 0;
 
     int is_native = o != NULL && o->type == OBJ_BITMAP;
-    int default_roaring = !is_native && bitmapDefaultRoaringEnabled(c) &&
-                          (o == NULL || o->type == OBJ_STRING);
-    if (!is_native && !default_roaring) return C_OK;
+    int default_native = !is_native && bitmapDefaultNativeEnabled(c) &&
+                         (o == NULL || o->type == OBJ_STRING);
+    if (!is_native && !default_native) return C_OK;
 
     /* Per-offset limits were enforced at parse time against
      * proto-max-bulk-len. The fixed native v1 cap is only lower when
@@ -1019,16 +1015,16 @@ static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
     if (is_native) {
         *nativeref = o;
     } else if (o == NULL) {
-        /* bitmap-default-roaring yes: newly created bitmap keys are native. */
+        /* bitmap-default-native yes: newly created bitmap keys are native. */
         *nativeref = createBitmapObject();
         *created = 1;
     } else {
-        /* bitmap-default-roaring yes: writes against existing strings first
+        /* bitmap-default-native yes: writes against existing strings first
          * produce a native replacement so the write is not bounded by the
          * string representation. */
         *nativeref = bitmapObjectFromStringObject(o);
         if (*nativeref == NULL) {
-            addBitmapNativeLengthError(c);
+            addReplyError(c, "bitmap length exceeds native bitmap limit");
             return C_ERR;
         }
         *converted = 1;
@@ -1170,8 +1166,8 @@ void setbitCommand(client *c) {
 /* GETBIT key offset */
 void getbitCommand(client *c) {
     char llbuf[32];
-    uint64_t bitoffset, byte;
-    size_t bit;
+    uint64_t bitoffset;
+    size_t byte, bit;
     size_t bitval = 0;
 
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
@@ -1201,7 +1197,7 @@ void getbitCommand(client *c) {
  * Return how many bytes were successfully processed, as AVX2 operates on
  * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
  * will be skipped. They will be taken care for in the unoptimized loop in the
- * bitopCommand function. */
+ * main bitopCommand function. */
 ATTRIBUTE_TARGET_AVX2
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
                               bitmapBitop op, unsigned long numkeys,
@@ -1357,7 +1353,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
  * Return how many bytes were successfully processed, as AVX512 operates on
  * 512-bit registers so if `minlen` is not a multiple of 64 some of the bytes
  * will be skipped. They will be taken care for in the unoptimized loop in the
- * bitopCommand function. */
+ * main bitopCommand function. */
 ATTRIBUTE_TARGET_AVX512
 unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
                                  bitmapBitop op, unsigned long numkeys,
@@ -1510,7 +1506,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 
 /* BITOP whose result is a native bitmap: at least one source already is one
  * (a property of the replicated dataset, identical on replicas), or
- * bitmap-default-roaring is enabled on this server (a local decision,
+ * bitmap-default-native is enabled on this server (a local decision,
  * propagated as an explicit RESTORE of the result). Sources come from
  * bitopCommand()'s lookup loop through objects[]. Computes the result, stores
  * it into targetkey and replies with the destination length. */
@@ -1521,7 +1517,7 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
     robj *res_bitmap = NULL;
 
     if (maxlen > BITMAP_OBJECT_MAX_BYTES) {
-        addBitmapNativeLengthError(c);
+        addReplyError(c, "bitmap length exceeds native bitmap limit");
         return;
     }
     /* NOT materializes a dense result, and all-string native transitions
@@ -1542,7 +1538,7 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
     if (maxlen) {
         if (!has_native_bitmap) {
             /* The native destination type came from this server's
-             * bitmap-default-roaring setting, not from the source types, so
+             * bitmap-default-native setting, not from the source types, so
              * replicas and the AOF receive the explicit result instead of
              * re-running the command against their own configuration. The
              * payload is queued before setKey() notifications: module
@@ -1627,8 +1623,7 @@ void bitopCommand(client *c) {
             minlen = 0;
             continue;
         }
-        /* Return an error if one of the keys is not a string or a native
-         * bitmap. */
+        /* Return an error if one of the keys is not a string or a native bitmap. */
         if (checkStringOrBitmapType(c, kv)) {
             unsigned long i;
             for (i = 0; i < j; i++) {
@@ -1658,9 +1653,9 @@ void bitopCommand(client *c) {
     }
 
     /* Native bitmap sources, or a native destination configured through
-     * bitmap-default-roaring, take the dedicated native path; everything
+     * bitmap-default-native, take the dedicated native path; everything
      * below keeps the string flow. */
-    if (has_native_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c))) {
+    if (has_native_bitmap || (maxlen && bitmapDefaultNativeEnabled(c))) {
         bitopCommandBitmap(c, op, targetkey, objects, numkeys,
                            maxlen, has_native_bitmap);
         for (j = 0; j < numkeys; j++) {
@@ -1696,11 +1691,12 @@ void bitopCommand(client *c) {
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
+        res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
         int useAVX = 0;
 
-        res = (unsigned char*) sdsnewlen(NULL,(size_t)maxlen);
+        /* Number of bytes processed from each source key */
         j = 0;
 
 #if defined(HAVE_AVX512)
@@ -1732,6 +1728,7 @@ void bitopCommand(client *c) {
          * it would cause GCC to emit multiple-word load/store ops
          * not supported even on ARM >= v6. */
         if (!useAVX && minlen >= sizeof(unsigned long)*4) {
+
             unsigned long **lp = (unsigned long**)src;
             unsigned long *lres = (unsigned long*) res;
 
@@ -1972,7 +1969,6 @@ void bitopCommand(client *c) {
             }
         }
     }
-
     for (j = 0; j < numkeys; j++) {
         if (objects[j])
             decrRefCount(objects[j]);
@@ -2423,7 +2419,7 @@ void bitfieldGeneric(client *c, int flags) {
          * bitmap in place and does not need it. */
         o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
 
-        /* When bitmap-default-roaring is enabled, newly created bitmap keys
+        /* When bitmap-default-native is enabled, newly created bitmap keys
          * are native, and a write against an existing string value converts it
          * first. The transition reaches replicas and the AOF as an explicit
          * RESTORE of the final state. */
