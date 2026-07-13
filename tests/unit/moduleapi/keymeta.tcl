@@ -932,9 +932,9 @@ test "AOF: native bitmap rewrite preserves AOF-only metadata" {
         r config set aof-use-rdb-preamble no
         waitForBgrewriteaof r
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         r setbit bitmap:aof-only-meta 1000 1
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         r keymeta.set [cname 1] bitmap:aof-only-meta "aof_only_meta"
 
         r bgrewriteaof
@@ -972,9 +972,9 @@ test "AOF: native bitmap rewrite preserves RDB-only metadata" {
         r config set aof-use-rdb-preamble no
         waitForBgrewriteaof r
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         r setbit bitmap:rdb-only-meta 1000 1
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         r keymeta.set [cname 1] bitmap:rdb-only-meta "rdb_only_meta"
 
         r bgrewriteaof

@@ -60,11 +60,11 @@ start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
         set target_id [R $target cluster myid]
         set target_port [srv [expr {0 - $target}] port]
 
-        $owner config set bitmap-default-roaring yes
+        $owner config set bitmap-default-native yes
         $owner del $key
         $owner setbit $key 5 1
         $owner setbit $key 100000 1
-        $owner config set bitmap-default-roaring no
+        $owner config set bitmap-default-native no
         assert_equal bitmap [$owner type $key]
 
         assert_equal OK [R $target cluster setslot $slot importing $owner_id]
