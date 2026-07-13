@@ -185,11 +185,17 @@ void dumpCommand(client *c) {
     return;
 }
 
-/* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
+/* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds]
+ * [FREQ frequency] [KEEPMETADATA]
+ *
+ * KEEPMETADATA is an internal replication/AOF modifier used for in-place
+ * representation transitions. It requires REPLACE, preserves module metadata
+ * already attached to the destination, and fills missing classes from the
+ * payload. Normal client RESTORE semantics remain unchanged. */
 void restoreCommand(client *c) {
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
-    int j, type, replace = 0, absttl = 0;
+    int j, type, replace = 0, absttl = 0, keepmetadata = 0;
     robj *obj;
 
     /* Parse additional options */
@@ -220,10 +226,19 @@ void restoreCommand(client *c) {
                 return;
             }
             j++; /* Consume additional arg. */
+        } else if (!strcasecmp(c->argv[j]->ptr,"keepmetadata") &&
+                   mustObeyClient(c))
+        {
+            keepmetadata = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
+    }
+
+    if (keepmetadata && !replace) {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
     }
 
     /* Make sure this key does not already exist here... */
@@ -280,18 +295,23 @@ void restoreCommand(client *c) {
     dictEntryLink link = NULL;
     kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
     int oldtype = oldval ? oldval->type : -1;
+    int transition = keepmetadata && oldval != NULL;
 
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.
      *   link  == NULL  -> an expired key might still be physically present and 
      *                     must be deleted. */
     int deleted = 0;
-    if (replace && (oldval || !link)) {
+    if (replace && !transition && (oldval || !link)) {
         deleted = dbDelete(c->db,key);
         link = NULL; /* dbDelete invalidated the link */
     }
 
     if (ttl && checkAlreadyExpired(ttl)) {
+        if (transition) {
+            deleted = dbDelete(c->db,key);
+            link = NULL;
+        }
         if (deleted) {
             robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
             rewriteClientCommandVector(c, 2, aux, key);
@@ -307,8 +327,25 @@ void restoreCommand(client *c) {
         return;
     }
 
-    /* Create the key and set the TTL if any */
-    kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
+    kvobj *kv;
+    if (transition) {
+        /* Replace only the value, retaining target-local metadata. Serialized
+         * metadata is then merged in so RDB-only classes also survive when an
+         * AOF replay has not recreated them before this command. */
+        dbReplaceValueWithLink(c->db, key, &obj, link);
+        kv = obj;
+        keyMetaMergeFromSpec(c->db, &kv, &keymeta);
+
+        /* The TTL argument remains authoritative and absolute after the
+         * propagation rewrite below, just as it is for normal RESTORE. */
+        if (ttl)
+            kv = setExpire(c, c->db, key, ttl);
+        else
+            removeExpire(c->db, key);
+    } else {
+        /* Create the key and set the TTL if any. */
+        kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
+    }
 
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
@@ -338,9 +375,9 @@ void restoreCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
     KSN_INVALIDATE_KVOBJ(kv);
 
-    /* If we deleted a key that means REPLACE parameter was passed and the
-     * destination key existed. */
-    if (deleted) {
+    /* Emit REPLACE notifications when the destination existed, whether it was
+     * deleted normally or retained for an in-place representation transition. */
+    if (deleted || transition) {
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
         if (oldtype != kvtype) {
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
