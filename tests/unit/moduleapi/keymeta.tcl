@@ -977,7 +977,10 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
 
         foreach client [list $master $replica] {
             $client debug enable-keymeta-runtime-registration 1
-            assert_equal 1 [$client keymeta.register [cname 1] 1 "ALLOWIGNORE"]
+            # UNLINKFREE makes an accidental replay-side metadata unlink
+            # observable: its callback frees the value immediately.
+            assert_equal 1 [$client keymeta.register [cname 1] 1 \
+                "UNLINKFREE:ALLOWIGNORE"]
             assert_equal 2 [$client keymeta.register [cname 2] 1 \
                 "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
             # Leave an unused class between the two serialized classes so the
