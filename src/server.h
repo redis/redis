@@ -2465,7 +2465,7 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
-    int bitmap_default_roaring;     /* If true, bitmap writes default to native Roaring bitmaps. */
+    int bitmap_default_native;      /* If true, bitmap writes default to native Roaring bitmaps. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */

@@ -110,19 +110,19 @@ tags "modules external:skip" {
             set before_bitmap [r keyspace.bitmap_callback_count]
             set before_string [r keyspace.string_callback_count]
 
-            r config set bitmap-default-roaring yes
+            r config set bitmap-default-native yes
             r setbit bitmap:module:notify 0 1
             assert_equal [expr {$before_bitmap + 1}] [r keyspace.bitmap_callback_count]
             assert_equal $before_string [r keyspace.string_callback_count]
 
-            r config set bitmap-default-roaring no
+            r config set bitmap-default-native no
             r set bitmap:module:string dummy
             assert_equal [expr {$before_string + 1}] [r keyspace.string_callback_count]
         }
 
         test "Keyspace notifications: SETBIT updates keysizes before module callbacks" {
             assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
-            assert_equal OK [r config set bitmap-default-roaring no]
+            assert_equal OK [r config set bitmap-default-native no]
             r set stringdel_setbit x
             r setbit stringdel_setbit 16 1
             assert_equal 0 [r exists stringdel_setbit]
