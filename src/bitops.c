@@ -921,12 +921,13 @@ static void addBitmapNativeLengthError(client *c) {
 /* Propagate a bitmap representation transition as RESTORE ... REPLACE
  * [ABSTTL] instead of the triggering command: the conversion decision must
  * stay a pure function of replicated logical state, never re-derived from
- * replica-local config or allocator behavior. The object does not need to be
- * installed in the keyspace yet; callers pass the expiration that RESTORE
- * should apply so the payload can be queued before keyspace notifications run
- * module callbacks that may mutate the key. This helper owns suppression of
- * the triggering command so callers cannot queue both the original write and
- * the replacement payload. */
+ * replica-local config or allocator behavior. A newly created object can be
+ * serialized before dbAdd(), while a converted object is installed first so
+ * its inherited module metadata is included. In both cases callers pass the
+ * expiration that RESTORE should apply and queue the payload before keyspace
+ * notifications run module callbacks that may mutate the key. This helper
+ * owns suppression of the triggering command so callers cannot queue both the
+ * original write and the replacement payload. */
 static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long expire) {
     rio payload;
     robj *argv[6];
@@ -952,6 +953,29 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long
     decrRefCount(argv[4]);
 }
 
+/* Install a string-to-bitmap conversion as a value transition of the existing
+ * logical key. dbReplaceValueWithLink() keeps the TTL and module key metadata
+ * attached and does not run key-unlink callbacks. Serialize only after that
+ * transition so the RESTORE payload carries the inherited metadata. Signal
+ * watchers before synchronous notification callbacks can mutate the key, then
+ * keep the existing keyspace notification sequence. */
+static void bitmapInstallConvertedValue(client *c, robj *key, robj **bitmapref,
+                                        long long expire, dictEntryLink link)
+{
+    serverAssert(link != NULL);
+    serverAssert(dictGetKV(*link)->type == OBJ_STRING);
+    serverAssert((*bitmapref)->type == OBJ_BITMAP);
+
+    dbReplaceValueWithLink(c->db, key, bitmapref, link);
+    bitmapPropagateRestore(c, key, *bitmapref, expire);
+    keyModified(c, c->db, key, *bitmapref, 1);
+
+    /* These notifications intentionally retain the existing transition
+     * contract even though the key metadata lifecycle is not an overwrite. */
+    notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
+    notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
+}
+
 /* SETBIT and BITFIELD share the decision of which representation a bitmap
  * write should target. Returns C_ERR after replying to the client when the
  * write cannot be represented natively; the keyspace is left untouched, which
@@ -961,8 +985,8 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long
  * bitmap-default-roaring enabled a new empty bitmap for missing keys
  * (*created) or a native conversion of an existing string value (*converted).
  * Creation and conversion both propagate RESTORE, but installation differs:
- * missing keys use dbAddByLink(), while converted strings preserve TTL and
- * fire overwrite/type-change handling through setKey()/setKeyByLink(). */
+ * missing keys use dbAddByLink(), while converted strings replace only the
+ * value so the logical key's TTL and module metadata remain attached. */
 static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
                                      robj **nativeref, int *created,
                                      int *converted)
@@ -1043,13 +1067,7 @@ static void setbitCommandBitmap(client *c, kvobj *o, robj *native,
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
     } else if (converted) {
         long long expire = getExpire(c->db, c->argv[1]->ptr, o);
-        bitmapPropagateRestore(c, c->argv[1], native, expire);
-        /* setKeyByLink() fires the "overwritten" and "type_changed"
-         * events and signals watchers. Like every type transition this
-         * reaches replicas and the AOF as an explicit RESTORE of the
-         * final state. */
-        setKeyByLink(c, c->db, c->argv[1], &native,
-                     SETKEY_KEEPTTL | SETKEY_ALREADY_EXIST, &link);
+        bitmapInstallConvertedValue(c, c->argv[1], &native, expire, link);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
     } else if (changed) {
@@ -2585,19 +2603,21 @@ void bitfieldGeneric(client *c, int flags) {
 
     /* A created or converted native value must reach replicas and the AOF
      * even when every op failed or wrote nothing: the transition itself (and
-     * the string-parity length growth above) already happened. The payload is
-     * queued before the value is installed, since installing it can notify
-     * module subscribers that may mutate or delete the key. */
+     * the string-parity length growth above) already happened. Creation queues
+     * the payload before dbAdd() emits "new". Conversion first transfers key
+     * metadata without callbacks, then serializes that metadata before its
+     * transition notifications can run module callbacks. */
     if (native_transition) {
-        bitmapPropagateRestore(c, c->argv[1], o, native_transition_expire);
         if (native_transition_created) {
+            bitmapPropagateRestore(c, c->argv[1], o, -1);
             robj *created_bitmap = o;
             dbAddByLink(c->db, c->argv[1], &created_bitmap, &native_bitmap_link);
         } else {
             robj *converted = o;
-            /* setKey() fires the "overwritten" and "type_changed" events
-             * and signals watchers. */
-            setKey(c, c->db, c->argv[1], &converted, SETKEY_KEEPTTL);
+            bitmapInstallConvertedValue(c, c->argv[1], &converted,
+                                        native_transition_expire,
+                                        native_bitmap_link);
+            o = converted;
         }
         if (!changes && !native_len_extended) server.dirty++;
     }

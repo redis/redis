@@ -23,6 +23,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal string [r type bitmap:public:disabled]
         assert_equal $::sparse_public_len [r strlen bitmap:public:disabled]
         assert_equal 1 [r getbit bitmap:public:disabled $::sparse_public_offset]
+
+        r set bitmap:public:disabled:existing [binary format H* 80]
+        assert_equal 0 [r setbit bitmap:public:disabled:existing 1 1]
+        assert_equal string [r type bitmap:public:disabled:existing]
+        assert_equal [binary format H* c0] [r get bitmap:public:disabled:existing]
     }
 
     test {bitmap-default-roaring yes: SETBIT creates native bitmaps for missing keys} {
@@ -43,11 +48,13 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r set bitmap:public:auto-on ""
         r pexpire bitmap:public:auto-on 60000
+        set expire_at [r pexpiretime bitmap:public:auto-on]
         assert_equal 0 [r setbit bitmap:public:auto-on $::sparse_public_offset 1]
         assert_equal bitmap [r type bitmap:public:auto-on]
         assert_equal bitmap-roaring [r object encoding bitmap:public:auto-on]
         assert_equal 1 [r getbit bitmap:public:auto-on $::sparse_public_offset]
-        assert {[r pttl bitmap:public:auto-on] > 0}
+        assert_equal $expire_at [r pexpiretime bitmap:public:auto-on]
+        assert_error {WRONGTYPE*} {r get bitmap:public:auto-on}
         r config set bitmap-default-roaring no
     }
 
