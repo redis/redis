@@ -142,21 +142,53 @@ tags "modules external:skip" {
             r config set bitmap-default-roaring no
         }
 
-        test "Keyspace notifications: bitmap conversion tolerates callback deletion" {
-            foreach {key expected} {
-                bitmap:transition:delete-type
-                    {{type_changed type_changed bitmap} {setbit bitmap empty}}
-                bitmap:transition:delete-bitmap
-                    {{type_changed type_changed bitmap} {setbit bitmap bitmap}}
+        test "Keyspace notifications: BITFIELD conversion module contract" {
+            foreach {suffix raw args expected} {
+                noop 01 {SET u8 0 1} {1}
+                fail ff {OVERFLOW FAIL INCRBY u8 0 1} {{}}
             } {
+                set key bitmap:transition:bitfield:$suffix
+
                 r config set bitmap-default-roaring no
-                r set $key [binary format H* 80]
+                r del $key
+                r set $key [binary format H* $raw]
+                assert_equal string [r keyspace.key_type $key]
                 assert_equal OK [r keyspace.reset_bitmap_transition]
 
+                # BITFIELD converts even when the write is a no-op or every
+                # operation is rejected. Both callbacks see the bitmap.
                 r config set bitmap-default-roaring yes
-                assert_equal 1 [r setbit $key 0 1]
-                assert_equal 0 [r exists $key]
-                assert_equal $expected [r keyspace.get_bitmap_transition]
+                assert_equal $expected [r bitfield $key {*}$args]
+                assert_equal bitmap [r keyspace.key_type $key]
+                assert_equal {{type_changed type_changed bitmap} {setbit bitmap bitmap}} \
+                    [r keyspace.get_bitmap_transition]
+                assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: bitmap conversion tolerates callback deletion" {
+            foreach command {setbit bitfield} {
+                foreach {key expected} {
+                    bitmap:transition:delete-type
+                        {{type_changed type_changed bitmap} {setbit bitmap empty}}
+                    bitmap:transition:delete-bitmap
+                        {{type_changed type_changed bitmap} {setbit bitmap bitmap}}
+                } {
+                    r config set bitmap-default-roaring no
+                    r set $key [binary format H* 80]
+                    assert_equal OK [r keyspace.reset_bitmap_transition]
+
+                    r config set bitmap-default-roaring yes
+                    if {$command eq "setbit"} {
+                        assert_equal 1 [r setbit $key 0 1]
+                    } else {
+                        assert_equal {128} [r bitfield $key SET u8 0 255]
+                    }
+                    assert_equal 0 [r exists $key]
+                    assert_equal $expected [r keyspace.get_bitmap_transition]
+                }
             }
 
             r config set bitmap-default-roaring no
@@ -335,6 +367,33 @@ tags "modules external:skip" {
 
             $replica replicaof $master_host $master_port
             wait_for_sync $replica
+
+            test "Keyspace notifications: conversion replay preserves callback contract" {
+                set key bitmap:transition:replay
+
+                $master config set bitmap-default-roaring no
+                $master del $key
+                $master set $key [binary format H* ff]
+                wait_for_ofs_sync $master $replica
+                assert_equal string [$replica keyspace.key_type $key]
+                assert_equal OK [$replica keyspace.reset_bitmap_transition]
+
+                # The replica applies the synthetic RESTORE in place. It keeps
+                # RESTORE's event sequence but emits no "new" and does not
+                # invoke the key-unlink server event.
+                $master config set bitmap-default-roaring yes
+                assert_equal {{}} [$master bitfield $key \
+                    OVERFLOW FAIL INCRBY u8 0 1]
+                wait_for_ofs_sync $master $replica
+
+                assert_equal bitmap [$replica keyspace.key_type $key]
+                assert_equal {{restore generic bitmap} {overwritten overwritten bitmap} {type_changed type_changed bitmap}} \
+                    [$replica keyspace.get_bitmap_transition]
+                assert_equal 0 [$replica keyspace.bitmap_transition_unlink_count]
+
+                $master config set bitmap-default-roaring no
+                $master del $key
+            }
 
             test "Subkey notification: replica module receives subkey callback after replication" {
                 $master keyspace.subscribe_subkeys

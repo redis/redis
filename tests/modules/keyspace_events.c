@@ -68,6 +68,14 @@ static int IsBitmapTransitionKey(const RedisModuleString *key) {
            memcmp(key_str, prefix, sizeof(prefix) - 1) == 0;
 }
 
+static int IsBitmapTransitionReplayKey(const RedisModuleString *key) {
+    static const char replay_key[] = "bitmap:transition:replay";
+    size_t len;
+    const char *key_str = RedisModule_StringPtrLen(key, &len);
+    return len == sizeof(replay_key) - 1 &&
+           memcmp(key_str, replay_key, sizeof(replay_key) - 1) == 0;
+}
+
 static const char *KeyTypeName(int type) {
     switch (type) {
     case REDISMODULE_KEYTYPE_EMPTY: return "empty";
@@ -79,6 +87,8 @@ static const char *KeyTypeName(int type) {
 
 static const char *NotificationClassName(int type) {
     switch (type) {
+    case REDISMODULE_NOTIFY_GENERIC: return "generic";
+    case REDISMODULE_NOTIFY_NEW: return "new";
     case REDISMODULE_NOTIFY_BITMAP: return "bitmap";
     case REDISMODULE_NOTIFY_OVERWRITTEN: return "overwritten";
     case REDISMODULE_NOTIFY_TYPE_CHANGED: return "type_changed";
@@ -90,7 +100,10 @@ static void LogBitmapTransitionNotification(RedisModuleCtx *ctx, int type,
                                             const char *event,
                                             RedisModuleString *key)
 {
+    int replay_only_event = type == REDISMODULE_NOTIFY_GENERIC ||
+                            type == REDISMODULE_NOTIFY_NEW;
     if (!IsBitmapTransitionKey(key) ||
+        (replay_only_event && !IsBitmapTransitionReplayKey(key)) ||
         bitmap_transition_log_count == BITMAP_TRANSITION_LOG_MAX)
     {
         return;
@@ -665,6 +678,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx,
+        REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_NEW |
         REDISMODULE_NOTIFY_OVERWRITTEN | REDISMODULE_NOTIFY_TYPE_CHANGED,
         KeySpace_NotificationBitmapTransition) != REDISMODULE_OK){
         return REDISMODULE_ERR;
