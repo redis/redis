@@ -121,7 +121,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     }
 
     test {KEYMETA - bitmap auto-conversion preserves metadata and expiration} {
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         r set bitmap:meta:setbit [binary format H* 80]
         setupKeyMeta bitmap:meta:setbit 7 1 0
         set setbit_expire [r pexpiretime bitmap:meta:setbit]
@@ -130,10 +130,10 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         setupKeyMeta bitmap:meta:bitfield 7 1 0
         set bitfield_expire [r pexpiretime bitmap:meta:bitfield]
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         assert_equal 1 [r setbit bitmap:meta:setbit 0 0]
         assert_equal {1} [r bitfield bitmap:meta:bitfield SET u1 0 0]
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
 
         foreach {key expire_at} [list \
             bitmap:meta:setbit $setbit_expire \
@@ -836,9 +836,9 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         r pexpire bitmap:aof-convert-meta 600000
         set expire_at [r pexpiretime bitmap:aof-convert-meta]
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         assert_equal 1 [r setbit bitmap:aof-convert-meta 0 0]
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         assert_equal bitmap [r type bitmap:aof-convert-meta]
         assert_equal "conversion_meta" \
             [r keymeta.get [cname 1] bitmap:aof-convert-meta]
@@ -888,9 +888,9 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         set incr_aof [get_last_incr_aof_path r]
         r keymeta.set [cname 1] $key "conversion_meta"
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         assert_equal 1 [r setbit $key 0 0]
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
 
         set fp [open $incr_aof r]
@@ -936,9 +936,9 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         waitForBgrewriteaof r
         set incr_aof [get_last_incr_aof_path r]
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         assert_equal 1 [r setbit $key 0 0]
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         assert_equal "aof_only_conversion_meta" \
             [r keymeta.get [cname 2] $key]
 
@@ -983,13 +983,18 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                 "UNLINKFREE:ALLOWIGNORE"]
             assert_equal 2 [$client keymeta.register [cname 2] 1 \
                 "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
+            # Leave an unused class between the two serialized classes so the
+            # replay merge also exercises gaps in the metadata bitmask.
+            assert_equal 3 [$client keymeta.register [cname 3] 1 "ALLOWIGNORE"]
+            assert_equal 4 [$client keymeta.register [cname 4] 1 \
+                "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
         }
 
         $replica replicaof $master_host $master_port
         wait_for_sync $replica
         $replica config set replica-read-only no
 
-        test {Replication: bitmap conversion preserves target-only metadata and replaces serialized duplicates} {
+        test {Replication: bitmap conversion merges multiple serialized metadata classes} {
             set keys [list bitmap:repl-meta:setbit bitmap:repl-meta:bitfield]
             foreach key $keys {
                 $master set $key [binary format H* 80]
@@ -1002,24 +1007,31 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                 $master keymeta.set [cname 1] $key "local_only_meta"
                 $replica keymeta.set [cname 1] $key "local_only_meta"
 
-                # The primary carries both serialized values. The replica has
-                # one stale value to replace and leaves the other class missing
-                # so the RESTORE payload must cover both merge paths.
-                $master keymeta.set [cname 2] $key "serialized_meta"
+                # The primary carries two non-contiguous serialized classes.
+                $master keymeta.set [cname 2] $key "serialized_meta_2"
+                $master keymeta.set [cname 4] $key "serialized_meta_4"
             }
-            $replica keymeta.set [cname 2] [lindex $keys 0] "stale_serialized_meta"
-            assert_equal 4 [$master keymeta.active]
-            assert_equal 3 [$replica keymeta.active]
+
+            # Each replica key has one stale serialized value and is missing
+            # the other. The opposite ordering verifies that attaching a
+            # missing class can reallocate the kvobj without losing the later
+            # replacement or the target-only class.
+            $replica keymeta.set [cname 2] [lindex $keys 0] \
+                "stale_serialized_meta_2"
+            $replica keymeta.set [cname 4] [lindex $keys 1] \
+                "stale_serialized_meta_4"
+            assert_equal 6 [$master keymeta.active]
+            assert_equal 4 [$replica keymeta.active]
 
             set expires {}
             foreach key $keys {
                 lappend expires [$master pexpiretime $key]
             }
 
-            $master config set bitmap-default-roaring yes
+            $master config set bitmap-default-native yes
             assert_equal 1 [$master setbit [lindex $keys 0] 0 0]
             assert_equal {1} [$master bitfield [lindex $keys 1] SET u1 0 0]
-            $master config set bitmap-default-roaring no
+            $master config set bitmap-default-native no
             wait_for_ofs_sync $master $replica
 
             foreach client [list $master $replica] {
@@ -1030,12 +1042,15 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                     assert_equal [lindex $expires $i] [$client pexpiretime $key]
                     assert_equal "local_only_meta" \
                         [$client keymeta.get [cname 1] $key]
-                    assert_equal "serialized_meta" \
+                    assert_equal "serialized_meta_2" \
                         [$client keymeta.get [cname 2] $key]
+                    assert_equal {} [$client keymeta.get [cname 3] $key]
+                    assert_equal "serialized_meta_4" \
+                        [$client keymeta.get [cname 4] $key]
                 }
-                # The replica replaced and freed one stale value, then attached
-                # the missing payload value, leaving exactly two classes/key.
-                assert_equal 4 [$client keymeta.active]
+                # Both sides finish with exactly three classes per key. Replay
+                # freed the replica's stale values and attached its missing ones.
+                assert_equal 6 [$client keymeta.active]
             }
 
             $master flushall
@@ -1205,9 +1220,9 @@ test "AOF: native bitmap rewrite preserves AOF-only metadata" {
         r config set aof-use-rdb-preamble no
         waitForBgrewriteaof r
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         r setbit bitmap:aof-only-meta 1000 1
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         r keymeta.set [cname 1] bitmap:aof-only-meta "aof_only_meta"
 
         r bgrewriteaof
@@ -1245,9 +1260,9 @@ test "AOF: native bitmap rewrite preserves RDB-only metadata" {
         r config set aof-use-rdb-preamble no
         waitForBgrewriteaof r
 
-        r config set bitmap-default-roaring yes
+        r config set bitmap-default-native yes
         r setbit bitmap:rdb-only-meta 1000 1
-        r config set bitmap-default-roaring no
+        r config set bitmap-default-native no
         r keymeta.set [cname 1] bitmap:rdb-only-meta "rdb_only_meta"
 
         r bgrewriteaof
