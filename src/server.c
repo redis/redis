@@ -4242,18 +4242,6 @@ void call(client *c, int flags) {
         server.client_pause_in_transaction = 0;
     }
 
-    /* TODO: Merge separately, remove before merge.
-     * Periodically flush replica output buffers mid command-stream so replicas
-     * are fed continuously (not only at beforeSleep), keeping the socket full
-     * and using replica idle capacity. Rate-limited by propagated bytes. */
-    if (listLength(server.slaves)) {
-        static long long repl_last_flush_off = 0;
-        if (server.master_repl_offset - repl_last_flush_off > (256*1024)) {
-            flushSlavesOutputBuffers();
-            repl_last_flush_off = server.master_repl_offset;
-        }
-    }
-
     server.executing_client = prev_client;
 }
 
