@@ -477,8 +477,12 @@ int clientReadBufAndDecompress(client *c, char *input_buf, size_t input_len,
 
         int decompressed = decompressInto(state, output_buf + tot_decompressed,
                                           output_len - tot_decompressed);
-        if (decompressed <= 0)
+        if (decompressed <= 0) {
+            /* Compression library failure, we should close the connection */
+            if (decompressed < 0)
+                c->conn->state = CONN_STATE_CLOSED;
             break;
+        }
         tot_decompressed += decompressed;
     }
 
