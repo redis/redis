@@ -169,10 +169,25 @@ void enqueuePendingClienstToIOThreads(client *c) {
      * this flag. */
     if (!(c->io_flags & CLIENT_IO_COMPRESSION_ENABLED)) {
         if (c->compression_level > 0) {
-            clientEnableCompression(c, COMPRESS);
+            if (!clientEnableCompression(c, COMPRESS)) {
+                /* Failing to initialize compression is unrecoverable for this
+                 * client. Drop it so it can retry. We are on the main thread
+                 * (possibly iterating server.slaves), so schedule an async
+                 * close to avoid freeing the client under an active iterator. */
+                serverLog(LL_WARNING,
+                    "Failed to enable compression for client #%llu. Closing connection...",
+                    (unsigned long long)c->id);
+                freeClientAsync(c);
+                return;
+            }
         }
         if (c->flags & CLIENT_MASTER && server.repl_master_compression_level > 0) {
-            clientEnableCompression(c, DECOMPRESS);
+            if (!clientEnableCompression(c, DECOMPRESS)) {
+                /* The master already started streaming compressed data, so we
+                 * cannot fall back to uncompressed replication. This is
+                 * unrecoverable on the replica side. */
+                serverPanic("Failed to enable decompression for the master replication stream.");
+            }
         }
     }
 
