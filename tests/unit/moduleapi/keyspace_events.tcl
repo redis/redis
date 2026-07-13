@@ -120,6 +120,48 @@ tags "modules external:skip" {
             assert_equal [expr {$before_string + 1}] [r keyspace.string_callback_count]
         }
 
+        test "Keyspace notifications: bitmap conversion module contract" {
+            set key bitmap:transition:setbit
+
+            r config set bitmap-default-roaring no
+            r del $key
+            r set $key [binary format H* 80]
+            assert_equal string [r keyspace.key_type $key]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            # The conversion is observable as an installed bitmap before the
+            # type_changed callback, followed by the triggering bitmap event.
+            # It is not an overwrite and does not fire the key-unlink event.
+            r config set bitmap-default-roaring yes
+            assert_equal 1 [r setbit $key 0 1]
+            assert_equal bitmap [r keyspace.key_type $key]
+            assert_equal {{type_changed type_changed bitmap} {setbit bitmap bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: bitmap conversion tolerates callback deletion" {
+            foreach {key expected} {
+                bitmap:transition:delete-type
+                    {{type_changed type_changed bitmap} {setbit bitmap empty}}
+                bitmap:transition:delete-bitmap
+                    {{type_changed type_changed bitmap} {setbit bitmap bitmap}}
+            } {
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                assert_equal OK [r keyspace.reset_bitmap_transition]
+
+                r config set bitmap-default-roaring yes
+                assert_equal 1 [r setbit $key 0 1]
+                assert_equal 0 [r exists $key]
+                assert_equal $expected [r keyspace.get_bitmap_transition]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
         test "Keyspace notifications: SETBIT updates keysizes before module callbacks" {
             assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
             assert_equal OK [r config set bitmap-default-roaring no]

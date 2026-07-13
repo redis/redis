@@ -378,11 +378,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {native bitmap creation and conversion emit documented keyspace events} {
+    test {native bitmap creation and conversion emit documented keyspace events in order} {
         r config set bitmap-default-roaring no
-        r del bitmap:public:notify bitmap:public:notify:conv
+        r config set notify-keyspace-events {}
+        r del bitmap:public:notify bitmap:public:notify:conv \
+            bitmap:public:notify:bitfield bitmap:public:notify:bitfield:fail
+        r set bitmap:public:notify:conv [binary format H* 80]
+        r set bitmap:public:notify:bitfield [binary format H* 01]
+        r set bitmap:public:notify:bitfield:fail [binary format H* ff]
 
-        r config set notify-keyspace-events E\$ocnb
+        r config set notify-keyspace-events Eocnb
         set rd [redis_deferring_client]
         $rd psubscribe __keyevent@9__:*
         $rd read
@@ -395,19 +400,26 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
 
-        # bitmap-default-roaring conversion: the converting SETBIT additionally emits the
-        # overwrite pair from setKey() before the trailing "setbit", so for
-        # subscribers and modules the conversion is an observable type
-        # change rather than a silent in-place mutation.
-        r config set bitmap-default-roaring no
-        r set bitmap:public:notify:conv ""
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify:conv} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:public:notify:conv} [$rd read]
-        r config set bitmap-default-roaring yes
-        r setbit bitmap:public:notify:conv $::sparse_public_offset 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:overwritten bitmap:public:notify:conv} [$rd read]
+        # A no-op SETBIT still converts the representation. The installed
+        # bitmap emits type_changed first and the triggering bitmap event
+        # second; the logical key was not overwritten.
+        assert_equal 1 [r setbit bitmap:public:notify:conv 0 1]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
+
+        # BITFIELD follows the same contract even when its write leaves the
+        # logical bits unchanged.
+        assert_equal {1} [r bitfield bitmap:public:notify:bitfield SET u8 0 1]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:bitfield} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:bitfield} [$rd read]
+
+        # The representation transition and command event also occur when
+        # every write is rejected by OVERFLOW FAIL.
+        assert_equal {{}} [r bitfield bitmap:public:notify:bitfield:fail \
+            OVERFLOW FAIL INCRBY u8 0 1]
+        assert_equal bitmap [r type bitmap:public:notify:bitfield:fail]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:bitfield:fail} [$rd read]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:bitfield:fail} [$rd read]
         r config set bitmap-default-roaring no
 
         $rd close
