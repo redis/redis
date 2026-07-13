@@ -428,9 +428,17 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
     test {native bitmap writes use only the bitmap notification class} {
         r config set bitmap-default-roaring no
+        r config set notify-keyspace-events {}
         r del bitmap:notify:native-dollar bitmap:notify:string-dollar \
             bitmap:notify:string-bitmap bitmap:notify:native-bitmap \
-            bitmap:notify:native-all
+            bitmap:notify:native-all bitmap:notify:bitop-source \
+            bitmap:notify:bitop-dollar bitmap:notify:bitop-bitmap
+
+        # Seed a native source before subscribing so BITOP exercises its own
+        # notification call site without adding setup events to the stream.
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:notify:bitop-source 0 1
+        r config set bitmap-default-roaring no
 
         set rd [redis_deferring_client]
         $rd psubscribe __keyevent@9__:*
@@ -440,6 +448,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring yes
         r setbit bitmap:notify:native-dollar 0 1
         r config set bitmap-default-roaring no
+        assert_equal 1 [r bitop or bitmap:notify:bitop-dollar \
+            bitmap:notify:bitop-source]
+        # The string SETBIT is a sentinel: if either native write above were
+        # misclassified as a string event, this read would see it first.
         r setbit bitmap:notify:string-dollar 0 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:string-dollar} [$rd read]
 
@@ -448,6 +460,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring yes
         r setbit bitmap:notify:native-bitmap 0 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:native-bitmap} [$rd read]
+        assert_equal 1 [r bitop or bitmap:notify:bitop-bitmap \
+            bitmap:notify:bitop-source]
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:notify:bitop-bitmap} [$rd read]
 
         r config set notify-keyspace-events EA
         r setbit bitmap:notify:native-all 0 1
