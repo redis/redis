@@ -263,12 +263,12 @@ Tested with the following Docker image:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -277,8 +277,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 6. Build Redis
@@ -286,7 +286,7 @@ Tested with the following Docker image:
    Set the necessary environment variables and compile Redis:
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -294,7 +294,7 @@ Tested with the following Docker image:
 7. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -330,12 +330,12 @@ Tested with the following Docker image:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 4. Extract the source archive
@@ -344,8 +344,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 5. Build Redis
@@ -353,7 +353,7 @@ Tested with the following Docker image:
    Set the necessary environment variables and build Redis:
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -361,7 +361,7 @@ Tested with the following Docker image:
 6. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -385,12 +385,12 @@ Tested with the following Docker image:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 3. Extract the source archive
@@ -399,8 +399,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 4. Build Redis
@@ -408,7 +408,7 @@ Tested with the following Docker image:
    Set the necessary environment variables and build Redis:
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -416,7 +416,7 @@ Tested with the following Docker image:
 5. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -455,12 +455,12 @@ Tested with the following Docker image:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 4. Extract the source archive
@@ -469,8 +469,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 5. Build Redis
@@ -478,7 +478,7 @@ Tested with the following Docker image:
    Set the necessary environment variables and build Redis:
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -486,7 +486,7 @@ Tested with the following Docker image:
 6. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -513,12 +513,12 @@ Tested with the following Docker images:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 3. Extract the source archive
@@ -527,8 +527,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 4. Build Redis
@@ -536,7 +536,7 @@ Tested with the following Docker images:
    Set the necessary environment variables and build Redis:
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -544,7 +544,7 @@ Tested with the following Docker images:
 5. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -611,12 +611,12 @@ Tested with the following Docker images:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -625,8 +625,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 6. Build Redis
@@ -635,7 +635,7 @@ Tested with the following Docker images:
 
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -643,7 +643,7 @@ Tested with the following Docker images:
 7. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -709,12 +709,12 @@ Tested with the following Docker images:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -723,8 +723,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 6. Build Redis
@@ -733,7 +733,7 @@ Tested with the following Docker images:
 
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    make -j "$(nproc)" all
    ```
@@ -741,7 +741,7 @@ Tested with the following Docker images:
 7. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -784,12 +784,12 @@ Tested with the following Docker images:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 4. Extract the source archive
@@ -798,8 +798,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 5. Build Redis
@@ -807,7 +807,7 @@ Tested with the following Docker images:
    Set the necessary environment variables and build Redis. `RediSearch` builds with cross-language LTO (the default) because the `clang`/`lld` 21 installed in step 2 match the Rust toolchain's LLVM. On AlmaLinux, `IGNORE_MISSING_DEPS=1` bypasses the `v8.7.91` dep-checker that does not yet recognize `almalinux` (fixed in `redisearch` v8.8.0; harmless on, and not required for, Rocky Linux 10):
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
    export IGNORE_MISSING_DEPS=1
    make -j "$(nproc)" all
@@ -816,7 +816,7 @@ Tested with the following Docker images:
 6. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -850,21 +850,21 @@ Tested with the following Docker image:
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    mkdir -p /usr/src
    cd /usr/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 3. Extract the source archive
 
    ```sh
    cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 4. Build Redis
@@ -872,7 +872,7 @@ Tested with the following Docker image:
    Set the necessary environment variables, apply the `RedisJSON` Rust-flags patch, and build Redis:
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
 
    export BUILD_TLS=yes
    export INSTALL_RUST_TOOLCHAIN=yes LTO=1
@@ -892,7 +892,7 @@ Tested with the following Docker image:
 5. Run Redis
 
    ```sh
-   cd /usr/src/redis-<version>
+   cd /usr/src/redis-<tag>
    ./src/redis-server redis-full.conf
    ```
 
@@ -940,12 +940,12 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
 
    Download a specific version of the Redis source code archive from GitHub.
 
-   Replace `<version>` with the Redis version, for example: `8.0.0`.
+   Replace `<tag>` with the release tag, for example: `8.10.0`. The archive extracts into a `redis-<tag>/` directory.
 
    ```sh
    cd ~/src
-   # <tag>, e.g. redis-docker-10 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
+   # <tag>, e.g. 8.10.0 — full release that bundles the modules:
+   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<tag>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -954,14 +954,14 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
 
    ```sh
    cd ~/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
+   tar xvf redis-full.tar.gz
+   rm redis-full.tar.gz
    ```
 
 6. Build Redis
 
    ```sh
-   cd ~/src/redis-<version>
+   cd ~/src/redis-<tag>
    export HOMEBREW_PREFIX="$(brew --prefix)"
    export BUILD_TLS=yes
    export LTO=0
