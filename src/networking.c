@@ -2938,6 +2938,9 @@ int handleClientsWithPendingWrites(void) {
             installClientWriteHandler(c);
         }
     }
+    /* Record the flushed offset so flushSlavesOutputBuffersIfNeeded() only
+     * fires when a single event loop accumulates more than the threshold. */
+    server.repl_last_flush_offset = server.master_repl_offset;
     return processed;
 }
 
@@ -5431,6 +5434,33 @@ void flushSlavesOutputBuffers(void) {
         {
             writeToClient(slave,0);
         }
+    }
+    /* Record the flushed offset for flushSlavesOutputBuffersIfNeeded(). */
+    server.repl_last_flush_offset = server.master_repl_offset;
+}
+
+/* Send pending data to replicas once ~1MB has built up, instead of waiting
+ * for beforeSleep, so a busy loop keeps feeding replicas as it goes rather
+ * than in one burst at the end.
+ *
+ * Normally we write to replicas only once per event loop, at beforeSleep.
+ * If one loop produces 10MB, the replica socket stays empty during the
+ * loop, then at beforeSleep we try to send all 10MB at once. The socket
+ * buffer only fits ~4MB, so 4MB is sent and 6MB waits, with a write handler
+ * installed for the rest. But that handler runs about once per loop and only
+ * sends another ~4MB, while every loop adds 10MB more, so the buffer keeps
+ * growing. It eventually hits the replica client-output-buffer-limit, the
+ * master drops the replica, and it has to full sync. Sending every ~1MB
+ * during the loop feeds the replica as data is produced, so the buffer stays
+ * small and the replica keeps up. */
+#define REPL_FLUSH_THRESHOLD (1024*1024)
+void flushSlavesOutputBuffersIfNeeded(void) {
+    /* Only with io threads off. When on, replicas are written from a separate 
+     * thread in parallel, so they keep up on their own even under load. */
+    if (server.io_threads_num <= 1 && listLength(server.slaves) &&
+        server.master_repl_offset - server.repl_last_flush_offset > REPL_FLUSH_THRESHOLD)
+    {
+        flushSlavesOutputBuffers();
     }
 }
 

@@ -2480,6 +2480,7 @@ void initServerConfig(void) {
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_up_since = 0;
     server.master_repl_offset = 0;
+    server.repl_last_flush_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
     server.repl_total_sync_attempts = 0;
@@ -3878,6 +3879,9 @@ void postExecutionUnitOperations(void) {
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
+
+    /* Feed replicas mid command-stream if enough has accumulated. */
+    flushSlavesOutputBuffersIfNeeded();
 
     /* Module subsystem post-execution-unit logic */
     modulePostExecutionUnitOperations();

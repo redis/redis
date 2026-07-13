@@ -2394,6 +2394,7 @@ struct redisServer {
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     replBacklog *repl_backlog;      /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
+    long long repl_last_flush_offset;  /* master_repl_offset at the last replica flush */
     long long repl_full_sync_buffer_limit; /* Accumulated repl data limit during rdb channel replication */
     replDataBuf repl_full_sync_buffer;  /* Accumulated replication data for rdb channel replication */
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
@@ -3325,6 +3326,7 @@ int getClientType(client *c);
 int getClientTypeByName(char *name);
 char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
+void flushSlavesOutputBuffersIfNeeded(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(connListener *fds);
