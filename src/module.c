@@ -9308,13 +9308,21 @@ void moduleReleaseGIL(void) {
  * time. The event string is the actual command being executed, and key is the
  * relevant Redis key.
  *
- * When a bitmap write converts a string value to a native bitmap, the value is
- * installed before notifications are delivered. Subscribers receive
- * `type_changed` with REDISMODULE_NOTIFY_TYPE_CHANGED, followed by the
- * triggering event with REDISMODULE_NOTIFY_BITMAP. The transition callback
- * observes a bitmap value; the bitmap callback does as well unless an earlier
- * callback mutates the key. The transition does not emit
- * REDISMODULE_NOTIFY_OVERWRITTEN.
+ * On the server executing a bitmap write that converts a string value to a
+ * native bitmap, the value is installed before notifications are delivered.
+ * Subscribers receive `type_changed` with REDISMODULE_NOTIFY_TYPE_CHANGED,
+ * followed by the triggering event with REDISMODULE_NOTIFY_BITMAP. The
+ * transition callback observes a bitmap value; the bitmap callback does as
+ * well unless an earlier callback mutates the key. The transition does not
+ * emit REDISMODULE_NOTIFY_OVERWRITTEN.
+ *
+ * Live replicas and incremental AOF replay apply the conversion through an
+ * internal metadata-preserving RESTORE. Subscribers there receive `restore`
+ * with REDISMODULE_NOTIFY_GENERIC, `overwritten` with
+ * REDISMODULE_NOTIFY_OVERWRITTEN, then `type_changed` with
+ * REDISMODULE_NOTIFY_TYPE_CHANGED. Replay does not emit REDISMODULE_NOTIFY_NEW
+ * or fire a key-unlink callback, and callbacks observe the installed bitmap
+ * unless an earlier callback mutates the key.
  *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
