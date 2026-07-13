@@ -482,6 +482,31 @@ void ACLFreeUserGeneric(void *u) {
     ACLFreeUser((user *)u);
 }
 
+/* Return 1 if the client holds any Pub/Sub subscription whose provenance was
+ * stamped with user `u` (i.e. created while authenticated as `u`, before the
+ * client switched identity). Subscriptions owned by the *current* user are
+ * caught separately via c->user == u, so this only scans stamped values. Uses
+ * the pubsub_reauthed fast-path hint: with no stamps there is nothing to scan. */
+static int pubsubClientHasStampedOwner(client *c, user *u) {
+    if (!c->pubsub_reauthed) return 0;
+    dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
+    for (int i = 0; i < 3; i++) {
+        dict *d = dicts[i];
+        if (dictSize(d) == 0) continue;
+        dictIterator di;
+        dictEntry *de;
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
+            if (dictGetVal(de) == u) {
+                dictResetIterator(&di);
+                return 1;
+            }
+        }
+        dictResetIterator(&di);
+    }
+    return 0;
+}
+
 /* When a user is deleted we need to cycle the active
  * connections in order to kill all the pending ones that
  * are authenticated with such user. */
@@ -491,7 +516,10 @@ void ACLFreeUserAndKillClients(user *u) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (c->user == u) {
+        /* Kill the client if `u` is its current identity, or if it still holds
+         * Pub/Sub subscriptions created under `u` before it switched identity
+         * (their stamped provenance would dangle once `u` is freed below). */
+        if (c->user == u || pubsubClientHasStampedOwner(c, u)) {
             /* We'll free the connection asynchronously, so
              * in theory to set a different user is not needed.
              * However if there are bugs in Redis, soon or later
@@ -532,6 +560,19 @@ void clientSetUser(client *c, user *new_user) {
     if (c->user != new_user)
         trackingBroadcastFlushClientPrefixes(c);
     c->user = new_user;
+}
+
+/* Set the user for a *genuine identity switch* (AUTH, HELLO AUTH, TLS cert
+ * auto-auth, module RM_Authenticate*). Unlike clientSetUser(), this first
+ * freezes the provenance of any existing Pub/Sub subscriptions: while a
+ * subscription's stored owner is NULL it belongs to the *current* c->user, so
+ * before we abandon that identity we stamp those entries with it. This must NOT
+ * be used for the ACL LOAD pointer swap (same identity, new user object) — that
+ * path re-keys stamped values explicitly and calls clientSetUser() directly. */
+void authSetClientUser(client *c, user *new_user) {
+    if (c->user != new_user)
+        pubsubStampCurrentUser(c);
+    clientSetUser(c, new_user);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1508,7 +1549,7 @@ void addAuthErrReply(client *c, robj *err) {
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
-        clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)));
+        authSetClientUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)));
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -2002,57 +2043,46 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
-/* Check if the client should be killed because it is subscribed to channels that were
- * permitted in the past, are not in the `upcoming` channel list. */
-int ACLShouldKillPubsubClient(client *c, list *upcoming) {
-    robj *o;
+/* Effective owner of a client subscription entry: the stored provenance user*,
+ * or the client's current user when the value is still NULL ("owned by whoever
+ * c->user is now"). May be NULL (no-auth current client) or the no-auth
+ * sentinel; ACL callers always compare against a real registered user, so
+ * neither ever matches and such subscriptions are correctly left alone. */
+static inline user *pubsubEntryOwner(client *c, dictEntry *de) {
+    user *stamped = dictGetVal(de);
+    return stamped ? stamped : c->user;
+}
+
+/* Return 1 if any entry in dict `d` whose effective owner is `owner` violates
+ * the `upcoming` channel list. */
+static int aclDictHasViolatingOwnedEntry(client *c, dict *d, user *owner,
+                                         list *upcoming, int is_pattern) {
+    if (dictSize(d) == 0) return 0;
+    dictIterator di;
+    dictEntry *de;
     int kill = 0;
-
-    if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
-        /* Check for pattern violations. */
-        dictIterator di;
-        dictEntry *de;
-        dictInitIterator(&di, c->pubsub_patterns);
-        while (!kill && ((de = dictNext(&di)) != NULL)) {
-            o = dictGetKey(de);
-            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-            kill = (res == ACL_DENIED_CHANNEL);
-        }
-        dictResetIterator(&di);
-
-        /* Check for channel violations. */
-        if (!kill) {
-            /* Check for global channels violation. */
-            dictInitIterator(&di, c->pubsub_channels);
-
-            while (!kill && ((de = dictNext(&di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictResetIterator(&di);
-        }
-        if (!kill) {
-            /* Check for shard channels violation. */
-            dictInitIterator(&di, c->pubsubshard_channels);
-            while (!kill && ((de = dictNext(&di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictResetIterator(&di);
-        }
-
-        if (kill) {
-            return 1;
-        }
+    dictInitIterator(&di, d);
+    while (!kill && ((de = dictNext(&di)) != NULL)) {
+        if (pubsubEntryOwner(c, de) != owner) continue;
+        robj *o = dictGetKey(de);
+        kill = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern)
+               == ACL_DENIED_CHANNEL;
     }
-    return 0;
+    dictResetIterator(&di);
+    return kill;
+}
+
+/* Check if the client should be killed because it holds a subscription created
+ * under `owner` that is no longer in `owner`'s upcoming channel list. */
+static int ACLShouldKillPubsubClientForOwner(client *c, user *owner, list *upcoming) {
+    return aclDictHasViolatingOwnedEntry(c, c->pubsub_patterns, owner, upcoming, 1)
+        || aclDictHasViolatingOwnedEntry(c, c->pubsub_channels, owner, upcoming, 0)
+        || aclDictHasViolatingOwnedEntry(c, c->pubsubshard_channels, owner, upcoming, 0);
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
-void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     /* Do nothing if there are no subscribers. */
     if (pubsubTotalSubscriptions() == 0)
         return;
@@ -2065,15 +2095,18 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listIter li;
     listNode *ln;
 
-    /* Permissions have changed, so we need to iterate through all
-     * the clients and disconnect those that are no longer valid.
-     * Scan all connected clients to find the user's pub/subs. */
+    /* Permissions have changed, so we need to disconnect clients holding
+     * subscriptions created under `original` that are no longer permitted. A
+     * subscription's owner is its stamped provenance user*, or c->user while the
+     * value is still NULL. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (c->user != original)
-            continue;
-        if (ACLShouldKillPubsubClient(c, channels))
+        if (getClientType(c) != CLIENT_TYPE_PUBSUB) continue;
+        /* Skip clients that can't own anything under `original`: never re-authed
+         * (all subs owned by current user) and c->user != original. */
+        if (!c->pubsub_reauthed && c->user != original) continue;
+        if (ACLShouldKillPubsubClientForOwner(c, original, channels))
             deauthenticateAndCloseClient(c);
     }
 
@@ -2342,6 +2375,88 @@ int ACLLoadConfiguredUsers(void) {
  * At the end of the process, if no errors were found in the whole file then
  * NULL is returned. Otherwise an SDS string describing in a single line
  * a description of all the issues found is returned. */
+
+/* ACL LOAD phase 1 (read-only): validate a client's Pub/Sub subscriptions
+ * against the freshly-loaded ACL. Returns C_OK if the client may keep all its
+ * subscriptions, or C_ERR if it must be killed because a provenance user
+ * disappeared or a still-held subscription is no longer permitted.
+ *
+ * Each subscription's owner is its stamped provenance user*, or c->user while
+ * the stored value is still NULL. `old_users` maps every pre-load username to
+ * the old user object (default is a snapshot copy, since DefaultUser is mutated
+ * in place). `user_channels` caches getUpcomingChannelList() results keyed by
+ * owner name. Old owner pointers are alive here (old_users is freed only after
+ * the whole client walk), so ->name is safe to read. */
+static int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels) {
+    dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
+    int is_pattern[3] = { 1, 0, 0 };
+    for (int i = 0; i < 3; i++) {
+        dict *d = dicts[i];
+        if (dictSize(d) == 0) continue;
+        dictIterator di;
+        dictEntry *de;
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
+            user *owner = pubsubEntryOwner(c, de);
+            /* No-auth-origin subscriptions (NULL current user or sentinel) are
+             * never ACL channel-restricted. */
+            if (owner == NULL || pubsubUserIsNoAuth(owner)) continue;
+            sds owner_name = owner->name;
+
+            list *channels = NULL;
+            if (!raxFind(user_channels, (unsigned char*)owner_name, sdslen(owner_name), (void**)&channels)) {
+                user *new_owner = ACLGetUserByName(owner_name, sdslen(owner_name));
+                user *old_owner = NULL;
+                raxFind(old_users, (unsigned char*)owner_name, sdslen(owner_name), (void**)&old_owner);
+                if (!new_owner || !old_owner) {
+                    /* Provenance user gone after the reload: kill the client. */
+                    dictResetIterator(&di);
+                    return C_ERR;
+                }
+                channels = getUpcomingChannelList(new_owner, old_owner);
+                raxInsert(user_channels, (unsigned char*)owner_name, sdslen(owner_name), channels, NULL);
+            }
+            /* A NULL upcoming list means the new permissions are a superset of
+             * the old ones for this owner, so nothing can be violated. */
+            if (channels != NULL) {
+                robj *o = dictGetKey(de);
+                if (ACLCheckChannelAgainstList(channels, o->ptr, sdslen(o->ptr), is_pattern[i])
+                        == ACL_DENIED_CHANNEL) {
+                    dictResetIterator(&di);
+                    return C_ERR;
+                }
+            }
+        }
+        dictResetIterator(&di);
+    }
+    return C_OK;
+}
+
+/* ACL LOAD phase 2 (mutate): after the client survived validation, translate
+ * every stamped provenance value from the old user object to the freshly-loaded
+ * user of the same name. NULL values (owned by the current user) and the
+ * no-auth sentinel are left untouched; c->user is reassigned by the caller. */
+static void pubsubACLLoadRekeyDict(dict *d) {
+    if (dictSize(d) == 0) return;
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, d);
+    while ((de = dictNext(&di)) != NULL) {
+        user *stamped = dictGetVal(de);
+        if (stamped == NULL || pubsubUserIsNoAuth(stamped)) continue;
+        user *new_owner = ACLGetUserByName(stamped->name, sdslen(stamped->name));
+        serverAssert(new_owner != NULL); /* guaranteed by phase 1 validation */
+        dictSetVal(d, de, new_owner);
+    }
+    dictResetIterator(&di);
+}
+
+static void pubsubACLLoadRekeyClient(client *c) {
+    pubsubACLLoadRekeyDict(c->pubsub_patterns);
+    pubsubACLLoadRekeyDict(c->pubsub_channels);
+    pubsubACLLoadRekeyDict(c->pubsubshard_channels);
+}
+
 sds ACLLoadFromFile(const char *filename) {
     FILE *fp;
     char buf[1024];
@@ -2488,7 +2603,18 @@ sds ACLLoadFromFile(const char *filename) {
 
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
-         * default user configuration in the old one. */
+         * default user configuration in the old one. Before doing so, snapshot
+         * the pre-load default into a throwaway copy so Pub/Sub provenance
+         * validation for subscriptions owned by "default" can compare against
+         * the OLD permissions (DefaultUser is about to be overwritten in place).
+         * We keep it in old_users under "default" — replacing the live
+         * DefaultUser pointer, which now lives in the new Users rax — so both
+         * the current-user and stamped provenance paths resolve it by name. It
+         * is freed together with old_users after the client walk. */
+        user *old_default_copy = zcalloc(sizeof(user));
+        old_default_copy->name = sdsdup(DefaultUser->name);
+        ACLCopyUser(old_default_copy, DefaultUser);
+
         user *new_default = ACLGetUserByName("default",7);
         if (!new_default) {
             new_default = ACLCreateDefaultUser();
@@ -2497,7 +2623,7 @@ sds ACLLoadFromFile(const char *filename) {
         ACLCopyUser(DefaultUser,new_default);
         ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
-        raxRemove(old_users,(unsigned char*)"default",7,NULL);
+        raxInsert(old_users,(unsigned char*)"default",7,old_default_copy,NULL);
 
         /* If there are some subscribers, we need to check if we need to drop some clients. */
         rax *user_channels = NULL;
@@ -2517,21 +2643,31 @@ sds ACLLoadFromFile(const char *filename) {
              * (CLIENT_INTERNAL), both of which run without a user. */
             if (c->user == NULL)
                 continue;
-            user *original = c->user;
-            list *channels = NULL;
-            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (new && user_channels) {
-                if (!raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name), (void**)&channels)) {
-                    channels = getUpcomingChannelList(new, original);
-                    raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
-                }
-            }
-            /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
-            if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
+
+            /* Re-resolve the client's current identity to the new user object
+             * of the same name; kill it if that user no longer exists. */
+            user *new_current = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (!new_current) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            clientSetUser(c, new);
+
+            /* Server- and client-side subscription state move in lockstep, so if
+             * the server has no subscriptions (user_channels not allocated) no
+             * client can hold any either. */
+            serverAssert(user_channels || clientTotalPubSubSubscriptionCount(c) == 0);
+            if (user_channels && clientTotalPubSubSubscriptionCount(c) > 0) {
+                /* Phase 1: read-only validation of every subscription against
+                 * the new ACL, keyed by each subscription's provenance owner. */
+                if (pubsubACLLoadValidateClient(c, old_users, user_channels) == C_ERR) {
+                    deauthenticateAndCloseClient(c);
+                    continue;
+                }
+                /* Phase 2: client survived — re-key stamped provenance values
+                 * from old to new user objects before the old ones are freed. */
+                pubsubACLLoadRekeyClient(c);
+            }
+            clientSetUser(c, new_current);
         }
 
         if (user_channels)
@@ -3291,7 +3427,7 @@ static void internalAuth(client *c) {
         c->authenticated = 1;
         /* Set the user to the unrestricted user, if it is not already set (default). */
         if (c->user != NULL) {
-            clientSetUser(c, NULL);
+            authSetClientUser(c, NULL);
             moduleNotifyUserChanged(c);
         }
         addReply(c, shared.ok);

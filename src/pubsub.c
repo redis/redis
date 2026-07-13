@@ -55,6 +55,17 @@ dict* getClientPubSubShardChannels(client *c);
  */
 void channelList(client *c, sds pat, kvstore *pubsub_channels);
 
+/* Sentinel "user" for subscriptions that originated while the client had no ACL
+ * user (c->user == NULL: e.g. CLIENT_MASTER, internal/module contexts). It is a
+ * static object that is never registered in the ACL rax, so no ACL operation can
+ * match or dereference it. It is only ever written as a *stamped* provenance
+ * value (see pubsubStampCurrentUser) — never as a live current identity. */
+static user pubsubNoAuthUser;
+
+int pubsubUserIsNoAuth(user *u) {
+    return u == &pubsubNoAuthUser;
+}
+
 /*
  * Pub/Sub type for global channels.
  */
@@ -238,6 +249,37 @@ void unmarkClientAsPubSub(client *c) {
         c->flags &= ~CLIENT_PUBSUB;
         server.pubsub_clients--;
     }
+    /* Callers only reach here once the client holds no subscriptions, so no
+     * stamped provenance can remain either. Reset the fast-path hint so ACL
+     * scans can skip this client in O(1) again. */
+    c->pubsub_reauthed = 0;
+}
+
+/* Freeze provenance before an identity switch: stamp every still-NULL
+ * subscription value with the client's *current* owner. A NULL value means
+ * "owned by whoever c->user is now"; once c->user changes those entries would
+ * be misattributed to the new user, so we record the leaving identity here.
+ * When c->user is NULL the owner is the no-auth sentinel — a non-NULL, ACL-
+ * unmatchable stamp (we cannot stamp NULL, as that is the "current user"
+ * marker). Entries already stamped (from an earlier switch) are left as-is. */
+static void pubsubStampDict(dict *d, user *owner) {
+    if (dictSize(d) == 0) return;
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, d);
+    while ((de = dictNext(&di)) != NULL) {
+        if (dictGetVal(de) == NULL) dictSetVal(d, de, owner);
+    }
+    dictResetIterator(&di);
+}
+
+void pubsubStampCurrentUser(client *c) {
+    if (clientTotalPubSubSubscriptionCount(c) == 0) return;
+    user *owner = c->user ? c->user : &pubsubNoAuthUser;
+    pubsubStampDict(c->pubsub_channels, owner);
+    pubsubStampDict(c->pubsub_patterns, owner);
+    pubsubStampDict(c->pubsubshard_channels, owner);
+    c->pubsub_reauthed = 1;
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
@@ -249,9 +291,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     unsigned int slot = 0;
 
     /* Add the channel to the client -> channels hash table */
-    dictEntryLink bucket;
-    dictEntryLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
-    if (link == NULL) { /* Not yet subscribed to this channel */
+    if (dictFind(type.clientPubSubChannels(c), channel) == NULL) { /* Not yet subscribed */
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
@@ -270,7 +310,12 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
-        dictSetKeyAtLink(type.clientPubSubChannels(c), channel, &bucket, 1);
+        /* Store the (canonical, server-shared) channel object in the client dict
+         * with a NULL value, meaning "owned by whoever c->user is now". The
+         * provenance is only stamped with a concrete user* on identity switch
+         * (see pubsubStampCurrentUser). We add with an explicit NULL value rather
+         * than via dictSetKeyAtLink because flat-lazy reads this value slot. */
+        serverAssert(dictAdd(type.clientPubSubChannels(c), channel, NULL) == DICT_OK);
         incrRefCount(channel);
     }
     /* Notify the client */

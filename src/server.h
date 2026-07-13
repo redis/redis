@@ -1600,9 +1600,15 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
-    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE) */
-    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
+    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE). The dict value
+                             * holds the subscription's originating ACL user*: NULL means
+                             * "owned by whoever c->user is now", a non-NULL user* is a
+                             * provenance stamp frozen when the client switched identity. */
+    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE); value as above */
+    dict *pubsubshard_channels;  /* shard level channels (SSUBSCRIBE); value as above */
+    int pubsub_reauthed;    /* Fast-path hint: set once any subscription has been provenance-
+                             * stamped (client re-authed while subscribed). While 0 every entry
+                             * is owned by c->user, so ACL scans can skip in O(1). */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -3494,6 +3500,7 @@ uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(user *u);
 void trackingBroadcastFlushClientPrefixes(client *c);
 void clientSetUser(client *c, user *new_user);
+void authSetClientUser(client *c, user *new_user);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */
@@ -4130,8 +4137,11 @@ int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 void unmarkClientAsPubSub(client *c);
 int pubsubTotalSubscriptions(void);
+int clientTotalPubSubSubscriptionCount(client *c);
 dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
+int pubsubUserIsNoAuth(user *u);
+void pubsubStampCurrentUser(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);

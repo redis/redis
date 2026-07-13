@@ -636,7 +636,11 @@ static int scriptVerifyAllowStale(client *c, sds *err) {
 void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     client *c = run_ctx->c;
 
-    /* Setup our fake client for command execution */
+    /* Setup our fake client for command execution. The script client can never
+     * hold Pub/Sub subscriptions (SUBSCRIBE family is CMD_NOSCRIPT), so this
+     * direct identity assignment needs no provenance stamping — assert the
+     * invariant that keeps the flat-lazy owner model sound. */
+    serverAssert(clientTotalPubSubSubscriptionCount(c) == 0);
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */

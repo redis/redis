@@ -6906,6 +6906,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
             goto cleanup;
         }
+        /* Fresh temp client from the pool — it holds no Pub/Sub subscriptions,
+         * so this direct identity assignment needs no provenance stamping. */
+        serverAssert(clientTotalPubSubSubscriptionCount(c) == 0);
         c->user = user;
     }
 
@@ -11042,7 +11045,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     moduleNotifyUserChanged(ctx->client);
 
     ctx->client->authenticated = 1;
-    clientSetUser(ctx->client, user);
+    authSetClientUser(ctx->client, user);
 
     if (clientHasModuleAuthInProgress(ctx->client)) {
         ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
