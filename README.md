@@ -261,7 +261,7 @@ Tested with the following Docker image:
 
 4. Install the LLVM 21 toolchain
 
-   `INSTALL_RUST_TOOLCHAIN=yes` (used in the build step below) installs Rust 1.94, whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
+   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
 
    ```sh
    sudo apt-get install -y --no-install-recommends lsb-release gnupg software-properties-common
@@ -293,17 +293,26 @@ Tested with the following Docker image:
    rm redis-full.tar.gz
    ```
 
-7. Build Redis
+7. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+8. Build Redis
 
    Set the necessary environment variables and compile Redis:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-8. Run Redis
+9. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -340,7 +349,7 @@ Tested with the following Docker image:
 
 3. Install the LLVM 21 toolchain
 
-   `INSTALL_RUST_TOOLCHAIN=yes` (used in the build step below) installs Rust 1.94, whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
+   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
 
    ```sh
    sudo apt-get install -y --no-install-recommends lsb-release gnupg software-properties-common
@@ -372,17 +381,26 @@ Tested with the following Docker image:
    rm redis-full.tar.gz
    ```
 
-6. Build Redis
+6. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+7. Build Redis
 
    Set the necessary environment variables and build Redis:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-7. Run Redis
+8. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -407,7 +425,7 @@ Tested with the following Docker image:
 
 2. Install the LLVM 21 toolchain
 
-   `INSTALL_RUST_TOOLCHAIN=yes` (used in the build step below) installs Rust 1.94, whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
+   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
 
    ```sh
    sudo apt-get install -y --no-install-recommends lsb-release gnupg software-properties-common
@@ -439,17 +457,26 @@ Tested with the following Docker image:
    rm redis-full.tar.gz
    ```
 
-5. Build Redis
+5. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+6. Build Redis
 
    Set the necessary environment variables and build Redis:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-6. Run Redis
+7. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -509,17 +536,26 @@ Tested with the following Docker image:
    rm redis-full.tar.gz
    ```
 
-5. Build Redis
+5. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+6. Build Redis
 
    Set the necessary environment variables and build Redis:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-6. Run Redis
+7. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -547,7 +583,7 @@ Tested with the following Docker images:
 
 2. Install the LLVM 21 toolchain
 
-   `INSTALL_RUST_TOOLCHAIN=yes` (used in the build step below) installs Rust 1.94, whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. Debian does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
+   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. Debian does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
 
    ```sh
    sudo apt-get install -y --no-install-recommends lsb-release gnupg
@@ -590,17 +626,26 @@ Tested with the following Docker images:
    rm redis-full.tar.gz
    ```
 
-5. Build Redis
+5. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+6. Build Redis
 
    Set the necessary environment variables and build Redis:
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-6. Run Redis
+7. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -640,7 +685,7 @@ Tested with the following Docker images:
    dnf install -y pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
-   `clang` on these releases is already LLVM 21, matching the Rust toolchain that `INSTALL_RUST_TOOLCHAIN=yes` installs; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
+   `clang` on these releases is already LLVM 21, matching the Rust toolchain installed in the "Install the Rust toolchain" step below; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
 
    Make `python3.11` the default `python3` — the RedisJSON and RedisTimeSeries builds need a `python3` on `PATH` whose `python3 -m pip` works, and the `python3.11` package only provides `/usr/bin/python3.11`:
 
@@ -697,18 +742,27 @@ Tested with the following Docker images:
    rm redis-full.tar.gz
    ```
 
-6. Build Redis
+6. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+7. Build Redis
 
    Enable the GCC toolset, set the necessary environment variables, and build Redis:
 
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-7. Run Redis
+8. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -747,7 +801,7 @@ Tested with the following Docker images:
    dnf install -y pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
-   `clang` on these releases is already LLVM 21, matching the Rust toolchain that `INSTALL_RUST_TOOLCHAIN=yes` installs; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
+   `clang` on these releases is already LLVM 21, matching the Rust toolchain installed in the "Install the Rust toolchain" step below; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
 
    Enable the GCC toolset:
 
@@ -797,18 +851,27 @@ Tested with the following Docker images:
    rm redis-full.tar.gz
    ```
 
-6. Build Redis
+6. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+7. Build Redis
 
    Enable the GCC toolset, set the necessary environment variables, and build Redis:
 
    ```sh
    source /etc/profile.d/gcc-toolset-13.sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    make -j "$(nproc)" all
    ```
 
-7. Run Redis
+8. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -848,7 +911,7 @@ Tested with the following Docker images:
    dnf install -y pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
-   On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain that `INSTALL_RUST_TOOLCHAIN=yes` installs. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
+   On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain installed in the "Install the Rust toolchain" step below. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
 
 3. Download the Redis source
 
@@ -872,18 +935,27 @@ Tested with the following Docker images:
    rm redis-full.tar.gz
    ```
 
-5. Build Redis
+5. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+6. Build Redis
 
    Set the necessary environment variables and build Redis. `RediSearch` builds with cross-language LTO (the default) because the `clang`/`lld` 21 installed in step 2 match the Rust toolchain's LLVM. On AlmaLinux, `IGNORE_MISSING_DEPS=1` bypasses the `v8.7.91` dep-checker that does not yet recognize `almalinux` (fixed in `redisearch` v8.8.0; harmless on, and not required for, Rocky Linux 10):
 
    ```sh
    cd /usr/src/redis-<version>
-   export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
+   export BUILD_TLS=yes
    export IGNORE_MISSING_DEPS=1
    make -j "$(nproc)" all
    ```
 
-6. Run Redis
+7. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
@@ -937,7 +1009,16 @@ Tested with the following Docker image:
    rm redis-full.tar.gz
    ```
 
-4. Build Redis
+4. Install the Rust toolchain
+
+   RedisJSON and RediSearch are partly written in Rust. Install the pinned Rust toolchain (1.94.0) that the bundled modules build with — the recipe downloads the official standalone installer and verifies its checksum:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   make -C modules install-rust INSTALL_RUST_TOOLCHAIN=yes
+   ```
+
+5. Build Redis
 
    Set the necessary environment variables, apply the `RedisJSON` Rust-flags patch, and build Redis:
 
@@ -945,7 +1026,7 @@ Tested with the following Docker image:
    cd /usr/src/redis-<version>
 
    export BUILD_TLS=yes
-   export INSTALL_RUST_TOOLCHAIN=yes LTO=1
+   export LTO=1
    export RUST_DYN_CRT=1
    export PATH="/usr/lib/llvm21/bin:$PATH"
 
@@ -957,7 +1038,7 @@ Tested with the following Docker image:
    make -j "$(nproc)" all
    ```
 
-5. Run Redis
+6. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
