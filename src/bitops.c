@@ -919,20 +919,23 @@ static void addBitmapNativeLengthError(client *c) {
 }
 
 /* Propagate a bitmap representation transition as RESTORE ... REPLACE
- * [ABSTTL] instead of the triggering command: the conversion decision must
- * stay a pure function of replicated logical state, never re-derived from
- * replica-local config or allocator behavior. A newly created object can be
- * serialized before dbAdd(), while a converted object is installed first so
- * its inherited module metadata is included. In both cases callers pass the
+ * [ABSTTL] [KEEPMETADATA] instead of the triggering command: the conversion
+ * decision must stay a pure function of replicated logical state, never
+ * re-derived from replica-local config or allocator behavior. A newly created
+ * object can be serialized before dbAdd(), while a converted object is
+ * installed first so its inherited serializable metadata is included. The
+ * internal KEEPMETADATA modifier also retains target-local metadata classes
+ * that cannot be encoded in a DUMP payload. In both cases callers pass the
  * expiration that RESTORE should apply and queue the payload before keyspace
  * notifications run module callbacks that may mutate the key. This helper
  * owns suppression of the triggering command so callers cannot queue both the
  * original write and the replacement payload. */
-static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long expire) {
+static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap,
+                                   long long expire, int keepmetadata) {
     rio payload;
-    robj *argv[6];
+    robj *argv[7];
     int has_expire = expire != -1;
-    int argc = has_expire ? 6 : 5;
+    int argc = 5;
 
     createDumpPayload(&payload, bitmap, key, c->db->id, 0);
 
@@ -942,7 +945,9 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long
                             shared.integers[0];
     argv[3] = createObject(OBJ_STRING, payload.io.buffer.ptr);
     argv[4] = createStringObject("REPLACE", 7);
-    if (has_expire) argv[5] = shared.absttl;
+    if (has_expire) argv[argc++] = shared.absttl;
+    if (keepmetadata)
+        argv[argc++] = createStringObject("KEEPMETADATA", 12);
 
     preventCommandPropagation(c);
     alsoPropagate(c->db->id, argv, argc, PROPAGATE_AOF | PROPAGATE_REPL);
@@ -951,6 +956,7 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap, long long
     if (has_expire) decrRefCount(argv[2]);
     decrRefCount(argv[3]);
     decrRefCount(argv[4]);
+    if (keepmetadata) decrRefCount(argv[argc-1]);
 }
 
 /* Install a string-to-bitmap conversion as a value transition of the existing
@@ -967,7 +973,7 @@ static void bitmapInstallConvertedValue(client *c, robj *key, robj **bitmapref,
     serverAssert((*bitmapref)->type == OBJ_BITMAP);
 
     dbReplaceValueWithLink(c->db, key, bitmapref, link);
-    bitmapPropagateRestore(c, key, *bitmapref, expire);
+    bitmapPropagateRestore(c, key, *bitmapref, expire, 1);
     keyModified(c, c->db, key, *bitmapref, 1);
 
     /* These notifications intentionally retain the existing transition
@@ -1060,7 +1066,7 @@ static void setbitCommandBitmap(client *c, kvobj *o, robj *native,
         /* Queue the RESTORE payload before the keyspace notification:
          * module subscribers may mutate or delete the key from their
          * callback. */
-        bitmapPropagateRestore(c, c->argv[1], native, -1);
+        bitmapPropagateRestore(c, c->argv[1], native, -1, 0);
         kvobj *kv = dbAddByLink(c->db, c->argv[1], &native, &link);
         keyModified(c,c->db,c->argv[1],kv,1);
         server.dirty++;
@@ -1541,7 +1547,7 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
              * re-running the command against their own configuration. The
              * payload is queued before setKey() notifications: module
              * subscribers may mutate or delete the key. */
-            bitmapPropagateRestore(c, targetkey, res_bitmap, -1);
+            bitmapPropagateRestore(c, targetkey, res_bitmap, -1, 0);
         }
         setKey(c, c->db, targetkey, &res_bitmap, 0);
         server.dirty++;
@@ -2609,7 +2615,7 @@ void bitfieldGeneric(client *c, int flags) {
      * transition notifications can run module callbacks. */
     if (native_transition) {
         if (native_transition_created) {
-            bitmapPropagateRestore(c, c->argv[1], o, -1);
+            bitmapPropagateRestore(c, c->argv[1], o, -1, 0);
             robj *created_bitmap = o;
             dbAddByLink(c->db, c->argv[1], &created_bitmap, &native_bitmap_link);
         } else {

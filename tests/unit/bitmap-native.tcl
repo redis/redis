@@ -1086,8 +1086,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
                     assert_equal 0 [lindex $cmd 2]
                     incr create_restore
                 } elseif {$key eq "bitmap:aof-incr:convert"} {
-                    assert_equal 6 [llength $cmd]
+                    assert_equal 7 [llength $cmd]
                     assert_equal ABSTTL [lindex $cmd 5]
+                    assert_equal KEEPMETADATA [lindex $cmd 6]
                     incr convert_restore
                 }
             }
