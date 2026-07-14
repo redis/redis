@@ -39,6 +39,19 @@ if ! "$MAKE_BIN" -C src all; then
   exit 1
 fi
 
+# INSTALL_RUST_TOOLCHAIN=yes is honored here (not just by `make -C modules
+# install-rust`) so `make build INSTALL_RUST_TOOLCHAIN=yes` provisions Rust.
+# The recipe is self-contained (downloads the standalone installer, calls no
+# module script), so run it on the flag alone — independent of whether any
+# module is cloned. Linux-only and system-wide — opt-in.
+case "${INSTALL_RUST_TOOLCHAIN:-}" in
+  yes|1|true)
+    echo
+    echo "==> Installing Rust toolchain (INSTALL_RUST_TOOLCHAIN=yes)"
+    "$MAKE_BIN" -C "$REPO_ROOT/modules" install-rust INSTALL_RUST_TOOLCHAIN=yes
+    ;;
+esac
+
 failed=""
 if [ -z "$modules" ]; then
   echo
