@@ -2673,22 +2673,17 @@ sds ACLLoadFromFile(const char *filename) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
-            /* Clients with no associated user (user = NULL) have nothing to
-             * re-resolve and must be skipped before dereferencing c->user.
-             * This covers MASTER clients as well as internal connections
-             * (CLIENT_INTERNAL), both of which run without a user. */
-            if (c->user == NULL)
-                continue;
 
-            /* Re-resolve the client's current identity to the new user object
-             * of the same name; kill it if that user no longer exists. */
-            user *new_current = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (!new_current) {
-                deauthenticateAndCloseClient(c);
-                continue;
-            }
-
-            /* Server- and client-side subscription state move in lockstep, so if
+            /* Validate and re-key Pub/Sub provenance for EVERY client, including
+             * those with no current user (c->user == NULL). With the provenance
+             * model such a client — e.g. one that subscribed as a real ACL user
+             * and then authenticated as an internal/no-user connection — can
+             * still hold subscriptions stamped with real ACL user pointers. Those
+             * must be validated against the new ACL and re-keyed before old_users
+             * is freed, or they would dangle. Sentinel- and current-user-owned
+             * (NULL-valued) entries are ignored inside the helpers.
+             *
+             * Server- and client-side subscription state move in lockstep, so if
              * the server has no subscriptions (user_channels not allocated) no
              * client can hold any either. */
             serverAssert(user_channels || clientTotalPubSubSubscriptionCount(c) == 0);
@@ -2702,6 +2697,18 @@ sds ACLLoadFromFile(const char *filename) {
                 /* Phase 2: client survived — re-key stamped provenance values
                  * from old to new user objects before the old ones are freed. */
                 pubsubACLLoadRekeyClient(c, old_users);
+            }
+
+            /* Re-resolve the current identity to the new user object of the same
+             * name; kill the client if that user no longer exists. No-user
+             * connections (MASTER, internal, module) have no current identity to
+             * re-resolve, so leave c->user as-is. */
+            if (c->user == NULL)
+                continue;
+            user *new_current = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (!new_current) {
+                deauthenticateAndCloseClient(c);
+                continue;
             }
             clientSetUser(c, new_current);
         }

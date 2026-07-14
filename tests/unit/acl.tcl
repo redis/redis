@@ -1744,12 +1744,13 @@ tags {modules external:skip cluster} {
     set testmodule [file normalize tests/modules/internalsecret.so]
 
     # A valid ACL file must exist at startup for `ACL LOAD` to be available.
-    set aclpath [file normalize tests/tmp/internalauth-acl-load.acl]
-    set fp [open $aclpath w]
+    # Global so test bodies (which run in their own scope) can rewrite it.
+    set ::aclpath [file normalize tests/tmp/internalauth-acl-load.acl]
+    set fp [open $::aclpath w]
     puts $fp "user default on nopass ~* &* +@all"
     close $fp
 
-    start_cluster 1 0 [list config_lines [list loadmodule $testmodule] overrides [list aclfile $aclpath]] {
+    start_cluster 1 0 [list config_lines [list loadmodule $testmodule] overrides [list aclfile $::aclpath]] {
         test {ACL LOAD handles correctly an internal (NULL-user) connection present} {
             set victim [redis_client]
 
@@ -1767,7 +1768,47 @@ tags {modules external:skip cluster} {
 
             $victim close
         }
+
+        test {ACL LOAD validates a NULL-user connection's subscriptions stamped with a real user} {
+            # A connection can subscribe as a real ACL user and then become an
+            # internal (no-user) connection: switching identity stamps the
+            # subscription with the originating user while c->user becomes NULL.
+            # ACL LOAD must still validate/re-key those stamps — skipping the
+            # client just because c->user == NULL would leave a subscription
+            # owned by a now-deleted user alive (and its user* pointer dangling).
+            set fp [open $::aclpath w]
+            puts $fp "user default on nopass ~* &* +@all"
+            puts $fp "user provuser on nopass ~* &* +@all"
+            close $fp
+            assert_equal {OK} [r ACL LOAD]
+
+            set victim [redis_deferring_client]
+            $victim hello 3 ; # RESP3 so it can re-auth while subscribed
+            $victim read
+            $victim auth provuser ""
+            $victim read
+            $victim subscribe provchan
+            $victim read
+            # Demote to an internal (NULL-user) connection: provchan is now
+            # stamped with provuser while c->user == NULL.
+            $victim internalauth.getinternalsecret
+            set secret [$victim read]
+            $victim auth "internal connection" $secret
+            assert_equal {OK} [$victim read]
+
+            # Remove provuser and reload. provchan's originating user is gone, so
+            # the internal connection must be disconnected despite c->user == NULL.
+            set fp [open $::aclpath w]
+            puts $fp "user default on nopass ~* &* +@all"
+            close $fp
+            assert_equal {OK} [r ACL LOAD]
+            assert_equal {PONG} [r ping] ; # let the async close run
+
+            catch {$victim ping; $victim read} e
+            assert_match {*I/O error*} $e
+            $victim close
+        }
     }
 
-    file delete $aclpath
+    file delete $::aclpath
 }
