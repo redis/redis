@@ -4,6 +4,14 @@ set testmodule [file normalize tests/modules/misc.so]
 set ::sparse_public_offset 65536
 set ::sparse_public_len 8193
 
+proc wait_for_bitmap_defrag_stop {maxtries delay} {
+    wait_for_condition $maxtries $delay {
+        [s active_defrag_running] eq 0
+    } else {
+        fail "bitmap defrag did not stop"
+    }
+}
+
 start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {bitmap-default-native defaults to no} {
         assert_equal no [lindex [r config get bitmap-default-native] 1]
@@ -952,6 +960,58 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         assert_equal [s lazyfreed_objects] 1
     } {} {needs:config-resetstat}
+
+    if {$::debug_defrag} {
+        test {forced active defrag relocates dense bitmap BITSET storage safely} {
+            r flushdb
+            set old_bitmap_default_native [config_get_set bitmap-default-native no]
+            set old_activedefrag [config_get_set activedefrag no]
+            wait_for_bitmap_defrag_stop 500 10
+            r config resetstat
+
+            # Alternating bits exceed ARRAY capacity and cannot be compressed
+            # usefully as runs, forcing a BITSET container with an independently
+            # aligned words allocation.
+            set dense [string repeat [binary format H* aa] 8192]
+            r set bitmap:defrag:dense $dense
+            convert_string_bitmap_to_native r bitmap:defrag:dense
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:dense] 8192
+
+            set old_hz [config_get_set hz 100]
+            set old_threshold [config_get_set active-defrag-threshold-lower 1]
+            set old_cycle_min [config_get_set active-defrag-cycle-min 65]
+            set old_cycle_max [config_get_set active-defrag-cycle-max 75]
+            set old_ignore_bytes [config_get_set active-defrag-ignore-bytes 1]
+            r config set activedefrag yes
+
+            wait_for_condition 500 10 {
+                [s active_defrag_key_hits] > 0
+            } else {
+                puts [r info memory]
+                puts [r info stats]
+                fail "forced defrag did not relocate the dense bitmap"
+            }
+
+            r config set activedefrag no
+            wait_for_bitmap_defrag_stop 500 10
+            r config set hz $old_hz
+            r config set active-defrag-threshold-lower $old_threshold
+            # Lower min first so restoring an old max below the test's min
+            # cannot transiently violate the min <= max constraint.
+            r config set active-defrag-cycle-min 1
+            r config set active-defrag-cycle-max $old_cycle_max
+            r config set active-defrag-cycle-min $old_cycle_min
+            r config set active-defrag-ignore-bytes $old_ignore_bytes
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
+            assert_equal 1 [r del bitmap:defrag:dense]
+            r config set bitmap-default-native $old_bitmap_default_native
+            assert_equal OK [r config set activedefrag $old_activedefrag]
+        } {} {needs:config-resetstat}
+    }
 
     test {public-created native bitmaps survive debug reload} {
         r config set bitmap-default-native yes

@@ -623,13 +623,15 @@ static void bitmapObjectDefragBitsetWords(bitmapObject *bitmap,
 
     if (bitset->words == NULL) return;
     base = bitmapRoaringAlignedAllocBase(bitset->words);
+    /* activeDefragAlloc() may free base. Capture every relationship to the old
+     * allocation before calling it. */
+    old_off = (size_t)((char *)bitset->words - (char *)base);
     newbase = bitmapObjectActiveDefragAlloc(bitmap, base);
     if (newbase == NULL) return;
 
     /* The relocation copied the block verbatim, so the words still sit at
      * their old offset; re-derive the aligned offset for the new base address
      * and slide the words when the two differ. */
-    old_off = (size_t)((char *)bitset->words - (char *)base);
     aligned = ((uintptr_t)newbase + sizeof(void *) +
                (BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1)) &
               ~((uintptr_t)BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1);

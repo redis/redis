@@ -125,6 +125,11 @@ Redis currently vendors CRoaring v4.7.0.
 
 Local changes compared to pristine upstream v4.7.0:
 
+In `deps/croaring/Makefile`:
+
+* CRoaring is compiled with hidden symbol visibility so Redis' Linux
+  `-rdynamic` link does not expose the vendored symbols to modules.
+
 In `include/roaring/portability.h`:
 
 * Added a `__has_include` polyfill (`#ifndef __has_include` /
@@ -149,4 +154,3 @@ In `src/roaring64.c` and the added `include/roaring/roaring64_internal.h`:
   `roaring_bitmap_t` whose layout upstream exposes publicly. The long-term
   plan is to propose an allocation-visitor/relocation helper API to upstream
   CRoaring so future version bumps do not depend on this internal header.
-
