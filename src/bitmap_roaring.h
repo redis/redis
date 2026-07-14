@@ -59,8 +59,4 @@ sds bitmapObjectMaterialize(const robj *o);
 sds bitmapObjectMaterializeForRDB(const robj *o);
 robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys, uint64_t maxlen);
 
-#ifdef REDIS_TEST
-int bitmapRoaringTest(int argc, char **argv, int flags);
-#endif
-
 #endif /* __BITMAP_ROARING_H */
