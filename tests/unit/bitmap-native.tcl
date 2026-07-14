@@ -1009,7 +1009,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
             assert_equal 1 [r del bitmap:defrag:dense]
             r config set bitmap-default-native $old_bitmap_default_native
-            r config set activedefrag $old_activedefrag
+            assert_equal OK [r config set activedefrag $old_activedefrag]
         } {} {needs:config-resetstat}
     }
 
