@@ -8,7 +8,8 @@ AR ?= ar
 ARFLAGS = rcs
 
 CROARING_CFLAGS = $(STD) $(WARN) $(OPT) $(ENABLE_LTO) $(CFLAGS) -fPIC \
-	-DROARING_DISABLE_X64=1 -DDISABLENEON=1 -Iinclude -Isrc
+	-fvisibility=hidden -DROARING_DISABLE_X64=1 -DDISABLENEON=1 \
+	-Iinclude -Isrc
 CROARING_BUILD_SETTINGS = .make-build-settings
 
 ROARING_SRC = \

@@ -153,6 +153,62 @@ FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(OPT) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
+NM?=nm
+
+# Redis uses -rdynamic on Linux for module support. Keep the statically linked
+# CRoaring implementation private so a module that embeds another CRoaring
+# version cannot bind to Redis' copy or replace its process-global memory hook.
+ifeq ($(uname_S),Linux)
+CROARING_SERVER_LDFLAGS=-Wl,--exclude-libs,libroaring.a
+define VERIFY_CROARING_SYMBOLS
+	@set -e; \
+	archive_raw="$@.croaring-archive-raw.$$$$"; \
+	archive_names="$@.croaring-archive-names.$$$$"; \
+	archive_symbols="$@.croaring-archive-symbols.$$$$"; \
+	dynamic_raw="$@.croaring-dynamic-raw.$$$$"; \
+	dynamic_names="$@.croaring-dynamic-names.$$$$"; \
+	dynamic_symbols="$@.croaring-dynamic-symbols.$$$$"; \
+	leaked_symbols="$@.croaring-leaked-symbols.$$$$"; \
+	trap 'rm -f "$$archive_raw" "$$archive_names" "$$archive_symbols" "$$dynamic_raw" "$$dynamic_names" "$$dynamic_symbols" "$$leaked_symbols"' EXIT HUP INT TERM; \
+	if ! $(NM) -g --defined-only ../deps/croaring/libroaring.a > "$$archive_raw"; then \
+		echo "ERROR: failed to inspect vendored CRoaring symbols with $(NM)" >&2; \
+		exit 1; \
+	fi; \
+	if ! awk 'NF >= 2 { print $$NF }' "$$archive_raw" > "$$archive_names"; then \
+		echo "ERROR: failed to extract vendored CRoaring symbols" >&2; \
+		exit 1; \
+	fi; \
+	if ! LC_ALL=C sort -u "$$archive_names" > "$$archive_symbols"; then \
+		echo "ERROR: failed to sort vendored CRoaring symbols" >&2; \
+		exit 1; \
+	fi; \
+	if test ! -s "$$archive_symbols"; then \
+		echo "ERROR: vendored CRoaring symbol list is empty" >&2; \
+		exit 1; \
+	fi; \
+	if ! $(NM) -D -g --defined-only $@ > "$$dynamic_raw"; then \
+		echo "ERROR: failed to inspect redis-server dynamic symbols with $(NM)" >&2; \
+		exit 1; \
+	fi; \
+	if ! awk 'NF >= 2 { print $$NF }' "$$dynamic_raw" > "$$dynamic_names"; then \
+		echo "ERROR: failed to extract redis-server dynamic symbols" >&2; \
+		exit 1; \
+	fi; \
+	if ! LC_ALL=C sort -u "$$dynamic_names" > "$$dynamic_symbols"; then \
+		echo "ERROR: failed to sort redis-server dynamic symbols" >&2; \
+		exit 1; \
+	fi; \
+	if ! LC_ALL=C comm -12 "$$archive_symbols" "$$dynamic_symbols" > "$$leaked_symbols"; then \
+		echo "ERROR: failed to compare CRoaring and redis-server symbols" >&2; \
+		exit 1; \
+	fi; \
+	if test -s "$$leaked_symbols"; then \
+		echo "ERROR: redis-server exports vendored CRoaring symbols:" >&2; \
+		sed 's/^/  /' "$$leaked_symbols" >&2; \
+		exit 1; \
+	fi
+endef
+endif
 
 # Linux ARM32 needs -latomic at linking time
 ifneq (,$(findstring armv,$(uname_M)))
@@ -445,7 +501,8 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a ../deps/croaring/libroaring.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a $(CROARING_SERVER_LDFLAGS) ../deps/croaring/libroaring.a $(FINAL_LIBS)
+	$(VERIFY_CROARING_SYMBOLS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
