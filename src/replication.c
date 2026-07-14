@@ -2301,12 +2301,14 @@ void replicationAttachToNewMaster(void) {
 }
 
 /* Enable decompression on a master client so it can read the compressed
- * replication stream. The master already streams compressed data by the time we
- * call this, so we can't fall back to uncompressed replication: a failure to
+ * replication stream, if compression was negotiated with the master (no-op
+ * otherwise). The master already streams compressed data by the time we call
+ * this, so we can't fall back to uncompressed replication: a failure to
  * initialize the decompressor is unrecoverable on the replica side and we panic
  * (the only expected cause is an allocation failure inside the compression
  * library, in which case we're in deep trouble anyway). */
-void enableMasterClientDecompression(client *c) {
+void enableMasterClientDecompressionIfNeeded(client *c) {
+    if (server.repl_master_compression_level <= 0) return;
     if (!clientEnableCompression(c, DECOMPRESS)) {
         serverPanic("Failed to enable decompression for the master replication stream.");
     }
@@ -2769,8 +2771,7 @@ void readSyncBulkPayload(connection *conn) {
     /* If we agreed on compression with the master then setup compression on the
      * master client. At this point we're done reading all non compressed payload
      * from the master */
-    if (server.repl_master_compression_level > 0)
-        enableMasterClientDecompression(server.master);
+    enableMasterClientDecompressionIfNeeded(server.master);
 
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
         redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections in read-write mode.\n");
@@ -3438,8 +3439,7 @@ void syncWithMaster(connection *conn) {
 
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
-        if (server.repl_master_compression_level > 0)
-            enableMasterClientDecompression(server.master);
+        enableMasterClientDecompressionIfNeeded(server.master);
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }

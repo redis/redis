@@ -181,8 +181,8 @@ void enqueuePendingClienstToIOThreads(client *c) {
                 return;
             }
         }
-        if (c->flags & CLIENT_MASTER && server.repl_master_compression_level > 0) {
-            enableMasterClientDecompression(c);
+        if (c->flags & CLIENT_MASTER) {
+            enableMasterClientDecompressionIfNeeded(c);
         }
     }
 

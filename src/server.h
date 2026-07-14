@@ -3555,7 +3555,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
 void setReplCompression(int level);
-void enableMasterClientDecompression(client *c);
+void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
