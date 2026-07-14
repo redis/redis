@@ -296,7 +296,7 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 7. Extract the source archive
@@ -305,8 +305,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 8. Build Redis
@@ -387,7 +387,7 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 6. Extract the source archive
@@ -396,8 +396,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 7. Build Redis
@@ -466,7 +466,7 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -475,8 +475,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 6. Build Redis
@@ -548,7 +548,7 @@ Tested with the following Docker image:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -557,8 +557,8 @@ Tested with the following Docker image:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 6. Build Redis
@@ -641,7 +641,7 @@ Tested with the following Docker images:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -650,8 +650,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 6. Build Redis
@@ -760,7 +760,7 @@ Tested with the following Docker images:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 6. Extract the source archive
@@ -769,8 +769,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 7. Build Redis
@@ -872,7 +872,7 @@ Tested with the following Docker images:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 6. Extract the source archive
@@ -881,8 +881,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 7. Build Redis
@@ -959,7 +959,7 @@ Tested with the following Docker images:
    ```sh
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -968,8 +968,8 @@ Tested with the following Docker images:
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 6. Build Redis
@@ -1038,15 +1038,15 @@ Tested with the following Docker image:
    mkdir -p /usr/src
    cd /usr/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 4. Extract the source archive
 
    ```sh
    cd /usr/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 5. Build Redis
@@ -1125,7 +1125,7 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    ```sh
    cd ~/src
    # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-full.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
    ```
 
 5. Extract the source archive
@@ -1134,8 +1134,8 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
 
    ```sh
    cd ~/src
-   tar xvf redis-full.tar.gz
-   rm redis-full.tar.gz
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
    ```
 
 6. Build Redis

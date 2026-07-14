@@ -40,6 +40,9 @@ export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
 make -j "$(nproc)" all
 ```
 
+`INSTALL_RUST_TOOLCHAIN=yes` is Linux-only. On macOS, install Rust via
+[rustup](https://rustup.rs) and omit that flag.
+
 `make modules-update` is only for the from-source dev flow below, where
 modules are cloned fresh from their upstream repos.
 
