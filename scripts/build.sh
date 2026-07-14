@@ -52,18 +52,6 @@ case "${INSTALL_RUST_TOOLCHAIN:-}" in
     ;;
 esac
 
-# DISABLE_WERRORS=yes is honored here (not just by `make -C modules all`) so
-# `make build DISABLE_WERRORS=yes` strips -Werror from module sources before
-# they compile. build.sh drives per-module builds directly (not the modules/
-# `all` target), so the handle-werrors target must be invoked explicitly.
-case "${DISABLE_WERRORS:-}" in
-  yes|1|true)
-    echo
-    echo "==> Stripping -Werror from module sources (DISABLE_WERRORS=yes)"
-    "$MAKE_BIN" -C "$REPO_ROOT/modules" handle-werrors DISABLE_WERRORS=yes
-    ;;
-esac
-
 failed=""
 if [ -z "$modules" ]; then
   echo
