@@ -224,6 +224,7 @@ client *createClient(connection *conn) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_reauthed = 0;
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
