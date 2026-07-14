@@ -2323,6 +2323,7 @@ struct redisServer {
     aofManifest *aof_manifest;       /* Used to track AOFs. */
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
+    int aof_load_rdb_on_startup;     /* If AOF is enabled but no AOF exists, load RDB on startup. */
 
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
