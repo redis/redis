@@ -2161,6 +2161,8 @@ struct redisServer {
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
+    long long stat_keyspace_write_hits;   /* Number of successful write lookups */
+    long long stat_keyspace_write_misses; /* Number of failed write lookups */
     long long stat_active_defrag_hits;      /* number of allocations moved */
     long long stat_active_defrag_misses;    /* number of allocations scanned but not moved */
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
