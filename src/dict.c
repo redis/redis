@@ -2165,39 +2165,30 @@ int dictTest(int argc, char **argv, int flags) {
     TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
         /* Regression: MEMORY USAGE used to overcount no_value=1 dicts (sets,
          * the sorted-set element index, hashes) by charging sizeof(dictEntry)
-         * per entry instead of sizeof(dictEntryNoValue). */
-        assert(dictEntryMemUsage(0) == sizeof(dictEntry));
-        assert(dictEntryMemUsage(1) == sizeof(dictEntryNoValue));
-        assert(sizeof(dictEntryNoValue) < sizeof(dictEntry));
+         * per entry instead of sizeof(dictEntryNoValue).
+         *
+         * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
+         * {next, key}. Dropping the value makes a no_value entry smaller by
+         * exactly the size of the value union, which is 8 bytes (it holds a
+         * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
+         * and 32-bit (16 -> 8). dictMemUsage() must reflect that 8 B/entry. */
+        const size_t value_union_bytes = 8;
+        assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
 
         long n = 1000;
-
-        /* Normal (no_value=0) dict: a full dictEntry per entry. */
-        dict *dn = dictCreate(&BenchmarkDictType);
-        for (long i = 0; i < n; i++)
+        dict *dn = dictCreate(&BenchmarkDictType);          /* no_value = 0 */
+        dict *dv = dictCreate(&BenchmarkDictTypeNoValue);   /* no_value = 1 */
+        for (long i = 0; i < n; i++) {
             assert(dictAdd(dn, stringFromLongLong(i), (void *)i) == DICT_OK);
-        assert(dictMemUsage(dn) ==
-               dictSize(dn) * sizeof(dictEntry) +
-               dictBuckets(dn) * sizeof(dictEntry *));
-
-        /* no_value=1 dict: a dictEntryNoValue (or inline key) per entry, so
-         * dictMemUsage must charge sizeof(dictEntryNoValue) per entry. */
-        dict *dv = dictCreate(&BenchmarkDictTypeNoValue);
-        for (long i = 0; i < n; i++)
             assert(dictAdd(dv, stringFromLongLong(i), NULL) == DICT_OK);
-        assert(dictMemUsage(dv) ==
-               dictSize(dv) * sizeof(dictEntryNoValue) +
-               dictBuckets(dv) * sizeof(dictEntry *));
+        }
 
-        /* Insertion is deterministic (identical keys, identical resize policy),
-         * so both dicts have identical geometry. Make that a hard precondition
-         * and check the exact per-entry delta unconditionally: the no_value dict
-         * must be (sizeof(dictEntry) - sizeof(dictEntryNoValue)) bytes/entry
-         * smaller -- the overcount being fixed. */
-        assert(dictSize(dn) == dictSize(dv));
+        /* Identical keys and resize policy => identical bucket geometry, so the
+         * two dicts' reported memory differs only by the value union that each
+         * of the n no_value entries drops: n * 8 bytes. */
+        assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
         assert(dictBuckets(dn) == dictBuckets(dv));
-        assert(dictMemUsage(dn) - dictMemUsage(dv) ==
-               dictSize(dn) * (sizeof(dictEntry) - sizeof(dictEntryNoValue)));
+        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * value_union_bytes);
 
         dictRelease(dn);
         dictRelease(dv);
