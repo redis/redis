@@ -23,7 +23,7 @@ define submake
 	done
 endef
 
-all: prepare_source handle-werrors
+all: prepare_source
 	$(call submake,$@)
 
 get_source:
@@ -92,22 +92,4 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 	fi
 endif
 
-# No get_source dependency: stripping -Werror only touches sources already on
-# disk, so it must never trigger a clone. The `all` path clones separately via
-# its prepare_source prerequisite; a module with no src/ is simply skipped here.
-handle-werrors:
-ifeq ($(DISABLE_WERRORS),yes)
-	@echo "Disabling -Werror for all modules"
-	@for dir in $(SUBDIRS); do \
-		[ -d "$$dir/src" ] || continue; \
-		echo "Processing $$dir"; \
-		find $$dir/src -type f \
-			\( -name "Makefile" \
-			-o -name "*.mk" \
-			-o -name "CMakeLists.txt" \) \
-			-exec sed -i.werrors_bak 's/-Werror//g' {} +; \
-		find $$dir/src -type f -name '*.werrors_bak' -delete; \
-	done
-endif
-
-.PHONY: all clean distclean pristine install $(SUBDIRS) get_source prepare_source setup_environment clean_environment install-rust uninstall-rust handle-werrors
+.PHONY: all clean distclean pristine install $(SUBDIRS) get_source prepare_source setup_environment clean_environment install-rust uninstall-rust
