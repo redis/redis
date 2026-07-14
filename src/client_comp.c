@@ -604,8 +604,23 @@ int clientCompressionProcessPendingData(struct aeEventLoop *el) {
     listRewind(l, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        if (!c || !c->conn || !c->compression_state || !connHasReadHandler(c->conn))
+
+        /* Drop entries we can no longer drain: the client is gone, compression
+         * was disabled, the connection is detached, or there's no read handler
+         * installed (e.g. it was unbound from this event loop). Leaving them in
+         * the list would keep clientCompressionHasPendingData() true and prevent
+         * beforeSleep from ever sleeping while doing no useful work. If the
+         * client still has buffered data it will be re-added by clientConnRead
+         * on its next read. */
+        if (!c || !c->conn || !c->compression_state || !connHasReadHandler(c->conn)) {
+            if (c && c->compression_state &&
+                c->compression_state->pending_data_node == ln)
+            {
+                c->compression_state->pending_data_node = NULL;
+            }
+            listDelNode(l, ln);
             continue;
+        }
 
         c->compression_state->handle_pending = 1;
         c->conn->read_handler(c->conn);
