@@ -436,12 +436,8 @@ proc spawn_server {config_file stdout stderr args} {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set asan_options "allocator_may_return_null=1"
-        if {[info exists ::env(ASAN_OPTIONS)] && $::env(ASAN_OPTIONS) ne ""} {
-            set asan_options "$::env(ASAN_OPTIONS):$asan_options"
-        }
         set env [list \
-            "ASAN_OPTIONS=$asan_options" \
+            "ASAN_OPTIONS=allocator_may_return_null=1" \
             "MSAN_OPTIONS=allocator_may_return_null=1" \
             "TSAN_OPTIONS=allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup" \
         ]

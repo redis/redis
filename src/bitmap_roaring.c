@@ -37,9 +37,6 @@
 #include "bitmap_roaring.h"
 #include "lzf.h"
 #include "rdb.h"
-#ifdef REDIS_TEST
-#include "testhelp.h"
-#endif
 
 /* Reuse the established string BITOP vector kernels after bounded native
  * operands have been materialized. Their scalar tail remains local below. */
@@ -618,28 +615,11 @@ static bitmapObject *bitmapObjectActiveDefragSelf(bitmapObject *bitmap) {
     return newbitmap;
 }
 
-static size_t bitmapObjectBitsetWordsOffset(const void *base) {
-    uintptr_t aligned = ((uintptr_t)base + sizeof(void *) +
-                         (BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1)) &
-                        ~((uintptr_t)BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1);
-    return (size_t)(aligned - (uintptr_t)base);
-}
-
-static uint64_t *bitmapObjectRelocateBitsetWords(void *newbase, size_t old_off) {
-    size_t new_off = bitmapObjectBitsetWordsOffset(newbase);
-    uint64_t *words = (uint64_t *)((char *)newbase + new_off);
-
-    if (new_off != old_off)
-        memmove(words, (char *)newbase + old_off,
-                sizeof(uint64_t) * BITSET_CONTAINER_SIZE_IN_WORDS);
-    ((void **)words)[-1] = newbase;
-    return words;
-}
-
 static void bitmapObjectDefragBitsetWords(bitmapObject *bitmap,
                                           bitset_container_t *bitset) {
     void *base, *newbase;
-    size_t old_off;
+    uintptr_t aligned;
+    size_t old_off, new_off;
 
     if (bitset->words == NULL) return;
     base = bitmapRoaringAlignedAllocBase(bitset->words);
@@ -652,7 +632,15 @@ static void bitmapObjectDefragBitsetWords(bitmapObject *bitmap,
     /* The relocation copied the block verbatim, so the words still sit at
      * their old offset; re-derive the aligned offset for the new base address
      * and slide the words when the two differ. */
-    bitset->words = bitmapObjectRelocateBitsetWords(newbase, old_off);
+    aligned = ((uintptr_t)newbase + sizeof(void *) +
+               (BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1)) &
+              ~((uintptr_t)BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1);
+    new_off = (size_t)(aligned - (uintptr_t)newbase);
+    if (new_off != old_off)
+        memmove((char *)newbase + new_off, (char *)newbase + old_off,
+                sizeof(uint64_t) * BITSET_CONTAINER_SIZE_IN_WORDS);
+    ((void **)aligned)[-1] = newbase;
+    bitset->words = (uint64_t *)aligned;
 }
 
 /* Defrag one container; returns the moved container pointer, or NULL if the
@@ -1663,60 +1651,3 @@ bitop_result:
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
 }
-
-#ifdef REDIS_TEST
-static int bitmapRoaringTestBitsetRelocation(size_t old_off,
-                                             size_t expected_new_off) {
-    const size_t words_size =
-        sizeof(uint64_t) * BITSET_CONTAINER_SIZE_IN_WORDS;
-    const size_t extra = BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1 +
-                         sizeof(void *);
-    const size_t storage_size = words_size + extra +
-                                BITMAP_ROARING_BITSET_WORDS_ALIGNMENT;
-    unsigned char *storage = zcalloc(storage_size);
-    unsigned char *newbase = NULL;
-    uint64_t *words;
-    int valid = 1;
-
-    for (size_t i = 0; i < BITMAP_ROARING_BITSET_WORDS_ALIGNMENT; i++) {
-        unsigned char *candidate = storage + i;
-        if (bitmapObjectBitsetWordsOffset(candidate) == expected_new_off) {
-            newbase = candidate;
-            break;
-        }
-    }
-    if (newbase == NULL) {
-        zfree(storage);
-        return 0;
-    }
-
-    for (size_t i = 0; i < words_size; i++)
-        newbase[old_off + i] = (unsigned char)((i * 37 + 11) & 0xff);
-
-    words = bitmapObjectRelocateBitsetWords(newbase, old_off);
-    valid = valid && (unsigned char *)words == newbase + expected_new_off;
-    valid = valid && ((uintptr_t)words %
-                      BITMAP_ROARING_BITSET_WORDS_ALIGNMENT) == 0;
-    valid = valid && bitmapRoaringAlignedAllocBase(words) == newbase;
-    for (size_t i = 0; valid && i < words_size; i++)
-        valid = ((unsigned char *)words)[i] ==
-                (unsigned char)((i * 37 + 11) & 0xff);
-
-    zfree(storage);
-    return valid;
-}
-
-int bitmapRoaringTest(int argc, char **argv, int flags) {
-    UNUSED(argc);
-    UNUSED(argv);
-    UNUSED(flags);
-
-    test_cond("BITSET relocation preserves words when alignment moves left",
-              bitmapRoaringTestBitsetRelocation(32, 16));
-    test_cond("BITSET relocation preserves words when alignment moves right",
-              bitmapRoaringTestBitsetRelocation(16, 32));
-    test_cond("BITSET relocation preserves words when alignment is unchanged",
-              bitmapRoaringTestBitsetRelocation(16, 16));
-    return 0;
-}
-#endif

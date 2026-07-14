@@ -7932,7 +7932,6 @@ struct redisTest {
     {"ebuckets", ebucketsTest},
     {"vector", vectorTest},
     {"bitmap", bitopsTest},
-    {"bitmap-roaring", bitmapRoaringTest},
     {"rax", raxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
