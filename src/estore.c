@@ -13,7 +13,6 @@
 #include "estore.h"
 #include "zmalloc.h"
 #include "redisassert.h"
-#include "server.h"
 #include <string.h>
 
 /* Forward declaration of the estore structure */
@@ -116,75 +115,79 @@ void estoreActiveExpire(estore *es, int eidx, ExpireInfo *info) {
     ebuckets *eb = estoreGetBuckets(es, eidx);
     uint64_t before = ebGetTotalItems(*eb, es->bucket_type);
     ebExpire(eb, es->bucket_type, info);
-    /* If items expired (or updated), update the BIT and estore count */
+    /* If items expired (or updated), update the BIT and estore count.
+     * `diff` counts items removed from the bucket, so the Fenwick tree
+     * delta must be negative to reflect the decrease. */
     if (info->itemsExpired) {
         uint64_t diff = before - ebGetTotalItems(*eb, es->bucket_type);
-        fwTreeUpdate(es->buckets_sizes, eidx, (long long) diff);
+        fwTreeUpdate(es->buckets_sizes, eidx, -(long long) diff);
         es->count -= diff;
     }
 }
 
-/* Add item to estore with the given expiration time. The item must has
- * expireMeta already allocated. */
-void estoreAdd(estore *es, int eidx, eItem item, uint64_t when) {
+/* Add item to estore with the given expiration time. The item must embed a
+ * valid ExpireMeta retrievable via es->bucket_type->getExpireMeta(item).
+ * Returns 1 on success, 0 if the item is already in the bucket. */
+int estoreAdd(estore *es, int eidx, eItem item, uint64_t when) {
     debugAssert(es != NULL && item != NULL);
-
-    /* currently only used by hash field expiration. Verify it has expireMeta */
-    debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
-                ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &entryHashDictTypeWithHFE));
+    debugAssert(eidx < es->num_buckets);
 
     ebuckets *bucket = estoreGetBuckets(es, eidx);
-    if (ebAdd(bucket, es->bucket_type, item, when) == 0) {
-        es->count++;
-        fwTreeUpdate(es->buckets_sizes, eidx, 1);
-    }
+    if (ebAdd(bucket, es->bucket_type, item, when) != 0)
+        return 0;
+    es->count++;
+    fwTreeUpdate(es->buckets_sizes, eidx, 1);
+    return 1;
 }
 
-/* Remove an item from the expiration store. Returns the expire time or EB_EXPIRE_TIME_INVALID */
+/* Remove an item from the expiration store. Returns the removed item's
+ * expiration time, or EB_EXPIRE_TIME_INVALID if the item was not present
+ * (either its ExpireMeta was marked trash, or it wasn't in the bucket).
+ *
+ * The caller must guarantee that `item` embeds an ExpireMeta matching
+ * `es->bucket_type`. Type-specific gating (e.g. skipping non-HFE hashes
+ * for the subexpires store) is the caller's responsibility. */
 uint64_t estoreRemove(estore *es, int eidx, eItem item) {
     uint64_t expireTime;
     debugAssert(es != NULL && item != NULL);
+    debugAssert(eidx < es->num_buckets);
 
-    /* Currently only used by hash field expiration. gracefully ignore otherwise */
-    kvobj *kv = (kvobj *) item;
-    if ( (kv->type != OBJ_HASH) ||
-         (kv->encoding == OBJ_ENCODING_LISTPACK) ||
-         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &entryHashDictTypeWithHFE)))
-        return EB_EXPIRE_TIME_INVALID;
-
-    /* If (ExpireMeta of kv) marked as trash, then it is already removed */
+    /* If (ExpireMeta of item) is marked as trash, then it is already removed */
     if ((expireTime = ebGetExpireTime(es->bucket_type, item)) == EB_EXPIRE_TIME_INVALID)
         return EB_EXPIRE_TIME_INVALID;
 
     ebuckets *bucket = estoreGetBuckets(es, eidx);
-    serverAssert(ebRemove(bucket, es->bucket_type, item)==1);
+    if (!ebRemove(bucket, es->bucket_type, item))
+        return EB_EXPIRE_TIME_INVALID;
+
     es->count--;
     fwTreeUpdate(es->buckets_sizes, eidx, -1);
 
     return expireTime;
 }
 
-/* Update an item's expiration time in the store */
-void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
+/* Update an item's expiration time in the store. Returns 1 on success, 0
+ * if the item is not currently registered in the bucket (caller must hold
+ * its own invariants if a miss is unexpected). estore->count is unchanged
+ * on either path. */
+int estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
     debugAssert(es != NULL && item != NULL);
+    debugAssert(eidx < es->num_buckets);
 
-    /* currently only used by hash field expiration. Verify it has expireMeta */
-    debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
-                ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &entryHashDictTypeWithHFE));
-
-    debugAssert(ebGetExpireTime(es->bucket_type, item) != EB_EXPIRE_TIME_INVALID);
+    if (ebGetExpireTime(es->bucket_type, item) == EB_EXPIRE_TIME_INVALID)
+        return 0;
 
     ebuckets *bucket = estoreGetBuckets(es, eidx);
 
     /* Remove the item from its current position */
-    serverAssert(ebRemove(bucket, es->bucket_type, item) != 0);
+    if (!ebRemove(bucket, es->bucket_type, item))
+        return 0;
 
-    /* Add the item back with the new expiration time */
-    serverAssert(ebAdd(bucket, es->bucket_type, item, when) == 0);
+    /* Add the item back with the new expiration time. */
+    if (ebAdd(bucket, es->bucket_type, item, when) != 0)
+        return 0;
 
-    /* Note that estore count remain unchanged */
+    return 1;
 }
 
 /* Get the total number of items in the expiration store */
@@ -194,9 +197,9 @@ uint64_t estoreSize(estore *es) {
 
 /* Move ebuckets from one estore to another */
 void estoreMoveEbuckets(estore *src, estore *dst, int eidx) {
-    serverAssert(src->num_buckets > eidx);
-    serverAssert(src->num_buckets == dst->num_buckets);
-    serverAssert(ebIsEmpty(dst->ebArray[eidx])); /* If it is NULL */
+    assert(src->num_buckets > eidx);
+    assert(src->num_buckets == dst->num_buckets);
+    assert(ebIsEmpty(dst->ebArray[eidx])); /* If it is NULL */
 
     /* Adjust source estore */
     ebuckets eb = src->ebArray[eidx];
@@ -217,10 +220,12 @@ void estoreMoveEbuckets(estore *src, estore *dst, int eidx) {
 #include "testhelp.h"
 
 #define TEST(name) printf("test — %s\n", name);
+#ifndef UNUSED
+#define UNUSED(x) (void)(x)
+#endif
 
 /* Test item structure for estore testing */
 typedef struct TestItem {
-    kvobj kv;  /* mimic kvobj of type HASH to pass checks in estore */
     ExpireMeta mexpire;
     int index;
 } TestItem;
@@ -246,9 +251,6 @@ static TestItem *createTestItem(int index) {
     TestItem *item = zmalloc(sizeof(TestItem));
     item->index = index;
     item->mexpire.trash = 1;
-    /* mimic kvobj of type HASH to pass checks in estore */
-    item->kv.type = OBJ_HASH;
-    item->kv.encoding = OBJ_ENCODING_LISTPACK_EX;
     return item;
 }
 
@@ -262,10 +264,6 @@ int estoreTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
-
-    /* Initialize minimal server state needed for testing */
-    server.hz = 10;
-    server.unixtime = time(NULL);
 
     TEST("Create and destroy estore") {
         estore *es = estoreCreate(&testEbucketsType, 0);
@@ -478,10 +476,17 @@ int estoreTest(int argc, char **argv, int flags) {
         /* The expired items should be removed, future item should remain */
         assert(expireInfo.itemsExpired == 2);
         assert(estoreSize(es) == 2);
-        
+
         estoreActiveExpire(es, 1, &expireInfo);
         assert(expireInfo.itemsExpired == 1);
         assert(estoreSize(es) == 1);
+
+        /* After active expiration, the Fenwick tree must reflect the bucket
+         * occupancy accurately. Bucket 0 still holds futureItem; bucket 1 was
+         * drained. Any phantom count in the tree would be reported here by
+         * estoreGetFirstNonEmptyBucket/estoreGetNextNonEmptyBucket. */
+        assert(estoreGetFirstNonEmptyBucket(es) == 0);
+        assert(estoreGetNextNonEmptyBucket(es, 0) == -1);
 
         /* Clean up remaining item */
         estoreRemove(es, 0, futureItem);

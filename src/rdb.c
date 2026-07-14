@@ -4410,7 +4410,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             if (kv->type == OBJ_HASH) {
                 uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
                 if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-                    estoreAdd(db->subexpires, getKeySlot(key), kv, minExpiredField);
+                    subexpiryAdd(db, getKeySlot(key), kv, minExpiredField);
             }
 
             /* Register streams with IDMP producers for cron-based expiration. */

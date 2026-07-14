@@ -592,7 +592,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     /* if hash with HFEs, take care to remove from global HFE DS before attempting
      * to manipulate and maybe free kvOld object */
     if (old->type == OBJ_HASH)
-        estoreRemove(db->subexpires, slot, old);
+        subexpiryRemove(db, slot, old);
 
     if (old->type == OBJ_STREAM)
         streamKeyRemoved(db, key, old);
@@ -856,7 +856,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (type == OBJ_HASH)
-            estoreRemove(db->subexpires, slot, kv);
+            subexpiryRemove(db, slot, kv);
 
         /* If stream with IDMP tracking, remove it from stream_idmp_keys */
         if (type == OBJ_STREAM)
@@ -2235,7 +2235,7 @@ void renameGenericCommand(client *c, int nx) {
      * global HFE DS and we will lose the expiration time. */
     int srctype = o->type;
     if (srctype == OBJ_HASH)
-        minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
+        minHashExpireTime = subexpiryRemove(c->db, getKeySlot(c->argv[1]->ptr), o);
 
     /* Prepare metadata for the renamed key */
     KeyMetaSpec keymeta;
@@ -2248,7 +2248,7 @@ void renameGenericCommand(client *c, int nx) {
 
     /* If hash with HFEs, register in DB subexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
-        estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
+        subexpiryAdd(c->db, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
     /* Re-register stream IDMP tracking under the new key name. */
     if (srctype == OBJ_STREAM)
@@ -2330,7 +2330,7 @@ void moveCommand(client *c) {
      * aside registered expiration time. Must be before removal of the
      * object since it embeds ExpireMeta that is used by subexpires */
     if (kv->type == OBJ_HASH)
-        hashExpireTime = estoreRemove(src->subexpires, slot, kv);
+        hashExpireTime = subexpiryRemove(src, slot, kv);
 
     /* Move a side metadata before dbDelete() */
     KeyMetaSpec keymeta;
@@ -2345,7 +2345,7 @@ void moveCommand(client *c) {
     /* If object of type hash with expiration on fields. Taken care to add the
      * hash to subexpires of `dst` only after dbDelete(). */
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
-        estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
+        subexpiryAdd(dst, slot, kv, hashExpireTime);
 
     /* Register stream IDMP tracking in the destination DB. */
     if (kv->type == OBJ_STREAM)
@@ -2472,7 +2472,7 @@ void copyCommand(client *c) {
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
-        estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
+        subexpiryAdd(dst, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
     /* Register copied stream with IDMP producers for cron-based expiration. */
     if (kvCopy->type == OBJ_STREAM)
@@ -2739,7 +2739,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
          * to manipulate and maybe free kv object */
         if (kv->type == OBJ_HASH)
-            subexpiry = estoreRemove(db->subexpires, slot, kv);
+            subexpiry = subexpiryRemove(db, slot, kv);
 
         kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
         /* if kvobj was reallocated, update dict */
@@ -2754,7 +2754,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         serverAssert(de != NULL);
 
         if (subexpiry != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(db->subexpires, slot, kv, subexpiry);
+            subexpiryAdd(db, slot, kv, subexpiry);
     }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
@@ -2772,6 +2772,42 @@ long long getExpire(redisDb *db, sds key, kvobj *kv) {
     if (kv == NULL) kv = dbFindExpires(db, key);
     if (kv == NULL) return -1;
     return kvobjGetExpire(kv);
+}
+
+/* -------------------------------------------------------------------------
+ * db->subexpires helpers
+ *
+ * The subexpires store only tracks HFE-capable hashes (LISTPACK_EX or
+ * HT-with-HFE dict type). Other types must not enter the store: the bucket
+ * type's getExpireMeta() would dereference invalid memory.
+ *
+ * These wrappers centralise the HFE-encoding gate so callers only need the
+ * pre-existing OBJ_HASH check, e.g.:
+ *
+ *     if (kv->type == OBJ_HASH)
+ *         subexpiryRemove(db, slot, kv);
+ *
+ * Add/Update assert HFE-capability (callers must only register/refresh
+ * hashes that actually carry HFE meta — re-instates the historical estore
+ * invariant). Remove gracefully no-ops for non-HFE hashes so the generic
+ * delete paths (dbGenericDelete/RENAME/MOVE/SWAPDB/keymeta) can pass any
+ * OBJ_HASH without having to inspect the encoding first.
+ * ------------------------------------------------------------------------- */
+
+void subexpiryAdd(redisDb *db, int slot, kvobj *kv, uint64_t when) {
+    serverAssert(hashTypeHasHFEMeta(kv));
+    serverAssert(estoreAdd(db->subexpires, slot, kv, when));
+}
+
+uint64_t subexpiryRemove(redisDb *db, int slot, kvobj *kv) {
+    if (!hashTypeHasHFEMeta(kv))
+        return EB_EXPIRE_TIME_INVALID;
+    return estoreRemove(db->subexpires, slot, kv);
+}
+
+void subexpiryUpdate(redisDb *db, int slot, kvobj *kv, uint64_t when) {
+    serverAssert(hashTypeHasHFEMeta(kv));
+    serverAssert(estoreUpdate(db->subexpires, slot, kv, when));
 }
 
 /* Delete the specified expired or evicted key and propagate to replicas.

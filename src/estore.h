@@ -63,11 +63,20 @@ void estoreRelease(estore *es);
 
 void estoreActiveExpire(estore *es, int eidx, ExpireInfo *info);
 
+/* Remove `item` from the eidx'th bucket of `es`. Returns the item's
+ * registered expire time on success; EB_EXPIRE_TIME_INVALID if the item
+ * was not present (ExpireMeta marked trash, or not in the bucket). */
 uint64_t estoreRemove(estore *es, int eidx, eItem item);
 
-void estoreAdd(estore *es, int eidx, eItem item, uint64_t when);
+/* Add `item` with expire `when` to the eidx'th bucket. The item must
+ * embed a valid ExpireMeta matching `es->bucket_type`. Returns 1 on
+ * success, 0 if the item is already in the bucket. */
+int estoreAdd(estore *es, int eidx, eItem item, uint64_t when);
 
-void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when);
+/* Re-register `item` with a new expire time. Returns 1 on success, 0 if
+ * the item is not currently in the bucket. estore->count is unchanged
+ * on either path. */
+int estoreUpdate(estore *es, int eidx, eItem item, uint64_t when);
 
 uint64_t estoreSize(estore *es);
 

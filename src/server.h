@@ -3921,6 +3921,7 @@ void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o, int accurate);
+int hashTypeHasHFEMeta(robj *o);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
 void initDictExpireMetadata(robj *o);
 struct listpackEx *listpackExCreate(void);
@@ -4107,6 +4108,9 @@ int dbDelete(redisDb *db, robj *key);
 int dbDeleteSkipKeysizesUpdate(redisDb *db, robj *key);
 kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *o);
 kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLink link);
+void subexpiryAdd(redisDb *db, int slot, kvobj *kv, uint64_t when);
+uint64_t subexpiryRemove(redisDb *db, int slot, kvobj *kv);
+void subexpiryUpdate(redisDb *db, int slot, kvobj *kv, uint64_t when);
 
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1

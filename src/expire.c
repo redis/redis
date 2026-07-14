@@ -249,16 +249,6 @@ static inline void activeSubexpiresCycle(int type) {
     if (currentSlot == -1)
         currentSlot = estoreGetFirstNonEmptyBucket(db->subexpires);
 
-    /* During atomic slot migration, keys that are being imported are in an
-     * intermediate state. We cannot expire them and therefore skip them. */
-    if (!clusterCanAccessKeysInSlot(currentSlot)) {
-        /* Move to next non-empty subexpires slot */
-        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
-        if (currentSlot == -1)
-            currentDb = (currentDb + 1) % server.dbnum; /* Move to next db */
-        return;
-    }
-
     /* Maximum number of fields to actively expire on a single call */
     uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
 
@@ -271,14 +261,35 @@ static inline void activeSubexpiresCycle(int type) {
         maxToExpire *= (factor<32) ? factor : 32;
     }
 
-    if (activeSubexpires(db, currentSlot, maxToExpire) == maxToExpire) {
-        /* active-expire reached maxToExpire limit */
+    /* Iterate non-empty slots within the maxToExpire budget so a single tick
+     * drains sparsely-populated estores (typical HFE workload: many small
+     * hashes each with a single TTL'd field land in their own slot) without
+     * exceeding the per-tick CPU cap. Skip slots that are importing (atomic
+     * slot migration). */
+    uint32_t remaining = maxToExpire;
+    while (remaining > 0 && currentSlot != -1) {
+        if (!clusterCanAccessKeysInSlot(currentSlot)) {
+            currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
+            continue;
+        }
+        uint32_t before = remaining;
+        uint64_t expired = activeSubexpires(db, currentSlot, remaining);
+        remaining -= (uint32_t)expired;
+        if (expired == before) {
+            /* Slot still has work left; stop here so next cycle resumes
+             * from this same slot. */
+            break;
+        }
+        /* Slot drained; advance cursor. */
+        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
+    }
+
+    if (remaining == 0) {
+        /* Hit the per-cycle cap; indicate potential need to scale up. */
         activeExpirySequence += maxToExpire;
     } else {
-        /* Managed to active-expire all expired fields of currentDb */
+        /* Drained everything we could access within the budget. */
         activeExpirySequence = 0;
-        /* Move to next non-empty subexpires slot */
-        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
         if (currentSlot == -1)
             currentDb = (currentDb + 1) % server.dbnum;
     }
