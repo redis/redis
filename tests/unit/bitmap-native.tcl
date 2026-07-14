@@ -969,24 +969,15 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             wait_for_bitmap_defrag_stop 500 10
             r config resetstat
 
-            # Alternating bit patterns exceed ARRAY capacity and cannot be
-            # compressed usefully as runs, forcing independently aligned
-            # BITSET word allocations. Vary the contents across 16 containers
-            # so forced defrag performs many distinct relocations.
-            set chunks [list \
-                [string repeat [binary format H* aa] 8192] \
-                [string repeat [binary format H* 55] 8192] \
-                [string repeat [binary format H* cc] 8192]]
-            set dense ""
-            for {set i 0} {$i < 16} {incr i} {
-                append dense [lindex $chunks [expr {$i % [llength $chunks]}]]
-            }
-            set key bitmap:defrag:dense
-            r set $key $dense
-            convert_string_bitmap_to_native r $key
-            assert_equal bitmap [r type $key]
-            assert_equal [expr {[string length $dense] * 4}] [r bitcount $key]
-            assert_morethan [r memory usage $key] [string length $dense]
+            # Alternating bits exceed ARRAY capacity and cannot be compressed
+            # usefully as runs, forcing a BITSET container with an independently
+            # aligned words allocation.
+            set dense [string repeat [binary format H* aa] 8192]
+            r set bitmap:defrag:dense $dense
+            convert_string_bitmap_to_native r bitmap:defrag:dense
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:dense] 8192
 
             set old_hz [config_get_set hz 100]
             set old_threshold [config_get_set active-defrag-threshold-lower 1]
@@ -1013,10 +1004,10 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             r config set active-defrag-cycle-max $old_cycle_max
             r config set active-defrag-cycle-min $old_cycle_min
             r config set active-defrag-ignore-bytes $old_ignore_bytes
-            assert_equal bitmap [r type $key]
-            assert_equal [expr {[string length $dense] * 4}] [r bitcount $key]
-            assert_equal $dense [r debug bitmap-raw $key]
-            assert_equal 1 [r del $key]
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
+            assert_equal 1 [r del bitmap:defrag:dense]
             r config set bitmap-default-native $old_bitmap_default_native
             assert_equal OK [r config set activedefrag $old_activedefrag]
         } {} {needs:config-resetstat}

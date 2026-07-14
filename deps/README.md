@@ -125,14 +125,10 @@ Redis currently vendors CRoaring v4.7.0.
 
 Local changes compared to pristine upstream v4.7.0:
 
-In `deps/croaring/Makefile` and the `redis-server` link:
+In `deps/croaring/Makefile`:
 
-* CRoaring is compiled with hidden symbol visibility and its static archive is
-  excluded from the Linux dynamic symbol table. Redis needs `-rdynamic` for
-  modules, but exposing the vendored CRoaring copy would let a module that
-  embeds another CRoaring version bind to Redis' symbols or replace its
-  process-global memory hook. The Linux build verifies that no symbol defined
-  by `libroaring.a` is exported by `redis-server`.
+* CRoaring is compiled with hidden symbol visibility so Redis' Linux
+  `-rdynamic` link does not expose the vendored symbols to modules.
 
 In `include/roaring/portability.h`:
 
