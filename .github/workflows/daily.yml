@@ -1398,9 +1398,17 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
+      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror -fsanitize=pointer-subtract'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
+    - name: test bitmap bitset defrag pointer safety
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      env:
+        ASAN_OPTIONS: detect_invalid_pointer_pairs=1
+      run: >
+        ./runtest --debug-defrag --verbose --clients 1
+        --single unit/bitmap-native
+        --only "forced active defrag relocates dense bitmap BITSET storage safely"
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --debug-defrag --verbose --clients 1 ${{github.event.inputs.test_args}}

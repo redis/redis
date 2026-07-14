@@ -89,6 +89,10 @@ TEST_MODULES = \
     postnotifications_perkey_metadata.so \
     atomicslotmigration.so
 
+ifeq ($(uname_S),Linux)
+TEST_MODULES += croaring_collision.so
+endif
+
 .PHONY: all
 
 all: $(TEST_MODULES)
