@@ -182,12 +182,7 @@ void enqueuePendingClienstToIOThreads(client *c) {
             }
         }
         if (c->flags & CLIENT_MASTER && server.repl_master_compression_level > 0) {
-            if (!clientEnableCompression(c, DECOMPRESS)) {
-                /* The master already started streaming compressed data, so we
-                 * cannot fall back to uncompressed replication. This is
-                 * unrecoverable on the replica side. */
-                serverPanic("Failed to enable decompression for the master replication stream.");
-            }
+            enableMasterClientDecompression(c);
         }
     }
 
