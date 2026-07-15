@@ -127,8 +127,7 @@ void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDb
 int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid);
 
 /* RDB serialization */
-#define RDB_SAVE_KEY_META_AOF_REWRITE (1<<0)
-int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid, int flags);
+int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid);
 int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms);
 
 void keyMetaResetModuleValues(kvobj *kv);
