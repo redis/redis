@@ -1010,7 +1010,6 @@ char *hashTemplateEquivalentEncoding(robj *o) {
     return "listpack";
 }
 
-
 /*-----------------------------------------------------------------------------
  * HashTemplateLp functions (OBJ_ENCODING_TMPL_LP)
  *
@@ -1739,7 +1738,8 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         *vstr = (unsigned char*) value;
         *vlen = sdslen(value);
     } else if (o->encoding == OBJ_ENCODING_TMPL_LP ||
-               o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+               o->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         long long idx = hashTemplateFieldIndex(hashTypeGetTemplate(o), field);
         if (idx < 0) return GETF_NOT_FOUND;
 
@@ -2046,7 +2046,8 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             update = 1;
         }
     } else if (o->encoding == OBJ_ENCODING_TMPL_LP ||
-               o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+               o->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         hashTemplate *tmpl = hashTypeGetTemplate(o);
 
         /* Check if field exists in tmpl */
@@ -2296,7 +2297,8 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvert(c->db, o, OBJ_ENCODING_LISTPACK_EX);
     } else if (o->encoding == OBJ_ENCODING_TMPL_LP ||
-               o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+               o->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         /* Prepare template key: Convert to LISTPACK_EX if it fits, else HT */
         hashTypeConvert(c->db, o, OBJ_ENCODING_LISTPACK_EX);
     } else if (o->encoding == OBJ_ENCODING_HT) {
@@ -2404,7 +2406,8 @@ int hashTypeDelete(robj *o, void *field) {
             deleted = 1;
         }
     } else if (o->encoding == OBJ_ENCODING_TMPL_LP ||
-               o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+               o->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         hashTemplate *tmpl = hashTypeGetTemplate(o);
         long long idx = hashTemplateFieldIndex(tmpl, field);
         if (idx >= 0) {
@@ -2536,7 +2539,8 @@ void hashTypeInitIterator(hashTypeIterator *hi, robj *subject) {
     } else if (hi->encoding == OBJ_ENCODING_HT) {
         dictInitIterator(&hi->di, subject->ptr);
     } else if (hi->encoding == OBJ_ENCODING_TMPL_LP ||
-               hi->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+               hi->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
         hi->tmpl_index = -1;  /* Not started yet. */
         hi->vptr = NULL;
         hi->expire_time = EB_EXPIRE_TIME_INVALID;
