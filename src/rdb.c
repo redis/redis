@@ -2590,9 +2590,10 @@ static sds *rdbLoadSdsArray(rio *rdb, uint64_t count, const char *ctx) {
 
 /* ---- RDB file template section (REF-encoded hashes) ---- */
 
-/* Used during loading, mapping from a saved template ID to the loaded template,
- * grown on demand by rdbEnsureHashTemplatesCap(). */
-static hashTemplate **rdb_tmpls = NULL;
+/* Used during loading, mapping a saved template ID to the loaded template's
+ * registry id, grown on demand by rdbEnsureHashTemplatesCap(). */
+#define RDB_TMPL_EMPTY UINT64_MAX
+static uint64_t *rdb_tmpls = NULL;
 static size_t rdb_tmpls_cap = 0;
 
 static int rdbEnsureHashTemplatesCap(uint64_t id) {
@@ -2618,14 +2619,15 @@ static int rdbEnsureHashTemplatesCap(uint64_t id) {
     }
 
     /* A corrupt huge id fails. */
-    hashTemplate **newarr = ztryrealloc(rdb_tmpls, sizeof(*rdb_tmpls) * newcap);
+    uint64_t *newarr = ztryrealloc(rdb_tmpls, sizeof(*rdb_tmpls) * newcap);
     if (newarr == NULL) {
         rdbReportCorruptRDB("Hash template ID %llu requires too much memory "
             "(%zu entries)", (unsigned long long)id, newcap);
         return C_ERR;
     }
     rdb_tmpls = newarr;
-    memset(rdb_tmpls + rdb_tmpls_cap, 0, sizeof(*rdb_tmpls) * (newcap - rdb_tmpls_cap));
+    /* Set new slots with RDB_TMPL_EMPTY (UINT64_MAX). */
+    memset(rdb_tmpls + rdb_tmpls_cap, 0xFF, sizeof(*rdb_tmpls) * (newcap - rdb_tmpls_cap));
     rdb_tmpls_cap = newcap;
     return C_OK;
 }
@@ -2655,7 +2657,7 @@ int rdbLoadHashTemplate(rio *rdb) {
 
     if (rdbEnsureHashTemplatesCap(id) != C_OK)
         return C_ERR;
-    if (rdb_tmpls[id] != NULL) {
+    if (rdb_tmpls[id] != RDB_TMPL_EMPTY) {
         rdbReportCorruptRDB("Duplicate hash template ID %llu", (unsigned long long)id);
         return C_ERR;
     }
@@ -2675,7 +2677,7 @@ int rdbLoadHashTemplate(rio *rdb) {
     /* Get or create template. */
     hashTemplate *tmpl = hashTemplateGetOrCreate(fields, field_count);
     hashTemplateIncrHoldRef(tmpl);
-    rdb_tmpls[id] = tmpl;
+    rdb_tmpls[id] = tmpl->id;
 
     /* Free fields array */
     for (uint64_t j = 0; j < field_count; j++)
@@ -2687,16 +2689,16 @@ int rdbLoadHashTemplate(rio *rdb) {
 
 /* Get template by saved ID (for loading keys). */
 static hashTemplate *rdbGetHashTemplateById(uint64_t id) {
-    if (id >= rdb_tmpls_cap) return NULL;
-    return rdb_tmpls[id];
+    if (id >= rdb_tmpls_cap || rdb_tmpls[id] == RDB_TMPL_EMPTY) return NULL;
+    return hashTemplateGetById(rdb_tmpls[id]);
 }
 
 /* Clear RDB template array after load. */
 void rdbClearHashTemplates(void) {
     if (!rdb_tmpls) return;
     for (size_t i = 0; i < rdb_tmpls_cap; i++) {
-        if (rdb_tmpls[i] != NULL)
-            hashTemplateDecrHoldRef(rdb_tmpls[i]);
+        if (rdb_tmpls[i] != RDB_TMPL_EMPTY)
+            hashTemplateDecrHoldRef(hashTemplateGetById(rdb_tmpls[i]));
     }
     zfree(rdb_tmpls);
     rdb_tmpls = NULL;

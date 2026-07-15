@@ -15,7 +15,8 @@
             "description": "1 if the fieldset was removed, 0 if it did not exist."
         },
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS"
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_LOGICAL_OR"
         ],
         "arguments": [
             {

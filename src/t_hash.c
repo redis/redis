@@ -792,7 +792,7 @@ static void hashTemplateApplyPendingDrops(void) {
 
     /* Time limit: spread work across multiple cron cycles to avoid spikes. */
     long long start = ustime();
-    long long timelimit = 1000000 / server.hz / 10;  /* 10% of a hz cycle */
+    long long timelimit = 1000000 / server.hz / 20;  /* 5% of a hz cycle */
     if (timelimit <= 0) timelimit = 1;
 
     int i = 0;
@@ -3315,6 +3315,14 @@ void rdbLoadTemplateCtxDisassemble(rdbLoadTemplateCtx *ctx) {
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(ref->db, getKeySlot(kvobjGetKey(o)), o,
                                     oldsize, kvobjAllocSize(o));
+
+            /* This runs at end of load and can be long (many few-key templates).
+             * Yield back to the event loop to reply -LOADING. */
+            if ((disassembled_keys & 1023) == 0) {
+                if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
+                    replicationSendNewlineToMaster();
+                processEventsWhileBlocked();
+            }
         }
         disassembled_templates += disassembled;
     }
