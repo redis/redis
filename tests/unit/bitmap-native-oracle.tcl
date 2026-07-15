@@ -1,7 +1,7 @@
 # Helpers for comparing legacy string bitmap behavior with native bitmap
 # behavior. Each registered mode replays the same scenario steps in its own
 # keyspace and the replies must match exactly. The native mode runs the server
-# in bitmap-default-native yes so every bitmap write creates or converts to
+# in bitmap-default-roaring yes so every bitmap write creates or converts to
 # native bitmaps; scenarios observe only bitmap-level behavior (never TYPE or
 # OBJECT ENCODING), which is exactly the parity the exposure gate demands.
 
@@ -22,11 +22,11 @@ proc bitmap_oracle::set_modes {new_modes} {
 proc bitmap_oracle::mode_setup {client mode} {
     switch -- $mode {
         legacy-string {
-            $client config set bitmap-default-native no
+            $client config set bitmap-default-roaring no
             return
         }
         native {
-            $client config set bitmap-default-native yes
+            $client config set bitmap-default-roaring yes
             return
         }
         default {

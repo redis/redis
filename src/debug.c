@@ -449,7 +449,7 @@ void debugCommand(client *c) {
 "ASSERT",
 "    Crash by assertion failed.",
 "BITMAP-RAW <key>",
-"    Return the raw byte materialization of a native bitmap key.",
+"    Return the raw byte materialization of a Roaring bitmap key.",
 "CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
