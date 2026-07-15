@@ -11,6 +11,7 @@
  */
 
 #include "server.h"
+#include "bio.h"
 #include "redisassert.h"
 #include "ebuckets.h"
 #include "entry.h"
@@ -309,14 +310,10 @@ static void hashDictWithExpireOnRelease(dict *d) {
  * template and a client can also hold a hold_refcount (e.g. a fieldset
  * registered with HIMPORT PREPARE). A single template may back a huge number of
  * keys and those keys are often freed in bulk in the background by a BIO
- * lazyfree thread (e.g. background trim after ASM). The whole refcount scheme
- * exists to make that safe: key_refcount is atomic so a background thread can
- * drop a key's ref directly and, since a BIO thread must not touch the registry,
- * the decrement that brings it to zero does not free the template inline - it parks
- * the id on the pending_free_ids queue (under the registry lock) for the main thread
- * to drain (hashTemplateDrainPendingFree). A template's id, fields and
- * field_count are immutable for its lifetime, so they are safe to read off the
- * main thread while a key-ref is held.
+ * lazyfree thread (e.g. background trim after ASM). The registry is main thread
+ * only, so a BIO thread must not touch it: instead the BIO lazyfree thread records
+ * per-template key drop counts and publishes them to the main thread, which 
+ * applies the drops and frees any template reaching zero refs in cron (see bio_pending_drops).
  *----------------------------------------------------------------------------*/
 
 #define HASH_TMPL_STACK_ENTRIES 128
@@ -331,6 +328,32 @@ static hashTemplate *hashTemplateLpGetTemplate(unsigned char *lp);
 static uint64_t hashTemplateLpGetTemplateId(unsigned char *lp);
 static unsigned char *hashTemplateLpCreate(hashTemplate *tmpl, sds *values);
 static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *values, int take);
+
+/* Keys freed in BIO lazyfree thread sets a dict (template id->key_ref_count). 
+ * Later, it is applied on main thread in cron, key refs are actually dropped. */
+static redisAtomic uintptr_t bio_pending_drops = 0;
+
+static uint64_t pendingDropHash(const void *key) { return (uint64_t)(uintptr_t)key; }
+static dictType pendingDropDictType = { pendingDropHash, NULL, NULL, NULL, NULL, NULL, NULL };
+
+/* BIO thread: Increment deleted key count for the template id. */
+static void hashTemplateRecordPendingDrop(uint64_t id) {
+    serverAssert(bioIsLazyfreeWorker());
+
+    uintptr_t cur;
+    atomicExchangeAcquire(bio_pending_drops, 0, cur);
+
+    dict *d = cur ? (dict *)cur : dictCreate(&pendingDropDictType);
+    dictEntry *e;
+    dictEntry *de = dictAddRaw(d, (void *)(uintptr_t)id, &e);
+    
+    /* Increment deleted key count for the template id */
+    if (de) 
+        dictSetUnsignedIntegerVal(de, 1);
+    else    
+        dictSetUnsignedIntegerVal(e, dictGetUnsignedIntegerVal(e) + 1);
+    atomicSetRelease(bio_pending_drops, (uintptr_t)d);
+}
 
 /* Sum of the 'n' sds lengths, or -1 if any exceeds hash-max-listpack-value. */
 static ssize_t hashTypeSdsArrayLpBytes(sds *arr, unsigned long long n) {
@@ -391,28 +414,19 @@ static size_t tmplIdGetLowestFree(void) {
 }
 
 /* Store tmpl in by_id under the lowest free id and return that id (the caller
- * sets tmpl->id). Low ids keep the TMPL_LP listpack id ~2 bytes per key.
- * Main-thread only, but a BIO lazyfree thread reads by_id (hashTemplateLpFree),
- * so writes take the lock. */
+ * sets tmpl->id). Low ids keep the TMPL_LP listpack id ~2 bytes per key. */
 static uint64_t tmplIdAllocate(hashTemplate *tmpl) {
-    pthread_mutex_lock(&htemplates->lock);
-
     int no_gaps = dictSize(htemplates->by_fields) == htemplates->by_id_next;
     size_t id = no_gaps ? htemplates->by_id_next++ : tmplIdGetLowestFree();
     tmplIdChunk *chunk = tmplIdGetOrCreateChunk(id);
     chunk->slots[id % TMPL_CHUNK_SIZE] = tmpl;
     chunk->used++;
-
-    pthread_mutex_unlock(&htemplates->lock);
     return id;
 }
 
-/* Recycle a template ID when template is freed. Main-thread only, but taken
- * under the lock since a BIO lazyfree thread may be reading by_id. */
+/* Recycle a template ID when template is freed. */
 static void tmplIdRecycle(uint64_t id) {
     size_t chunk_idx = id / TMPL_CHUNK_SIZE;
-
-    pthread_mutex_lock(&htemplates->lock);
     tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
     chunk->slots[id % TMPL_CHUNK_SIZE] = NULL;
     /* Free the chunk once it holds no live ids so the id space shrinks. */
@@ -433,12 +447,9 @@ static void tmplIdRecycle(uint64_t id) {
         htemplates->by_id_chunks = 0;
         htemplates->by_id_next = 0;
     }
-    pthread_mutex_unlock(&htemplates->lock);
 }
 
-/* Lookup template by ID. Returns NULL if invalid. Main-thread only and lockless:
- * by_id is grown/freed only on the main thread; BIO threads read it under the
- * registry lock but never write it. */
+/* Lookup template by ID. Returns NULL if invalid. */
 hashTemplate *hashTemplateGetById(uint64_t id) {
     size_t chunk_idx = id / TMPL_CHUNK_SIZE;
     if (chunk_idx >= htemplates->by_id_cap) return NULL;
@@ -588,7 +599,6 @@ void hashTemplatesInit(void) {
     htemplates = zcalloc(sizeof(hashTemplateRegistry));
     htemplates->by_fields = dictCreate(&templateFieldsDictType);
     htemplates->by_fields_lp = dictCreate(&templateFieldsLpDictType);
-    pthread_mutex_init(&htemplates->lock, NULL);
     server.htemplates = htemplates;
 }
 
@@ -602,7 +612,7 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
     hashTemplate *tmpl = zmalloc(sizeof(*tmpl));
     tmpl->hash = hash;
     tmpl->hold_refcount = 0;
-    atomicSet(tmpl->key_refcount, 0);
+    tmpl->key_refcount = 0;
     tmpl->field_count = field_count;
     tmpl->fields = zmalloc(sizeof(sds) * field_count);
     tmpl->fields_lp = NULL; /* Lazy built on first save/lookup. */
@@ -660,39 +670,21 @@ static hashTemplate *hashTemplateFindByFields(uint64_t hash, sds *fields,
     return de ? dictGetKey(de) : NULL;
 }
 
-/* Bump key_refcount when a hash key starts using tmpl. On the main thread, but
- * the counter is atomic: a BIO lazyfree thread may drop another key's ref to the
- * same template concurrently. */
+/* Bump key_refcount when a hash key starts using tmpl. */
 void hashTemplateIncrKeyRef(hashTemplate *tmpl) {
-    atomicIncr(tmpl->key_refcount, 1);
-    atomicIncr(htemplates->total_key_refs, 1);
+    tmpl->key_refcount++;
+    htemplates->total_key_refs++;
 }
 
 /* Bump hold_refcount for a non-key holder (a client's prepared fieldset from
- * HIMPORT PREPARE, or an in-progress RDB load). Main-thread only, no lock. */
+ * HIMPORT PREPARE, or an in-progress RDB load). */
 void hashTemplateIncrHoldRef(hashTemplate *tmpl) {
     tmpl->hold_refcount++;
 }
 
-/* Queue a template id whose refcount just hit zero, so the main thread can free
- * it later in hashTemplateDrainPendingFree. */
-static void hashTemplateEnqueuePendingFree(uint64_t id) {
-    pthread_mutex_lock(&htemplates->lock);
-    if (htemplates->pending_free_count == htemplates->pending_free_cap) {
-        htemplates->pending_free_cap = htemplates->pending_free_cap ?
-            htemplates->pending_free_cap * 2 : 16;
-        htemplates->pending_free_ids = zrealloc(htemplates->pending_free_ids,
-            sizeof(*htemplates->pending_free_ids) * htemplates->pending_free_cap);
-    }
-    htemplates->pending_free_ids[htemplates->pending_free_count++] = id;
-    pthread_mutex_unlock(&htemplates->lock);
-}
-
-/* Free the template when no key and no holder reference it. Main-thread only. */
+/* Free the template when no key and no holder reference it. */
 static void hashTemplateFreeIfUnreferenced(hashTemplate *tmpl) {
-    unsigned long long key_refs;
-    atomicGet(tmpl->key_refcount, key_refs);
-    if (key_refs == 0 && tmpl->hold_refcount == 0)
+    if (tmpl->key_refcount == 0 && tmpl->hold_refcount == 0)
         dictDelete(htemplates->by_fields, tmpl);
 }
 
@@ -707,54 +699,36 @@ void hashTemplateDecrHoldRef(hashTemplate *tmpl) {
     hashTemplateFreeIfUnreferenced(tmpl);
 }
 
-/* Decrement key_refcount when freeing a hash (main thread or BIO lazyfree
- * thread). When it reaches zero the main thread frees the template inline, while
- * a BIO thread just queues the id to reclaim later (it must not touch the
- * registry). */
-static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
-    uint64_t id = tmpl->id;
-    unsigned long long new_count;
-    
-    atomicDecr(htemplates->total_key_refs, 1);
-    /* Sync, not relaxed: orders freeing tmpl. */
-    atomicIncrGetWithSync(tmpl->key_refcount, new_count, -1);
-    serverAssert(new_count != (unsigned long long)-1); /* underflow guard */
-    
-    if (new_count != 0) return;
-    if (pthread_equal(pthread_self(), server.main_thread_id)) {
-        /* Safe to touch tmpl: only the main thread frees templates, and no key
-         * ref remains for a BIO thread to be racing on. */
-        hashTemplateFreeIfUnreferenced(tmpl);
-    } else {
-        hashTemplateEnqueuePendingFree(id);
-    }
+/* True if the calling thread is the one allowed to mutate the registry: the
+ * main thread or a thread holding the module GIL. Any other thread (a BIO
+ * lazyfree job) must defer the drop using hashTemplateRecordPendingDrop() */
+static inline int canThreadWriteRegistry(void) {
+    return pthread_equal(pthread_self(), server.main_thread_id) || moduleThreadHoldsGIL();
 }
 
-/* Free the templates queued by BIO threads. A template is freed only if it still
- * has no references. Processes incrementally with a time limit to avoid blocking 
- * the main thread when draining large batches (e.g. after FLUSHALL). */
-static void hashTemplateDrainPendingFree(void) {
+/* Decrement key_refcount when freeing a hash key. */
+static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
+    serverAssert(canThreadWriteRegistry());
+    serverAssert(tmpl->key_refcount > 0);
+    htemplates->total_key_refs--;
+    if (--tmpl->key_refcount == 0) hashTemplateFreeIfUnreferenced(tmpl);
+}
+
+/* Apply the key ref drops recorded by the BIO lazyfree thread. Processes
+ * incrementally with a time limit to avoid blocking the main thread when
+ * draining large batches (e.g. after FLUSHALL). */
+static void hashTemplateApplyPendingDrops(void) {
     /* Drain state kept across serverCron cycles (main-thread only). */
-    static uint64_t *batch = NULL;
-    static size_t batch_count = 0;
-    static size_t pos = 0;
+    static dict *batch = NULL;
+    static dictIterator it;
 
     /* Acquire new batch if not already draining. */
-    if (!batch) {
-        pthread_mutex_lock(&htemplates->lock);
-        batch = htemplates->pending_free_ids;
-        batch_count = htemplates->pending_free_count;
-        htemplates->pending_free_ids = NULL;
-        htemplates->pending_free_count = 0;
-        htemplates->pending_free_cap = 0;
-        pthread_mutex_unlock(&htemplates->lock);
-
-        pos = 0;
-        if (batch_count == 0) {
-            zfree(batch);
-            batch = NULL;
-            return;
-        }
+    if (batch == NULL) {
+        uintptr_t cur;
+        atomicExchangeAcquire(bio_pending_drops, 0, cur);
+        if (cur == 0) return;
+        batch = (dict *)cur;
+        dictInitSafeIterator(&it, batch);
     }
 
     /* Time limit: spread work across multiple cron cycles to avoid spikes. */
@@ -762,22 +736,21 @@ static void hashTemplateDrainPendingFree(void) {
     long long timelimit = 1000000 / server.hz / 10;  /* 10% of a hz cycle */
     if (timelimit <= 0) timelimit = 1;
 
-    while (pos < batch_count) {
-        hashTemplate *tmpl = hashTemplateGetById(batch[pos]);
-        if (tmpl != NULL) hashTemplateFreeIfUnreferenced(tmpl);
-        pos++;
-
-        /* Check the clock every 16 frees. */
-        if ((pos & 15) == 0 && ustime() - start > timelimit) break;
+    int i = 0;
+    dictEntry *de;
+    while ((de = dictNext(&it)) != NULL) {
+        hashTemplate *tmpl = hashTemplateGetById((uint64_t)(uintptr_t)dictGetKey(de));
+        uint64_t n = dictGetUnsignedIntegerVal(de);
+        serverAssert(tmpl != NULL && tmpl->key_refcount >= n);
+        htemplates->total_key_refs -= n;
+        tmpl->key_refcount -= n;
+        if (tmpl->key_refcount == 0) hashTemplateFreeIfUnreferenced(tmpl);
+        /* Check the clock every 64 drops. */
+        if ((++i & 63) == 0 && ustime() - start > timelimit) return;
     }
-
-    /* Done with this batch? */
-    if (pos >= batch_count) {
-        zfree(batch);
-        batch = NULL;
-        batch_count = 0;
-        pos = 0;
-    }
+    dictResetIterator(&it);
+    dictRelease(batch);
+    batch = NULL;
 }
 
 /* Idle time (ms) after which an unused fields_lp blob is deleted which was
@@ -848,7 +821,7 @@ static void hashTemplatesCleanupFieldsLpCron(void) {
 /* Template registry maintenance, once per serverCron cycle. */
 void hashTemplatesCron(void) {
     if (!htemplates) return;
-    hashTemplateDrainPendingFree();
+    hashTemplateApplyPendingDrops();
     hashTemplatesCleanupFieldsLpCron();
 }
 
@@ -861,9 +834,7 @@ size_t hashTemplateRegistrySize(void) {
 /* Get total number of template-based keys (sum of all key_refcounts). */
 size_t hashTemplateKeyCount(void) {
     if (!htemplates) return 0;
-    size_t count;
-    atomicGet(htemplates->total_key_refs, count);
-    return count;
+    return htemplates->total_key_refs;
 }
 
 /* Memory held by the shared template registry, reported as
@@ -1125,18 +1096,19 @@ static unsigned char *hashTemplateLpCreateFromPairs(hashTemplate *tmpl,
     return lp;
 }
 
-/* Free a template listpack: release its key ref and free the listpack. May run
- * in a BIO lazyfree thread, so the id->template lookup is done under the lock
- * (the main thread may be growing by_id concurrently). The template stays valid
- * while this outstanding key-ref exists, so the pointer is safe to decrement. */
+/* Release a template listpack's key ref and free the listpack. May run
+ * in a BIO lazyfree thread and it may just record the ref count drop to be 
+ * collected by main thread later in hashTemplateApplyPendingDrops() */
 void hashTemplateLpFree(unsigned char *lp) {
     uint64_t id = hashTemplateLpGetTemplateId(lp);
-    pthread_mutex_lock(&htemplates->lock);
-    hashTemplate *tmpl = hashTemplateGetById(id);
-    pthread_mutex_unlock(&htemplates->lock);
-    if (tmpl == NULL)
-        serverPanic("TMPL_LP listpack references unknown template ID");
-    hashTemplateDecrKeyRef(tmpl);
+    if (!canThreadWriteRegistry()) {
+        hashTemplateRecordPendingDrop(id);
+    } else {
+        hashTemplate *tmpl = hashTemplateGetById(id);
+        if (tmpl == NULL)
+            serverPanic("TMPL_LP listpack references unknown template ID");
+        hashTemplateDecrKeyRef(tmpl);
+    }
     lpFree(lp);
 }
 
@@ -1161,11 +1133,16 @@ static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *value
 
 /* Free a hashTemplateArray (release key ref and free data). May run in a BIO
  * lazyfree thread; the template pointer and its id/field_count are immutable
- * and stay valid while this key-ref is outstanding. */
+ * and stay valid while key ref > 0. */
 void hashTemplateArrayFree(hashTemplateArray *hta) {
     for (unsigned long long i = 0; i < hta->tmpl->field_count; i++)
         sdsfree(hta->values[i]);
-    hashTemplateDecrKeyRef(hta->tmpl);
+
+    if (!canThreadWriteRegistry())
+        hashTemplateRecordPendingDrop(hta->tmpl->id); 
+    else
+        hashTemplateDecrKeyRef(hta->tmpl);
+
     zfree(hta);
 }
 
@@ -3200,14 +3177,12 @@ void rdbLoadTemplateCtxRecord(rdbLoadTemplateCtx *ctx, robj *kv, redisDb *db) {
         kv->encoding != OBJ_ENCODING_TMPL_ARRAY) return;
 
     hashTemplate *tmpl = hashTypeGetTemplate(kv);
-    unsigned long long count;
-    atomicGet(tmpl->key_refcount, count);
-    if (count == ctx->disassembly_threshold) {
+    if (tmpl->key_refcount == ctx->disassembly_threshold) {
         /* This key graduates tmpl: drop the tracking list so it survives. */
         dictDelete(ctx->reverse_lookup, tmpl);
         return;
     }
-    if (count > ctx->disassembly_threshold) return; /* already graduated */
+    if (tmpl->key_refcount > ctx->disassembly_threshold) return; /* already graduated */
 
     dictEntry *de = dictFind(ctx->reverse_lookup, tmpl);
     list *l;

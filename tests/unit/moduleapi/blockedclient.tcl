@@ -76,6 +76,21 @@ start_server {tags {"modules external:skip"}} {
         r do_bg_rm_call hgetall hash
     } {foo bar}
 
+    test {Freeing a template-hash key from a GIL-holding module thread} {
+        r flushall
+        r himport prepare fs f1 f2 f3
+        r himport set th fs v1 v2 v3
+        assert_equal template-listpack [r object encoding th]
+        # Drop the PREPARE hold; the template now survives only via the key ref.
+        r himport discard fs
+        assert_equal 1 [s hash_templates]
+        # DEL runs on a background thread that holds the GIL: freeing the last
+        # key ref must drop the template inline (not via the BIO defer path).
+        r do_bg_rm_call del th
+        assert_equal 0 [r exists th]
+        assert_equal 0 [s hash_templates]
+    }
+
     test {RM_Call from blocked client with script mode} {
         r do_bg_rm_call_format S hset k foo bar
     } {1}

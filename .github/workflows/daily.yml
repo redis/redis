@@ -777,6 +777,7 @@ jobs:
           --skiptest "Module hash - RM_HashSet auto-converts to template"
           --skiptest "Module scan hash template-listpack"
           --skiptest "Module scan hash template-array"
+          --skiptest "Freeing a template-hash key from a GIL-holding module thread"
           --skiptest "Slot migration preserves template-encoded hashes"
           --skiptest "ASM forwards a live HIMPORT SET on the source to dest master+replica"
           --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}

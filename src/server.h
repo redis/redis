@@ -3216,6 +3216,7 @@ size_t moduleCount(void);
 void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
+int moduleThreadHoldsGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid, robj **subkeys, int count);
 void firePostExecutionUnitJobs(void);
 void firePerKeyJobsBetweenSubcommands(void);
@@ -3917,10 +3918,7 @@ typedef struct hashTemplate {
                           * to identify the template. */
     uint64_t hash;       /* Pre-computed commutative hash of the field-name set
                           * (order-independent; see computeFieldsHash). */
-    redisAtomic unsigned long long key_refcount; /* Number of hash keys. Atomic:
-                          * a BIO lazyfree thread may decrement it directly. Only
-                          * the zero-transition enqueues the template id for the
-                          * main thread to reclaim. */
+    unsigned long long key_refcount; /* Number of hash keys. */
     unsigned long long hold_refcount; /* Non-key holders (a client's HIMPORT
                           * PREPARE fieldset, RDB load); keeps a template alive
                           * while it has no keys yet but is still referenced. */
@@ -3950,17 +3948,7 @@ typedef struct hashTemplateRegistry {
     size_t by_id_cap;           /* How many chunk pointers by_id can hold. */
     size_t by_id_chunks;        /* How many chunks are currently allocated. */
     size_t by_id_next;          /* The next id that has never been used. */
-    uint64_t *pending_free_ids; /* Ids of templates that hit zero refs on a BIO
-                                 * lazyfree thread which can't touch the registry
-                                 * itself. The main thread later drains this in
-                                 * hashTemplateDrainPendingFree and frees them. */
-    size_t pending_free_count;  /* Used slots in pending_free_ids. */
-    size_t pending_free_cap;    /* Allocated slots in pending_free_ids. */
-    pthread_mutex_t lock;       /* Guards the only cross-thread state: the
-                                 * pending_free_ids queue and the by_id array
-                                 * (both touched by BIO threads). Everything else
-                                 * (registry, hold_refcount) is main-thread only. */
-    redisAtomic size_t total_key_refs; /* Sum of key_refcount across all templates. */
+    size_t total_key_refs;      /* Sum of key_refcount across all templates. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
                                  * attached fields_lp blobs. Tracked incrementally
                                  * (+= on create/attach, -= on free) so INFO/MEMORY

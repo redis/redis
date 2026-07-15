@@ -1892,9 +1892,7 @@ ssize_t rdbSaveHashTemplates(rio *rdb) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         hashTemplate *tmpl = dictGetKey(de);
-        unsigned long long key_ref;
-        atomicGet(tmpl->key_refcount, key_ref);
-        if (key_ref == 0) continue;
+        if (tmpl->key_refcount == 0) continue;
 
         if ((ret = rdbSaveType(rdb, RDB_OPCODE_HASH_TEMPLATE)) < 0) goto werr;
         written += ret;

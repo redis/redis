@@ -9229,15 +9229,27 @@ void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     moduleReleaseGIL();
 }
 
+/* Set on a thread while it holds the module GIL. */
+static __thread int threadHoldsGIL = 0;
+
+/* True if the calling thread currently holds the module GIL. */
+int moduleThreadHoldsGIL(void) {
+    return threadHoldsGIL;
+}
+
 void moduleAcquireGIL(void) {
     pthread_mutex_lock(&moduleGIL);
+    threadHoldsGIL = 1;
 }
 
 int moduleTryAcquireGIL(void) {
-    return pthread_mutex_trylock(&moduleGIL);
+    int res = pthread_mutex_trylock(&moduleGIL);
+    if (res == 0) threadHoldsGIL = 1;
+    return res;
 }
 
 void moduleReleaseGIL(void) {
+    threadHoldsGIL = 0;
     pthread_mutex_unlock(&moduleGIL);
 }
 
