@@ -20,6 +20,8 @@ proc create_local_aof {dir} {
     set aof_dir [file join $dir appendonlydir]
     file mkdir $aof_dir
     set fp [open [file join $aof_dir appendonly.aof.1.incr.aof] w]
+    # the client uses db 9 by default
+    puts -nonewline $fp [formatCommand select 9]
     puts -nonewline $fp [formatCommand set local-aof-key value]
     close $fp
 
@@ -110,6 +112,50 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
                     assert {[file exists [file join $preload_server_dir appendonlydir appendonly.aof.manifest]]}
                 }
             }
+        }
+    }
+
+    test {Preload proactively rewrites the local AOF} {
+        set local_dir [tmpdir preload.rewrite.local-aof]
+        # Seed an unrelated local MP-AOF. preload-file must replace this
+        # manifest history rather than append the restored data to it.
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        set old_incr [file join $aof_dir appendonly.aof.1.incr.aof]
+
+        set manifest [file join $bdir appendonly.aof.manifest]
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"] keep_persistence true] {
+            assert_equal 3 [r dbsize]
+            assert_equal 1 [s aof_rewrites]
+            waitForBgrewriteaof r
+            assert_equal ok [s aof_last_bgrewrite_status]
+            # we don't append the old incr aof, and it is deleted after AOFRW
+            assert_equal 0 [file exists $old_incr]
+            assert_equal OK [r set after-preload value]
+        }
+
+        # Restart without preload-file to prove the rewrite replaced the old
+        # local AOF and persisted both the preloaded data and subsequent writes.
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal 4 [r dbsize]
+            assert_equal v1 [r get k1]
+            assert_equal v2 [r get k2]
+            assert_equal v3 [r get k3]
+            assert_equal value [r get after-preload]
+        }
+    }
+
+    test {Preload current local manifest does not rewrite AOF} {
+        # Build a local MP-AOF and use its exact absolute manifest path as the
+        # preload source, matching the manifest Redis would normally load.
+        set local_dir [file normalize [tmpdir preload.current-manifest]]
+        set manifest [file join $local_dir appendonlydir appendonly.aof.manifest]
+        create_local_aof $local_dir
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"]] {
+            assert_equal value [r get local-aof-key]
+            # Reusing the current manifest must not trigger a redundant AOFRW.
+            assert_equal 0 [s aof_rewrites]
         }
     }
 

@@ -550,7 +550,7 @@ static int writeAofManifestFileToDir(char *dirname, sds buf) {
     int fd = open(tmp_am_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     if (fd == -1) {
         serverLog(LL_WARNING, "Can't open the temporary manifest file %s: %s",
-            tmp_am_name, strerror(errno));
+            tmp_am_filepath, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
@@ -564,7 +564,7 @@ static int writeAofManifestFileToDir(char *dirname, sds buf) {
             if (errno == EINTR) continue;
 
             serverLog(LL_WARNING, "Error trying to write the temporary manifest file %s: %s",
-                tmp_am_name, strerror(errno));
+                tmp_am_filepath, strerror(errno));
 
             ret = C_ERR;
             goto cleanup;
@@ -576,7 +576,7 @@ static int writeAofManifestFileToDir(char *dirname, sds buf) {
 
     if (redis_fsync(fd) == -1) {
         serverLog(LL_WARNING, "Fail to fsync the temporary manifest file %s: %s.",
-            tmp_am_name, strerror(errno));
+            tmp_am_filepath, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
@@ -585,7 +585,7 @@ static int writeAofManifestFileToDir(char *dirname, sds buf) {
     if (rename(tmp_am_filepath, am_filepath) != 0) {
         serverLog(LL_WARNING,
             "Error trying to rename the temporary manifest file %s into %s: %s",
-            tmp_am_name, am_name, strerror(errno));
+            tmp_am_filepath, am_filepath, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
@@ -785,6 +785,63 @@ void aofOpenIfNeededOnServerStart(void) {
         serverLog(LL_NOTICE, "Opening AOF incr file %s on server start", aof_name);
     } else {
         serverLog(LL_NOTICE, "Creating AOF incr file %s on server start", aof_name);
+    }
+}
+
+/* Return true when preload-file is the absolute path of the manifest currently
+ * used by the configured append-only directory. */
+static int preloadFileIsCurrentAofManifest(void) {
+    if (server.preload_file == NULL ||
+        strncmp(server.preload_file, "aof:/", 5) != 0)
+    {
+        return 0;
+    }
+
+    char *preload_path = server.preload_file + 4;
+    char *extension = getFileExtension(preload_path);
+    if (extension == NULL || strcmp(extension, "manifest") != 0) {
+        return 0;
+    }
+
+    sds manifest_name = getAofManifestFileName();
+    sds current_path = makePath(server.aof_dirname, manifest_name);
+    sds current_absolute_path = getAbsolutePath(current_path);
+    int is_current = current_absolute_path != NULL &&
+                     strcmp(preload_path, current_absolute_path) == 0;
+
+    sdsfree(current_absolute_path);
+    sdsfree(current_path);
+    sdsfree(manifest_name);
+    return is_current;
+}
+
+/* Make the local AOF consistent with data loaded through preload-file.
+ * Reusing the current manifest is equivalent to a normal local AOF load. For
+ * any other preload source, start a background rewrite while a temporary INCR
+ * records new writes. */
+void aofHandlePreloadOnServerStart(void) {
+    if (server.preload_file == NULL || server.aof_state != AOF_ON) {
+        return;
+    }
+
+    /* If preload-file points to the current local manifest, the normal startup
+     * path has already opened the correct INCR and no rewrite is needed. Apply
+     * the same replication-offset update as a normal local AOF load, including
+     * clearing the persisted end offset before new commands are appended. */
+    if (preloadFileIsCurrentAofManifest()) {
+        updateReplOffsetAndResetEndOffset();
+        return;
+    }
+
+    /* The current manifest may describe a different dataset, so don't attach
+     * new writes to its active INCR while rebuilding it. Reuse the state used
+     * when AOF is enabled at runtime: write to a temporary INCR, publish it
+     * together with the new BASE after AOFRW succeeds, and retry on failure. */
+    server.aof_state = AOF_WAIT_REWRITE;
+    if (rewriteAppendOnlyFileBackground() != C_OK) {
+        serverLog(LL_WARNING,
+            "Failed to start background AOF rewrite after preload");
+        exit(1);
     }
 }
 

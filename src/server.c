@@ -8337,6 +8337,8 @@ int main(int argc, char **argv) {
          * If there was a config change while we were inside loadDataFromDisk()
          * above, we'll apply it here. */
         applyAppendOnlyConfig();
+        /* Make the local AOF consistent with preloaded data if needed. */
+        aofHandlePreloadOnServerStart();
 
         if (server.cluster_enabled) {
             serverAssert(verifyClusterConfigWithData() == C_OK);
