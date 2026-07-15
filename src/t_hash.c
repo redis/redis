@@ -673,7 +673,7 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
     tmpl->key_refcount = 0;
     tmpl->field_count = field_count;
     tmpl->fields = zmalloc(sizeof(sds) * field_count);
-    tmpl->fields_lp = NULL; /* Lazy built on first save/lookup. */
+    tmpl->fields_lp = NULL; /* Lazy built on first save/lookup due to RESTORE. */
     tmpl->fields_lp_last_used = 0;
     tmpl->mem_size = sizeof(*tmpl) + sizeof(sds) * field_count;
 
@@ -746,9 +746,8 @@ static void hashTemplateFreeIfUnreferenced(hashTemplate *tmpl) {
         dictDelete(htemplates->by_fields, tmpl);
 }
 
-/* Drop one hold-ref (a client's prepared fieldset, or an in-progress RDB load).
- * Main-thread only, no lock. When the last holder leaves, free tmpl if no keys
- * reference it either. */
+/* Drop one holdref (a client's prepared fieldset, or an in-progress RDB load).
+ * When the last holder leaves, free tmpl if no keys reference it either. */
 void hashTemplateDecrHoldRef(hashTemplate *tmpl) {
     serverAssert(tmpl->hold_refcount > 0);
     tmpl->hold_refcount--;
@@ -776,7 +775,6 @@ static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
  * incrementally with a time limit to avoid blocking the main thread when
  * draining large batches (e.g. after FLUSHALL). */
 static void hashTemplateApplyPendingDrops(void) {
-    /* Drain state kept across serverCron cycles (main-thread only). */
     static dict *batch = NULL;
     static dictIterator it;
 
@@ -896,8 +894,7 @@ size_t hashTemplateKeyCount(void) {
 }
 
 /* Memory held by the shared template registry, reported as
- * used_memory_hash_templates (INFO) and hash.templates (MEMORY STATS). O(1):
- * the incremental total_mem_size counter plus the lookup dicts and by_id array. */
+ * used_memory_hash_templates (INFO) and hash.templates (MEMORY STATS). */
 size_t hashTemplatesMemUsage(void) {
     if (!htemplates) return 0;
     return htemplates->total_mem_size + sizeof(*htemplates) +
@@ -945,6 +942,7 @@ static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
 /* Return the template with the field at `idx` deleted (key-ref taken).
  * Precondition: at least one field remains. */
 static hashTemplate *hashTemplateForDeletedField(hashTemplate *tmpl, long long idx) {
+    serverAssert(tmpl->field_count >= 2); /* at least one field remains after delete */
     unsigned long long new_count = tmpl->field_count - 1;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
@@ -2425,7 +2423,7 @@ int hashTypeDelete(robj *o, void *field) {
                 hashTemplate *new_tmpl = hashTemplateForDeletedField(tmpl, idx);
 
                 if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-                    /* Delete value at idx (index 0 is template ID). */
+                    /* Delete value at idx. */
                     unsigned char *lp = o->ptr;
                     unsigned char *p = hashTemplateLpSeekValue(lp, idx);
                     lp = lpDeleteRangeWithEntry(lp, &p, 1);
@@ -3168,7 +3166,7 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
  *     converted and kept).
  *
  * Goal: keep templates that are shared by many keys and avoid templates that end
- * up with only a few keys -- such a template wastes memory instead of saving it.
+ * up with only a few keys: such a template wastes memory instead of saving it.
  * We call a template "few-key" while its key count is below the threshold.
  *
  * The context does two things during the load:
@@ -3211,8 +3209,8 @@ static void rdbLoadTemplateCtxListValDestructor(dict *d, void *val) {
     listRelease(val);
 }
 
-/* Keys are template pointers (registry-owned, so no key destructor); values are
- * lists of hash kvobjs freed when the entry is dropped/released. */
+/* Keys are template pointers, values are lists of hash kvobjs freed when the 
+ * entry is dropped/released. */
 static dictType rdbLoadTemplateCtxReverseDictType = {
     .hashFunction = dictPtrHash,
     .valDestructor = rdbLoadTemplateCtxListValDestructor,
@@ -3318,9 +3316,9 @@ void rdbLoadTemplateCtxDisassemble(rdbLoadTemplateCtx *ctx) {
     dictReleaseIterator(di);
     if (disassembled_templates) {
         serverLog(LL_NOTICE,
-            "Hash template RDB load: disassembled %zu templates (%zu keys) back "
-            "to plain hashes; each held fewer than %zu keys "
-            "(due to hash-rdb-load-template-disassembly-threshold config).",
+            "Hash template conversion during RDB load: disassembled %zu templates (%zu keys) "
+            "back to plain hashes; each held fewer than %zu keys "
+            "(hash-rdb-load-template-disassembly-threshold config was set).",
             disassembled_templates, disassembled_keys, ctx->disassembly_threshold);
     }
 }

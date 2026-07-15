@@ -3951,10 +3951,7 @@ typedef struct hashTemplateRegistry {
     size_t by_id_next;          /* The next id that has never been used. */
     size_t total_key_refs;      /* Sum of key_refcount across all templates. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
-                                 * attached fields_lp blobs. Tracked incrementally
-                                 * (+= on create/attach, -= on free) so INFO/MEMORY
-                                 * STATS need not walk a registry that may hold
-                                 * ~100k templates. Main-thread only. */
+                                 * attached fields_lp blobs. */
 } hashTemplateRegistry;
 
 /* 1. OBJ_ENCODING_TMPL_LP: o->ptr points directly to a listpack.

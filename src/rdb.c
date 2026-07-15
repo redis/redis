@@ -5090,8 +5090,8 @@ eoferr:
  * (rdb_tmpls) is always released here regardless of success or failure.  */
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     /* Create the load-time conversion context (plain hash -> template hash), 
-     * but only when load-time conversion is enabled (min-entries > 0). It 
-     * applies only to RDBs that have no templates and is freed as soon as a
+     * but only when load-time conversion config is enabled (min-entries > 0). 
+     * It applies only to RDBs that have no templates and is freed as soon as a
      * template header is seen. */
     rdb_load_tmpl_ctx = (server.hash_rdb_load_min_template_entries > 0)
         ? rdbLoadTemplateCtxCreate(server.hash_rdb_load_template_disassembly_threshold)
