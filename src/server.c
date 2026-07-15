@@ -1592,7 +1592,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(100) {
         long long stat_net_input_bytes = 0, stat_net_output_bytes = 0;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
-        for (int j = 0; j < IO_THREADS_MAX_NUM; j++) {
+        for (int j = 0; j < server.io_threads_num; j++) {
             long long in, out;
             atomicGet(IOThreads[j].net_input_bytes, in);
             atomicGet(IOThreads[j].net_output_bytes, out);
@@ -6735,9 +6735,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long stat_client_qbuf_limit_disconnections;
         stat_net_input_bytes = 0;
         stat_net_output_bytes = 0;
-        /* Sum over MAX, not io_threads_num: slots written before a
-         * runtime thread-count change must stay in the totals. */
-        for (j = 0; j < IO_THREADS_MAX_NUM; j++) {
+        for (j = 0; j < server.io_threads_num; j++) {
             long long in, out;
             atomicGet(IOThreads[j].net_input_bytes, in);
             atomicGet(IOThreads[j].net_output_bytes, out);
