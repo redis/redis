@@ -1,0 +1,85 @@
+# modules.yaml — release manifest for bundled Redis modules.
+#
+# Single source of truth for which upstream repo and ref each module is
+# pinned to. Consumed by:
+#   - `make modules-update` (top-level Makefile) to clone/refresh sources
+#     under modules/<name>/src/
+#   - `modules/docker-install-bundled-module-deps.sh` (Docker image build
+#     only; see docker/Dockerfile.noble) to run each module's install_script.sh
+#   - modules/common.mk's per-module clone-on-build fallback
+#   - `make tarball` to clone modules at their pinned ref into the
+#     release source tarball
+#
+# Ref selection — each module pins itself with a single `ref:` value. Its
+# kind is resolved dynamically against the upstream `repo:` by querying
+# `git ls-remote` in this order:
+#
+#   1. tag    — matches `refs/tags/<ref>` on the remote (preferred for
+#               releases; immutable)
+#   2. branch — matches `refs/heads/<ref>` on the remote
+#   3. commit — looks like a hex SHA (7–40 chars) when neither of the
+#               above matched
+#
+# The first match wins. If none match, `make modules-update` / build error
+# out loudly with "unknown ref kind".
+#
+# To bump a module: edit `ref:` and run
+# `make modules-update <name>` to refresh the local clone.
+#
+# Format (kept deliberately simple so a small awk helper can parse it without
+# needing yq/python; see modules/manifest.mk):
+#   modules:
+#     - name: <module-name>            # directory under modules/
+#       repo: <git URL>
+#       ref:  <tag | branch | commit>  # required
+#       target_module: <path>          # build artifact path relative to
+#                                      # src/bin/<os>-<arch>-release/ (i.e.
+#                                      # the .so the upstream build produces).
+#                                      # Examples: `redisbloom.so`,
+#                                      # `search-community/redisearch.so`.
+#       loadmodule: <path-to-.so>      # used by `make modules-update` to
+#                                      # rewrite the auto-managed block in
+#                                      # redis.conf; the .so basename does not
+#                                      # always match the module name (e.g.
+#                                      # redisjson produces rejson.so).
+#       build_env: <KEY=VALUE ...>     # optional, space-separated. Exported
+#                                      # before the module's build runs (see
+#                                      # modules/common.mk). Use when this
+#                                      # bundled build wants a different
+#                                      # default than the module's own build
+#                                      # script picks. redisearch's entry
+#                                      # below sets LTO=1 and
+#                                      # REDISEARCH_GENERATE_HEADERS=0 (this
+#                                      # bundle's preference, opposite of
+#                                      # RediSearch's own build.sh defaults)
+#                                      # and INLINE_LSE_ATOMICS=0 (avoids
+#                                      # SIGILL on pre-Armv8.1-a ARM cores —
+#                                      # Cortex-A72, Graviton1, RPi4).
+#
+# Notes:
+#   - `vector-sets` is intentionally absent — it lives in-tree under
+#     modules/vector-sets/ and is not cloned.
+#   - No inline comments after values; one field per line.
+
+modules:
+  - name: redisbloom
+    repo: https://github.com/redisbloom/redisbloom
+    ref: v8.9.81
+    target_module: redisbloom.so
+    loadmodule: ./modules/redisbloom/redisbloom.so
+  - name: redisearch
+    repo: https://github.com/redisearch/redisearch
+    ref: v8.9.82
+    target_module: search-community/redisearch.so
+    loadmodule: ./modules/redisearch/redisearch.so
+    build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
+  - name: redisjson
+    repo: https://github.com/redisjson/redisjson
+    ref: v8.9.81
+    target_module: rejson.so
+    loadmodule: ./modules/redisjson/rejson.so
+  - name: redistimeseries
+    repo: https://github.com/redistimeseries/redistimeseries
+    ref: v8.9.82
+    target_module: redistimeseries.so
+    loadmodule: ./modules/redistimeseries/redistimeseries.so

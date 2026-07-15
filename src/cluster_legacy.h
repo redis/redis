@@ -40,6 +40,7 @@
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 #define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
 #define CLUSTER_TODO_BROADCAST_PONG (1<<5)
+#define CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE (1<<6) /* Fire RedisModuleEvent_ClusterTopologyChange */
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
@@ -337,6 +338,7 @@ struct clusterState {
     uint64_t currentEpoch;
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
+    uint64_t topology_change_flags; /* Pending RedisModuleEvent_ClusterTopologyChange reasons (REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     dict *shards;         /* Hash table of shard_id -> list (of nodes) structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */

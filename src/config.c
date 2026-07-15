@@ -2764,20 +2764,32 @@ int updateClusterHumanNodename(const char **err) {
 }
 
 static int applyTlsCfg(const char **err) {
-    UNUSED(err);
-
     /* If TLS is enabled, try to configure OpenSSL. */
-    if ((server.tls_port || server.tls_replication || server.tls_cluster)
-         && connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
-        *err = "Unable to update TLS configuration. Check server logs.";
-        return 0;
+    if (server.tls_port || server.tls_replication || server.tls_cluster) {
+        ConnectionType *ct_tls = connectionTypeTls();
+        /* Refuse if no TLS support compiled in */
+        if (!ct_tls) {
+            *err = "TLS support is not compiled in, cannot enable TLS options.";
+            return 0;
+        }
+        if (connTypeConfigure(ct_tls, &server.tls_ctx_config, 1) == C_ERR) {
+            *err = "Unable to update TLS configuration. Check server logs.";
+            return 0;
+        }
     }
     return 1;
 }
 
 static int applyTLSPort(const char **err) {
+    ConnectionType *ct_tls = connectionTypeTls();
+    /* Refuse if no TLS support compiled in */
+    if (!ct_tls) {
+        *err = "TLS support is not compiled in, cannot set a TLS port.";
+        return 0;
+    }
+
     /* Configure TLS in case it wasn't enabled */
-    if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 0) == C_ERR) {
+    if (connTypeConfigure(ct_tls, &server.tls_ctx_config, 0) == C_ERR) {
         *err = "Unable to update TLS configuration. Check server logs.";
         return 0;
     }

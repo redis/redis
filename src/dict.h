@@ -318,19 +318,6 @@ void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de);
 
-#define dictForEach(d, ty, m, ...) do { \
-    dictIterator di; \
-    dictEntry *de; \
-    dictInitIterator(&di, d); \
-    while ((de = dictNext(&di)) != NULL) { \
-        ty *m = dictGetVal(de); \
-        do { \
-            __VA_ARGS__ \
-        } while(0); \
-    } \
-    dictResetIterator(&di); \
-} while(0);
-
 #ifdef REDIS_TEST
 int dictTest(int argc, char *argv[], int flags);
 #endif

@@ -311,7 +311,57 @@ start_server {tags {"modules external:skip"}} {
         assert_equal {gg ff ee dd cc} [$rd read]
         $rd close
     }
-    
+
+    test {LINSERT does not wake a module blocked on a list key} {
+        r del k
+        r rpush k a b
+        # Module client blocks to pop 5 elements from the (existing) list.
+        set rd [redis_deferring_client]
+        $rd blockonkeys.blpopn k 5
+        wait_for_blocked_clients_count 1
+        # Plain writes to a pre-existing list must NOT wake a module client, even
+        # once the list is long enough to satisfy it.
+        r linsert k before a x  ;# 3 elements
+        r linsert k before a y  ;# 4 elements
+        r linsert k before a z  ;# 5 elements -> enough, but LINSERT doesn't signal
+        assert_equal 1 [s blocked_clients]
+        # Only an explicit RM_SignalKeyAsReady wakes it.
+        r blockonkeys.lpush_unblock k q
+        assert_equal 5 [llength [$rd read]]
+        assert_equal 1 [r llen k]
+        $rd close
+    }
+
+    test {BLMOVEM does not wake a module blocked on the destination list} {
+        r del src dst
+        r rpush dst a b        ;# destination pre-exists with 2 elements
+        r rpush src c d e f
+        set rd [redis_deferring_client]
+        $rd blockonkeys.blpopn dst 5
+        wait_for_blocked_clients_count 1
+        # BLMOVEM grows the pre-existing destination to 5, but as a plain list
+        # write it must NOT wake the blocked module client.
+        assert_equal {c d e} [r blmovem src dst left right 0 count 3 bulk]
+        assert_equal 1 [s blocked_clients]
+        # An explicit module signal still unblocks it.
+        r blockonkeys.lpush_unblock dst z
+        assert_equal 5 [llength [$rd read]]
+        $rd close
+    }
+
+    test {BLMOVEM wakes a module blocked on a non-existent destination list} {
+        r del src dst
+        r rpush src a b c
+        set rd [redis_deferring_client]
+        $rd blockonkeys.popall dst   ;# dst does not exist -> module blocks
+        wait_for_blocked_clients_count 1
+        # BLMOVEM creates dst via dbAdd, which fires an availability signal that
+        # DOES wake the module (unlike a plain write to a pre-existing dst).
+        assert_equal {a b c} [r blmovem src dst left right 0 count 3 bulk]
+        assert_equal {a b c} [$rd read]
+        $rd close
+    }
+
     test {Module explicit unblock when blocked on keys} {
         r del k
         r set somekey someval

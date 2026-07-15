@@ -95,7 +95,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags) {
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
 
-    /* Save key metadata if present without (handles TTL separately via command args).
+    /* Save key metadata if present (TTL is handled separately via command args).
      * AOF rewrite embeds only classes that lack their own AOF callback. */
     if (getModuleMetaBits(o->metabits)) {
         int meta_flags = (flags & DUMP_PAYLOAD_AOF_REWRITE) ?
@@ -1552,6 +1552,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     clusterNode *myself = getMyClusterNode();
     if (c->flags & CLIENT_BLOCKED &&
         (c->bstate.btype == BLOCKED_LIST ||
+         c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
          c->bstate.btype == BLOCKED_ZSET ||
          c->bstate.btype == BLOCKED_STREAM ||
          c->bstate.btype == BLOCKED_MODULE))

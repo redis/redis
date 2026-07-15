@@ -221,6 +221,9 @@ static struct config {
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
+    double *latency_percentiles; /* Percentiles to report, e.g. 50,99,99.9. */
+    char **latency_percentiles_labels; /* Original tokens, used for display. */
+    int latency_percentiles_count;
     int lru_test_mode;
     long long lru_test_sample_size;
     int cluster_mode;
@@ -2790,6 +2793,37 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--latency-history")) {
             config.latency_mode = 1;
             config.latency_history = 1;
+        } else if (!strcmp(argv[i],"--latency-percentiles") && !lastarg) {
+            /* Parse a comma separated list of percentiles, e.g. "50,99,99.9".
+             * Enables latency mode if not already requested. */
+            config.latency_mode = 1;
+            int pcount;
+            char *plist = argv[++i];
+            sds *pvec = sdssplitlen(plist,strlen(plist),",",1,&pcount);
+            if (pvec == NULL || pcount == 0) {
+                fprintf(stderr,"Invalid --latency-percentiles list.\n");
+                exit(1);
+            }
+            config.latency_percentiles = zmalloc(sizeof(double)*pcount);
+            config.latency_percentiles_labels = zmalloc(sizeof(char*)*pcount);
+            config.latency_percentiles_count = pcount;
+            for (int j = 0; j < pcount; j++) {
+                char *endptr;
+                double p = strtod(pvec[j],&endptr);
+                if (endptr == pvec[j] || *endptr != '\0' || isnan(p) ||
+                    p < 0 || p > 100)
+                {
+                    fprintf(stderr,
+                        "Invalid percentile '%s' in --latency-percentiles "
+                        "(must be a number between 0 and 100).\n", pvec[j]);
+                    exit(1);
+                }
+                config.latency_percentiles[j] = p;
+                /* Keep the original token verbatim for display so the label
+                 * is never lossy (e.g. "99.99" stays "99.99"). */
+                config.latency_percentiles_labels[j] = zstrdup(pvec[j]);
+            }
+            sdsfreesplitres(pvec,pcount);
         } else if (!strcmp(argv[i],"--vset-recall") && !lastarg) {
             config.vset_recall_mode = 1;
             config.vset_recall_key = sdsnew(argv[++i]);
@@ -3216,14 +3250,21 @@ version,tls_usage);
 
     fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
-"                     If you use this mode in an interactive session it runs\n"
-"                     forever displaying real-time stats. Otherwise if --raw or\n"
-"                     --csv is specified, or if you redirect the output to a non\n"
-"                     TTY, it samples the latency for 1 second (you can use\n"
-"                     -i to change the interval), then produces a single output\n"
-"                     and exits.\n"
+"                     Stats (min/max/avg) are reported in milliseconds with\n"
+"                     sub-millisecond precision. If you use this mode in an\n"
+"                     interactive session it runs forever displaying real-time\n"
+"                     stats. Otherwise if --raw or --csv is specified, or if you\n"
+"                     redirect the output to a non TTY, it samples the latency\n"
+"                     for 1 second (you can use -i to change the interval), then\n"
+"                     produces a single output and exits.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
+"  --latency-percentiles <p1,p2,...>\n"
+"                     Also report the given latency percentiles in milliseconds\n"
+"                     (e.g. 50,99,99.9) in --latency and --latency-history modes.\n"
+"                     Resolution is limited by the sample count: a percentile\n"
+"                     finer than 100/samples resolves to the maximum, so use a\n"
+"                     longer interval (-i) for meaningful high percentiles.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --vset-recall <key> Enable VSIM recall test mode for the specified key\n"
@@ -8674,22 +8715,57 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
  * Latency and latency history modes
  *--------------------------------------------------------------------------- */
 
-static void latencyModePrint(long long min, long long max, double avg, long long count) {
+/* Print one latency report line. Latencies are measured in microseconds and
+ * reported in milliseconds with sub-millisecond precision. When percentiles
+ * are requested they are read from the HDR 'histogram' (also in microseconds,
+ * shares the same windowing as min/max/avg). */
+static void latencyModePrint(long long min, long long max, double avg,
+                             long long count, struct hdr_histogram *histogram)
+{
+    int npct = config.latency_percentiles_count;
+    /* Convert the microsecond accumulators to milliseconds for display. */
+    double min_ms = min/1000.0, max_ms = max/1000.0, avg_ms = avg/1000.0;
+
     if (config.output == OUTPUT_STANDARD) {
-        printf("min: %lld, max: %lld, avg: %.2f (%lld samples)",
-                min, max, avg, count);
+        printf("min: %.3f, max: %.3f, avg: %.3f (%lld samples)",
+                min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++) {
+            printf(", p%s: %.3f", config.latency_percentiles_labels[j],
+                    hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        }
         fflush(stdout);
     } else if (config.output == OUTPUT_CSV) {
-        printf("%lld,%lld,%.2f,%lld\n", min, max, avg, count);
+        printf("%.3f,%.3f,%.3f,%lld", min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++)
+            printf(",%.3f", hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        printf("\n");
     } else if (config.output == OUTPUT_RAW) {
-        printf("%lld %lld %.2f %lld\n", min, max, avg, count);
+        printf("%.3f %.3f %.3f %lld", min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++)
+            printf(" %.3f", hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        printf("\n");
     } else if (config.output == OUTPUT_JSON) {
-        printf("{\"min\": %lld, \"max\": %lld, \"avg\": %.2f, \"count\": %lld}\n", min, max, avg, count);
+        printf("{\"min\": %.3f, \"max\": %.3f, \"avg\": %.3f, \"count\": %lld",
+                min_ms, max_ms, avg_ms, count);
+        if (npct > 0 && histogram) {
+            printf(", \"percentiles\": {");
+            for (int j = 0; j < npct; j++) {
+                printf("%s\"%s\": %.3f", j ? ", " : "",
+                        config.latency_percentiles_labels[j],
+                        hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+            }
+            printf("}");
+        }
+        printf("}\n");
     }
 }
 
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L         /* >= 1 usec. */
+#define LATENCY_HISTOGRAM_MAX_VALUE 60000000L  /* <= 60 secs (usec precision) — large
+                                                * enough to track a server stalled by
+                                                * a slow command, fork or swap. */
 static void latencyMode(void) {
     redisReply *reply;
     long long start, latency, min = 0, max = 0, tot = 0, count = 0;
@@ -8698,6 +8774,16 @@ static void latencyMode(void) {
                           LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
     long long history_start = mstime();
+    /* HDR histogram for percentiles, only allocated when percentiles are
+     * requested. Reset (hdr_reset) at every history window so its windowing
+     * matches min/max/avg. */
+    struct hdr_histogram *histogram = NULL;
+    if (config.latency_percentiles_count > 0 &&
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3, &histogram))
+    {
+        fprintf(stderr, "Failed to initialize latency histogram\n");
+        exit(1);
+    }
 
     /* Set a default for the interval in case of --latency option
      * with --raw, --csv or when it is redirected to non tty. */
@@ -8709,13 +8795,18 @@ static void latencyMode(void) {
 
     if (!context) exit(1);
     while(1) {
-        start = mstime();
+        /* Measure the round-trip in microseconds for sub-millisecond
+         * resolution; min/max/avg/percentiles are reported in milliseconds. */
+        start = ustime();
         reply = reconnectingRedisCommand(context,"PING");
         if (reply == NULL) {
             fprintf(stderr,"\nI/O error\n");
             exit(1);
         }
-        latency = mstime()-start;
+        latency = ustime()-start;
+        /* ustime() is wall-clock based, so a backward clock adjustment could
+         * yield a negative delta; clamp it to avoid skewing the stats. */
+        if (latency < 0) latency = 0;
         freeReplyObject(reply);
         count++;
         if (count == 1) {
@@ -8728,14 +8819,22 @@ static void latencyMode(void) {
             avg = (double) tot/count;
         }
 
+        /* Record the sample for percentile computation, clamping to the
+         * histogram's trackable range. */
+        if (histogram) {
+            if (latency > LATENCY_HISTOGRAM_MAX_VALUE) latency = LATENCY_HISTOGRAM_MAX_VALUE;
+            hdr_record_value(histogram, latency);
+        }
+
         if (config.output == OUTPUT_STANDARD) {
             printf("\x1b[0G\x1b[2K"); /* Clear the line. */
-            latencyModePrint(min,max,avg,count);
+            latencyModePrint(min,max,avg,count,histogram);
         } else {
             if (config.latency_history) {
-                latencyModePrint(min,max,avg,count);
+                latencyModePrint(min,max,avg,count,histogram);
             } else if (mstime()-history_start > config.interval) {
-                latencyModePrint(min,max,avg,count);
+                latencyModePrint(min,max,avg,count,histogram);
+                if (histogram) hdr_close(histogram);
                 exit(0);
             }
         }
@@ -8745,6 +8844,7 @@ static void latencyMode(void) {
             printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
             history_start = mstime();
             min = max = tot = count = 0;
+            if (histogram) hdr_reset(histogram);
         }
         usleep(LATENCY_SAMPLE_RATE * 1000);
     }
@@ -11200,6 +11300,9 @@ int main(int argc, char **argv) {
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
+    config.latency_percentiles = NULL;
+    config.latency_percentiles_labels = NULL;
+    config.latency_percentiles_count = 0;
     config.lru_test_mode = 0;
     config.lru_test_sample_size = 0;
     config.cluster_mode = 0;

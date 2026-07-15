@@ -1195,3 +1195,13 @@ start_server {tags {introspection external:skip} overrides {requirepass secret}}
         assert_equal 0 [string match "*WARNING: Redis does not require authentication*" $loglines]
     }
 }
+
+start_server {tags {introspection external:skip}} {
+    test {CONFIG SET of TLS options must not crash the server} {
+        # These `config set` commands used to crash a non-TLS build (see #15404)
+        catch {r config set tls-port 6380}
+        catch {r config set tls-replication yes}
+        catch {r config set tls-cluster yes}
+        assert_equal {PONG} [r ping]
+    }
+}

@@ -2147,6 +2147,62 @@ void hsetnxCommand(client *c) {
     server.dirty++;
 }
 
+/* Fast path for building a fresh (empty) listpack hash from a wide HSET/HMSET:
+ * fills the hash from the numfields (field,value) pairs in argv in O(n), instead
+ * of the per-field hashTypeSet() loop whose repeated lpFind() rescans make a wide
+ * fresh build O(n^2). In-command duplicate fields resolve last-wins and field
+ * order matches the per-field path (first-occurrence position), so the result is
+ * byte-identical to building the hash field by field.
+ *
+ * Caller guarantees: o is an empty OBJ_ENCODING_LISTPACK hash and
+ * hashTypeTryConversion() has already run for this command, so the result is
+ * guaranteed to fit a listpack (no per-field length checks and no post-build
+ * conversion needed).
+ * Returns the number of fields created (unique fields, <= numfields). */
+#define HSET_LP_STACK_PAIRS 128
+static int hashTypeBuildFreshListpack(kvobj *o, robj **argv, int numfields) {
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK && lpLength(o->ptr) == 0);
+
+    /* Single pass over argv: a transient dict maps each field sds -> its slot
+     * index in pairs[]. The first occurrence of a field appends a new slot
+     * (preserving argv order); a later duplicate reuses that slot and overwrites
+     * its value (last-wins). sdsReplyDictType borrows the argv sds (no copy, no
+     * free); the slot index is stored in the entry value (no allocation). The
+     * unique pairs are then written with a single lpBatchAppend(). pairs[] is on
+     * the stack for the common small case and heap-allocated for wider commands
+     * -- matching lpBatchInsert(), which heap-allocates its own scratch for
+     * large batches. */
+    listpackEntry stackpairs[2 * HSET_LP_STACK_PAIRS];
+    listpackEntry *pairs = (numfields <= HSET_LP_STACK_PAIRS) ? stackpairs :
+                           zmalloc(sizeof(listpackEntry) * 2 * (size_t)numfields);
+
+    /* dict: field sds -> slot index in pairs[]. First occurrence appends a slot
+     * (argv order); a duplicate reuses it (last value wins). */
+    dict *slots = dictCreate(&sdsReplyDictType);
+    dictExpand(slots, numfields);
+    int n = 0;
+    for (int j = 0; j < numfields; j++) {
+        sds field = argv[j*2]->ptr, value = argv[j*2+1]->ptr;
+        dictEntry *existing, *de = dictAddRaw(slots, field, &existing);
+        int slot;
+        if (de != NULL) {                       /* new field -> new slot */
+            slot = n++;
+            dictSetUnsignedIntegerVal(de, slot); /* slot >= 0; the unsigned accessor is declared in dict.h */
+            pairs[slot*2].sval = (unsigned char*)field;
+            pairs[slot*2].slen = sdslen(field);
+        } else {                                /* duplicate -> first-seen slot */
+            slot = (int)dictGetUnsignedIntegerVal(existing);
+        }
+        pairs[slot*2+1].sval = (unsigned char*)value; /* last value wins */
+        pairs[slot*2+1].slen = sdslen(value);
+    }
+    dictRelease(slots);
+
+    o->ptr = lpBatchAppend(o->ptr, pairs, (unsigned long)n * 2);
+    if (pairs != stackpairs) zfree(pairs);
+    return n;
+}
+
 void hsetCommand(client *c) {
     int i, created = 0;
     size_t oldsize = 0;
@@ -2163,8 +2219,17 @@ void hsetCommand(client *c) {
         oldsize = kvobjAllocSize(kv);
     hashTypeTryConversion(c->db, kv, c->argv, 2, c->argc-1);
 
-    for (i = 2; i < c->argc; i += 2)
-        created += !hashTypeSet(c->db, kv, c->argv[i]->ptr, c->argv[i+1]->ptr, HASH_SET_COPY);
+    int numfields = (c->argc - 2) / 2;
+    /* The fresh-build fast path pays for a transient dedup dict, which only pays
+     * off once the field count is large enough; 5 fields is a reasonable
+     * threshold, below it the per-field loop is cheaper. */
+    if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields >= 5 && lpLength(kv->ptr) == 0) {
+        /* Fresh wide build: single dict pass (last-wins) + one batch append. */
+        created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
+    } else {
+        for (i = 2; i < c->argc; i += 2)
+            created += !hashTypeSet(c->db, kv, c->argv[i]->ptr, c->argv[i+1]->ptr, HASH_SET_COPY);
+    }
 
     /* HMSET (deprecated) and HSET return value is different. */
     char *cmdname = c->argv[0]->ptr;
@@ -2182,7 +2247,6 @@ void hsetCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
 
     /* Collect field pointers for subkey notification. Fields are at argv[2,4,6...]. */
-    int numfields = (c->argc - 2) / 2;
     fieldvec fvset;
     vec *vset = fieldvecInit(&fvset, numfields);
     for (i = 0; i < numfields; i++) {
