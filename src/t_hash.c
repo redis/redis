@@ -72,7 +72,6 @@ static size_t hashDictWithExpireMetadataBytes(dict *d);
 static void hashDictWithExpireOnRelease(dict *d);
 static kvobj* hashTypeLookupWriteOrCreate(client *c, robj *key);
 static int hashTypeCanConvertTmplToListpack(robj *o);
-static void hashTypeConvertTmplGeneric(robj *o, int target_enc, int with_hfe);
 static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe);
 
 /*-----------------------------------------------------------------------------
@@ -2876,11 +2875,11 @@ static int hashTypeCanConvertTmplToListpack(robj *o) {
 /* Convert a TMPL_LP / TMPL_ARRAY hash to LISTPACK, LISTPACK_EX or HT. Fields
  * and values are read through the generic hash iterator, which already
  * abstracts over both template encodings, so one body covers every
- * source/target pair. 'with_hfe' selects an HFE-capable hashtable and only
- * applies when target_enc is HT. */
-static void hashTypeConvertTmplGeneric(robj *o, int target_enc, int with_hfe) {
+ * source/target pair. 'with_hfe' implies 'HT with hfe'. */
+static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe) {
     serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
                  o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    int target_enc = hashTypeCanConvertTmplToListpack(o) ? lp_enc : OBJ_ENCODING_HT;
     int src_enc = o->encoding;
     void *old_ptr = o->ptr;
 
@@ -2949,17 +2948,7 @@ static void hashTypeConvertTmplGeneric(robj *o, int target_enc, int with_hfe) {
         hashTemplateArrayFree(old_ptr);
 
     o->ptr = new_ptr;
-    o->encoding = (target_enc == OBJ_ENCODING_LISTPACK_EX) ? OBJ_ENCODING_LISTPACK_EX :
-                  (target_enc == OBJ_ENCODING_LISTPACK)    ? OBJ_ENCODING_LISTPACK    :
-                                                             OBJ_ENCODING_HT;
-}
-
-/* Re-encode a template hash to a listpack-family target ('lp_enc' is LISTPACK
- * or LISTPACK_EX) when it fits listpack limits, otherwise fall back to HT.
- * 'with_hfe' applies HFE metadata to the HT fallback. */
-static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe) {
-    int target_enc = hashTypeCanConvertTmplToListpack(o) ? lp_enc : OBJ_ENCODING_HT;
-    hashTypeConvertTmplGeneric(o, target_enc, with_hfe);
+    o->encoding = target_enc;
 }
 
 /* TMPL_LP -> TMPL_ARRAY */
