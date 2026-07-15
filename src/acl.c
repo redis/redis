@@ -2709,14 +2709,20 @@ sds ACLLoadFromFile(const char *filename) {
                     pubsubACLLoadRekeyClient(c, old_users);
             }
 
-            /* Re-resolve the current identity to the new user object of the same
-             * name; kill the client if that user no longer exists. No-user
-             * connections (MASTER, internal, module) have no current identity to
-             * re-resolve, so leave c->user as-is. */
+            /* Re-resolve the current identity, by pointer identity (same as the
+             * stamped-provenance path). No-user connections (MASTER, internal)
+             * have nothing to re-resolve. A module/external current user is not
+             * owned by ACL LOAD: leave it as-is rather than killing the client
+             * (its name is absent from the registry) or rekeying it onto a
+             * same-named ACL user. A registry user that disappeared is a kill. */
             if (c->user == NULL)
                 continue;
-            user *new_current = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (!new_current) {
+            user *old_current, *new_current;
+            aclLoadOwnerStatus st =
+                pubsubACLLoadResolveOwner(c->user, old_users, &old_current, &new_current);
+            if (st == ACL_LOAD_OWNER_UNMANAGED)
+                continue;
+            if (st == ACL_LOAD_OWNER_GONE) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }

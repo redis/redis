@@ -181,4 +181,76 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd close
         exec cp -f tests/assets/user.acl $server_path
     }
+
+    # Subscribe as the module user "global" and STAY authenticated as it (no
+    # re-auth). The subscription value is NULL — owned by the current identity,
+    # which is the module user itself. Returns the deferring client.
+    proc auth_as_module_user {channel cname} {
+        r auth.createmoduleuser
+        set rd [redis_deferring_client]
+        $rd hello 3
+        $rd read
+        $rd auth.authmoduleuser
+        $rd read
+        $rd subscribe $channel
+        $rd read
+        $rd client setname $cname
+        $rd read
+        return $rd
+    }
+
+    test {ACL LOAD does not kill a client currently authenticated as a module user} {
+        set rd [auth_as_module_user modcur modcur-client]
+
+        # The client's current user is the module user "global", absent from
+        # user.acl. Name-based re-resolution would kill it (no registry entry for
+        # that name); pointer identity recognizes the module user and leaves
+        # c->user untouched.
+        r acl load
+        assert_match {*modcur-client*} [r client list]
+        r publish modcur hello
+        assert_match {*hello*} [$rd read]
+
+        # Its current user is still the module user: freeing it disconnects it.
+        r auth.createmoduleuser
+        wait_for_condition 50 100 {
+            ![string match {*modcur-client*} [r client list]]
+        } else {
+            fail "client currently authenticated as a module user was not disconnected when the module user was freed"
+        }
+        $rd close
+    }
+
+    test {ACL LOAD does not rekey a current module user onto a same-named ACL user} {
+        # A registry user sharing the module user's name ("global") that survives
+        # the reload. Name-based re-resolution would rebind the client's current
+        # identity onto the registry user; pointer identity keeps them distinct.
+        set aclfile [file join $server_path user.acl]
+        set fd [open $aclfile w]
+        puts $fd "user default on nopass ~* &* +@all"
+        puts $fd "user global on nopass ~* &* +@all"
+        close $fd
+
+        set rd [auth_as_module_user modcur2 modcur2-client]
+
+        r acl load ; # registry "global" survives; module "global" is distinct
+        assert_match {*modcur2-client*} [r client list]
+
+        # Revoking the REGISTRY user's channels must NOT disconnect the client:
+        # its current user is the module "global", not the registry one. Had ACL
+        # LOAD rebound c->user to the registry user, this would kill it.
+        r acl setuser global resetchannels
+        assert_match {*modcur2-client*} [r client list]
+
+        # Freeing the module user disconnects it, confirming c->user still points
+        # at the module user and was never rekeyed.
+        r auth.createmoduleuser
+        wait_for_condition 50 100 {
+            ![string match {*modcur2-client*} [r client list]]
+        } else {
+            fail "client was not disconnected when its module user was freed (current identity was rekeyed to the registry user)"
+        }
+        $rd close
+        exec cp -f tests/assets/user.acl $server_path
+    }
 }
