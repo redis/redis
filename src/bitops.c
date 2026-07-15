@@ -900,13 +900,13 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 }
 
 /* Public commands create native bitmaps, or convert string values they write
- * to, only when bitmap-default-native is enabled and never while obeying a
+ * to, only when bitmap-default-roaring is enabled and never while obeying a
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state, so masters propagate every type transition as
  * an explicit RESTORE (see bitmapPropagateRestore()) instead of letting
  * replicas re-derive it from their local configuration. */
 static int bitmapDefaultNativeEnabled(client *c) {
-    return server.bitmap_default_native && !mustObeyClient(c);
+    return server.bitmap_default_roaring && !mustObeyClient(c);
 }
 
 /* Convert a string value of any encoding into a native bitmap object holding
@@ -987,7 +987,7 @@ static void bitmapInstallConvertedValue(client *c, robj *key, robj **bitmapref,
  * keeps multi-op BITFIELD writes all-or-nothing. On C_OK, *nativeref is the
  * native object the caller must mutate (or NULL to keep using the string
  * path): the existing value when it already is a native bitmap, and with
- * bitmap-default-native enabled a new empty bitmap for missing keys
+ * bitmap-default-roaring enabled a new empty bitmap for missing keys
  * (*created) or a native conversion of an existing string value (*converted).
  * Creation and conversion both propagate RESTORE, but installation differs:
  * missing keys use dbAddByLink(), while converted strings are installed as an
@@ -1018,16 +1018,16 @@ static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
     if (is_native) {
         *nativeref = o;
     } else if (o == NULL) {
-        /* bitmap-default-native yes: newly created bitmap keys are native. */
+        /* bitmap-default-roaring yes: newly created bitmap keys are native. */
         *nativeref = createBitmapObject();
         *created = 1;
     } else {
-        /* bitmap-default-native yes: writes against existing strings first
+        /* bitmap-default-roaring yes: writes against existing strings first
          * produce a native value so the write is not bounded by the
          * string representation. */
         *nativeref = bitmapObjectFromStringObject(o);
         if (*nativeref == NULL) {
-            addReplyError(c, "bitmap length exceeds native bitmap limit");
+            addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
             return C_ERR;
         }
         *converted = 1;
@@ -1509,7 +1509,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 
 /* BITOP whose result is a native bitmap: at least one source already is one
  * (a property of the replicated dataset, identical on replicas), or
- * bitmap-default-native is enabled on this server (a local decision,
+ * bitmap-default-roaring is enabled on this server (a local decision,
  * propagated as an explicit RESTORE of the result). Sources come from
  * bitopCommand()'s lookup loop through objects[]. Computes the result, stores
  * it into targetkey and replies with the destination length. */
@@ -1520,7 +1520,7 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
     robj *res_bitmap = NULL;
 
     if (maxlen > BITMAP_OBJECT_MAX_BYTES) {
-        addReplyError(c, "bitmap length exceeds native bitmap limit");
+        addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
         return;
     }
     /* NOT materializes a dense result, and all-string native transitions
@@ -1541,7 +1541,7 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
     if (maxlen) {
         if (!has_native_bitmap) {
             /* The native destination type came from this server's
-             * bitmap-default-native setting, not from the source types, so
+             * bitmap-default-roaring setting, not from the source types, so
              * replicas and the AOF receive the explicit result instead of
              * re-running the command against their own configuration. The
              * payload is queued before setKey() notifications: module
@@ -1656,7 +1656,7 @@ void bitopCommand(client *c) {
     }
 
     /* Native bitmap sources, or a native destination configured through
-     * bitmap-default-native, take the dedicated native path; everything
+     * bitmap-default-roaring, take the dedicated native path; everything
      * below keeps the string flow. */
     if (has_native_bitmap || (maxlen && bitmapDefaultNativeEnabled(c))) {
         bitopCommandBitmap(c, op, targetkey, objects, numkeys,
@@ -2422,7 +2422,7 @@ void bitfieldGeneric(client *c, int flags) {
          * bitmap in place and does not need it. */
         o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
 
-        /* When bitmap-default-native is enabled, newly created bitmap keys
+        /* When bitmap-default-roaring is enabled, newly created bitmap keys
          * are native, and a write against an existing string value converts it
          * first. The transition reaches replicas and the AOF as an explicit
          * RESTORE of the final state. */
