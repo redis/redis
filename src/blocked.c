@@ -183,6 +183,7 @@ void queueClientForReprocessing(client *c) {
  * of operation the client is blocking for. */
 void unblockClient(client *c, int queue_for_reprocessing) {
     if (c->bstate.btype == BLOCKED_LIST ||
+        c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
@@ -222,6 +223,7 @@ int blockedClientMayTimeout(client *c) {
     }
 
     if (c->bstate.btype == BLOCKED_LIST ||
+        c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM ||
         c->bstate.btype == BLOCKED_WAIT ||
@@ -243,6 +245,7 @@ void replyToBlockedClientTimedOut(client *c) {
         else
             addReply(c, shared.ok); /* No reason lazy-free to fail */
     } else if (c->bstate.btype == BLOCKED_LIST ||
+        c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         addReplyNullArray(c);
@@ -474,28 +477,45 @@ static blocking_type getBlockedTypeByType(int type) {
     }
 }
 
-/* If the specified key has clients blocked waiting for list pushes, this
- * function will put the key reference into the server.ready_keys list.
- * Note that db->ready_keys is a hash table that allows us to avoid putting
- * the same key again and again in the list in case of multiple pushes
- * made by a script or in the context of MULTI/EXEC.
+/* Core of the signalKeyAsReady*() family. 'btype' is the kind of blockers this
+ * signal should serve:
  *
- * The list will be finally processed by handleClientsBlockedOnKeys() */
-static void signalKeyAsReadyLogic(redisDb *db, robj *key, int type, int deleted) {
+ *   BLOCKED_LIST / BLOCKED_ZSET / BLOCKED_STREAM
+ *       The key became available (created/loaded/explicit ready). Serves the
+ *       matching native blockers and module clients. A BLOCKED_LIST signal also
+ *       serves BLOCKED_LIST_NONEMPTY waiters, since a just-created list can be
+ *       what they were waiting for.
+ *   BLOCKED_LIST_NONEMPTY
+ *       An already-existing list grew. Serves only BLOCKED_LIST_NONEMPTY waiters
+ *       (e.g. BLMOVEM EXACTLY) and never module clients, which by contract are
+ *       not notified of writes to keys that already exist.
+ *   BLOCKED_NONE
+ *       The object type can never block anyone; nothing to do.
+ *
+ * The key reference is queued into server.ready_keys (deduped via db->ready_keys)
+ * and finally processed by handleClientsBlockedOnKeys(). */
+static void signalKeyAsReadyLogic(redisDb *db, robj *key, int btype, int deleted) {
     readyList *rl;
 
-    /* Quick returns. */
-    int btype = getBlockedTypeByType(type);
-    if (btype == BLOCKED_NONE) {
-        /* The type can never block. */
+    /* The type can never block. */
+    if (btype == BLOCKED_NONE)
         return;
+
+    /* Only "list grew" signals (BLOCKED_LIST_NONEMPTY) must skip module clients. */
+    int wake_modules = (btype != BLOCKED_LIST_NONEMPTY);
+
+    /* Quick return if no client this signal could serve is blocked. A list
+     * availability signal serves both plain and nonempty-waiting list blockers;
+     * a "list grew" signal serves only the nonempty waiters. */
+    int has_blocked_clients;
+    if (btype == BLOCKED_LIST) {
+        has_blocked_clients = server.blocked_clients_by_type[BLOCKED_LIST] ||
+                              server.blocked_clients_by_type[BLOCKED_LIST_NONEMPTY];
+    } else {
+        has_blocked_clients = server.blocked_clients_by_type[btype];
     }
-    if (!server.blocked_clients_by_type[btype] &&
-        !server.blocked_clients_by_type[BLOCKED_MODULE]) {
-        /* No clients block on this type. Note: Blocked modules are represented
-         * by BLOCKED_MODULE, even if the intention is to wake up by normal
-         * types (list, zset, stream), so we need to check that there are no
-         * blocked modules before we do a quick return here. */
+    if (!has_blocked_clients &&
+        !(wake_modules && server.blocked_clients_by_type[BLOCKED_MODULE])) {
         return;
     }
 
@@ -526,6 +546,7 @@ static void signalKeyAsReadyLogic(redisDb *db, robj *key, int type, int deleted)
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
     rl->db = db;
+    rl->wake_modules = wake_modules;
     incrRefCount(key);
     listAddNodeTail(server.ready_keys,rl);
 }
@@ -577,11 +598,20 @@ static void releaseBlockedEntry(client *c, dictEntry *de, int remove_key) {
 }
 
 void signalKeyAsReady(redisDb *db, robj *key, int type) {
-    signalKeyAsReadyLogic(db, key, type, 0);
+    signalKeyAsReadyLogic(db, key, getBlockedTypeByType(type), 0);
+}
+
+/* Signal that a pre-existing list gained elements. This wakes native list
+ * blockers (e.g. BLMOVEM EXACTLY waiting for more elements) but, unlike
+ * signalKeyAsReady(), does not wake module clients: modules blocked on keys are
+ * only notified via RM_SignalKeyAsReady() or key (re)creation, not by plain
+ * writes to an already-existing key. */
+void signalKeyAsReadyNonEmptyList(redisDb *db, robj *key) {
+    signalKeyAsReadyLogic(db, key, BLOCKED_LIST_NONEMPTY, 0);
 }
 
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type) {
-    signalKeyAsReadyLogic(db, key, type, 1);
+    signalKeyAsReadyLogic(db, key, getBlockedTypeByType(type), 1);
 }
 
 /* Helper function for handleClientsBlockedOnKeys(). This function is called
@@ -611,14 +641,24 @@ static void handleClientsBlockedOnKey(readyList *rl) {
              *    regardless of the object type: we don't know what the
              *    module is trying to accomplish right now.
              * 3. In case of XREADGROUP call we will want to unblock on any change in object type
-             *    or in case the key was deleted, since the group is no longer valid. */
-            if ((o != NULL && (receiver->bstate.btype == getBlockedTypeByType(o->type))) ||
+             *    or in case the key was deleted, since the group is no longer valid.
+             * 4. A list object matches both plain BLOCKED_LIST waiters and
+             *    BLOCKED_LIST_NONEMPTY waiters (e.g. BLMOVEM EXACTLY). */
+            blocking_type obtype = (o != NULL) ? getBlockedTypeByType(o->type) : BLOCKED_NONE;
+            int native_match = (o != NULL) &&
+                (receiver->bstate.btype == obtype ||
+                 (obtype == BLOCKED_LIST &&
+                  receiver->bstate.btype == BLOCKED_LIST_NONEMPTY));
+            if (native_match ||
                 (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
                 (receiver->bstate.unblock_on_nokey))
             {
                 if (receiver->bstate.btype != BLOCKED_MODULE)
                     unblockClientOnKey(receiver, rl->key);
-                else
+                else if (rl->wake_modules)
+                    /* Module clients are only woken by signals that opted in
+                     * (RM_SignalKeyAsReady, key (re)creation, deletion/swap),
+                     * not by plain writes to a pre-existing key. */
                     moduleUnblockClientOnKey(receiver, rl->key);
             }
         }
@@ -681,6 +721,7 @@ static void unblockClientOnKey(client *c, robj *key) {
        however we should force unblock the entire blocking keys */
     serverAssert(c->bstate.btype == BLOCKED_STREAM ||
                 c->bstate.btype == BLOCKED_LIST   ||
+                c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
                 c->bstate.btype == BLOCKED_ZSET);
 
     /* We need to unblock the client before calling processCommandAndResetClient

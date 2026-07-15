@@ -31,6 +31,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
 
     if (slargc > server.slowlog_max_argc) slargc = server.slowlog_max_argc;
     se->argc = slargc;
+    se->cmd_argc = argc;
     se->argv = zmalloc(sizeof(robj*)*slargc);
     for (j = 0; j < slargc; j++) {
         /* Logging too many arguments is a useless memory waste, so we stop
@@ -174,7 +175,7 @@ NULL
 
             ln = listNext(&li);
             se = ln->value;
-            addReplyArrayLen(c,6);
+            addReplyArrayLen(c,7);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
@@ -183,6 +184,7 @@ NULL
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
+            addReplyLongLong(c,se->cmd_argc);
         }
     } else {
         addReplySubcommandSyntaxError(c);

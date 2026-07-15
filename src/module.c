@@ -11051,8 +11051,8 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
 
     moduleNotifyUserChanged(ctx->client);
 
-    ctx->client->user = user;
     ctx->client->authenticated = 1;
+    clientSetUser(ctx->client, user);
 
     if (clientHasModuleAuthInProgress(ctx->client)) {
         ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
@@ -12590,6 +12590,7 @@ static uint64_t moduleEventVersions[] = {
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM */
+    REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -12835,22 +12836,11 @@ static uint64_t moduleEventVersions[] = {
  *
  * * RedisModuleEvent_ForkChild
  *
- *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born or dies,
- *     and around the fork itself so a multi-threaded module can bring its
- *     background threads to a safe point before `fork()`. This matters because a
- *     thread holding a lock (for example the allocator lock) at `fork()` time
- *     would deadlock the child the first time it tries to take that lock.
- *     `REDISMODULE_SUBEVENT_FORK_CHILD_PRE` is fired synchronously on the main
- *     thread right before `fork()` (returning from the handler tells Redis the
- *     module is ready); the module then resumes on
- *     `REDISMODULE_SUBEVENT_FORK_CHILD_BORN` if the fork happened or on
- *     `REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED` if it did not.
+ *     Called when a fork child (AOFRW, RDBSAVE, module fork...) is born/dies
  *     The following sub events are available:
  *
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BORN`
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_DIED`
- *     * `REDISMODULE_SUBEVENT_FORK_CHILD_PRE`
- *     * `REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED`
  *
  * * RedisModuleEvent_EventLoop
  *
@@ -12952,6 +12942,39 @@ static uint64_t moduleEventVersions[] = {
  *
  *         RedisModuleSlotRangeArray *slots;  // Slot ranges
  *
+ * * RedisModuleEvent_ClusterTopologyChange
+ *
+ *     Called, in cluster mode, when the topology of the cluster changes: when the
+ *     cluster first becomes ready, when slot ownership or node membership changes
+ *     (resharding, a node joining or leaving), and when a primary changes (a
+ *     failover or a replica being promoted). It lets modules that route to other
+ *     shards (e.g. via slot ranges) refresh their cached view of the cluster
+ *     without polling or requiring an explicit command. Fires are debounced to at
+ *     most one per event loop iteration, so a single reshuffle touching many slots
+ *     yields one event.
+ *
+ *     This event has no meaningful sub event (it is always fired with subevent 0).
+ *
+ *     The data pointer can be casted to a RedisModuleClusterTopologyChangeInfo
+ *     structure. Its `change_flags` field is a bitmask of the reasons that
+ *     contributed to this (possibly debounced) notification:
+ *
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT`:
+ *         Slot ownership changed.
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE`:
+ *         A node changed its primary/replica role (e.g. a failover).
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE`:
+ *         The cluster OK/FAIL state changed (this also covers the cluster
+ *         first becoming ready at startup).
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE`:
+ *         A node joined or left the cluster, or an existing node's address
+ *         (ip/port) changed.
+ *
+ *     More than one bit may be set. Beyond the change reasons, the module reads
+ *     whatever else it needs about the new topology via the cluster info APIs
+ *     (e.g. `CLUSTER SLOTS`, RedisModule_GetClusterNodesList /
+ *     RedisModule_GetClusterNodeInfo / RedisModule_GetClusterSize).
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -13037,6 +13060,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT;
     case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM:
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT;
     default:
         break;
     }
@@ -13127,6 +13152,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE) {
                 moduledata = data;
             }
 
@@ -15591,22 +15618,32 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
 
 /* Call registered module API defrag start functions */
 void moduleDefragStart(void) {
-    dictForEach(modules, struct RedisModule, module, 
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
         if (module->defrag_start_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_start_cb(&defrag_ctx);
         }
-    );
+    }
+    dictResetIterator(&di);
 }
 
 /* Call registered module API defrag end functions */
 void moduleDefragEnd(void) {
-    dictForEach(modules, struct RedisModule, module, 
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
         if (module->defrag_end_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_end_cb(&defrag_ctx);
         }
-    );
+    }
+    dictResetIterator(&di);
 }
 
 /* Returns the name of the key currently being processed.

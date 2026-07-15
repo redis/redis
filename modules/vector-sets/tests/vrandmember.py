@@ -1,5 +1,6 @@
 from test import TestCase, generate_random_vector, fill_redis_with_vectors
 import struct
+import redis.exceptions
 
 class VRANDMEMBERTest(TestCase):
     def getname(self):
@@ -53,3 +54,37 @@ class VRANDMEMBERTest(TestCase):
         # Test with count = 0 (edge case)
         result = self.redis.execute_command('VRANDMEMBER', self.test_key, 0)
         assert isinstance(result, list) and len(result) == 0, "VRANDMEMBER with count=0 should return empty array"
+
+
+class VRANDMEMBERCountOutOfRangeTest(TestCase):
+    def getname(self):
+        return "VRANDMEMBER COUNT=LLONG_MIN is rejected, not crashing"
+
+    def test(self):
+        llong_min = -9223372036854775808
+
+        # LLONG_MIN has no representable positive magnitude, so negating it is
+        # undefined behavior and the previous code produced a negative reply
+        # array length, crashing the server via serverAssert(length >= 0)
+        # (issue #15384). The invalid count is now rejected up front, before the
+        # missing-key / empty-set fast paths, so it is caught regardless of
+        # whether the set has any members.
+
+        # Missing key: previously returned an empty array without ever looking
+        # at the count; it must be rejected too.
+        try:
+            self.redis.execute_command('VRANDMEMBER', self.test_key, llong_min)
+            assert False, "VRANDMEMBER with LLONG_MIN count should error even for a missing key"
+        except redis.exceptions.ResponseError as e:
+            assert "out of range" in str(e).lower(), f"unexpected error: {e}"
+
+        # Non-empty set: same rejection.
+        fill_redis_with_vectors(self.redis, self.test_key, 10, 4)
+        try:
+            self.redis.execute_command('VRANDMEMBER', self.test_key, llong_min)
+            assert False, "VRANDMEMBER with LLONG_MIN count should return an error"
+        except redis.exceptions.ResponseError as e:
+            assert "out of range" in str(e).lower(), f"unexpected error: {e}"
+
+        # The server must still be responsive, i.e. it did not crash.
+        assert self.redis.execute_command('PING'), "server should be alive after rejecting the count"
