@@ -15598,22 +15598,32 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
 
 /* Call registered module API defrag start functions */
 void moduleDefragStart(void) {
-    dictForEach(modules, struct RedisModule, module, 
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
         if (module->defrag_start_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_start_cb(&defrag_ctx);
         }
-    );
+    }
+    dictResetIterator(&di);
 }
 
 /* Call registered module API defrag end functions */
 void moduleDefragEnd(void) {
-    dictForEach(modules, struct RedisModule, module, 
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
         if (module->defrag_end_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_end_cb(&defrag_ctx);
         }
-    );
+    }
+    dictResetIterator(&di);
 }
 
 /* Returns the name of the key currently being processed.
