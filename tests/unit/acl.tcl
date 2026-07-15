@@ -1495,13 +1495,15 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd1 read
 
         # Revoke alice's access to "secret" so the first ACL LOAD kills the
-        # subscriber. The kill is asynchronous (CLIENT_CLOSE_ASAP): the client
-        # stays in server.clients, still keyed under alice's now-freed user
-        # pointer, until beforeSleep. Running two loads inside one MULTI/EXEC
-        # keeps both in the same event-loop iteration, so the second load
-        # revisits the half-freed client before it is reaped. Without the
-        # CLIENT_CLOSE_ASAP guard the second load dereferences the dangling
-        # subscription key (use-after-free, caught under ASAN/valgrind).
+        # subscriber. The kill is asynchronous (freeClientAsync): the client stays
+        # in server.clients until beforeSleep, and running two loads inside one
+        # MULTI/EXEC keeps both in the same event-loop iteration, so the second
+        # load revisits the killed-but-not-yet-reaped client. deauthenticateAnd-
+        # CloseClient() clears the client's Pub/Sub state synchronously, so by the
+        # second load it holds no subscriptions — and thus no stale provenance
+        # pointer (alice's old user object, freed after the first load) for the
+        # walk to dereference. Without that synchronous cleanup the second load
+        # would hit a use-after-free (caught under ASAN/valgrind).
         set aclfile [file join $server_path user.acl]
         set fd [open $aclfile w]
         puts $fd "user alice on allcommands allkeys resetchannels &other >alice"
