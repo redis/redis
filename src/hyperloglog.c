@@ -181,8 +181,10 @@
 
 struct hllhdr {
     char magic[4];      /* "HYLL" */
-    uint8_t encoding;   /* HLL_DENSE or HLL_SPARSE. */
-    uint8_t notused[3]; /* Reserved for future use, must be zero. */
+    uint8_t encoding;   /* HLL_DENSE, HLL_SPARSE, or HLL_ULTRA. */
+    uint8_t ull_precision; /* UltraLogLog precision when encoding==HLL_ULTRA;
+                              zero otherwise. */
+    uint8_t notused[2];    /* Reserved, must be zero. */
     uint8_t card[8];    /* Cached cardinality, little endian. */
     uint8_t registers[]; /* Data bytes. */
 };
@@ -202,8 +204,17 @@ struct hllhdr {
 #define HLL_DENSE_SIZE (HLL_HDR_SIZE+((HLL_REGISTERS*HLL_BITS+7)/8))
 #define HLL_DENSE 0 /* Dense encoding. */
 #define HLL_SPARSE 1 /* Sparse encoding. */
+#define HLL_ULTRA 2 /* UltraLogLog dense encoding (1 byte/register). */
 #define HLL_RAW 255 /* Only used internally, never exposed. */
-#define HLL_MAX_ENCODING 1
+#define HLL_MAX_ENCODING 2
+/* UltraLogLog per-key precision accessor. */
+#define HLL_ULTRA_GET_P(hdr) ((hdr)->ull_precision)
+#define HLL_ULTRA_SET_P(hdr,p) ((hdr)->ull_precision = (uint8_t)(p))
+#define HLL_ULTRA_REGISTERS(p) ((size_t)1 << (p))
+#define HLL_ULTRA_DENSE_SIZE(p) (HLL_HDR_SIZE + HLL_ULTRA_REGISTERS(p))
+#define HLL_ULTRA_P 14 /* Default UltraLogLog precision (matches classic sparse/dense). */
+#define HLL_ULTRA_P_MIN 13 /* Smallest supported ULL precision (8 KB dense). */
+#define HLL_ULTRA_P_MAX 14 /* Largest supported ULL precision (16 KB dense). */
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
@@ -525,6 +536,277 @@ int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
     return hllDenseSet(registers,index,count);
 }
 
+/* ================== UltraLogLog register codec and add  =================== */
+
+/* UltraLogLog register codec (Ertl 2023, arXiv:2308.16862).
+ * Register byte r = 4*u + c (u = leading-bit position, c = 2 flag bits). */
+static inline uint64_t ullUnpack(uint8_t r) {
+    /* Guard r < 8 (not just r < 4): for r in [4,7] the shift (r>>2)-2 is -1,
+     * undefined behavior. Real registers are 0 or >= 4*(p-1) (>=48), so this only
+     * rejects crafted/corrupt bytes (treats them as empty), never valid data. */
+    return r < 8 ? 0 : (uint64_t)(4 | (r & 3)) << ((r >> 2) - 2);
+}
+static inline uint8_t ullPack(uint64_t x) { /* requires x != 0 */
+    int u = 63 - __builtin_clzll(x);
+    return (uint8_t)((u << 2) | ((x >> (u - 2)) & 3));
+}
+
+/* Add 'ele' to a ULL dense register array of precision 'p'. Returns 1 if the
+ * registers were updated (cardinality may have changed), else 0. Uses the SAME
+ * MurmurHash64A as classic HLL so both encodings see identical hashes. */
+static int ullDenseAdd(uint8_t *registers, int p, unsigned char *ele, size_t elesize) {
+    /* Use the SAME index/count decomposition as classic HLL (see hllPatLen):
+     * the low p bits select the register, the ctz of the rest is the count.
+     * This makes ULL register i refer to the same elements as classic register
+     * i, so rho maps cleanly to u (u = rho + p - 2) and classic<->ULL
+     * conversion and cross-encoding PFMERGE are well-defined. The register-value
+     * distribution is identical to a leading-zero form, so the FGRA estimator
+     * stays calibrated. bit position = ctz(rest) + p - 1. */
+    uint64_t hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
+    uint64_t idx = hash & (((uint64_t)1 << p) - 1);
+    uint64_t rest = (hash >> p) | ((uint64_t)1 << (64 - p));
+    int ctz = __builtin_ctzll(rest);            /* = classic rho - 1, in [0,64-p] */
+    uint64_t hp = ullUnpack(registers[idx]) | ((uint64_t)1 << (ctz + p - 1));
+    uint8_t newr = ullPack(hp);
+    if (newr != registers[idx]) { registers[idx] = newr; return 1; }
+    return 0;
+}
+
+/* Apply a classic register (index, rho) to a ULL dense array of precision 'p'.
+ * Returns 1 if the register changed. ULL u-bit position = rho + p - 2. */
+static int ullApplyClassicReg(uint8_t *registers, long index, uint8_t rho, int p) {
+    uint64_t hp = ullUnpack(registers[index]) | ((uint64_t)1 << (rho + p - 2));
+    uint8_t newr = ullPack(hp);
+    if (newr != registers[index]) { registers[index] = newr; return 1; }
+    return 0;
+}
+
+/* Classic rho stored in a precision-'p' ULL register byte (0 if empty).
+ * Inverse of ullApplyClassicReg: rho = (r>>2) - p + 2. */
+static inline int ullRegToRho(uint8_t r, int p) { return r ? ((r >> 2) - p + 2) : 0; }
+
+/* Fold a classic sparse register (idx14, rho14) at the sparse precision HLL_P
+ * into a precision-'p' ULL dense array (HLL_ULTRA_P_MIN <= p <= HLL_P). Reducing
+ * precision by d = HLL_P - p bits drops the top d index bits of idx14 into the
+ * leading-zero count: an element keeps rho14 + d when those bits are all zero,
+ * otherwise its run is cut short at the lowest dropped set bit. For p == HLL_P
+ * (d == 0) this is a direct apply. rho14 must be non-zero (a set register). */
+static void ullFoldClassicReg(uint8_t *registers, long idx14, uint8_t rho14, int p) {
+    int d = HLL_P - p;
+    long idxp = idx14 & (((long)1 << p) - 1);
+    unsigned dropbits = (unsigned)(idx14 >> p);   /* the d dropped high index bits */
+    int rho_p = dropbits ? (__builtin_ctz(dropbits) + 1) : (rho14 + d);
+    ullApplyClassicReg(registers, idxp, (uint8_t)rho_p, p);
+}
+
+/* ================== UltraLogLog FGRA histogram estimator ==================
+ *
+ * FGRA (Further Generalized Remaining Area) estimator from Ertl 2023
+ * (arXiv:2308.16862). The constants, tables and helpers below implement the
+ * closed-form estimator directly; only the p=13,14,15 factors are used here. */
+
+static double ullEta[4];
+static double ullFtau = 0.8194911375910897;
+static double ullPow2tau, ullPow2mtau, ullPow4mtau, ullMinvTau;
+static double ullEtax, ullEta23x, ullEta13x, ullEta3012xx;
+static double ullP4mtEta23, ullP4mtEta01, ullP4mtEta3, ullP4mtEta1;
+static double ullP2mtEtax, ullPhi1, ullPInit;
+static double ullP2mtEta02, ullP2mtEta13, ullP2mtEta2, ullP2mtEta3;
+static double ullRegContrib[256];
+
+/* lambda_p estimation factors for p=3..26, index p-3. */
+static const double ullEstFactors[24] = {
+    94.59941722950778, 455.6358404615186, 2159.476860400962, 10149.51036338182,
+    47499.52712820488, 221818.76564766388, 1034754.6840013304, 4824374.384717942,
+    2.2486750611989766E7, 1.0479810199493326E8, 4.8837185623048025E8, 2.275794725435168E9,
+    1.0604938814719946E10, 4.9417362104242645E10, 2.30276227770117E11, 1.0730444972228585E12,
+    5.0001829613164E12, 2.329988778511272E13, 1.0857295240912981E14, 5.059288069986326E14,
+    2.3575295235667005E15, 1.0985627213141412E16, 5.119087674515589E16, 2.3853948339571715E17,
+};
+
+/* Initialize FGRA derived constants and the per-byte register-contribution table.
+ * Must be called once before any ullCountRegisters() invocation. */
+static void ullFgraInit(void) {
+    ullEta[0]=4.663135422063788; ullEta[1]=2.1378502137958524;
+    ullEta[2]=2.781144650979996; ullEta[3]=0.9824082545153715;
+    ullPow2tau=pow(2,ullFtau); ullPow2mtau=pow(2,-ullFtau);
+    ullPow4mtau=pow(4,-ullFtau); ullMinvTau=-1.0/ullFtau;
+    ullEtax=ullEta[0]-ullEta[1]-ullEta[2]+ullEta[3];
+    ullEta23x=(ullEta[2]-ullEta[3])/ullEtax;
+    ullEta13x=(ullEta[1]-ullEta[3])/ullEtax;
+    ullEta3012xx=(ullEta[3]*ullEta[0]-ullEta[1]*ullEta[2])/(ullEtax*ullEtax);
+    ullP4mtEta23=ullPow4mtau*(ullEta[2]-ullEta[3]);
+    ullP4mtEta01=ullPow4mtau*(ullEta[0]-ullEta[1]);
+    ullP4mtEta3=ullPow4mtau*ullEta[3];
+    ullP4mtEta1=ullPow4mtau*ullEta[1];
+    ullP2mtEtax=ullPow2mtau*ullEtax;
+    ullPhi1=ullEta[0]/(ullPow2tau*(2*ullPow2tau-1));
+    ullPInit=ullEtax*(ullPow4mtau/(2-ullPow2mtau));
+    ullP2mtEta02=ullPow2mtau*(ullEta[0]-ullEta[2]);
+    ullP2mtEta13=ullPow2mtau*(ullEta[1]-ullEta[3]);
+    ullP2mtEta2=ullPow2mtau*ullEta[2];
+    ullP2mtEta3=ullPow2mtau*ullEta[3];
+    /* ullRegContrib[i] = eta[i%4] * 2^(-TAU*(i/4 + 3)). */
+    for (int i = 0; i < 256; i++)
+        ullRegContrib[i] = ullEta[i & 3] * pow(2, -ullFtau * ((i >> 2) + 3));
+}
+
+/* psiPrime helper. */
+static inline double ullPsiPrime(double z, double z2) {
+    return (z + ullEta23x) * (z2 + ullEta13x) + ullEta3012xx;
+}
+
+/* sigma_f helper. */
+static double ullSigmaF(double z) {
+    if (z <= 0.) return ullEta[3];
+    if (z >= 1.) return INFINITY;
+    double powZ = z, nextPowZ = powZ * powZ, s = 0, powTau = ullEtax;
+    for (;;) {
+        double oldS = s, nn = nextPowZ * nextPowZ;
+        s += powTau * (powZ - nextPowZ) * ullPsiPrime(nextPowZ, nn);
+        if (!(s > oldS)) return s / z;
+        powZ = nextPowZ; nextPowZ = nn; powTau *= ullPow2tau;
+    }
+}
+
+/* phi_f helper. */
+static double ullPhiF(double z, double z2) {
+    if (z <= 0.) return 0.;
+    if (z >= 1.) return ullPhi1;
+    double prevPowZ = z2, powZ = z, nextPowZ = sqrt(powZ);
+    double pp = ullPInit / (1.0 + nextPowZ);
+    double ps = ullPsiPrime(powZ, prevPowZ);
+    double s = nextPowZ * (ps + ps) * pp;
+    for (;;) {
+        prevPowZ = powZ; powZ = nextPowZ;
+        double oldS = s;
+        nextPowZ = sqrt(powZ);
+        double nextPs = ullPsiPrime(powZ, prevPowZ);
+        pp *= ullPow2mtau / (1.0 + nextPowZ);
+        s += nextPowZ * ((nextPs + nextPs) - (powZ + nextPowZ) * ps) * pp;
+        if (!(s > oldS)) return s;
+        ps = nextPs;
+    }
+}
+
+/* smallRange helper. */
+static double ullSmallRange(long c0, long c4, long c8, long c10, long m) {
+    long alpha = m + 3*(c0+c4+c8+c10);
+    long beta  = m - c0 - c4;
+    long gamma = 4*c0 + 2*c4 + 3*c8 + c10;
+    /* compute discriminant in double to avoid 32-bit long overflow at large m */
+    double q = (sqrt((double)beta*beta + 4.0*(double)alpha*gamma) - beta) / (2.0*alpha);
+    double r = q*q; return r*r;
+}
+
+/* largeRange helper. */
+static double ullLargeRange(long c0, long c1, long c2, long c3, long m) {
+    long alpha = m + 3*(c0+c1+c2+c3);
+    long beta  = c0+c1 + 2*(c2+c3);
+    long gamma = m + 2*c0 + c2 - c3;
+    /* compute discriminant in double to avoid 32-bit long overflow at large m */
+    return sqrt((sqrt((double)beta*beta + 4.0*(double)alpha*gamma) - beta) / (2.0*alpha));
+}
+
+/* largeContrib helper. */
+static double ullLargeContrib(int c0, int c1, int c2, int c3, int m, int w) {
+    double z = ullLargeRange(c0, c1, c2, c3, m), rootZ = sqrt(z);
+    double s = ullPhiF(rootZ, z) * (c0+c1+c2+c3);
+    s += z * (1 + rootZ) * (c0*ullEta[0] + c1*ullEta[1] + c2*ullEta[2] + c3*ullEta[3]);
+    s += rootZ * ((c0+c1)*(z*ullP2mtEta02 + ullP2mtEta2) +
+                  (c2+c3)*(z*ullP2mtEta13 + ullP2mtEta3));
+    return s * pow(ullPow2mtau, w) / ((1 + rootZ) * (1 + z));
+}
+
+/* Cardinality estimate from a ULL dense register array using the histogram
+ * FGRA estimator. Returns the estimate rounded to uint64_t via llround(). */
+static uint64_t ullCountRegisters(const uint8_t *registers, int p) {
+    /* Lazy one-time initialization; safe because command processing is single-threaded. */
+    static int fgra_ready = 0;
+    if (!fgra_ready) { ullFgraInit(); fgra_ready = 1; }
+
+    size_t m = (size_t)1 << p;
+    int off = (p << 2) + 4;
+
+    /* Integer histogram of register bytes — no FP in the hot loop;
+     * 4-way unrolled so the independent increments pipeline (mirrors the #15049 trick). */
+    uint32_t h[256]; memset(h, 0, sizeof(h));
+    const uint8_t *st = registers; size_t i = 0;
+    for (; i + 4 <= m; i += 4) { h[st[i]]++; h[st[i+1]]++; h[st[i+2]]++; h[st[i+3]]++; }
+    for (; i < m; i++) h[st[i]]++;
+
+    double sum = 0;
+    /* Middle range r in [off, 251]: table contribution weighted by count. */
+    for (int r = off; r < 252; r++) if (h[r]) sum += (double)h[r] * ullRegContrib[r - off];
+
+    /* Small-range boundary buckets (r < off): only specific r2 values contribute. */
+    long c0 = 0, c4 = 0, c8 = 0, c10 = 0;
+    for (int r = 0; r < off; r++) {
+        if (!h[r]) continue;
+        int r2 = r - off;
+        if (r2 < -8)       c0  += h[r];
+        else if (r2 == -8) c4  += h[r];
+        else if (r2 == -4) c8  += h[r];
+        else if (r2 == -2) c10 += h[r];
+    }
+    if (c0 || c4 || c8 || c10) {
+        double z = ullSmallRange(c0, c4, c8, c10, (long)m);
+        if (c0)  sum += c0 * ullSigmaF(z);
+        if (c4)  sum += c4 * ullP2mtEtax * ullPsiPrime(z, z*z);
+        if (c8)  sum += c8 * (z * ullP4mtEta01 + ullP4mtEta1);
+        if (c10) sum += c10 * (z * ullP4mtEta23 + ullP4mtEta3);
+    }
+
+    /* Large-range buckets: register bytes 252..255. */
+    long c4w0 = h[252], c4w1 = h[253], c4w2 = h[254], c4w3 = h[255];
+    if (c4w0 || c4w1 || c4w2 || c4w3)
+        sum += ullLargeContrib(c4w0, c4w1, c4w2, c4w3, (int)m, 65 - p);
+
+    double est = ullEstFactors[p - 3] * pow(sum, ullMinvTau);
+    return (uint64_t)llround(est); /* whole estimator pipeline is double, so llround (not llroundl) is the matching precision */
+}
+
+/* Public wrapper: cardinality estimate for a ULL key header. */
+static uint64_t ullCount(struct hllhdr *hdr) {
+    return ullCountRegisters(hdr->registers, HLL_ULTRA_GET_P(hdr));
+}
+
+/* Self-test for the UltraLogLog dense codec + add path. Returns NULL on
+ * success or a static error string describing the first failure. */
+static const char *ullSelfTest(void) {
+    int p = HLL_ULTRA_P;
+    size_t m = HLL_ULTRA_REGISTERS(p);
+    int N = 100000;
+    uint8_t *regs = zcalloc(m);
+    /* Add enough distinct elements to populate most of the 2^p registers
+     * without making the self-test slow. */
+    for (int i = 0; i < N; i++) {
+        char buf[32]; int len = snprintf(buf,sizeof(buf),"ele%d",i);
+        ullDenseAdd(regs, p, (unsigned char*)buf, len);
+    }
+    for (size_t i = 0; i < m; i++) {
+        if (regs[i] && ullPack(ullUnpack(regs[i])) != regs[i]) {
+            zfree(regs); return "ULL codec round-trip failed";
+        }
+    }
+    for (int i = 0; i < N; i++) {
+        char buf[32]; int len = snprintf(buf,sizeof(buf),"ele%d",i);
+        if (ullDenseAdd(regs, p, (unsigned char*)buf, len) != 0) {
+            zfree(regs); return "ULL add not idempotent";
+        }
+    }
+    /* Accuracy check: estimate N distinct elements, verify relative error < 2%. */
+    uint64_t est = ullCountRegisters(regs, p);
+    double relerr = (est > (uint64_t)N)
+        ? (double)(est - N) / N
+        : (double)(N - est) / N;
+    if (relerr >= 0.02) {
+        zfree(regs); return "ULL estimate out of tolerance";
+    }
+    zfree(regs);
+    return NULL;
+}
+
 /* Compute the register histogram in the dense representation. */
 void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
     int j;
@@ -670,6 +952,52 @@ int hllSparseToDense(robj *o) {
     }
 
     /* Free the old representation and set the new one. */
+    sdsfree(o->ptr);
+    o->ptr = dense;
+    return C_OK;
+}
+
+/* Convert the sparse representation of 'o' to a dense UltraLogLog at the
+ * configured precision (server.hll_ultra_precision). The sparse form is always
+ * at HLL_P, so a lower target precision folds pairs of registers together via
+ * ullFoldClassicReg(). Mirrors hllSparseToDense but writes 1-byte ULL registers. */
+int hllSparseToDenseUltra(robj *o) {
+    sds sparse = o->ptr, dense;
+    struct hllhdr *hdr, *oldhdr = (struct hllhdr*)sparse;
+    int idx = 0, runlen, regval;
+    uint8_t *p_ = (uint8_t*)sparse, *end = p_ + sdslen(sparse);
+    int valid = 1;
+    int p = server.hll_ultra_precision;
+    hdr = (struct hllhdr*) sparse;
+    if (hdr->encoding == HLL_ULTRA) return C_OK;
+    dense = sdsnewlen(NULL, HLL_ULTRA_DENSE_SIZE(p));
+    hdr = (struct hllhdr*) dense;
+    *hdr = *oldhdr;                 /* copy magic + cached cardinality */
+    hdr->encoding = HLL_ULTRA;
+    HLL_ULTRA_SET_P(hdr, p);
+    HLL_INVALIDATE_CACHE(hdr);      /* recompute via ullCount (different estimator) */
+    p_ += HLL_HDR_SIZE;
+    while (p_ < end) {
+        if (HLL_SPARSE_IS_ZERO(p_)) {
+            runlen = HLL_SPARSE_ZERO_LEN(p_);
+            if ((runlen + idx) > HLL_REGISTERS) { valid = 0; break; }
+            idx += runlen; p_++;
+        } else if (HLL_SPARSE_IS_XZERO(p_)) {
+            runlen = HLL_SPARSE_XZERO_LEN(p_);
+            if ((runlen + idx) > HLL_REGISTERS) { valid = 0; break; }
+            idx += runlen; p_ += 2;
+        } else {
+            runlen = HLL_SPARSE_VAL_LEN(p_);
+            regval = HLL_SPARSE_VAL_VALUE(p_);
+            if ((runlen + idx) > HLL_REGISTERS) { valid = 0; break; }
+            while (runlen--) {
+                ullFoldClassicReg(hdr->registers, idx, (uint8_t)regval, p);
+                idx++;
+            }
+            p_++;
+        }
+    }
+    if (!valid || idx != HLL_REGISTERS) { sdsfree(dense); return C_ERR; }
     sdsfree(o->ptr);
     o->ptr = dense;
     return C_OK;
@@ -929,6 +1257,12 @@ updated:
     return 1;
 
 promote: /* Promote to dense representation. */
+    if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) {
+        if (hllSparseToDenseUltra(o) == C_ERR) return -1;
+        hdr = o->ptr;
+        ullFoldClassicReg(hdr->registers, index, count, HLL_ULTRA_GET_P(hdr));
+        return 1; /* object promoted sparse->dense-ultra, so it changed */
+    }
     if (hllSparseToDense(o) == C_ERR) return -1; /* Corrupted HLL. */
     hdr = o->ptr;
 
@@ -1086,6 +1420,9 @@ double hllTau(double x) {
  * This is useful in order to speedup PFCOUNT when called against multiple
  * keys (no need to work with 6-bit integers encoding). */
 uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
+    /* UltraLogLog uses its own histogram-FGRA estimator, not the HLL formula. */
+    if (hdr->encoding == HLL_ULTRA) return ullCount(hdr);
+
     double m = HLL_REGISTERS;
     double E;
     int j;
@@ -1128,6 +1465,8 @@ int hllAdd(robj *o, unsigned char *ele, size_t elesize) {
     switch(hdr->encoding) {
     case HLL_DENSE: return hllDenseAdd(hdr->registers,ele,elesize);
     case HLL_SPARSE: return hllSparseAdd(o,ele,elesize);
+    case HLL_ULTRA:
+        return ullDenseAdd(hdr->registers, HLL_ULTRA_GET_P(hdr), ele, elesize);
     default: return -1; /* Invalid representation. */
     }
 }
@@ -1605,37 +1944,103 @@ robj *createHLLObject(void) {
     return o;
 }
 
-/* Check if the object is a String with a valid HLL representation.
- * Return C_OK if this is true, otherwise reply to the client
- * with an error and return C_ERR. */
-int isHLLObjectOrReply(client *c, robj *o) {
+/* Check that the raw blob held by 'o' is a structurally valid HLL: "HYLL"
+ * magic, a known encoding, and the exact length for the dense and ultra
+ * encodings. Reads the blob via sdslen(), so it works whether 'o' is an
+ * OBJ_STRING (classic HLL) or an OBJ_HLL, and does not reply to any client.
+ * Returns C_OK / C_ERR. */
+int isHLLObject(robj *o) {
     struct hllhdr *hdr;
 
-    /* Key exists, check type */
-    if (checkType(c,o,OBJ_STRING))
-        return C_ERR; /* Error already sent. */
-
-    if (!sdsEncodedObject(o)) goto invalid;
-    if (stringObjectLen(o) < sizeof(*hdr)) goto invalid;
+    if (!sdsEncodedObject(o)) return C_ERR;
+    if (sdslen(o->ptr) < sizeof(*hdr)) return C_ERR;
     hdr = o->ptr;
 
     /* Magic should be "HYLL". */
     if (hdr->magic[0] != 'H' || hdr->magic[1] != 'Y' ||
-        hdr->magic[2] != 'L' || hdr->magic[3] != 'L') goto invalid;
+        hdr->magic[2] != 'L' || hdr->magic[3] != 'L') return C_ERR;
 
-    if (hdr->encoding > HLL_MAX_ENCODING) goto invalid;
+    if (hdr->encoding > HLL_MAX_ENCODING) return C_ERR;
 
     /* Dense representation string length should match exactly. */
     if (hdr->encoding == HLL_DENSE &&
-        stringObjectLen(o) != HLL_DENSE_SIZE) goto invalid;
+        sdslen(o->ptr) != HLL_DENSE_SIZE) return C_ERR;
 
-    /* All tests passed. */
+    /* UltraLogLog: precision must be in the supported range and the length exact. */
+    if (hdr->encoding == HLL_ULTRA) {
+        int up = HLL_ULTRA_GET_P(hdr);
+        if (up < HLL_ULTRA_P_MIN || up > HLL_ULTRA_P_MAX) return C_ERR;
+        if (sdslen(o->ptr) != HLL_ULTRA_DENSE_SIZE(up)) return C_ERR;
+    }
+
     return C_OK;
+}
 
-invalid:
-    addReplyError(c,"-WRONGTYPE Key is not a valid "
-               "HyperLogLog string value.");
-    return C_ERR;
+/* Check if the object holds a valid HLL representation. An HLL value is stored
+ * either as a plain string (classic) or, once promoted, as an OBJ_HLL; both
+ * carry the same raw blob, so either type is accepted here.
+ * Return C_OK if this is true, otherwise reply to the client
+ * with an error and return C_ERR. */
+int isHLLObjectOrReply(client *c, robj *o) {
+    /* Key exists, check type */
+    if (o->type != OBJ_STRING && o->type != OBJ_HLL) {
+        addReplyErrorObject(c,shared.wrongtypeerr);
+        return C_ERR;
+    }
+
+    if (isHLLObject(o) != C_OK) {
+        addReplyError(c,"-WRONGTYPE Key is not a valid "
+                   "HyperLogLog string value.");
+        return C_ERR;
+    }
+
+    return C_OK;
+}
+
+/* Wrap an existing HLL blob 'blob' (a raw sds, ownership transferred) as an
+ * OBJ_HLL object. The caller must have validated it with isHLLObject(). */
+robj *createHLLObjectFromBlob(sds blob) {
+    robj *o = createObject(OBJ_HLL, blob);
+    o->encoding = OBJ_ENCODING_RAW;
+    return o;
+}
+
+/* Prepare the destination value of an HLL write for in-place modification:
+ * create it if 'kv' is NULL (a fresh sparse string), or unshare a plain string
+ * value (an OBJ_HLL value is always a private raw sds and needs no unsharing).
+ * 'link' must come from the lookupKeyWriteWithLink() that produced 'kv'.
+ * Captures the type and blob length before the write into oldtype and oldlen,
+ * for a later hllWriteFinalize() call. */
+static kvobj *hllPrepareWriteDest(client *c, robj *keyarg, kvobj *kv,
+                                  dictEntryLink *link, int *oldtype, uint64_t *oldlen)
+{
+    if (kv == NULL) {
+        robj *o = createHLLObject();
+        kv = dbAddByLink(c->db, keyarg, &o, link);
+    } else if (kv->type == OBJ_STRING) {
+        kv = dbUnshareStringValue(c->db, keyarg, kv);
+    }
+    *oldtype = kv->type;
+    *oldlen = sdslen(kv->ptr);
+    return kv;
+}
+
+/* Finalize an HLL write: promote the value to the OBJ_HLL type when the ultra
+ * dense backend is selected (the blob is unchanged) and update the per-type
+ * keysizes histogram for the size change and any type move. Returns 1 if the
+ * type was promoted, so the caller can propagate the change even when the
+ * registers were untouched (otherwise a replica would keep the old type). */
+static int hllWriteFinalize(redisDb *db, kvobj *kv, int oldtype, uint64_t oldlen) {
+    if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA && kv->type == OBJ_STRING)
+        kv->type = OBJ_HLL;
+    uint64_t newlen = sdslen(kv->ptr);
+    if (kv->type == oldtype) {
+        updateKeysizesHist(db, kv->type, oldlen, newlen);
+        return 0;
+    }
+    updateKeysizesHist(db, oldtype, oldlen, -1);
+    updateKeysizesHist(db, kv->type, -1, newlen);
+    return 1;
 }
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
@@ -1648,18 +2053,12 @@ void pfaddCommand(client *c) {
     struct hllhdr *hdr;
     int updated = 0, j;
 
-    if (kv == NULL) {
-        /* Create the key with a string value of the exact length to
-         * hold our HLL data structure. sdsnewlen() when NULL is passed
-         * is guaranteed to return bytes initialized to zero. */
-        robj *o = createHLLObject();
-        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
-        updated++;
-    } else {
-        if (isHLLObjectOrReply(c,kv) != C_OK) return;
-        kv = dbUnshareStringValue(c->db,c->argv[1],kv);
-    }
-    oldlen = stringObjectLen(kv);
+    int oldtype;
+    if (kv != NULL && isHLLObjectOrReply(c,kv) != C_OK) return;
+    if (kv == NULL) updated++;
+    /* Create the key if missing (sparse string), otherwise unshare it, and
+     * capture the pre-write type/length. */
+    kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldlen);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
 
@@ -1680,14 +2079,16 @@ void pfaddCommand(client *c) {
     }
 
     hdr = kv->ptr;
-    updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(kv));
+    /* A type promotion is a change that must reach replicas/AOF even when no
+     * register was updated, so treat it like a modification too. */
+    int promoted = hllWriteFinalize(c->db, kv, oldtype, oldlen);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-    if (updated) {
-        HLL_INVALIDATE_CACHE(hdr);
+    if (updated || promoted) {
+        if (updated) HLL_INVALIDATE_CACHE(hdr);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
-        server.dirty += updated;
+        server.dirty += updated ? updated : 1;
     }
     addReply(c, updated ? shared.cone : shared.czero);
 }
@@ -1702,30 +2103,100 @@ void pfcountCommand(client *c) {
      * When multiple keys are specified, PFCOUNT actually computes
      * the cardinality of the merge of the N HLLs specified. */
     if (c->argc > 2) {
-        uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
         int j;
+        int has_ull = 0, has_classic = 0, ull_p = 0;
 
-        /* Compute an HLL with M[i] = MAX(M[i]_j). */
-        memset(max,0,sizeof(max));
-        hdr = (struct hllhdr*) max;
-        hdr->encoding = HLL_RAW; /* Special internal-only encoding. */
-        registers = max + HLL_HDR_SIZE;
+        /* First pass: determine which encodings (and ULL precisions) are
+         * present. UltraLogLogs of different precisions have different register
+         * layouts; merging across precisions is a follow-up, so require a single
+         * ULL precision here. */
         for (j = 1; j < c->argc; j++) {
-            /* Check type and size. */
             kvobj *o = lookupKeyRead(c->db,c->argv[j]);
-            if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
+            if (o == NULL) continue;
             if (isHLLObjectOrReply(c,o) != C_OK) return;
-
-            /* Merge with this HLL with our 'max' HLL by setting max[i]
-             * to MAX(max[i],hll[i]). */
-            if (hllMerge(registers,o) == C_ERR) {
-                addReplyError(c,invalid_hll_err);
-                return;
-            }
+            hdr = o->ptr;
+            if (hdr->encoding == HLL_ULTRA) {
+                int sp = HLL_ULTRA_GET_P(hdr);
+                if (has_ull && sp != ull_p) {
+                    addReplyError(c,"PFCOUNT across UltraLogLogs of different "
+                                    "precisions is not supported yet");
+                    return;
+                }
+                has_ull = 1; ull_p = sp;
+            } else has_classic = 1;
+        }
+        /* Down-converting a ULL to classic rho assumes the classic p=14 index
+         * space, so a non-default ULL precision can't be mixed with classic. */
+        if (has_ull && has_classic && ull_p != HLL_ULTRA_P) {
+            addReplyError(c,"PFCOUNT mixing this UltraLogLog precision with the "
+                            "classic encoding is not supported yet");
+            return;
         }
 
-        /* Compute cardinality of the resulting set. */
-        addReplyLongLong(c,hllCount(hdr,NULL));
+        if (!has_ull) {
+            /* Classic-only path: unchanged. */
+            uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
+            memset(max,0,sizeof(max));
+            hdr = (struct hllhdr*) max;
+            hdr->encoding = HLL_RAW;
+            registers = max + HLL_HDR_SIZE;
+            for (j = 1; j < c->argc; j++) {
+                kvobj *o = lookupKeyRead(c->db,c->argv[j]);
+                if (o == NULL) continue;
+                if (hllMerge(registers,o) == C_ERR) {
+                    addReplyError(c,invalid_hll_err);
+                    return;
+                }
+            }
+            addReplyLongLong(c,hllCount(hdr,NULL));
+        } else if (!has_classic) {
+            /* All-ULL path: union in ULL domain, estimate with FGRA. All
+             * sources share precision ull_p. */
+            size_t m = HLL_ULTRA_REGISTERS(ull_p);
+            uint8_t *acc = zcalloc(m);
+            for (j = 1; j < c->argc; j++) {
+                kvobj *o = lookupKeyRead(c->db,c->argv[j]);
+                if (o == NULL) continue;
+                struct hllhdr *shdr = o->ptr;
+                uint8_t *src = shdr->registers;
+                for (size_t i = 0; i < m; i++) {
+                    if (src[i]) {
+                        uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
+                        acc[i] = merged ? ullPack(merged) : 0; /* ullPack requires !=0 */
+                    }
+                }
+            }
+            addReplyLongLong(c, (long long)ullCountRegisters(acc, ull_p));
+            zfree(acc);
+        } else {
+            /* Mixed path: down-convert ULL to classic rho, merge all into RAW. */
+            uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
+            memset(max,0,sizeof(max));
+            hdr = (struct hllhdr*) max;
+            hdr->encoding = HLL_RAW;
+            registers = max + HLL_HDR_SIZE;
+            for (j = 1; j < c->argc; j++) {
+                kvobj *o = lookupKeyRead(c->db,c->argv[j]);
+                if (o == NULL) continue;
+                struct hllhdr *shdr = o->ptr;
+                if (shdr->encoding == HLL_ULTRA) {
+                    uint8_t *src = shdr->registers;
+                    int sp = HLL_ULTRA_GET_P(shdr);
+                    for (int i = 0; i < HLL_REGISTERS; i++) {
+                        if (src[i]) {
+                            int rho = ullRegToRho(src[i], sp);
+                            if (rho > registers[i]) registers[i] = (uint8_t)rho;
+                        }
+                    }
+                } else {
+                    if (hllMerge(registers,o) == C_ERR) {
+                        addReplyError(c,invalid_hll_err);
+                        return;
+                    }
+                }
+            }
+            addReplyLongLong(c,hllCount(hdr,NULL));
+        }
         return;
     }
 
@@ -1747,7 +2218,11 @@ void pfcountCommand(client *c) {
         addReply(c,shared.czero);
     } else {
         if (isHLLObjectOrReply(c,o) != C_OK) return;
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
+        /* PFCOUNT caches the cardinality in the header, so it may modify the
+         * value, but as a read command it does not change the object type; an
+         * OBJ_HLL value is already a private raw sds and needs no unsharing. */
+        if (o->type == OBJ_STRING)
+            o = dbUnshareStringValue(c->db,c->argv[1],o);
 
         /* Check if the cached cardinality is valid. */
         hdr = o->ptr;
@@ -1789,80 +2264,193 @@ void pfcountCommand(client *c) {
 
 /* PFMERGE dest src1 src2 src3 ... srcN => OK */
 void pfmergeCommand(client *c) {
-    uint8_t max[HLL_REGISTERS];
     struct hllhdr *hdr;
     int j;
-    int use_dense = 0; /* Use dense representation as target? */
     size_t oldsize = 0;
 
-    /* Compute an HLL with M[i] = MAX(M[i]_j).
-     * We store the maximum into the max array of registers. We'll write
-     * it to the target variable later. */
-    memset(max,0,sizeof(max));
+    /* First pass: determine which encodings (and ULL precisions) are present
+     * among all sources (including the dest argv[1], which is itself a source).
+     * UltraLogLogs of different precisions have different register layouts;
+     * merging across precisions is a follow-up, so require a single ULL
+     * precision here. */
+    int has_ull = 0, has_classic = 0, ull_p = 0;
     for (j = 1; j < c->argc; j++) {
-        /* Check type and size. */
         kvobj *o = lookupKeyRead(c->db, c->argv[j]);
-        if (o == NULL) continue; /* Assume empty HLL for non existing var. */
+        if (o == NULL) continue;
         if (isHLLObjectOrReply(c, o) != C_OK) return;
-
-        /* If at least one involved HLL is dense, use the dense representation
-         * as target ASAP to save time and avoid the conversion step. */
         hdr = o->ptr;
-        if (hdr->encoding == HLL_DENSE) use_dense = 1;
-
-        /* Merge with this HLL with our 'max' HLL by setting max[i]
-         * to MAX(max[i],hll[i]). */
-        if (hllMerge(max,o) == C_ERR) {
-            addReplyError(c,invalid_hll_err);
-            return;
-        }
+        if (hdr->encoding == HLL_ULTRA) {
+            int sp = HLL_ULTRA_GET_P(hdr);
+            if (has_ull && sp != ull_p) {
+                addReplyError(c,"PFMERGE across UltraLogLogs of different "
+                                "precisions is not supported yet");
+                return;
+            }
+            has_ull = 1; ull_p = sp;
+        } else has_classic = 1;
     }
-
-    /* Create / unshare the destination key's value if needed. */
-    dictEntryLink link;
-    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
-    if (kv == NULL) {
-        /* Create the key with a string value of the exact length to
-         * hold our HLL data structure. sdsnewlen() when NULL is passed
-         * is guaranteed to return bytes initialized to zero. */
-        robj *o = createHLLObject();
-        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
-    } else {
-        /* If key exists we are sure it's of the right type/size
-         * since we checked when merging the different HLLs, so we
-         * don't check again. */
-        kv = dbUnshareStringValue(c->db,c->argv[1],kv);
-    }
-
-    uint64_t oldLen = stringObjectLen(kv);
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(kv);
-
-    /* Convert the destination object to dense representation if at least
-     * one of the inputs was dense. */
-    if (use_dense && hllSparseToDense(kv) == C_ERR) {
-        addReplyError(c,invalid_hll_err);
+    /* Down-converting a ULL to classic rho assumes the classic p=14 index
+     * space, so a non-default ULL precision can't be mixed with classic. */
+    if (has_ull && has_classic && ull_p != HLL_ULTRA_P) {
+        addReplyError(c,"PFMERGE mixing this UltraLogLog precision with the "
+                        "classic encoding is not supported yet");
         return;
     }
 
-    /* Write the resulting HLL to the destination HLL registers and
-     * invalidate the cached value. */
-    if (use_dense) {
-        hdr = kv->ptr;
-        hllDenseCompress(hdr->registers, max);
-    } else {
-        for (j = 0; j < HLL_REGISTERS; j++) {
-            if (max[j] == 0) continue;
+    if (!has_ull) {
+        /* Classic-only path: entirely unchanged. */
+        uint8_t max[HLL_REGISTERS];
+        int use_dense = 0;
+        memset(max,0,sizeof(max));
+        for (j = 1; j < c->argc; j++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+            if (o == NULL) continue;
+            hdr = o->ptr;
+            if (hdr->encoding == HLL_DENSE) use_dense = 1;
+            if (hllMerge(max,o) == C_ERR) {
+                addReplyError(c,invalid_hll_err);
+                return;
+            }
+        }
+
+        /* Create / unshare the destination key's value if needed. */
+        dictEntryLink link;
+        int oldtype;
+        uint64_t oldLen;
+        kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+        kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldLen);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(kv);
+
+        if (use_dense && hllSparseToDense(kv) == C_ERR) {
+            addReplyError(c,invalid_hll_err);
+            return;
+        }
+
+        if (use_dense) {
             hdr = kv->ptr;
-            switch (hdr->encoding) {
-                case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
-                case HLL_SPARSE: hllSparseSet(kv,j,max[j]); break;
+            hllDenseCompress(hdr->registers, max);
+        } else {
+            for (j = 0; j < HLL_REGISTERS; j++) {
+                if (max[j] == 0) continue;
+                hdr = kv->ptr;
+                switch (hdr->encoding) {
+                    case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
+                    case HLL_SPARSE: hllSparseSet(kv,j,max[j]); break;
+                }
+            }
+        }
+        hdr = kv->ptr;
+        HLL_INVALIDATE_CACHE(hdr);
+
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        hllWriteFinalize(c->db, kv, oldtype, oldLen);
+        keyModified(c,c->db,c->argv[1],kv,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        server.dirty++;
+        addReply(c,shared.ok);
+        return;
+    }
+
+    if (has_ull && has_classic) {
+        /* Mixed path: down-convert ULL to classic rho, merge all into RAW max[].
+         * Result is a CLASSIC dense object (accurate because the classic estimator
+         * is calibrated for rho-only data; the ULL FGRA estimator is not). */
+        uint8_t max[HLL_REGISTERS];
+        memset(max,0,sizeof(max));
+        for (j = 1; j < c->argc; j++) {
+            kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+            if (o == NULL) continue;
+            hdr = o->ptr;
+            if (hdr->encoding == HLL_ULTRA) {
+                uint8_t *src = hdr->registers;
+                int sp = HLL_ULTRA_GET_P(hdr);
+                for (int i = 0; i < HLL_REGISTERS; i++) {
+                    if (src[i]) {
+                        int rho = ullRegToRho(src[i], sp);
+                        if (rho > max[i]) max[i] = (uint8_t)rho;
+                    }
+                }
+            } else {
+                if (hllMerge(max,o) == C_ERR) {
+                    addReplyError(c,invalid_hll_err);
+                    return;
+                }
+            }
+        }
+
+        dictEntryLink link;
+        int oldtype;
+        uint64_t oldLen;
+        kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+        kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldLen);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(kv);
+
+        /* The mixed result is always classic dense; build a fresh dense object so
+         * it works regardless of the destination's prior encoding (classic sparse/
+         * dense or ultra) -- hllSparseToDense() cannot convert a ULL dest. */
+        sds s = sdsnewlen(NULL, HLL_DENSE_SIZE);
+        struct hllhdr *nh = (struct hllhdr*)s;
+        memcpy(nh->magic, "HYLL", 4);
+        nh->encoding = HLL_DENSE;
+        HLL_INVALIDATE_CACHE(nh);
+        hllDenseCompress(nh->registers, max);
+        sdsfree(kv->ptr);
+        kv->ptr = s;
+        hdr = kv->ptr;
+
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+        hllWriteFinalize(c->db, kv, oldtype, oldLen);
+        keyModified(c,c->db,c->argv[1],kv,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        server.dirty++;
+        addReply(c,shared.ok);
+        return;
+    }
+
+    /* All-ULL path: union in ULL domain, result is a fresh ULL dense object at
+     * the shared precision ull_p. Note: dest (argv[1]) is included in the source
+     * scan above, so its current content is merged into acc before we overwrite
+     * it. */
+    size_t m = HLL_ULTRA_REGISTERS(ull_p);
+    uint8_t *acc = zcalloc(m);
+    for (j = 1; j < c->argc; j++) {
+        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+        if (o == NULL) continue;
+        struct hllhdr *shdr = o->ptr;
+        uint8_t *src = shdr->registers;
+        for (size_t i = 0; i < m; i++) {
+            if (src[i]) {
+                uint64_t merged = ullUnpack(acc[i]) | ullUnpack(src[i]);
+                acc[i] = merged ? ullPack(merged) : 0; /* ullPack requires !=0 */
             }
         }
     }
-    hdr = kv->ptr; /* o->ptr may be different now, as a side effect of
-                     last hllSparseSet() call. */
+
+    /* Create / unshare the destination key. */
+    dictEntryLink link;
+    int oldtype;
+    uint64_t oldLen;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+    kv = hllPrepareWriteDest(c, c->argv[1], kv, &link, &oldtype, &oldLen);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(kv);
+
+    /* Build a fresh ULL dense sds and swap it in, mirroring hllSparseToDenseUltra. */
+    sds s = sdsnewlen(NULL, HLL_ULTRA_DENSE_SIZE(ull_p));
+    hdr = (struct hllhdr*)s;
+    memcpy(hdr->magic, "HYLL", 4);
+    hdr->encoding = HLL_ULTRA;
+    hdr->notused[0] = 0; hdr->notused[1] = 0;
+    HLL_ULTRA_SET_P(hdr, ull_p);
     HLL_INVALIDATE_CACHE(hdr);
+    memcpy(hdr->registers, acc, m);
+    zfree(acc);
+    sdsfree(kv->ptr);
+    kv->ptr = s;
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
@@ -1871,7 +2459,35 @@ void pfmergeCommand(client *c) {
      * since in theory this is a mass-add of elements. */
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
 
-    updateKeysizesHist(c->db, OBJ_STRING, oldLen, stringObjectLen(kv));
+    hllWriteFinalize(c->db, kv, oldtype, oldLen);
+    server.dirty++;
+    addReply(c,shared.ok);
+}
+
+/* PFSETVALUE key value
+ *
+ * Internal command used to reconstruct an OBJ_HLL key during AOF rewrite and
+ * replication. An HLL that was promoted to its own type can't be recreated
+ * with SET (that would make a plain string), so its blob is replayed through
+ * this command. Not intended for direct use. */
+void pfSetValueCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *value = c->argv[2];
+
+    /* The value must be a structurally valid HLL blob. */
+    if (!sdsEncodedObject(value)) {
+        addReplyError(c,"Invalid HyperLogLog value");
+        return;
+    }
+    robj *o = createHLLObjectFromBlob(sdsdup(value->ptr));
+    if (isHLLObject(o) != C_OK) {
+        decrRefCount(o);
+        addReplyError(c,"Invalid HyperLogLog value");
+        return;
+    }
+
+    setKey(c,c->db,key,&o,0);
+    notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",key,c->db->id);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -1883,6 +2499,18 @@ void pfmergeCommand(client *c) {
  * Something that is not easy to test from within the outside. */
 #define HLL_TEST_CYCLES 1000
 void pfselftestCommand(client *c) {
+    /* PFSELFTEST ULL — codec round-trip + add idempotence self-test. */
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"ull")) {
+        const char *err = ullSelfTest();
+        if (err) addReplyError(c,err); else addReply(c,shared.ok);
+        return;
+    }
+
+    if (c->argc != 1) {
+        addReplyError(c,"PFSELFTEST takes no arguments or the 'ull' subcommand");
+        return;
+    }
+
     unsigned int j, i;
     sds bitcounters = sdsnewlen(NULL,HLL_DENSE_SIZE);
     struct hllhdr *hdr = (struct hllhdr*) bitcounters, *hdr2;
@@ -2025,7 +2653,8 @@ void pfdebugCommand(client *c) {
         return;
     }
     if (isHLLObjectOrReply(c,o) != C_OK) return;
-    o = dbUnshareStringValue(c->db,c->argv[2],o);
+    if (o->type == OBJ_STRING)
+        o = dbUnshareStringValue(c->db,c->argv[2],o);
     hdr = o->ptr;
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(o);
@@ -2035,24 +2664,38 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-            uint64_t oldlen = (uint64_t) stringObjectLen(o);
-            if (hllSparseToDense(o) == C_ERR) {
+            int oldtype = o->type;
+            uint64_t oldlen = sdslen(o->ptr);
+            /* Promote to the dense backend selected by the config, so a GETREG
+             * under "ultra" doesn't force the key to classic dense. */
+            int converr = (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) ?
+                          hllSparseToDenseUltra(o) : hllSparseToDense(o);
+            if (converr == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(o));
+            hllWriteFinalize(c->db, o, oldtype, oldlen);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
             server.dirty++; /* Force propagation on encoding change. */
         }
 
         hdr = o->ptr;
-        addReplyArrayLen(c,HLL_REGISTERS);
-        for (j = 0; j < HLL_REGISTERS; j++) {
-            uint8_t val;
+        if (hdr->encoding == HLL_ULTRA) {
+            /* UltraLogLog registers are one byte each; return them verbatim.
+             * The 6-bit dense unpacking below would misread the 1-byte data. */
+            size_t ull_m = HLL_ULTRA_REGISTERS(HLL_ULTRA_GET_P(hdr));
+            addReplyArrayLen(c,ull_m);
+            for (size_t i = 0; i < ull_m; i++)
+                addReplyLongLong(c,hdr->registers[i]);
+        } else {
+            addReplyArrayLen(c,HLL_REGISTERS);
+            for (j = 0; j < HLL_REGISTERS; j++) {
+                uint8_t val;
 
-            HLL_DENSE_GET_REGISTER(val,hdr->registers,j);
-            addReplyLongLong(c,val);
+                HLL_DENSE_GET_REGISTER(val,hdr->registers,j);
+                addReplyLongLong(c,val);
+            }
         }
     }
     /* PFDEBUG DECODE <key> */
@@ -2093,10 +2736,14 @@ void pfdebugCommand(client *c) {
     }
     /* PFDEBUG ENCODING <key> */
     else if (!strcasecmp(cmd,"encoding")) {
-        char *encodingstr[2] = {"dense","sparse"};
         if (c->argc != 3) goto arityerr;
 
-        addReplyStatus(c,encodingstr[hdr->encoding]);
+        if (hdr->encoding == HLL_DENSE)
+            addReplyStatus(c,"dense");
+        else if (hdr->encoding == HLL_SPARSE)
+            addReplyStatus(c,"sparse");
+        else if (hdr->encoding == HLL_ULTRA)
+            addReplyStatus(c,"ultra");
     }
     /* PFDEBUG TODENSE <key> */
     else if (!strcasecmp(cmd,"todense")) {
@@ -2104,12 +2751,19 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-            int64_t oldlen = (int64_t) stringObjectLen(o);
-            if (hllSparseToDense(o) == C_ERR) {
+            int oldtype = o->type;
+            uint64_t oldlen = sdslen(o->ptr);
+            int todense_err;
+            if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA) {
+                todense_err = hllSparseToDenseUltra(o);
+            } else {
+                todense_err = hllSparseToDense(o);
+            }
+            if (todense_err == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, OBJ_STRING, oldlen, stringObjectLen(o));
+            hllWriteFinalize(c->db, o, oldtype, oldlen);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
             conv = 1;

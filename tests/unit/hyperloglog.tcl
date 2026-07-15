@@ -371,4 +371,383 @@ start_server {tags {"hll"}} {
         write_big_bulk 2147483648;
         r ping
     } {PONG} {large-memory}
+
+    # Build a raw HLL_ULTRA string: 16-byte header (p in notused[0]) + nregbytes zero registers.
+    proc build_ull_blob {p nregbytes} {
+        set hdr "HYLL"
+        append hdr [binary format c 2]      ;# encoding = HLL_ULTRA
+        append hdr [binary format c $p]     ;# notused[0] = p
+        append hdr [binary format c2 {0 0}] ;# notused[1..2]
+        append hdr [binary format c8 {0 0 0 0 0 0 0 0}] ;# card
+        append hdr [string repeat "\x00" $nregbytes]
+        return $hdr
+    }
+
+    test {ULL: a hand-crafted valid HLL_ULTRA blob validates and reports encoding} {
+        r del ull
+        r set ull [build_ull_blob 14 16384]
+        assert_equal {ultra} [r pfdebug encoding ull]
+    } {} {needs:pfdebug}
+
+    test {ULL: wrong-size HLL_ULTRA blob is rejected as invalid} {
+        r del ullbad
+        r set ullbad [build_ull_blob 14 100]
+        assert_error "*WRONGTYPE*" {r pfadd ullbad x}
+    }
+
+    test {ULL: out-of-range precision is rejected} {
+        r del ullp12{t} ullp16{t}
+        r set ullp12{t} [build_ull_blob 12 4096]   ;# p=12 below min, size matches 1<<12
+        r set ullp16{t} [build_ull_blob 16 65536]  ;# p=16 above max, size matches 1<<16
+        assert_error "*WRONGTYPE*" {r pfadd ullp12{t} x}
+        assert_error "*WRONGTYPE*" {r pfadd ullp16{t} x}
+    }
+
+    test {ULL: PFSELFTEST ULL passes (codec round-trip + add idempotence)} {
+        r pfselftest ull
+    } {OK}
+
+    test {ULL: PFSELFTEST rejects unknown subcommands} {
+        catch {r pfselftest foo} err
+        set err
+    } {ERR*}
+
+    test {ULL: PFCOUNT on an ultra key is accurate} {
+        r del ua
+        r set ua [build_ull_blob 14 16384]
+        for {set i 0} {$i < 50000} {incr i} { r pfadd ua "z$i" }
+        assert {abs([r pfcount ua] - 50000) < 50000*0.02}
+    }
+
+    test {ULL: PFADD with hll-dense-encoding=ultra promotes to ultra encoding} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del u14
+        assert_equal 1 [r pfadd u14 a b c d e]
+        assert_equal {ultra} [r pfdebug encoding u14]
+        assert {abs([r pfcount u14] - 5) <= 1}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+    test {ULL: default config keeps classic dense (opt-in)} {
+        r del cl
+        r config set hll-sparse-max-bytes 0
+        r pfadd cl a b c
+        assert_equal {dense} [r pfdebug encoding cl]
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL: ultra p=14 promotion stays accurate at scale} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del up14
+        for {set i 0} {$i < 30000} {incr i} { r pfadd up14 "e-$i" }
+        assert_equal {ultra} [r pfdebug encoding up14]
+        assert {abs([r pfcount up14] - 30000) < 30000*0.03}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+
+    test {ULL: PFMERGE of two ultra keys is accurate and idempotent} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del a{t} b{t} d{t}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a{t} "x$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b{t} "x$i" }
+        r pfmerge d{t} a{t} b{t}
+        assert_equal {ultra} [r pfdebug encoding d{t}]
+        assert {abs([r pfcount d{t}] - 30000) < 30000*0.03}
+        set once [r pfcount d{t}]; r pfmerge d{t} a{t} b{t}; assert_equal $once [r pfcount d{t}]
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+
+    test {ULL: cross-encoding PFMERGE (classic + ultra) is correct, result classic} {
+        r del c{t} u{t} d2{t}
+        r config set hll-sparse-max-bytes 0
+        r config set hll-dense-encoding classic
+        for {set i 0} {$i < 15000} {incr i} { r pfadd c{t} "z$i" }
+        r config set hll-dense-encoding ultra
+        for {set i 7500} {$i < 22500} {incr i} { r pfadd u{t} "z$i" }
+        r pfmerge d2{t} c{t} u{t}
+        assert_equal {dense} [r pfdebug encoding d2{t}]
+        assert {abs([r pfcount d2{t}] - 22500) < 22500*0.04}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+
+    test {ULL: multi-key PFCOUNT of two ultra keys} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del a{t} b{t}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a{t} "x$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b{t} "x$i" }
+        assert {abs([r pfcount a{t} b{t}] - 30000) < 30000*0.04}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+
+    test {ULL: multi-key PFCOUNT across mixed encodings} {
+        r del c{t} u{t}
+        r config set hll-sparse-max-bytes 0
+        r config set hll-dense-encoding classic
+        for {set i 0} {$i < 15000} {incr i} { r pfadd c{t} "z$i" }
+        r config set hll-dense-encoding ultra
+        for {set i 7500} {$i < 22500} {incr i} { r pfadd u{t} "z$i" }
+        assert {abs([r pfcount c{t} u{t}] - 22500) < 22500*0.04}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+
+    test {ULL: classic-only PFMERGE still works (regression)} {
+        r del e{t} f{t} g{t}
+        r config set hll-dense-encoding classic
+        r config set hll-sparse-max-bytes 0
+        for {set i 0} {$i < 5000} {incr i} { r pfadd e{t} "p$i" }
+        for {set i 2500} {$i < 7500} {incr i} { r pfadd f{t} "p$i" }
+        r pfmerge g{t} e{t} f{t}
+        assert_equal {dense} [r pfdebug encoding g{t}]
+        assert {abs([r pfcount g{t}] - 7500) < 7500*0.05}
+        r config set hll-sparse-max-bytes 3000
+    }
+
+    test {ULL: mixed PFMERGE into a pre-existing ULL dest works} {
+        r config set hll-dense-encoding ultra; r config set hll-sparse-max-bytes 0
+        r del md{t} cs{t}
+        for {set i 0} {$i < 5000} {incr i} { r pfadd md{t} "m$i" }    ;# md becomes ULL
+        assert_equal {ultra} [r pfdebug encoding md{t}]
+        r config set hll-dense-encoding classic
+        for {set i 2500} {$i < 7500} {incr i} { r pfadd cs{t} "m$i" }  ;# cs is classic
+        r pfmerge md{t} cs{t}                                       ;# ULL dest + classic src
+        assert_equal {dense} [r pfdebug encoding md{t}]
+        assert {abs([r pfcount md{t}] - 7500) < 7500*0.05}
+        r config set hll-sparse-max-bytes 3000
+    }
+
+    test {ULL: crafted invalid register bytes do not trigger codec UB} {
+        # encoding=2 (ultra), p=14 in notused[0], then 16384 register bytes.
+        # Real ULL registers are 0 or >= 52; bytes in [4,7] caused a negative shift
+        # in ullUnpack, and bytes in {1,2,3} could make ullPack(0)/clz(0) in the
+        # all-ULL merge. isHLLObjectOrReply only checks length+precision, so a
+        # crafted blob (RESTORE/RDB) reaches these. Must not crash (UBSan: no abort).
+        set hdr "HYLL"
+        append hdr [binary format c 2] [binary format c 14]
+        append hdr [binary format c2 {0 0}] [binary format c8 {0 0 0 0 0 0 0 0}]
+        set b1 $hdr; append b1 [string repeat [binary format c 5] 16384] ;# bytes=5, in [4,7]
+        set b2 $hdr; append b2 [string repeat [binary format c 2] 16384] ;# bytes=2, in {1,2,3}
+        r del cb1{t} cb2{t}
+        r set cb1{t} $b1
+        r set cb2{t} $b2
+        assert_equal {ultra} [r pfdebug encoding cb1{t}]
+        r pfadd cb1{t} elem      ;# ullDenseAdd -> ullUnpack on a crafted byte
+        r pfcount cb1{t} cb2{t}     ;# all-ULL multi-key -> ullUnpack / ullPack(0) path
+        r pfmerge cb1{t} cb1{t} cb2{t} ;# all-ULL merge -> same
+        assert {[r pfcount cb1{t}] >= 0} ;# returns a sane number, no crash
+    }
+
+    test {ULL: PFDEBUG GETREG returns the ultra registers verbatim} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r del ureg
+        r pfadd ureg a b c d e
+        assert_equal {ultra} [r pfdebug encoding ureg]
+        set regs [r pfdebug getreg ureg]
+        assert_equal 16384 [llength $regs]
+        # A valid ULL register byte is 0 (empty) or >= 52 (4*(p-1) at p=14).
+        # The old 6-bit-dense misread would surface small values in [1,51].
+        set nonzero 0
+        foreach v $regs {
+            assert {$v == 0 || $v >= 52}
+            if {$v != 0} {incr nonzero}
+        }
+        assert {$nonzero > 0}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    }
+
+    test {ULL p=13: 8 KB dense blob, ~33% smaller than classic p=14} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del u13
+        r pfadd u13 a b c d e
+        assert_equal {ultra} [r pfdebug encoding u13]
+        # ULL p=13 has 2^13 one-byte registers (dense blob = 16-byte header +
+        # 8192 = 8208 bytes, one third smaller than classic p=14's 12304).
+        assert_equal 8192 [llength [r pfdebug getreg u13]]
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: PFADD/PFCOUNT accurate at scale} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del u13
+        for {set i 0} {$i < 100000} {incr i} { r pfadd u13 "e-$i" }
+        set est [r pfcount u13]
+        # p=13 relative std error is ~0.84%; allow a comfortable 4% band so the
+        # test is not flaky on a single run.
+        assert {abs($est - 100000) < 4000}
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: precision survives RDB reload} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del u13
+        r pfadd u13 a b c d e
+        set before [r pfcount u13]
+        r debug reload
+        assert_equal 8192 [llength [r pfdebug getreg u13]]
+        assert_equal {ultra} [r pfdebug encoding u13]
+        assert_equal $before [r pfcount u13]
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    } undefined {needs:debug}
+    test {ULL p=13: same-precision PFMERGE and multi-key PFCOUNT work} {
+        r config set hll-dense-encoding ultra
+        r config set hll-ultra-precision 13
+        r config set hll-sparse-max-bytes 0
+        r del a13{t} b13{t} dst13{t}
+        for {set i 0} {$i < 20000} {incr i} { r pfadd a13{t} "x-$i" }
+        for {set i 10000} {$i < 30000} {incr i} { r pfadd b13{t} "x-$i" }
+        # union has 30000 distinct elements.
+        set merged [r pfcount a13{t} b13{t}]
+        assert {abs($merged - 30000) < 1500}
+        r pfmerge dst13{t} a13{t} b13{t}
+        assert_equal {ultra} [r pfdebug encoding dst13{t}]
+        assert_equal 8192 [llength [r pfdebug getreg dst13{t}]]
+        assert_equal $merged [r pfcount dst13{t}]
+        # Idempotent re-merge.
+        r pfmerge dst13{t} a13{t} b13{t}
+        assert_equal $merged [r pfcount dst13{t}]
+        r config set hll-ultra-precision 14
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL p=13: cross-precision PFMERGE/PFCOUNT is rejected} {
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 0
+        r config set hll-ultra-precision 13
+        r del a13{t}
+        r pfadd a13{t} x y z
+        r config set hll-ultra-precision 14
+        r del c14{t}
+        r pfadd c14{t} p q r
+        assert_error {*different precisions*} {r pfcount a13{t} c14{t}}
+        assert_error {*different precisions*} {r pfmerge dst{t} a13{t} c14{t}}
+        r config set hll-sparse-max-bytes 3000
+    }
+    test {ULL type: ultra config promotes new key to OBJ_HLL} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t a b c d e
+        assert_equal {hll} [r type t]
+        assert_equal {raw} [r object encoding t]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: classic config keeps OBJ_STRING (regression)} {
+        r config set hll-dense-encoding classic
+        r del t
+        r pfadd t a b c d e
+        assert_equal {string} [r type t]
+    }
+    test {ULL type: existing string HLL is promoted lazily on write} {
+        r config set hll-dense-encoding classic
+        r del t
+        r pfadd t a b c
+        assert_equal {string} [r type t]
+        r config set hll-dense-encoding ultra
+        # A read leaves the type unchanged...
+        r pfcount t
+        r pfdebug encoding t
+        assert_equal {string} [r type t]
+        # ...the first write promotes it.
+        r pfadd t x y z
+        assert_equal {hll} [r type t]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: a promotion-only PFADD is still propagated} {
+        r flushall
+        r config set hll-dense-encoding classic
+        r pfadd hll a b c
+        assert_equal {string} [r type hll]
+        r config set hll-dense-encoding ultra
+        set repl [attach_to_replication_stream]
+        # 'a' is already present, so no register changes; only the type is
+        # promoted. The command must still reach replicas so they promote too.
+        r pfadd hll a
+        assert_equal {hll} [r type hll]
+        assert_replication_stream $repl {
+            {select *}
+            {pfadd hll a}
+        }
+        close_replication_stream $repl
+        r config set hll-dense-encoding classic
+    } undefined {needs:repl external:skip}
+    test {ULL type: MEMORY USAGE and OBJECT work on an OBJ_HLL key} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t a b c d e
+        assert_equal {hll} [r type t]
+        assert {[r memory usage t] > 0}
+        assert_equal {raw} [r object encoding t]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: string commands are rejected on an OBJ_HLL key} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t a b c
+        assert_equal {hll} [r type t]
+        assert_error {WRONGTYPE*} {r get t}
+        assert_error {WRONGTYPE*} {r append t x}
+        assert_error {WRONGTYPE*} {r setrange t 0 x}
+        assert_error {WRONGTYPE*} {r strlen t}
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: RDB reload preserves type, count and digest} {
+        r config set hll-dense-encoding ultra
+        r del t
+        r pfadd t {*}[lrange [split [string repeat "x " 200]] 0 199]
+        set before [r pfcount t]
+        set dig [r debug digest-value t]
+        r debug reload
+        assert_equal {hll} [r type t]
+        assert_equal $before [r pfcount t]
+        assert_equal $dig [r debug digest-value t]
+        r config set hll-dense-encoding classic
+    } undefined {needs:debug}
+    test {ULL type: DUMP/RESTORE preserves the OBJ_HLL type} {
+        r config set hll-dense-encoding ultra
+        r del k{t} k2{t}
+        r pfadd k{t} a b c d e
+        set d [r dump k{t}]
+        r restore k2{t} 0 $d
+        assert_equal {hll} [r type k2{t}]
+        assert_equal [r pfcount k{t}] [r pfcount k2{t}]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: COPY preserves the OBJ_HLL type} {
+        r config set hll-dense-encoding ultra
+        r del k{t} k2{t}
+        r pfadd k{t} a b c d e
+        r copy k{t} k2{t}
+        assert_equal {hll} [r type k2{t}]
+        assert_equal [r pfcount k{t}] [r pfcount k2{t}]
+        r config set hll-dense-encoding classic
+    }
+    test {ULL type: AOF rewrite reconstructs the OBJ_HLL key} {
+        r config set hll-dense-encoding ultra
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r del t
+        r pfadd t a b c d e
+        set before [r pfcount t]
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert_equal {hll} [r type t]
+        assert_equal $before [r pfcount t]
+        r config set appendonly no
+        r config set hll-dense-encoding classic
+    } undefined {needs:debug}
 }

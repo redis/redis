@@ -707,6 +707,10 @@ typedef enum {
 #define MAXMEMORY_VOLATILE_LRM ((8<<8)|MAXMEMORY_FLAG_LRM)
 #define MAXMEMORY_ALLKEYS_LRM ((9<<8)|MAXMEMORY_FLAG_LRM|MAXMEMORY_FLAG_ALLKEYS)
 
+/* hll-dense-encoding: dense backend chosen when an HLL is promoted sparse->dense */
+#define HLL_DENSE_ENCODING_CLASSIC 0
+#define HLL_DENSE_ENCODING_ULTRA 1
+
 /* Units */
 #define UNIT_SECONDS 0
 #define UNIT_MILLISECONDS 1
@@ -883,11 +887,14 @@ typedef enum {
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 #define OBJ_ARRAY 7     /* Array object. */
+#define OBJ_HLL 8       /* HyperLogLog object. Used only when hll-dense-encoding
+                           promotes HLL keys to their own type; otherwise HLL
+                           keys remain OBJ_STRING. See hyperloglog.c. */
 #ifdef ENABLE_GCRA
-#define OBJ_GCRA 8      /* GCRA object. */
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
+#define OBJ_GCRA 9      /* GCRA object. */
+#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
 #else
-#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
 #endif
 
 /* NOTE: adding a new object requires changes in the following places:
@@ -2504,6 +2511,8 @@ struct redisServer {
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
+    int hll_dense_encoding;      /* HLL_DENSE_ENCODING_CLASSIC or _ULTRA */
+    int hll_ultra_precision;     /* UltraLogLog precision for new dense keys */
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
     /* Stream IDMP parameters */
@@ -4571,6 +4580,9 @@ void pfaddCommand(client *c);
 void pfcountCommand(client *c);
 void pfmergeCommand(client *c);
 void pfdebugCommand(client *c);
+void pfSetValueCommand(client *c);
+int isHLLObject(robj *o);
+robj *createHLLObjectFromBlob(sds blob);
 void latencyCommand(client *c);
 void moduleCommand(client *c);
 void securityWarningCommand(client *c);

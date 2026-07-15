@@ -822,7 +822,8 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL XNACK}
     set vset_commands {VADD VREM}
     set array_commands {ARSET ARGET ARDEL ARCOUNT ARMSET ARMGET ARGETRANGE ARDELRANGE ARINFO}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands]
+    set hll_commands {PFADD PFCOUNT PFMERGE PFDEBUG}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands hll $hll_commands]
 if 0 {
     set gcra_commands {GCRA}
     dict set commands gcra $gcra_commands
