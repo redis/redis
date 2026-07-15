@@ -585,10 +585,7 @@ error:
     return -1;
 }
 
-/* Save key metadata to RDB using lazy header writing. During AOF rewrite,
- * RDB_SAVE_KEY_META_AOF_REWRITE omits classes with an aof_rewrite callback;
- * those classes are emitted separately through keyMetaOnAof().
- *
+/* Save all key metadata to RDB using lazy header writing.
  * We accumulate class data (CLASS_SPEC + VALUE + EOF) in a temporary buffer,
  * counting classes that actually write data. Only if count > 0, we write the
  * opcode and NUM_CLASSES to RDB, followed by the accumulated payload.
@@ -604,7 +601,7 @@ error:
  *     
   * Returns -1 on error, 0 on success.
  */
-int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid, int flags) {
+int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
 
     /* Check if there are any module metadata bits set */
     uint32_t mbits = kv->metabits >> KEY_META_ID_MODULE_FIRST;
@@ -630,11 +627,7 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid, int flags) {
             KeyMetaClass *pClass = &keyMetaClass[keyMetaId];
             serverAssert(pClass->state == CLASS_STATE_INUSE);
 
-            if (*pMeta != pClass->conf.reset_value &&
-                pClass->conf.rdb_save &&
-                (!(flags & RDB_SAVE_KEY_META_AOF_REWRITE) ||
-                 pClass->conf.aof_rewrite == NULL))
-            {
+            if (*pMeta != pClass->conf.reset_value && pClass->conf.rdb_save) {
                 /* Write 32-bit class spec to payload buffer */
                 uint32_t classSpec = pClass->classSpecEncoded;
                 if (rdbWriteRaw(&payload_rio, &classSpec, KM_CLASS_SPEC_SIZE) == -1) goto error;

@@ -1247,7 +1247,7 @@ test "AOF: native bitmap rewrite preserves AOF-only metadata" {
     }
 } {} {external:skip}
 
-test "AOF: native bitmap rewrite preserves RDB-only metadata" {
+test "AOF: native bitmap rewrite omits metadata without an AOF callback" {
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
@@ -1281,12 +1281,11 @@ test "AOF: native bitmap rewrite preserves RDB-only metadata" {
 
         r debug loadaof
         assert_equal bitmap [r type bitmap:rdb-only-meta]
-        assert_equal "rdb_only_meta" \
-            [r keymeta.get [cname 1] bitmap:rdb-only-meta]
+        assert_equal "" [r keymeta.get [cname 1] bitmap:rdb-only-meta]
     }
 } {} {external:skip}
 
-test "AOF: native bitmap rewrite persists each KeyMeta class once" {
+test "AOF: native bitmap rewrite persists AOF-capable KeyMeta once" {
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
@@ -1303,9 +1302,9 @@ test "AOF: native bitmap rewrite persists each KeyMeta class once" {
         waitForBgrewriteaof r
 
         set key bitmap:all-meta-paths
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         r setbit $key 1000 1
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         r keymeta.set [cname 1] $key dual-path
         r keymeta.set [cname 2] $key rdb-only
         r keymeta.set [cname 3] $key aof-only
@@ -1342,24 +1341,23 @@ test "AOF: native bitmap rewrite persists each KeyMeta class once" {
         assert_equal [lsort [list [cname 1] [cname 3]]] \
             [lsort $callback_classes]
 
-        # Full replay combines the RDB-only payload class with the two AOF
-        # callback classes.
+        # Full replay restores only the two classes with AOF callbacks.
         r debug loadaof
         assert_equal bitmap [r type $key]
         assert_equal dual-path [r keymeta.get [cname 1] $key]
-        assert_equal rdb-only [r keymeta.get [cname 2] $key]
+        assert_equal "" [r keymeta.get [cname 2] $key]
         assert_equal aof-only [r keymeta.get [cname 3] $key]
 
-        # Replaying the RESTORE payload alone proves that dual-path metadata
-        # was not serialized a second time.
+        # Replaying the RESTORE payload alone proves that it contains no
+        # KeyMeta from any class.
         r restore bitmap:payload-only 0 $restore_payload
         assert_equal "" [r keymeta.get [cname 1] bitmap:payload-only]
-        assert_equal rdb-only [r keymeta.get [cname 2] bitmap:payload-only]
+        assert_equal "" [r keymeta.get [cname 2] bitmap:payload-only]
         assert_equal "" [r keymeta.get [cname 3] bitmap:payload-only]
     }
 } {} {external:skip}
 
-test "RESTORE-based AOF payload selects one KeyMeta persistence path" {
+test "RESTORE-based AOF payload omits KeyMeta" {
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
@@ -1386,18 +1384,18 @@ test "RESTORE-based AOF payload selects one KeyMeta persistence path" {
         assert_equal rdb-only [r keymeta.get [cname 2] normal-copy]
         assert_equal "" [r keymeta.get [cname 3] normal-copy]
 
-        # The AOF payload omits the dual-path class because keyMetaOnAof()
-        # emits it separately, while preserving the RDB-only class.
+        # The AOF payload omits all metadata. keyMetaOnAof() is the sole
+        # metadata persistence path for command-form AOF rewrites.
         r restore aof-copy 0 $aof_payload
         assert_equal "" [r keymeta.get [cname 1] aof-copy]
-        assert_equal rdb-only [r keymeta.get [cname 2] aof-copy]
+        assert_equal "" [r keymeta.get [cname 2] aof-copy]
         assert_equal "" [r keymeta.get [cname 3] aof-copy]
 
         # Simulate the commands emitted once by the two AOF callbacks.
         r keymeta.set [cname 1] aof-copy dual-path
         r keymeta.set [cname 3] aof-copy aof-only
         assert_equal dual-path [r keymeta.get [cname 1] aof-copy]
-        assert_equal rdb-only [r keymeta.get [cname 2] aof-copy]
+        assert_equal "" [r keymeta.get [cname 2] aof-copy]
         assert_equal aof-only [r keymeta.get [cname 3] aof-copy]
     }
 } {} {external:skip}
