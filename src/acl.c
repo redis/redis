@@ -2647,7 +2647,13 @@ sds ACLLoadFromFile(const char *filename) {
          * DefaultUser pointer, which now lives in the new Users rax — so both
          * the current-user and stamped provenance paths resolve it by name. It
          * is freed together with old_users after the client walk. */
-        user *old_default_copy = zcalloc(sizeof(user));
+        /* ACLCreateUnlinkedUser() yields a fully-initialized user (valid list
+         * fields and list methods) that is not registered in Users; rename it to
+         * "default" and copy the pre-load configuration in. Using an initialized
+         * user rather than a zeroed struct keeps us off ACLCopyUser()'s
+         * assumption that its destination is already a valid user object. */
+        user *old_default_copy = ACLCreateUnlinkedUser();
+        sdsfree(old_default_copy->name);
         old_default_copy->name = sdsdup(DefaultUser->name);
         ACLCopyUser(old_default_copy, DefaultUser);
 
