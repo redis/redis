@@ -1391,6 +1391,41 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd1 close
     }
 
+    test {ACL LOAD re-keys a stamped provenance user so revocation still targets it} {
+        reconnect
+
+        set rd1 [redis_deferring_client]
+        $rd1 HELLO 3 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE alicechan
+        $rd1 read
+        # Re-auth to default: alicechan's provenance is now STAMPED with alice (a
+        # non-NULL value), while the client's current user becomes default.
+        $rd1 AUTH default ""
+        $rd1 read
+        $rd1 CLIENT SETNAME rekey-prov
+        $rd1 read
+
+        # alice is unchanged in the file, so the client survives; its stamped
+        # provenance must be re-keyed from the (now freed) old alice object to
+        # the new one loaded here.
+        r ACL LOAD
+        assert_match {*rekey-prov*} [r CLIENT LIST]
+
+        # Prove the stamp points at the NEW alice: the client's current user is
+        # default, so revoking alice's channels can only disconnect it through
+        # the stamped provenance. A stale/dangling old pointer would not match
+        # the freshly loaded alice, and the client would wrongly survive.
+        r ACL SETUSER alice resetchannels
+        wait_for_condition 50 100 {
+            ![string match {*rekey-prov*} [r CLIENT LIST]]
+        } else {
+            fail "client not disconnected after its re-keyed provenance user lost channel access (re-key left a stale pointer)"
+        }
+        $rd1 close
+        r ACL SETUSER alice allchannels ; # restore for subsequent tests
+    }
+
     test {ACL LOAD kills client when one of multiple provenance users is deleted} {
         reconnect
         r ACL SETUSER tempuser on nopass ~* &* +@all

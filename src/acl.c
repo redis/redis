@@ -2695,8 +2695,12 @@ sds ACLLoadFromFile(const char *filename) {
                     continue;
                 }
                 /* Phase 2: client survived — re-key stamped provenance values
-                 * from old to new user objects before the old ones are freed. */
-                pubsubACLLoadRekeyClient(c, old_users);
+                 * from old to new user objects before the old ones are freed.
+                 * Only clients that re-authed while subscribed carry stamps; for
+                 * everyone else every value is NULL and re-keying is a no-op, so
+                 * the pubsub_reauthed hint lets us skip the walk entirely. */
+                if (c->pubsub_reauthed)
+                    pubsubACLLoadRekeyClient(c, old_users);
             }
 
             /* Re-resolve the current identity to the new user object of the same
