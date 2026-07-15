@@ -85,8 +85,8 @@ ConnectionType *connTypeOfCluster(void) {
  * -------------------------------------------------------------------------- */
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
- * io stream pointed by 'rio'. Flags can omit the checksum or select metadata
- * that must be embedded for an AOF rewrite. This function can't fail. */
+ * io stream pointed by 'rio'. Flags can omit the checksum or key metadata.
+ * This function can't fail. */
 void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags) {
     unsigned char buf[2];
     uint64_t crc = 0;
@@ -95,14 +95,12 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags) {
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
 
-    /* Save key metadata if present (TTL is handled separately via command args).
-     * AOF rewrite embeds only classes that lack their own AOF callback. */
-    if (getModuleMetaBits(o->metabits)) {
-        int meta_flags = (flags & DUMP_PAYLOAD_AOF_REWRITE) ?
-            RDB_SAVE_KEY_META_AOF_REWRITE : 0;
-        int meta_ok = rdbSaveKeyMetadata(payload, key, o, dbid, meta_flags);
-        serverAssert(meta_ok != -1);
-    }
+    /* Save key metadata if present (TTL is handled separately via command
+     * args). AOF RESTORE payloads omit it because AOF rewrite handles module
+     * metadata separately through keyMetaOnAof(). */
+    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) &&
+        getModuleMetaBits(o->metabits))
+        serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
