@@ -1303,9 +1303,9 @@ test "AOF: native bitmap rewrite persists each KeyMeta class once" {
         waitForBgrewriteaof r
 
         set key bitmap:all-meta-paths
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         r setbit $key 1000 1
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         r keymeta.set [cname 1] $key dual-path
         r keymeta.set [cname 2] $key rdb-only
         r keymeta.set [cname 3] $key aof-only
