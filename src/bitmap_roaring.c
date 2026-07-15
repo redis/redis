@@ -213,7 +213,7 @@ static void bitmapObjectAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
 
 /* Build a roaring bitmap from raw bitmap string bytes by constructing one
  * container per 2^16-bit chunk. This conversion runs on every
- * bitmap-default-native write that converts a string and on every string
+ * bitmap-default-roaring write that converts a string and on every string
  * BITOP source, so dense chunks must avoid per-bit roaring64_bitmap_add calls.
  * The optimize pass is only worth paying for bitmaps that are kept
  * (run_optimize/shrink_to_fit walk every container); BITOP operand temporaries

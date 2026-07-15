@@ -121,7 +121,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     }
 
     test {KEYMETA - bitmap auto-conversion preserves metadata and expiration} {
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         r set bitmap:meta:setbit [binary format H* 80]
         setupKeyMeta bitmap:meta:setbit 7 1 0
         set setbit_expire [r pexpiretime bitmap:meta:setbit]
@@ -130,10 +130,10 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         setupKeyMeta bitmap:meta:bitfield 7 1 0
         set bitfield_expire [r pexpiretime bitmap:meta:bitfield]
 
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         assert_equal 1 [r setbit bitmap:meta:setbit 0 0]
         assert_equal {1} [r bitfield bitmap:meta:bitfield SET u1 0 0]
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
 
         foreach {key expire_at} [list \
             bitmap:meta:setbit $setbit_expire \
@@ -836,9 +836,9 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         r pexpire bitmap:aof-convert-meta 600000
         set expire_at [r pexpiretime bitmap:aof-convert-meta]
 
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         assert_equal 1 [r setbit bitmap:aof-convert-meta 0 0]
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         assert_equal bitmap [r type bitmap:aof-convert-meta]
         assert_equal "conversion_meta" \
             [r keymeta.get [cname 1] bitmap:aof-convert-meta]
@@ -888,9 +888,9 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         set incr_aof [get_last_incr_aof_path r]
         r keymeta.set [cname 1] $key "conversion_meta"
 
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         assert_equal 1 [r setbit $key 0 0]
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
 
         set fp [open $incr_aof r]
@@ -936,9 +936,9 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         waitForBgrewriteaof r
         set incr_aof [get_last_incr_aof_path r]
 
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         assert_equal 1 [r setbit $key 0 0]
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         assert_equal "aof_only_conversion_meta" \
             [r keymeta.get [cname 2] $key]
 
@@ -1028,10 +1028,10 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                 lappend expires [$master pexpiretime $key]
             }
 
-            $master config set bitmap-default-native yes
+            $master config set bitmap-default-roaring yes
             assert_equal 1 [$master setbit [lindex $keys 0] 0 0]
             assert_equal {1} [$master bitfield [lindex $keys 1] SET u1 0 0]
-            $master config set bitmap-default-native no
+            $master config set bitmap-default-roaring no
             wait_for_ofs_sync $master $replica
 
             foreach client [list $master $replica] {
@@ -1220,9 +1220,9 @@ test "AOF: native bitmap rewrite preserves AOF-only metadata" {
         r config set aof-use-rdb-preamble no
         waitForBgrewriteaof r
 
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         r setbit bitmap:aof-only-meta 1000 1
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         r keymeta.set [cname 1] bitmap:aof-only-meta "aof_only_meta"
 
         r bgrewriteaof
@@ -1260,9 +1260,9 @@ test "AOF: native bitmap rewrite preserves RDB-only metadata" {
         r config set aof-use-rdb-preamble no
         waitForBgrewriteaof r
 
-        r config set bitmap-default-native yes
+        r config set bitmap-default-roaring yes
         r setbit bitmap:rdb-only-meta 1000 1
-        r config set bitmap-default-native no
+        r config set bitmap-default-roaring no
         r keymeta.set [cname 1] bitmap:rdb-only-meta "rdb_only_meta"
 
         r bgrewriteaof
