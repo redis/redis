@@ -35,6 +35,7 @@ typedef struct {
 } listpackEntry;
 
 unsigned char *lpNew(size_t capacity);
+unsigned char *lpNewWithEntries(listpackEntry *entries, unsigned int len);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
@@ -53,7 +54,6 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
 unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len);
 unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
                              listpackEntry *entries, unsigned int len, unsigned char **newp);
-unsigned char *lpNewWithEntries(listpackEntry *entries, unsigned int len);
 unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
 unsigned char *lpDup(unsigned char *lp);

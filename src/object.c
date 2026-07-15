@@ -808,7 +808,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
         dismissMemory(lp, lpBytes(lp));
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        unsigned long long n = hta->tmpl->field_count;
+        unsigned long long n = hta->field_count;
         /* We iterate all values only when average value size is bigger than
          * a page size, mirroring the heuristic used for OBJ_ENCODING_HT. */
         if (n > 0 && size_hint / n >= server.page_size) {

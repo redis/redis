@@ -180,7 +180,7 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         return dictSize(ht);
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = obj->ptr;
-        return hta->tmpl->field_count;
+        return hta->field_count;
     } else if (obj->type == OBJ_STREAM) {
         size_t effort = 0;
         stream *s = obj->ptr;

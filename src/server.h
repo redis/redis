@@ -3843,6 +3843,7 @@ void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
+sds activeDefragSds(sds sdsptr);
 void *activeDefragAllocRaw(size_t size);
 void activeDefragFreeRaw(void *ptr);
 robj *activeDefragStringOb(robj* ob);
@@ -3962,7 +3963,8 @@ typedef struct hashTemplateRegistry {
  * 2. OBJ_ENCODING_TMPL_ARRAY: Hash with template, values stored in array.
  *   Values are stored as sds array in template field order. */
 typedef struct hashTemplateArray {
-    hashTemplate *tmpl;  /* Shared template reference. */
+    uint64_t tmpl_id;    /* Template id; resolve via hashTemplateGetById. */
+    unsigned long long field_count;
     sds values[];       /* Flexible array: values in template field order. */
 } hashTemplateArray;
 
@@ -4048,6 +4050,8 @@ void hashTemplatesInit(void);
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
 hashTemplate *hashTemplateGetById(uint64_t id);
+hashTemplate *hashTemplateDefrag(hashTemplate *tmpl);
+int hashTemplateDefragByIdChunk(unsigned long chunk_idx);
 hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
 void hashTemplateIncrHoldRef(hashTemplate *tmpl);

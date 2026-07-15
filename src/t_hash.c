@@ -295,7 +295,7 @@ static void hashDictWithExpireOnRelease(dict *d) {
  *                             are packed inline and the leading id maps back to
  *                             the template. Compact, used for small hashes.
  *                             Lookup: lpSeek(lp, idx + 1) (the +1 skips the id).
- *   OBJ_ENCODING_TMPL_ARRAY - o->ptr is a hashTemplateArray { tmpl; sds
+ *   OBJ_ENCODING_TMPL_ARRAY - o->ptr is a hashTemplateArray { tmpl_id; sds
  *                             values[] } holding the values in template field
  *                             order. Used once listpack limits are exceeded (or
  *                             there are many fields). Lookup: values[idx].
@@ -328,6 +328,7 @@ static hashTemplate *hashTemplateLpGetTemplate(unsigned char *lp);
 static uint64_t hashTemplateLpGetTemplateId(unsigned char *lp);
 static unsigned char *hashTemplateLpCreate(hashTemplate *tmpl, sds *values);
 static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *values, int take);
+static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta);
 
 /* Keys freed in BIO lazyfree thread sets a dict (template id->key_ref_count). 
  * Later, it is applied on main thread in cron, key refs are actually dropped. */
@@ -455,6 +456,61 @@ hashTemplate *hashTemplateGetById(uint64_t id) {
     if (chunk_idx >= htemplates->by_id_cap) return NULL;
     tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
     return chunk ? chunk->slots[id % TMPL_CHUNK_SIZE] : NULL;
+}
+
+/* Defrag the template struct and re-point every reference
+ * to it (by_id slot, by_fields key, by_fields_lp value).*/
+hashTemplate *hashTemplateDefrag(hashTemplate *tmpl) {
+    /* Field-name array and the strings it holds. */
+    sds *newfields = activeDefragAlloc(tmpl->fields);
+    if (newfields) tmpl->fields = newfields;
+    for (unsigned long long i = 0; i < tmpl->field_count; i++) {
+        sds newsds = activeDefragSds(tmpl->fields[i]);
+        if (newsds) tmpl->fields[i] = newsds;
+    }
+
+    /* Find the entries referencing tmpl (by_fields key) and its blob
+     * (by_fields_lp key+value) before any realloc frees the old pointers. */
+    uint64_t bf_hash = dictGetHash(htemplates->by_fields, tmpl);
+    dictEntry *bf = dictFindByHashAndPtr(htemplates->by_fields, tmpl, bf_hash);
+    dictEntry *lp = tmpl->fields_lp ? dictFind(htemplates->by_fields_lp, tmpl->fields_lp) : NULL;
+
+    /* fields_lp blob (the by_fields_lp key). */
+    if (tmpl->fields_lp) {
+        unsigned char *newlp = activeDefragAlloc(tmpl->fields_lp);
+        if (newlp) {
+            tmpl->fields_lp = newlp;
+            if (lp) dictSetKey(htemplates->by_fields_lp, lp, newlp);
+        }
+    }
+
+    /* The struct itself: by_id slot, by_fields key, by_fields_lp value. */
+    uint64_t id = tmpl->id;
+    hashTemplate *newtmpl = activeDefragAlloc(tmpl);
+    if (!newtmpl) return tmpl;
+
+    tmplIdChunk *chunk = htemplates->by_id[id / TMPL_CHUNK_SIZE];
+    chunk->slots[id % TMPL_CHUNK_SIZE] = newtmpl;
+
+    if (bf) dictSetKey(htemplates->by_fields, bf, newtmpl);
+    if (lp) dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
+    return newtmpl;
+}
+
+/* Defrag by_id top array (once, at idx 0) and the chunk at 'idx'. */
+int hashTemplateDefragByIdChunk(unsigned long chunk_idx) {
+    if (htemplates->by_id == NULL || chunk_idx >= htemplates->by_id_cap) 
+        return 0;
+    if (chunk_idx == 0) {
+        tmplIdChunk **newarr = activeDefragAlloc(htemplates->by_id);
+        if (newarr) htemplates->by_id = newarr;
+    }
+    tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
+    if (chunk) {
+        tmplIdChunk *newchunk = activeDefragAlloc(chunk);
+        if (newchunk) htemplates->by_id[chunk_idx] = newchunk;
+    }
+    return 1;
 }
 
 /* Cache 'fields_lp' as tmpl's fields-listpack (blob -> template), taking
@@ -985,7 +1041,7 @@ hashTemplate *hashTypeGetTemplate(robj *o) {
                  o->encoding == OBJ_ENCODING_TMPL_ARRAY);
     return (o->encoding == OBJ_ENCODING_TMPL_LP) ?
         hashTemplateLpGetTemplate(o->ptr) :
-        ((hashTemplateArray *)o->ptr)->tmpl;
+        hashTemplateArrayGetTemplate(o->ptr);
 }
 
 /* Replace template ID in listpack. */
@@ -1119,13 +1175,20 @@ void hashTemplateLpFree(unsigned char *lp) {
  * hashTemplateArray functions (OBJ_ENCODING_TMPL_ARRAY)
  *----------------------------------------------------------------------------*/
 
+static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta) {
+    hashTemplate *tmpl = hashTemplateGetById(hta->tmpl_id);
+    serverAssert(tmpl != NULL);
+    return tmpl;
+}
+
 /* Create a new hashTemplateArray. Increments key_refcount.
  * If take is set, takes ownership of the SDS strings in values array.
  * Otherwise copies them with sdsdup. */
 static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *values, int take) {
     unsigned long long n = tmpl->field_count;
     hashTemplateArray *hta = zmalloc(sizeof(*hta) + sizeof(sds) * n);
-    hta->tmpl = tmpl;
+    hta->tmpl_id = tmpl->id;
+    hta->field_count = n;
 
     for (unsigned long long i = 0; i < n; i++)
         hta->values[i] = take ? values[i] : sdsdup(values[i]);
@@ -1135,16 +1198,15 @@ static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *value
 }
 
 /* Free a hashTemplateArray (release key ref and free data). May run in a BIO
- * lazyfree thread; the template pointer and its id/field_count are immutable
- * and stay valid while key ref > 0. */
+ * lazyfree thread: uses the tmpl_id/field_count, never the registry. */
 void hashTemplateArrayFree(hashTemplateArray *hta) {
-    for (unsigned long long i = 0; i < hta->tmpl->field_count; i++)
+    for (unsigned long long i = 0; i < hta->field_count; i++)
         sdsfree(hta->values[i]);
 
     if (!canThreadWriteRegistry())
-        hashTemplateRecordPendingDrop(hta->tmpl->id); 
+        hashTemplateRecordPendingDrop(hta->tmpl_id);
     else
-        hashTemplateDecrKeyRef(hta->tmpl);
+        hashTemplateDecrKeyRef(hashTemplateGetById(hta->tmpl_id));
 
     zfree(hta);
 }
@@ -2055,7 +2117,8 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
                 hta->values[insert_pos] = sdsdup(value);
             }
             hashTemplateDecrKeyRef(tmpl);
-            hta->tmpl = new_tmpl;
+            hta->tmpl_id = new_tmpl->id;
+            hta->field_count = new_tmpl->field_count;
             o->ptr = hta;
         }
     } else {
@@ -2371,7 +2434,8 @@ int hashTypeDelete(robj *o, void *field) {
                     sdsfree(hta->values[idx]);
                     memmove(&hta->values[idx], &hta->values[idx + 1],
                             sizeof(sds) * (old_count - idx - 1));
-                    hta->tmpl = new_tmpl;
+                    hta->tmpl_id = new_tmpl->id;
+                    hta->field_count = new_count;
                     hta = zrealloc(hta, sizeof(*hta) + sizeof(sds) * new_count);
                     o->ptr = hta;
                 }
@@ -2425,7 +2489,7 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
         length = n - 1;
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        length = hta->tmpl->field_count;
+        length = hta->field_count;
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -2448,8 +2512,8 @@ size_t hashTypeAllocSize(const robj *o) {
         size = lpBytes(lp);
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        size = sizeof(hashTemplateArray) + sizeof(sds) * hta->tmpl->field_count;
-        for (unsigned long long i = 0; i < hta->tmpl->field_count; i++) {
+        size = sizeof(hashTemplateArray) + sizeof(sds) * hta->field_count;
+        for (unsigned long long i = 0; i < hta->field_count; i++) {
             if (hta->values[i]) size += sdsAllocSize(hta->values[i]);
         }
     } else {
@@ -3491,12 +3555,13 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         hobj->encoding = OBJ_ENCODING_TMPL_LP;
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        unsigned long long n = hta->tmpl->field_count;
+        unsigned long long n = hta->field_count;
 
         /* Create new array structure with duplicated values. */
         hashTemplateArray *new_hta = zmalloc(sizeof(*new_hta) + sizeof(sds) * n);
-        new_hta->tmpl = hta->tmpl;
-        hashTemplateIncrKeyRef(new_hta->tmpl);
+        new_hta->tmpl_id = hta->tmpl_id;
+        new_hta->field_count = n;
+        hashTemplateIncrKeyRef(hashTemplateGetById(new_hta->tmpl_id));
         for (unsigned long long i = 0; i < n; i++) {
             new_hta->values[i] = sdsdup(hta->values[i]);
         }
@@ -3566,10 +3631,11 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
         }
     } else if (hashobj->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = hashobj->ptr;
-        unsigned long long idx = randomULong() % hta->tmpl->field_count;
+        hashTemplate *tmpl = hashTemplateArrayGetTemplate(hta);
+        unsigned long long idx = randomULong() % tmpl->field_count;
 
         /* Get field from tmpl. */
-        sds field = hta->tmpl->fields[idx];
+        sds field = tmpl->fields[idx];
         key->sval = (unsigned char *)field;
         key->slen = sdslen(field);
 
@@ -3995,7 +4061,7 @@ void hsetCommand(client *c) {
  * client or hash key still references it. */
 typedef struct himportFieldset {
     sds name;           /* Fieldset name. */
-    hashTemplate *tmpl; /* Template that matches the fieldset. */
+    uint64_t tmpl_id;   /* Template that matches the fieldset. */
     int *value_order;   /* Maps tmpl index -> user argv field index (pre-computed). */
 } himportFieldset;
 
@@ -4011,7 +4077,8 @@ static void himportFsDictValDestructor(dict *d, void *val) {
     UNUSED(d);
     himportFieldset *fs = val;
     sdsfree(fs->name);
-    if (fs->tmpl) hashTemplateDecrHoldRef(fs->tmpl);
+    hashTemplate *fs_tmpl = hashTemplateGetById(fs->tmpl_id);
+    if (fs_tmpl) hashTemplateDecrHoldRef(fs_tmpl);
     if (fs->value_order) zfree(fs->value_order);
     zfree(fs);
 }
@@ -4023,8 +4090,9 @@ static dictType himportFsDictType = {
 
 /* Memory usage for one fieldset: the fieldset + the full template it pins. */
 static size_t himportFieldsetMemUsage(himportFieldset *fs) {
+    hashTemplate *tmpl = hashTemplateGetById(fs->tmpl_id);
     return sizeof(*fs) + sdsZmallocSize(fs->name) +
-           (size_t)fs->tmpl->field_count * sizeof(int) + fs->tmpl->mem_size;
+           (size_t)tmpl->field_count * sizeof(int) + tmpl->mem_size;
 }
 
 /* Get fieldset by name. Checks the last-used cache first. */
@@ -4063,7 +4131,7 @@ static void himportFieldsetsAdd(client *c, sds name, hashTemplate *tmpl, int *va
 
     himportFieldset *fs = zmalloc(sizeof(*fs));
     fs->name = name;
-    fs->tmpl = tmpl;
+    fs->tmpl_id = tmpl->id;
     fs->value_order = value_order;
     dictAdd(fieldsets->dict, fs->name, fs);
     fieldsets->mem_usage += himportFieldsetMemUsage(fs);
@@ -4186,7 +4254,7 @@ void himportSetCommand(client *c) {
         return;
     }
 
-    hashTemplate *tmpl = fs->tmpl;
+    hashTemplate *tmpl = hashTemplateGetById(fs->tmpl_id);
     unsigned long long field_count = tmpl->field_count;
     int valuec = c->argc - 4;
 
