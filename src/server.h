@@ -4052,7 +4052,7 @@ hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
 void hashTemplateIncrHoldRef(hashTemplate *tmpl);
 void hashTemplateDecrHoldRef(hashTemplate *tmpl);
-unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int index);
+unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int cache);
 void hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp);
 void hashTemplatesCron(void);
 robj *createHashObjectFromTemplate(hashTemplate *tmpl, sds *values, int take);

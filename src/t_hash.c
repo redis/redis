@@ -471,12 +471,8 @@ void hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp) {
     htemplates->total_mem_size += lpBytes(fields_lp);
 }
 
-/* Return tmpl's fields listpack, building it on first use. 'index' also adds the
- * blob to the by_fields_lp lookup (used on RESTORE) */
-unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int index) {
-    tmpl->fields_lp_last_used = server.mstime;
-    if (tmpl->fields_lp) return tmpl->fields_lp;
-
+/* Build a fresh fields listpack (caller owns it). */
+static unsigned char *hashTemplateBuildFieldsLp(hashTemplate *tmpl) {
     listpackEntry stack_ent[HASH_TMPL_STACK_ENTRIES];
     listpackEntry *ent = (tmpl->field_count <= HASH_TMPL_STACK_ENTRIES) ?
                          stack_ent : zmalloc(sizeof(listpackEntry) * tmpl->field_count);
@@ -486,10 +482,17 @@ unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int index) {
     }
     unsigned char *lp = lpNewWithEntries(ent, tmpl->field_count);
     if (ent != stack_ent) zfree(ent);
+    return lp;
+}
 
-    if (index) hashTemplateIndexFieldsLp(tmpl, lp);
-    else tmpl->fields_lp = lp; /* not indexed */
-
+/* Return tmpl's fields listpack, building it on first use. 'cache' also adds the
+ * blob to the by_fields_lp lookup (used on RESTORE) */
+unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int cache) {
+    if (!cache) return hashTemplateBuildFieldsLp(tmpl);
+    tmpl->fields_lp_last_used = server.mstime;
+    if (tmpl->fields_lp) return tmpl->fields_lp;
+    unsigned char *lp = hashTemplateBuildFieldsLp(tmpl);
+    hashTemplateIndexFieldsLp(tmpl, lp);
     return lp;
 }
 

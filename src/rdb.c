@@ -1305,10 +1305,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
                 /* Field names. */
                 if (fields_lp) {
-                    /* Get listpack blob and skip indexing in fork. */
-                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, server.in_fork_child == CHILD_TYPE_NONE);
-                    if ((n = rdbSaveRawString(rdb, blob, lpBytes(blob))) == -1)
-                        return -1;
+                    /* Get listpack blob and skip caching in fork. */
+                    int cache = (server.in_fork_child == CHILD_TYPE_NONE);
+                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, cache);
+                    n = rdbSaveRawString(rdb, blob, lpBytes(blob));
+                    if (!cache) lpFree(blob);
+                    if (n == -1) return -1;
                     nwritten += n;
                 } else {
                     if ((n = rdbSaveLen(rdb, field_count)) == -1) return -1;
