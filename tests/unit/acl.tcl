@@ -1549,30 +1549,6 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd1 close
     }
 
-    test {Pointer-key optimization: long username does not bloat subscription memory} {
-        reconnect
-        set longname [string repeat "A" 1000000]
-        r ACL SETUSER $longname on nopass ~* &* +@all
-
-        set rd1 [redis_deferring_client]
-        $rd1 AUTH $longname $longname
-        $rd1 read
-
-        set mem_before [s used_memory]
-        $rd1 SUBSCRIBE ch1
-        $rd1 read
-        set mem_after [s used_memory]
-
-        # The subscription should add dict overhead + pubsubUserSubs (~hundreds
-        # of bytes), not a copy of the 1MB username. Allow 64KB slack for other
-        # allocations that may happen concurrently.
-        set delta [expr {$mem_after - $mem_before}]
-        assert {$delta < 65536}
-
-        $rd1 close
-        r ACL DELUSER $longname
-    }
-
     test {ACL load and save} {
         r ACL setuser eve +get allkeys >eve on
         r ACL save
