@@ -102,7 +102,7 @@ start_server {tags {"modules external:skip"}} {
 set server_path [tmpdir "auth-module-user-provenance"]
 exec cp -f tests/assets/user.acl $server_path
 
-start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allchannels" "aclfile" "user.acl"] tags [list "modules external:skip"]] {
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allchannels" "aclfile" "user.acl"] tags [list "modules" "external:skip"]] {
     r module load $testmodule
 
     # Subscribe as the module user "global", then switch to the default user so
