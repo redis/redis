@@ -20,6 +20,7 @@
  *      UNLINKFREE     - Use unlink callback for async free
  *      RDBLOAD        - Enable rdb_load callback (metadata can be loaded from RDB)
  *      RDBSAVE        - Enable rdb_save callback (metadata can be saved to RDB)
+ *      NOAOF          - Disable aof_rewrite callback
  *      ALLOWIGNORE    - Enable ALLOW_IGNORE flag (graceful discard on load if
  *                       class not registered or no rdb_load callback)
  *
@@ -317,7 +318,7 @@ static void KeyMetaAOFRewriteCb7(RedisModuleIO *aof, void *reserved, uint64_t me
     KeyMetaAOFRewriteCallback_Class(aof, reserved, meta, 7);
 }
 
-/* KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE:ALLOWIGNORE:NORDBLOAD:NORDBSAVE] */
+/* KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF] */
 static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3 || argc > 4) {
         return RedisModule_WrongArity(ctx);
@@ -339,6 +340,7 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     int allow_ignore = 0;  /* Default: ALLOW_IGNORE disabled */
     int rdb_load = 0;      /* Default: rdb_load disabled */
     int rdb_save = 0;      /* Default: rdb_save disabled */
+    int aof_rewrite = 1;   /* Default: aof_rewrite enabled */
 
     if (argc == 4) {
         const char *flags = RedisModule_StringPtrLen(argv[3], NULL);
@@ -349,6 +351,7 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
         if (strstr(flags, "ALLOWIGNORE")) allow_ignore = 1;   /* Enable ALLOW_IGNORE */
         if (strstr(flags, "RDBLOAD")) rdb_load = 1;           /* Enable rdb_load */
         if (strstr(flags, "RDBSAVE")) rdb_save = 1;           /* Enable rdb_save */
+        if (strstr(flags, "NOAOF")) aof_rewrite = 0;          /* Disable aof_rewrite */
     }
 
     /* Setup configuration */
@@ -358,7 +361,7 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     config.reset_value = (uint64_t)NULL;  /* NULL pointer means no resource to free */
     config.rdb_load = rdb_load ? KeyMetaRDBLoadCallback : NULL;
     config.rdb_save = rdb_save ? KeyMetaRDBSaveCallback : NULL;
-    switch (num_class_mappings + 1) { /* distinct cb per class */
+    switch (aof_rewrite ? num_class_mappings + 1 : 0) { /* distinct cb per class */
         case 1: config.aof_rewrite = KeyMetaAOFRewriteCb1; break;
         case 2: config.aof_rewrite = KeyMetaAOFRewriteCb2; break;
         case 3: config.aof_rewrite = KeyMetaAOFRewriteCb3; break;

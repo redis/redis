@@ -453,6 +453,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
+"KEYMETA-AOF-DUMP <key>",
+"    Return a DUMP payload with KeyMeta filtered for an AOF rewrite.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -727,6 +729,17 @@ NULL
             (void*)kv, kv->refcount,
             strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
             kv->lru, estimateObjectIdleTime(kv)/1000, extra);
+    } else if (!strcasecmp(c->argv[1]->ptr,"keymeta-aof-dump") && c->argc == 3) {
+        kvobj *kv = dbFind(c->db, c->argv[2]->ptr);
+        if (kv == NULL) {
+            addReplyNull(c);
+            return;
+        }
+
+        rio payload;
+        createDumpPayload(&payload, kv, c->argv[2], c->db->id,
+                          DUMP_PAYLOAD_AOF_REWRITE);
+        addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         robj *val;
         sds key;
