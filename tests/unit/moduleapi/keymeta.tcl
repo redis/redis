@@ -869,6 +869,7 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         assert_equal $expire_at [r pexpiretime bitmap:aof-convert-meta]
         assert_equal "conversion_meta" \
             [r keymeta.get [cname 1] bitmap:aof-convert-meta]
+        flushallAndVerifyCleanup
     }
 
     test {AOF: bitmap conversion replaces stale serialized metadata from the base file} {
@@ -918,6 +919,7 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         assert_equal $expire_at [r pexpiretime $key]
         assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
         assert_equal $active_before [r keymeta.active]
+        flushallAndVerifyCleanup
     }
 
     test {AOF: bitmap auto-conversion retains AOF-only metadata from the base file} {
@@ -964,6 +966,7 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         assert_equal "aof_only_conversion_meta" \
             [r keymeta.get [cname 2] $key]
         assert_equal $active_before [r keymeta.active]
+        flushallAndVerifyCleanup
     }
 }
 
