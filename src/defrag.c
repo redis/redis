@@ -2157,6 +2157,11 @@ robj *activeDefragStringOb(robj *ob) {
     return NULL;
 }
 
+sds activeDefragSds(sds sdsptr) {
+    UNUSED(sdsptr);
+    return NULL;
+}
+
 void defragWhileBlocked(void) {
 }
 

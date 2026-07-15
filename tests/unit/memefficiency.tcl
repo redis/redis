@@ -1230,10 +1230,9 @@ run_solo {defrag} {
         [r debug mallctl arenas.page] <= 8192 &&
         $type eq "standalone"} { ;# skip in cluster mode and non-jemalloc
         # Active defrag relocates the per-key allocations of template-encoded
-        # hashes (the TMPL_LP listpack blob, and the hashTemplateArray struct +
-        # its value sds's for TMPL_ARRAY). defragKey must update ob->ptr and
-        # every values[] entry without touching the shared template. Fragment
-        # many template hashes, run active defrag, and assert the data is
+        # hashes (the value listpack for template-listpack, the array and its
+        # value strings for template-array) without touching the shared template.
+        # Fragment many template hashes, run active defrag, and assert the data is
         # byte-identical afterwards (debug digest) and the keys still resolve.
         test "Active defrag template-encoded hashes: $type" {
             r flushall
@@ -1277,8 +1276,8 @@ run_solo {defrag} {
             assert_equal template-listpack [r object encoding k:0]
             assert_equal template-array    [r object encoding k:1]
 
-            # Fragment: delete half (j%4<2) so both templates survive and both
-            # are freed, leaving holes in their size classes.
+            # Fragment: delete half the keys (both encodings), leaving holes
+            # around the surviving template-listpack and template-array keys.
             set deleted 0
             for {set j 0} {$j < $n} {incr j} {
                 if {($j % 4) < 2} { $rd del k:$j; incr deleted }
@@ -1311,10 +1310,10 @@ run_solo {defrag} {
             r save ;# iterate over all data / pointers
         } {OK}
 
-        # The test above uses two shared templates, so it fragments the per-key
-        # values. Here every key has a DISTINCT template, so the fragmented and
-        # defragged memory is the template registry's field-name arrays/strings.
-        # The registry defrag stage relocates those in place (struct/by_id stay).
+        # The test above fragments per-key values (two shared templates). Here
+        # every key has its own template, so deleting half the keys frees half the
+        # templates, leaving holes around the survivors; active defrag relocates
+        # the surviving templates and the hashes stay intact.
         test "Active defrag hash template registry: $type" {
             r flushall
             r config set hz 100
@@ -1328,10 +1327,9 @@ run_solo {defrag} {
             r config set maxmemory 0
             r config set hash-min-template-entries 0
 
-            # Few templates but very long field names, so the movable field-name
-            # strings dominate the fragmentation while the unmovable per-template
-            # structs stay below active-defrag-ignore-bytes (else defrag, unable to
-            # relocate them, would never settle).
+            # Many distinct templates with long field names, fragmenting the
+            # registry's per-template allocations (struct, field array + strings,
+            # by_fields entries) - all relocatable.
             set pad [string repeat _ 2000]
             set n 1000
             set rd [redis_deferring_client]
@@ -1362,10 +1360,8 @@ run_solo {defrag} {
             set digest [debug_digest]
             catch {r config set activedefrag yes}
             if {[r config get activedefrag] eq "activedefrag yes"} {
-                # Let defrag run and relocate registry allocations. We don't wait
-                # for it to fully settle: the per-template structs and by_id array
-                # can't be relocated, so fragmentation never drops to zero; we only
-                # need defrag to make progress moving the (movable) field names.
+                # Let defrag relocate the registry allocations; we only wait for
+                # progress (hits > 0), not for fragmentation to fully settle.
                 wait_for_condition 100 100 {
                     [s active_defrag_hits] > 0
                 } else { fail "defrag made no progress" }
@@ -1378,6 +1374,11 @@ run_solo {defrag} {
             # survivor still resolves (its relocated field name reads back right).
             assert_equal $digest [debug_digest]
             assert_equal v1a [r hget k:1 a1$pad]
+            # After relocation, re-preparing an existing field set still finds its
+            # template instead of creating a new one.
+            set nt [s hash_templates]
+            r himport prepare chk a1$pad b1$pad c1$pad
+            assert_equal $nt [s hash_templates]
             r save ;# iterate over all data / pointers
         } {OK}
     }
