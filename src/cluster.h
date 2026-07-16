@@ -120,6 +120,7 @@ void clusterCommandMyShardId(client *c);
 sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary);
 
 int clusterNodeCoversSlot(clusterNode *n, int slot);
+int clusterIsAnySlotMoving(void);
 int getNodeDefaultClientPort(clusterNode *n);
 int clusterNodeIsMyself(clusterNode *n);
 clusterNode *getMyClusterNode(void);

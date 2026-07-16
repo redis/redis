@@ -5131,6 +5131,19 @@ int clusterNodeCoversSlot(clusterNode *n, int slot) {
     return bitmapTestBit(n->slots,slot);
 }
 
+/* Return 1 if this node has any slot in MIGRATE/IMPORT state (resharding). */
+int clusterIsAnySlotMoving(void) {
+    int j;
+
+    if (!server.cluster_enabled || server.cluster == NULL) return 0;
+    for (j = 0; j < CLUSTER_SLOTS; j++) {
+        if (server.cluster->migrating_slots_to[j] != NULL ||
+            server.cluster->importing_slots_from[j] != NULL)
+            return 1;
+    }
+    return 0;
+}
+
 /* Add the specified slot to the list of slots that node 'n' will
  * serve. Return C_OK if the operation ended with success.
  * If the slot is already assigned to another instance this is considered

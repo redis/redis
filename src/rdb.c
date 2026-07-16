@@ -4694,7 +4694,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             /* Check slave has the exact requirements */
             if (slave->slave_req != req)
                 continue;
-            replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+            replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset(), 0);
             conns[numconns++] = slave->conn;
             if (rdb_channel) {
                 /* Put the socket in blocking mode to simplify RDB transfer. */

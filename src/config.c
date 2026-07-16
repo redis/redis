@@ -113,6 +113,12 @@ configEnum repl_diskless_load_enum[] = {
     {NULL, 0}
 };
 
+configEnum repl_fullsync_format_enum[] = {
+    {"rdb", REPL_FULLSYNC_RDB},
+    {"aof", REPL_FULLSYNC_AOF},
+    {NULL, 0}
+};
+
 configEnum tls_auth_clients_enum[] = {
     {"no", TLS_CLIENT_AUTH_NO},
     {"yes", TLS_CLIENT_AUTH_YES},
@@ -3200,6 +3206,8 @@ standardConfig static_configs[] = {
     createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
     createBoolConfig("repl-diskless-sync", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.repl_diskless_sync, 1, NULL, NULL),
     createBoolConfig("repl-rdb-channel", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.repl_rdb_channel, 1, NULL, NULL),
+    createEnumConfig("repl-fullsync-format", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, repl_fullsync_format_enum, server.repl_fullsync_format, REPL_FULLSYNC_RDB, NULL, NULL),
+    createStringConfig("repl-fullsync-aof-filename", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, ALLOW_EMPTY_STRING, server.fullsync_aof_filename, "fullsync-base.aof", isValidAOFfilename, NULL),
     createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, 1, NULL, NULL),
     createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, 0, NULL, NULL),
     createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, 1, NULL, NULL),

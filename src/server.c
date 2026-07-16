@@ -1685,7 +1685,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         server.aof_rewrite_scheduled &&
         !aofRewriteLimited())
     {
-        rewriteAppendOnlyFileBackground();
+        rewriteAppendOnlyFileBackground(0, SLAVE_REQ_NONE);
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
@@ -1729,7 +1729,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc && !aofRewriteLimited()) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
-                rewriteAppendOnlyFileBackground();
+                rewriteAppendOnlyFileBackground(0, SLAVE_REQ_NONE);
             }
         }
     }
@@ -2484,6 +2484,12 @@ void initServerConfig(void) {
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
     server.repl_total_sync_attempts = 0;
+    server.repl_fullsync_format = REPL_FULLSYNC_RDB;
+    server.repl_stream_offset = 0;
+    server.repl_transfer_format = REPL_SNAPSHOT_RDB;
+    server.repl_stream_dbid = -1;
+    server.repl_replica_stream_dbid = -1;
+    server.aof_rewrite_for_replication = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -5119,7 +5125,7 @@ int finishShutdown(void) {
         }
         serverLog(LL_WARNING,
                   "There is a child rewriting the AOF. Killing it!");
-        killAppendOnlyChild();
+        killAppendOnlyChild(0);
     }
     if (server.aof_state != AOF_OFF) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
@@ -6055,6 +6061,9 @@ sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, st
 
 const char *replstateToString(int replstate) {
     switch (replstate) {
+    case SLAVE_STATE_WAIT_BGREWRITE_START:
+    case SLAVE_STATE_WAIT_BGREWRITE_END:
+        return "wait_bgrewrite";
     case SLAVE_STATE_WAIT_BGSAVE_START:
     case SLAVE_STATE_WAIT_BGSAVE_END:
     case SLAVE_STATE_WAIT_RDB_CHANNEL:
