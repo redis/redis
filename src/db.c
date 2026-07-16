@@ -31,11 +31,13 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-/* keysizesHistIdx() maps the basic types 0..OBJ_TYPE_BASIC_MAX-1 onto themselves
- * and OBJ_STREAM onto the slot right after them (KEYSIZES_IDX_STREAM). That only
- * holds while OBJ_STREAM stays outside the basic-type range; otherwise a stream
- * would be caught by the identity branch and collide with a basic type's slot. */
-static_assert(OBJ_STREAM >= OBJ_TYPE_BASIC_MAX, "stream must lie outside the basic-type range");
+/* keysizesHist is a pointer table indexed by object type (see server.h). It
+ * must be wide enough to index OBJ_STREAM directly, streams take the backing
+ * row right after the basic types, and there is exactly one backing row per
+ * tracked type. */
+static_assert(MAX_KEYSIZES_TYPES == OBJ_STREAM + 1, "pointer table must be indexed by object type through OBJ_STREAM");
+static_assert(KEYSIZES_IDX_STREAM == OBJ_TYPE_BASIC_MAX, "stream row must follow the basic types");
+static_assert(MAX_KEYSIZES_HIST_SLOTS == OBJ_TYPE_BASIC_MAX + 1, "one backing row per tracked type");
 
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
@@ -90,35 +92,34 @@ void updateLRM(robj *o) {
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
-    int idx = keysizesHistIdx(type);
-    if (unlikely(idx < 0))
+    if (unlikely(!keysizesHistTracked(kvstoreHist, type)))
         return;
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
         debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[idx][old_bin]--;
-        debugServerAssert(kvstoreHist[idx][old_bin] >= 0);
+        kvstoreHist[type][old_bin]--;
+        debugServerAssert(kvstoreHist[type][old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
             /* Only strings and streams can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[idx][0]--;
-            debugServerAssert(kvstoreHist[idx][0] >= 0);
+            kvstoreHist[type][0]--;
+            debugServerAssert(kvstoreHist[type][0] >= 0);
         }
     }
 
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
         debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[idx][new_bin]++;
+        kvstoreHist[type][new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
             /* Only strings and streams can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[idx][0]++;
+            kvstoreHist[type][0]++;
         }
     }
 }
@@ -153,21 +154,22 @@ void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int6
 
 static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
                           size_t (*fn)(kvobj *), const char *name) {
-    /* Scan DB and build expected histogram by scanning all keys */
+    /* Scan DB and build expected histogram by scanning all keys. scanHist is
+     * indexed by object type to match hist[]; untracked types stay 0. */
     int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
     dictEntry *de;
     kvstoreIterator kvs_it;
     kvstoreIteratorInit(&kvs_it, kvs);
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
-        int idx = keysizesHistIdx(kv->type);
-        if (idx >= 0) {
+        if (keysizesHistTracked(hist, kv->type)) {
             int64_t len = fn(kv);
-            scanHist[idx][(len == 0) ? 0 : log2ceil(len) + 1]++;
+            scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
+        if (!keysizesHistTracked(hist, type)) continue; /* untracked type: no backing row */
         volatile int64_t *keysizesHist = hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
@@ -1297,9 +1299,14 @@ void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
         kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
         /* Apply histogram delta only if target_kvstore hasn't changed */
         if (ctx->target_kvstore == server.db[0].keys && meta) {
+            /* Subtract the delta from the live histogram through the pointer
+             * tables. The keysizes and allocsizes tables share the same NULL
+             * pattern (untracked types, e.g. OBJ_MODULE), so a single guard
+             * covers both. */
             for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
+                if (!keysizesHistTracked(meta->keysizes_hist, type)) continue;
                 for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    meta->keysizes_hist[type][bin] -= ctx->delta_keysizes_hist[type][bin];
+                    meta->keysizes_hist[type][bin]  -= ctx->delta_keysizes_hist[type][bin];
                     meta->allocsizes_hist[type][bin] -= ctx->delta_allocsizes_hist[type][bin];
                 }
             }

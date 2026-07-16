@@ -1247,29 +1247,62 @@ typedef struct redisDb {
 
 /* maximum number of bins of keysizes histogram */
 #define MAX_KEYSIZES_BINS 60
-/* Streams occupy the histogram slot right after the basic types, and the table
- * is exactly the basic types plus that one stream slot. Both are derived from
- * OBJ_TYPE_BASIC_MAX so they can't drift if the object type ordinals change. */
-#define KEYSIZES_IDX_STREAM OBJ_TYPE_BASIC_MAX
-#define MAX_KEYSIZES_TYPES (KEYSIZES_IDX_STREAM + 1)
-typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 
-/* Map an object type to its keysizes/allocsizes histogram slot, or -1 if the
- * type is not tracked. Basic types keep their own ordinal; streams take the
- * slot right after them, so no row is wasted on the untracked module type
- * (OBJ_MODULE == 5 sits between the basic types and OBJ_STREAM == 6). The
- * argument is unsigned to match the object type field (object.h: type:4); any
- * other (untracked) type value falls through to -1. */
-static inline int keysizesHistIdx(uint32_t type) {
-    if (type < OBJ_TYPE_BASIC_MAX) return type;          /* 0..4 */
-    if (type == OBJ_STREAM) return KEYSIZES_IDX_STREAM;  /* 5 */
-    return -1;                                           /* modules etc.: not tracked */
+/* Per-type keysizes/allocsizes histograms. Each is a pair: compact backing rows
+ * (keysizesHistRows; one per tracked type, none for the untracked OBJ_MODULE)
+ * and a pointer table (keysizesHist) indexed by object type, where hist[t]
+ * points into the rows or is NULL for untracked types. This gives direct
+ * hist[type][bin] access with no wasted module row and no heap allocation.
+ *
+ * Since the table points into its own backing rows, a pair must be wired by
+ * keysizesHistInit() after its memory exists and must never be bulk-copied (the
+ * copy's pointers would dangle). Moving the owning kvstore by pointer is fine. */
+#define MAX_KEYSIZES_TYPES      (OBJ_STREAM + 1)          /* pointer table: indexed by object type */
+#define MAX_KEYSIZES_HIST_SLOTS (OBJ_TYPE_BASIC_MAX + 1)  /* backing rows: 5 basic + 1 stream */
+#define KEYSIZES_IDX_STREAM     OBJ_TYPE_BASIC_MAX        /* stream's backing row */
+
+typedef int64_t keysizesHistRows[MAX_KEYSIZES_HIST_SLOTS][MAX_KEYSIZES_BINS]; /* compact backing storage */
+typedef int64_t *keysizesHist[MAX_KEYSIZES_TYPES];  /* row pointers, indexed by object type; NULL if untracked */
+
+/* Wire the pointer table to its backing rows and zero the counters. Must run
+ * on every (hist, rows) pair once its memory exists. Basic types map to their
+ * own row, streams to the row right after them; OBJ_MODULE (and anything past
+ * OBJ_STREAM) stays NULL, i.e. untracked. */
+static inline void keysizesHistInit(keysizesHist hist, keysizesHistRows rows) {
+    memset(hist, 0, MAX_KEYSIZES_TYPES * sizeof(hist[0]));       /* all slots -> NULL */
+    memset(rows, 0, MAX_KEYSIZES_HIST_SLOTS * sizeof(rows[0]));  /* all counters -> 0 */
+    hist[OBJ_STRING] = rows[OBJ_STRING];
+    hist[OBJ_LIST]   = rows[OBJ_LIST];
+    hist[OBJ_SET]    = rows[OBJ_SET];
+    hist[OBJ_ZSET]   = rows[OBJ_ZSET];
+    hist[OBJ_HASH]   = rows[OBJ_HASH];
+    hist[OBJ_STREAM] = rows[KEYSIZES_IDX_STREAM];
+    /* hist[OBJ_MODULE] intentionally left NULL: modules are not tracked. */
+}
+
+/* Zero the counters while keeping the pointer table wired (used when a kvstore
+ * empties). Goes through the table so the backing rows are only ever named by
+ * keysizesHistInit(). */
+static inline void keysizesHistClear(keysizesHist hist) {
+    for (int type = 0; type < MAX_KEYSIZES_TYPES; type++)
+        if (hist[type])
+            memset(hist[type], 0, MAX_KEYSIZES_BINS * sizeof(hist[type][0]));
+}
+
+/* True if `type` has a tracked histogram row in `hist`: in range and with a
+ * non-NULL slot (untracked types such as OBJ_MODULE keep a NULL slot). The
+ * bounds check comes first so an out-of-range object type never indexes the
+ * table; callers then address the row directly as hist[type]. */
+static inline int keysizesHistTracked(keysizesHist hist, uint32_t type) {
+    return type < MAX_KEYSIZES_TYPES && hist[type] != NULL;
 }
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
 typedef struct {
-    keysizesHist keysizes_hist;
-    keysizesHist allocsizes_hist;
+    keysizesHistRows keysizes_rows;    /* backing rows for keysizes_hist */
+    keysizesHistRows allocsizes_rows;  /* backing rows for allocsizes_hist */
+    keysizesHist keysizes_hist;        /* -> keysizes_rows (wired by keysizesHistInit) */
+    keysizesHist allocsizes_hist;      /* -> allocsizes_rows (wired by keysizesHistInit) */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -1283,11 +1316,13 @@ typedef struct {
 
 /* Context for ASM background trim with delta histogram tracking */
 typedef struct asmTrimCtx {
-    int refcount;                      /* For shared bg/main thread ownership */
-    struct slotRangeArray *slots;      /* Slot ranges being trimmed */
-    kvstore *target_kvstore;           /* Target kvstore to update (for validation) */
-    keysizesHist delta_keysizes_hist;  /* Delta populated by BIO thread */
-    keysizesHist delta_allocsizes_hist;/* Delta populated by BIO thread */
+    int refcount;                         /* For shared bg/main thread ownership */
+    struct slotRangeArray *slots;         /* Slot ranges being trimmed */
+    kvstore *target_kvstore;              /* Target kvstore to update (for validation) */
+    keysizesHistRows delta_keysizes_rows; /* backing rows for delta_keysizes_hist */
+    keysizesHistRows delta_allocsizes_rows;/* backing rows for delta_allocsizes_hist */
+    keysizesHist delta_keysizes_hist;     /* Delta populated by BIO thread */
+    keysizesHist delta_allocsizes_hist;   /* Delta populated by BIO thread */
 } asmTrimCtx;
 
 /* forward declaration for functions ctx */

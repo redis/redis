@@ -356,13 +356,12 @@ static void dictDestructorKV(dict *d, void *key) {
         meta->alloc_size -= alloc_size;
         /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
          * (e.g. in lazy free context). */
-        int idx = keysizesHistIdx(kv->type);
-        if (kvstoreMeta && idx >= 0) {
+        if (kvstoreMeta && keysizesHistTracked(kvstoreMeta->allocsizes_hist, kv->type)) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
             int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
             debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-            kvstoreMeta->allocsizes_hist[idx][old_bin]--;
+            kvstoreMeta->allocsizes_hist[kv->type][old_bin]--;
         }
     }
     decrRefCount(kv);
@@ -544,10 +543,24 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
     return 1;
 }
 
+/* Wire the keysizes/allocsizes histogram pointer tables to their backing rows.
+ * Called once at kvstore creation (see kvstoreExType.onKvstoreCreate), because
+ * the metadata is only zero-allocated and the pointer tables cannot be wired to
+ * their backing rows by zeroing alone. */
+static void kvstoreMetadataInit(kvstore *kvs) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
+    /* onKvstoreCreate is generic; this callback is only installed on
+     * kvstoreExType, which always carries metadata. */
+    serverAssert(meta != NULL);
+    keysizesHistInit(meta->keysizes_hist, meta->keysizes_rows);
+    keysizesHistInit(meta->allocsizes_hist, meta->allocsizes_rows);
+}
+
 static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
-    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
-    memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
+    /* Zero the counters but keep the pointer tables wired. */
+    keysizesHistClear(meta->keysizes_hist);
+    keysizesHistClear(meta->allocsizes_hist);
 }
 
 static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
@@ -816,6 +829,7 @@ kvstoreType kvstoreExType = {
     kvstoreCanFreeDict,   /* can free dict */
     kvstoreOnEmpty,       /* on kvstore empty */
     kvstoreOnDictEmpty,   /* on dict empty */
+    kvstoreMetadataInit,  /* on kvstore create: wire histogram pointers */
 };
 
 /* This function is called once a background process of some kind terminates,
@@ -6374,6 +6388,8 @@ static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const c
     };
 
     for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
+        /* field_names is NULL for untracked types (e.g. modules), matching the
+         * NULL slot[] entries, so those rows are skipped here. */
         if (field_names[type] == NULL) continue;
 
         char buf[10000];
@@ -7098,7 +7114,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
             [OBJ_HASH] = "distrib_hashes_items",
-            [KEYSIZES_IDX_STREAM] = "distrib_streams_items"
+            [OBJ_STREAM] = "distrib_streams_items"
+            /* OBJ_MODULE left NULL: untracked, skipped by sdscatHistograms(). */
         };
         serverAssert(sizeof(type_items_str)/sizeof(type_items_str[0]) == MAX_KEYSIZES_TYPES);
         static const char *type_sizes_str[] = {
@@ -7107,7 +7124,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_sizes",
             [OBJ_ZSET] = "distrib_zsets_sizes",
             [OBJ_HASH] = "distrib_hashes_sizes",
-            [KEYSIZES_IDX_STREAM] = "distrib_streams_sizes"
+            [OBJ_STREAM] = "distrib_streams_sizes"
+            /* OBJ_MODULE left NULL: untracked, skipped by sdscatHistograms(). */
         };
         serverAssert(sizeof(type_sizes_str)/sizeof(type_sizes_str[0]) == MAX_KEYSIZES_TYPES);
 

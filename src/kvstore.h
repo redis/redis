@@ -73,6 +73,12 @@ typedef struct kvstoreType {
     /* Called when per slot dict becomes empty. Parameters: kvstore pointer,
      * dict index. */
     void (*onDictEmpty)(kvstore *kvs, int didx);
+
+    /* Called once when a kvstore is created, after its metadata has been
+     * zero-allocated. Lets the caller initialize that metadata (e.g. wire
+     * pointers into metadata backing storage that a plain zeroing cannot
+     * set up). */
+    void (*onKvstoreCreate)(kvstore *kvs);
 } kvstoreType;
 
 /* Basic metadata allocated per dict.

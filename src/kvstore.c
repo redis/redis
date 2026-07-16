@@ -239,6 +239,10 @@ kvstore *kvstoreCreate(kvstoreType *type, dictType *dtype, int num_dicts_bits, i
     kvs->dict_sizes = kvs->num_dicts > 1 ? fwTreeCreate(kvs->num_dicts_bits) : NULL;
     kvs->bucket_count = 0;
     kvs->overhead_hashtable_rehashing = 0;
+
+    /* Let the caller initialize its (already zeroed) metadata. */
+    if (type->onKvstoreCreate)
+        type->onKvstoreCreate(kvs);
     return kvs;
 }
 
