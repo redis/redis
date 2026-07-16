@@ -37,8 +37,10 @@
 
 #include "server.h"
 
-/* An open point-in-time view of the keyspace. */
-typedef struct keyspaceSnapshot {
+/* An open point-in-time view of the keyspace. Forward-declared as a typedef in
+ * server.h; define the struct body here without re-typedef'ing (repeated
+ * typedefs are a C11 feature that older -Werror=pedantic toolchains reject). */
+struct keyspaceSnapshot {
     uint64_t id;        /* Handle returned to the DEBUG command. */
     uint64_t version;   /* keyspace_version captured at creation. */
     int dbid;           /* Scope: the DB this snapshot is for. Writes to other
@@ -49,7 +51,7 @@ typedef struct keyspaceSnapshot {
     dict *preserved;    /* Frozen pre-write values. Keyed by the key sds the kvobj
                            already embeds (borrowed, not duplicated); the entry
                            holds a reference on the kvobj and drops it on removal. */
-} keyspaceSnapshot;
+};
 
 /* Version-store dict: key is the sds borrowed from the frozen kvobj
  * (kvobjGetKey), value is the kvobj itself (a reference we own). No key dup: the

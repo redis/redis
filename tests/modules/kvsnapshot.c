@@ -244,9 +244,11 @@ static void *threadget_main(void *arg) {
             size_t vl; const char *vp = RedisModule_StringPtrLen(v, &vl);
             res->val = RedisModule_Alloc(vl ? vl : 1);
             memcpy(res->val, vp, vl); res->len = vl; res->found = 1;
+            RedisModule_FreeString(tctx, v);
         }
     }
     if (k) RedisModule_CloseKey(k);
+    RedisModule_FreeString(tctx, kn);
     RedisModule_FreeKeyspaceSnapshot(tctx, ta->snap); /* free under the GIL */
     RedisModule_ThreadSafeContextUnlock(tctx);
     RedisModule_FreeThreadSafeContext(tctx);
