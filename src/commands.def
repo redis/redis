@@ -4249,7 +4249,6 @@ struct COMMAND_ARG HGETEX_Args[] = {
 /* HIMPORT DISCARD tips */
 const char *HIMPORT_DISCARD_Tips[] = {
 "request_policy:all_shards",
-"response_policy:agg_logical_or",
 };
 #endif
 
@@ -4274,7 +4273,6 @@ struct COMMAND_ARG HIMPORT_DISCARD_Args[] = {
 /* HIMPORT DISCARDALL tips */
 const char *HIMPORT_DISCARDALL_Tips[] = {
 "request_policy:all_shards",
-"response_policy:agg_max",
 };
 #endif
 
@@ -4294,7 +4292,6 @@ const char *HIMPORT_DISCARDALL_Tips[] = {
 /* HIMPORT PREPARE tips */
 const char *HIMPORT_PREPARE_Tips[] = {
 "request_policy:all_shards",
-"response_policy:all_succeeded",
 };
 #endif
 
@@ -4337,9 +4334,9 @@ struct COMMAND_ARG HIMPORT_SET_Args[] = {
 
 /* HIMPORT command table */
 struct COMMAND_STRUCT HIMPORT_Subcommands[] = {
-{MAKE_CMD("discard","Removes a single session-local fieldset by name.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARD_History,0,HIMPORT_DISCARD_Tips,2,himportDiscardCommand,3,0,ACL_CATEGORY_HASH,HIMPORT_DISCARD_Keyspecs,0,NULL,1),.args=HIMPORT_DISCARD_Args},
-{MAKE_CMD("discardall","Removes all session-local fieldsets for the connection.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARDALL_History,0,HIMPORT_DISCARDALL_Tips,2,himportDiscardallCommand,2,0,ACL_CATEGORY_HASH,HIMPORT_DISCARDALL_Keyspecs,0,NULL,0)},
-{MAKE_CMD("prepare","Defines a session-local fieldset that maps a name to a sorted set of field names.","O(N*log(N)) where N is the number of fields.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_PREPARE_History,0,HIMPORT_PREPARE_Tips,2,himportPrepareCommand,-4,CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_PREPARE_Keyspecs,0,NULL,2),.args=HIMPORT_PREPARE_Args},
+{MAKE_CMD("discard","Removes a single session-local fieldset by name.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARD_History,0,HIMPORT_DISCARD_Tips,1,himportDiscardCommand,3,0,ACL_CATEGORY_HASH,HIMPORT_DISCARD_Keyspecs,0,NULL,1),.args=HIMPORT_DISCARD_Args},
+{MAKE_CMD("discardall","Removes all session-local fieldsets for the connection.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARDALL_History,0,HIMPORT_DISCARDALL_Tips,1,himportDiscardallCommand,2,0,ACL_CATEGORY_HASH,HIMPORT_DISCARDALL_Keyspecs,0,NULL,0)},
+{MAKE_CMD("prepare","Defines a session-local fieldset that maps a name to a sorted set of field names.","O(N*log(N)) where N is the number of fields.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_PREPARE_History,0,HIMPORT_PREPARE_Tips,1,himportPrepareCommand,-4,CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_PREPARE_Keyspecs,0,NULL,2),.args=HIMPORT_PREPARE_Args},
 {MAKE_CMD("set","Creates a fieldset-based hash from values supplied in the order matching a previously prepared fieldset.","O(N) where N is the number of fields in the fieldset.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_SET_History,0,HIMPORT_SET_Tips,0,himportSetCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_SET_Keyspecs,1,NULL,3),.args=HIMPORT_SET_Args},
 {0}
 };
