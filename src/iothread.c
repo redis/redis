@@ -774,9 +774,7 @@ int processClientsFromMainThread(IOThread *t) {
         }
         /* If everything has been flushed, drop any stale write handler so the IO
          * thread event loop doesn't keep firing writable (EPOLLOUT) on an idle
-         * client. writeToClient(c, 0) above returns early when writing is disabled
-         * and never removes the handler, so we clear it here once there are no
-         * pending replies left. */
+         * client. */
         if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && !clientHasPendingReplies(c)) {
             connSetWriteHandler(c->conn, NULL);
         }
