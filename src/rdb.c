@@ -51,6 +51,15 @@ char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
  * its own with all its field names. */
 static int rdb_save_templates_as_ref = 0;
 
+/* Template hashes are normally saved in "ref" form (template id + values) into RDB.
+ * If a module calls DUMP mid-rdbsave, DUMP passes 0 here to force the full form
+ * (field names + values) instead. Returns the previous value to restore. */
+int rdbSaveSetRefMode(int enable) {
+    int prev = rdb_save_templates_as_ref;
+    rdb_save_templates_as_ref = enable;
+    return prev;
+}
+
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);

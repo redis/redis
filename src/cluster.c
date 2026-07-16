@@ -104,11 +104,16 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_chec
     }
     rioInitWithBuffer(payload,buffer);
 
+    /* A DUMP payload is standalone: serialize objects self-contained, not ref form. */
+    int prev_ref = rdbSaveSetRefMode(0);
+
     /* Save key metadata if present without (handles TTL separately via command args) */
     if (getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
+
+    rdbSaveSetRefMode(prev_ref);
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
