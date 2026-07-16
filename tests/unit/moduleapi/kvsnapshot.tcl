@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/kvsnapshot.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {keyspace value-MVCC snapshot: values frozen across mutation and delete} {
