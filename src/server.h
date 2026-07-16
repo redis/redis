@@ -4107,6 +4107,7 @@ void kvsnapshotInit(void);
 void snapshotPreserveForWrite(redisDb *db, robj *key, kvobj *kv);
 void snapshotPreserveForDelete(redisDb *db, robj *key, kvobj *kv);
 keyspaceSnapshot *kvSnapshotCreate(int dbid, sds prefix);
+void kvSnapshotAddType(keyspaceSnapshot *s, int objtype);
 void kvSnapshotFree(keyspaceSnapshot *s);
 kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj);
 void debugKvSnapshotCommand(client *c);

@@ -4283,6 +4283,26 @@ RedisModuleKeyspaceSnapshot *RM_CreateKeyspaceSnapshot(RedisModuleCtx *ctx, cons
         prefix = sdsnewlen(cfg->prefix, cfg->prefix_len);
     keyspaceSnapshot *s = kvSnapshotCreate(ctx->client->db->id, prefix);
     sdsfree(prefix); /* kvSnapshotCreate dup'd it (no-op on NULL) */
+
+    /* version >= 2: scope controls. cfg->type_mask is a bitmask of
+     * (1u << REDISMODULE_KEYTYPE_*); translate to the internal OBJ_* mask so a
+     * hash/JSON index preserves only HASH + MODULE, never other in-scope types. */
+    if (cfg && cfg->version >= 2) {
+        if (cfg->type_mask) {
+            static const struct { int kt; int ot; } kt2ot[] = {
+                { REDISMODULE_KEYTYPE_STRING, OBJ_STRING },
+                { REDISMODULE_KEYTYPE_LIST,   OBJ_LIST   },
+                { REDISMODULE_KEYTYPE_SET,    OBJ_SET    },
+                { REDISMODULE_KEYTYPE_ZSET,   OBJ_ZSET   },
+                { REDISMODULE_KEYTYPE_HASH,   OBJ_HASH   },
+                { REDISMODULE_KEYTYPE_MODULE, OBJ_MODULE },
+                { REDISMODULE_KEYTYPE_STREAM, OBJ_STREAM },
+            };
+            for (size_t i = 0; i < sizeof(kt2ot) / sizeof(kt2ot[0]); i++)
+                if (cfg->type_mask & (1u << kt2ot[i].kt))
+                    kvSnapshotAddType(s, kt2ot[i].ot);
+        }
+    }
     return (RedisModuleKeyspaceSnapshot *) s;
 }
 

@@ -46,11 +46,13 @@ struct keyspaceSnapshot {
     int dbid;           /* Scope: the DB this snapshot is for. Writes to other
                            DBs never preserve into it, and reads resolve against
                            this DB. */
-    sds prefix;         /* Scope: only keys with this prefix are preserved.
-                           NULL => whole keyspace (within dbid). */
+    list *prefixes;     /* Scope: sds prefixes; a key is in scope if it matches
+                           ANY of them. Empty => whole DB (within dbid). */
     dict *preserved;    /* Frozen pre-write values. Keyed by the key sds the kvobj
                            already embeds (borrowed, not duplicated); the entry
                            holds a reference on the kvobj and drops it on removal. */
+    uint32_t type_mask; /* Scope: if non-zero, only preserve values whose
+                           (1u << OBJ_*) bit is set. 0 => all types. */
 };
 
 /* Version-store dict: key is the sds borrowed from the frozen kvobj
@@ -87,11 +89,20 @@ keyspaceSnapshot *kvSnapshotCreate(int dbid, sds prefix) {
     s->id = nextSnapshotId++;
     s->version = server.keyspace_version;
     s->dbid = dbid;
-    s->prefix = prefix ? sdsdup(prefix) : NULL;
+    s->prefixes = listCreate();
+    listSetFreeMethod(s->prefixes, (void (*)(void *))sdsfree);
+    if (prefix) listAddNodeTail(s->prefixes, sdsdup(prefix));
     s->preserved = dictCreate(&snapshotPreservedDictType);
+    s->type_mask = 0;
     listAddNodeTail(server.keyspace_snapshots, s);
     server.snapshots_open++;
     return s;
+}
+
+/* Restrict the snapshot to a set of value types (OBJ_*). Additive: each call
+ * adds one type; with none added, all types are preserved. */
+void kvSnapshotAddType(keyspaceSnapshot *s, int objtype) {
+    s->type_mask |= (1u << objtype);
 }
 
 static keyspaceSnapshot *snapshotFind(uint64_t id) {
@@ -109,7 +120,7 @@ void kvSnapshotFree(keyspaceSnapshot *s) {
     listNode *ln = listSearchKey(server.keyspace_snapshots, s);
     if (ln) listDelNode(server.keyspace_snapshots, ln);
     dictRelease(s->preserved); /* val destructor decrRefCounts every frozen value */
-    if (s->prefix) sdsfree(s->prefix);
+    listRelease(s->prefixes);  /* free method sdsfree's each prefix */
     zfree(s);
     server.snapshots_open--;
 }
@@ -118,9 +129,25 @@ void kvSnapshotFree(keyspaceSnapshot *s) {
 
 /* Is `keyname` within this snapshot's scope? */
 static inline int snapshotKeyInScope(keyspaceSnapshot *s, sds keyname) {
-    if (s->prefix == NULL) return 1;
-    size_t plen = sdslen(s->prefix);
-    return sdslen(keyname) >= plen && memcmp(keyname, s->prefix, plen) == 0;
+    if (listLength(s->prefixes) == 0) return 1; /* whole DB */
+    size_t klen = sdslen(keyname);
+    listIter li;
+    listNode *ln;
+    listRewind(s->prefixes, &li);
+    while ((ln = listNext(&li))) {
+        sds p = listNodeValue(ln);
+        size_t plen = sdslen(p);
+        if (klen >= plen && memcmp(keyname, p, plen) == 0) return 1;
+    }
+    return 0;
+}
+
+/* Does snapshot `s` want to preserve `kv` for `key`? Applies the prefix and type
+ * scope filters (the caller has already checked db match and not-already-preserved). */
+static int snapshotWantsKey(keyspaceSnapshot *s, robj *key, kvobj *kv) {
+    if (!snapshotKeyInScope(s, key->ptr)) return 0;
+    if (s->type_mask && !(s->type_mask & (1u << kv->type))) return 0;
+    return 1;
 }
 
 /* Deep-copy a value for the frozen side. Returns NULL for values with no dup
@@ -188,8 +215,8 @@ void snapshotPreserveForWrite(redisDb *db, robj *key, kvobj *kv) {
     while ((ln = listNext(&li))) {
         keyspaceSnapshot *s = listNodeValue(ln);
         if (s->dbid != db->id) continue;
-        if (!snapshotKeyInScope(s, keyname)) continue;
         if (dictFind(s->preserved, keyname) != NULL) continue;
+        if (!snapshotWantsKey(s, key, kv)) continue;
         if (frozen == NULL) {
             /* Deep-copy the current value; if the type isn't dup-able yet
              * (module), skip preservation entirely rather than risk corruption. */
@@ -231,8 +258,8 @@ void snapshotPreserveForDelete(redisDb *db, robj *key, kvobj *kv) {
     while ((ln = listNext(&li))) {
         keyspaceSnapshot *s = listNodeValue(ln);
         if (s->dbid != db->id) continue;
-        if (!snapshotKeyInScope(s, keyname)) continue;
         if (dictFind(s->preserved, keyname) != NULL) continue;
+        if (!snapshotWantsKey(s, key, kv)) continue;
         if (is_string && frozen == NULL) {
             robj *dup = snapshotDupValue(db->id, key, kv); /* RAW copy */
             frozen = kvobjSet(key->ptr, dup, 0);
@@ -256,8 +283,20 @@ kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj) {
                                   LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH);
 }
 
+static int objTypeFromName(const char *n) {
+    if (!strcasecmp(n, "string")) return OBJ_STRING;
+    if (!strcasecmp(n, "list"))   return OBJ_LIST;
+    if (!strcasecmp(n, "set"))    return OBJ_SET;
+    if (!strcasecmp(n, "zset"))   return OBJ_ZSET;
+    if (!strcasecmp(n, "hash"))   return OBJ_HASH;
+    if (!strcasecmp(n, "module")) return OBJ_MODULE;
+    if (!strcasecmp(n, "stream")) return OBJ_STREAM;
+    return -1;
+}
+
 /* Subcommands:
  *   DEBUG KVSNAPSHOT CREATE [PREFIX <p>]   -> integer snapshot id
+ *   DEBUG KVSNAPSHOT ADDTYPE <id> <type>   -> restrict to a value type (+OK)
  *   DEBUG KVSNAPSHOT GET   <id> <key>      -> string value as seen by the snapshot
  *   DEBUG KVSNAPSHOT HGET  <id> <key> <fld>-> hash field value seen by the snapshot
  *   DEBUG KVSNAPSHOT LEN   <id> <key>      -> object length (elements / strlen)
@@ -281,6 +320,17 @@ void debugKvSnapshotCommand(client *c) {
         addReply(c, shared.ok);
         return;
     }
+
+    if (c->argc == 5 && !strcasecmp(c->argv[2]->ptr, "addtype")) {
+        keyspaceSnapshot *s = snapshotFind(strtoull(c->argv[3]->ptr, NULL, 10));
+        if (!s) { addReplyError(c, "no such snapshot id"); return; }
+        int t = objTypeFromName(c->argv[4]->ptr);
+        if (t < 0) { addReplyError(c, "unknown type"); return; }
+        kvSnapshotAddType(s, t);
+        addReply(c, shared.ok);
+        return;
+    }
+
 
     if (c->argc == 5 && !strcasecmp(c->argv[2]->ptr, "get")) {
         keyspaceSnapshot *s = snapshotFind(strtoull(c->argv[3]->ptr, NULL, 10));

@@ -320,7 +320,7 @@ void RM_FreeKeyspaceSnapshot(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *s
 All configuration goes through the **versioned `cfg` struct passed to the
 constructor** (mirroring `RM_CreateDataType`'s methods struct), not per-option
 setter functions. This keeps the API surface tiny as options accrue — follow-up
-PRs add *fields* (type filter, size cap, hash-delta flag), not new functions —
+PRs add *fields* (type filter, hash-delta flag), not new functions —
 and applies config **atomically at creation under the GIL, before any write can
 be preserved**, so there's no "created-but-not-yet-configured" window in which a
 write would be captured under the wrong config.
@@ -341,9 +341,32 @@ unsupported.
 > so those types are retained as-is on delete. Covered by
 > `tests/unit/moduleapi/kvsnapshot.tcl`.
 
-Scoping is via `cfg->prefix`. Richer scope controls (type filter, size cap) and
-behavior flags (hash delta-log) arrive in follow-up PRs as additional `cfg`
-fields, not new functions (see §7).
+Scope is set through the `cfg` struct passed to `RM_CreateKeyspaceSnapshot` (§6).
+Behavior flags (hash delta-log) arrive in a later PR as further `cfg` fields, not
+new functions (see §7).
+
+### Bounding the copy cost — scope controls
+
+The benchmark (§13) shows the deep-copy cost is negligible for small documents
+(~1 µs) but grows ~linearly with element count for hash/JSON (tens of ms at 100k
+fields). Two `cfg` knobs bound *which* values are copied:
+
+- **Prefix** (`cfg->prefix`): only keys under an index's prefix.
+- **Type** (`cfg->type_mask`, a bitmask of `1u << REDISMODULE_KEYTYPE_*`): only
+  the value types the consumer reads — e.g. HASH + MODULE for a hash/JSON index,
+  so a list in scope is never copied. (`REDISMODULE_KEYTYPE_MODULE` matches all
+  module types.)
+
+A per-value **size** bound (skip huge values) was considered but deliberately
+left out: its natural unit differs by type (element count vs bytes), it's a
+degrade-and-skip stopgap, and the delta-log direction (§9/§14) makes large values
+*cheap* rather than skipped. It can be reintroduced later, coupled to a mechanism
+and with a unit chosen against a measured need.
+
+These "copy fewer" controls answer the large-document concern by not copying what
+the consumer won't read; they compose with a future delta/undo-log or
+structural-sharing approach that
+makes each large copy *cheaper* (§9).
 
 ---
 
@@ -356,9 +379,9 @@ new functions — so the API surface stays small as capability grows.
 
 | PR | Content | Status |
 |----|---------|--------|
-| **1 — core (this PR)** | Generic value-MVCC: `keyspace_version`, the `snapshots_open` gate, the 3 write/delete hooks (§5), preserve-on-write deep-copy for all native types + module-type `copy2`/`copy`, DB scoping, `cfg->prefix` scoping, reads (main thread and background under the GIL), the RM API (`Create`/`GetVersion`/`OpenKey`/`Free`), and the `DEBUG KVSNAPSHOT` test surface. | proposed |
-| **2 — scope controls** | Bound worst-case copy cost: `cfg` gains a **type filter** and a **size cap** (skip + count oversized values); `RM_SnapshotGetSkippedCount`. | ready |
-| **3 — hash field delta-log** | Opt-in O(delta) hash writes (`cfg` flag): per-field inverse deltas with tombstones instead of deep-copying the whole hash; materialize for whole-doc read / delete; the size cap bounds the one O(size) step. | ready (spike hardened for HSET/HDEL/DEL) |
+| **1 — core** | Generic value-MVCC: `keyspace_version`, the `snapshots_open` gate, the 3 write/delete hooks (§5), preserve-on-write deep-copy for all native types + module-type `copy2`/`copy`, DB scoping, `cfg->prefix` scoping, reads (main thread and background under the GIL), the RM API (`Create`/`OpenKey`/`Free`), and the `DEBUG KVSNAPSHOT` test surface. | merged prerequisite |
+| **2 — scope controls (this PR)** | `cfg` gains a **type filter** (`type_mask`): preserve only the value types the consumer reads (e.g. HASH+MODULE), so unindexed types in scope are never copied. | proposed |
+| **3 — hash field delta-log** | Opt-in O(delta) hash writes (`cfg` flag): per-field inverse deltas with tombstones instead of deep-copying the whole hash; materialize (hashTypeDup + apply deltas) for whole-doc read / delete. | HSET/HDEL/DEL + reads |
 | **JSON — path-delta contract** | The proper JSON write-CPU fix: a module-type *preserve-strategy* callback set (`snapshot_reconstruct` / `snapshot_free_delta`) plus `RM_SnapshotRecordDelta`, so RedisJSON captures path-level inverse deltas and reconstructs as-of-snapshot — the delta-log's shape exposed to module types. Cross-team (a core-contract PR + a RedisJSON PR). | future |
 
 Reads are always **under the GIL** — the lock-free variant from the earlier
@@ -378,7 +401,7 @@ pin-based sketch is gone.
   documented for general users.
 - **Memory under a long-held snapshot** grows with write churn during the
   snapshot's life (same shape as fork COW). Mitigate with prefix/type scoping and
-  the size cap (follow-up PR), or by aborting a snapshot past a memory threshold.
+  or by aborting a snapshot past a memory threshold.
 - **Over-copy on aggregate delete/overwrite:** the `lookupKeyWrite` hook copies
   aggregates eagerly, so a command that *looks up an aggregate for write but then
   deletes or wholesale-replaces it* pays a wasted deep copy (the frozen original
@@ -454,3 +477,74 @@ pin-based sketch is gone.
 | **Freeze a detached side copy** (leave live untouched) | Freezing a detached copy and leaving the live value in place avoids reinstalling — no `dictEntryLink` refresh, no object-identity churn, and provably invisible to WATCH/replication/notifications. A copy-free *retain* keeps a *shared live* object exposed to `RENAME`/`MOVE`/realloc, needing a safety review first, so it's a possible future optimization (§5). |
 | **Per-snapshot scoping in the core** | Highest-ROI optimization for the RediSearch workload — indexed keys are a subset, so scoping turns "copy on all writes" into "copy on indexed writes" (§5). |
 | **Branch per milestone** off a base branch | Keeps each milestone independently reviewable/measurable (§7). |
+
+---
+
+## 12. Consumer usage (RediSearch)
+
+The intended pattern mirrors RediSearch's existing concurrent-search flow
+(`RPSafeLoader`): create the snapshot on the **main thread** at query dispatch,
+scope it to the index's key prefixes, hand it to the worker, and read under the
+GIL in bursts. All snapshot API calls require the GIL held.
+
+```c
+/* main thread, at query dispatch (GIL held) */
+RedisModuleKeyspaceSnapshot *snap = RedisModule_CreateKeyspaceSnapshot(ctx, NULL);
+RedisModule_SnapshotAddKeyPrefix(ctx, snap, prefix1);   /* e.g. "doc:"  */
+RedisModule_SnapshotAddKeyPrefix(ctx, snap, prefix2);   /* e.g. "item:" */
+uint64_t v = RedisModule_SnapshotGetVersion(snap);      /* align to the index epoch */
+/* dispatch (snap, v) to the worker; return to the event loop */
+
+/* worker thread, per load burst */
+RedisModule_ThreadSafeContextLock(tctx);                /* acquire the GIL */
+for (each matched doc in this batch) {
+    RedisModuleKey *k = RedisModule_SnapshotOpenKey(tctx, snap, docKeyName);
+    if (k) { /* RM_HashGet / RM_ModuleTypeGetValue ...; copy out what you keep */ }
+    RedisModule_CloseKey(k);
+}
+RedisModule_ThreadSafeContextUnlock(tctx);              /* main thread may write now;
+                                                           preserve fires for `snap` */
+/* ... score / aggregate on the worker; next burst stays consistent as-of v ... */
+
+/* when the query is done (worker under the GIL, or hand back to main): */
+RedisModule_FreeKeyspaceSnapshot(tctx, snap);
+```
+
+Contract reminders: values returned by `RM_SnapshotOpenKey` are valid only while
+the GIL is held *and* the snapshot is alive — copy out anything kept across a
+yield; the snapshot is scoped to the DB the creating context was on; and all
+`AddKeyPrefix` calls must happen immediately after `Create`, before any writes
+you need preserved. Consistency across load bursts is the main win (a single
+burst is already internally consistent); memory grows only with keys *written*
+(in scope) while the snapshot is open — see §8.
+
+---
+
+## 13. Benchmark: preserve (deep-copy) cost vs document size
+
+Measured the extra latency of the *first* write to a key under a whole-DB
+snapshot (which pays the deep copy), isolated by subtracting the no-snapshot
+baseline; and `used_memory` delta per copy. Native types via `redis-cli --pipe`,
+JSON via RedisJSON v8.9.81 (`copy` callback). Single-run; orders of magnitude are
+stable. Scripts: `scratchpad/bench_snapshot_copy.sh`, `bench_snapshot_json.sh`.
+
+| N (elems/fields) | HASH latency | JSON latency | LIST latency | mem/copy (HASH) |
+|--:|--:|--:|--:|--:|
+| 100     | 1.2 µs  | 2.9 µs  | 2 µs    | 1 KB    |
+| 1,000   | 268 µs  | 256 µs  | 7 µs    | 30 KB   |
+| 10,000  | 3.3 ms  | 1.4 ms  | 267 µs  | 332 KB  |
+| 100,000 | 89 ms   | 47 ms   | 1.1 ms  | 3.85 MB |
+
+Takeaways:
+- **Small docs (≤100): ~1–3 µs, a few KB** — negligible for all types.
+- **HT-encoded hash and JSON cost ~0.5–1 µs *per field*** and blow up on large
+  docs (tens of ms + megabytes at 100k) — and these are exactly the types
+  RediSearch reads. The hash cliff is the listpack→hashtable transition
+  (`hash-max-listpack-entries`, default 128).
+- **Lists/quicklist-backed types are ~75× cheaper per element** (bulk memcpy),
+  so a "300k-element list" is only ~ms — the villain is large hash/JSON, not lists.
+
+Conclusion: the mechanism is viable when indexed documents are bounded; **type
+scoping** (§6) avoids copying what the consumer won't read, and a
+**delta/undo-log** (§9) is the path to making large hash/JSON copies *cheap*
+(O(delta) instead of O(value)) if measurement shows large hot documents are real.

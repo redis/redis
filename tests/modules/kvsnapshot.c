@@ -22,6 +22,18 @@ static int rmstrEq(RedisModuleString *s, const char *c) {
 
 #define FAIL(msg) do { RedisModule_ReplyWithError(ctx, "ERR " msg); goto done; } while (0)
 
+/* Read a string from the snapshot's view of `keyc`; 1 if it equals `expected`. */
+static int snapStrEq(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap,
+                     const char *keyc, const char *expected) {
+    RedisModuleString *k = RedisModule_CreateString(ctx, keyc, strlen(keyc));
+    RedisModuleKey *kk = RedisModule_SnapshotOpenKey(ctx, snap, k);
+    if (!kk) return 0;
+    size_t l; char *b = RedisModule_StringDMA(kk, &l, REDISMODULE_READ);
+    int ok = (l == strlen(expected) && memcmp(b, expected, l) == 0);
+    RedisModule_CloseKey(kk);
+    return ok;
+}
+
 /* A trivial module data type (a heap long long) that registers a `copy`
  * callback — like RedisJSON — so we can exercise snapshotting of module-type
  * values. */
@@ -158,9 +170,7 @@ static int cmd_test(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Call(ctx, "DEL", "c", "dbk");
     RedisModule_SelectDb(ctx, origdb);
 
-    /* --- config struct: prefix scoping (exercises the cfg path of Create) ---
-     * A snapshot scoped to "keep:" preserves in-scope keys but not others; an
-     * out-of-scope key reads live (not preserved). */
+    /* --- config: prefix scoping (cfg->prefix) --- */
     RedisModule_Call(ctx, "SET", "cc", "keep:x", "old");
     RedisModule_Call(ctx, "SET", "cc", "skip:y", "old");
     RedisModuleKeyspaceSnapshotConfig pcfg = {
@@ -170,16 +180,56 @@ static int cmd_test(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     snap = RedisModule_CreateKeyspaceSnapshot(ctx, &pcfg);
     RedisModule_Call(ctx, "SET", "cc", "keep:x", "new");
     RedisModule_Call(ctx, "SET", "cc", "skip:y", "new");
-    RedisModuleString *kx = RedisModule_CreateString(ctx, "keep:x", 6);
-    RedisModuleString *ky = RedisModule_CreateString(ctx, "skip:y", 6);
-    size_t plen; char *pbuf;
-    k = RedisModule_SnapshotOpenKey(ctx, snap, kx);   /* in scope -> preserved -> old */
-    pbuf = k ? RedisModule_StringDMA(k, &plen, REDISMODULE_READ) : NULL;
-    if (!(pbuf && plen == 3 && pbuf[0] == 'o')) FAIL("prefix cfg: in-scope key != old");
+    if (!snapStrEq(ctx, snap, "keep:x", "old")) FAIL("prefix cfg: in-scope key != old");
+    if (!snapStrEq(ctx, snap, "skip:y", "new")) FAIL("prefix cfg: out-of-scope reads live");
+    RedisModule_FreeKeyspaceSnapshot(ctx, snap); snap = NULL;
+
+    /* --- multiple concurrent snapshots at DISTINCT baselines, same key --- */
+    RedisModule_Call(ctx, "SET", "cc", "gk", "g0");
+    RedisModuleKeyspaceSnapshot *s1 = RedisModule_CreateKeyspaceSnapshot(ctx, NULL);
+    RedisModule_Call(ctx, "SET", "cc", "gk", "g1");             /* preserves g0 for s1 */
+    RedisModuleKeyspaceSnapshot *s2 = RedisModule_CreateKeyspaceSnapshot(ctx, NULL);
+    RedisModule_Call(ctx, "SET", "cc", "gk", "g2");             /* preserves g1 for s2 only */
+    if (!snapStrEq(ctx, s1, "gk", "g0")) FAIL("multi-snap: s1 baseline != g0");
+    if (!snapStrEq(ctx, s2, "gk", "g1")) FAIL("multi-snap: s2 baseline != g1");
+    r = RedisModule_Call(ctx, "GET", "c", "gk");
+    live = RedisModule_CreateStringFromCallReply(r);
+    if (!rmstrEq(live, "g2")) FAIL("multi-snap: live != g2");
+    RedisModule_FreeKeyspaceSnapshot(ctx, s1);                  /* s2 must be unaffected */
+    if (!snapStrEq(ctx, s2, "gk", "g1")) FAIL("multi-snap: s2 != g1 after s1 freed");
+    RedisModule_FreeKeyspaceSnapshot(ctx, s2);
+
+    /* --- two snapshots at the SAME baseline share one frozen copy --- */
+    RedisModule_Call(ctx, "SET", "cc", "gk", "h0");
+    RedisModuleKeyspaceSnapshot *sa = RedisModule_CreateKeyspaceSnapshot(ctx, NULL);
+    RedisModuleKeyspaceSnapshot *sb = RedisModule_CreateKeyspaceSnapshot(ctx, NULL);
+    RedisModule_Call(ctx, "SET", "cc", "gk", "h1");             /* one write, copy shared by refcount */
+    if (!snapStrEq(ctx, sa, "gk", "h0")) FAIL("shared-snap: sa != h0");
+    if (!snapStrEq(ctx, sb, "gk", "h0")) FAIL("shared-snap: sb != h0");
+    RedisModule_FreeKeyspaceSnapshot(ctx, sa);                  /* shared value survives via refcount */
+    if (!snapStrEq(ctx, sb, "gk", "h0")) FAIL("shared-snap: sb != h0 after sa freed");
+    RedisModule_FreeKeyspaceSnapshot(ctx, sb);
+
+    /* --- type filter: preserve only HASH; a LIST in scope is excluded --- */
+    RedisModule_Call(ctx, "DEL", "cc", "th", "tl");
+    RedisModule_Call(ctx, "HSET", "ccc", "th", "f", "a");
+    RedisModule_Call(ctx, "RPUSH", "ccc", "tl", "x", "y");
+    RedisModuleKeyspaceSnapshotConfig tcfg = {
+        .version = REDISMODULE_KEYSPACE_SNAPSHOT_CONFIG_VERSION,
+        .type_mask = (1u << REDISMODULE_KEYTYPE_HASH),
+    };
+    snap = RedisModule_CreateKeyspaceSnapshot(ctx, &tcfg);
+    RedisModule_Call(ctx, "HSET", "ccc", "th", "f", "b");
+    RedisModule_Call(ctx, "RPUSH", "cc", "tl", "z");
+    RedisModuleString *thk = RedisModule_CreateString(ctx, "th", 2);
+    k = RedisModule_SnapshotOpenKey(ctx, snap, thk);
+    RedisModuleString *thv = NULL;
+    if (k) RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, "f", &thv, NULL);
+    if (!rmstrEq(thv, "a")) FAIL("type-filter: hash not frozen");
     RedisModule_CloseKey(k); k = NULL;
-    k = RedisModule_SnapshotOpenKey(ctx, snap, ky);   /* out of scope -> live "new" */
-    pbuf = k ? RedisModule_StringDMA(k, &plen, REDISMODULE_READ) : NULL;
-    if (!(pbuf && plen == 3 && pbuf[0] == 'n')) FAIL("prefix cfg: out-of-scope key != new");
+    RedisModuleString *tlk = RedisModule_CreateString(ctx, "tl", 2);
+    k = RedisModule_SnapshotOpenKey(ctx, snap, tlk);
+    if (!k || RedisModule_ValueLength(k) != 3) FAIL("type-filter: list should read live (len 3)");
     RedisModule_CloseKey(k); k = NULL;
     RedisModule_FreeKeyspaceSnapshot(ctx, snap); snap = NULL;
 
