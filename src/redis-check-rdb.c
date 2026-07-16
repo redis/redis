@@ -455,8 +455,8 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
      * an already initialized Redis instance, check if we really need to. */
     if (shared.integers[0] == NULL)
         createSharedObjects();
-    /* The hash template registry must exist so that template-referencing
-     * keys can be loaded. */
+
+    server.main_thread_id = pthread_self(); /* Needed for hashtemplate keys free path */
     hashTemplatesInit();
     server.loading_process_events_interval_bytes = 0;
     server.sanitize_dump_payload = SANITIZE_DUMP_YES;

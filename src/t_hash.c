@@ -766,6 +766,7 @@ static inline int canThreadWriteRegistry(void) {
 /* Decrement key_refcount when freeing a hash key. */
 static void hashTemplateDecrKeyRef(hashTemplate *tmpl) {
     serverAssert(canThreadWriteRegistry());
+    serverAssert(tmpl);
     serverAssert(tmpl->key_refcount > 0);
     htemplates->total_key_refs--;
     if (--tmpl->key_refcount == 0) hashTemplateFreeIfUnreferenced(tmpl);
@@ -883,7 +884,7 @@ void hashTemplatesCron(void) {
 
 /* Get number of templates in the registry. */
 size_t hashTemplateRegistrySize(void) {
-    if (!htemplates->by_fields) return 0;
+    if (!htemplates || !htemplates->by_fields) return 0;
     return dictSize(htemplates->by_fields);
 }
 
@@ -4091,7 +4092,7 @@ static void himportFsDictValDestructor(dict *d, void *val) {
     sdsfree(fs->name);
     hashTemplate *fs_tmpl = hashTemplateGetById(fs->tmpl_id);
     if (fs_tmpl) hashTemplateDecrHoldRef(fs_tmpl);
-    if (fs->value_order) zfree(fs->value_order);
+    zfree(fs->value_order);
     zfree(fs);
 }
 static dictType himportFsDictType = {
@@ -4104,7 +4105,7 @@ static dictType himportFsDictType = {
 static size_t himportFieldsetMemUsage(himportFieldset *fs) {
     hashTemplate *tmpl = hashTemplateGetById(fs->tmpl_id);
     return sizeof(*fs) + sdsZmallocSize(fs->name) +
-           (size_t)tmpl->field_count * sizeof(int) + tmpl->mem_size;
+           zmalloc_size(fs->value_order) + tmpl->mem_size;
 }
 
 /* Get fieldset by name. Checks the last-used cache first. */
@@ -4125,6 +4126,8 @@ static himportFieldset *himportFieldsetsGet(client *c, sds name) {
 
 /* Add or replace a fieldset. */
 static void himportFieldsetsAdd(client *c, sds name, hashTemplate *tmpl, int *value_order) {
+    serverAssert(value_order != NULL);
+
     himportFieldsets *fieldsets = c->himport_fieldsets;
     if (!fieldsets) {
         fieldsets = zcalloc(sizeof(*fieldsets));
@@ -4204,18 +4207,19 @@ static int himportCmpFieldIdx(const void *a, const void *b) {
  * Register a named fieldset on this client so subsequent HIMPORT SET calls
  * only have to pass values (not field names). Sorts the fields in sdscmplen
  * order (by length, then bytes) and looks up / creates the matching template
- * in the registry, taking a hold reference on it. The original user-provided 
- * field order is preserved as field_order[] so HIMPORT SET can map its
- * positional values back into template-sorted order. Rejects duplicate field
- * names in the fieldset. */
+ * in the registry, taking a hold reference on it. So that on HIMPORT SET, no
+ * lookup will be needed. The original user-provided field order is preserved 
+ * as field_order[], so HIMPORT SET can map its positional values back into 
+ * template-sorted order. Rejects duplicate field names in the fieldset. */
 void himportPrepareCommand(client *c) {
     sds fieldset_name = c->argv[2]->ptr;
     int field_count = c->argc - 3;
     robj **field_argv = &c->argv[3];  /* Fields start at argv[3]. */
 
-    /* Create field_order: maps 'field index in fieldset' -> 'user argv index'.
-     * Fieldset fields are sorted in sdscmplen order (length, then bytes), so we
-     * sort indexes by field name and store the mapping. */
+    /* field_order maps template field index -> user argv field position. 
+     * Template fields are kept sorted (sdscmplen: length first, then bytes),
+     * so we sort the user's indexes by field name.
+     * e.g. PREPARE fs f1 f3 f2 -> template order f1 f2 f3. */
     int *field_order = zmalloc(sizeof(int) * field_count);
     for (int i = 0; i < field_count; i++)
         field_order[i] = i;
@@ -4223,7 +4227,7 @@ void himportPrepareCommand(client *c) {
     himport_cmp_argv = field_argv;
     qsort(field_order, field_count, sizeof(int), himportCmpFieldIdx);
 
-    /* Build sorted fields array for tmpl lookup. */
+    /* Build sorted fields array for template lookup. */
     sds *sorted_fields = zmalloc(sizeof(sds) * field_count);
     for (int i = 0; i < field_count; i++)
         sorted_fields[i] = field_argv[field_order[i]]->ptr;
@@ -4238,7 +4242,7 @@ void himportPrepareCommand(client *c) {
         }
     }
 
-    /* Get or create tmpl with sorted fields and hold a reference. */
+    /* Get or create template with sorted fields and hold a reference. */
     hashTemplate *tmpl = hashTemplateGetOrCreate(sorted_fields, field_count);
     hashTemplateIncrHoldRef(tmpl);
     zfree(sorted_fields);
@@ -4301,7 +4305,7 @@ void himportSetCommand(client *c) {
      * propagating the fields separately gets complex once replicas, sub-replicas
      * and atomic slot migration are in the picture. So we send the fields
      * together with the values in one command. A plain HSET-like command would
-     * work, but serializing/deserializing all the fields there is slow and a
+     * work, but serializing/deserializing all the fields is slow and a
      * replica may fall behind the master. Instead we send a RESTORE: it is more
      * compact (field names usually travel as one listpack blob, unless they
      * don't fit one, then they go as individual strings) and fast on the

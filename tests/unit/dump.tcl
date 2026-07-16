@@ -359,6 +359,15 @@ start_server {tags {"dump"}} {
             # destination registry, holding four keys in total.
             assert_equal 2 [status $second hash_templates]
             assert_equal 4 [status $second hash_template_keys]
+
+            # Source has no template keys..
+            $first himport discardall
+            wait_for_condition 50 100 {
+                [status $first hash_templates] == 0 &&
+                [status $first hash_template_keys] == 0
+            } else {
+                fail "source registry not drained"
+            }
         }
     } {} {external:skip}
 

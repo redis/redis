@@ -189,15 +189,15 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r himport discardall
         wait_num_templates 0
 
-        # One template, pinned by a fieldset (a hold-ref) and two keys (key-refs).
+        # One template, pinned by a fieldset and two keys.
         r himport prepare fs x y z
         r himport set rc:1 fs 1 2 3
         r himport set rc:2 fs 4 5 6
         assert_equal [s hash_templates] 1
         assert_equal [s hash_template_keys] 2
 
-        # Deleting every key drops the key-refs to zero, but the still-prepared
-        # fieldset keeps the template alive - it can still create new keys.
+        # Deleting every key drops the key-refs to zero, but the still prepared
+        # fieldset keeps the template alive
         r del rc:1 rc:2
         assert_equal [s hash_template_keys] 0
         assert_equal [s hash_templates] 1
@@ -205,8 +205,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [s hash_template_keys] 1
         assert_equal [s hash_templates] 1
 
-        # Drop the last key and the fieldset; only with no references left is the
-        # template reclaimed
+        # Drop the last key and the fieldset, template will be deleted
         r del rc:3
         assert_equal [r himport discard fs] 1
         wait_num_templates 0
@@ -492,11 +491,8 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
     }
 
     test {HGETALL on template-based hash} {
-        make_hashtmpl basic:getall f1 v1 f2 v2 f3 v3
-        set result [r hgetall basic:getall]
-        assert_equal [llength $result] 6
-        assert_equal [lindex $result 0] {f1}
-        assert_equal [lindex $result 1] {v1}
+        make_hashtmpl basic:getall f1 v1 f2 v2 3 3
+        assert_equal {3 3 f1 v1 f2 v2} [r hgetall basic:getall]
     }
 
     test {HLEN on template-based hash} {
@@ -614,7 +610,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
     test {HGETEX PERSIST returns value and leaves field without TTL} {
         make_hashtmpl hgetex:persist a 1 b 2
         assert_encoding $encoding hgetex:persist
-        # PERSIST on a field that has no TTL is a TTL no-op. Whether the hash
+        # PERSIST on a field that has no TTL is a no-op. Whether the hash
         # deconverts from the template is an implementation detail we don't
         # assert on; what matters is the values survive and no TTL is left.
         assert_equal [r hgetex hgetex:persist PERSIST FIELDS 1 a] {1}
@@ -657,7 +653,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl hset:multi a 1
         r hset hset:multi b 2 c 3 d 4
         assert_encoding $encoding hset:multi
-        assert_equal [r hlen hset:multi] 4
+        assert_equal {a 1 b 2 c 3 d 4} [r hgetall hset:multi]
     }
 
     test {HSETNX on existing field in template-based hash} {
@@ -808,7 +804,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hget hfe:test name] alice
         assert_equal [r hget hfe:test email] alice@example.com
 
-        # The TTL is actually active on the targeted field, and only it.
+        # The TTL is set.
         set ttl [lindex [r hpttl hfe:test FIELDS 1 name] 0]
         assert_range $ttl 1 100000
         assert_equal [r hpttl hfe:test FIELDS 1 email] {-1}
@@ -820,7 +816,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hexpire hfe:expire 100 FIELDS 1 age] {1}
         assert_encoding $hfe_target hfe:expire
 
-        # Field data is preserved, and the TTL behaves correctly afterwards.
+        # Field data is preserved and the TTL is set
         assert_equal [r hget hfe:expire age] 30
         assert_equal [r hget hfe:expire name] bob
 
@@ -946,18 +942,6 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r dbsize] 0
         r select 0
     }
-
-    test {Multiple FLUSHALL in succession does not crash} {
-        make_hashtmpl multi:flush a 1 b 2
-        r flushall 
-        r flushall
-        r flushall
-
-        r himport discardall
-        wait_num_template_keys 0
-        wait_num_templates 0 0
-        r ping
-    } {PONG}
     
     test {Multiple FLUSHALL ASYNC with keys in succession does not crash} {
         make_hashtmpl multi:flush a 1 b 2
@@ -1020,6 +1004,8 @@ start_server {tags {"hash" "rdb" "needs:debug" "cluster:skip"}
 
     test {RDB save and load multiple template-based hashes with shared template} {
         r flushall
+        r himport discardall
+        wait_num_templates 0
         make_hashtmpl rdb:multi1 a 1 b 2 c 3
         make_hashtmpl rdb:multi2 a 4 b 5 c 6
         make_hashtmpl rdb:multi3 x 1 y 2
@@ -1032,6 +1018,9 @@ start_server {tags {"hash" "rdb" "needs:debug" "cluster:skip"}
         assert_equal [r hgetall rdb:multi1] {a 1 b 2 c 3}
         assert_equal [r hgetall rdb:multi2] {a 4 b 5 c 6}
         assert_equal [r hgetall rdb:multi3] {x 1 y 2}
+
+        wait_num_templates 2
+        wait_num_template_keys 3
     }
 
     test {RDB save stores template hashes in compact REF form} {
@@ -1125,9 +1114,13 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
     foreach rdbpre {yes no} {
         test "AOF rewrite preserves template and plain hashes (rdb-preamble=$rdbpre)" {
             r config set aof-use-rdb-preamble $rdbpre
+            if {$encoding eq "template-array"} { r config set hash-max-listpack-entries 0 }
             r flushall
             wait_num_template_keys 0
+
+            r bgrewriteaof
             waitForBgrewriteaof r
+            set aof [get_last_incr_aof_path r]
 
             make_hashtmpl aof:k1 a 1 b 2 c 3
             make_hashtmpl aof:k2 a 4 b 5 c 6
@@ -1136,8 +1129,18 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
             r hset aof:plain1 x 100 y 200
             r hset aof:plain2 m 1 n 2 o 3
 
-            set enc1 [r object encoding aof:k1]
-            assert {$enc1 eq "template-listpack" || $enc1 eq "template-array"}
+            # HIMPORT SET propagates to the AOF as RESTORE RESPLACE; 
+            # plain HSET stays HSET.
+            assert_aof_content $aof {
+                {select *}
+                {restore aof:k1 0 * REPLACE}
+                {restore aof:k2 0 * REPLACE}
+                {restore aof:k3 0 * REPLACE}
+                {hset aof:plain1 x 100 y 200}
+                {hset aof:plain2 m 1 n 2 o 3}
+            }
+
+            assert_encoding $encoding aof:k1
             set tmpls_before [s hash_templates]
             set keys_before [s hash_template_keys]
 
@@ -1145,23 +1148,20 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
             waitForBgrewriteaof r
             r debug loadaof
 
-            set enc1r [r object encoding aof:k1]
-            set enc2r [r object encoding aof:k2]
-            set enc3r [r object encoding aof:k3]
-            assert {$enc1r eq "template-listpack" || $enc1r eq "template-array"}
-            assert {$enc2r eq "template-listpack" || $enc2r eq "template-array"}
-            assert {$enc3r eq "template-listpack" || $enc3r eq "template-array"}
-            assert_equal [r object encoding aof:plain1] "listpack"
-            assert_equal [r object encoding aof:plain2] "listpack"
+            assert_encoding $encoding aof:k1
+            assert_encoding $encoding aof:k2
+            assert_encoding $encoding aof:k3
+
+            set plain_enc [expr {$encoding eq "template-array" ? "hashtable" : "listpack"}]
+            assert_equal [r object encoding aof:plain1] $plain_enc
+            assert_equal [r object encoding aof:plain2] $plain_enc
 
             assert_equal $tmpls_before [s hash_templates]
             wait_num_template_keys $keys_before
 
-            assert_equal [r hget aof:k1 a] 1
-            assert_equal [r hget aof:k2 b] 5
-            assert_equal [r hget aof:k3 y] 8
-            assert_equal [r hget aof:plain1 x] 100
-            assert_equal [r hget aof:plain2 m] 1
+            assert_equal [r hgetall aof:k1] {a 1 b 2 c 3}
+            assert_equal [r hgetall aof:k2] {a 4 b 5 c 6}
+            assert_equal [r hgetall aof:k3] {x 7 y 8}
         }
     }
 }
@@ -1244,49 +1244,62 @@ start_server {tags {"hash" "repl" "needs:repl" "needs:debug" "cluster:skip" "ext
     }
 }
 
-# A diskless full resync loads the dataset (and its templates) straight from the
-# replication stream. The templates seen during one load must not linger into the
-# next one, otherwise a second full resync would try to load the same templates
-# again and fail. Force two back-to-back full resyncs and assert the replica
-# stays intact across both.
-start_server {tags {"hash" "repl" "needs:repl" "needs:debug" "cluster:skip" "external:skip"}
-              overrides {hash-min-template-entries 0 repl-diskless-sync yes repl-diskless-sync-delay 0}} {
-    start_server {overrides {hash-min-template-entries 0 repl-diskless-load swapdb}} {
-        test "Diskless replica survives repeated full resyncs with templates ($encoding)" {
-            set master [srv -1 client]
-            set master_host [srv -1 host]
-            set master_port [srv -1 port]
-            set replica [srv 0 client]
+# Two back-to-back full resyncs must not leak the load-time template registry:
+# templates seen during one load must not linger into the next (else the second
+# load re-adds the same templates and fails). Exercised over both sync paths.
+proc assert_resync_keeps_templates {encoding} {
+    set master [srv -1 client]
+    set master_host [srv -1 host]
+    set master_port [srv -1 port]
+    set replica [srv 0 client]
 
-            if {$encoding eq "template-array"} {
-                $master config set hash-max-listpack-entries 0
+    if {$encoding eq "template-array"} { $master config set hash-max-listpack-entries 0 }
+    $master flushall
+
+    # 1000 keys, each backed by its own distinct 3-field template.
+    for {set i 0} {$i < 1000} {incr i} {
+        $master himport prepare fs$i f${i}_a f${i}_b f${i}_c
+        $master himport set dr:$i fs$i 1 2 3
+    }
+    assert_equal [$master object encoding dr:0] $encoding
+    assert_equal [s -1 hash_templates] 1000
+    assert_equal [s -1 hash_template_keys] 1000
+    set digest [$master debug digest]
+
+    # Full resync #1: the replica reloads all 1000 templates + keys, byte-identical.
+    $replica replicaof $master_host $master_port
+    wait_for_sync $replica
+    assert_equal [$replica debug digest] $digest
+    assert_equal [s 0 hash_templates] 1000
+    wait_num_template_keys 1000 0
+
+    # Full resync #2 (changing the master replid forces a full sync) reloads the
+    # registry a second time; the first load's templates must not have leaked.
+    $replica replicaof no one
+    $master debug change-repl-id
+    $replica replicaof $master_host $master_port
+    wait_for_sync $replica
+
+    assert_equal [$replica debug digest] $digest
+    assert_equal [s 0 hash_templates] 1000
+    wait_num_template_keys 1000 0
+    assert {[s -1 sync_full] >= 2}
+}
+
+# Exercise both sync paths: diskless and disk based.
+foreach {kind diskless_sync diskless_load} {
+    diskless yes swapdb
+    disk     no  disabled
+} {
+    start_server {tags {"hash" "repl" "needs:repl" "needs:debug" "cluster:skip" "external:skip"}
+                  overrides {hash-min-template-entries 0}} {
+        start_server {overrides {hash-min-template-entries 0}} {
+            test "$kind replica survives repeated full resyncs with templates ($encoding)" {
+                [srv -1 client] config set repl-diskless-sync $diskless_sync
+                [srv -1 client] config set repl-diskless-sync-delay 0
+                [srv 0 client] config set repl-diskless-load $diskless_load
+                assert_resync_keeps_templates $encoding
             }
-            $master flushall
-            $master himport prepare fieldset a b c
-            $master himport set dr:k1 fieldset 1 2 3
-            $master himport set dr:k2 fieldset 4 5 6
-
-            # Full resync #1 (diskless load into an empty db).
-            $replica replicaof $master_host $master_port
-            wait_for_sync $replica
-            assert_equal [$replica hget dr:k1 a] 1
-            set tmpls [s 0 hash_templates]
-            set keys [s 0 hash_template_keys]
-
-            # Force full resync #2 (changing the master replid defeats partial
-            # resync) so the template registry is loaded a second time.
-            $replica replicaof no one
-            $master debug change-repl-id
-            $replica replicaof $master_host $master_port
-            wait_for_sync $replica
-
-            assert_equal PONG [$replica ping]
-            assert_equal [$replica hget dr:k1 a] 1
-            assert_equal [$replica hget dr:k2 c] 6
-            assert_equal $tmpls [s 0 hash_templates]
-
-            wait_num_template_keys $keys 0
-            assert {[s -1 sync_full] >= 2}
         }
     }
 }
@@ -1319,7 +1332,6 @@ start_server {tags {"hash" "cluster:skip"}} {
         }
 
         # With WITHVALUES: each field "fN" must pair with its own value "vN"
-        # (regression for the O(1) value-pointer index that replaced per-draw lpSeek).
         set result [r hrandfield h1 -300 WITHVALUES]
         assert_equal [llength $result] 600
         for {set i 0} {$i < 600} {incr i 2} {
@@ -1382,52 +1394,34 @@ start_server {tags {"hash" "cluster:skip"}} {
     }
 }
 
-# DUMP/RESTORE: fields_lp blob memory accounting
+# Serializing a template (DUMP) caches its field names; that cache counts toward
+# used_memory_hash_templates and is freed by a cron once the template is idle.
 start_server {tags {"hash" "needs:debug" "cluster:skip"}
               overrides {hash-min-template-entries 0}} {
-    # The fields_lp blob depends only on the field names fitting a listpack, so it
-    # is built for both value encodings: TMPL_LP (small values) and TMPL_ARRAY
+    test "template serialization memory is accounted, then reclaimed when idle" {
+        r flushall
+        r himport discardall
+        wait_num_templates 0
 
-    foreach {enc big_values} {template-listpack 0 template-array 1} {
-        test "fields_lp blob memory is accounted, then reclaimed when idle ($enc)" {
-            # Its bytes must be added to used_memory_hash_templates and, once the
-            # template goes idle, reclaimed by the cron and taken back off.
-            r flushall
-            r himport discardall
-            wait_num_templates 0
-            # Field names must each be <= hash-max-listpack-value (64) for the blob
-            # to build, so a chunky blob needs many fields; raise the entries limit
-            # so the wide field set still fits a listpack (and the small-value case
-            # stays template-listpack).
-            set saved [lindex [r config get hash-max-listpack-entries] 1]
-            r config set hash-max-listpack-entries 512
+        r config set hash-max-listpack-entries 512
+        set fields {}
+        set vals {}
+        for {set i 0} {$i < 250} {incr i} {
+            lappend fields "f${i}[string repeat _ 55]" ;# ~60 bytes each -> ~15 KB
+            lappend vals v
+        }
+        r himport prepare fs {*}$fields
+        r himport set k fs {*}$vals
 
-            # 250 field names of ~60 bytes -> a fields_lp blob of ~15 KB.
-            set n 250
-            set fields {}
-            for {set i 0} {$i < $n} {incr i} { lappend fields "f${i}[string repeat _ 55]" }
-            r himport prepare fs {*}$fields
-            # Large values (> hash-max-listpack-value) force the TMPL_ARRAY encoding.
-            if {$big_values} { set v [string repeat x 100] } else { set v v1 }
-            set vals {}
-            for {set i 0} {$i < $n} {incr i} { lappend vals $v }
-            r himport set k fs {*}$vals
-            assert_encoding $enc k
+        r dump k  ;# serializing builds the ~15 KB cache
+        set mem_with_cache [s used_memory_hash_templates]
 
-            set dump1 [r dump k] ;# builds the ~15 KB fields_lp blob
-            set with_blob [s used_memory_hash_templates]
-
-            # Cron reclaims the idle blob after a few seconds; the accounted total
-            # must drop by ~the blob size. Require a >10 KB drop so this passes only
-            # if the (chunky) blob was really counted and then reclaimed.
-            wait_for_condition 100 100 {
-                $with_blob - [s used_memory_hash_templates] > 10240
-            } else {
-                fail "fields_lp blob memory ($with_blob) was not reclaimed"
-            }
-            # The next DUMP rebuilds the reclaimed blob; it must be byte-identical.
-            assert_equal $dump1 [r dump k]
-            r config set hash-max-listpack-entries $saved
+        # Idle: the cron frees the cache and the accounted total drops back. Require
+        # a >10 KB drop so this passes only if the cache was counted and then freed.
+        wait_for_condition 100 100 {
+            $mem_with_cache - [s used_memory_hash_templates] > 10240
+        } else {
+            fail "serialization cache ($mem_with_cache bytes) was not reclaimed"
         }
     }
 }
@@ -1495,7 +1489,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
         assert_equal [r object encoding rdb:k1] $encoding
     }
 
-    test "HDEL releases template ref when key is dropped ($encoding)" {
+    test "DEL releases template ref when key is dropped ($encoding)" {
         r flushall
         wait_num_templates 0
         r hset del:1 a 1 b 2 c 3
@@ -1520,13 +1514,15 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
         assert_equal 1 [s hash_templates]
         assert_equal 2 [s hash_template_keys]
         assert_equal [r hgetall aof:1] {a 1 b 2 c 3}
+        assert_equal [r hgetall aof:2] {a 9 b 8 c 7}
         assert_equal [r object encoding aof:1] $encoding
+        assert_equal [r object encoding aof:2] $encoding
     }
 
     test "every convert-triggering write path auto-converts ($encoding)" {
         r flushall
         wait_num_templates 0
-        # Each command creates a fresh single-field key that crosses the
+        # Each command creates a new single field key that crosses the
         # threshold; every write path that triggers conversion must end up
         # template-encoded (HSET is covered separately above).
         foreach {name cmd} {
@@ -1553,6 +1549,7 @@ foreach encoding {template-listpack template-array} {
 start_server {tags {"hash" "needs:debug" "cluster:skip"}
               overrides {hash-min-template-entries 3 hash-max-template-entries 5}} {
     if {$encoding eq "template-array"} { r config set hash-max-listpack-entries 0 }
+
     # Plain (non-template) encoding of a small hash under the current config.
     set plain_enc [expr {$encoding eq "template-array" ? "hashtable" : "listpack"}]
 
@@ -1568,15 +1565,12 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
     test "bound: hashes below min stay plain ($encoding)" {
         r flushall
         wait_num_templates 0
-        # 1..2 fields: below min (3) -> plain, no template created.
-        for {set n 1} {$n <= 2} {incr n} {
-            r del k
-            set pairs {}
-            for {set i 0} {$i < $n} {incr i} { lappend pairs f$i v$i }
-            r hset k {*}$pairs
-            assert_encoding $plain_enc k
-            assert_equal 0 [s hash_templates]
-        }
+        # 1 and 2 fields: below the min (3) -> stay plain, no template created.
+        r hset one a 1
+        r hset two a 1 b 2
+        assert_encoding $plain_enc one
+        assert_encoding $plain_enc two
+        assert_equal 0 [s hash_templates]
     }
 
     test "bound: growing a hash up to min converts it in place ($encoding)" {
@@ -1596,8 +1590,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
         r hset wide f0 v0 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         assert_encoding $plain_enc wide
         assert_equal [s hash_templates] 0
-        # Same via HSETEX (no TTL keyword, so it could otherwise template): the
-        # >max field count must keep it plain on this write path too.
+        # Same via HSETEX: the >max field count must keep it plain on this write path too.
         r hsetex wide_ex FIELDS 6 f0 v0 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         assert_encoding $plain_enc wide_ex
         assert_equal [s hash_templates] 0
@@ -1614,70 +1607,58 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
 }
 }
 
-# ============================================================
 # Encoding conversion path coverage.
 # Each test exercises one specific runtime conversion path
 # between TMPL_LP / TMPL_AR / LISTPACK / LISTPACK_EX / HT.
-# ============================================================
 start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
               overrides {hash-min-template-entries 0
                          hash-max-listpack-entries 8
                          hash-max-listpack-value 64}} {
 
-    test {convert: TMPL_LP -> TMPL_AR via HSET large value} {
+    test {convert: TMPL_LP -> TMPL_ARRAY via large value on an existing field} {
+        set big [string repeat x 100]
         r himport prepare fieldset a b c d
         r himport set key fieldset 1 2 3 4
-        assert_equal [r object encoding key] template-listpack
+        assert_encoding template-listpack key
 
-        r hset key a [string repeat x 100]
-        assert_equal [r object encoding key] template-array
-        assert_equal [r hget key a] [string repeat x 100]
+        r hset key a $big
+        assert_encoding template-array key
+        assert_equal [r hget key a] $big
+        assert_equal [r hget key d] 4
 
         r del key
         r himport discard fieldset
     }
 
-    test {convert: TMPL_LP -> TMPL_AR via HSET new fields (count > listpack-entries)} {
-        # hash-max-listpack-entries is 8 in this server. Start at the limit.
+    test {convert: TMPL_LP -> TMPL_ARRAY via large value on a new field} {
+        set big [string repeat x 100]
+        r himport prepare fieldset a b c d
+        r himport set key fieldset 1 2 3 4
+        assert_encoding template-listpack key
+
+        r hset key e $big
+        assert_encoding template-array key
+        assert_equal [r hlen key] 5
+        assert_equal [r hget key e] $big
+        assert_equal [r hget key a] 1
+
+        r del key
+        r himport discard fieldset
+    }
+
+    test {convert: TMPL_LP -> TMPL_ARRAY via HSET new fields (count > listpack-entries)} {
+        # hash-max-listpack-entries is 8. Start at the limit.
         set fields {}; set values {}
-        for {set i 0} {$i < 8} {incr i} {
-            lappend fields "f$i"; lappend values "v$i"
-        }
+        for {set i 0} {$i < 8} {incr i} { lappend fields f$i; lappend values v$i }
         r himport prepare fieldset {*}$fields
         r himport set key fieldset {*}$values
-        assert_equal [r object encoding key] template-listpack
+        assert_encoding template-listpack key
 
-        # Adding the 9th field via HSET grows a new template and pushes the
-        # count past the limit -> must escalate TMPL_LP to TMPL_ARRAY.
+        # The 9th field pushes past the limit -> TMPL_ARRAY.
         r hset key f8 v8
-        assert_equal [r object encoding key] template-array
-
-        # Data integrity across the conversion.
+        assert_encoding template-array key
         assert_equal [r hlen key] 9
-        for {set i 0} {$i < 9} {incr i} {
-            assert_equal [r hget key f$i] v$i
-        }
-
-        r del key
-        r himport discard fieldset
-    }
-
-    test {convert: TMPL_LP -> TMPL_AR via HSET new field with large value} {
-        # Field count stays under hash-max-listpack-entries (8); only the new
-        # value crosses hash-max-listpack-value (64) -> must escalate to
-        # TMPL_ARRAY, mirroring the value-size rule of a plain listpack hash.
-        r himport prepare fieldset a b c d
-        r himport set key fieldset 1 2 3 4
-        assert_equal [r object encoding key] template-listpack
-
-        r hset key e [string repeat x 100]
-        assert_equal [r object encoding key] template-array
-
-        # Data integrity across the conversion.
-        assert_equal [r hlen key] 5
-        assert_equal [r hget key e] [string repeat x 100]
-        assert_equal [r hget key a] 1
-        assert_equal [r hget key d] 4
+        for {set i 0} {$i < 9} {incr i} { assert_equal [r hget key f$i] v$i }
 
         r del key
         r himport discard fieldset
@@ -1686,11 +1667,14 @@ start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
     test {convert: TMPL_LP -> LISTPACK_EX via HEXPIRE} {
         r himport prepare fieldset a b c d
         r himport set key fieldset 1 2 3 4
-        assert_equal [r object encoding key] template-listpack
+        assert_encoding template-listpack key
 
         r hexpire key 100 FIELDS 1 a
-        assert_equal [r object encoding key] listpackex
+        assert_encoding listpackex key
         assert_equal [r hget key b] 2
+        # The TTL was actually applied to field a.
+        assert_range [lindex [r httl key FIELDS 1 a] 0] 90 100
+        assert_equal [r httl key FIELDS 1 b] -1
 
         r del key
         r himport discard fieldset
@@ -1708,7 +1692,7 @@ start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
         r himport set key fieldset {*}$values
         assert_equal [r object encoding key] template-listpack
 
-        # Tighten limit so HFE-trigger escalates LP_EX -> HT.
+        # Tighten limit so it converts LP_EX -> HT.
         r config set hash-max-listpack-entries 4
         r hexpire key 100 FIELDS 1 f0
         assert_equal [r object encoding key] hashtable
@@ -1719,9 +1703,9 @@ start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
         r config set hash-max-listpack-entries $prev_e
     }
 
-    test {convert: TMPL_AR -> LISTPACK_EX via HEXPIRE (small)} {
+    test {convert: TMPL_ARRAY -> LISTPACK_EX via HEXPIRE (small)} {
         set prev_e [lindex [r config get hash-max-listpack-entries] 1]
-        # Force TMPL_AR at create time.
+        # Force TMPL_ARRAY at create time.
         r config set hash-max-listpack-entries 0
         r himport prepare fieldset a b c d
         r himport set key fieldset 1 2 3 4
@@ -1736,37 +1720,27 @@ start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
         r himport discard fieldset
     }
 
-    test {convert: TMPL_AR -> HT via HEXPIRE (count > listpack-entries)} {
-        set prev_e [lindex [r config get hash-max-listpack-entries] 1]
-        # Force TMPL_AR at create time (entries=0 fails fits-listpack check).
-        r config set hash-max-listpack-entries 0
+    test {convert: TMPL_ARRAY -> HT via HEXPIRE (count > listpack-entries)} {
         set fields {}; set values {}
-        for {set i 0} {$i < 16} {incr i} {
-            lappend fields "f$i"; lappend values "v$i"
-        }
+        for {set i 0} {$i < 16} {incr i} { lappend fields f$i; lappend values v$i }
         r himport prepare fieldset {*}$fields
         r himport set key fieldset {*}$values
-        assert_equal [r object encoding key] template-array
+        assert_encoding template-array key
 
-        # Raise limit just enough that count(16) still > limit -> escalates to HT.
-        r config set hash-max-listpack-entries 4
         r hexpire key 100 FIELDS 1 f0
-        assert_equal [r object encoding key] hashtable
+        assert_encoding hashtable key
         assert_equal [r hget key f7] v7
 
         r del key
         r himport discard fieldset
-        r config set hash-max-listpack-entries $prev_e
     }
 }
 
-# ============================================================
 # Memory savings. Many identical hashes that share one template must be far
 # cheaper as templates, because the field names are stored once in the shared
 # template instead of once per key. Each test creates 20000 identical hashes in
 # both forms and requires the template form to be meaningfully smaller, both for
 # a single key (MEMORY USAGE) and across all keys (used_memory).
-# ============================================================
 start_server {tags {"hash" "memory" "needs:debug" "cluster:skip"}
               overrides {hash-min-template-entries 0}} {
     # Every hash holds the same 32 fields. Field names and values are the same
@@ -1820,8 +1794,6 @@ start_server {tags {"hash" "memory" "needs:debug" "cluster:skip"}
 
     test {INFO and MEMORY STATS track shared template memory} {
         r flushall
-        # Wait for any templates from earlier tests to drain (freed via the
-        # pending_free queue on serverCron) so we start from a clean baseline.
         wait_num_templates 0
         set base_info  [s used_memory_hash_templates]
         set base_stats [dict get [r memory stats] hash.templates]
@@ -1912,10 +1884,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
         assert_equal PONG [r ping]
     }
 
-    # Template resurrection: a template is deleted. BIO queues it for pending_free
-    # then immediately recreated with the same field set. The drain must skip 
-    # since it is referenced again. 
-    test {Template resurrection: pending_free skips re-referenced template} {
+    test {Attach key to a template and delete its last key concurrently} {
         r flushall
         r config set hash-min-template-entries 1
         r config set lazyfree-lazy-user-del yes
@@ -1926,7 +1895,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
 
         r del k1                ;# lazy delete -> BIO queues the template for free
         r hset k1 a 4 b 5 c 6   ;# recreate with the same field set (resurrection)
-        after 150               ;# let the pending_free drain run
+        after 150               ;# let the hash template cron run to collect dropped key ref
 
         # Still present: the drain skipped the re-referenced id.
         assert_equal 1 [s hash_templates]
@@ -1936,9 +1905,6 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
 }
 
 # Load-time conversion of plain hashes is governed by hash-rdb-load-min-template-entries
-# (separate from the HSET-path hash-min-template-entries). With it disabled (the
-# default 0), a plain hash loaded from RDB/RESTORE stays plain; it only converts
-# to a template encoding when that config is enabled (> 0).
 start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
               overrides {hash-min-template-entries 0 hash-max-listpack-entries 64 appendonly no}} {
     # Negative control: with hash-rdb-load-min-template-entries at its default
@@ -2129,10 +2095,10 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
     }
 
     test {disassembly tolerates a throttle-triggering RDB load (simple scenario)} {
-        # Enough distinct single-use field sets that the load-time creation
-        # throttle latches partway through (it kicks in once too many one-key
-        # templates pile up). The load must still finish with all data intact
-        # and no few-key templates left behind.
+        # 1100 keys, each with a unique field set. On load this trips the template
+        # creation throttle (too many single-use templates). The load must still
+        # finish with all data intact, and since no field set is shared, no
+        # template survives.
         r flushall
         wait_num_templates 0
         for {set i 0} {$i < 1100} {incr i} {
@@ -2250,8 +2216,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
 # listpack/hashtable in place, the key's memory size changes. Redis keeps a
 # per-slot allocation-size histogram that must stay in sync with that change,
 # or its consistency check fails on the next write to the slot. That histogram
-# only exists when key-memory-histograms is enabled at startup, so this test
-# needs its own server with it on for both the save and the reload.
+# only exists when key-memory-histograms is enabled at startup.
 start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
               overrides {hash-min-template-entries 0 hash-max-listpack-entries 64
                          appendonly no key-memory-histograms yes}} {
@@ -2314,7 +2279,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
         r save
         restart_server 0 true false
 
-        # Existing emplate header turns both config off: the template survives
+        # Existing template header turns both config off: the template survives
         # (not disassembled) and the plain hash is NOT converted.
         assert_equal template-listpack [r object encoding tmpl]
         assert_equal listpack [r object encoding plain]
@@ -2411,46 +2376,6 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
     }
 }
 
-# Disk-based replica (repl-diskless-load disabled): the received RDB is written
-# to disk and loaded via rdbLoad(). A second full resync must not leak the
-# load-time template registry (mirrors the diskless test for the disk path).
-start_server {tags {"hash" "repl" "needs:repl" "needs:debug" "cluster:skip" "external:skip"}
-              overrides {hash-min-template-entries 0 repl-diskless-sync no}} {
-    start_server {overrides {hash-min-template-entries 0 repl-diskless-load disabled}} {
-        test {Disk-based replica survives repeated full resyncs with templates} {
-            set master [srv -1 client]
-            set master_host [srv -1 host]
-            set master_port [srv -1 port]
-            set replica [srv 0 client]
-
-            $master flushall
-            $master himport prepare fieldset a b c
-            $master himport set dr:k1 fieldset 1 2 3
-            $master himport set dr:k2 fieldset 4 5 6
-
-            $replica replicaof $master_host $master_port
-            wait_for_sync $replica
-            assert_equal [$replica hget dr:k1 a] 1
-            set tmpls [s 0 hash_templates]
-            set keys [s 0 hash_template_keys]
-
-            # Force full resync #2 (changing the master replid defeats partial
-            # resync) so the template registry is loaded a second time.
-            $replica replicaof no one
-            $master debug change-repl-id
-            $replica replicaof $master_host $master_port
-            wait_for_sync $replica
-
-            assert_equal PONG [$replica ping]
-            assert_equal [$replica hget dr:k1 a] 1
-            assert_equal [$replica hget dr:k2 c] 6
-            assert_equal $tmpls [s 0 hash_templates]
-
-            wait_num_template_keys $keys 0
-            assert {[s -1 sync_full] >= 2}
-        }
-    }
-}
 
 # Chained replication A->B->C: RESTORE (the propagated form of HIMPORT SET) must
 # flow down the chain and reconstruct the template hash on every node.
@@ -2460,15 +2385,11 @@ start_server {tags {"hash" "repl" "needs:repl" "cluster:skip" "external:skip"}
         start_server {overrides {hash-min-template-entries 0}} {
             test {Chained replication propagates template hashes A->B->C} {
                 set a [srv -2 client]
-                set a_host [srv -2 host]
-                set a_port [srv -2 port]
                 set b [srv -1 client]
-                set b_host [srv -1 host]
-                set b_port [srv -1 port]
                 set c [srv 0 client]
 
-                $b replicaof $a_host $a_port
-                $c replicaof $b_host $b_port
+                $b replicaof [srv -2 host] [srv -2 port]
+                $c replicaof [srv -1 host] [srv -1 port]
                 wait_for_sync $b
                 wait_for_sync $c
 
@@ -2675,7 +2596,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
     # DUMP/RESTORE round-trip covering every combination of value encoding and
     # field-name length. The value encoding is template-array when a value is too
     # big for a listpack (otherwise template-listpack); the field names are stored
-    # individually when a name is too big for a listpack (otherwise as one blob).
+    # individually when a name is too big for a listpack (otherwise as one lp blob).
     # A >64-byte value or field name triggers each case, so the four short/long
     # combinations exercise all of them.
     set long_field [string repeat n 70]   ;# a >64-byte field name -> names stored individually

@@ -704,18 +704,51 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 himport prepare fieldset2 f1 f2 f3
         R 1 himport set $ar_key fieldset2 v1 [string repeat x 100] v3
         assert_equal {template-array} [R 1 object encoding $ar_key]
+        R 1 himport discardall
+        
+        # verify templates exist on source master and replica
+        wait_for_condition 50 100 {
+            [S 1 hash_templates] == 2 && [S 1 hash_template_keys] == 2 &&
+            [S 4 hash_templates] == 2 && [S 4 hash_template_keys] == 2
+        } else {
+            fail "templates not propagated"
+        }
+
+        # Snapshot the source's per-key and template-registry memory (the source
+        # holds exactly these 2 templates) to compare post-migration.
+        set src_lp_mem [R 1 memory usage $lp_key]
+        set src_ar_mem [R 1 memory usage $ar_key]
+        set src_tmpl_mem [S 1 used_memory_hash_templates]
 
         # migrate slot 0-100 to R 0 and verify both encodings/data survive
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
-        
+
         # verify the encoding and data of template-listpack
         assert_equal {template-listpack} [R 0 object encoding $lp_key]
         assert_equal {age 25 name alice email alice@example.com} [R 0 hgetall $lp_key]
-        
+
         # verify the encoding and data of template-array
         assert_equal {template-array} [R 0 object encoding $ar_key]
         assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [R 0 hgetall $ar_key]
+
+        # Memory transferred intact. Each key's memory matches within a few bytes
+        # (on each node template id embedded in the listpack encodes to a slightly
+        # different size). The template registry memory is id-independent, so with
+        # the same 2 templates on both nodes it is byte-for-byte identical.
+        assert_equal 2 [S 0 hash_templates]
+        assert_equal $src_tmpl_mem [S 0 used_memory_hash_templates]
+        assert {abs($src_lp_mem - [R 0 memory usage $lp_key]) <= 16}
+        assert {abs($src_ar_mem - [R 0 memory usage $ar_key]) <= 16}
+
+        # verify keys do not exist on source master and replica
+        wait_for_condition 50 100 {
+            [R 1 dbsize] == 0 && [R 4 dbsize] == 0 &&
+            [S 1 hash_templates] == 0 && [S 1 hash_template_keys] == 0 &&
+            [S 4 hash_templates] == 0 && [S 4 hash_template_keys] == 0
+        } else {
+            fail "templates not drained"
+        }
 
         # migrate slot 0-100 back to R 1
         R 1 CLUSTER MIGRATION IMPORT 0 100
@@ -3261,32 +3294,30 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 himport prepare fieldset4 f1 f2 f3 [string repeat y 100]
         R 0 himport set $arr_long_fields fieldset4 v1 v2 v3 [string repeat y 100]
         assert_equal {template-array} [R 0 object encoding $arr_long_fields]
-        
+
+        set keys [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields]
+        set src_digest [R 0 debug digest-value {*}$keys]
+        R 0 himport discardall
+
         # Wait for the migration to complete
         wait_for_asm_done
         R 0 config set rdb-key-save-delay 0
 
-        # All keys reached destination
-        assert_equal {template-listpack} [R 1 object encoding $lp_short_fields]
-        assert_equal {f1 v1 f2 v2 f3 v3 f4 v4 f5 v5} [R 1 hgetall $lp_short_fields]
-        assert_equal {template-listpack} [R 1 object encoding $lp_long_fields]
-        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat e 100] v4" [R 1 hgetall $lp_long_fields]
-        assert_equal {template-array} [R 1 object encoding $arr_short_fields]
-        assert_equal "f1 v1 f2 [string repeat z 100] f3 v3" [R 1 hgetall $arr_short_fields]
-        assert_equal {template-array}  [R 1 object encoding $arr_long_fields]
-        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat y 100] [string repeat y 100]" [R 1 hgetall $arr_long_fields]
-
-        # All keys reached destination replica
+        # All keys reached the dest master and its replica with identical contents.
+        assert_equal $src_digest [R 1 debug digest-value {*}$keys]
         wait_for_ofs_sync [Rn 1] [Rn 4]
         R 4 readonly
-        assert_equal {template-listpack} [R 4 object encoding $lp_short_fields]
-        assert_equal {f1 v1 f2 v2 f3 v3 f4 v4 f5 v5} [R 4 hgetall $lp_short_fields]
-        assert_equal {template-listpack} [R 4 object encoding $lp_long_fields]
-        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat e 100] v4" [R 4 hgetall $lp_long_fields]
-        assert_equal {template-array} [R 4 object encoding $arr_short_fields]
-        assert_equal "f1 v1 f2 [string repeat z 100] f3 v3" [R 4 hgetall $arr_short_fields]
-        assert_equal {template-array} [R 4 object encoding $arr_long_fields]
-        assert_equal "f1 v1 f2 v2 f3 v3 [string repeat y 100] [string repeat y 100]" [R 4 hgetall $arr_long_fields]
+        assert_equal $src_digest [R 4 debug digest-value {*}$keys]
+
+        # Verify template and template-key count on both source and destination
+        wait_for_condition 50 100 {
+            [S 0 hash_templates] == 0 && [S 3 hash_templates] == 0 &&
+            [S 0 hash_template_keys] == 0 && [S 3 hash_template_keys] == 0 &&
+            [S 1 hash_templates] == 4 && [S 4 hash_templates] == 4 &&
+            [S 1 hash_template_keys] == 4 && [S 4 hash_template_keys] == 4
+        } else {
+            fail "templates not replicated correctly"
+        }
 
         # DEL frees the templates on master + replica.
         foreach k [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields] {
@@ -3298,9 +3329,71 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             assert_equal 0 [R 4 exists $k]
         }
         wait_for_condition 50 100 {
-            [status [Rn 1] hash_template_keys] == 0 && [status [Rn 4] hash_template_keys] == 0
+            [S 1 hash_templates] == 0 && [S 4 hash_templates] == 0 &&
+            [S 1 hash_template_keys] == 0 && [S 4 hash_template_keys] == 0
         } else {
-            fail "templates not drained (dest=[status [Rn 1] hash_template_keys] replica=[status [Rn 4] hash_template_keys])"
+            fail "templates not deleted"
         }
+
+        # Cleanup
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
+    test "ASM stress: 10000 template keys, half streamed live during migration" {
+        # Create template keys on node 0 in slot 0. Each template is shared by 2 keys
+        proc asm_load_tmpl_keys {lo hi} {
+            set rd [Rn 0]
+            R 0 deferred 1
+            deferred_batch $rd [expr {($hi - $lo) / 2}] { set t [expr {$lo / 2 + $i}]; $rd himport prepare fs$t f$t }
+            deferred_batch $rd [expr {$hi - $lo}] { set j [expr {$lo + $i}]; $rd himport set [slot_key 0 k$j] fs[expr {$j / 2}] v$j }
+            R 0 deferred 0
+        }
+
+        R 0 flushall
+        R 1 flushall
+        set n 10000
+        set half [expr {$n / 2}]
+        set ntmpl [expr {$n / 2}]  ;# 2 keys share each template
+
+        # First half created: migrated in the bulk snapshot.
+        asm_load_tmpl_keys 0 $half
+
+        # Migrate slot 0 with delay
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 2 2000]
+
+        # Second half: live HIMPORT SETs arriving on the source during migration.
+        asm_load_tmpl_keys $half $n
+
+        # Get source digest (still owns all the keys)
+        set src_digest [R 0 debug digest]
+        R 0 himport discardall
+
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # Everything reached the dest master + replica; source drained to zero.
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        wait_for_condition 50 100 {
+            [S 0 hash_templates] == 0 && [S 0 hash_template_keys] == 0 &&
+            [S 1 hash_templates] == $ntmpl && [S 1 hash_template_keys] == $n &&
+            [S 4 hash_templates] == $ntmpl && [S 4 hash_template_keys] == $n
+        } else {
+            fail "counts src [S 0 hash_templates]/[S 0 hash_template_keys]\
+                  dst [S 1 hash_templates]/[S 1 hash_template_keys]\
+                  rep [S 4 hash_templates]/[S 4 hash_template_keys]"
+        }
+
+        # Spot check keys from both halves survived intact on master and replica.
+        R 4 readonly
+        foreach i {0 4999 5000 9999} {
+            set expect "f[expr {$i / 2}] v$i"
+            assert_equal $expect [R 1 hgetall [slot_key 0 k$i]]
+            assert_equal $expect [R 4 hgetall [slot_key 0 k$i]]
+        }
+
+        # Byte-identical end to end: source-before == dest master == dest replica.
+        assert_equal $src_digest [R 1 debug digest]
+        assert_equal $src_digest [R 4 debug digest]
     }
 }
