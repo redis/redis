@@ -15,8 +15,7 @@
             "description": "Number of fieldsets removed."
         },
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "RESPONSE_POLICY:AGG_MAX"
+            "REQUEST_POLICY:ALL_SHARDS"
         ]
     }
 }
