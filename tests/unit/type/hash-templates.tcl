@@ -1071,6 +1071,50 @@ start_server {tags {"hash" "rdb" "needs:debug" "cluster:skip"}
         # between the two, so this fails loudly if names are ever stored per key.
         assert {$size_long - $size_short < 50000}
     }
+
+    if {$encoding eq "template-listpack"} {
+    test {Loading a TMPL_LP may convert it to TMPL_ARRAY due to hash-max-listpack-entries} {
+        r flushall
+        set saved [lindex [r config get hash-max-listpack-entries] 1]
+        r config set hash-max-listpack-entries 128
+
+        # 40-field hash fits the 128 limit -> TMPL_LP.
+        set fields {}
+        set vals {}
+        for {set i 0} {$i < 40} {incr i} {
+            lappend fields [format f%03d $i]
+            lappend vals v$i
+        }
+        r himport prepare wide {*}$fields
+        r himport set wk wide {*}$vals
+        assert_encoding template-listpack wk
+        set dump [r dump wk]
+
+        # Shrink the limit below the field count. Both load paths must convert
+        # TMPL_LP to TMPL_ARRAY:
+        r config set hash-max-listpack-entries 8
+
+        # RDB load
+        r debug reload
+        assert_encoding template-array wk
+        assert_equal [r hget wk f000] v0
+        assert_equal [r hget wk f039] v39
+        assert_equal [r hlen wk] 40
+
+        # RESTORE
+        r restore wk2 0 $dump
+        assert_encoding template-array wk2
+        assert_equal [r hget wk2 f000] v0
+        assert_equal [r hget wk2 f039] v39
+        assert_equal [r hlen wk2] 40
+
+        r config set hash-max-listpack-entries $saved
+        r himport discardall
+        r flushall
+        wait_num_template_keys 0
+        wait_num_templates 0 0
+    }
+    }
 }
 
 # AOF rewrite tests

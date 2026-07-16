@@ -3282,6 +3282,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         o = rdbFinalizeTmplLp(lp, rdbCreateTemplateFromFields(&tf));
+
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_LP_REF) {
         /* TMPL_LP compact: The first listpack entry is the template ID */
         long long src_id;
@@ -3304,6 +3307,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
         if (!rdbCheckTmplLpCount(lp, tmpl->field_count)) return NULL;
         o = rdbFinalizeTmplLp(lp, tmpl);
+
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_ARRAY) {
         /* Self-contained TMPL_ARRAY (DUMP/RESTORE): [fields_fmt][field names]
          * [v0][v1]...[vN-1]. The field names are resolved/parsed by the shared
