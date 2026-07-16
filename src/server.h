@@ -3565,9 +3565,6 @@ int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
 int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
-#define DUMP_PAYLOAD_SKIP_CHECKSUM (1<<0)
-#define DUMP_PAYLOAD_SKIP_KEY_META (1<<1)
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags);
 
 /* Child info */
 void openChildInfoPipe(void);
@@ -4532,6 +4529,9 @@ void readonlyCommand(client *c);
 void readwriteCommand(client *c);
 void sflushCommand(client *c);
 int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr);
+#define DUMP_PAYLOAD_SKIP_CHECKSUM (1<<0)
+#define DUMP_PAYLOAD_SKIP_KEY_META (1<<1)
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags);
 void dumpCommand(client *c);
 void clientCommand(client *c);
 void helloCommand(client *c);
