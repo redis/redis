@@ -595,6 +595,15 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     kvobj *old = dictGetKV(*link);
     kvobj *kvNew;
 
+    /* Value-MVCC: the current value is about to be replaced. Preserve it for open
+     * snapshots before it's freed — idempotent for deep-copy snapshots that already
+     * froze it via the lookupKeyWrite hook, and materializes the as-of-snapshot
+     * hash for delta-log snapshots (which skip that hook). Same helper as delete;
+     * retaining `old` bumps its refcount, so the in-place swap below is skipped and
+     * `old` survives intact. */
+    if (unlikely(server.snapshots_open))
+        snapshotPreserveForDelete(db, key, old);
+
     int64_t oldlen = (int64_t) getObjectLength(old);
     int oldtype = old->type;
 

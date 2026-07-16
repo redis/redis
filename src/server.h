@@ -2329,6 +2329,7 @@ struct redisServer {
     int snapshots_open;             /* # of open keyspace snapshots (write-path gate) */
     long long stat_snapshot_cow_copies; /* # of preserve copy operations */
     long long stat_snapshot_module_copies; /* # of module-type value clones (copy2/copy) */
+    long long stat_snapshot_hash_deltas; /* # of hash field deltas recorded (delta-log) */
     list *keyspace_snapshots;       /* Open keyspaceSnapshot objects */
 
     /* RDB persistence */
@@ -3903,7 +3904,7 @@ static inline size_t *htGetMetadataSize(dict *d) {
 void hashTypeConvert(redisDb *db, robj *o, int enc);
 void hashTypeTryConversion(redisDb *db, kvobj *kv, robj **argv, int start, int end);
 int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashDeleted);
-int hashTypeDelete(robj *o, void *key);
+int hashTypeDelete(redisDb *db, robj *o, void *key);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 size_t hashTypeAllocSize(const robj *o);
 void hashTypeInitIterator(hashTypeIterator *hi, robj *subject);
@@ -4108,6 +4109,9 @@ void snapshotPreserveForWrite(redisDb *db, robj *key, kvobj *kv);
 void snapshotPreserveForDelete(redisDb *db, robj *key, kvobj *kv);
 keyspaceSnapshot *kvSnapshotCreate(int dbid, sds prefix);
 void kvSnapshotAddType(keyspaceSnapshot *s, int objtype);
+void kvSnapshotSetDeltaHash(keyspaceSnapshot *s, int on);
+void snapshotHashCapture(redisDb *db, kvobj *o, sds field);
+robj *kvSnapshotHashField(keyspaceSnapshot *s, robj *key, sds field);
 void kvSnapshotFree(keyspaceSnapshot *s);
 kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj);
 void debugKvSnapshotCommand(client *c);

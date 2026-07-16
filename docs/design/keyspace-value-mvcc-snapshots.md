@@ -380,8 +380,8 @@ new functions — so the API surface stays small as capability grows.
 | PR | Content | Status |
 |----|---------|--------|
 | **1 — core** | Generic value-MVCC: `keyspace_version`, the `snapshots_open` gate, the 3 write/delete hooks (§5), preserve-on-write deep-copy for all native types + module-type `copy2`/`copy`, DB scoping, `cfg->prefix` scoping, reads (main thread and background under the GIL), the RM API (`Create`/`OpenKey`/`Free`), and the `DEBUG KVSNAPSHOT` test surface. | merged prerequisite |
-| **2 — scope controls (this PR)** | `cfg` gains a **type filter** (`type_mask`): preserve only the value types the consumer reads (e.g. HASH+MODULE), so unindexed types in scope are never copied. | proposed |
-| **3 — hash field delta-log** | Opt-in O(delta) hash writes (`cfg` flag): per-field inverse deltas with tombstones instead of deep-copying the whole hash; materialize (hashTypeDup + apply deltas) for whole-doc read / delete. | HSET/HDEL/DEL + reads |
+| **2 — scope controls** | `cfg` gains a **type filter** (`type_mask`): preserve only the value types the consumer reads (e.g. HASH+MODULE), so unindexed types in scope are never copied. | merged prerequisite |
+| **3 — hash field delta-log (this PR)** | Opt-in O(delta) hash writes (`cfg` flag): per-field inverse deltas with tombstones instead of deep-copying the whole hash; materialize (hashTypeDup + apply deltas) for whole-doc read / delete. | HSET/HDEL/DEL + reads |
 | **JSON — path-delta contract** | The proper JSON write-CPU fix: a module-type *preserve-strategy* callback set (`snapshot_reconstruct` / `snapshot_free_delta`) plus `RM_SnapshotRecordDelta`, so RedisJSON captures path-level inverse deltas and reconstructs as-of-snapshot — the delta-log's shape exposed to module types. Cross-team (a core-contract PR + a RedisJSON PR). | future |
 
 Reads are always **under the GIL** — the lock-free variant from the earlier
@@ -548,3 +548,79 @@ Conclusion: the mechanism is viable when indexed documents are bounded; **type
 scoping** (§6) avoids copying what the consumer won't read, and a
 **delta/undo-log** (§9) is the path to making large hash/JSON copies *cheap*
 (O(delta) instead of O(value)) if measurement shows large hot documents are real.
+
+---
+
+## 14. Hash field delta-log (PR 3)
+
+The **delta/undo-log** direction (§9) for the type that hurts most — hashes:
+O(delta) writes instead of O(value) deep-copy, measured to confirm the win.
+
+**Mechanism (opt-in per snapshot via `cfg` flag `REDISMODULE_SNAPSHOT_HASH_DELTA_LOG`).** Instead of deep-copying a hash
+on first write, record per-field *inverse deltas*: on `hashTypeSet(db,o,field,…)`,
+before it mutates, `snapshotHashCapture` records `field → old value` (or a
+tombstone if the field was absent as-of-V) into each open in-scope `delta_hash`
+snapshot — once per (snapshot,key,field). The deep-copy path (`snapshotWantsKey`)
+skips hashes for such snapshots. Reads reconstruct per field
+(`kvSnapshotHashField`): a changed field returns the recorded old value, a new
+field is absent, an unchanged field reads live. Opt-in means the deep-copy path
+and its tests are untouched, and both modes can be benchmarked on one build.
+
+**Result — write cost per first-write (µs), deep-copy vs delta-log:**
+
+| N fields | deep-copy | delta-log | speedup |
+|--:|--:|--:|--:|
+| 100     | 17 µs   | 12 µs    | ~1×  |
+| 1,000   | 306 µs  | 14 µs    | 22×  |
+| 10,000  | 10.9 ms | 50 µs    | 215× |
+| 100,000 | 68 ms   | 0.37 ms  | 185× |
+
+Delta-log write cost is ~flat (fetch one field + record); deep-copy is O(value).
+A 100k-field-hash `HSET` drops from **68 ms to 0.37 ms** — this removes the
+main-thread write freeze that was the core objection to value-MVCC. The cost
+moves to read-side reconstruction, paid only for docs that are *both* changed and
+read (few, on the query thread).
+
+**Now covered:**
+- **HDEL captured** (in `hdelCommand`, before each `hashTypeDelete`) — a field
+  deleted since V is recovered from its recorded old value.
+- **Whole-key DELETE and OVERWRITE materialize as-of-V** —
+  `snapshotPreserveForDelete` (called from both `dbGenericDelete` and the
+  `dbSetValue` overwrite/replace point), for a delta hash, reconstructs (live +
+  inverse deltas) into a frozen kvobj *before* the live hash is freed/replaced (the
+  "collapse to full snapshot"); `inMaterialize` guards the reentrancy (materialize
+  sets fields via `hashTypeSet`).
+- **Whole-doc read** works — `kvSnapshotView` materializes-on-open and caches a
+  frozen kvobj, so `RM_SnapshotOpenKey` + `RM_HashGet`/`HGETALL` (and `DEBUG
+  KVSNAPSHOT LEN`) read the correct as-of-V hash. Field-level reads
+  (`kvSnapshotHashField`) still avoid materializing. Opt in via the `cfg` flag
+  `REDISMODULE_SNAPSHOT_HASH_DELTA_LOG` (or `DEBUG KVSNAPSHOT DELTAHASH`).
+- **Hash-field TTL (HFE) expiry captured** — a field that expires after the
+  snapshot is recovered as-of-V. `hashTypeDelete` is the single choke point for
+  field removal (HDEL, HGETDEL, HT active/lazy expiry, module HashSet-delete), so
+  it captures there; the listpack-ex active-expiry path frees fields in a batch
+  `lpDeleteRange` that bypasses it, so `listpackExExpire` captures separately
+  before the batch. The capture reads with `HFE_LAZY_ACCESS_EXPIRED` so it records
+  the value even though the field's TTL has just lapsed.
+- **Delta-map memory bounded (collapse-to-frozen)** — once a key accumulates more
+  than `KVSNAPSHOT_HASH_DELTA_MAX` field-deltas (default 1024; per-snapshot
+  override via `DEBUG KVSNAPSHOT DELTACAP`), the next distinct-field write collapses
+  it: `snapshotHashCapture` materializes the as-of-V hash (live + recorded deltas)
+  into a frozen deep-copy and drops the delta map. Further writes to that key are
+  no-ops (a `preserved` guard skips already-frozen keys), so per-key delta memory is
+  bounded and the pathological "small as-of-V hash, huge number of new fields
+  added" case degrades to one small frozen copy instead of an unbounded tombstone
+  log. This is the delta↔deep-copy crossover: cheap deltas for low churn, one
+  bounded deep-copy for high churn.
+
+**Still TODO before production:**
+- **New-key-as-of-V existence** — a hash created after V reconstructs partially
+  (the documented values-not-existence boundary).
+- **Only hashes** — JSON (the other expensive type) would need RedisJSON-side
+  path-level deltas (bigger, cross-team).
+
+Verdict: the write-path win is real and large; the hash path is correctness-
+complete for HSET / HDEL / field-TTL expiry / whole-key DELETE & OVERWRITE + field
+& whole-doc reads, with per-key delta memory bounded by collapse-to-frozen. The
+remaining items (new-key existence — a documented boundary — and JSON) are what
+stands between this and production.

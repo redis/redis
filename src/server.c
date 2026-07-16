@@ -6780,7 +6780,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "snapshot_keyspace_version:%llu\r\n", (unsigned long long)server.keyspace_version,
             "snapshots_open:%d\r\n", server.snapshots_open,
             "snapshot_cow_copies:%lld\r\n", server.stat_snapshot_cow_copies,
-            "snapshot_module_copies:%lld\r\n", server.stat_snapshot_module_copies));
+            "snapshot_module_copies:%lld\r\n", server.stat_snapshot_module_copies,
+            "snapshot_hash_deltas:%lld\r\n", server.stat_snapshot_hash_deltas));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);

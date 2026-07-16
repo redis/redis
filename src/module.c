@@ -4303,6 +4303,12 @@ RedisModuleKeyspaceSnapshot *RM_CreateKeyspaceSnapshot(RedisModuleCtx *ctx, cons
                     kvSnapshotAddType(s, kt2ot[i].ot);
         }
     }
+
+    /* version >= 3: behavior flags. */
+    if (cfg && cfg->version >= 3) {
+        if (cfg->flags & REDISMODULE_SNAPSHOT_HASH_DELTA_LOG)
+            kvSnapshotSetDeltaHash(s, 1);
+    }
     return (RedisModuleKeyspaceSnapshot *) s;
 }
 
@@ -5848,7 +5854,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         if (value == REDISMODULE_HASH_DELETE) {
             if (server.memory_tracking_enabled)
                 oldsize = kvobjAllocSize(key->kv);
-            count += hashTypeDelete(key->kv, field->ptr);
+            count += hashTypeDelete(key->db, key->kv, field->ptr);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);

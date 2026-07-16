@@ -233,6 +233,23 @@ static int cmd_test(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_CloseKey(k); k = NULL;
     RedisModule_FreeKeyspaceSnapshot(ctx, snap); snap = NULL;
 
+    /* --- hash delta-log (cfg flag): whole-doc read via materialize-on-open --- */
+    RedisModule_Call(ctx, "DEL", "c", "dl");
+    RedisModule_Call(ctx, "HSET", "ccc", "dl", "f", "a");
+    RedisModuleKeyspaceSnapshotConfig dcfg = {
+        .version = REDISMODULE_KEYSPACE_SNAPSHOT_CONFIG_VERSION,
+        .flags = REDISMODULE_SNAPSHOT_HASH_DELTA_LOG,
+    };
+    snap = RedisModule_CreateKeyspaceSnapshot(ctx, &dcfg);
+    RedisModule_Call(ctx, "HSET", "ccc", "dl", "f", "b");   /* change -> field delta */
+    RedisModuleString *dlk = RedisModule_CreateString(ctx, "dl", 2);
+    k = RedisModule_SnapshotOpenKey(ctx, snap, dlk);        /* materialize-on-open */
+    RedisModuleString *dlv = NULL;
+    if (k) RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, "f", &dlv, NULL);
+    if (!rmstrEq(dlv, "a")) FAIL("delta-log whole-doc read (RM_HashGet) != a");
+    RedisModule_CloseKey(k); k = NULL;
+    RedisModule_FreeKeyspaceSnapshot(ctx, snap); snap = NULL;
+
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 done:
     if (k) RedisModule_CloseKey(k);

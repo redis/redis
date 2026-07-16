@@ -17,13 +17,17 @@ typedef int RedisModuleKeyMetaClassId;
  * you need; pass NULL for all-defaults (whole selected DB). The struct is
  * versioned so future options are added as fields the core reads only when the
  * caller's `version` covers them. */
-#define REDISMODULE_KEYSPACE_SNAPSHOT_CONFIG_VERSION 2
+#define REDISMODULE_KEYSPACE_SNAPSHOT_CONFIG_VERSION 3
+/* cfg->flags bits (version >= 3). */
+#define REDISMODULE_SNAPSHOT_HASH_DELTA_LOG (1ULL << 0) /* preserve HASH values via a field delta-log */
 typedef struct RedisModuleKeyspaceSnapshotConfig {
     int version;         /* REDISMODULE_KEYSPACE_SNAPSHOT_CONFIG_VERSION */
     const char *prefix;  /* preserve only keys starting with this; NULL = whole DB */
     size_t prefix_len;   /* length of prefix */
     /* --- version >= 2 (scope controls) --- */
     uint32_t type_mask;  /* if non-zero, only preserve values whose (1u<<REDISMODULE_KEYTYPE_*) bit is set; 0 = all */
+    /* --- version >= 3 (behavior flags) --- */
+    uint64_t flags;      /* OR of REDISMODULE_SNAPSHOT_* flags */
 } RedisModuleKeyspaceSnapshotConfig;
 
 /* -------------- Defines NOT common between core and modules ------------- */
