@@ -2086,8 +2086,7 @@ static void beginDefragCycle(void) {
     addDefragStage(defragLuaScripts, NULL, NULL);
 
     /* Add stage for the hash template registry. */
-    unsigned long *defrag_tmpl_cursor = zcalloc(sizeof(unsigned long));
-    addDefragStage(defragStageHashTemplates, zfree, defrag_tmpl_cursor);
+    addDefragStage(defragStageHashTemplates, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesByFields, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesByFieldsLp, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesById, zfree, zcalloc(sizeof(unsigned long)));
