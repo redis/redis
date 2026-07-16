@@ -4020,6 +4020,7 @@ int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashD
 int hashTypeDelete(robj *o, void *key);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 size_t hashTypeAllocSize(const robj *o);
+size_t hashTemplatePerKeyMemoryShare(const robj *o);
 void hashTypeInitIterator(hashTypeIterator *hi, robj *subject);
 void hashTypeResetIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields);

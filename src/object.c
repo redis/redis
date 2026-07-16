@@ -1838,6 +1838,14 @@ NULL
             return;
         }
         size_t usage = kvobjComputeSize(c->argv[2], kv, samples, c->db->id);
+
+        /* Add this key's share of the hash-template cost (see the comment of
+         * hashTemplatePerKeyMemoryShare()). */
+        if (kv->type == OBJ_HASH &&
+            (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+             kv->encoding == OBJ_ENCODING_TMPL_ARRAY))
+            usage += hashTemplatePerKeyMemoryShare(kv);
+
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();

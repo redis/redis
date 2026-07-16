@@ -1800,6 +1800,32 @@ start_server {tags {"hash" "memory" "needs:debug" "cluster:skip"}
         }
         assert_equal $base_info [dict get [r memory stats] hash.templates]
     }
+
+    test {MEMORY USAGE attributes template share per key} {
+        r flushall
+        wait_num_templates 0
+
+        # Long field names so the shared template cost is non-trivial.
+        set fields {}
+        set vals {}
+        for {set i 0} {$i < 32} {incr i} {
+            lappend fields [format "a_pretty_long_shared_field_name_%03d" $i]
+            lappend vals v$i
+        }
+        set rd [redis_deferring_client]
+        $rd himport prepare tmpl {*}$fields; $rd read
+
+        # Only one key references the template: it carries the full share.
+        $rd himport set solo tmpl {*}$vals; $rd read
+        set usage_solo [r memory usage solo]
+
+        # Many more keys share the same template: the per-key share shrinks.
+        deferred_batch $rd 200 { $rd himport set shared:$i tmpl {*}$vals }
+        $rd close
+
+        set usage_shared [r memory usage solo]
+        assert {$usage_shared < $usage_solo}
+    }
 }
 
 # Stress freeing template hashes concurrently with async flushing to surface any

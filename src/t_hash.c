@@ -2522,6 +2522,19 @@ size_t hashTypeAllocSize(const robj *o) {
     return size;
 }
 
+/* Per-key share of the template's fixed memory usage, split across referencing keys.
+ * MEMORY USAGE only, deliberately NOT part of kvobjAllocSize: per-slot/db
+ * alloc-size stats add a key's size on insert and subtract it on delete, and
+ * assume it only changes when that key itself is touched. This share changes
+ * when OTHER keys drop/add the same template (key_refcount moves) with no hook
+ * updating this key, so folding it into kvobjAllocSize would drift the slot
+ * totals and trigger assert in dbgAssertAllocSizePerSlot. */
+size_t hashTemplatePerKeyMemoryShare(const robj *o) {
+    hashTemplate *tmpl = hashTypeGetTemplate((robj *)o);
+    serverAssert(tmpl->key_refcount > 0);
+    return tmpl->mem_size / tmpl->key_refcount;
+}
+
 void hashTypeInitIterator(hashTypeIterator *hi, robj *subject) {
     hi->subject = subject;
     hi->encoding = subject->encoding;
