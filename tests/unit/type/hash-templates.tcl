@@ -952,6 +952,10 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r flushall 
         r flushall
         r flushall
+
+        r himport discardall
+        wait_num_template_keys 0
+        wait_num_templates 0 0
         r ping
     } {PONG}
     
@@ -964,6 +968,10 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r flushall async
         make_hashtmpl multi:flush3 a 1 b 2 c 3
         r flushall async
+
+        r himport discardall
+        wait_num_template_keys 0
+        wait_num_templates 0 0
         r ping
     } {PONG}
 
