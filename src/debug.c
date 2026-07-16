@@ -1198,6 +1198,8 @@ NULL
         } else {
             addReply(c, shared.ok);
         }
+    } else if(!strcasecmp(c->argv[1]->ptr,"kvsnapshot")) {
+        debugKvSnapshotCommand(c);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;
