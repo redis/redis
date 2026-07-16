@@ -2423,7 +2423,8 @@ void copyCommand(client *c) {
 
     /* Return zero if the key already exists in the target DB. 
      * If REPLACE option is selected, delete newkey from targetDB. */
-    kvobj *destval = lookupKeyWrite(dst,newkey);
+    dictEntryLink link = NULL;
+    kvobj *destval = lookupKeyWriteWithLink(dst,newkey,&link);
     if (destval != NULL) {
         if (replace) {
             delete = 1;
@@ -2460,6 +2461,7 @@ void copyCommand(client *c) {
 
     if (delete) {
         dbDelete(dst,newkey);
+        link = NULL; /* dbDelete invalidated the link */
     }
 
     /* Prepare metadata for the new key */
@@ -2467,7 +2469,7 @@ void copyCommand(client *c) {
     keyMetaSpecInit(&keymeta);
     if (o->metabits) keyMetaOnCopy(o, key, newkey, c->db->id, dst->id, &keymeta);
 
-    kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &keymeta);
+    kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, &link, &keymeta);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
