@@ -2501,8 +2501,7 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     if (mt->aof_rewrite == NULL) {
         serverLog(LL_WARNING,
             "Can't rewrite the append only file: the module data type '%s' "
-            "does not implement the aof_rewrite callback. Enable "
-            "aof-use-rdb-preamble to rewrite the AOF for this data type.",
+            "does not implement the aof_rewrite callback.",
             mt->entity.name);
         return 0;
     }
