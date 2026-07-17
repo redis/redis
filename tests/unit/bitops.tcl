@@ -708,7 +708,7 @@ start_server {tags {"bitops"}} {
         set bytes [expr (1 << 29) + 1]
         set bitpos [expr (1 << 32)]
         set oldval [lindex [r config get proto-max-bulk-len] 1]
-        set oldnative [lindex [r config get bitmap-default-roaring] 1]
+        set oldroaring [lindex [r config get bitmap-default-roaring] 1]
         r config set proto-max-bulk-len $bytes
         r config set bitmap-default-roaring no
         r setbit mykey $bitpos 1
@@ -729,8 +729,8 @@ start_server {tags {"bitops"}} {
             assert_equal -1 [r bitpos mykey 0 0 [expr $bytes - 1]]
         }
 
-        # The source is one byte wider than the fixed native bitmap cap.
-        # BITOP must reject the native-destination path
+        # The source is one byte wider than the fixed Roaring bitmap cap.
+        # BITOP must reject the roaring-destination path
         # before replacing an existing destination or changing the source.
         r set bitop:fixed-cap:dest sentinel
         r config set bitmap-default-roaring yes
@@ -742,7 +742,7 @@ start_server {tags {"bitops"}} {
         assert_equal string [r type bitop:fixed-cap:dest]
         assert_equal sentinel [r get bitop:fixed-cap:dest]
 
-        r config set bitmap-default-roaring $oldnative
+        r config set bitmap-default-roaring $oldroaring
         r config set proto-max-bulk-len $oldval
         r del bitop:fixed-cap:dest
         r del mykey

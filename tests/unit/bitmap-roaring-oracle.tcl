@@ -1,12 +1,12 @@
-# Helpers for comparing legacy string bitmap behavior with native bitmap
+# Helpers for comparing legacy string bitmap behavior with Roaring bitmap
 # behavior. Each registered mode replays the same scenario steps in its own
-# keyspace and the replies must match exactly. The native mode runs the server
+# keyspace and the replies must match exactly. The roaring mode runs the server
 # in bitmap-default-roaring yes so every bitmap write creates or converts to
-# native bitmaps; scenarios observe only bitmap-level behavior (never TYPE or
+# Roaring bitmaps; scenarios observe only bitmap-level behavior (never TYPE or
 # OBJECT ENCODING), which is exactly the parity the exposure gate demands.
 
 namespace eval bitmap_oracle {
-    variable modes {legacy-string native}
+    variable modes {legacy-string roaring}
 }
 
 proc bitmap_oracle::modes {} {
@@ -25,7 +25,7 @@ proc bitmap_oracle::mode_setup {client mode} {
             $client config set bitmap-default-roaring no
             return
         }
-        native {
+        roaring {
             $client config set bitmap-default-roaring yes
             return
         }
@@ -86,11 +86,11 @@ proc bitmap_oracle::assert_mode_equivalence {client scenario steps} {
 }
 
 start_server {tags {"bitmap" "bitmap-oracle"}} {
-    test {bitmap native oracle exposes legacy and native modes} {
-        assert_equal [bitmap_oracle::modes] {legacy-string native}
+    test {bitmap roaring oracle exposes legacy and roaring modes} {
+        assert_equal [bitmap_oracle::modes] {legacy-string roaring}
     }
 
-    test {bitmap native oracle records sparse SETBIT behavior} {
+    test {bitmap roaring oracle records sparse SETBIT behavior} {
         set steps {
             {del %NS%:bitmap}
             {setbit %NS%:bitmap 0 1}
@@ -117,7 +117,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
         assert_equal $got $expected
     }
 
-    test {bitmap native oracle covers BITFIELD and range read parity} {
+    test {bitmap roaring oracle covers BITFIELD and range read parity} {
         set steps {
             {del %NS%:bitmap}
             {setbit %NS%:bitmap 0 1}
@@ -148,7 +148,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
         assert_equal $got $expected
     }
 
-    test {bitmap native oracle covers BITOP aliasing and missing sources} {
+    test {bitmap roaring oracle covers BITOP aliasing and missing sources} {
         set steps {
             {del %NS%:a %NS%:b %NS%:c %NS%:out %NS%:not}
             {setbit %NS%:a 0 1}
@@ -189,7 +189,7 @@ start_server {tags {"bitmap" "bitmap-oracle"}} {
         assert_equal $got $expected
     }
 
-    test {bitmap native oracle ports deterministic redis-roaring fuzz seed cases} {
+    test {bitmap roaring oracle ports deterministic redis-roaring fuzz seed cases} {
         set scenarios {
             {seed1_setbit {
                 {del %NS%:bitmap}

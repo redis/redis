@@ -12,7 +12,7 @@ proc wait_for_bitmap_defrag_stop {maxtries delay} {
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     test {bitmap-default-roaring defaults to no} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
@@ -38,7 +38,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* c0] [r get bitmap:public:disabled:existing]
     }
 
-    test {bitmap-default-roaring yes: SETBIT creates native bitmaps for missing keys} {
+    test {bitmap-default-roaring yes: SETBIT creates Roaring bitmaps for missing keys} {
         r config set bitmap-default-roaring yes
 
         assert_equal 0 [r setbit bitmap:public:create $::sparse_public_offset 1]
@@ -82,7 +82,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {bitmap-default-roaring yes: zero SETBIT extends native bitmap length} {
+    test {bitmap-default-roaring yes: zero SETBIT extends Roaring bitmap length} {
         r config set bitmap-default-roaring yes
         r del bitmap:public:zero:new bitmap:public:zero:convert \
             bitmap:public:zero:existing
@@ -103,7 +103,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {bitmap-default-roaring yes: BITFIELD creates and converts native bitmaps} {
+    test {bitmap-default-roaring yes: BITFIELD creates and converts Roaring bitmaps} {
         r config set bitmap-default-roaring yes
         r del bitmap:public:bf:new bitmap:public:bf:conv
 
@@ -119,7 +119,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {bitmap-default-roaring converts non-empty strings to native bitmaps and keeps TTL} {
+    test {bitmap-default-roaring converts non-empty strings to Roaring bitmaps and keeps TTL} {
         r config set bitmap-default-roaring yes
         set raw [binary format H* 80400100080000]
 
@@ -134,13 +134,13 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {native bitmap dump restore preserves all-zero logical byte length} {
+    test {Roaring bitmap dump restore preserves all-zero logical byte length} {
         r config set bitmap-default-roaring no
         set raw [string repeat [binary format H* 00] 6]
 
         r del bitmap:convert:zeros bitmap:convert:zeros:restored
         r set bitmap:convert:zeros $raw
-        assert_equal OK [convert_string_bitmap_to_native r bitmap:convert:zeros]
+        assert_equal OK [convert_string_bitmap_to_roaring r bitmap:convert:zeros]
         assert_equal bitmap [r type bitmap:convert:zeros]
         assert_equal bitmap-roaring [r object encoding bitmap:convert:zeros]
         assert_equal 0 [r bitcount bitmap:convert:zeros]
@@ -154,9 +154,9 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r debug bitmap-raw bitmap:convert:zeros:restored]
     }
 
-    test {empty native bitmap fixtures preserve zero logical byte length} {
+    test {empty Roaring bitmap fixtures preserve zero logical byte length} {
         r del bitmap:fixture:empty
-        assert_equal OK [create_native_bitmap_from_raw r bitmap:fixture:empty ""]
+        assert_equal OK [create_roaring_bitmap_from_raw r bitmap:fixture:empty ""]
         assert_equal bitmap [r type bitmap:fixture:empty]
         assert_equal bitmap-roaring [r object encoding bitmap:fixture:empty]
         assert_equal "" [r debug bitmap-raw bitmap:fixture:empty]
@@ -168,7 +168,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:convert:int bitmap:convert:list
         r set bitmap:convert:int 12345
         assert_equal int [r object encoding bitmap:convert:int]
-        assert_equal OK [convert_string_bitmap_to_native r bitmap:convert:int]
+        assert_equal OK [convert_string_bitmap_to_roaring r bitmap:convert:int]
         assert_equal bitmap [r type bitmap:convert:int]
         assert_equal "12345" [r debug bitmap-raw bitmap:convert:int]
 
@@ -178,7 +178,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {DEBUG DIGEST for native bitmaps includes trailing zero length} {
+    test {DEBUG DIGEST for Roaring bitmaps includes trailing zero length} {
         r config set bitmap-default-roaring yes
         r del bitmap:digest:short bitmap:digest:long
         r setbit bitmap:digest:short 3 1
@@ -193,12 +193,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert {[r debug digest-value bitmap:digest:short] ne [r debug digest-value bitmap:digest:long]}
     }
 
-    test {DEBUG DIGEST for native bitmaps ignores roaring container encoding} {
+    test {DEBUG DIGEST for Roaring bitmaps ignores roaring container encoding} {
         r del bitmap:digest:converted bitmap:digest:setbit
         set raw [binary format H* [string repeat ff 1024]]
 
         r set bitmap:digest:converted $raw
-        assert_equal OK [convert_string_bitmap_to_native r bitmap:digest:converted]
+        assert_equal OK [convert_string_bitmap_to_roaring r bitmap:digest:converted]
 
         r config set bitmap-default-roaring yes
         for {set bit 0} {$bit < 8192} {incr bit} {
@@ -215,30 +215,30 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $converted_digest $setbit_digest
     }
 
-    test {native bitmap writes keep the proto-max-bulk-len offset limit} {
-        r del bitmap:native:bounds
+    test {Roaring bitmap writes keep the proto-max-bulk-len offset limit} {
+        r del bitmap:roaring:bounds
         r config set bitmap-default-roaring yes
-        assert_equal 0 [r setbit bitmap:native:bounds 0 1]
+        assert_equal 0 [r setbit bitmap:roaring:bounds 0 1]
         r config set bitmap-default-roaring no
 
-        assert_equal bitmap [r type bitmap:native:bounds]
-        assert_equal 1 [r bitcount bitmap:native:bounds]
-        assert_equal 0 [r getbit bitmap:native:bounds 4294967295]
-        assert_equal {0} [r bitfield_ro bitmap:native:bounds GET u1 4294967295]
+        assert_equal bitmap [r type bitmap:roaring:bounds]
+        assert_equal 1 [r bitcount bitmap:roaring:bounds]
+        assert_equal 0 [r getbit bitmap:roaring:bounds 4294967295]
+        assert_equal {0} [r bitfield_ro bitmap:roaring:bounds GET u1 4294967295]
         foreach cmd {
-            {getbit bitmap:native:bounds 4294967296}
-            {setbit bitmap:native:bounds 4294967296 1}
-            {bitfield bitmap:native:bounds SET u1 4294967296 1}
-            {bitfield_ro bitmap:native:bounds GET u1 4294967296}
-            {bitfield bitmap:native:bounds GET u1 4294967296 SET u1 0 1}
+            {getbit bitmap:roaring:bounds 4294967296}
+            {setbit bitmap:roaring:bounds 4294967296 1}
+            {bitfield bitmap:roaring:bounds SET u1 4294967296 1}
+            {bitfield_ro bitmap:roaring:bounds GET u1 4294967296}
+            {bitfield bitmap:roaring:bounds GET u1 4294967296 SET u1 0 1}
         } {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
         assert_error {*bit offset*out of range*} {
-            r setbit bitmap:native:bounds 9223372036854775808 1
+            r setbit bitmap:roaring:bounds 9223372036854775808 1
         }
-        assert_equal 1 [r bitcount bitmap:native:bounds]
-        r del bitmap:native:bounds
+        assert_equal 1 [r bitcount bitmap:roaring:bounds]
+        r del bitmap:roaring:bounds
     }
 
     test {bitmap-default-roaring SETBIT rejects out-of-range offsets without changing keys} {
@@ -291,85 +291,85 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set last_allowed [expr {$limit * 8 - 1}]
         set first_rejected [expr {$limit * 8}]
 
-        r del bitmap:native:small-limit
+        r del bitmap:roaring:small-limit
         r config set bitmap-default-roaring yes
-        assert_equal 0 [r setbit bitmap:native:small-limit $last_allowed 1]
-        assert_equal 1 [r getbit bitmap:native:small-limit $last_allowed]
+        assert_equal 0 [r setbit bitmap:roaring:small-limit $last_allowed 1]
+        assert_equal 1 [r getbit bitmap:roaring:small-limit $last_allowed]
 
         foreach cmd [list \
-            [list getbit bitmap:native:small-limit $first_rejected] \
-            [list bitfield_ro bitmap:native:small-limit GET u1 $first_rejected] \
-            [list setbit bitmap:native:small-limit $first_rejected 1] \
-            [list bitfield bitmap:native:small-limit SET u1 $first_rejected 1] \
-            [list bitfield bitmap:native:small-limit GET u1 $first_rejected SET u1 0 0] \
+            [list getbit bitmap:roaring:small-limit $first_rejected] \
+            [list bitfield_ro bitmap:roaring:small-limit GET u1 $first_rejected] \
+            [list setbit bitmap:roaring:small-limit $first_rejected 1] \
+            [list bitfield bitmap:roaring:small-limit SET u1 $first_rejected 1] \
+            [list bitfield bitmap:roaring:small-limit GET u1 $first_rejected SET u1 0 0] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
         # Like string bitmaps, a BITFIELD write whose offset passes the limit
         # may span up to 63 bits past it.
-        assert_equal {2} [r bitfield bitmap:native:small-limit SET u2 $last_allowed 3]
-        assert_equal 2 [r bitcount bitmap:native:small-limit]
+        assert_equal {2} [r bitfield bitmap:roaring:small-limit SET u2 $last_allowed 3]
+        assert_equal 2 [r bitcount bitmap:roaring:small-limit]
 
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitmap:native:small-limit
+        r del bitmap:roaring:small-limit
     }
 
-    test {native bitmap offset cap remains bounded when proto-max-bulk-len is raised} {
+    test {Roaring bitmap offset cap remains bounded when proto-max-bulk-len is raised} {
         set raised_limit [expr {536870912 + 1}]
-        set max_native_bit 4294967295
-        set first_rejected [expr {$max_native_bit + 1}]
+        set max_roaring_bit 4294967295
+        set first_rejected [expr {$max_roaring_bit + 1}]
         set oldval [config_get_set proto-max-bulk-len $raised_limit]
 
-        r del bitmap:native:raised-limit bitmap:native:raised-limit:new \
-            bitmap:native:raised-limit:string
+        r del bitmap:roaring:raised-limit bitmap:roaring:raised-limit:new \
+            bitmap:roaring:raised-limit:string
         r config set bitmap-default-roaring yes
-        assert_equal 0 [r setbit bitmap:native:raised-limit 0 1]
-        assert_equal 0 [r getbit bitmap:native:raised-limit $max_native_bit]
+        assert_equal 0 [r setbit bitmap:roaring:raised-limit 0 1]
+        assert_equal 0 [r getbit bitmap:roaring:raised-limit $max_roaring_bit]
 
-        # Writes past the fixed native cap fail even though proto-max-bulk-len
+        # Writes past the fixed Roaring cap fail even though proto-max-bulk-len
         # would permit the offset; reads there see plain unset bits, exactly
         # like reads past the end of a string bitmap.
         foreach cmd [list \
-            [list setbit bitmap:native:raised-limit $first_rejected 1] \
-            [list bitfield bitmap:native:raised-limit SET u1 $first_rejected 1] \
-            [list bitfield bitmap:native:raised-limit SET u2 $max_native_bit 3] \
+            [list setbit bitmap:roaring:raised-limit $first_rejected 1] \
+            [list bitfield bitmap:roaring:raised-limit SET u1 $first_rejected 1] \
+            [list bitfield bitmap:roaring:raised-limit SET u2 $max_roaring_bit 3] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
-        assert_equal 0 [r getbit bitmap:native:raised-limit $first_rejected]
-        assert_equal {0} [r bitfield_ro bitmap:native:raised-limit GET u1 $first_rejected]
+        assert_equal 0 [r getbit bitmap:roaring:raised-limit $first_rejected]
+        assert_equal {0} [r bitfield_ro bitmap:roaring:raised-limit GET u1 $first_rejected]
         assert_equal {0 1} [
-            r bitfield bitmap:native:raised-limit GET u1 $first_rejected SET u1 0 1
+            r bitfield bitmap:roaring:raised-limit GET u1 $first_rejected SET u1 0 1
         ]
 
         assert_error {*bit offset*out of range*} {
-            r setbit bitmap:native:raised-limit:new $first_rejected 1
+            r setbit bitmap:roaring:raised-limit:new $first_rejected 1
         }
-        assert_equal 0 [r exists bitmap:native:raised-limit:new]
+        assert_equal 0 [r exists bitmap:roaring:raised-limit:new]
 
-        # A write past the native cap against an existing string is rejected
+        # A write past the Roaring cap against an existing string is rejected
         # by the conversion path and must leave the string untouched: SETBIT
-        # discards the trial native object, BITFIELD rejects before
+        # discards the trial Roaring object, BITFIELD rejects before
         # converting. Reads there pass the raised parse-time limit and see
         # zeros past the end of the string.
-        r set bitmap:native:raised-limit:string [binary format H* 80]
+        r set bitmap:roaring:raised-limit:string [binary format H* 80]
         assert_error {*bit offset*out of range*} {
-            r setbit bitmap:native:raised-limit:string $first_rejected 1
+            r setbit bitmap:roaring:raised-limit:string $first_rejected 1
         }
         assert_error {*bit offset*out of range*} {
-            r bitfield bitmap:native:raised-limit:string SET u1 $first_rejected 1
+            r bitfield bitmap:roaring:raised-limit:string SET u1 $first_rejected 1
         }
         assert_equal {0} [
-            r bitfield bitmap:native:raised-limit:string GET u1 $first_rejected
+            r bitfield bitmap:roaring:raised-limit:string GET u1 $first_rejected
         ]
-        assert_equal string [r type bitmap:native:raised-limit:string]
-        assert_equal [binary format H* 80] [r get bitmap:native:raised-limit:string]
+        assert_equal string [r type bitmap:roaring:raised-limit:string]
+        assert_equal [binary format H* 80] [r get bitmap:roaring:raised-limit:string]
 
-        assert_equal 1 [r bitcount bitmap:native:raised-limit]
+        assert_equal 1 [r bitcount bitmap:roaring:raised-limit]
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitmap:native:raised-limit bitmap:native:raised-limit:string
+        r del bitmap:roaring:raised-limit bitmap:roaring:raised-limit:string
     }
 
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
@@ -386,7 +386,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {native bitmap creation and conversion emit documented keyspace events in order} {
+    test {Roaring bitmap creation and conversion emit documented keyspace events in order} {
         r config set bitmap-default-roaring no
         r config set notify-keyspace-events {}
         r del bitmap:public:notify bitmap:public:notify:conv \
@@ -400,7 +400,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         $rd psubscribe __keyevent@9__:*
         $rd read
 
-        # Direct native creation in bitmap-default-roaring yes: same event
+        # Direct roaring creation in bitmap-default-roaring yes: same event
         # names as a legacy creating SETBIT ("new" then "setbit"), with the
         # write event classified under the bitmap notification class.
         r config set bitmap-default-roaring yes
@@ -434,15 +434,15 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set notify-keyspace-events {}
     }
 
-    test {native bitmap writes use only the bitmap notification class} {
+    test {Roaring bitmap writes use only the bitmap notification class} {
         r config set bitmap-default-roaring no
         r config set notify-keyspace-events {}
-        r del bitmap:notify:native-dollar bitmap:notify:string-dollar \
-            bitmap:notify:string-bitmap bitmap:notify:native-bitmap \
-            bitmap:notify:native-all bitmap:notify:bitop-source \
+        r del bitmap:notify:roaring-dollar bitmap:notify:string-dollar \
+            bitmap:notify:string-bitmap bitmap:notify:roaring-bitmap \
+            bitmap:notify:roaring-all bitmap:notify:bitop-source \
             bitmap:notify:bitop-dollar bitmap:notify:bitop-bitmap
 
-        # Seed a native source before subscribing so BITOP exercises its own
+        # Seed a roaring source before subscribing so BITOP exercises its own
         # notification call site without adding setup events to the stream.
         r config set bitmap-default-roaring yes
         r setbit bitmap:notify:bitop-source 0 1
@@ -454,11 +454,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r config set notify-keyspace-events E\$
         r config set bitmap-default-roaring yes
-        r setbit bitmap:notify:native-dollar 0 1
+        r setbit bitmap:notify:roaring-dollar 0 1
         r config set bitmap-default-roaring no
         assert_equal 1 [r bitop or bitmap:notify:bitop-dollar \
             bitmap:notify:bitop-source]
-        # The string SETBIT is a sentinel: if either native write above were
+        # The string SETBIT is a sentinel: if either roaring write above were
         # misclassified as a string event, this read would see it first.
         r setbit bitmap:notify:string-dollar 0 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:string-dollar} [$rd read]
@@ -466,22 +466,22 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set notify-keyspace-events Eb
         r setbit bitmap:notify:string-bitmap 0 1
         r config set bitmap-default-roaring yes
-        r setbit bitmap:notify:native-bitmap 0 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:native-bitmap} [$rd read]
+        r setbit bitmap:notify:roaring-bitmap 0 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:roaring-bitmap} [$rd read]
         assert_equal 1 [r bitop or bitmap:notify:bitop-bitmap \
             bitmap:notify:bitop-source]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:notify:bitop-bitmap} [$rd read]
 
         r config set notify-keyspace-events EA
-        r setbit bitmap:notify:native-all 0 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:native-all} [$rd read]
+        r setbit bitmap:notify:roaring-all 0 1
+        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:roaring-all} [$rd read]
 
         $rd close
         r config set bitmap-default-roaring no
         r config set notify-keyspace-events {}
     }
 
-    test {public native bitmaps cover the bitmap command surface} {
+    test {public Roaring bitmaps cover the bitmap command surface} {
         r config set bitmap-default-roaring yes
 
         assert_equal 0 [r setbit bitmap:public:commands $::sparse_public_offset 1]
@@ -512,16 +512,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal string [r type bitop:dest:out]
         assert_equal [binary format H* ff] [r get bitop:dest:out]
 
-        # One native source makes the destination native, even overwriting
+        # One roaring source makes the destination roaring, even overwriting
         # the previous string destination.
         r set bitop:dest:n1 [binary format H* f0]
-        convert_string_bitmap_to_native r bitop:dest:n1
+        convert_string_bitmap_to_roaring r bitop:dest:n1
         assert_equal 1 [r bitop or bitop:dest:out bitop:dest:n1 bitop:dest:s2]
         assert_equal bitmap [r type bitop:dest:out]
         assert_equal [binary format H* ff] [r debug bitmap-raw bitop:dest:out]
     }
 
-    test {BITOP destination is always native with bitmap-default-roaring yes} {
+    test {BITOP destination always uses Roaring with bitmap-default-roaring yes} {
         r config set bitmap-default-roaring no
         r del bitop:imp:s1 bitop:imp:s2 bitop:imp:out
         r set bitop:imp:s1 [binary format H* cc]
@@ -534,7 +534,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {BITOP NOT rejects oversized string sources when destination would be native} {
+    test {BITOP NOT rejects oversized string sources when destination would be roaring} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
         r config set bitmap-default-roaring no
@@ -554,7 +554,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitop:not:mixed:big
     }
 
-    test {BITOP with sparse native sources computes in roaring space} {
+    test {BITOP with sparse Roaring sources computes in Roaring space} {
         r del bitop:sparse:a bitop:sparse:b bitop:sparse:out
         r config set bitmap-default-roaring yes
         r setbit bitop:sparse:a 131071 1
@@ -573,23 +573,23 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitop:sparse:a bitop:sparse:b bitop:sparse:out
     }
 
-    test {native bitmap helper exposes type encoding and exact raw bytes} {
+    test {Roaring bitmap helper exposes type encoding and exact raw bytes} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:raw $raw
-        assert_equal [convert_string_bitmap_to_native r bitmap:raw] OK
+        assert_equal [convert_string_bitmap_to_roaring r bitmap:raw] OK
         assert_equal [r type bitmap:raw] bitmap
         assert_equal [r object encoding bitmap:raw] bitmap-roaring
         assert_equal [r debug bitmap-raw bitmap:raw] $raw
         assert_error {WRONGTYPE*} {r get bitmap:raw}
     }
 
-    test {native bitmap scan type and copy preserve bitmap objects} {
+    test {Roaring bitmap scan type and copy preserve bitmap objects} {
         set raw [binary format H* 010204000000]
 
         r set bitmap:copy-source $raw
         r set bitmap:string-peer value
-        convert_string_bitmap_to_native r bitmap:copy-source
+        convert_string_bitmap_to_roaring r bitmap:copy-source
         # SCAN gives no guarantee that one page covers the keyspace, so walk
         # the cursor to completion before asserting membership.
         set keys {}
@@ -609,11 +609,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r debug bitmap-raw bitmap:copy-target] $raw
     }
 
-    test {native bitmap rejects generic string commands without materializing} {
+    test {Roaring bitmap rejects generic string commands without materializing} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:string-boundary $raw
-        convert_string_bitmap_to_native r bitmap:string-boundary
+        convert_string_bitmap_to_roaring r bitmap:string-boundary
         foreach command {
             {get bitmap:string-boundary}
             {getex bitmap:string-boundary}
@@ -652,28 +652,28 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 004078] [r get bitmap:legacy-boundary]
     }
 
-    test {plain SET overwrites a native bitmap key with a string} {
+    test {plain SET overwrites a Roaring bitmap key with a string} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:set-overwrite $raw
-        convert_string_bitmap_to_native r bitmap:set-overwrite
+        convert_string_bitmap_to_roaring r bitmap:set-overwrite
         assert_equal bitmap [r type bitmap:set-overwrite]
 
         # Generic overwrite is the intended plain replacement path: SET
-        # replaces a native bitmap like it replaces any other type, while
+        # replaces a Roaring bitmap like it replaces any other type, while
         # implicit string reads stay WRONGTYPE.
         r set bitmap:set-overwrite replacement
         assert_equal string [r type bitmap:set-overwrite]
         assert_equal replacement [r get bitmap:set-overwrite]
     }
 
-    test {existence-conditional writes treat native bitmaps as existing keys} {
+    test {existence-conditional writes treat Roaring bitmaps as existing keys} {
         set raw [binary format H* 80400100080000]
 
         r del bitmap:nx-boundary bitmap:nx-other
         r set bitmap:nx-boundary $raw
-        convert_string_bitmap_to_native r bitmap:nx-boundary
-        # NX-style writes check only existence, never type: a native bitmap
+        convert_string_bitmap_to_roaring r bitmap:nx-boundary
+        # NX-style writes check only existence, never type: a Roaring bitmap
         # counts as existing and stays untouched.
         assert_equal 0 [r setnx bitmap:nx-boundary value]
         assert_equal 0 [r msetnx bitmap:nx-boundary value bitmap:nx-other other]
@@ -681,19 +681,19 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:nx-boundary]
         assert_equal $raw [r debug bitmap-raw bitmap:nx-boundary]
 
-        # SET ... XX overwrites a native bitmap like plain SET does.
+        # SET ... XX overwrites a Roaring bitmap like plain SET does.
         assert_equal OK [r set bitmap:nx-boundary replacement xx]
         assert_equal string [r type bitmap:nx-boundary]
         assert_equal replacement [r get bitmap:nx-boundary]
     }
 
-    test {native bitmap stays opaque to additional string read surfaces} {
+    test {Roaring bitmap stays opaque to additional string read surfaces} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:surface $raw
         r set bitmap:surface:string $raw
-        convert_string_bitmap_to_native r bitmap:surface
-        # MGET reports non-string keys as nil, native bitmaps included.
+        convert_string_bitmap_to_roaring r bitmap:surface
+        # MGET reports non-string keys as nil, Roaring bitmaps included.
         assert_equal [list {} $raw] [r mget bitmap:surface bitmap:surface:string]
         # SUBSTR is the legacy alias of GETRANGE and stays WRONGTYPE.
         assert_error {WRONGTYPE*} {r substr bitmap:surface 0 -1}
@@ -704,7 +704,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r debug bitmap-raw bitmap:surface]
     }
 
-    test {SORT BY and GET patterns treat native bitmaps as missing values} {
+    test {SORT BY and GET patterns treat Roaring bitmaps as missing values} {
         r del bitmap:sort:list
         r rpush bitmap:sort:list a b
         r set weight_a 2
@@ -716,44 +716,44 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {string-b string-a} [r sort bitmap:sort:list BY weight_* GET data_*]
 
         # lookupKeyByPattern() only dereferences OBJ_STRING values, so a
-        # native bitmap weight or data target behaves exactly like a
+        # Roaring bitmap weight or data target behaves exactly like a
         # missing key: no weight for BY (sorts as 0), nil for GET, and no
         # materialization back to a string.
-        convert_string_bitmap_to_native r weight_a
-        convert_string_bitmap_to_native r data_a
+        convert_string_bitmap_to_roaring r weight_a
+        convert_string_bitmap_to_roaring r data_a
         assert_equal {a b} [r sort bitmap:sort:list BY weight_* GET #]
         assert_equal [list {} string-b] [r sort bitmap:sort:list BY weight_* GET data_*]
         assert_equal bitmap [r type weight_a]
         assert_equal bitmap [r type data_a]
 
         # The hash-field pattern branch ("BY pat->field") takes a separate
-        # lookup path that requires OBJ_HASH; a native bitmap in pattern
+        # lookup path that requires OBJ_HASH; a Roaring bitmap in pattern
         # position behaves like a missing key there too.
         r del wh_a wh_b
         r hset wh_b f 1
         r set wh_a placeholder
-        convert_string_bitmap_to_native r wh_a
+        convert_string_bitmap_to_roaring r wh_a
         assert_equal {a b} [r sort bitmap:sort:list BY wh_*->f GET #]
         assert_equal [list {} 1] [r sort bitmap:sort:list BY wh_*->f GET wh_*->f]
         assert_equal bitmap [r type wh_a]
     }
 
-    test {Lua scripts observe native bitmaps through normal type checks} {
+    test {Lua scripts observe Roaring bitmaps through normal type checks} {
         set raw [binary format H* 80400100080000]
 
         r set bitmap:lua $raw
-        convert_string_bitmap_to_native r bitmap:lua
+        convert_string_bitmap_to_roaring r bitmap:lua
         assert_equal 1 [r eval {return redis.call('getbit', KEYS[1], 0)} 1 bitmap:lua]
         assert_equal 4 [r eval {return redis.call('bitcount', KEYS[1])} 1 bitmap:lua]
         assert_error {*WRONGTYPE*} {r eval {return redis.call('get', KEYS[1])} 1 bitmap:lua}
         assert_equal bitmap [r type bitmap:lua]
     }
 
-    test {native bitmap dump restore and debug reload preserve bitmap objects} {
+    test {Roaring bitmap dump restore and debug reload preserve bitmap objects} {
         set raw [binary format H* f0000000000000010000]
 
         r set bitmap:persist $raw
-        convert_string_bitmap_to_native r bitmap:persist
+        convert_string_bitmap_to_roaring r bitmap:persist
         set payload [r dump bitmap:persist]
         r restore bitmap:restored 0 $payload
         assert_equal [r type bitmap:restored] bitmap
@@ -768,14 +768,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal [r debug bitmap-raw bitmap:restored] $raw
     }
 
-    test {RESTORE REPLACE preserves explicit string and native bitmap transitions} {
+    test {RESTORE REPLACE preserves explicit string and Roaring bitmap transitions} {
         set raw [binary format H* 80400100080000]
 
         r del bitmap:restore:source bitmap:restore:target
         r set bitmap:restore:source $raw
         set string_payload [r dump bitmap:restore:source]
 
-        convert_string_bitmap_to_native r bitmap:restore:source
+        convert_string_bitmap_to_roaring r bitmap:restore:source
         set bitmap_payload [r dump bitmap:restore:source]
         assert_equal bitmap [r type bitmap:restore:source]
         assert_equal bitmap-roaring [r object encoding bitmap:restore:source]
@@ -794,7 +794,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r get bitmap:restore:target]
     }
 
-    test {native bitmap raw RDB restores run containers without capacity bloat} {
+    test {Roaring bitmap raw RDB restores run containers without capacity bloat} {
         set raw ""
         for {set i 0} {$i < 32} {incr i} {
             append raw [string repeat [binary format H* ff] 600]
@@ -803,7 +803,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:rdb-run:a bitmap:rdb-run:b
         r set bitmap:rdb-run:a $raw
-        convert_string_bitmap_to_native r bitmap:rdb-run:a
+        convert_string_bitmap_to_roaring r bitmap:rdb-run:a
         set original_usage [r memory usage bitmap:rdb-run:a]
 
         r restore bitmap:rdb-run:b 0 [r dump bitmap:rdb-run:a]
@@ -816,12 +816,12 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-run:a bitmap:rdb-run:b
     }
 
-    test {native bitmap RDB uses compact payload for fragmented bitmaps} {
+    test {Roaring bitmap RDB uses compact payload for fragmented bitmaps} {
         set raw [string repeat [binary format H* 55] 8192]
 
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
         r set bitmap:rdb-frag:a $raw
-        convert_string_bitmap_to_native r bitmap:rdb-frag:a
+        convert_string_bitmap_to_roaring r bitmap:rdb-frag:a
         set dump [r dump bitmap:rdb-frag:a]
         assert_lessthan [string length $dump] [expr {[string length $raw] + 128}] \
             "dump_len=[string length $dump] raw_len=[string length $raw]"
@@ -832,33 +832,33 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
-    test {native bitmap raw RDB payload keeps sparse bitmaps compact with compression} {
+    test {Roaring bitmap raw RDB payload keeps sparse bitmaps compact with compression} {
         set oldcomp [config_get_set rdbcompression yes]
 
-        r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
+        r del bitmap:rdb-sparse:string bitmap:rdb-sparse:roaring \
             bitmap:rdb-sparse:restored
         for {set i 0} {$i < 4096} {incr i} {
             r setbit bitmap:rdb-sparse:string [expr {$i * 4096}] 1
         }
         set raw [r get bitmap:rdb-sparse:string]
-        r set bitmap:rdb-sparse:native $raw
-        convert_string_bitmap_to_native r bitmap:rdb-sparse:native
-        set native_dump [r dump bitmap:rdb-sparse:native]
-        assert_lessthan [string length $native_dump] \
+        r set bitmap:rdb-sparse:roaring $raw
+        convert_string_bitmap_to_roaring r bitmap:rdb-sparse:roaring
+        set roaring_dump [r dump bitmap:rdb-sparse:roaring]
+        assert_lessthan [string length $roaring_dump] \
             [expr {[string length $raw] / 8}] \
-            "native_dump_len=[string length $native_dump] raw_len=[string length $raw]"
+            "roaring_dump_len=[string length $roaring_dump] raw_len=[string length $raw]"
 
-        r restore bitmap:rdb-sparse:restored 0 $native_dump
+        r restore bitmap:rdb-sparse:restored 0 $roaring_dump
         assert_equal bitmap [r type bitmap:rdb-sparse:restored]
         assert_equal bitmap-roaring [r object encoding bitmap:rdb-sparse:restored]
         assert_equal $raw [r debug bitmap-raw bitmap:rdb-sparse:restored]
 
-        r del bitmap:rdb-sparse:string bitmap:rdb-sparse:native \
+        r del bitmap:rdb-sparse:string bitmap:rdb-sparse:roaring \
             bitmap:rdb-sparse:restored
         r config set rdbcompression $oldcomp
     }
 
-    test {native bitmap raw RDB payload round-trips across internal shapes} {
+    test {Roaring bitmap raw RDB payload round-trips across internal shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
@@ -891,7 +891,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         foreach {name raw} [list dense $dense trailing-zero $trailing_zero mixed $mixed sparse $sparse] {
             r set bitmap:endian:$name $raw
-            convert_string_bitmap_to_native r bitmap:endian:$name
+            convert_string_bitmap_to_roaring r bitmap:endian:$name
             assert_equal [r debug bitmap-raw bitmap:endian:$name] $raw
 
             r restore bitmap:endian:restored:$name 0 [r dump bitmap:endian:$name]
@@ -900,7 +900,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {native bitmap RDB save is not bounded by current proto-max-bulk-len} {
+    test {Roaring bitmap RDB save is not bounded by current proto-max-bulk-len} {
         set limit 1048576
         set byte_len [expr {$limit + 1}]
         set oldval [config_get_set proto-max-bulk-len [expr {$byte_len + 1024}]]
@@ -910,7 +910,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         r del bitmap:rdb-raw-bulk-limit
         r set bitmap:rdb-raw-bulk-limit $raw
-        convert_string_bitmap_to_native r bitmap:rdb-raw-bulk-limit
+        convert_string_bitmap_to_roaring r bitmap:rdb-raw-bulk-limit
         r config set proto-max-bulk-len $limit
 
         r debug reload
@@ -923,7 +923,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set proto-max-bulk-len $oldval
     }
 
-    test {native bitmap RDB load is not bounded by current proto-max-bulk-len} {
+    test {Roaring bitmap RDB load is not bounded by current proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
         r config set bitmap-default-roaring yes
@@ -943,7 +943,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         r config set proto-max-bulk-len $oldval
     }
 
-    test {native bitmap unlink uses lazyfree for many roaring containers} {
+    test {Roaring bitmap unlink uses lazyfree for many roaring containers} {
         r config resetstat
         r config set bitmap-default-roaring yes
         for {set i 0} {$i < 80} {incr i} {
@@ -974,7 +974,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             # aligned words allocation.
             set dense [string repeat [binary format H* aa] 8192]
             r set bitmap:defrag:dense $dense
-            convert_string_bitmap_to_native r bitmap:defrag:dense
+            convert_string_bitmap_to_roaring r bitmap:defrag:dense
             assert_equal bitmap [r type bitmap:defrag:dense]
             assert_equal 32768 [r bitcount bitmap:defrag:dense]
             assert_morethan [r memory usage bitmap:defrag:dense] 8192
@@ -1013,7 +1013,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         } {} {needs:config-resetstat}
     }
 
-    test {public-created native bitmaps survive debug reload} {
+    test {public-created Roaring bitmaps survive debug reload} {
         r config set bitmap-default-roaring yes
 
         r setbit bitmap:public:reload:direct $::sparse_public_offset 1
@@ -1033,7 +1033,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:skip" "cluster:skip"}} {
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "modules" "external:skip" "cluster:skip"}} {
     r module load $testmodule
 
     test {module key API exposes bitmap without string access} {
@@ -1041,7 +1041,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:s
 
         r set bitmap:module-boundary $raw
         r set bitmap:module-string $raw
-        convert_string_bitmap_to_native r bitmap:module-boundary
+        convert_string_bitmap_to_roaring r bitmap:module-boundary
         assert_equal {bitmap 7 0 0} [r test.key_string_api bitmap:module-boundary]
         assert_equal {string 7 1 1} [r test.key_string_api bitmap:module-string]
         assert_equal bitmap [r type bitmap:module-boundary]
@@ -1055,8 +1055,8 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "modules" "external:s
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
-    test {native bitmap survives AOF rewrite as bitmap} {
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {save {} aof-use-rdb-preamble no}} {
+    test {Roaring bitmap survives AOF rewrite as bitmap} {
         r config set appendonly yes
         r config set auto-aof-rewrite-percentage 0
         waitForBgrewriteaof r
@@ -1064,7 +1064,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         set raw [binary format H* 80000000000000000001]
 
         r set bitmap:aof $raw
-        convert_string_bitmap_to_native r bitmap:aof
+        convert_string_bitmap_to_roaring r bitmap:aof
         set digest_before [debug_digest]
 
         r bgrewriteaof
@@ -1077,7 +1077,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         assert_equal [r debug bitmap-raw bitmap:aof] $raw
     }
 
-    test {public-created native bitmaps survive AOF rewrite as bitmap} {
+    test {public-created Roaring bitmaps survive AOF rewrite as bitmap} {
         r flushall
         r config set appendonly yes
         waitForBgrewriteaof r
@@ -1104,18 +1104,18 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         r config set bitmap-default-roaring no
     }
 
-    test {AOF rewrite preserves native and string bitmap objects} {
+    test {AOF rewrite preserves Roaring and string bitmap objects} {
         r flushall
         r config set appendonly yes
         waitForBgrewriteaof r
         r config set auto-aof-rewrite-percentage 0
 
         set raw [binary format H* 80400100080000]
-        r set bitmap:aof:transition:native $raw
-        convert_string_bitmap_to_native r bitmap:aof:transition:native
+        r set bitmap:aof:transition:roaring $raw
+        convert_string_bitmap_to_roaring r bitmap:aof:transition:roaring
         r set bitmap:aof:transition:string $raw
 
-        assert_equal bitmap [r type bitmap:aof:transition:native]
+        assert_equal bitmap [r type bitmap:aof:transition:roaring]
         assert_equal string [r type bitmap:aof:transition:string]
         set digest_before [debug_digest]
 
@@ -1124,16 +1124,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
         r debug loadaof
 
         assert_equal [debug_digest] $digest_before
-        assert_equal bitmap [r type bitmap:aof:transition:native]
-        assert_equal bitmap-roaring [r object encoding bitmap:aof:transition:native]
-        assert_equal $raw [r debug bitmap-raw bitmap:aof:transition:native]
+        assert_equal bitmap [r type bitmap:aof:transition:roaring]
+        assert_equal bitmap-roaring [r object encoding bitmap:aof:transition:roaring]
+        assert_equal $raw [r debug bitmap-raw bitmap:aof:transition:roaring]
         assert_equal string [r type bitmap:aof:transition:string]
         assert_equal $raw [r get bitmap:aof:transition:string]
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no}} {
-    test {native bitmap create and conversion are written to incremental AOF as RESTORE} {
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no}} {
+    test {Roaring bitmap create and conversion are written to incremental AOF as RESTORE} {
         set aof [get_last_incr_aof_path r]
         set raw [binary format H* 80400100080000]
 
@@ -1143,7 +1143,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
 
         r set bitmap:aof-incr:convert $raw
         r pexpire bitmap:aof-incr:convert 600000
-        convert_string_bitmap_to_native r bitmap:aof-incr:convert
+        convert_string_bitmap_to_roaring r bitmap:aof-incr:convert
 
         set fp [open $aof r]
         fconfigure $fp -translation binary
@@ -1194,7 +1194,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "external:skip" "clus
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:skip"}} {
+start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -1205,7 +1205,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
         wait_for_sync $replica
         wait_for_ofs_sync $master $replica
 
-        test {native bitmap public creation replicates deterministic type transitions} {
+        test {Roaring bitmap public creation replicates deterministic type transitions} {
             # The replica stays in bitmap-default-roaring no: type decisions must arrive
             # from the master as explicit RESTOREs, never be re-derived from
             # replica-local configuration.
@@ -1229,7 +1229,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal [$master debug digest] [$replica debug digest]
         }
 
-        test {plain SETBIT on an existing native bitmap replicates as a command} {
+        test {plain SETBIT on an existing Roaring bitmap replicates as a command} {
             # After the explicit RESTORE transition, later writes replicate
             # as plain SETBITs against the same type on both sides.
             $master setbit bitmap:public:repl:direct 12345 1
@@ -1240,7 +1240,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
         }
 
         test {BITOP destinations replicate deterministically across modes} {
-            # String-only sources with a bitmap-default-roaring yes master: the native
+            # String-only sources with a bitmap-default-roaring yes master: the roaring
             # destination decision is master-local, so the result arrives as
             # a RESTORE and the replica converges although it would have
             # produced a string itself.
@@ -1266,7 +1266,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             $replica config set bitmap-default-roaring no
         }
 
-        test {native bitmaps survive a full resync as bitmaps} {
+        test {Roaring bitmaps survive a full resync as bitmaps} {
             # Detach and wipe the replica, then reattach: the keys now arrive
             # through the RDB-over-the-wire full sync path instead of the
             # command stream.
@@ -1298,9 +1298,9 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             assert_equal string [$replica type bitmap:public:repl:conv]
 
             # The conversion must arrive as the RESTORE effect, never as a
-            # replayed SETBIT: whether the replica would choose native depends
+            # replayed SETBIT: whether the replica would choose roaring depends
             # on its own configuration.
-            convert_string_bitmap_to_native $master bitmap:public:repl:conv
+            convert_string_bitmap_to_roaring $master bitmap:public:repl:conv
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:conv]
@@ -1315,7 +1315,7 @@ start_server {tags {"bitmap" "bitmap-native" "repl" "external:skip" "cluster:ski
             $master del bitmap:public:repl:restore:source bitmap:public:repl:restore:target
             $master set bitmap:public:repl:restore:source $raw
             set string_payload [$master dump bitmap:public:repl:restore:source]
-            convert_string_bitmap_to_native $master bitmap:public:repl:restore:source
+            convert_string_bitmap_to_roaring $master bitmap:public:repl:restore:source
             set bitmap_payload [$master dump bitmap:public:repl:restore:source]
 
             $master restore bitmap:public:repl:restore:target 0 $string_payload replace
@@ -1374,13 +1374,13 @@ proc assert_bitmap_has_exact_bits {key bits} {
 }
 
 proc assert_bitmap_translated_jaccard {name left_bits right_bits expected_intersection expected_union expected_ratio} {
-    set left "bitmap:native:translated:jaccard:$name:left"
-    set right "bitmap:native:translated:jaccard:$name:right"
-    set intersection "bitmap:native:translated:jaccard:$name:intersection"
-    set union "bitmap:native:translated:jaccard:$name:union"
+    set left "bitmap:roaring:translated:jaccard:$name:left"
+    set right "bitmap:roaring:translated:jaccard:$name:right"
+    set intersection "bitmap:roaring:translated:jaccard:$name:intersection"
+    set union "bitmap:roaring:translated:jaccard:$name:union"
 
-    seed_native_bitmap $left $left_bits
-    seed_native_bitmap $right $right_bits
+    seed_roaring_bitmap $left $left_bits
+    seed_roaring_bitmap $right $right_bits
 
     r bitop and $intersection $left $right
     r bitop or $union $left $right
@@ -1397,398 +1397,398 @@ proc assert_bitmap_translated_jaccard {name left_bits right_bits expected_inters
     assert_equal $expected_ratio $actual_ratio
 }
 
-proc assert_native_bitop_matches_string {name op source_bitsets} {
-    set string_dest "bitmap:native:bitop:$name:string:dest"
-    set native_dest "bitmap:native:bitop:$name:native:dest"
+proc assert_roaring_bitop_matches_string {name op source_bitsets} {
+    set string_dest "bitmap:roaring:bitop:$name:string:dest"
+    set roaring_dest "bitmap:roaring:bitop:$name:roaring:dest"
     set string_sources {}
-    set native_sources {}
+    set roaring_sources {}
 
     for {set i 0} {$i < [llength $source_bitsets]} {incr i} {
-        set string_key "bitmap:native:bitop:$name:string:src:$i"
-        set native_key "bitmap:native:bitop:$name:native:src:$i"
+        set string_key "bitmap:roaring:bitop:$name:string:src:$i"
+        set roaring_key "bitmap:roaring:bitop:$name:roaring:src:$i"
         seed_string_bitmap $string_key [lindex $source_bitsets $i]
-        seed_native_bitmap $native_key [lindex $source_bitsets $i]
+        seed_roaring_bitmap $roaring_key [lindex $source_bitsets $i]
         lappend string_sources $string_key
-        lappend native_sources $native_key
+        lappend roaring_sources $roaring_key
     }
 
     set string_reply [r bitop $op $string_dest {*}$string_sources]
-    set native_reply [r bitop $op $native_dest {*}$native_sources]
-    assert_equal $string_reply $native_reply
-    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    set roaring_reply [r bitop $op $roaring_dest {*}$roaring_sources]
+    assert_equal $string_reply $roaring_reply
+    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $roaring_dest]
     assert_equal $string_reply [string length [bitmap_logical_raw $string_dest]]
-    assert_equal $native_reply [string length [bitmap_logical_raw $native_dest]]
-    if {[r exists $native_dest]} {
-        # At least one native source makes the destination native.
-        assert_equal bitmap [r type $native_dest]
+    assert_equal $roaring_reply [string length [bitmap_logical_raw $roaring_dest]]
+    if {[r exists $roaring_dest]} {
+        # At least one roaring source makes the destination roaring.
+        assert_equal bitmap [r type $roaring_dest]
         assert_equal string [r type $string_dest]
     }
 }
 
-proc assert_native_bitop_bitset_case {name op source_bitsets expected_bits {missing_indexes {}} {alias_index -1} {dest_seed __none__}} {
-    set string_dest "bitmap:native:bitop:case:$name:string:dest"
-    set native_dest "bitmap:native:bitop:case:$name:native:dest"
+proc assert_roaring_bitop_bitset_case {name op source_bitsets expected_bits {missing_indexes {}} {alias_index -1} {dest_seed __none__}} {
+    set string_dest "bitmap:roaring:bitop:case:$name:string:dest"
+    set roaring_dest "bitmap:roaring:bitop:case:$name:roaring:dest"
     set string_sources {}
-    set native_sources {}
+    set roaring_sources {}
     set string_source_raws {}
-    set native_source_raws {}
+    set roaring_source_raws {}
 
     r config set bitmap-default-roaring no
 
     if {$dest_seed eq "__none__"} {
-        r del $string_dest $native_dest
+        r del $string_dest $roaring_dest
     } else {
         seed_string_bitmap $string_dest $dest_seed
-        seed_native_bitmap $native_dest $dest_seed
+        seed_roaring_bitmap $roaring_dest $dest_seed
     }
 
     for {set i 0} {$i < [llength $source_bitsets]} {incr i} {
-        set string_key "bitmap:native:bitop:case:$name:string:src:$i"
-        set native_key "bitmap:native:bitop:case:$name:native:src:$i"
+        set string_key "bitmap:roaring:bitop:case:$name:string:src:$i"
+        set roaring_key "bitmap:roaring:bitop:case:$name:roaring:src:$i"
         if {[lsearch -exact $missing_indexes $i] >= 0} {
-            r del $string_key $native_key
+            r del $string_key $roaring_key
         } else {
             seed_string_bitmap $string_key [lindex $source_bitsets $i]
-            seed_native_bitmap $native_key [lindex $source_bitsets $i]
+            seed_roaring_bitmap $roaring_key [lindex $source_bitsets $i]
         }
         lappend string_sources $string_key
-        lappend native_sources $native_key
+        lappend roaring_sources $roaring_key
         lappend string_source_raws [bitmap_logical_raw $string_key]
-        lappend native_source_raws [bitmap_logical_raw $native_key]
+        lappend roaring_source_raws [bitmap_logical_raw $roaring_key]
     }
 
     if {$alias_index >= 0} {
         set string_dest [lindex $string_sources $alias_index]
-        set native_dest [lindex $native_sources $alias_index]
+        set roaring_dest [lindex $roaring_sources $alias_index]
     }
 
     set string_reply [r bitop $op $string_dest {*}$string_sources]
-    set native_reply [r bitop $op $native_dest {*}$native_sources]
-    assert_equal $string_reply $native_reply
-    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    set roaring_reply [r bitop $op $roaring_dest {*}$roaring_sources]
+    assert_equal $string_reply $roaring_reply
+    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $roaring_dest]
     assert_equal $string_reply [string length [bitmap_logical_raw $string_dest]]
-    assert_equal $native_reply [string length [bitmap_logical_raw $native_dest]]
+    assert_equal $roaring_reply [string length [bitmap_logical_raw $roaring_dest]]
     assert_bitmap_has_exact_bits $string_dest $expected_bits
-    assert_bitmap_has_exact_bits $native_dest $expected_bits
-    if {[r exists $native_dest]} {
-        assert_equal bitmap [r type $native_dest]
-        assert_equal bitmap-roaring [r object encoding $native_dest]
+    assert_bitmap_has_exact_bits $roaring_dest $expected_bits
+    if {[r exists $roaring_dest]} {
+        assert_equal bitmap [r type $roaring_dest]
+        assert_equal bitmap-roaring [r object encoding $roaring_dest]
     }
 
     for {set i 0} {$i < [llength $source_bitsets]} {incr i} {
         if {$i == $alias_index} continue
         assert_equal [lindex $string_source_raws $i] [bitmap_logical_raw [lindex $string_sources $i]]
-        assert_equal [lindex $native_source_raws $i] [bitmap_logical_raw [lindex $native_sources $i]]
+        assert_equal [lindex $roaring_source_raws $i] [bitmap_logical_raw [lindex $roaring_sources $i]]
     }
 }
 
-proc assert_native_bitop_raws_match_string {name op source_raws native_indexes {alias_index -1}} {
-    set string_dest "bitmap:native:bitop:$name:string:dest"
-    set native_dest "bitmap:native:bitop:$name:native:dest"
+proc assert_roaring_bitop_raws_match_string {name op source_raws roaring_indexes {alias_index -1}} {
+    set string_dest "bitmap:roaring:bitop:$name:string:dest"
+    set roaring_dest "bitmap:roaring:bitop:$name:roaring:dest"
     set string_sources {}
-    set native_sources {}
+    set roaring_sources {}
     set string_source_raws {}
-    set native_source_raws {}
+    set roaring_source_raws {}
 
     r config set bitmap-default-roaring no
 
     for {set i 0} {$i < [llength $source_raws]} {incr i} {
-        set string_key "bitmap:native:bitop:$name:string:src:$i"
-        set native_key "bitmap:native:bitop:$name:native:src:$i"
+        set string_key "bitmap:roaring:bitop:$name:string:src:$i"
+        set roaring_key "bitmap:roaring:bitop:$name:roaring:src:$i"
         r set $string_key [lindex $source_raws $i]
-        r set $native_key [lindex $source_raws $i]
-        if {[lsearch -exact $native_indexes $i] >= 0} {
-            convert_string_bitmap_to_native r $native_key
+        r set $roaring_key [lindex $source_raws $i]
+        if {[lsearch -exact $roaring_indexes $i] >= 0} {
+            convert_string_bitmap_to_roaring r $roaring_key
         }
         lappend string_sources $string_key
-        lappend native_sources $native_key
+        lappend roaring_sources $roaring_key
         lappend string_source_raws [bitmap_logical_raw $string_key]
-        lappend native_source_raws [bitmap_logical_raw $native_key]
+        lappend roaring_source_raws [bitmap_logical_raw $roaring_key]
     }
 
     if {$alias_index >= 0} {
         set string_dest [lindex $string_sources $alias_index]
-        set native_dest [lindex $native_sources $alias_index]
+        set roaring_dest [lindex $roaring_sources $alias_index]
     }
 
     set string_reply [r bitop $op $string_dest {*}$string_sources]
-    set native_reply [r bitop $op $native_dest {*}$native_sources]
-    assert_equal $string_reply $native_reply
-    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $native_dest]
+    set roaring_reply [r bitop $op $roaring_dest {*}$roaring_sources]
+    assert_equal $string_reply $roaring_reply
+    assert_equal [bitmap_logical_raw $string_dest] [bitmap_logical_raw $roaring_dest]
     assert_equal $string_reply [string length [bitmap_logical_raw $string_dest]]
-    assert_equal $native_reply [string length [bitmap_logical_raw $native_dest]]
-    if {[r exists $native_dest] && [llength $native_indexes] > 0} {
-        assert_equal bitmap [r type $native_dest]
+    assert_equal $roaring_reply [string length [bitmap_logical_raw $roaring_dest]]
+    if {[r exists $roaring_dest] && [llength $roaring_indexes] > 0} {
+        assert_equal bitmap [r type $roaring_dest]
         assert_equal string [r type $string_dest]
     }
 
     for {set i 0} {$i < [llength $source_raws]} {incr i} {
         if {$i == $alias_index} continue
         assert_equal [lindex $string_source_raws $i] [bitmap_logical_raw [lindex $string_sources $i]]
-        assert_equal [lindex $native_source_raws $i] [bitmap_logical_raw [lindex $native_sources $i]]
+        assert_equal [lindex $roaring_source_raws $i] [bitmap_logical_raw [lindex $roaring_sources $i]]
     }
 }
 
-proc assert_native_bitmap_command_matches_string {name raw command} {
-    set string_key "bitmap:native:read-edge:$name:string"
-    set native_key "bitmap:native:read-edge:$name:native"
+proc assert_roaring_bitmap_command_matches_string {name raw command} {
+    set string_key "bitmap:roaring:read-edge:$name:string"
+    set roaring_key "bitmap:roaring:read-edge:$name:roaring"
     r set $string_key $raw
-    r set $native_key $raw
-    convert_string_bitmap_to_native r $native_key
+    r set $roaring_key $raw
+    convert_string_bitmap_to_roaring r $roaring_key
     set string_cmd [lreplace $command 1 1 $string_key]
-    set native_cmd [lreplace $command 1 1 $native_key]
-    assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
-    assert_equal bitmap [r type $native_key]
-    assert_equal bitmap-roaring [r object encoding $native_key]
+    set roaring_cmd [lreplace $command 1 1 $roaring_key]
+    assert_equal [r {*}$string_cmd] [r {*}$roaring_cmd]
+    assert_equal bitmap [r type $roaring_key]
+    assert_equal bitmap-roaring [r object encoding $roaring_key]
 }
 
-proc assert_native_bitmap_write_matches_string {name raw command} {
-    set string_key "bitmap:native:write-edge:$name:string"
-    set native_key "bitmap:native:write-edge:$name:native"
+proc assert_roaring_bitmap_write_matches_string {name raw command} {
+    set string_key "bitmap:roaring:write-edge:$name:string"
+    set roaring_key "bitmap:roaring:write-edge:$name:roaring"
     r set $string_key $raw
-    r set $native_key $raw
-    convert_string_bitmap_to_native r $native_key
+    r set $roaring_key $raw
+    convert_string_bitmap_to_roaring r $roaring_key
     set string_cmd [lreplace $command 1 1 $string_key]
-    set native_cmd [lreplace $command 1 1 $native_key]
-    assert_equal [r {*}$string_cmd] [r {*}$native_cmd]
-    assert_equal [bitmap_logical_raw $string_key] [r debug bitmap-raw $native_key]
-    assert_equal bitmap [r type $native_key]
-    assert_equal bitmap-roaring [r object encoding $native_key]
+    set roaring_cmd [lreplace $command 1 1 $roaring_key]
+    assert_equal [r {*}$string_cmd] [r {*}$roaring_cmd]
+    assert_equal [bitmap_logical_raw $string_key] [r debug bitmap-raw $roaring_key]
+    assert_equal bitmap [r type $roaring_key]
+    assert_equal bitmap-roaring [r object encoding $roaring_key]
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
-    test {native bitmap read commands preserve type encoding and bytes} {
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
+    test {Roaring bitmap read commands preserve type encoding and bytes} {
         set raw [binary format H* 80400100080000]
 
-        r set bitmap:native:read $raw
-        convert_string_bitmap_to_native r bitmap:native:read
-        assert_equal 1 [r getbit bitmap:native:read 0]
-        assert_equal 1 [r getbit bitmap:native:read 9]
-        assert_equal 0 [r getbit bitmap:native:read 10]
-        assert_equal 4 [r bitcount bitmap:native:read]
-        assert_equal 2 [r bitcount bitmap:native:read 8 23 bit]
-        assert_equal 0 [r bitpos bitmap:native:read 1]
-        assert_equal 1 [r bitpos bitmap:native:read 0]
-        assert_equal 9 [r bitpos bitmap:native:read 1 8 -1 bit]
-        assert_equal {1 1 1} [r bitfield_ro bitmap:native:read GET u1 0 GET u1 9 GET u1 36]
+        r set bitmap:roaring:read $raw
+        convert_string_bitmap_to_roaring r bitmap:roaring:read
+        assert_equal 1 [r getbit bitmap:roaring:read 0]
+        assert_equal 1 [r getbit bitmap:roaring:read 9]
+        assert_equal 0 [r getbit bitmap:roaring:read 10]
+        assert_equal 4 [r bitcount bitmap:roaring:read]
+        assert_equal 2 [r bitcount bitmap:roaring:read 8 23 bit]
+        assert_equal 0 [r bitpos bitmap:roaring:read 1]
+        assert_equal 1 [r bitpos bitmap:roaring:read 0]
+        assert_equal 9 [r bitpos bitmap:roaring:read 1 8 -1 bit]
+        assert_equal {1 1 1} [r bitfield_ro bitmap:roaring:read GET u1 0 GET u1 9 GET u1 36]
         assert_error {ERR BITFIELD_RO only supports the GET subcommand} {
-            r bitfield_ro bitmap:native:read SET u8 0 255
+            r bitfield_ro bitmap:roaring:read SET u8 0 255
         }
 
-        assert_equal bitmap [r type bitmap:native:read]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:read]
-        assert_equal $raw [r debug bitmap-raw bitmap:native:read]
+        assert_equal bitmap [r type bitmap:roaring:read]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:read]
+        assert_equal $raw [r debug bitmap-raw bitmap:roaring:read]
     }
 
     test {bitmap-default-roaring conversion preserves dense raw chunks and boundary bits} {
         set raw [binary format H* "[string repeat ff 8192]8001"]
 
-        r set bitmap:native:convert:dense $raw
-        convert_string_bitmap_to_native r bitmap:native:convert:dense
-        assert_equal bitmap [r type bitmap:native:convert:dense]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:convert:dense]
-        assert_equal $raw [r debug bitmap-raw bitmap:native:convert:dense]
-        assert_equal 65538 [r bitcount bitmap:native:convert:dense]
-        assert_equal 1 [r getbit bitmap:native:convert:dense 0]
-        assert_equal 1 [r getbit bitmap:native:convert:dense 65535]
-        assert_equal 1 [r getbit bitmap:native:convert:dense 65536]
-        assert_equal 1 [r getbit bitmap:native:convert:dense 65551]
+        r set bitmap:roaring:convert:dense $raw
+        convert_string_bitmap_to_roaring r bitmap:roaring:convert:dense
+        assert_equal bitmap [r type bitmap:roaring:convert:dense]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:convert:dense]
+        assert_equal $raw [r debug bitmap-raw bitmap:roaring:convert:dense]
+        assert_equal 65538 [r bitcount bitmap:roaring:convert:dense]
+        assert_equal 1 [r getbit bitmap:roaring:convert:dense 0]
+        assert_equal 1 [r getbit bitmap:roaring:convert:dense 65535]
+        assert_equal 1 [r getbit bitmap:roaring:convert:dense 65536]
+        assert_equal 1 [r getbit bitmap:roaring:convert:dense 65551]
     }
 
-    test {SETBIT and GETBIT round trip native bitmap offsets} {
-        seed_native_bitmap bitmap:native:setbit:loop {}
+    test {SETBIT and GETBIT round trip Roaring bitmap offsets} {
+        seed_roaring_bitmap bitmap:roaring:setbit:loop {}
 
         for {set offset 0} {$offset < 100} {incr offset} {
-            assert_equal 0 [r setbit bitmap:native:setbit:loop $offset 1]
-            assert_equal 1 [r getbit bitmap:native:setbit:loop $offset]
-            assert_equal 1 [r setbit bitmap:native:setbit:loop $offset 0]
-            assert_equal 0 [r getbit bitmap:native:setbit:loop $offset]
+            assert_equal 0 [r setbit bitmap:roaring:setbit:loop $offset 1]
+            assert_equal 1 [r getbit bitmap:roaring:setbit:loop $offset]
+            assert_equal 1 [r setbit bitmap:roaring:setbit:loop $offset 0]
+            assert_equal 0 [r getbit bitmap:roaring:setbit:loop $offset]
         }
 
-        assert_equal bitmap [r type bitmap:native:setbit:loop]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:setbit:loop]
-        assert_equal 0 [r bitcount bitmap:native:setbit:loop]
+        assert_equal bitmap [r type bitmap:roaring:setbit:loop]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:setbit:loop]
+        assert_equal 0 [r bitcount bitmap:roaring:setbit:loop]
     }
 
-    test {SETBIT updates existing native bitmap keys through direct native path} {
+    test {SETBIT updates existing Roaring bitmap keys through direct Roaring path} {
         r config set bitmap-default-roaring yes
-        r del bitmap:native:setbit:existing
+        r del bitmap:roaring:setbit:existing
 
-        assert_equal 0 [r setbit bitmap:native:setbit:existing 5 1]
-        assert_equal bitmap [r type bitmap:native:setbit:existing]
+        assert_equal 0 [r setbit bitmap:roaring:setbit:existing 5 1]
+        assert_equal bitmap [r type bitmap:roaring:setbit:existing]
 
         r config set bitmap-default-roaring no
-        assert_equal 0 [r setbit bitmap:native:setbit:existing 6 1]
-        assert_equal bitmap [r type bitmap:native:setbit:existing]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:setbit:existing]
-        assert_equal 1 [r getbit bitmap:native:setbit:existing 6]
-        assert_equal 2 [r bitcount bitmap:native:setbit:existing]
+        assert_equal 0 [r setbit bitmap:roaring:setbit:existing 6 1]
+        assert_equal bitmap [r type bitmap:roaring:setbit:existing]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:setbit:existing]
+        assert_equal 1 [r getbit bitmap:roaring:setbit:existing 6]
+        assert_equal 2 [r bitcount bitmap:roaring:setbit:existing]
     }
 
-    test {SETBIT updates native bitmap values and preserves trailing zero length} {
-        r set bitmap:native:setbit [binary format H* 8000]
-        convert_string_bitmap_to_native r bitmap:native:setbit
-        assert_equal 0 [r setbit bitmap:native:setbit 9 1]
-        assert_equal bitmap [r type bitmap:native:setbit]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:setbit]
-        assert_equal [binary format H* 8040] [r debug bitmap-raw bitmap:native:setbit]
+    test {SETBIT updates Roaring bitmap values and preserves trailing zero length} {
+        r set bitmap:roaring:setbit [binary format H* 8000]
+        convert_string_bitmap_to_roaring r bitmap:roaring:setbit
+        assert_equal 0 [r setbit bitmap:roaring:setbit 9 1]
+        assert_equal bitmap [r type bitmap:roaring:setbit]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:setbit]
+        assert_equal [binary format H* 8040] [r debug bitmap-raw bitmap:roaring:setbit]
 
-        assert_equal 0 [r setbit bitmap:native:setbit 23 0]
-        assert_equal bitmap [r type bitmap:native:setbit]
-        assert_equal [binary format H* 804000] [r debug bitmap-raw bitmap:native:setbit]
+        assert_equal 0 [r setbit bitmap:roaring:setbit 23 0]
+        assert_equal bitmap [r type bitmap:roaring:setbit]
+        assert_equal [binary format H* 804000] [r debug bitmap-raw bitmap:roaring:setbit]
 
-        assert_equal 1 [r setbit bitmap:native:setbit 0 0]
-        assert_equal bitmap [r type bitmap:native:setbit]
-        assert_equal [binary format H* 004000] [r debug bitmap-raw bitmap:native:setbit]
+        assert_equal 1 [r setbit bitmap:roaring:setbit 0 0]
+        assert_equal bitmap [r type bitmap:roaring:setbit]
+        assert_equal [binary format H* 004000] [r debug bitmap-raw bitmap:roaring:setbit]
     }
 
-    test {native bitmap MEMORY USAGE tracks roaring container allocation updates} {
+    test {Roaring bitmap MEMORY USAGE tracks roaring container allocation updates} {
         r config set bitmap-default-roaring yes
-        r del bitmap:native:memory
+        r del bitmap:roaring:memory
 
-        assert_equal 0 [r setbit bitmap:native:memory 0 1]
-        set one_container [r memory usage bitmap:native:memory]
+        assert_equal 0 [r setbit bitmap:roaring:memory 0 1]
+        set one_container [r memory usage bitmap:roaring:memory]
         assert_morethan $one_container 0
 
-        assert_equal 0 [r setbit bitmap:native:memory 65536 1]
-        set two_containers [r memory usage bitmap:native:memory]
+        assert_equal 0 [r setbit bitmap:roaring:memory 65536 1]
+        set two_containers [r memory usage bitmap:roaring:memory]
         assert_morethan $two_containers $one_container
 
-        assert_equal 1 [r setbit bitmap:native:memory 65536 0]
-        set back_to_one [r memory usage bitmap:native:memory]
+        assert_equal 1 [r setbit bitmap:roaring:memory 65536 0]
+        set back_to_one [r memory usage bitmap:roaring:memory]
         assert_lessthan $back_to_one $two_containers
-        assert_equal 1 [r bitcount bitmap:native:memory]
+        assert_equal 1 [r bitcount bitmap:roaring:memory]
 
-        assert_equal 1 [r setbit bitmap:native:memory 0 0]
-        set empty [r memory usage bitmap:native:memory]
+        assert_equal 1 [r setbit bitmap:roaring:memory 0 0]
+        set empty [r memory usage bitmap:roaring:memory]
         assert_lessthan $empty $back_to_one
-        assert_equal 0 [r bitcount bitmap:native:memory]
+        assert_equal 0 [r bitcount bitmap:roaring:memory]
 
-        r del bitmap:native:memory:same-container
-        assert_equal 0 [r setbit bitmap:native:memory:same-container 0 1]
-        set sparse_container [r memory usage bitmap:native:memory:same-container]
+        r del bitmap:roaring:memory:same-container
+        assert_equal 0 [r setbit bitmap:roaring:memory:same-container 0 1]
+        set sparse_container [r memory usage bitmap:roaring:memory:same-container]
         for {set bit 1} {$bit <= 4096} {incr bit} {
-            assert_equal 0 [r setbit bitmap:native:memory:same-container $bit 1]
+            assert_equal 0 [r setbit bitmap:roaring:memory:same-container $bit 1]
         }
-        set dense_container [r memory usage bitmap:native:memory:same-container]
+        set dense_container [r memory usage bitmap:roaring:memory:same-container]
         assert_morethan $dense_container $sparse_container
-        assert_equal 4097 [r bitcount bitmap:native:memory:same-container]
+        assert_equal 4097 [r bitcount bitmap:roaring:memory:same-container]
 
         r config set bitmap-default-roaring no
-        r del bitmap:native:memory bitmap:native:memory:same-container
+        r del bitmap:roaring:memory bitmap:roaring:memory:same-container
     }
 
-    test {bitmap commands operate on legacy and native representations with default native creation disabled} {
+    test {bitmap commands operate on legacy and Roaring representations with default Roaring creation disabled} {
         r config set bitmap-default-roaring no
         set raw [binary format H* 804001]
-        set string_key bitmap:native:mixed-surface:string
-        set native_key bitmap:native:mixed-surface:native
+        set string_key bitmap:roaring:mixed-surface:string
+        set roaring_key bitmap:roaring:mixed-surface:roaring
 
         r set $string_key $raw
-        r set $native_key $raw
-        convert_string_bitmap_to_native r $native_key
+        r set $roaring_key $raw
+        convert_string_bitmap_to_roaring r $roaring_key
         assert_equal string [r type $string_key]
-        assert_equal bitmap [r type $native_key]
-        assert_equal bitmap-roaring [r object encoding $native_key]
+        assert_equal bitmap [r type $roaring_key]
+        assert_equal bitmap-roaring [r object encoding $roaring_key]
 
-        assert_equal [r setbit $string_key 23 1] [r setbit $native_key 23 1]
-        assert_equal [r getbit $string_key 23] [r getbit $native_key 23]
-        assert_equal [r bitcount $string_key] [r bitcount $native_key]
-        assert_equal [r bitcount $string_key 3 20 bit] [r bitcount $native_key 3 20 bit]
-        assert_equal [r bitpos $string_key 1] [r bitpos $native_key 1]
-        assert_equal [r bitpos $string_key 0 4 -1 bit] [r bitpos $native_key 0 4 -1 bit]
+        assert_equal [r setbit $string_key 23 1] [r setbit $roaring_key 23 1]
+        assert_equal [r getbit $string_key 23] [r getbit $roaring_key 23]
+        assert_equal [r bitcount $string_key] [r bitcount $roaring_key]
+        assert_equal [r bitcount $string_key 3 20 bit] [r bitcount $roaring_key 3 20 bit]
+        assert_equal [r bitpos $string_key 1] [r bitpos $roaring_key 1]
+        assert_equal [r bitpos $string_key 0 4 -1 bit] [r bitpos $roaring_key 0 4 -1 bit]
 
         set bitfield_cmd {GET u8 0 SET u5 9 17 INCRBY i6 16 -3 GET i6 16}
-        assert_equal [r bitfield $string_key {*}$bitfield_cmd] [r bitfield $native_key {*}$bitfield_cmd]
-        assert_equal [r bitfield_ro $string_key GET u8 0 GET u8 16] [r bitfield_ro $native_key GET u8 0 GET u8 16]
-        assert_equal [r get $string_key] [r debug bitmap-raw $native_key]
+        assert_equal [r bitfield $string_key {*}$bitfield_cmd] [r bitfield $roaring_key {*}$bitfield_cmd]
+        assert_equal [r bitfield_ro $string_key GET u8 0 GET u8 16] [r bitfield_ro $roaring_key GET u8 0 GET u8 16]
+        assert_equal [r get $string_key] [r debug bitmap-raw $roaring_key]
 
-        assert_native_bitop_raws_match_string mixed-surface:bitop or \
+        assert_roaring_bitop_raws_match_string mixed-surface:bitop or \
             [list [r get $string_key] [binary format H* 0f00ff]] {0}
     }
 
-    test {GETBIT past the native bitmap logical length returns 0} {
-        seed_native_bitmap bitmap:native:getbit:past {3}
+    test {GETBIT past the Roaring bitmap logical length returns 0} {
+        seed_roaring_bitmap bitmap:roaring:getbit:past {3}
 
-        assert_equal 1 [r getbit bitmap:native:getbit:past 3]
-        assert_equal 0 [r getbit bitmap:native:getbit:past 7]
-        assert_equal 0 [r getbit bitmap:native:getbit:past 100]
-        assert_equal 0 [r getbit bitmap:native:getbit:past 4294967295]
+        assert_equal 1 [r getbit bitmap:roaring:getbit:past 3]
+        assert_equal 0 [r getbit bitmap:roaring:getbit:past 7]
+        assert_equal 0 [r getbit bitmap:roaring:getbit:past 100]
+        assert_equal 0 [r getbit bitmap:roaring:getbit:past 4294967295]
         assert_error {*bit offset is*out of range*} {
-            r getbit bitmap:native:getbit:past 4294967296
+            r getbit bitmap:roaring:getbit:past 4294967296
         }
         assert_error {*bit offset is*out of range*} {
-            r getbit bitmap:native:getbit:past 9223372036854775808
+            r getbit bitmap:roaring:getbit:past 9223372036854775808
         }
-        assert_equal [binary format H* 10] [r debug bitmap-raw bitmap:native:getbit:past]
+        assert_equal [binary format H* 10] [r debug bitmap-raw bitmap:roaring:getbit:past]
     }
 
-    test {native bitmap v1 cap applies when proto-max-bulk-len permits wider strings} {
-        set max_native_bit 4294967295
-        set first_rejected [expr {$max_native_bit + 1}]
+    test {Roaring bitmap v1 cap applies when proto-max-bulk-len permits wider strings} {
+        set max_roaring_bit 4294967295
+        set first_rejected [expr {$max_roaring_bit + 1}]
         set limit [expr {($first_rejected / 8) + 1}]
         set oldval [config_get_set proto-max-bulk-len $limit]
         r config set bitmap-default-roaring yes
-        r del bitmap:native:wide-offset-cap
+        r del bitmap:roaring:wide-offset-cap
 
-        assert_equal 0 [r setbit bitmap:native:wide-offset-cap $max_native_bit 1]
-        assert_equal bitmap [r type bitmap:native:wide-offset-cap]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:wide-offset-cap]
-        assert_equal 1 [r getbit bitmap:native:wide-offset-cap $max_native_bit]
-        assert_equal {1} [r bitfield_ro bitmap:native:wide-offset-cap GET u1 $max_native_bit]
-        assert_equal 1 [r bitcount bitmap:native:wide-offset-cap]
+        assert_equal 0 [r setbit bitmap:roaring:wide-offset-cap $max_roaring_bit 1]
+        assert_equal bitmap [r type bitmap:roaring:wide-offset-cap]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:wide-offset-cap]
+        assert_equal 1 [r getbit bitmap:roaring:wide-offset-cap $max_roaring_bit]
+        assert_equal {1} [r bitfield_ro bitmap:roaring:wide-offset-cap GET u1 $max_roaring_bit]
+        assert_equal 1 [r bitcount bitmap:roaring:wide-offset-cap]
 
         # Offsets follow the current proto-max-bulk-len exactly like string
         # bitmaps: lowering it below existing data bounds later accesses too.
         r config set proto-max-bulk-len 1048576
         foreach cmd [list \
-            [list getbit bitmap:native:wide-offset-cap $max_native_bit] \
-            [list getbit bitmap:native:wide-offset-cap $first_rejected] \
-            [list bitfield_ro bitmap:native:wide-offset-cap GET u1 $first_rejected] \
-            [list setbit bitmap:native:wide-offset-cap $first_rejected 1] \
-            [list bitfield bitmap:native:wide-offset-cap SET u1 $first_rejected 1] \
+            [list getbit bitmap:roaring:wide-offset-cap $max_roaring_bit] \
+            [list getbit bitmap:roaring:wide-offset-cap $first_rejected] \
+            [list bitfield_ro bitmap:roaring:wide-offset-cap GET u1 $first_rejected] \
+            [list setbit bitmap:roaring:wide-offset-cap $first_rejected 1] \
+            [list bitfield bitmap:roaring:wide-offset-cap SET u1 $first_rejected 1] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
-        assert_equal 1 [r bitcount bitmap:native:wide-offset-cap]
+        assert_equal 1 [r bitcount bitmap:roaring:wide-offset-cap]
 
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitmap:native:wide-offset-cap
+        r del bitmap:roaring:wide-offset-cap
     }
 
-    test {SETBIT keeps the proto-max-bulk-len offset limit on native bitmaps} {
-        seed_native_bitmap bitmap:native:setbit:cap {0}
+    test {SETBIT keeps the proto-max-bulk-len offset limit on Roaring bitmaps} {
+        seed_roaring_bitmap bitmap:roaring:setbit:cap {0}
 
         assert_error {*bit offset is*out of range*} {
-            r setbit bitmap:native:setbit:cap 4294967296 1
+            r setbit bitmap:roaring:setbit:cap 4294967296 1
         }
-        assert_equal bitmap [r type bitmap:native:setbit:cap]
-        assert_equal 1 [r bitcount bitmap:native:setbit:cap]
-        r del bitmap:native:setbit:cap
+        assert_equal bitmap [r type bitmap:roaring:setbit:cap]
+        assert_equal 1 [r bitcount bitmap:roaring:setbit:cap]
+        r del bitmap:roaring:setbit:cap
     }
 
-    test {native bitmap BITCOUNT and BITPOS cover redis-roaring integration cases} {
-        seed_native_bitmap bitmap:native:countpos:fib {1 2 3 5 8 13}
-        assert_equal 6 [r bitcount bitmap:native:countpos:fib]
-        assert_equal 1 [r bitpos bitmap:native:countpos:fib 1]
-        assert_equal 0 [r bitpos bitmap:native:countpos:fib 0]
+    test {Roaring bitmap BITCOUNT and BITPOS cover redis-roaring integration cases} {
+        seed_roaring_bitmap bitmap:roaring:countpos:fib {1 2 3 5 8 13}
+        assert_equal 6 [r bitcount bitmap:roaring:countpos:fib]
+        assert_equal 1 [r bitpos bitmap:roaring:countpos:fib 1]
+        assert_equal 0 [r bitpos bitmap:roaring:countpos:fib 0]
 
-        seed_native_bitmap bitmap:native:countpos:first-one {3 4 6 10 12}
-        assert_equal 3 [r bitpos bitmap:native:countpos:first-one 1]
+        seed_roaring_bitmap bitmap:roaring:countpos:first-one {3 4 6 10 12}
+        assert_equal 3 [r bitpos bitmap:roaring:countpos:first-one 1]
 
-        seed_native_bitmap bitmap:native:countpos:first-zero {0 1 2 3 4 6}
-        assert_equal 5 [r bitpos bitmap:native:countpos:first-zero 0]
+        seed_roaring_bitmap bitmap:roaring:countpos:first-zero {0 1 2 3 4 6}
+        assert_equal 5 [r bitpos bitmap:roaring:countpos:first-zero 0]
 
-        seed_native_bitmap bitmap:native:countpos:empty {}
-        assert_equal -1 [r bitpos bitmap:native:countpos:empty 0]
-        assert_equal -1 [r bitpos bitmap:native:countpos:empty 1]
+        seed_roaring_bitmap bitmap:roaring:countpos:empty {}
+        assert_equal -1 [r bitpos bitmap:roaring:countpos:empty 0]
+        assert_equal -1 [r bitpos bitmap:roaring:countpos:empty 1]
 
-        seed_native_bitmap bitmap:native:countpos:single-zero {0}
-        assert_equal 1 [r bitpos bitmap:native:countpos:single-zero 0]
+        seed_roaring_bitmap bitmap:roaring:countpos:single-zero {0}
+        assert_equal 1 [r bitpos bitmap:roaring:countpos:single-zero 0]
     }
 
-    test {native bitmap BITCOUNT and BITPOS match string edge ranges} {
+    test {Roaring bitmap BITCOUNT and BITPOS match string edge ranges} {
         set raw [binary format H* ff00f0800100007f]
         set commands {
             {bitcount key}
@@ -1809,7 +1809,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         set idx 0
         foreach command $commands {
-            assert_native_bitmap_command_matches_string "mixed:$idx" $raw $command
+            assert_roaring_bitmap_command_matches_string "mixed:$idx" $raw $command
             incr idx
         }
 
@@ -1821,72 +1821,72 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             {bitpos key 0 2}
             {bitpos key 0 0 15 bit}
         } {
-            assert_native_bitmap_command_matches_string "ones:$idx" $all_ones $command
+            assert_roaring_bitmap_command_matches_string "ones:$idx" $all_ones $command
             incr idx
         }
     }
 
-    test {native bitmap BITCOUNT and BITPOS handle container edges} {
+    test {Roaring bitmap BITCOUNT and BITPOS handle container edges} {
         # Bits in distinct 2^16 containers, plus dense runs, exercise the
         # container-walking BITPOS code where uint32 and uint64 arithmetic mix.
-        seed_native_bitmap bitmap:native:cap-edge {0}
-        r setbit bitmap:native:cap-edge 65535 1
-        r setbit bitmap:native:cap-edge 65536 1
-        r setbit bitmap:native:cap-edge 131071 1
+        seed_roaring_bitmap bitmap:roaring:cap-edge {0}
+        r setbit bitmap:roaring:cap-edge 65535 1
+        r setbit bitmap:roaring:cap-edge 65536 1
+        r setbit bitmap:roaring:cap-edge 131071 1
 
-        assert_equal 4 [r bitcount bitmap:native:cap-edge]
-        assert_equal 65535 [r bitpos bitmap:native:cap-edge 1 1 -1 bit]
-        assert_equal 65535 [r bitpos bitmap:native:cap-edge 1 8191]
-        assert_equal 131071 [r bitpos bitmap:native:cap-edge 1 65537 -1 bit]
-        assert_equal 1 [r bitpos bitmap:native:cap-edge 0]
-        assert_equal -1 [r bitpos bitmap:native:cap-edge 0 65535 65535 bit]
-        assert_equal 2 [r bitcount bitmap:native:cap-edge 65535 65536 bit]
-        r del bitmap:native:cap-edge
+        assert_equal 4 [r bitcount bitmap:roaring:cap-edge]
+        assert_equal 65535 [r bitpos bitmap:roaring:cap-edge 1 1 -1 bit]
+        assert_equal 65535 [r bitpos bitmap:roaring:cap-edge 1 8191]
+        assert_equal 131071 [r bitpos bitmap:roaring:cap-edge 1 65537 -1 bit]
+        assert_equal 1 [r bitpos bitmap:roaring:cap-edge 0]
+        assert_equal -1 [r bitpos bitmap:roaring:cap-edge 0 65535 65535 bit]
+        assert_equal 2 [r bitcount bitmap:roaring:cap-edge 65535 65536 bit]
+        r del bitmap:roaring:cap-edge
 
         # A dense run crossing a container boundary: the first clear bit
         # after the run must come from the container-level scan. With an
         # explicit BIT range every bit is set, so the reply is -1; without an
         # explicit end the logical length supplies the imaginary trailing
         # zero at bit 65568.
-        seed_native_bitmap bitmap:native:run-edge {}
-        r bitfield bitmap:native:run-edge SET i64 65504 -1
-        assert_equal {-1} [r bitfield_ro bitmap:native:run-edge GET i64 65504]
-        assert_equal 65504 [r bitpos bitmap:native:run-edge 1]
-        assert_equal -1 [r bitpos bitmap:native:run-edge 0 65504 -1 bit]
-        assert_equal 65568 [r bitpos bitmap:native:run-edge 0 8188]
-        assert_equal 64 [r bitcount bitmap:native:run-edge]
-        r del bitmap:native:run-edge
+        seed_roaring_bitmap bitmap:roaring:run-edge {}
+        r bitfield bitmap:roaring:run-edge SET i64 65504 -1
+        assert_equal {-1} [r bitfield_ro bitmap:roaring:run-edge GET i64 65504]
+        assert_equal 65504 [r bitpos bitmap:roaring:run-edge 1]
+        assert_equal -1 [r bitpos bitmap:roaring:run-edge 0 65504 -1 bit]
+        assert_equal 65568 [r bitpos bitmap:roaring:run-edge 0 8188]
+        assert_equal 64 [r bitcount bitmap:roaring:run-edge]
+        r del bitmap:roaring:run-edge
     }
 
-    test {BITFIELD writes native bitmap values through the direct write path} {
-        r set bitmap:native:bitfield [binary format H* 00]
-        convert_string_bitmap_to_native r bitmap:native:bitfield
-        assert_equal {0 15} [r bitfield bitmap:native:bitfield SET u4 4 15 GET u8 0]
-        assert_equal bitmap [r type bitmap:native:bitfield]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield]
-        assert_equal [binary format H* 0f] [r debug bitmap-raw bitmap:native:bitfield]
-        assert_equal {15} [r bitfield_ro bitmap:native:bitfield GET u4 4]
+    test {BITFIELD writes Roaring bitmap values through the direct write path} {
+        r set bitmap:roaring:bitfield [binary format H* 00]
+        convert_string_bitmap_to_roaring r bitmap:roaring:bitfield
+        assert_equal {0 15} [r bitfield bitmap:roaring:bitfield SET u4 4 15 GET u8 0]
+        assert_equal bitmap [r type bitmap:roaring:bitfield]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:bitfield]
+        assert_equal [binary format H* 0f] [r debug bitmap-raw bitmap:roaring:bitfield]
+        assert_equal {15} [r bitfield_ro bitmap:roaring:bitfield GET u4 4]
 
-        assert_equal {0} [r bitfield bitmap:native:bitfield SET u1 23 0]
-        assert_equal bitmap [r type bitmap:native:bitfield]
-        assert_equal [binary format H* 0f0000] [r debug bitmap-raw bitmap:native:bitfield]
+        assert_equal {0} [r bitfield bitmap:roaring:bitfield SET u1 23 0]
+        assert_equal bitmap [r type bitmap:roaring:bitfield]
+        assert_equal [binary format H* 0f0000] [r debug bitmap-raw bitmap:roaring:bitfield]
 
-        seed_native_bitmap bitmap:native:bitfield:clear {0}
-        assert_equal {2} [r bitfield bitmap:native:bitfield:clear SET u2 0 0]
-        assert_equal 0 [r bitcount bitmap:native:bitfield:clear]
-        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:native:bitfield:clear]
+        seed_roaring_bitmap bitmap:roaring:bitfield:clear {0}
+        assert_equal {2} [r bitfield bitmap:roaring:bitfield:clear SET u2 0 0]
+        assert_equal 0 [r bitcount bitmap:roaring:bitfield:clear]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:roaring:bitfield:clear]
     }
 
-    test {BITFIELD signed INCRBY preserves native bitmap values} {
-        seed_native_bitmap bitmap:native:bitfield:signed {}
+    test {BITFIELD signed INCRBY preserves Roaring bitmap values} {
+        seed_roaring_bitmap bitmap:roaring:bitfield:signed {}
 
-        assert_equal {0 1 1} [r bitfield bitmap:native:bitfield:signed SET i5 0 -1 INCRBY i5 0 2 GET i5 0]
-        assert_equal bitmap [r type bitmap:native:bitfield:signed]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:signed]
-        assert_equal {1} [r bitfield_ro bitmap:native:bitfield:signed GET i5 0]
+        assert_equal {0 1 1} [r bitfield bitmap:roaring:bitfield:signed SET i5 0 -1 INCRBY i5 0 2 GET i5 0]
+        assert_equal bitmap [r type bitmap:roaring:bitfield:signed]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:bitfield:signed]
+        assert_equal {1} [r bitfield_ro bitmap:roaring:bitfield:signed GET i5 0]
     }
 
-    test {native bitmap BITFIELD direct paths match string edge cases} {
+    test {Roaring bitmap BITFIELD direct paths match string edge cases} {
         set raw [binary format H* 0102030400]
         set commands {
             {bitfield key GET u4 0 GET i6 9 GET u12 17}
@@ -1901,19 +1901,19 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
         set idx 0
         foreach command $commands {
-            assert_native_bitmap_write_matches_string $idx $raw $command
+            assert_roaring_bitmap_write_matches_string $idx $raw $command
             incr idx
         }
 
-        assert_native_bitmap_write_matches_string grow-after-failed-high-write \
+        assert_roaring_bitmap_write_matches_string grow-after-failed-high-write \
             [binary format H* 00] \
             {bitfield key SET u1 0 1 OVERFLOW FAIL SET u2 47 5}
 
-        assert_native_bitmap_write_matches_string grow-after-fail-only-high-write \
+        assert_roaring_bitmap_write_matches_string grow-after-fail-only-high-write \
             [binary format H* 00] \
             {bitfield key OVERFLOW FAIL SET u2 47 5}
 
-        set fail_key bitmap:native:bitfield:overflow-fail-string-growth
+        set fail_key bitmap:roaring:bitfield:overflow-fail-string-growth
         r config set bitmap-default-roaring no
         r set $fail_key [binary format H* 00]
         assert_equal string [r type $fail_key]
@@ -1922,7 +1922,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 7 [r strlen $fail_key]
         assert_equal [binary format H* 00000000000000] [r get $fail_key]
 
-        set watched_fail_key bitmap:native:bitfield:overflow-fail-string-growth-watch
+        set watched_fail_key bitmap:roaring:bitfield:overflow-fail-string-growth-watch
         r set $watched_fail_key [binary format H* 00]
         r watch $watched_fail_key
         assert_equal {{}} [r bitfield $watched_fail_key OVERFLOW FAIL SET u2 47 5]
@@ -1932,16 +1932,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 7 [r strlen $watched_fail_key]
     }
 
-    test {BITFIELD uses the same offset limit for string and native bitmaps} {
+    test {BITFIELD uses the same offset limit for string and Roaring bitmaps} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len $limit]
         set limit_bits [expr {$limit * 8}]
         set last_allowed [expr {$limit_bits - 1}]
 
         seed_string_bitmap bitmap:string:bitfield:limit {}
-        seed_native_bitmap bitmap:native:bitfield:limit {}
+        seed_roaring_bitmap bitmap:roaring:bitfield:limit {}
 
-        foreach key {bitmap:string:bitfield:limit bitmap:native:bitfield:limit} {
+        foreach key {bitmap:string:bitfield:limit bitmap:roaring:bitfield:limit} {
             assert_error {*bit offset*out of range*} {
                 r bitfield $key SET u1 $limit_bits 1
             }
@@ -1957,17 +1957,17 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             assert_equal 2 [r bitcount $key]
         }
         assert_equal string [r type bitmap:string:bitfield:limit]
-        assert_equal bitmap [r type bitmap:native:bitfield:limit]
-        assert_equal bitmap-roaring [r object encoding bitmap:native:bitfield:limit]
+        assert_equal bitmap [r type bitmap:roaring:bitfield:limit]
+        assert_equal bitmap-roaring [r object encoding bitmap:roaring:bitfield:limit]
 
         r config set proto-max-bulk-len $oldval
-        r del bitmap:string:bitfield:limit bitmap:native:bitfield:limit
+        r del bitmap:string:bitfield:limit bitmap:roaring:bitfield:limit
     }
 
     test {translated redis-roaring int-array bit-array and clear scenarios use core bitmap commands} {
         r config set bitmap-default-roaring yes
 
-        set int_key bitmap:native:translated:int-array
+        set int_key bitmap:roaring:translated:int-array
         r del $int_key
         foreach bit {1 2 3 4 5} {
             assert_equal 0 [r setbit $int_key $bit 1]
@@ -1986,7 +1986,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
         assert_bitmap_has_exact_bits $int_key {2}
 
-        set range_key bitmap:native:translated:range-array
+        set range_key bitmap:roaring:translated:range-array
         r del $range_key
         foreach bit {0 8 16} {
             assert_equal 0 [r setbit $range_key $bit 1]
@@ -1995,7 +1995,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal {1 1 1} [r bitfield_ro $range_key GET u1 0 GET u1 8 GET u1 16]
         assert_equal 3 [r bitcount $range_key 0 16 bit]
 
-        set bitarray_key bitmap:native:translated:bit-array
+        set bitarray_key bitmap:roaring:translated:bit-array
         r del $bitarray_key
         foreach bit {1 2 4 7 11 14 17 18 21} {
             assert_equal 0 [r setbit $bitarray_key $bit 1]
@@ -2009,7 +2009,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     test {translated redis-roaring range full min and max scenarios use core bitmap commands} {
         r config set bitmap-default-roaring yes
 
-        set range_key bitmap:native:translated:setrange
+        set range_key bitmap:roaring:translated:setrange
         r del $range_key
         for {set bit 0} {$bit < 5} {incr bit} {
             assert_equal 0 [r setbit $range_key $bit 1]
@@ -2018,16 +2018,16 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_equal 0 [r bitpos $range_key 1]
         assert_equal 5 [r bitpos $range_key 0]
 
-        set full_key bitmap:native:translated:setfull
+        set full_key bitmap:roaring:translated:setfull
         r set $full_key [binary format H* ff]
-        convert_string_bitmap_to_native r $full_key
+        convert_string_bitmap_to_roaring r $full_key
         assert_equal bitmap [r type $full_key]
         assert_equal bitmap-roaring [r object encoding $full_key]
         assert_bitmap_has_exact_bits $full_key {0 1 2 3 4 5 6 7}
         assert_equal 8 [r bitpos $full_key 0]
 
-        set minmax_key bitmap:native:translated:minmax
-        seed_native_bitmap $minmax_key {}
+        set minmax_key bitmap:roaring:translated:minmax
+        seed_roaring_bitmap $minmax_key {}
         assert_equal 0 [r bitcount $minmax_key]
         assert_equal -1 [r bitpos $minmax_key 1]
 
@@ -2050,37 +2050,37 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
     }
 
     test {translated redis-roaring contains and jaccard scenarios use bitmap algebra} {
-        set a bitmap:native:translated:contains:a
-        set b bitmap:native:translated:contains:b
-        set c bitmap:native:translated:contains:c
-        set e bitmap:native:translated:contains:empty
+        set a bitmap:roaring:translated:contains:a
+        set b bitmap:roaring:translated:contains:b
+        set c bitmap:roaring:translated:contains:c
+        set e bitmap:roaring:translated:contains:empty
 
-        seed_native_bitmap $a {1 2 3 4 5}
-        seed_native_bitmap $b {2 3}
-        seed_native_bitmap $c {3 4 6}
-        seed_native_bitmap $e {}
+        seed_roaring_bitmap $a {1 2 3 4 5}
+        seed_roaring_bitmap $b {2 3}
+        seed_roaring_bitmap $c {3 4 6}
+        seed_roaring_bitmap $e {}
 
-        r bitop and bitmap:native:translated:contains:some $a $b
-        assert_equal 2 [r bitcount bitmap:native:translated:contains:some]
+        r bitop and bitmap:roaring:translated:contains:some $a $b
+        assert_equal 2 [r bitcount bitmap:roaring:translated:contains:some]
 
-        r bitop and bitmap:native:translated:contains:none $a bitmap:native:translated:contains:missing
-        assert_equal 0 [r bitcount bitmap:native:translated:contains:none]
+        r bitop and bitmap:roaring:translated:contains:none $a bitmap:roaring:translated:contains:missing
+        assert_equal 0 [r bitcount bitmap:roaring:translated:contains:none]
 
-        r bitop diff bitmap:native:translated:contains:subset-miss $b $a
-        assert_equal 0 [r bitcount bitmap:native:translated:contains:subset-miss]
+        r bitop diff bitmap:roaring:translated:contains:subset-miss $b $a
+        assert_equal 0 [r bitcount bitmap:roaring:translated:contains:subset-miss]
         assert {[r bitcount $b] < [r bitcount $a]}
 
-        r bitop diff bitmap:native:translated:contains:not-subset $c $a
-        assert_bitmap_has_exact_bits bitmap:native:translated:contains:not-subset {6}
+        r bitop diff bitmap:roaring:translated:contains:not-subset $c $a
+        assert_bitmap_has_exact_bits bitmap:roaring:translated:contains:not-subset {6}
 
-        seed_native_bitmap bitmap:native:translated:contains:eq1 {1 2 3 4 5}
-        seed_native_bitmap bitmap:native:translated:contains:eq2 {1 2 3 4 5}
-        r bitop xor bitmap:native:translated:contains:eq-diff \
-            bitmap:native:translated:contains:eq1 bitmap:native:translated:contains:eq2
-        assert_equal 0 [r bitcount bitmap:native:translated:contains:eq-diff]
+        seed_roaring_bitmap bitmap:roaring:translated:contains:eq1 {1 2 3 4 5}
+        seed_roaring_bitmap bitmap:roaring:translated:contains:eq2 {1 2 3 4 5}
+        r bitop xor bitmap:roaring:translated:contains:eq-diff \
+            bitmap:roaring:translated:contains:eq1 bitmap:roaring:translated:contains:eq2
+        assert_equal 0 [r bitcount bitmap:roaring:translated:contains:eq-diff]
 
-        r bitop diff bitmap:native:translated:contains:empty-subset $e $a
-        assert_equal 0 [r bitcount bitmap:native:translated:contains:empty-subset]
+        r bitop diff bitmap:roaring:translated:contains:empty-subset $e $a
+        assert_equal 0 [r bitcount bitmap:roaring:translated:contains:empty-subset]
 
         assert_bitmap_translated_jaccard overlap {1 2 3 4 5} {3 4 5 6 7} 3 7 0.428571
         assert_bitmap_translated_jaccard subset {1 2 3} {1 2 3 4 5} 3 5 0.600000
@@ -2090,94 +2090,94 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         assert_bitmap_translated_jaccard empty {} {} 0 0 -1
     }
 
-    test {BITOP stores native destinations when sources include native bitmaps} {
-        r set bitmap:native:bitop:a [binary format H* f000]
-        convert_string_bitmap_to_native r bitmap:native:bitop:a
-        r set bitmap:native:bitop:b [binary format H* 0fff]
-        r set bitmap:native:bitop:dest [binary format H* aa]
-        convert_string_bitmap_to_native r bitmap:native:bitop:dest
-        assert_equal 2 [r bitop or bitmap:native:bitop:dest bitmap:native:bitop:a bitmap:native:bitop:b]
-        assert_equal bitmap [r type bitmap:native:bitop:dest]
-        assert_equal [binary format H* ffff] [r debug bitmap-raw bitmap:native:bitop:dest]
+    test {BITOP stores roaring destinations when sources include Roaring bitmaps} {
+        r set bitmap:roaring:bitop:a [binary format H* f000]
+        convert_string_bitmap_to_roaring r bitmap:roaring:bitop:a
+        r set bitmap:roaring:bitop:b [binary format H* 0fff]
+        r set bitmap:roaring:bitop:dest [binary format H* aa]
+        convert_string_bitmap_to_roaring r bitmap:roaring:bitop:dest
+        assert_equal 2 [r bitop or bitmap:roaring:bitop:dest bitmap:roaring:bitop:a bitmap:roaring:bitop:b]
+        assert_equal bitmap [r type bitmap:roaring:bitop:dest]
+        assert_equal [binary format H* ffff] [r debug bitmap-raw bitmap:roaring:bitop:dest]
 
-        assert_equal 2 [r bitop not bitmap:native:bitop:not bitmap:native:bitop:a]
-        assert_equal bitmap [r type bitmap:native:bitop:not]
-        assert_equal [binary format H* 0fff] [r debug bitmap-raw bitmap:native:bitop:not]
+        assert_equal 2 [r bitop not bitmap:roaring:bitop:not bitmap:roaring:bitop:a]
+        assert_equal bitmap [r type bitmap:roaring:bitop:not]
+        assert_equal [binary format H* 0fff] [r debug bitmap-raw bitmap:roaring:bitop:not]
     }
 
-    test {BITOP NOT honors proto-max-bulk-len for native bitmap sources} {
+    test {BITOP NOT honors proto-max-bulk-len for Roaring bitmap sources} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
         r config set bitmap-default-roaring yes
-        r del bitop:not:native:limit bitop:not:native:too-big \
-            bitop:not:native:out bitop:not:native:sentinel
+        r del bitop:not:roaring:limit bitop:not:roaring:too-big \
+            bitop:not:roaring:out bitop:not:roaring:sentinel
 
-        assert_equal 0 [r setbit bitop:not:native:limit [expr {$limit * 8 - 1}] 1]
-        assert_equal 0 [r setbit bitop:not:native:too-big [expr {($limit + 1) * 8 - 1}] 1]
-        assert_equal bitmap [r type bitop:not:native:limit]
-        assert_equal bitmap [r type bitop:not:native:too-big]
+        assert_equal 0 [r setbit bitop:not:roaring:limit [expr {$limit * 8 - 1}] 1]
+        assert_equal 0 [r setbit bitop:not:roaring:too-big [expr {($limit + 1) * 8 - 1}] 1]
+        assert_equal bitmap [r type bitop:not:roaring:limit]
+        assert_equal bitmap [r type bitop:not:roaring:too-big]
 
         r config set proto-max-bulk-len $limit
-        assert_equal $limit [r bitop not bitop:not:native:out bitop:not:native:limit]
-        assert_equal bitmap [r type bitop:not:native:out]
-        assert_equal 1 [r getbit bitop:not:native:out [expr {$limit * 8 - 2}]]
-        assert_equal 0 [r getbit bitop:not:native:out [expr {$limit * 8 - 1}]]
+        assert_equal $limit [r bitop not bitop:not:roaring:out bitop:not:roaring:limit]
+        assert_equal bitmap [r type bitop:not:roaring:out]
+        assert_equal 1 [r getbit bitop:not:roaring:out [expr {$limit * 8 - 2}]]
+        assert_equal 0 [r getbit bitop:not:roaring:out [expr {$limit * 8 - 1}]]
 
-        r set bitop:not:native:sentinel keep
+        r set bitop:not:roaring:sentinel keep
         assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
-            r bitop not bitop:not:native:sentinel bitop:not:native:too-big
+            r bitop not bitop:not:roaring:sentinel bitop:not:roaring:too-big
         }
-        assert_equal string [r type bitop:not:native:sentinel]
-        assert_equal keep [r get bitop:not:native:sentinel]
-        assert_equal bitmap [r type bitop:not:native:too-big]
+        assert_equal string [r type bitop:not:roaring:sentinel]
+        assert_equal keep [r get bitop:not:roaring:sentinel]
+        assert_equal bitmap [r type bitop:not:roaring:too-big]
 
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitop:not:native:limit bitop:not:native:too-big \
-            bitop:not:native:out bitop:not:native:sentinel
+        r del bitop:not:roaring:limit bitop:not:roaring:too-big \
+            bitop:not:roaring:out bitop:not:roaring:sentinel
     }
 
-    test {non-NOT native BITOP survives lowering proto-max-bulk-len} {
+    test {non-NOT Roaring BITOP survives lowering proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
         set last_bit [expr {($limit + 1) * 8 - 1}]
 
         r config set bitmap-default-roaring yes
-        assert_equal 0 [r setbit bitop:limit:native $last_bit 1]
+        assert_equal 0 [r setbit bitop:limit:roaring $last_bit 1]
         r config set bitmap-default-roaring no
         assert_equal 0 [r setbit bitop:limit:string $last_bit 1]
 
         r config set proto-max-bulk-len $limit
         assert_equal [expr {$limit + 1}] \
-            [r bitop or bitop:limit:native:out bitop:limit:native]
+            [r bitop or bitop:limit:roaring:out bitop:limit:roaring]
         assert_equal [expr {$limit + 1}] \
             [r bitop or bitop:limit:string:out bitop:limit:string]
-        assert_equal bitmap [r type bitop:limit:native:out]
+        assert_equal bitmap [r type bitop:limit:roaring:out]
         assert_equal string [r type bitop:limit:string:out]
-        assert_equal 1 [r bitcount bitop:limit:native:out]
+        assert_equal 1 [r bitcount bitop:limit:roaring:out]
 
         r config set proto-max-bulk-len [expr {$limit + 1}]
         assert_equal [r get bitop:limit:string:out] \
-            [r debug bitmap-raw bitop:limit:native:out]
+            [r debug bitmap-raw bitop:limit:roaring:out]
 
         r config set proto-max-bulk-len $oldval
-        r del bitop:limit:native bitop:limit:string \
-            bitop:limit:native:out bitop:limit:string:out
+        r del bitop:limit:roaring bitop:limit:string \
+            bitop:limit:roaring:out bitop:limit:string:out
     }
 
-    test {BITOP native bitmap sources match string bitmap results for all operations} {
+    test {BITOP Roaring bitmap sources match string bitmap results for all operations} {
         set a {0 4 5 6 20}
         set b {1 5 6 21}
         set c {2 3 5 6 7 20}
 
-        assert_native_bitop_matches_string and AND [list $a $b $c]
-        assert_native_bitop_matches_string or OR [list $a $b $c]
-        assert_native_bitop_matches_string xor XOR [list $a $b $c]
-        assert_native_bitop_matches_string diff DIFF [list $a $b $c]
-        assert_native_bitop_matches_string diff1 DIFF1 [list $a $b $c]
-        assert_native_bitop_matches_string andor ANDOR [list $a $b $c]
-        assert_native_bitop_matches_string one ONE [list $a $b $c]
-        assert_native_bitop_matches_string not NOT [list $a]
+        assert_roaring_bitop_matches_string and AND [list $a $b $c]
+        assert_roaring_bitop_matches_string or OR [list $a $b $c]
+        assert_roaring_bitop_matches_string xor XOR [list $a $b $c]
+        assert_roaring_bitop_matches_string diff DIFF [list $a $b $c]
+        assert_roaring_bitop_matches_string diff1 DIFF1 [list $a $b $c]
+        assert_roaring_bitop_matches_string andor ANDOR [list $a $b $c]
+        assert_roaring_bitop_matches_string one ONE [list $a $b $c]
+        assert_roaring_bitop_matches_string not NOT [list $a]
     }
 
     test {BITOP current operations cover redis-roaring algebra cases} {
@@ -2246,94 +2246,94 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             set alias_index -1
             set dest_seed __none__
             lassign $case name op sources expected missing_indexes alias_index dest_seed
-            assert_native_bitop_bitset_case $name $op $sources $expected $missing_indexes $alias_index $dest_seed
+            assert_roaring_bitop_bitset_case $name $op $sources $expected $missing_indexes $alias_index $dest_seed
         }
     }
 
-    test {BITOP current operation syntax errors are preserved on native paths} {
-        seed_native_bitmap bitmap:native:bitop:syntax:a {1}
-        seed_native_bitmap bitmap:native:bitop:syntax:b {2}
+    test {BITOP current operation syntax errors are preserved on roaring paths} {
+        seed_roaring_bitmap bitmap:roaring:bitop:syntax:a {1}
+        seed_roaring_bitmap bitmap:roaring:bitop:syntax:b {2}
 
         assert_error {ERR syntax error} {
-            r bitop noop bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a bitmap:native:bitop:syntax:b
+            r bitop noop bitmap:roaring:bitop:syntax:dest bitmap:roaring:bitop:syntax:a bitmap:roaring:bitop:syntax:b
         }
         assert_error {ERR BITOP NOT*} {
-            r bitop not bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a bitmap:native:bitop:syntax:b
+            r bitop not bitmap:roaring:bitop:syntax:dest bitmap:roaring:bitop:syntax:a bitmap:roaring:bitop:syntax:b
         }
         assert_error {ERR BITOP DIFF*} {
-            r bitop diff bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a
+            r bitop diff bitmap:roaring:bitop:syntax:dest bitmap:roaring:bitop:syntax:a
         }
         assert_error {ERR BITOP DIFF1*} {
-            r bitop diff1 bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a
+            r bitop diff1 bitmap:roaring:bitop:syntax:dest bitmap:roaring:bitop:syntax:a
         }
         assert_error {ERR BITOP ANDOR*} {
-            r bitop andor bitmap:native:bitop:syntax:dest bitmap:native:bitop:syntax:a
+            r bitop andor bitmap:roaring:bitop:syntax:dest bitmap:roaring:bitop:syntax:a
         }
     }
 
-    test {BITOP handles native bitmap empty sources and destination aliasing} {
-        seed_native_bitmap bitmap:native:bitop:empty {}
-        assert_equal 0 [r bitop not bitmap:native:bitop:empty-not bitmap:native:bitop:empty]
-        assert_equal 0 [r exists bitmap:native:bitop:empty-not]
+    test {BITOP handles Roaring bitmap empty sources and destination aliasing} {
+        seed_roaring_bitmap bitmap:roaring:bitop:empty {}
+        assert_equal 0 [r bitop not bitmap:roaring:bitop:empty-not bitmap:roaring:bitop:empty]
+        assert_equal 0 [r exists bitmap:roaring:bitop:empty-not]
 
-        seed_string_bitmap bitmap:native:bitop:alias:string:dest {0 2 4 6}
-        seed_string_bitmap bitmap:native:bitop:alias:string:other {2 6 8}
-        seed_native_bitmap bitmap:native:bitop:alias:native:dest {0 2 4 6}
-        seed_native_bitmap bitmap:native:bitop:alias:native:other {2 6 8}
+        seed_string_bitmap bitmap:roaring:bitop:alias:string:dest {0 2 4 6}
+        seed_string_bitmap bitmap:roaring:bitop:alias:string:other {2 6 8}
+        seed_roaring_bitmap bitmap:roaring:bitop:alias:roaring:dest {0 2 4 6}
+        seed_roaring_bitmap bitmap:roaring:bitop:alias:roaring:other {2 6 8}
 
-        set string_reply [r bitop diff bitmap:native:bitop:alias:string:dest bitmap:native:bitop:alias:string:dest bitmap:native:bitop:alias:string:other]
-        set native_reply [r bitop diff bitmap:native:bitop:alias:native:dest bitmap:native:bitop:alias:native:dest bitmap:native:bitop:alias:native:other]
-        assert_equal $string_reply $native_reply
-        assert_equal [r get bitmap:native:bitop:alias:string:dest] [r debug bitmap-raw bitmap:native:bitop:alias:native:dest]
-        assert_equal bitmap [r type bitmap:native:bitop:alias:native:dest]
+        set string_reply [r bitop diff bitmap:roaring:bitop:alias:string:dest bitmap:roaring:bitop:alias:string:dest bitmap:roaring:bitop:alias:string:other]
+        set roaring_reply [r bitop diff bitmap:roaring:bitop:alias:roaring:dest bitmap:roaring:bitop:alias:roaring:dest bitmap:roaring:bitop:alias:roaring:other]
+        assert_equal $string_reply $roaring_reply
+        assert_equal [r get bitmap:roaring:bitop:alias:string:dest] [r debug bitmap-raw bitmap:roaring:bitop:alias:roaring:dest]
+        assert_equal bitmap [r type bitmap:roaring:bitop:alias:roaring:dest]
     }
 
-    test {BITOP frees an aliased native destination without touching stale sources} {
+    test {BITOP frees an aliased Roaring destination without touching stale sources} {
         # Regression: the destination's old value is also a source here, and
         # both store branches dispose of it (the delete branch frees it
         # outright), so bitopCommand()'s cleanup loop must not dereference
         # the source objects afterwards.
 
-        # Delete branch: all-empty native sources with an aliased destination.
-        seed_native_bitmap bitmap:native:bitop:self:empty {}
-        assert_equal 0 [r bitop and bitmap:native:bitop:self:empty bitmap:native:bitop:self:empty]
-        assert_equal 0 [r exists bitmap:native:bitop:self:empty]
+        # Delete branch: all-empty Roaring sources with an aliased destination.
+        seed_roaring_bitmap bitmap:roaring:bitop:self:empty {}
+        assert_equal 0 [r bitop and bitmap:roaring:bitop:self:empty bitmap:roaring:bitop:self:empty]
+        assert_equal 0 [r exists bitmap:roaring:bitop:self:empty]
 
         # Store branch: a self-targeting OR keeps the same bits.
-        seed_native_bitmap bitmap:native:bitop:self:or {0 3 70000}
-        assert_equal 8751 [r bitop or bitmap:native:bitop:self:or bitmap:native:bitop:self:or]
-        assert_equal bitmap [r type bitmap:native:bitop:self:or]
-        assert_equal 3 [r bitcount bitmap:native:bitop:self:or]
+        seed_roaring_bitmap bitmap:roaring:bitop:self:or {0 3 70000}
+        assert_equal 8751 [r bitop or bitmap:roaring:bitop:self:or bitmap:roaring:bitop:self:or]
+        assert_equal bitmap [r type bitmap:roaring:bitop:self:or]
+        assert_equal 3 [r bitcount bitmap:roaring:bitop:self:or]
         assert_equal {1 1 1} [list \
-            [r getbit bitmap:native:bitop:self:or 0] \
-            [r getbit bitmap:native:bitop:self:or 3] \
-            [r getbit bitmap:native:bitop:self:or 70000]]
+            [r getbit bitmap:roaring:bitop:self:or 0] \
+            [r getbit bitmap:roaring:bitop:self:or 3] \
+            [r getbit bitmap:roaring:bitop:self:or 70000]]
     }
 
-    test {BITOP mixed native and string sources match string results for all operations} {
+    test {BITOP mixed roaring and string sources match string results for all operations} {
         set a [binary format H* f000ff]
         set b [binary format H* 0f0f]
         set c [binary format H* 33000080]
         set raws [list $a $b $c]
 
         foreach op {and or xor diff diff1 andor one} {
-            assert_native_bitop_raws_match_string "mixed:$op" $op $raws {0 2}
+            assert_roaring_bitop_raws_match_string "mixed:$op" $op $raws {0 2}
         }
-        assert_native_bitop_raws_match_string mixed:not not [list $a] {0}
+        assert_roaring_bitop_raws_match_string mixed:not not [list $a] {0}
     }
 
     test {BITOP mixed dense string chunks match string results} {
-        set native [binary format H* [string repeat aa 8194]]
+        set roaring [binary format H* [string repeat aa 8194]]
         set dense [binary format H* "[string repeat ff 8192]8001"]
         set sparse [binary format H* [string repeat 00 8194]]
         set sparse [string replace $sparse 0 0 [binary format H* 80]]
         set sparse [string replace $sparse 8191 8191 [binary format H* 01]]
         set sparse [string replace $sparse 8192 8192 [binary format H* 80]]
         set sparse [string replace $sparse 8193 8193 [binary format H* 01]]
-        set raws [list $native $dense $sparse]
+        set raws [list $roaring $dense $sparse]
 
         foreach op {and or xor diff diff1 andor one} {
-            assert_native_bitop_raws_match_string "mixed-dense:$op" \
+            assert_roaring_bitop_raws_match_string "mixed-dense:$op" \
                 $op $raws {0}
         }
     }
@@ -2346,7 +2346,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set raws [list $a $b $c $d]
 
         foreach op {and or xor diff diff1 andor one} {
-            assert_native_bitop_raws_match_string "mixed-benchmark:$op" \
+            assert_roaring_bitop_raws_match_string "mixed-benchmark:$op" \
                 $op $raws {1 3}
         }
     }
@@ -2363,18 +2363,18 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         }
 
         foreach op {and or xor diff diff1 andor one} {
-            assert_native_bitop_raws_match_string "mixed-avx512:$op" \
+            assert_roaring_bitop_raws_match_string "mixed-avx512:$op" \
                 $op $raws {0 2 4 6}
         }
     }
 
-    test {BITOP mixed native source destination aliasing matches string results} {
+    test {BITOP mixed roaring source destination aliasing matches string results} {
         set a [binary format H* aa5500]
         set b [binary format H* 0ff0]
         set c [binary format H* 330000f0]
         set raws [list $a $b $c]
 
-        foreach {op alias_index native_indexes} {
+        foreach {op alias_index roaring_indexes} {
             and   0 {0 2}
             or    1 {1 2}
             xor   2 {0 2}
@@ -2383,11 +2383,11 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             andor 2 {0 2}
             one   0 {0 2}
         } {
-            assert_native_bitop_raws_match_string "alias:$op:$alias_index" \
-                $op $raws $native_indexes $alias_index
+            assert_roaring_bitop_raws_match_string "alias:$op:$alias_index" \
+                $op $raws $roaring_indexes $alias_index
         }
 
-        foreach {op alias_index native_indexes} {
+        foreach {op alias_index roaring_indexes} {
             and   0 {2}
             or    1 {0 2}
             xor   2 {0}
@@ -2396,14 +2396,14 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
             andor 2 {0}
             one   0 {2}
         } {
-            assert_native_bitop_raws_match_string "alias-string:$op:$alias_index" \
-                $op $raws $native_indexes $alias_index
+            assert_roaring_bitop_raws_match_string "alias-string:$op:$alias_index" \
+                $op $raws $roaring_indexes $alias_index
         }
 
-        assert_native_bitop_raws_match_string alias:not not [list $a] {0} 0
+        assert_roaring_bitop_raws_match_string alias:not not [list $a] {0} 0
     }
 
-    test {BITOP mixed native fuzz matches bitmap-default-roaring no strings} {
+    test {BITOP mixed roaring fuzz matches bitmap-default-roaring no strings} {
         foreach op {and or xor diff diff1 andor one} {
             set min_args 1
             if {$op eq "diff" || $op eq "diff1" || $op eq "andor"} {
@@ -2412,54 +2412,54 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
 
             for {set i 0} {$i < 12} {incr i} {
                 set raws {}
-                set native_indexes {}
+                set roaring_indexes {}
                 set count [expr {$min_args + [randomInt 4]}]
 
                 for {set j 0} {$j < $count} {incr j} {
                     lappend raws [randstring 0 128]
                     if {[expr {($i + $j) % 2}] == 0} {
-                        lappend native_indexes $j
+                        lappend roaring_indexes $j
                     }
                 }
 
-                assert_native_bitop_raws_match_string "fuzz:$op:$i" \
-                    $op $raws $native_indexes
+                assert_roaring_bitop_raws_match_string "fuzz:$op:$i" \
+                    $op $raws $roaring_indexes
             }
         }
 
         for {set i 0} {$i < 12} {incr i} {
-            assert_native_bitop_raws_match_string "fuzz:not:$i" \
+            assert_roaring_bitop_raws_match_string "fuzz:not:$i" \
                 not [list [randstring 0 128]] {0}
         }
     }
 
-    test {BITOP mixed native and missing-key sources match string results} {
+    test {BITOP mixed roaring and missing-key sources match string results} {
         r config set bitmap-default-roaring no
 
         set a [binary format H* f0f0]
         set c [binary format H* 0f]
 
         foreach op {and or xor diff diff1 andor one} {
-            r del bitop:miss:string:dest bitop:miss:native:dest
+            r del bitop:miss:string:dest bitop:miss:roaring:dest
             r del bitop:miss:string:a bitop:miss:string:gone bitop:miss:string:c
-            r del bitop:miss:native:a bitop:miss:native:gone bitop:miss:native:c
+            r del bitop:miss:roaring:a bitop:miss:roaring:gone bitop:miss:roaring:c
 
             r set bitop:miss:string:a $a
             r set bitop:miss:string:c $c
-            r set bitop:miss:native:a $a
-            r set bitop:miss:native:c $c
-            convert_string_bitmap_to_native r bitop:miss:native:a
+            r set bitop:miss:roaring:a $a
+            r set bitop:miss:roaring:c $c
+            convert_string_bitmap_to_roaring r bitop:miss:roaring:a
             set string_reply [r bitop $op bitop:miss:string:dest \
                 bitop:miss:string:a bitop:miss:string:gone bitop:miss:string:c]
-            set native_reply [r bitop $op bitop:miss:native:dest \
-                bitop:miss:native:a bitop:miss:native:gone bitop:miss:native:c]
-            assert_equal $string_reply $native_reply
+            set roaring_reply [r bitop $op bitop:miss:roaring:dest \
+                bitop:miss:roaring:a bitop:miss:roaring:gone bitop:miss:roaring:c]
+            assert_equal $string_reply $roaring_reply
             assert_equal [bitmap_logical_raw bitop:miss:string:dest] \
-                [bitmap_logical_raw bitop:miss:native:dest]
+                [bitmap_logical_raw bitop:miss:roaring:dest]
         }
     }
 
-    test {BITOP with a missing first source matches string results on the native path} {
+    test {BITOP with a missing first source matches string results on the Roaring path} {
         # The empty-accumulator seeding branches (sources[0] == NULL) are
         # distinct code paths: AND/ANDOR clear the result, DIFF1 skips the
         # andnot, and the generic copy falls back to an empty roaring.
@@ -2469,92 +2469,92 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "cluster:skip"}} {
         set c [binary format H* 0f]
 
         foreach op {and or xor diff diff1 andor one} {
-            r del bitop:first:string:dest bitop:first:native:dest
+            r del bitop:first:string:dest bitop:first:roaring:dest
             r del bitop:first:string:gone bitop:first:string:a bitop:first:string:c
-            r del bitop:first:native:gone bitop:first:native:a bitop:first:native:c
+            r del bitop:first:roaring:gone bitop:first:roaring:a bitop:first:roaring:c
 
             r set bitop:first:string:a $a
             r set bitop:first:string:c $c
-            r set bitop:first:native:a $a
-            r set bitop:first:native:c $c
-            convert_string_bitmap_to_native r bitop:first:native:a
+            r set bitop:first:roaring:a $a
+            r set bitop:first:roaring:c $c
+            convert_string_bitmap_to_roaring r bitop:first:roaring:a
             set string_reply [r bitop $op bitop:first:string:dest \
                 bitop:first:string:gone bitop:first:string:a bitop:first:string:c]
-            set native_reply [r bitop $op bitop:first:native:dest \
-                bitop:first:native:gone bitop:first:native:a bitop:first:native:c]
-            assert_equal $string_reply $native_reply
+            set roaring_reply [r bitop $op bitop:first:roaring:dest \
+                bitop:first:roaring:gone bitop:first:roaring:a bitop:first:roaring:c]
+            assert_equal $string_reply $roaring_reply
             assert_equal [bitmap_logical_raw bitop:first:string:dest] \
-                [bitmap_logical_raw bitop:first:native:dest]
+                [bitmap_logical_raw bitop:first:roaring:dest]
         }
     }
 
-    test {BITOP duplicate sources match string results on the native path} {
+    test {BITOP duplicate sources match string results on the Roaring path} {
         r config set bitmap-default-roaring no
 
         set a [binary format H* aa5500]
         set s [binary format H* 0ff0]
 
-        # The same native bitmap key twice: both slots borrow the same
+        # The same Roaring bitmap key twice: both slots borrow the same
         # roaring, so the accumulator must deep-copy rather than steal.
         foreach op {and or xor diff diff1 andor one} {
-            r del bitop:dup:string:dest bitop:dup:native:dest
-            r del bitop:dup:string:k bitop:dup:native:k
+            r del bitop:dup:string:dest bitop:dup:roaring:dest
+            r del bitop:dup:string:k bitop:dup:roaring:k
             r set bitop:dup:string:k $a
-            r set bitop:dup:native:k $a
-            convert_string_bitmap_to_native r bitop:dup:native:k
+            r set bitop:dup:roaring:k $a
+            convert_string_bitmap_to_roaring r bitop:dup:roaring:k
             set string_reply [r bitop $op bitop:dup:string:dest \
                 bitop:dup:string:k bitop:dup:string:k]
-            set native_reply [r bitop $op bitop:dup:native:dest \
-                bitop:dup:native:k bitop:dup:native:k]
-            assert_equal $string_reply $native_reply
+            set roaring_reply [r bitop $op bitop:dup:roaring:dest \
+                bitop:dup:roaring:k bitop:dup:roaring:k]
+            assert_equal $string_reply $roaring_reply
             assert_equal [bitmap_logical_raw bitop:dup:string:dest] \
-                [bitmap_logical_raw bitop:dup:native:dest]
+                [bitmap_logical_raw bitop:dup:roaring:dest]
         }
 
-        # The same string key twice alongside a native source: each slot
+        # The same string key twice alongside a roaring source: each slot
         # builds an independent owned roaring, so the slot-0 steal cannot
         # affect the second operand.
         foreach op {and or xor diff diff1 andor one} {
-            r del bitop:dup2:string:dest bitop:dup2:native:dest
-            r del bitop:dup2:string:s bitop:dup2:native:s
-            r del bitop:dup2:string:n bitop:dup2:native:n
+            r del bitop:dup2:string:dest bitop:dup2:roaring:dest
+            r del bitop:dup2:string:s bitop:dup2:roaring:s
+            r del bitop:dup2:string:n bitop:dup2:roaring:n
             r set bitop:dup2:string:s $s
-            r set bitop:dup2:native:s $s
+            r set bitop:dup2:roaring:s $s
             r set bitop:dup2:string:n $a
-            r set bitop:dup2:native:n $a
-            convert_string_bitmap_to_native r bitop:dup2:native:n
+            r set bitop:dup2:roaring:n $a
+            convert_string_bitmap_to_roaring r bitop:dup2:roaring:n
             set string_reply [r bitop $op bitop:dup2:string:dest \
                 bitop:dup2:string:s bitop:dup2:string:s bitop:dup2:string:n]
-            set native_reply [r bitop $op bitop:dup2:native:dest \
-                bitop:dup2:native:s bitop:dup2:native:s bitop:dup2:native:n]
-            assert_equal $string_reply $native_reply
+            set roaring_reply [r bitop $op bitop:dup2:roaring:dest \
+                bitop:dup2:roaring:s bitop:dup2:roaring:s bitop:dup2:roaring:n]
+            assert_equal $string_reply $roaring_reply
             assert_equal [bitmap_logical_raw bitop:dup2:string:dest] \
-                [bitmap_logical_raw bitop:dup2:native:dest]
+                [bitmap_logical_raw bitop:dup2:roaring:dest]
         }
     }
 
-    test {BITOP rejects non-string non-bitmap sources mixed with native bitmaps} {
-        seed_native_bitmap bitop:wrongtype:native {0 9}
+    test {BITOP rejects non-string non-bitmap sources mixed with Roaring bitmaps} {
+        seed_roaring_bitmap bitop:wrongtype:roaring {0 9}
         r del bitop:wrongtype:list bitop:wrongtype:dest
         r rpush bitop:wrongtype:list element
 
         # The type error fires after earlier sources may already be prepared,
         # exercising the cleanup of converted operands under sanitizer runs.
         assert_error {WRONGTYPE*} {
-            r bitop and bitop:wrongtype:dest bitop:wrongtype:native bitop:wrongtype:list
+            r bitop and bitop:wrongtype:dest bitop:wrongtype:roaring bitop:wrongtype:list
         }
         assert_error {WRONGTYPE*} {
-            r bitop xor bitop:wrongtype:dest bitop:wrongtype:list bitop:wrongtype:native
+            r bitop xor bitop:wrongtype:dest bitop:wrongtype:list bitop:wrongtype:roaring
         }
         assert_equal 0 [r exists bitop:wrongtype:dest]
-        assert_equal bitmap [r type bitop:wrongtype:native]
-        assert_equal bitmap-roaring [r object encoding bitop:wrongtype:native]
+        assert_equal bitmap [r type bitop:wrongtype:roaring]
+        assert_equal bitmap-roaring [r object encoding bitop:wrongtype:roaring]
     }
 }
 
 
-start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
-    test {native bitmap BITOP supports OLAP columnar index user stories} {
+start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
+    test {Roaring bitmap BITOP supports OLAP columnar index user stories} {
         # Inspired by Apache Druid's columnar segment and logical filter docs:
         # https://druid.apache.org/docs/latest/design/segments/
         # https://druid.apache.org/docs/latest/querying/filters/#logical-expression-filters
@@ -2579,7 +2579,7 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
             metric:installs {4 6}
             universe {0 1 2 3 4 5 6}
         } {
-            seed_native_bitmap "bitmap:olap:$index" $bits
+            seed_roaring_bitmap "bitmap:olap:$index" $bits
             assert_equal bitmap [r type "bitmap:olap:$index"]
             assert_equal bitmap-roaring [r object encoding "bitmap:olap:$index"]
         }
@@ -2617,7 +2617,7 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:olap:q:us-engaged]
     }
 
-    test {native bitmap BITOP models Pinot inverted index examples} {
+    test {Roaring bitmap BITOP models Pinot inverted index examples} {
         # Implements the Apache Pinot Star-Tree Index example table and inverted
         # index story as Redis bitmaps over document IDs:
         # https://docs.pinot.apache.org/build-with-pinot/indexing/star-tree-index
@@ -2642,7 +2642,7 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
             metric:impressions-at-least-400 {0 4 6}
             universe {0 1 2 3 4 5 6}
         } {
-            seed_native_bitmap "bitmap:pinot:$index" $bits
+            seed_roaring_bitmap "bitmap:pinot:$index" $bits
             assert_equal bitmap [r type "bitmap:pinot:$index"]
             assert_equal bitmap-roaring [r object encoding "bitmap:pinot:$index"]
         }
@@ -2686,8 +2686,8 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
 }
 
 
-start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
-    test {native bitmap BITOP models Druid Wikipedia query tutorial filters} {
+start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
+    test {Roaring bitmap BITOP models Druid Wikipedia query tutorial filters} {
         # Implements the Apache Druid query tutorial's Wikipedia-style OLAP
         # story as Redis bitmaps over row IDs:
         # https://druid.apache.org/docs/latest/tutorials/tutorial-query/
@@ -2715,7 +2715,7 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
             isrobot:false {0 1 2 4 5}
             universe {0 1 2 3 4 5 6}
         } {
-            seed_native_bitmap "bitmap:wikipedia:$index" $bits
+            seed_roaring_bitmap "bitmap:wikipedia:$index" $bits
             assert_equal bitmap [r type "bitmap:wikipedia:$index"]
             assert_equal bitmap-roaring [r object encoding "bitmap:wikipedia:$index"]
         }
@@ -2762,8 +2762,8 @@ start_server {tags {"bitmap" "bitmap-native" "cluster:skip"}} {
     }
 }
 
-start_server {tags {"bitmap" "bitmap-native" "needs:debug" "needs:save" "cluster:skip"}} {
-    test {native bitmap RDB save and reload survive lowering proto-max-bulk-len} {
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluster:skip"}} {
+    test {Roaring bitmap RDB save and reload survive lowering proto-max-bulk-len} {
         r config set bitmap-default-roaring yes
         r del bitmap:proto:shrink
         r setbit bitmap:proto:shrink 16777215 1
@@ -2783,7 +2783,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "needs:save" "cluster
         r del bitmap:proto:shrink
     }
 
-    test {native bitmap RDB round-trip with rdbcompression no} {
+    test {Roaring bitmap RDB round-trip with rdbcompression no} {
         set old [config_get_set rdbcompression no]
         r config set bitmap-default-roaring yes
         r del bitmap:nocompress
@@ -2802,7 +2802,7 @@ start_server {tags {"bitmap" "bitmap-native" "needs:debug" "needs:save" "cluster
         r del bitmap:nocompress
     }
 
-    test {redis-check-rdb validates dumps containing native bitmaps} {
+    test {redis-check-rdb validates dumps containing Roaring bitmaps} {
         r config set bitmap-default-roaring yes
         r del bitmap:checkrdb:sparse bitmap:checkrdb:dense
         r setbit bitmap:checkrdb:sparse 9 1

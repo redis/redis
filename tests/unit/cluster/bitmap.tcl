@@ -1,8 +1,8 @@
 source tests/support/cluster.tcl
 source tests/support/bitmap.tcl
 
-start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
-    test "Native bitmap BITOP works with hash-slot-tagged keys" {
+start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-roaring}} {
+    test "Roaring bitmap BITOP works with hash-slot-tagged keys" {
         set slot [R 0 cluster keyslot "{bitop}foo"]
         foreach key {"{bitop}bar" "{bitop}dest" "{bitop}not"} {
             assert_equal $slot [R 0 cluster keyslot $key]
@@ -15,8 +15,8 @@ start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
 
         assert_equal 0 [$owner setbit "{bitop}foo" 1 1]
         assert_equal 0 [$owner setbit "{bitop}bar" 2 1]
-        assert_equal OK [convert_string_bitmap_to_native $owner "{bitop}foo"]
-        assert_equal OK [convert_string_bitmap_to_native $owner "{bitop}bar"]
+        assert_equal OK [convert_string_bitmap_to_roaring $owner "{bitop}foo"]
+        assert_equal OK [convert_string_bitmap_to_roaring $owner "{bitop}bar"]
         assert_equal bitmap [$owner type "{bitop}foo"]
         assert_equal bitmap-roaring [$owner object encoding "{bitop}foo"]
 
@@ -38,8 +38,8 @@ start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
     }
 }
 
-start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-native}} {
-    test "MIGRATE moves a native bitmap key between nodes" {
+start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-roaring}} {
+    test "MIGRATE moves a Roaring bitmap key between nodes" {
         set key "{bitmig}bm"
         set slot [R 0 cluster keyslot $key]
 

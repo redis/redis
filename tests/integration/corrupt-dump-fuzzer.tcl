@@ -74,7 +74,7 @@ if 0 {
     r gcra gcra 10 5 60000
 }
 
-    # create native bitmap keys (Roaring encoded): a small sparse one (array
+    # create Roaring bitmap keys: a small sparse one (array encoded),
     # container) and a bigger one mixing a dense run with a sparse tail in a
     # second 64K chunk (run + array containers)
     r config set bitmap-default-roaring yes
@@ -82,7 +82,7 @@ if 0 {
     r setbit bitmap 100 1
     r setbit bitmap 4095 1
     r setrange bitmapbig 0 [string repeat "\xff" 1024]
-    r setbit bitmapbig 100000 1 ;# converts the dense string to native
+    r setbit bitmapbig 100000 1 ;# converts the dense string to roaring
     r config set bitmap-default-roaring no
 
     # create bigger objects with 10 items (more than a single ziplist / listpack)
@@ -289,4 +289,3 @@ foreach sanitize_dump {no yes} {
 
 
 } ;# tags
-

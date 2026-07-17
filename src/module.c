@@ -4262,7 +4262,7 @@ void RM_CloseKey(RedisModuleKey *key) {
 }
 
 /* Return the type of the key. If the key pointer is NULL then
- * REDISMODULE_KEYTYPE_EMPTY is returned. A string-to-native-bitmap conversion
+ * REDISMODULE_KEYTYPE_EMPTY is returned. A string-to-roaring-bitmap conversion
  * changes the result from REDISMODULE_KEYTYPE_STRING before the converting
  * command to REDISMODULE_KEYTYPE_BITMAP after it. */
 int RM_KeyType(RedisModuleKey *key) {
@@ -9309,7 +9309,7 @@ void moduleReleaseGIL(void) {
  * relevant Redis key.
  *
  * On the server executing a bitmap write that converts a string value to a
- * native bitmap, the value is installed before notifications are delivered.
+ * Roaring bitmap, the value is installed before notifications are delivered.
  * Subscribers receive `type_changed` with REDISMODULE_NOTIFY_TYPE_CHANGED,
  * followed by the triggering event with REDISMODULE_NOTIFY_BITMAP. The
  * transition callback observes a bitmap value; the bitmap callback does as

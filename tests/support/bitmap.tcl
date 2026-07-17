@@ -1,9 +1,9 @@
-# Helpers for tests that need a native bitmap fixture without exposing a
+# Helpers for tests that need a Roaring bitmap fixture without exposing a
 # user-facing conversion command. They create or convert through ordinary
 # bitmap writes while bitmap-default-roaring is enabled, then restore the
 # previous server setting.
 
-proc convert_string_bitmap_to_native {client key} {
+proc convert_string_bitmap_to_roaring {client key} {
     set old [lindex [$client config get bitmap-default-roaring] 1]
     set raw [$client get $key]
 
@@ -12,7 +12,7 @@ proc convert_string_bitmap_to_native {client key} {
         if {$ttl < 0} {
             set ttl 0
         }
-        $client restore $key $ttl [empty_native_bitmap_dump_payload] replace
+        $client restore $key $ttl [empty_roaring_bitmap_dump_payload] replace
         return OK
     }
 
@@ -28,17 +28,17 @@ proc convert_string_bitmap_to_native {client key} {
     return OK
 }
 
-proc create_native_bitmap_from_raw {client key raw} {
+proc create_roaring_bitmap_from_raw {client key raw} {
     $client set $key $raw
-    convert_string_bitmap_to_native $client $key
+    convert_string_bitmap_to_roaring $client $key
 }
 
-proc create_native_bitmap_from_bits {client key bits} {
+proc create_roaring_bitmap_from_bits {client key bits} {
     set old [lindex [$client config get bitmap-default-roaring] 1]
 
     $client del $key
     if {[llength $bits] == 0} {
-        $client restore $key 0 [empty_native_bitmap_dump_payload] replace
+        $client restore $key 0 [empty_roaring_bitmap_dump_payload] replace
         return OK
     }
 
@@ -55,15 +55,15 @@ proc create_native_bitmap_from_bits {client key bits} {
     return OK
 }
 
-proc seed_native_bitmap_raw {key raw} {
-    create_native_bitmap_from_raw r $key $raw
+proc seed_roaring_bitmap_raw {key raw} {
+    create_roaring_bitmap_from_raw r $key $raw
 }
 
-proc seed_native_bitmap {key bits} {
-    create_native_bitmap_from_bits r $key $bits
+proc seed_roaring_bitmap {key bits} {
+    create_roaring_bitmap_from_bits r $key $bits
 }
 
-proc empty_native_bitmap_dump_payload {} {
+proc empty_roaring_bitmap_dump_payload {} {
     # RDB_TYPE_BITMAP, empty raw string, RDB_VERSION 15, followed by an
     # all-zero checksum. RESTORE accepts the zero checksum in test-built
     # payloads.
