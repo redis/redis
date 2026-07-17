@@ -65,7 +65,7 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         r set bigbitmap [binary format H* \
             "[string repeat aa 8192][string repeat ff 8192]"]
         r config set bitmap-default-roaring yes
-        r setbit bigbitmap 200000 1 ;# converts the dense string to native
+        r setbit bigbitmap 200000 1 ;# converts the dense string to roaring
         r config set bitmap-default-roaring no
         assert_equal bitmap [r type bigbitmap]
 

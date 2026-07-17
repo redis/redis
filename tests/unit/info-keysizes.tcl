@@ -859,7 +859,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_non_empty r {lists sets zsets hashes}
     }
 
-    test "KEY-MEMORY-STATS - BITFIELD native transitions keep histograms consistent" {
+    test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
         r FLUSHALL
         assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
         assert_equal OK [r config set bitmap-default-roaring yes]

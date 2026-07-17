@@ -834,7 +834,7 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * an error is sent to the client.
  *
  * The caller provides 'o' and 'link' from a single lookupKeyWriteWithLink()
- * call, so command paths that first probe for a native bitmap don't pay a
+ * call, so command paths that first probe for a Roaring bitmap don't pay a
  * second keyspace lookup.
  *
  * (Must provide all the arguments to the function)
@@ -899,19 +899,19 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
     return p;
 }
 
-/* Public commands create native bitmaps, or convert string values they write
+/* Public commands create Roaring bitmaps, or convert string values they write
  * to, only when bitmap-default-roaring is enabled and never while obeying a
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state, so masters propagate every type transition as
  * an explicit RESTORE (see bitmapPropagateRestore()) instead of letting
  * replicas re-derive it from their local configuration. */
-static int bitmapDefaultNativeEnabled(client *c) {
+static int bitmapDefaultRoaringEnabled(client *c) {
     return server.bitmap_default_roaring && !mustObeyClient(c);
 }
 
-/* Convert a string value of any encoding into a native bitmap object holding
+/* Convert a string value of any encoding into a Roaring bitmap object holding
  * the same logical bits. Returns NULL when the string is wider than the v1
- * native bitmap cap. */
+ * Roaring bitmap cap. */
 static robj *bitmapObjectFromStringObject(robj *o) {
     robj *decoded = getDecodedObject(o);
     robj *bitmap = createBitmapObjectFromString((unsigned char *)decoded->ptr,
@@ -983,30 +983,30 @@ static void bitmapInstallConvertedValue(client *c, robj *key, robj **bitmapref,
 
 /* SETBIT and BITFIELD share the decision of which representation a bitmap
  * write should target. Returns C_ERR after replying to the client when the
- * write cannot be represented natively; the keyspace is left untouched, which
- * keeps multi-op BITFIELD writes all-or-nothing. On C_OK, *nativeref is the
- * native object the caller must mutate (or NULL to keep using the string
- * path): the existing value when it already is a native bitmap, and with
+ * write cannot use the Roaring representation; the keyspace is left untouched,
+ * which keeps multi-op BITFIELD writes all-or-nothing. On C_OK, *roaringref is
+ * the Roaring bitmap object the caller must mutate (or NULL to keep using the
+ * string path): the existing value when it already is a Roaring bitmap, and with
  * bitmap-default-roaring enabled a new empty bitmap for missing keys
- * (*created) or a native conversion of an existing string value (*converted).
+ * (*created) or a Roaring conversion of an existing string value (*converted).
  * Creation and conversion both propagate RESTORE, but installation differs:
  * missing keys use dbAddByLink(), while converted strings are installed as an
  * in-place representation transition by bitmapInstallConvertedValue(). */
-static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
-                                     robj **nativeref, int *created,
-                                     int *converted)
+static int bitmapResolveRoaringTarget(client *c, kvobj *o, uint64_t maxbit,
+                                      robj **roaringref, int *created,
+                                      int *converted)
 {
-    *nativeref = NULL;
+    *roaringref = NULL;
     *created = 0;
     *converted = 0;
 
-    int is_native = o != NULL && o->type == OBJ_BITMAP;
-    int default_native = !is_native && bitmapDefaultNativeEnabled(c) &&
+    int is_roaring = o != NULL && o->type == OBJ_BITMAP;
+    int default_roaring = !is_roaring && bitmapDefaultRoaringEnabled(c) &&
                          (o == NULL || o->type == OBJ_STRING);
-    if (!is_native && !default_native) return C_OK;
+    if (!is_roaring && !default_roaring) return C_OK;
 
     /* Per-offset limits were enforced at parse time against
-     * proto-max-bulk-len. The fixed native v1 cap is only lower when
+     * proto-max-bulk-len. The fixed Roaring v1 cap is only lower when
      * proto-max-bulk-len is raised above it; reject such writes here, before
      * any object is created or converted, so the setters below cannot fail
      * halfway through. */
@@ -1015,18 +1015,18 @@ static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
         return C_ERR;
     }
 
-    if (is_native) {
-        *nativeref = o;
+    if (is_roaring) {
+        *roaringref = o;
     } else if (o == NULL) {
-        /* bitmap-default-roaring yes: newly created bitmap keys are native. */
-        *nativeref = createBitmapObject();
+        /* bitmap-default-roaring yes: newly created bitmap keys use Roaring. */
+        *roaringref = createBitmapObject();
         *created = 1;
     } else {
         /* bitmap-default-roaring yes: writes against existing strings first
-         * produce a native value so the write is not bounded by the
+         * produce a Roaring value so the write is not bounded by the
          * string representation. */
-        *nativeref = bitmapObjectFromStringObject(o);
-        if (*nativeref == NULL) {
+        *roaringref = bitmapObjectFromStringObject(o);
+        if (*roaringref == NULL) {
             addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
             return C_ERR;
         }
@@ -1035,29 +1035,29 @@ static int bitmapResolveNativeTarget(client *c, kvobj *o, uint64_t maxbit,
     return C_OK;
 }
 
-/* SETBIT against a native bitmap target: mutate the bitmap, install it in
+/* SETBIT against a Roaring bitmap target: mutate the bitmap, install it in
  * the keyspace when it was just created or converted from a string, and
- * reply with the original bit value. 'o' is the existing value ('native'
- * when the key already held a native bitmap), and 'link' the lookup link
+ * reply with the original bit value. 'o' is the existing value ('roaring'
+ * when the key already held a Roaring bitmap), and 'link' the lookup link
  * from setbitCommand() so the keyspace dict is probed only once. */
-static void setbitCommandBitmap(client *c, kvobj *o, robj *native,
+static void setbitCommandBitmap(client *c, kvobj *o, robj *roaring,
                                 int created, int converted,
                                 uint64_t bitoffset, long on,
                                 dictEntryLink link)
 {
-    uint64_t oldlen = bitmapObjectLen(native);
+    uint64_t oldlen = bitmapObjectLen(roaring);
     uint64_t byte = bitoffset >> 3;
     int changed = 0;
     int bitval;
     size_t oldAllocSize = 0;
 
-    bitval = bitmapObjectGetBit(native, bitoffset);
+    bitval = bitmapObjectGetBit(roaring, bitoffset);
     if (byte >= oldlen || (!!bitval != on)) {
         if (!created && !converted && server.memory_tracking_enabled)
-            oldAllocSize = kvobjAllocSize(native);
-        /* bitmapResolveNativeTarget() already rejected offsets beyond the
-         * native cap. */
-        serverAssert(bitmapObjectSetBit(native, bitoffset, on) == C_OK);
+            oldAllocSize = kvobjAllocSize(roaring);
+        /* bitmapResolveRoaringTarget() already rejected offsets beyond the
+         * Roaring cap. */
+        serverAssert(bitmapObjectSetBit(roaring, bitoffset, on) == C_OK);
         changed = 1;
     }
 
@@ -1065,22 +1065,22 @@ static void setbitCommandBitmap(client *c, kvobj *o, robj *native,
         /* Queue the RESTORE payload before the keyspace notification:
          * module subscribers may mutate or delete the key from their
          * callback. */
-        bitmapPropagateRestore(c, c->argv[1], native, -1, 0);
-        kvobj *kv = dbAddByLink(c->db, c->argv[1], &native, &link);
+        bitmapPropagateRestore(c, c->argv[1], roaring, -1, 0);
+        kvobj *kv = dbAddByLink(c->db, c->argv[1], &roaring, &link);
         keyModified(c,c->db,c->argv[1],kv,1);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
     } else if (converted) {
         long long expire = getExpire(c->db, c->argv[1]->ptr, o);
-        bitmapInstallConvertedValue(c, c->argv[1], &native, expire, link);
+        bitmapInstallConvertedValue(c, c->argv[1], &roaring, expire, link);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
     } else if (changed) {
-        if (oldlen != bitmapObjectLen(native))
-            updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(native));
+        if (oldlen != bitmapObjectLen(roaring))
+            updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitmapObjectLen(roaring));
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), native, oldAllocSize, kvobjAllocSize(native));
-        keyModified(c,c->db,c->argv[1],native,1);
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), roaring, oldAllocSize, kvobjAllocSize(roaring));
+        keyModified(c,c->db,c->argv[1],roaring,1);
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
         server.dirty++;
     }
@@ -1110,15 +1110,15 @@ void setbitCommand(client *c) {
 
     dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-    robj *native;
-    int native_created, native_converted;
+    robj *roaring;
+    int roaring_created, roaring_converted;
 
-    if (bitmapResolveNativeTarget(c, o, bitoffset, &native,
-                                  &native_created, &native_converted) != C_OK)
+    if (bitmapResolveRoaringTarget(c, o, bitoffset, &roaring,
+                                  &roaring_created, &roaring_converted) != C_OK)
         return;
 
-    if (native != NULL) {
-        setbitCommandBitmap(c, o, native, native_created, native_converted,
+    if (roaring != NULL) {
+        setbitCommandBitmap(c, o, roaring, roaring_created, roaring_converted,
                             bitoffset, on, link);
         return;
     }
@@ -1507,7 +1507,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
-/* BITOP whose result is a native bitmap: at least one source already is one
+/* BITOP whose result is a Roaring bitmap: at least one source already is one
  * (a property of the replicated dataset, identical on replicas), or
  * bitmap-default-roaring is enabled on this server (a local decision,
  * propagated as an explicit RESTORE of the result). Sources come from
@@ -1515,7 +1515,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * it into targetkey and replies with the destination length. */
 static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
                                robj **objects, unsigned long numkeys,
-                               uint64_t maxlen, int has_native_bitmap)
+                               uint64_t maxlen, int has_roaring_bitmap)
 {
     robj *res_bitmap = NULL;
 
@@ -1523,12 +1523,12 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
         addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
         return;
     }
-    /* NOT materializes a dense result, and all-string native transitions
-     * propagate a RESTORE payload. Existing native operands for other ops
+    /* NOT materializes a dense result, and all-string Roaring transitions
+     * propagate a RESTORE payload. Existing Roaring operands for other ops
      * stay compressed and propagate the original BITOP, like strings do. */
     if (!mustObeyClient(c) &&
         maxlen > (uint64_t)server.proto_max_bulk_len &&
-        (op == BITOP_NOT || !has_native_bitmap))
+        (op == BITOP_NOT || !has_roaring_bitmap))
     {
         addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
         return;
@@ -1539,8 +1539,8 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
 
     /* Store the computed value into the target key */
     if (maxlen) {
-        if (!has_native_bitmap) {
-            /* The native destination type came from this server's
+        if (!has_roaring_bitmap) {
+            /* The Roaring destination type came from this server's
              * bitmap-default-roaring setting, not from the source types, so
              * replicas and the AOF receive the explicit result instead of
              * re-running the command against their own configuration. The
@@ -1573,7 +1573,7 @@ void bitopCommand(client *c) {
     uint64_t maxlen = 0; /* Max len among the input keys. */
     size_t minlen = 0;   /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
-    int has_native_bitmap = 0;
+    int has_roaring_bitmap = 0;
 
     /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
@@ -1626,7 +1626,7 @@ void bitopCommand(client *c) {
             minlen = 0;
             continue;
         }
-        /* Return an error if one of the keys is not a string or a native bitmap. */
+        /* Return an error if one of the keys is not a string or a Roaring bitmap. */
         if (checkStringOrBitmapType(c, kv)) {
             unsigned long i;
             for (i = 0; i < j; i++) {
@@ -1639,13 +1639,13 @@ void bitopCommand(client *c) {
             return;
         }
         if (kv->type == OBJ_BITMAP) {
-            /* Native operands are borrowed from the keyspace and consumed by
-             * the native path below through objects[]; len[] holds their
+            /* Roaring operands are borrowed from the keyspace and consumed by
+             * the Roaring path below through objects[]; len[] holds their
              * logical byte length. */
             objects[j] = kv;
             src[j] = NULL;
             len[j] = bitmapObjectLen(kv);
-            has_native_bitmap = 1;
+            has_roaring_bitmap = 1;
         } else {
             objects[j] = getDecodedObject(kv);
             src[j] = objects[j]->ptr;
@@ -1655,14 +1655,14 @@ void bitopCommand(client *c) {
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
-    /* Native bitmap sources, or a native destination configured through
-     * bitmap-default-roaring, take the dedicated native path; everything
+    /* Roaring bitmap sources, or a Roaring destination configured through
+     * bitmap-default-roaring, take the dedicated Roaring path; everything
      * below keeps the string flow. */
-    if (has_native_bitmap || (maxlen && bitmapDefaultNativeEnabled(c))) {
+    if (has_roaring_bitmap || (maxlen && bitmapDefaultRoaringEnabled(c))) {
         bitopCommandBitmap(c, op, targetkey, objects, numkeys,
-                           maxlen, has_native_bitmap);
+                           maxlen, has_roaring_bitmap);
         for (j = 0; j < numkeys; j++) {
-            /* Borrowed native operands may be freed by now: storing the
+            /* Borrowed Roaring operands may be freed by now: storing the
              * result overwrites (or deletes) the target key, which can be
              * one of the sources, and the store notifications can delete the
              * others. Owned decoded strings hold a reference and are told
@@ -1676,7 +1676,7 @@ void bitopCommand(client *c) {
     }
 
     /* NOT writes one dense result byte per source byte; keep the result
-     * inside the string materialization limit, like the native path above
+     * inside the string materialization limit, like the Roaring path above
      * does for every operation. */
     if (op == BITOP_NOT && !mustObeyClient(c) &&
         maxlen > (uint64_t)server.proto_max_bulk_len)
@@ -1998,7 +1998,7 @@ typedef struct bitRange {
     /* Raw START/END arguments normalized to byte or bit coordinates. */
     long long start;
     long long end;
-    /* Half-open bit interval used by native bitmap range operations. */
+    /* Half-open bit interval used by Roaring bitmap range operations. */
     uint64_t bit_start;
     uint64_t bit_end;
     /* Bits to ignore in the first/last byte for byte-backed BITPOS ranges. */
@@ -2207,7 +2207,7 @@ void bitposCommand(client *c) {
             strlen = slen;
         }
 
-        /* The whole string. Native BITPOS still needs the derived bit interval
+        /* The whole string. Roaring BITPOS still needs the derived bit interval
          * populated in range.bit_start/range.bit_end. */
         range.start = 0;
         range.end = strlen-1;
@@ -2323,12 +2323,12 @@ void bitfieldGeneric(client *c, int flags) {
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
     uint64_t highest_write_offset = 0;
-    int native_bitmap_write = 0;
-    int native_transition = 0;
-    int native_transition_created = 0;
-    long long native_transition_expire = -1;
-    int native_len_extended = 0;
-    dictEntryLink native_bitmap_link = NULL;
+    int roaring_bitmap_write = 0;
+    int roaring_transition = 0;
+    int roaring_transition_created = 0;
+    long long roaring_transition_expire = -1;
+    int roaring_len_extended = 0;
+    dictEntryLink roaring_bitmap_link = NULL;
     size_t oldAllocSize = 0;
 
     for (j = 2; j < c->argc; j++) {
@@ -2418,29 +2418,29 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* Lookup by making room up to the farthest bit reached by
          * this operation. The link is reused by the string path below so the
-         * keyspace dict is probed only once; the native path mutates the
+         * keyspace dict is probed only once; the Roaring path mutates the
          * bitmap in place and does not need it. */
-        o = lookupKeyWriteWithLink(c->db,c->argv[1],&native_bitmap_link);
+        o = lookupKeyWriteWithLink(c->db,c->argv[1],&roaring_bitmap_link);
 
         /* When bitmap-default-roaring is enabled, newly created bitmap keys
-         * are native, and a write against an existing string value converts it
+         * use Roaring, and a write against an existing string value converts it
          * first. The transition reaches replicas and the AOF as an explicit
          * RESTORE of the final state. */
-        robj *native;
-        int native_transition_converted;
-        if (bitmapResolveNativeTarget(c, o, highest_write_offset, &native,
-                                      &native_transition_created,
-                                      &native_transition_converted) != C_OK) {
+        robj *roaring;
+        int roaring_transition_converted;
+        if (bitmapResolveRoaringTarget(c, o, highest_write_offset, &roaring,
+                                       &roaring_transition_created,
+                                       &roaring_transition_converted) != C_OK) {
             zfree(ops);
             return;
         }
-        if (native != NULL && native != o) {
+        if (roaring != NULL && roaring != o) {
             /* getExpire() must read the still-installed string value before
              * the converted object replaces it below. */
-            if (native_transition_converted)
-                native_transition_expire = getExpire(c->db, c->argv[1]->ptr, o);
-            o = native;
-            native_transition = 1;
+            if (roaring_transition_converted)
+                roaring_transition_expire = getExpire(c->db, c->argv[1]->ptr, o);
+            o = roaring;
+            roaring_transition = 1;
         }
 
         if (o != NULL && o->type == OBJ_BITMAP) {
@@ -2448,12 +2448,12 @@ void bitfieldGeneric(client *c, int flags) {
 
             strOldSize = bitmapObjectLen(o);
             strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
-            native_bitmap_write = 1;
-            if (!native_transition && server.memory_tracking_enabled)
+            roaring_bitmap_write = 1;
+            if (!roaring_transition && server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c,
-                highest_write_offset,o,native_bitmap_link,
+                highest_write_offset,o,roaring_bitmap_link,
                 &sOldSize,&sGrowSize,&string_created)) == NULL) {
                 zfree(ops);
                 return;
@@ -2598,42 +2598,42 @@ void bitfieldGeneric(client *c, int flags) {
         }
     }
 
-    if (native_bitmap_write && strGrowSize) {
+    if (roaring_bitmap_write && strGrowSize) {
         uint64_t oldlen = bitmapObjectLen(o);
         int bit = bitmapObjectGetBit(o, highest_write_offset);
         int ret = bitmapObjectSetBit(o, highest_write_offset, bit);
         serverAssert(ret == C_OK);
-        native_len_extended = oldlen != bitmapObjectLen(o);
+        roaring_len_extended = oldlen != bitmapObjectLen(o);
     }
 
-    /* A created or converted native value must reach replicas and the AOF
+    /* A created or converted Roaring value must reach replicas and the AOF
      * even when every op failed or wrote nothing: the transition itself (and
      * the string-parity length growth above) already happened. Creation is
      * serialized before dbAddByLink() emits "new"; conversion is installed
      * first so preserved metadata is serialized, then emits type_changed. */
-    if (native_transition) {
-        if (native_transition_created) {
+    if (roaring_transition) {
+        if (roaring_transition_created) {
             bitmapPropagateRestore(c, c->argv[1], o,
-                                   native_transition_expire, 0);
+                                   roaring_transition_expire, 0);
             robj *created_bitmap = o;
-            dbAddByLink(c->db, c->argv[1], &created_bitmap, &native_bitmap_link);
+            dbAddByLink(c->db, c->argv[1], &created_bitmap, &roaring_bitmap_link);
         } else {
             bitmapInstallConvertedValue(c, c->argv[1], &o,
-                                        native_transition_expire,
-                                        native_bitmap_link);
+                                        roaring_transition_expire,
+                                        roaring_bitmap_link);
         }
     }
 
-    int string_len_extended = !native_bitmap_write && strGrowSize != 0;
+    int string_len_extended = !roaring_bitmap_write && strGrowSize != 0;
 
-    if (changes || native_len_extended || string_len_extended || native_transition) {
-        if (native_bitmap_write && !native_transition) {
+    if (changes || roaring_len_extended || string_len_extended || roaring_transition) {
+        if (roaring_bitmap_write && !roaring_transition) {
             if (strOldSize != bitmapObjectLen(o))
                 updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitmapObjectLen(o));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
                                     oldAllocSize, kvobjAllocSize(o));
-        } else if (!native_transition) {
+        } else if (!roaring_transition) {
             /* If this is not a new key and size changed, then update the
              * keysizes histogram. Otherwise, the histogram already updated
              * in lookupStringForBitCommand() by calling dbAdd(). "Not
@@ -2645,11 +2645,11 @@ void bitfieldGeneric(client *c, int flags) {
         
         /* Converted values were already signaled before type_changed. A newly
          * created value still needs the normal command modification signal. */
-        if (!native_transition || native_transition_created) {
+        if (!roaring_transition || roaring_transition_created) {
             keyModified(c,c->db,c->argv[1],
-                        native_transition ? lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o,1);
+                        roaring_transition ? lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o,1);
         }
-        notifyKeyspaceEvent(native_bitmap_write ? NOTIFY_BITMAP : NOTIFY_STRING,
+        notifyKeyspaceEvent(roaring_bitmap_write ? NOTIFY_BITMAP : NOTIFY_STRING,
                             "setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
     }

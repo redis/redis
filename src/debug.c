@@ -136,7 +136,7 @@ static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end,
 }
 
 void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
-    /* Digest native bitmaps by logical length plus canonical set-bit ranges.
+    /* Digest Roaring bitmaps by logical length plus canonical set-bit ranges.
      * This avoids materializing sparse high-offset bitmaps and keeps the
      * digest independent from CRoaring's history-dependent container choices. */
     char buf[LONG_STR_SIZE];

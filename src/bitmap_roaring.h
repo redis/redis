@@ -8,12 +8,12 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-/* Representability cap for native bitmap logical length. Keep v1 native
+/* Representability cap for Roaring bitmap logical length. Keep v1 Roaring
  * bitmaps inside the same 32-bit bit index space as bounded Roaring bitmaps:
  * 512 MiB of logical bytes, max bit offset UINT32_MAX. Command handlers still
  * enforce the client-visible proto-max-bulk-len limit for writes,
  * dense/materializing paths, and legacy string reads when it is lower;
- * read-only native lookups may exceed that lower runtime limit inside this
+ * read-only roaring lookups may exceed that lower runtime limit inside this
  * cap. */
 #define BITMAP_OBJECT_MAX_BYTES (512ULL*1024*1024)
 

@@ -1208,7 +1208,7 @@ run_solo {defrag} {
             expr 1
         } {1}
 
-        test "Active defrag native bitmaps: $type" {
+        test "Active defrag Roaring bitmaps: $type" {
             r flushdb
             r config set hz 100
             r config set activedefrag no
@@ -1239,7 +1239,7 @@ run_solo {defrag} {
                 $rd read
             }
             set template_raw [r get bitmap:template]
-            convert_string_bitmap_to_native r bitmap:template
+            convert_string_bitmap_to_roaring r bitmap:template
             assert_equal bitmap [r type bitmap:template]
 
             set frag_keys 400
@@ -1273,7 +1273,7 @@ run_solo {defrag} {
             assert_equal $expected_bits [r bitcount bigbitmap1]
             set expected_raw [r get bigbitmap1]
 
-            convert_string_bitmap_to_native r bigbitmap1
+            convert_string_bitmap_to_roaring r bigbitmap1
             assert_equal bitmap [r type bigbitmap1]
 
             # Free every other copied bitmap to punch holes into the

@@ -38,7 +38,7 @@
 #include "lzf.h"
 #include "rdb.h"
 
-/* Reuse the established string BITOP vector kernels after bounded native
+/* Reuse the established string BITOP vector kernels after bounded roaring
  * operands have been materialized. Their scalar tail remains local below. */
 #ifdef HAVE_AVX2
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
@@ -55,7 +55,7 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * bit-offset form. */
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
 
-/* Native bitmaps use Roaring internally. Client-visible command limits are
+/* Bitmap objects use Roaring internally. Client-visible command limits are
  * enforced by command handlers; the object cap protects encoding invariants. */
 typedef struct bitmapObject {
     uint64_t byte_len;
@@ -211,7 +211,7 @@ static void bitmapObjectAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
                                        BITSET_CONTAINER_TYPE);
 }
 
-/* Build a roaring bitmap from raw bitmap string bytes by constructing one
+/* Build a Roaring bitmap from raw bitmap string bytes by constructing one
  * container per 2^16-bit chunk. This conversion runs on every
  * bitmap-default-roaring write that converts a string and on every string
  * BITOP source, so dense chunks must avoid per-bit roaring64_bitmap_add calls.
@@ -382,7 +382,7 @@ uint64_t bitmapObjectLen(const robj *o) {
  * left uninitialized by art_init_cleared(), so walks must never touch it. */
 #define BITMAP_ART_MIN_NODE_TYPE 1
 #define BITMAP_ART_MAX_NODE_TYPE 5
-/* Keep native BITOP latency competitive for small steady-state results without
+/* Keep Roaring BITOP latency competitive for small steady-state results without
  * letting skipped run compression create unbounded memory growth. */
 #define BITMAP_BITOP_FAST_RESULT_MAX_BYTES (1024 * 1024)
 
@@ -429,7 +429,7 @@ static size_t bitmapRoaringContainerAllocSize(const roaring64_bitmap_t *r,
                                                       shared->typecode);
     }
     default:
-        serverPanic("Unknown roaring bitmap container type");
+        serverPanic("Unknown Roaring bitmap container type");
     }
 }
 
@@ -494,7 +494,7 @@ static size_t bitmapRoaringRangeAllocSize(const roaring64_bitmap_t *r,
 
 /* Whole-object refreshes walk all containers and must stay off per-update hot
  * paths. Construction, load/dup, BITOP result materialization and explicit
- * optimization use it after replacing or compacting the entire roaring value. */
+ * optimization use it after replacing or compacting the entire Roaring value. */
 static void bitmapObjectRefreshAllocSize(bitmapObject *bitmap) {
     bitmap->alloc_size = bitmapRoaringMallocSize(bitmap) +
                          bitmapRoaringAllocSize(bitmap->roaring);
@@ -547,7 +547,7 @@ static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
         break;
     }
     default:
-        serverPanic("Unknown roaring bitmap container type");
+        serverPanic("Unknown Roaring bitmap container type");
     }
 }
 
@@ -583,7 +583,7 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
  * Every allocation CRoaring makes for a bitmap goes through the zmalloc-backed
  * memory hook installed in bitmapRoaringInit(), so active defrag can relocate
  * each one with activeDefragAlloc(). The walk mirrors dismissBitmapObject():
- * the wrapper struct, the roaring bitmap struct, the per-type ART node arrays
+ * the wrapper struct, the Roaring bitmap struct, the per-type ART node arrays
  * (which hold indices, not pointers, so relocating them needs no fixups), the
  * flat container pointer array, and every container with its payload buffer.
  * Relocating a container only requires updating its slot in the container
@@ -681,7 +681,7 @@ static container_t *bitmapObjectDefragContainer(container_t *container,
         return (container_t *)new_container;
     }
     default:
-        serverPanic("Unknown roaring bitmap container type");
+        serverPanic("Unknown Roaring bitmap container type");
     }
 }
 
@@ -888,7 +888,7 @@ static int32_t bitmapContainerFirstClearBit(const container_t *container,
         return pos < (1 << 16) ? (int32_t)pos : -1;
     }
     default:
-        serverPanic("Unknown roaring bitmap container type");
+        serverPanic("Unknown Roaring bitmap container type");
     }
 }
 
@@ -1180,7 +1180,7 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
         break;
     }
     default:
-        serverPanic("Unknown roaring bitmap container type");
+        serverPanic("Unknown Roaring bitmap container type");
     }
 }
 
@@ -1235,13 +1235,13 @@ typedef struct bitmapRawBitopSource {
 
 /* Dense mixed operands are cheaper to flatten and combine as machine words
  * than to convert every string source into a temporary Roaring bitmap. Keep
- * this path deliberately narrow: native-only and sparse workloads retain
+ * this path deliberately narrow: Roaring-only and sparse workloads retain
  * Roaring algebra, while the size cap bounds all temporary raw buffers. */
 static int bitmapObjectsUseMixedRawBitop(robj **objects, size_t numkeys,
                                          uint64_t maxlen)
 {
     int has_string = 0;
-    int has_native = 0;
+    int has_roaring = 0;
 
     if (maxlen > BITMAP_BITOP_FAST_RESULT_MAX_BYTES) return 0;
 
@@ -1250,18 +1250,18 @@ static int bitmapObjectsUseMixedRawBitop(robj **objects, size_t numkeys,
         if (o == NULL) continue;
 
         if (o->type == OBJ_BITMAP) {
-            has_native = 1;
+            has_roaring = 1;
         } else {
             serverAssert(o->type == OBJ_STRING);
             has_string = 1;
         }
     }
 
-    if (!has_string || !has_native) return 0;
+    if (!has_string || !has_roaring) return 0;
 
     /* Cardinality is a full container walk, so only pay it after the cheap
      * type scan proves this is a genuinely mixed operation. Keep the sum of
-     * all retained native buffers within the same cap as an individual result;
+     * all retained roaring buffers within the same cap as an individual result;
      * otherwise many small operands could make the temporary memory unbounded.
      * At least one set bit per logical byte is a conservative signal that
      * flattening is preferable to sparse container algebra. */
@@ -1340,7 +1340,7 @@ static uint64_t bitmapRawBitopWord(bitmapBitop op,
         break;
     }
     default:
-        serverPanic("Unknown native bitmap BITOP");
+        serverPanic("Unknown Roaring bitmap BITOP");
     }
 
     return output;
@@ -1367,7 +1367,7 @@ static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
             sources[i].len = (size_t)bitmapObjectLen(o);
             /* The mixed-path cap, rather than proto-max-bulk-len, bounds this
              * internal temporary so lowering the protocol limit cannot change
-             * whether an otherwise valid native BITOP succeeds. */
+             * whether an otherwise valid Roaring BITOP succeeds. */
             sources[i].owned = bitmapObjectMaterializeRaw(o, 0);
             serverAssert(sources[i].owned != NULL);
             sources[i].raw = (unsigned char *)sources[i].owned;
@@ -1535,10 +1535,10 @@ static roaring64_bitmap_t *bitmapObjectExactlyOneBitopSources(bitmapBitopSource 
     return result;
 }
 
-/* Compute a BITOP over string and native bitmap sources and return the result
- * as a new native bitmap object whose logical length is 'maxlen', matching the
+/* Compute a BITOP over string and Roaring bitmap sources and return the result
+ * as a new Roaring bitmap object whose logical length is 'maxlen', matching the
  * string semantics where the destination length equals the longest source.
- * Sparse, large and native-only operations stay entirely in Roaring space;
+ * Sparse, large and Roaring-only operations stay entirely in Roaring space;
  * bounded dense mixed operands use the raw-word path above. The BITOP NOT
  * length guard lives at the command layer because complementing is inherently
  * dense. */
@@ -1629,14 +1629,14 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
         result = bitmapObjectExactlyOneBitopSources(sources, numkeys);
         break;
     default:
-        serverPanic("Unknown native bitmap BITOP");
+        serverPanic("Unknown Roaring bitmap BITOP");
     }
 
     bitmapObjectReleaseBitopSources(sources, numkeys);
 
 bitop_result:
     /* Large or potentially run-friendly results still pay the conversion and
-     * compaction cost before being stored; small native steady-state results
+     * compaction cost before being stored; small roaring steady-state results
      * skip both full-result CRoaring walks above. */
     if (optimize_result) roaring64_bitmap_run_optimize(result);
     if (shrink_result) roaring64_bitmap_shrink_to_fit(result);

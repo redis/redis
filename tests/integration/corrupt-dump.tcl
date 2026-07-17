@@ -1196,3 +1196,4 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
 }
 
 } ;# tags
+

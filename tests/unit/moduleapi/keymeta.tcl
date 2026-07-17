@@ -411,7 +411,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         r keymeta.set [cname 4] hashkey "hash_meta"
 
         r set bitmapkey [binary format H* 80400100080000]
-        convert_string_bitmap_to_native r bitmapkey
+        convert_string_bitmap_to_roaring r bitmapkey
         r keymeta.set [cname 1] bitmapkey "bitmap_meta"
 
         # Trigger AOF rewrite
@@ -1209,7 +1209,7 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
     }
 } {} {external:skip needs:save}
 
-test "AOF: native bitmap rewrite preserves AOF-only metadata" {
+test "AOF: Roaring bitmap rewrite preserves AOF-only metadata" {
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
@@ -1250,7 +1250,7 @@ test "AOF: native bitmap rewrite preserves AOF-only metadata" {
     }
 } {} {external:skip}
 
-test "AOF: native bitmap rewrite omits metadata without an AOF callback" {
+test "AOF: Roaring bitmap rewrite omits metadata without an AOF callback" {
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
@@ -1288,7 +1288,7 @@ test "AOF: native bitmap rewrite omits metadata without an AOF callback" {
     }
 } {} {external:skip}
 
-test "AOF: native bitmap rewrite persists AOF-capable KeyMeta once" {
+test "AOF: Roaring bitmap rewrite persists AOF-capable KeyMeta once" {
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
