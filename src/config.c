@@ -2588,13 +2588,20 @@ static int updateReplBacklogSize(const char **err) {
     return 1;
 }
 
-/* When switching into an LFU policy at runtime, re-seed every object's LFU
- * counter. Otherwise keys that were stored under LRU/noeviction keep their
- * old lru field encoding, which OBJECT FREQ and eviction treat as frequency
- * 0 and can preferentially evict. See #15375. */
+/* When switching maxmemory-policy at runtime, re-seed key access metadata so
+ * the lru field encoding matches the new policy. Keys stored under a non-LFU
+ * policy keep an LRU-encoded lru field; under LFU that is treated as frequency
+ * 0 and can be preferred for eviction. The reverse (LFU -> LRU) matters for
+ * multi-arg CONFIG SET rollback: apply re-seeds LFU, then a later failure
+ * restores the old non-LFU policy and must re-seed LRU clocks so eviction does
+ * not interpret LFU counters as idle time. See #15375. */
 static int updateMaxmemoryPolicy(const char **err) {
     UNUSED(err);
-    if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU))
+    int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
+    int lru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
+
+    /* Random / noeviction do not use the lru field for eviction. */
+    if (!lfu && !lru)
         return 1;
 
     for (int j = 0; j < server.dbnum; j++) {
@@ -2606,7 +2613,10 @@ static int updateMaxmemoryPolicy(const char **err) {
         kvstoreIteratorInit(&kvs_it, db->keys);
         while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             kvobj *kv = dictGetKV(de);
-            kv->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
+            if (lfu)
+                kv->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
+            else
+                kv->lru = LRU_CLOCK();
         }
         kvstoreIteratorReset(&kvs_it);
     }

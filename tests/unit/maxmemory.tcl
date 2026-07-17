@@ -726,4 +726,17 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r config set maxmemory-policy volatile-lfu
         assert_equal 5 [r object freq bar]
     }
+
+    # Leaving LFU (including CONFIG SET rollback of a failed multi-arg batch)
+    # must re-seed LRU clocks so LFU counters are not read as idle time.
+    test {LFU: CONFIG SET back to allkeys-lru reseeds IDLETIME for existing keys} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set baz value-baz
+        assert_equal 5 [r object freq baz]
+        r config set maxmemory-policy allkeys-lru
+        # Fresh LRU clock: idle time should be ~0 right after reseed.
+        assert_lessthan_equal [r object idletime baz] 1
+    }
 }
