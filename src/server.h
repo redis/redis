@@ -2324,6 +2324,13 @@ struct redisServer {
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
 
+    /* Keyspace value-MVCC snapshots. See src/kvsnapshot.c */
+    uint64_t keyspace_version;      /* Monotonic; bumped when a write command dirties the DB */
+    int snapshots_open;             /* # of open keyspace snapshots (write-path gate) */
+    long long stat_snapshot_cow_copies; /* # of preserve copy operations */
+    long long stat_snapshot_module_copies; /* # of module-type value clones (copy2/copy) */
+    list *keyspace_snapshots;       /* Open keyspaceSnapshot objects */
+
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
@@ -3192,6 +3199,7 @@ void moduleNotifyUserChanged(client *c);
 void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags);
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid);
+robj *moduleTypeDup(robj *fromkey, robj *tokey, int fromdb, int todb, robj *value);
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
 int moduleDefragValue(robj *key, robj *obj, int dbid);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, monotime endtime, int dbid);
@@ -4092,6 +4100,16 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
+
+/* Keyspace value-MVCC snapshots (Tier-1/2). See src/kvsnapshot.c */
+typedef struct keyspaceSnapshot keyspaceSnapshot;
+void kvsnapshotInit(void);
+void snapshotPreserveForWrite(redisDb *db, robj *key, kvobj *kv);
+void snapshotPreserveForDelete(redisDb *db, robj *key, kvobj *kv);
+keyspaceSnapshot *kvSnapshotCreate(int dbid, sds prefix);
+void kvSnapshotFree(keyspaceSnapshot *s);
+kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj);
+void debugKvSnapshotCommand(client *c);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2

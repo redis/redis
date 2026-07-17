@@ -2997,6 +2997,7 @@ void initServer(void) {
     server.firing_keyed_post_notif_jobs = 0;
     server.fire_keyed_jobs_between_subcommands = 0;
     server.in_keyspace_notification = 0;
+    kvsnapshotInit(); /* keyspace value-MVCC snapshots */
     server.clients = listCreate();
     server.clients_index = raxNewEx(0, NULL, sizeof(uint64_t));
     server.clients_to_close = listCreate();
@@ -4040,6 +4041,8 @@ void call(client *c, int flags) {
     c->duration += duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
+    /* A write happened: advance the keyspace version (value-MVCC snapshots). */
+    if (dirty > 0) server.keyspace_version++;
 
     /* Update failed command calls if required. */
 

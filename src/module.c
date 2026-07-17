@@ -4261,6 +4261,60 @@ void RM_CloseKey(RedisModuleKey *key) {
     zfree(key);
 }
 
+/* --- Keyspace value-MVCC snapshots (see src/kvsnapshot.c) ----------------- */
+
+/* Create a point-in-time snapshot of the keyspace *values*. Must be called with
+ * the GIL held (from the main thread, or from a thread holding the thread-safe
+ * context lock): it registers the snapshot so that subsequent writes preserve
+ * the pre-snapshot value of any key the snapshot might read.
+ *
+ * `cfg` carries the snapshot's configuration (a versioned struct — see
+ * RedisModuleKeyspaceSnapshotConfig); pass NULL for all-defaults (the whole
+ * currently-selected DB). `cfg->prefix` optionally scopes the snapshot to keys
+ * with that prefix, so writes to keys the caller will never read cost no copy.
+ * Free the returned handle with RedisModule_FreeKeyspaceSnapshot.
+ *
+ * NOTE: the snapshot preserves VALUES, not key existence. A key created after
+ * the snapshot is visible through it; reads observe a key's value as of the
+ * snapshot for keys that existed at creation time. */
+RedisModuleKeyspaceSnapshot *RM_CreateKeyspaceSnapshot(RedisModuleCtx *ctx, const RedisModuleKeyspaceSnapshotConfig *cfg) {
+    sds prefix = NULL;
+    if (cfg && cfg->version >= 1 && cfg->prefix)
+        prefix = sdsnewlen(cfg->prefix, cfg->prefix_len);
+    keyspaceSnapshot *s = kvSnapshotCreate(ctx->client->db->id, prefix);
+    sdsfree(prefix); /* kvSnapshotCreate dup'd it (no-op on NULL) */
+    return (RedisModuleKeyspaceSnapshot *) s;
+}
+
+/* Open a key for READ against a snapshot: the returned handle sees the key's
+ * value as of the snapshot (a frozen copy if the key was written/deleted since
+ * the snapshot was taken, otherwise the live value). Must be called with the GIL
+ * held.
+ *
+ * Returns a read-only RedisModuleKey usable with the existing read accessors
+ * (RM_KeyType, RM_HashGet, RM_ModuleTypeGetValue, RM_StringDMA in read mode,
+ * value-length/iteration APIs, ...), or NULL if the key does not exist in the
+ * snapshot's view. Close it with RedisModule_CloseKey.
+ *
+ * The handle is valid only while the GIL is held and the snapshot is alive; copy
+ * out any value you need to retain beyond that. Write operations are not
+ * supported on a snapshot-opened key. */
+RedisModuleKey *RM_SnapshotOpenKey(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap, RedisModuleString *keyname) {
+    kvobj *kv = kvSnapshotView((keyspaceSnapshot *) snap, keyname);
+    if (kv == NULL) return NULL;
+    RedisModuleKey *kp = zmalloc(sizeof(*kp));
+    moduleInitKey(kp, ctx, keyname, kv, REDISMODULE_READ);
+    autoMemoryAdd(ctx, REDISMODULE_AM_KEY, kp);
+    return kp;
+}
+
+/* Free a keyspace snapshot and drop all its preserved values. Must be called
+ * with the GIL held. */
+void RM_FreeKeyspaceSnapshot(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap) {
+    UNUSED(ctx);
+    kvSnapshotFree((keyspaceSnapshot *) snap);
+}
+
 /* Return the type of the key. If the key pointer is NULL then
  * REDISMODULE_KEYTYPE_EMPTY is returned. */
 int RM_KeyType(RedisModuleKey *key) {
@@ -7381,6 +7435,24 @@ const char *moduleNameFromCommand(struct redisCommand *cmd) {
 /* Create a copy of a module type value using the copy callback. If failed
  * or not supported, produce an error reply and return NULL.
  */
+/* Duplicate a module-type value without a client (no error replies). Prefers the
+ * v4 copy2 callback, falls back to the v1 copy callback. Returns a new OBJ_MODULE
+ * robj, or NULL if the type registered neither callback or the copy failed. Used
+ * by COPY (via moduleTypeDupOrReply) and by keyspace value snapshots. */
+robj *moduleTypeDup(robj *fromkey, robj *tokey, int fromdb, int todb, robj *value) {
+    moduleValue *mv = value->ptr;
+    moduleType *mt = mv->type;
+    void *newval = NULL;
+    if (mt->copy2 != NULL) {
+        RedisModuleKeyOptCtx ctx = {fromkey, tokey, fromdb, todb};
+        newval = mt->copy2(&ctx, mv->value);
+    } else if (mt->copy != NULL) {
+        newval = mt->copy(fromkey, tokey, mv->value);
+    }
+    if (!newval) return NULL;
+    return createModuleObject(mt, newval);
+}
+
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
@@ -7388,19 +7460,12 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
         addReplyError(c, "not supported for this module key");
         return NULL;
     }
-    void *newval = NULL;
-    if (mt->copy2 != NULL) {
-        RedisModuleKeyOptCtx ctx = {fromkey, tokey, c->db->id, todb};
-        newval = mt->copy2(&ctx, mv->value);
-    } else {
-        newval = mt->copy(fromkey, tokey, mv->value);
-    }
-     
-    if (!newval) {
+    robj *newobj = moduleTypeDup(fromkey, tokey, c->db->id, todb, value);
+    if (!newobj) {
         addReplyError(c, "module key failed to copy");
         return NULL;
     }
-    return createModuleObject(mt, newval);
+    return newobj;
 }
 
 /* Register a new data type exported by the module. The parameters are the
@@ -15696,6 +15761,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
+    REGISTER_API(CreateKeyspaceSnapshot);
+    REGISTER_API(SnapshotOpenKey);
+    REGISTER_API(FreeKeyspaceSnapshot);
     REGISTER_API(GetOpenKeyModesAll);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
