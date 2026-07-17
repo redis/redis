@@ -705,4 +705,25 @@ start_server {tags {"maxmemory" "external:skip"}} {
             assert {$write_survived > $read_survived}
         }
     }
+
+    # Regression for #15375: switching to LFU at runtime must re-seed LFU
+    # counters for keys created under a non-LFU policy. Otherwise OBJECT FREQ
+    # reports 0 and eviction prefers those keys incorrectly.
+    test {LFU: CONFIG SET to allkeys-lfu reseeds FREQ for existing keys} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+        r set foo value-foo
+        r config set maxmemory-policy allkeys-lfu
+        assert_equal 5 [r object freq foo]
+    }
+
+    test {LFU: CONFIG SET to volatile-lfu reseeds FREQ for existing keys} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+        r set bar value-bar
+        r config set maxmemory-policy volatile-lfu
+        assert_equal 5 [r object freq bar]
+    }
 }

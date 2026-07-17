@@ -2588,6 +2588,31 @@ static int updateReplBacklogSize(const char **err) {
     return 1;
 }
 
+/* When switching into an LFU policy at runtime, re-seed every object's LFU
+ * counter. Otherwise keys that were stored under LRU/noeviction keep their
+ * old lru field encoding, which OBJECT FREQ and eviction treat as frequency
+ * 0 and can preferentially evict. See #15375. */
+static int updateMaxmemoryPolicy(const char **err) {
+    UNUSED(err);
+    if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU))
+        return 1;
+
+    for (int j = 0; j < server.dbnum; j++) {
+        redisDb *db = server.db + j;
+        if (!kvstoreSize(db->keys)) continue;
+
+        dictEntry *de;
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            kvobj *kv = dictGetKV(de);
+            kv->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
+        }
+        kvstoreIteratorReset(&kvs_it);
+    }
+    return 1;
+}
+
 static int updateMaxmemory(const char **err) {
     UNUSED(err);
     if (server.maxmemory) {
@@ -3270,7 +3295,7 @@ standardConfig static_configs[] = {
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
     createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
-    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
+    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, updateMaxmemoryPolicy),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, updateAppendFsync),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, 0, NULL, NULL),
