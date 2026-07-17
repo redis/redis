@@ -178,10 +178,12 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_pel {$server FLUSHALL} {}
         seed_stream $server st 4
         $server xgroup create st g 0
-        $server xreadgroup group g c count 4 streams st >
-        verify_pel {} {db0_PEL:4=1}
-        # Delete two entries; their dangling PEL refs are purged on autoclaim.
-        $server xdel st 1-1 2-1
+        verify_pel {$server xreadgroup group g c count 4 streams st >} {db0_PEL:4=1}
+        # XDEL leaves the deleted entries' PEL references dangling; it does not
+        # touch the PEL, so the histogram must stay at 4.
+        verify_pel {$server xdel st 1-1 2-1} {db0_PEL:4=1}
+        # XAUTOCLAIM purges the two now-dangling refs -> PEL=2, crossing a bin
+        # boundary (4 -> "2"), so the shrink is observable.
         verify_pel {$server xautoclaim st g c2 0 0} {db0_PEL:2=1}
     }
 
@@ -200,8 +202,7 @@ proc test_all_stream_stats { {replMode 0} } {
         seed_stream $server st 4
         $server xgroup create st g1 0
         $server xgroup create st g2 0
-        $server xreadgroup group g1 c count 4 streams st >
-        verify_pel {} {db0_PEL:0=1,4=1}
+        verify_pel {$server xreadgroup group g1 c count 4 streams st >} {db0_PEL:0=1,4=1}
         verify_pel {$server xgroup destroy st g1} {db0_PEL:0=1}
         verify_pel {$server xgroup destroy st g2} {}
     }
