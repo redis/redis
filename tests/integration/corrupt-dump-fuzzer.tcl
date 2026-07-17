@@ -84,8 +84,8 @@ if 0 {
     r setrange bitmapbig 0 [string repeat "\xff" 1024]
     r setbit bitmapbig 100000 1 ;# converts the dense string to native
     r config set bitmap-default-roaring no
-    # create bigger objects with 10 items (more than a single ziplist / listpack)
 
+    # create bigger objects with 10 items (more than a single ziplist / listpack)
     generate_collections big 10
 
     # make sure our big stream also has a listpack record that has different
