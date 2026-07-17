@@ -18,8 +18,8 @@ start_server {tags {"modules external:skip"}} {
         assert_equal 0 [r hash.set k "xa" new stuff not inserted]
         assert_equal 1 [r hash.set k "x" squirrel ofcourse]
         assert_equal 1 [r hash.set k "" sushi :delete: none :delete:]
-        lsort [r hgetall k]
-    } {banana nice no nothing ofcourse something squirrel what}
+        r hgetall k
+    } {squirrel ofcourse banana no what nothing something nice}
 
     test {Module hash - set (override) NX expired field successfully} {
         r debug set-active-expire 0
