@@ -364,7 +364,11 @@ kvobj *lookupKeyRead(redisDb *db, robj *key) {
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
 kvobj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
-    return lookupKey(db, key, flags | LOOKUP_WRITE, NULL);
+    kvobj *val = lookupKey(db, key, flags | LOOKUP_WRITE, NULL);
+    /* Value-MVCC: freeze a detached copy for open snapshots (live is untouched). */
+    if (unlikely(server.snapshots_open) && val)
+        snapshotPreserveForWrite(db, key, val);
+    return val;
 }
 
 kvobj *lookupKeyWrite(redisDb *db, robj *key) {
@@ -379,7 +383,12 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
  *   empty dict       -> returns NULL;      link = NULL.
  */
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link) {
-    return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, link);
+    kvobj *val = lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, link);
+    /* Value-MVCC: freeze a detached copy for open snapshots. The live value and
+     * this link are left untouched, so no refresh is needed. */
+    if (unlikely(server.snapshots_open) && val)
+        snapshotPreserveForWrite(db, key, val);
+    return val;
 }
 
 kvobj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
@@ -585,6 +594,15 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     }
     kvobj *old = dictGetKV(*link);
     kvobj *kvNew;
+
+    /* Value-MVCC: the current value is about to be replaced. Preserve it for open
+     * snapshots before it's freed — idempotent for deep-copy snapshots that already
+     * froze it via the lookupKeyWrite hook, and materializes the as-of-snapshot
+     * hash for delta-log snapshots (which skip that hook). Same helper as delete;
+     * retaining `old` bumps its refcount, so the in-place swap below is skipped and
+     * `old` survives intact. */
+    if (unlikely(server.snapshots_open))
+        snapshotPreserveForDelete(db, key, old);
 
     int64_t oldlen = (int64_t) getObjectLength(old);
     int oldtype = old->type;
@@ -877,7 +895,13 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* Because of dbUnshareStringValue, the val in db may change. */
         kv = dictGetKV(*link);
-        
+
+        /* Value-MVCC: preserve the value for open snapshots before it is freed
+         * (covers DEL/UNLINK/expiry/eviction). Retain, not copy: it is being
+         * removed wholesale, not mutated in place. */
+        if (unlikely(server.snapshots_open))
+            snapshotPreserveForDelete(db, key, kv);
+
         /* if expirable, delete an entry from the expires dict is not decrRefCount of kvobj */
         if (kvobjGetExpire(kv) != -1)
             kvstoreDictDelete(db->expires, slot, key->ptr);
