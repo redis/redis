@@ -397,6 +397,21 @@ start_server {tags {"acl external:skip"}} {
         assert_match {*has no permissions to access the 'write1' key*} [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
     }
 
+    test {Test GEORADIUS duplicate STORE is checked against the last key} {
+        r ACL setuser command-test +@all %R~read* %W~write* %RW~rw*
+
+        # Duplicate STORE/STOREDIST uses last-wins semantics (same as
+        # georadiusGeneric), so ACL must validate the last key. Otherwise a
+        # permitted first key would mask a forbidden second key.
+        assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STORE read1 STORE write2]
+        assert_match {*has no permissions to access the 'read2' key*} [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STORE write1 STORE read2]
+        assert_match {*has no permissions to access the 'read2' key*} [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STOREDIST write1 STOREDIST read2]
+
+        assert_equal "OK" [r ACL DRYRUN command-test GEORADIUSBYMEMBER read member radius M STORE read1 STORE write2]
+        assert_match {*has no permissions to access the 'read2' key*} [r ACL DRYRUN command-test GEORADIUSBYMEMBER read member radius M STORE write1 STORE read2]
+        assert_match {*has no permissions to access the 'read2' key*} [r ACL DRYRUN command-test GEORADIUSBYMEMBER read member radius M STOREDIST write1 STOREDIST read2]
+    }
+
     # Existence test commands are not marked as access since they are the result
     # of a lot of write commands. We therefore make the claim they can be executed
     # when either READ or WRITE flags are provided.

@@ -3774,8 +3774,10 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                             [COUNT count] [STORE key|STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
- * 
- * This command has a fully defined keyspec, so returning flags isn't needed. */
+ *
+ * STORE/STOREDIST keyspecs are marked incomplete because duplicate options
+ * use last-wins semantics (same as georadiusGeneric). ACL and other callers
+ * of getKeysFromCommandWithSpecs fall back here. */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num;
     keyReference *keys;
@@ -3804,10 +3806,10 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 
     /* Add all key positions to keys[] */
     keys[0].pos = 1;
-    keys[0].flags = 0;
-    if(num > 1) {
+    keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+    if (num > 1) {
          keys[1].pos = stored_key;
-         keys[1].flags = 0;
+         keys[1].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
     }
     result->numkeys = num;
     return num;
