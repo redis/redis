@@ -737,8 +737,7 @@ NULL
         }
 
         rio payload;
-        createDumpPayload(&payload, kv, c->argv[2], c->db->id,
-                          DUMP_PAYLOAD_SKIP_KEY_META);
+        createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META);
         addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         robj *val;
