@@ -3682,12 +3682,11 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
                 break;
             } else if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
                 /* Don't increment "num" so the *last* STORE option wins if
-                 * several are given (same behavior as SORT). Skip the store
-                 * argument (i++) so it isn't re-parsed as an option keyword. */
+                 * several are given (same behavior as SORT). */
                 found_store = 1;
                 keys[num].pos = i+1; /* <store-key> */
                 keys[num].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
-                i++;
+                i++; /* Skip the store argument so it isn't re-parsed as an option keyword. */
                 break;
             }
         }
