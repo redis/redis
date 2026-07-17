@@ -4316,7 +4316,7 @@ void himportSetCommand(client *c) {
      * on every SET, lowering the propagation cost further. */
     if (shouldPropagate(PROPAGATE_AOF | PROPAGATE_REPL)) {
         /* Presize the payload: field-name footprint + value bytes (over-estimate ok). */
-        sds payload = createRawDumpPayload(o, c->argv[2], c->db->id,
+        sds payload = createRawDumpPayload(o, c->argv[2], c->db->id, 0,
                                            tmpl->mem_size + total_values_length);
         robj *restore_pl = createObject(OBJ_STRING, payload);
         robj *rargv[5] = {

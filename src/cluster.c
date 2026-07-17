@@ -105,8 +105,11 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
     }
     rioInitWithBuffer(payload,buffer);
 
-    /* A DUMP payload is standalone: serialize objects self-contained, not ref form. */
+    /* A DUMP payload is standalone: serialize objects self-contained (not ref
+     * form), and skip LZF when the caller asked for raw bytes. */
     int prev_ref = rdbSaveSetRefMode(0);
+    int prev_comp = server.rdb_compression;
+    if (flags & DUMP_PAYLOAD_DONT_COMPRESS) server.rdb_compression = 0;
 
     /* Save key metadata if present (TTL is handled separately via command
      * args). AOF RESTORE payloads omit it because AOF rewrite handles module
@@ -116,6 +119,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
+    server.rdb_compression = prev_comp;
     rdbSaveSetRefMode(prev_ref);
 
     /* Write the footer, this is how it looks like:
@@ -142,13 +146,11 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
 }
 
 /* CRC-less, compression-less DUMP payload for RESTORE; returns an sds the caller
- * owns. size_hint (if nonzero) presizes the buffer. */
-sds createRawDumpPayload(robj *o, robj *key, int dbid, size_t size_hint) {
+ * owns. size_hint (if nonzero) presizes. */
+sds createRawDumpPayload(robj *o, robj *key, int dbid, int flags, size_t size_hint) {
     rio payload;
-    int oldcomp = server.rdb_compression;
-    server.rdb_compression = 0;
-    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM, size_hint);
-    server.rdb_compression = oldcomp;
+    createDumpPayload(&payload, o, key, dbid,
+                      DUMP_PAYLOAD_SKIP_CHECKSUM | DUMP_PAYLOAD_DONT_COMPRESS | flags, size_hint);
     return payload.io.buffer.ptr;
 }
 

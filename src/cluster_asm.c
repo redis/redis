@@ -185,7 +185,7 @@ ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 /* cluster.c */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum, size_t size_hint);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);

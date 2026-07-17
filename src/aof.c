@@ -2116,7 +2116,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o, int dbid) {
     if (isTmpl) {
         /* Emit a self-contained RESTORE so replay reconstructs the hash without
          * needing the template registry. */
-        sds pl = createRawDumpPayload(o, key, dbid, 0);
+        sds pl = createRawDumpPayload(o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META, 0);
         int ok = rioWriteBulkCount(r, '*', 5) &&
                  rioWriteBulkString(r, "RESTORE", 7) &&
                  rioWriteBulkObject(r, key) &&
