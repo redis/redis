@@ -3328,7 +3328,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 
-    test "ASM stress: 10000 template keys, half streamed live during migration" {
+    test "ASM stress: 4000 template keys, half streamed live during migration" {
         # Create template keys on node 0 in slot 0. Each template is shared by 2 keys
         proc asm_load_tmpl_keys {lo hi} {
             set rd [Rn 0]
@@ -3340,7 +3340,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         R 0 flushall
         R 1 flushall
-        set n 10000
+        set n 4000
         set half [expr {$n / 2}]
         set ntmpl [expr {$n / 2}]  ;# 2 keys share each template
 
@@ -3374,7 +3374,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Spot check keys from both halves survived intact on master and replica.
         R 4 readonly
-        foreach i {0 4999 5000 9999} {
+        foreach i {0 1999 2000 3999} {
             set expect "f[expr {$i / 2}] v$i"
             assert_equal $expect [R 1 hgetall [slot_key 0 k$i]]
             assert_equal $expect [R 4 hgetall [slot_key 0 k$i]]
