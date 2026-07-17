@@ -3681,12 +3681,13 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
                 i += skiplist[j].skip;
                 break;
             } else if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
-                /* Note: we don't increment "num" here and continue the loop
-                 * to be sure to process the *last* "STORE" option if multiple
-                 * ones are provided. This is same behavior as SORT. */
+                /* Don't increment "num" so the *last* STORE option wins if
+                 * several are given (same behavior as SORT). Skip the store
+                 * argument (i++) so it isn't re-parsed as an option keyword. */
                 found_store = 1;
                 keys[num].pos = i+1; /* <store-key> */
                 keys[num].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
+                i++;
                 break;
             }
         }
@@ -3818,7 +3819,8 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N
  *
- * This command has a fully defined keyspec, so returning flags isn't needed. */
+ * The keyspec is incomplete, so callers fall back to this function to parse
+ * the options and locate the real STREAMS token. */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num = 0;
     keyReference *keys;
@@ -3835,6 +3837,12 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
             i++; /* Skip option argument. */
         } else if (!strcasecmp(arg, "count")) {
             i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "maxcount")) {
+            i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "maxsize")) {
+            i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "claim")) {
+            i++; /* Skip option argument (min-idle-time). */
         } else if (!strcasecmp(arg, "group")) {
             i += 2; /* Skip option argument. */
         } else if (!strcasecmp(arg, "noack")) {
@@ -3859,7 +3867,7 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     keys = getKeysPrepareResult(result, num);
     for (i = streams_pos+1; i < argc-num; i++) {
         keys[i-streams_pos-1].pos = i;
-        keys[i-streams_pos-1].flags = 0; 
+        keys[i-streams_pos-1].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
     } 
     result->numkeys = num;
     return num;
