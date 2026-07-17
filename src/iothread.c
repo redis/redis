@@ -772,6 +772,13 @@ int processClientsFromMainThread(IOThread *t) {
                 connSetWriteHandler(c->conn, sendReplyToClient);
             }
         }
+        /* If everything has been flushed, drop any stale write handler so the IO
+         * thread event loop doesn't keep firing writable (EPOLLOUT) on an idle
+         * client. */
+        if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && !clientHasPendingReplies(c)) {
+            serverAssert(connHasEventLoop(c->conn));
+            connSetWriteHandler(c->conn, NULL);
+        }
     }
     /* All clients must are processed. */
     serverAssert(listLength(t->processing_clients) == 0);

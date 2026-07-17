@@ -370,7 +370,7 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
  *
  * Returns 1 if replace happened.
  * Returns 0 if replace failed and no changes happened. */
-int listTypeReplaceAtIndex(robj *o, int index, robj *value) {
+int listTypeReplaceAtIndex(robj *o, long index, robj *value) {
     value = getDecodedObject(value);
     sds vstr = value->ptr;
     size_t vlen = sdslen(vstr);
@@ -489,6 +489,7 @@ void pushGenericCommand(client *c, int where, int xx) {
 
     kvobj *lobj = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,lobj,OBJ_LIST)) return;
+    int existed = (lobj != NULL);
     if (!lobj) {
         if (xx) {
             addReply(c, shared.czero);
@@ -512,6 +513,12 @@ void pushGenericCommand(client *c, int where, int xx) {
 
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
     keyModified(c,c->db,c->argv[1],lobj,1);
+    /* Wake clients blocked on this key. dbAdd() already signals a freshly
+     * created key, but a push to a pre-existing list must signal too, so that
+     * clients blocked on an existing key (e.g. BLMOVEM EXACTLY waiting for more
+     * elements) are re-processed. */
+    if (existed)
+        signalKeyAsReadyNonEmptyList(c->db, c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     updateKeysizesHist(c->db, OBJ_LIST, llen - (c->argc - 2), llen);
     if (server.memory_tracking_enabled)
@@ -586,6 +593,9 @@ void linsertCommand(client *c) {
 
     if (inserted) {
         keyModified(c,c->db,c->argv[1],subject,1);
+        /* LINSERT only operates on a pre-existing list, so this is always a
+         * write to an existing key (module clients are not woken). */
+        signalKeyAsReadyNonEmptyList(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
                             c->argv[1],c->db->id);
         server.dirty++;
@@ -1163,6 +1173,7 @@ void lremCommand(client *c) {
 void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                      int where) {
     size_t oldsize = 0;
+    int existed = (dstobj != NULL);
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createListListpackObject();
@@ -1175,6 +1186,10 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dstobj, oldsize, kvobjAllocSize(dstobj));
     keyModified(c,c->db,dstkey,dstobj,1);
+    /* dbAdd() already signals a freshly created key; only a push to a
+     * pre-existing destination needs to signal blocked clients here. */
+    if (existed)
+        signalKeyAsReadyNonEmptyList(c->db, dstkey);
 
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",
@@ -1467,4 +1482,273 @@ void lmpopCommand(client *c) {
 /* BLMPOP timeout numkeys <key> [<key> ...] (LEFT|RIGHT) [COUNT count] */
 void blmpopCommand(client *c) {
     lmpopGenericCommand(c, 2, 1);
+}
+
+/* "How many" modes for [B]LMOVEM. */
+#define LMOVEM_DEFAULT 0 /* No COUNT/EXACTLY: move a single element. */
+#define LMOVEM_UPTO    1 /* COUNT: move min(count, available). */
+#define LMOVEM_EXACTLY 2 /* EXACTLY: move exactly count or fail/block. */
+
+/* Destination ordering for [B]LMOVEM. */
+#define LMOVEM_ORDER_OBO  0 /* Push each element as popped (block reversed). */
+#define LMOVEM_ORDER_BULK 1 /* Preserve the source relative order. */
+
+/* Parse the optional "[<COUNT|EXACTLY> count <OBO|BULK>]" trailer of [B]LMOVEM,
+ * starting at argv index 'opt_idx'. On success fills *mode, *count and
+ * *ordering and returns C_OK; otherwise it replies with an error and returns
+ * C_ERR. When the trailer is absent, the single-element defaults are used. */
+static int lmovemParseOptions(client *c, int opt_idx, int *mode, long *count, int *ordering) {
+    if (opt_idx == c->argc) {
+        *mode = LMOVEM_DEFAULT;
+        *count = 1;
+        *ordering = LMOVEM_ORDER_BULK; /* Irrelevant for a single element. */
+        return C_OK;
+    }
+
+    /* When present, the trailer is always exactly three tokens:
+     * <COUNT|EXACTLY> <count> <OBO|BULK>. */
+    if (c->argc - opt_idx != 3) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+
+    char *selector = c->argv[opt_idx]->ptr;
+    if (!strcasecmp(selector, "COUNT")) {
+        *mode = LMOVEM_UPTO;
+    } else if (!strcasecmp(selector, "EXACTLY")) {
+        *mode = LMOVEM_EXACTLY;
+    } else {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[opt_idx + 1], 1, LONG_MAX,
+                                      count, "count should be greater than 0") != C_OK)
+        return C_ERR;
+
+    char *ordstr = c->argv[opt_idx + 2]->ptr;
+    if (!strcasecmp(ordstr, "OBO")) {
+        *ordering = LMOVEM_ORDER_OBO;
+    } else if (!strcasecmp(ordstr, "BULK")) {
+        *ordering = LMOVEM_ORDER_BULK;
+    } else {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+/* Move 'count' elements (count >= 1, and 'srcobj' is known to hold at least
+ * 'count' elements) from the source list, popping at 'wherefrom', into the
+ * destination list, pushing at 'whereto'. Reply with the moved elements in
+ * destination order and perform all keyspace bookkeeping.
+ *
+ * 'dstobj' is the destination list, or NULL if it does not exist yet (in which
+ * case it is created). When source and destination resolve to the same object
+ * the operation is an in-place rotation. */
+static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
+                               robj *dstkey, kvobj *dstobj,
+                               int wherefrom, int whereto, long count, int ordering)
+{
+    int samekey = (dstobj == srcobj);
+
+    /* Pop the 'count' elements out of the source, preserving pop order. */
+    robj **vals = zmalloc(sizeof(robj*) * count);
+    size_t src_oldsize = 0;
+    if (server.memory_tracking_enabled)
+        src_oldsize = kvobjAllocSize(srcobj);
+    for (long i = 0; i < count; i++) {
+        vals[i] = listTypePop(srcobj, wherefrom);
+        serverAssert(vals[i] != NULL);
+    }
+
+    /* Reorder the popped elements (vals[0] = first popped) into destination
+     * order: the left-to-right order the moved block will have in the
+     * destination, which is also the order we reply in.
+     *   - OBO : elements are inserted one-by-one as popped, reading in pop order
+     *           at the tail and reversed at the head.
+     *   - BULK: the block keeps the source's relative order: pop order when
+     *           popped from the head, reversed when popped from the tail.
+     * After this, vals[] holds exactly the destination order. */
+    if ((ordering == LMOVEM_ORDER_OBO) ? (whereto == LIST_HEAD)
+                                       : (wherefrom == LIST_TAIL)) {
+        for (long i = 0, j = count - 1; i < j; i++, j--) {
+            robj *tmp = vals[i];
+            vals[i] = vals[j];
+            vals[j] = tmp;
+        }
+    }
+
+    /* Create the destination list if needed (never the case when samekey). */
+    int dst_existed = (dstobj != NULL);
+    if (dstobj == NULL) {
+        dstobj = createListListpackObject();
+        dbAdd(c->db, dstkey, &dstobj);
+    }
+
+    long dst_oldlen = samekey ? 0 : (long) listTypeLength(dstobj);
+    size_t dst_oldsize = 0;
+    if (!samekey && server.memory_tracking_enabled)
+        dst_oldsize = kvobjAllocSize(dstobj);
+
+    /* Reply with the moved elements in destination order. */
+    addReplyArrayLen(c, count);
+    for (long i = 0; i < count; i++)
+        addReplyBulk(c, vals[i]);
+
+    /* Convert once for the whole batch (the conversion decision is order-independent). */
+    listTypeTryConversionAppend(dstobj, vals, 0, count - 1, NULL, NULL);
+
+    /* Insert the block into the destination so it reads left-to-right as vals[].
+     * A head push prepends, so push back-to-front to keep the order; a tail push
+     * appends, so push front-to-back. */
+    for (long i = 0; i < count; i++) {
+        robj *v = (whereto == LIST_HEAD) ? vals[count - 1 - i] : vals[i];
+        listTypePush(dstobj, v, whereto);
+    }
+
+    /* listTypePush() copies the value, so we still own the popped references. */
+    for (long i = 0; i < count; i++) decrRefCount(vals[i]);
+    zfree(vals);
+
+    if (samekey) {
+        /* In-place rotation: the length is unchanged, so there is no key
+         * creation/deletion and no histogram change. Fire both the pop and the
+         * push notifications and account for the (possibly re-encoded) object. */
+        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop",
+                            srckey, c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST, whereto == LIST_HEAD ? "lpush" : "rpush",
+                            srckey, c->db->id);
+        keyModified(c, c->db, srckey, srcobj, 1);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), srcobj,
+                                src_oldsize, kvobjAllocSize(srcobj));
+        server.dirty += count;
+        return;
+    }
+
+    /* Destination accounting (a batched version of lmoveHandlePush). */
+    updateKeysizesHist(c->db, OBJ_LIST, dst_oldlen, dst_oldlen + count);
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dstobj,
+                            dst_oldsize, kvobjAllocSize(dstobj));
+    keyModified(c, c->db, dstkey, dstobj, 1);
+    /* dbAdd() already signals a freshly created destination; only signal here
+     * when pushing into a pre-existing list. */
+    if (dst_existed)
+        signalKeyAsReadyNonEmptyList(c->db, dstkey);
+    notifyKeyspaceEvent(NOTIFY_LIST, whereto == LIST_HEAD ? "lpush" : "rpush",
+                        dstkey, c->db->id);
+
+    /* Source accounting: notifications, histogram, deletion if emptied and the
+     * dirty counter (dirty += count) are all handled here. */
+    listElementsRemoved(c, srckey, wherefrom, srcobj, count, src_oldsize, 1, NULL);
+}
+
+/* Core of LMOVEM, also reused by BLMOVEM once the source has enough elements. */
+void lmovemGenericCommand(client *c, int wherefrom, int whereto, int mode,
+                          long count, int ordering)
+{
+    /* A missing source is treated as an empty list. */
+    kvobj *srcobj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c, srcobj, OBJ_LIST)) return;
+    long srclen = srcobj ? (long) listTypeLength(srcobj) : 0;
+
+    /* Resolve how many elements we will actually move. */
+    long tomove;
+    if (mode == LMOVEM_EXACTLY) {
+        if (srclen < count) {
+            /* Not enough elements to satisfy EXACTLY: move nothing and reply
+             * with a null array, like LMOVE against an empty/missing source. */
+            addReplyNullArray(c);
+            return;
+        }
+        tomove = count;
+    } else {
+        /* DEFAULT (count == 1) or UPTO: move at most 'count'. */
+        tomove = (count < srclen) ? count : srclen;
+    }
+
+    /* Nothing to move: empty/missing source in DEFAULT/UPTO mode. Reply with a
+     * null array, like LMOVE against an empty/missing source. */
+    if (tomove == 0) {
+        addReplyNullArray(c);
+        return;
+    }
+
+    /* Validate the destination type before mutating anything. */
+    kvobj *dstobj = lookupKeyWrite(c->db, c->argv[2]);
+    if (checkType(c, dstobj, OBJ_LIST)) return;
+
+    lmovemMoveAndReply(c, c->argv[1], srcobj, c->argv[2], dstobj,
+                       wherefrom, whereto, tomove, ordering);
+
+    /* When invoked from BLMOVEM, replicate deterministically as a non-blocking
+     * LMOVEM that moves exactly the elements we moved here. */
+    if (c->cmd->proc == blmovemCommand) {
+        robj *count_obj = createStringObjectFromLongLong(tomove);
+        rewriteClientCommandVector(c, 8, shared.lmovem,
+                                   c->argv[1], c->argv[2], c->argv[3], c->argv[4],
+                                   shared.exactly, count_obj,
+                                   ordering == LMOVEM_ORDER_OBO ? shared.obo : shared.bulk);
+        decrRefCount(count_obj);
+    }
+}
+
+/* LMOVEM source destination <LEFT|RIGHT> <LEFT|RIGHT> [<COUNT|EXACTLY> count <OBO|BULK>] */
+void lmovemCommand(client *c) {
+    int wherefrom, whereto, mode, ordering;
+    long count;
+    if (getListPositionFromObjectOrReply(c, c->argv[3], &wherefrom) != C_OK) return;
+    if (getListPositionFromObjectOrReply(c, c->argv[4], &whereto) != C_OK) return;
+    if (lmovemParseOptions(c, 5, &mode, &count, &ordering) != C_OK) return;
+    lmovemGenericCommand(c, wherefrom, whereto, mode, count, ordering);
+}
+
+void blmovemGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout,
+                           int mode, long count, int ordering)
+{
+    kvobj *srcobj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c, srcobj, OBJ_LIST)) return;
+    long srclen = srcobj ? (long) listTypeLength(srcobj) : 0;
+
+    /* Number of elements the source must hold before we can serve the client:
+     * EXACTLY blocks until 'count' are available, the others until there is at
+     * least one. */
+    long needed = (mode == LMOVEM_EXACTLY) ? count : 1;
+
+    if (srclen < needed) {
+        if (c->flags & CLIENT_DENY_BLOCKING) {
+            /* Blocking is not allowed (e.g. inside MULTI/Lua): behave like a
+             * timeout and move nothing. */
+            addReplyNullArray(c);
+        } else {
+            /* Choose the block type by what we are waiting for. When we only
+             * need one element (single/COUNT), the source can only be missing
+             * or empty, so plain BLOCKED_LIST (woken by key creation) suffices.
+             * When we need more than one (EXACTLY count>1), we may be waiting on
+             * an already-existing list to grow, which requires BLOCKED_LIST_NONEMPTY
+             * so that writes to the existing key re-process us. */
+            int btype = (needed > 1) ? BLOCKED_LIST_NONEMPTY : BLOCKED_LIST;
+            blockForKeys(c, btype, c->argv + 1, 1, timeout, 0);
+        }
+        return;
+    }
+
+    /* Enough elements: perform the move just like a non-blocking LMOVEM. The
+     * replication rewrite (to LMOVEM EXACTLY) is handled inside the generic
+     * command, keyed on the BLMOVEM proc. */
+    lmovemGenericCommand(c, wherefrom, whereto, mode, count, ordering);
+}
+
+/* BLMOVEM source destination <LEFT|RIGHT> <LEFT|RIGHT> timeout [<COUNT|EXACTLY> count <OBO|BULK>] */
+void blmovemCommand(client *c) {
+    int wherefrom, whereto, mode, ordering;
+    long count;
+    mstime_t timeout;
+    if (getListPositionFromObjectOrReply(c, c->argv[3], &wherefrom) != C_OK) return;
+    if (getListPositionFromObjectOrReply(c, c->argv[4], &whereto) != C_OK) return;
+    if (getTimeoutFromObjectOrReply(c, c->argv[5], &timeout, UNIT_SECONDS) != C_OK) return;
+    if (lmovemParseOptions(c, 6, &mode, &count, &ordering) != C_OK) return;
+    blmovemGenericCommand(c, wherefrom, whereto, timeout, mode, count, ordering);
 }
