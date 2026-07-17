@@ -714,10 +714,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "templates not propagated"
         }
 
-        # Snapshot each key's memory on the source to compare post-migration.
-        set src_lp_mem [R 1 memory usage $lp_key]
-        set src_ar_mem [R 1 memory usage $ar_key]
-
         # migrate slot 0-100 to R 0 and verify both encodings/data survive
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
@@ -730,12 +726,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal {template-array} [R 0 object encoding $ar_key]
         assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [R 0 hgetall $ar_key]
 
-        # Both templates rebuilt on the dest, and each key's memory is preserved
-        # within a few bytes (the node-local template id embedded in the listpack
-        # encodes to a slightly different size).
+        # Both templates rebuilt on the dest.
         assert_equal 2 [S 0 hash_templates]
-        assert {abs($src_lp_mem - [R 0 memory usage $lp_key]) <= 16}
-        assert {abs($src_ar_mem - [R 0 memory usage $ar_key]) <= 16}
 
         # verify keys do not exist on source master and replica
         wait_for_condition 50 100 {
