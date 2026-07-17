@@ -776,6 +776,7 @@ int processClientsFromMainThread(IOThread *t) {
          * thread event loop doesn't keep firing writable (EPOLLOUT) on an idle
          * client. */
         if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && !clientHasPendingReplies(c)) {
+            serverAssert(connHasEventLoop(c->conn));
             connSetWriteHandler(c->conn, NULL);
         }
     }
