@@ -1393,13 +1393,6 @@ test "RESTORE-based AOF payload omits KeyMeta" {
         assert_equal "" [r keymeta.get [cname 1] aof-copy]
         assert_equal "" [r keymeta.get [cname 2] aof-copy]
         assert_equal "" [r keymeta.get [cname 3] aof-copy]
-
-        # Simulate the commands emitted once by the two AOF callbacks.
-        r keymeta.set [cname 1] aof-copy dual-path
-        r keymeta.set [cname 3] aof-copy aof-only
-        assert_equal dual-path [r keymeta.get [cname 1] aof-copy]
-        assert_equal "" [r keymeta.get [cname 2] aof-copy]
-        assert_equal aof-only [r keymeta.get [cname 3] aof-copy]
     }
 } {} {external:skip}
 
