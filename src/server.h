@@ -2531,13 +2531,6 @@ struct redisServer {
                                        * the throttle that stops creating new
                                        * templates once most are few-key. RDB-load
                                        * only, not RESTORE/DUMP. 0 disables. */
-    int hash_template_mask_encoding; /* TEMPORARY (remove before merge): when set,
-                                      * OBJECT ENCODING / DEBUG OBJECT report the
-                                      * legacy listpack/hashtable name for
-                                      * template-encoded hashes instead of
-                                      * template-*, so the existing hash test
-                                      * suite passes with templates enabled. */
-
     struct hashTemplateRegistry *htemplates;   /* Global template registry */
     size_t set_max_intset_entries;
     size_t set_max_listpack_entries;
@@ -4062,7 +4055,6 @@ int hashTemplateValidateFields(sds *fields, unsigned long long field_count);
 size_t hashTemplatesMemUsage(void);
 size_t hashTemplateRegistrySize(void);
 size_t hashTemplateKeyCount(void);
-char *hashTemplateEquivalentEncoding(robj *o); /* TODO: temporary test shim, remove before merge */
 int64_t himportFieldsetsFree(client *c);
 size_t himportFieldsetsMemOverhead(client *c);
 

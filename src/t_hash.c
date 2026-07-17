@@ -968,46 +968,6 @@ int hashTemplateValidateFields(sds *fields, unsigned long long field_count) {
     return 1;
 }
 
-/* Return the equivalent non-template encoding name (listpack or hashtable)
- * for a template-encoded hash, by checking field/value sizes and count against
- * listpack limits. Used by the hash-template-mask-encoding to run plain hash
- * tests by forcing hash template encoding.
- * TODO: Remove before merge. */
-char *hashTemplateEquivalentEncoding(robj *o) {
-    hashTemplate *tmpl = hashTypeGetTemplate(o);
-
-    if (tmpl->field_count > server.hash_max_listpack_entries)
-        return "hashtable";
-
-    for (unsigned long long i = 0; i < tmpl->field_count; i++) {
-        if (sdslen(tmpl->fields[i]) > server.hash_max_listpack_value)
-            return "hashtable";
-    }
-
-    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-        unsigned char *lp = o->ptr;
-        unsigned char *p = lpFirst(lp);
-        assert(p);
-        p = lpNext(lp, p); /* skip template ID */
-        for (unsigned long long i = 0; i < tmpl->field_count && p; i++) {
-            unsigned int vlen;
-            long long vll;
-            unsigned char *vstr = lpGetValue(p, &vlen, &vll);
-            if (vstr && vlen > server.hash_max_listpack_value)
-                return "hashtable";
-            p = lpNext(lp, p);
-        }
-    } else {
-        hashTemplateArray *hta = o->ptr;
-        for (unsigned long long i = 0; i < tmpl->field_count; i++) {
-            if (hta->values[i] && sdslen(hta->values[i]) > server.hash_max_listpack_value)
-                return "hashtable";
-        }
-    }
-
-    return "listpack";
-}
-
 /*-----------------------------------------------------------------------------
  * HashTemplateLp functions (OBJ_ENCODING_TMPL_LP)
  *

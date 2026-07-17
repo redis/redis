@@ -1760,13 +1760,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
-        /* TODO: Mask encoding for testing (remove before merge): report legacy encoding name. */
-        if (server.hash_template_mask_encoding &&
-            (kv->encoding == OBJ_ENCODING_TMPL_LP ||
-             kv->encoding == OBJ_ENCODING_TMPL_ARRAY))
-            addReplyBulkCString(c, hashTemplateEquivalentEncoding(kv));
-        else
-            addReplyBulkCString(c, strEncoding(kv->encoding));
+        addReplyBulkCString(c, strEncoding(kv->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
