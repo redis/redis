@@ -510,7 +510,7 @@ jobs:
       # replication and some tests start to fail because of timing errors.
       # This is similar to why we run tsan with only 1 client which is even
       # more extreme case
-      run: ./runtest --clients 4 --config io-threads 4 --config repl-compression 1 --compression --accurate --verbose --tags "repl network iothreads psync2" --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --clients 2 --config io-threads 4 --config repl-compression 1 --compression --accurate --verbose --tags "repl network iothreads psync2" --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster --config io-threads 4 --config repl-compression 1 --compression ${{github.event.inputs.cluster_test_args}}
