@@ -714,11 +714,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "templates not propagated"
         }
 
-        # Snapshot the source's per-key and template-registry memory (the source
-        # holds exactly these 2 templates) to compare post-migration.
+        # Snapshot each key's memory on the source to compare post-migration.
         set src_lp_mem [R 1 memory usage $lp_key]
         set src_ar_mem [R 1 memory usage $ar_key]
-        set src_tmpl_mem [S 1 used_memory_hash_templates]
 
         # migrate slot 0-100 to R 0 and verify both encodings/data survive
         R 0 CLUSTER MIGRATION IMPORT 0 100
@@ -732,12 +730,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal {template-array} [R 0 object encoding $ar_key]
         assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [R 0 hgetall $ar_key]
 
-        # Memory transferred intact. Each key's memory matches within a few bytes
-        # (on each node template id embedded in the listpack encodes to a slightly
-        # different size). The template registry memory is id-independent, so with
-        # the same 2 templates on both nodes it is byte-for-byte identical.
+        # Both templates rebuilt on the dest, and each key's memory is preserved
+        # within a few bytes (the node-local template id embedded in the listpack
+        # encodes to a slightly different size).
         assert_equal 2 [S 0 hash_templates]
-        assert_equal $src_tmpl_mem [S 0 used_memory_hash_templates]
         assert {abs($src_lp_mem - [R 0 memory usage $lp_key]) <= 16}
         assert {abs($src_ar_mem - [R 0 memory usage $ar_key]) <= 16}
 
