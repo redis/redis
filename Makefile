@@ -96,7 +96,7 @@ install:
 # line (e.g. `make clean DEPS=1`) propagate to the per-module clean via
 # the shell environment.
 clean:
-	@scripts/clean.sh $(CLEAN_ARGS)
+	+@scripts/clean.sh $(CLEAN_ARGS)
 
 # ----------------------------------------------------------------------------
 # Module / build / test orchestration. Recipes are thin wrappers around
@@ -106,11 +106,11 @@ clean:
 
 # build [<name> ...|all|.|redis|core|none] — Redis core + selected modules.
 build:
-	@scripts/build.sh $(BUILD_ARGS)
+	+@scripts/build.sh $(BUILD_ARGS)
 
 # bootstrap [<name> ...|all|.] — install per-module build/test prereqs.
 bootstrap:
-	@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
+	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
 #   Install Redis core + selected modules (default: every cloned module),
@@ -128,12 +128,12 @@ run:
 
 # test [redis|all|<module> [<test_name>]] [TEST=<name>] — see scripts/test.sh.
 test:
-	@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
+	+@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
 
 # modules-update [<name> ...|all|.] [MODULES_UPDATE_SHALLOW=1]
 #   Idempotent clone/refresh per modules.yaml.
 modules-update:
-	@MODULES_UPDATE_SHALLOW='$(MODULES_UPDATE_SHALLOW)' scripts/modules-update.sh $(MODULES_ARGS)
+	+@MODULES_UPDATE_SHALLOW='$(MODULES_UPDATE_SHALLOW)' scripts/modules-update.sh $(MODULES_ARGS)
 
 # modules-shallow <name> [<name> ...] — re-clone selected modules with --depth 1.
 modules-shallow:

@@ -2269,7 +2269,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Create the DUMP encoded representation. */
         rio payload;
-        createDumpPayload(&payload, o, &key, dbid, 1, 0);
+        createDumpPayload(&payload, o, &key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM, 0);
         sds buf = payload.io.buffer.ptr;
         if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
             sdsfree(payload.io.buffer.ptr);

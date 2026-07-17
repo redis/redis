@@ -85,8 +85,9 @@ ConnectionType *connTypeOfCluster(void) {
  * -------------------------------------------------------------------------- */
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
- * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum, size_t size_hint) {
+ * io stream pointed by 'rio'. Flags can omit the checksum or key metadata.
+ * This function can't fail. */
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint) {
     unsigned char buf[2];
     uint64_t crc = 0;
 
@@ -107,8 +108,10 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_chec
     /* A DUMP payload is standalone: serialize objects self-contained, not ref form. */
     int prev_ref = rdbSaveSetRefMode(0);
 
-    /* Save key metadata if present without (handles TTL separately via command args) */
-    if (getModuleMetaBits(o->metabits))
+    /* Save key metadata if present (TTL is handled separately via command
+     * args). AOF RESTORE payloads omit it because AOF rewrite handles module
+     * metadata separately through keyMetaOnAof(). */
+    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
@@ -129,7 +132,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_chec
 
     /* If crc checksum is disabled, crc is set to 0 and no checksum validation
      * will be performed on RESTORE. */
-    if (!skip_checksum) {
+    if (!(flags & DUMP_PAYLOAD_SKIP_CHECKSUM)) {
         /* CRC64 */
         crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
                     sdslen(payload->io.buffer.ptr));
@@ -144,7 +147,7 @@ sds createRawDumpPayload(robj *o, robj *key, int dbid, size_t size_hint) {
     rio payload;
     int oldcomp = server.rdb_compression;
     server.rdb_compression = 0;
-    createDumpPayload(&payload, o, key, dbid, 1, size_hint);
+    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM, size_hint);
     server.rdb_compression = oldcomp;
     return payload.io.buffer.ptr;
 }

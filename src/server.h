@@ -4680,7 +4680,9 @@ void readonlyCommand(client *c);
 void readwriteCommand(client *c);
 void sflushCommand(client *c);
 int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr);
-sds createRawDumpPayload(robj *o, robj *key, int dbid, size_t size_hint);
+#define DUMP_PAYLOAD_SKIP_CHECKSUM (1<<0)
+#define DUMP_PAYLOAD_SKIP_KEY_META (1<<1)
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 void dumpCommand(client *c);
 void clientCommand(client *c);
 void helloCommand(client *c);
