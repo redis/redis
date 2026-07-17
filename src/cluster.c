@@ -98,8 +98,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags) {
     /* Save key metadata if present (TTL is handled separately via command
      * args). AOF RESTORE payloads omit it because AOF rewrite handles module
      * metadata separately through keyMetaOnAof(). */
-    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) &&
-        getModuleMetaBits(o->metabits))
+    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
