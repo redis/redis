@@ -2598,6 +2598,10 @@ struct redisServer {
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
     int stream_stats;                   /* Enable stream stats for INFO `stream` section. */
+    uint64_t stream_stats_epoch;        /* Generation of the INFO `stream` histograms. Bumped
+                                           whenever they are reset (stream-stats disabled), so an
+                                           in-flight async slot-trim delta computed against an older
+                                           generation is not applied. See kvsAsyncFreeDoneCB(). */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */

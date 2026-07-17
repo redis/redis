@@ -3292,6 +3292,11 @@ static int applyClientMaxMemoryUsage(const char **err) {
 static int applyStreamStats(const char **err) {
     UNUSED(err);
     if (!server.stream_stats) {
+        /* Zeroing the live histograms starts a new generation. Bump the epoch
+         * so that any async slot-trim delta scheduled against the old contents
+         * is not applied on completion (see asmBackgroundTrimDoneCB). This also
+         * covers a disable/enable cycle while a trim job is pending. */
+        server.stream_stats_epoch++;
         for (int j = 0; j < server.dbnum; j++) {
             kvstoreMetadata *meta = kvstoreGetMetadata(server.db[j].keys);
             if (meta)
