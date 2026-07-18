@@ -37,6 +37,10 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
     set server_dir [lindex [r config get dir] 1]
     set bdir [file join $server_dir $bdirname]
 
+    test {BACKUP HELP outputs subcommand help} {
+        assert_match "*BACKUP <subcommand> *" [r BACKUP HELP]
+    }
+
     test {BACKUP STATUS reports idle on a fresh instance} {
         array set s [r backup status]
         assert_equal "idle" $s(state)
