@@ -1281,7 +1281,7 @@ make MALLOC=jemalloc
 
 ### Monotonic clock
 
-By default, Redis will build using the POSIX clock_gettime function as the monotonic clock source. On most modern systems, the internal processor clock can be used to improve performance. Cautions can be found here: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
+By default, Redis will build using the POSIX clock_gettime function as the monotonic clock source. On most modern systems, the internal processor clock can be used to improve performance. Cautions can be found here: https://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
 
 On ARM aarch64 systems, the hardware clock is enabled by default because the ARM Generic Timer is architecturally guaranteed to be available and monotonic on all ARMv8-A processors (see the *“The Generic Timer in AArch64 state”* section of the *Arm Architecture Reference Manual for Armv8-A*).
 
