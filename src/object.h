@@ -86,7 +86,11 @@ struct RedisModuleType;
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 #define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
-#define OBJ_ENCODING_BITMAP_ROARING 14 /* Encoded as a Roaring bitmap */
+#define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
+#define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
+#define OBJ_ENCODING_BITMAP_ROARING 15 /* Bitmap encoded as a Roaring bitmap.
+                                        * This value is shared with TMPL_ARRAY;
+                                        * encodings are interpreted by type. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
