@@ -68,6 +68,9 @@
                 "overhead.total": {
                     "type": "integer"
                 },
+                "hash.templates": {
+                    "type": "integer"
+                },
                 "db.dict.rehashing.count": {
                     "type": "integer"
                 },

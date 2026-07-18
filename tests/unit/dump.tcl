@@ -321,6 +321,56 @@ start_server {tags {"dump"}} {
         }
     } {} {external:skip}
 
+    test {MIGRATE can correctly transfer template-encoded hashes} {
+        set first [srv 0 client]
+        r flushdb
+        r config set hash-min-template-entries 0
+
+        r himport prepare fs_short  f1 f2 f3
+        r himport prepare fs_long f1 f2 [string repeat q 70]
+        r himport set lp_short_fields fs_short v1 v2 v3
+        r himport set arr_short_fields fs_short v1 [string repeat x 100] v3
+        r himport set lp_long_fields fs_long v1 v2 v3
+        r himport set arr_long_fields fs_long v1 v2 [string repeat x 100]
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+            $second config set hash-min-template-entries 0
+
+            set ret [r -1 migrate $second_host $second_port "" 9 10000 keys lp_short_fields arr_short_fields lp_long_fields arr_long_fields]
+            assert {$ret eq {OK}}
+            assert {[$first exists lp_short_fields] == 0}
+            assert {[$first exists arr_short_fields] == 0}
+            assert {[$first exists lp_long_fields] == 0}
+            assert {[$first exists arr_long_fields] == 0}
+
+            # verify keys are migrated with the correct content and encoding
+            assert_equal {f1 v1 f2 v2 f3 v3} [$second hgetall lp_short_fields]
+            assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [$second hgetall arr_short_fields]
+            assert_equal "f1 v1 f2 v2 [string repeat q 70] v3" [$second hgetall lp_long_fields]
+            assert_equal "f1 v1 f2 v2 [string repeat q 70] [string repeat x 100]" [$second hgetall arr_long_fields]
+            assert_equal {template-listpack} [$second object encoding lp_short_fields]
+            assert_equal {template-array} [$second object encoding arr_short_fields]
+            assert_equal {template-listpack} [$second object encoding lp_long_fields]
+            assert_equal {template-array} [$second object encoding arr_long_fields]
+
+            # The two distinct field sets rebuild as two templates on the
+            # destination registry, holding four keys in total.
+            assert_equal 2 [status $second hash_templates]
+            assert_equal 4 [status $second hash_template_keys]
+
+            # Source has no template keys..
+            $first himport discardall
+            wait_for_condition 50 100 {
+                [status $first hash_templates] == 0 &&
+                [status $first hash_template_keys] == 0
+            } else {
+                fail "source registry not drained"
+            }
+        }
+    } {} {external:skip}
+
     test {MIGRATE timeout actually works} {
         set first [srv 0 client]
         r set key "Some Value"

@@ -1,0 +1,12 @@
+{
+    "HIMPORT": {
+        "summary": "A container for session-based hash import commands using fieldsets.",
+        "complexity": "Depends on subcommand.",
+        "group": "hash",
+        "since": "8.10.0",
+        "arity": -2,
+        "acl_categories": [
+            "HASH"
+        ]
+    }
+}
