@@ -939,7 +939,7 @@ static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap,
     int has_expire = expire != -1;
     int argc = 5;
 
-    createDumpPayload(&payload, bitmap, key, c->db->id, 0);
+    createDumpPayload(&payload, bitmap, key, c->db->id, 0, 0);
 
     argv[0] = createStringObject("RESTORE", 7);
     argv[1] = key;

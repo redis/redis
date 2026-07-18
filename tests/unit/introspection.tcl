@@ -639,6 +639,8 @@ start_server {tags {"introspection"}} {
             syslog-ident
             appendfilename
             appenddirname
+            backupdirname
+            preload-file
             supervised
             syslog-facility
             databases
@@ -768,7 +770,7 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
     
     test {CONFIG SET with multiple args} {
-        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5}}
+        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5} backup-sealed-ttl 10000003}
 
         # Backup
         set backups {}
@@ -891,7 +893,7 @@ start_server {tags {"introspection"}} {
     }
 
     test {CONFIG GET multiple args} {
-        set res [r config get maxmemory maxmemory* bind *of]
+        set res [r config get maxmemory maxmemory* bind *of backup*]
         
         # Verify there are no duplicates in the result
         assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
@@ -901,6 +903,9 @@ start_server {tags {"introspection"}} {
 
         # Verify pattern found multiple maxmemory* configs
         assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+
+        # Verify pattern found backup configs
+        assert {[dict exists $res backupdirname] && [dict exists $res backup-sealed-ttl]}
 
         # Verify we also got the explicit config
         assert {[dict exists $res bind]}  

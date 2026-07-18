@@ -1103,6 +1103,21 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
+char *getFileExtension(char *path) {
+    char *pch = strrchr(path,'.');
+    if (!pch)
+        return NULL;
+    else
+        return pch+1;
+}
+
+sds getFilePath(char *path) {
+    if (pathIsBaseName(path)) return NULL;
+
+    char *pch = strrchr(path,'/');
+    return sdsnewlen(path, pch - path);
+}
+
 int fileExist(char *filename) {
     struct stat statbuf;
     return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
@@ -1111,6 +1126,25 @@ int fileExist(char *filename) {
 int dirExists(char *dname) {
     struct stat statbuf;
     return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
+}
+
+/* Returns true when the directory is missing or contains no entries. */
+int dirIsEmpty(char *dname) {
+    DIR *dir;
+    struct dirent *entry;
+
+    if ((dir = opendir(dname)) == NULL) {
+        return errno == ENOENT;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        closedir(dir);
+        return 0;
+    }
+
+    closedir(dir);
+    return 1;
 }
 
 int dirCreateIfMissing(char *dname) {
