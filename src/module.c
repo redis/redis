@@ -9229,15 +9229,27 @@ void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     moduleReleaseGIL();
 }
 
+/* Set on a thread while it holds the module GIL. */
+static __thread int threadHoldsGIL = 0;
+
+/* True if the calling thread currently holds the module GIL. */
+int moduleThreadHoldsGIL(void) {
+    return threadHoldsGIL;
+}
+
 void moduleAcquireGIL(void) {
     pthread_mutex_lock(&moduleGIL);
+    threadHoldsGIL = 1;
 }
 
 int moduleTryAcquireGIL(void) {
-    return pthread_mutex_trylock(&moduleGIL);
+    int res = pthread_mutex_trylock(&moduleGIL);
+    if (res == 0) threadHoldsGIL = 1;
+    return res;
 }
 
 void moduleReleaseGIL(void) {
+    threadHoldsGIL = 0;
     pthread_mutex_unlock(&moduleGIL);
 }
 
@@ -12344,13 +12356,8 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
  * possibly setting errno if the call failed.
  * It is also possible to restart an existing cursor using RM_ScanCursorRestart.
  *
- * NOTE: Certain operations are unsafe while iterating the object. For instance
- * while the API guarantees to return at least one time all the elements that
- * are present in the data structure consistently from the start to the end
- * of the iteration (see HSCAN and similar commands documentation), the more
- * you play with the elements, the more duplicates you may get. In general
- * deleting the current element of the data structure is safe, while removing
- * the key you are iterating is not safe. */
+ * NOTE: The scan may return an element more than once and you must not  modify
+ * the key within the callback. */
 int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) {
     if (key == NULL || key->kv == NULL) {
         errno = EINVAL;
@@ -12393,6 +12400,31 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             decrRefCount(field);
         }
         setTypeResetIterator(&si);
+        cursor->cursor = 1;
+        cursor->done = 1;
+        ret = 0;
+    } else if (kv->type == OBJ_HASH &&
+               (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+                kv->encoding == OBJ_ENCODING_TMPL_ARRAY)) {
+        /* Template-based hashes: iterate via hashTypeIterator which handles
+         * both TMPL_LP and TMPL_ARRAY encodings. */
+        hashTypeIterator hi;
+        hashTypeInitIterator(&hi, kv);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
+            sds field_sds = hashTypeCurrentObjectNewSds(&hi, OBJ_HASH_KEY);
+            robj *field = createObject(OBJ_STRING, field_sds);
+            unsigned char *vstr = NULL;
+            size_t vlen;
+            long long vll;
+            hashTypeCurrentObject(&hi, OBJ_HASH_VALUE, &vstr, &vlen, &vll, NULL);
+            robj *value = (vstr != NULL) ? createStringObject((char *)vstr, vlen) :
+                                           createStringObjectFromLongLongWithSds(vll);
+            fn(key, field, value, privdata);
+
+            decrRefCount(field);
+            decrRefCount(value);
+        }
+        hashTypeResetIterator(&hi);
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;

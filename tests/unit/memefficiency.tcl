@@ -1225,6 +1225,163 @@ run_solo {defrag} {
             }
         }
     }
+
+    if {[string match {*jemalloc*} [s mem_allocator]] &&
+        [r debug mallctl arenas.page] <= 8192 &&
+        $type eq "standalone"} { ;# skip in cluster mode and non-jemalloc
+        # Active defrag relocates the per-key allocations of template-encoded
+        # hashes (the value listpack for template-listpack, the array and its
+        # value strings for template-array) without touching the shared template.
+        # Fragment many template hashes, run active defrag, and assert the data is
+        # byte-identical afterwards (debug digest) and the keys still resolve.
+        test "Active defrag template-encoded hashes: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100kb
+            r config set maxmemory 0
+            # Field count drives the encoding: the 3-field template stays
+            # template-listpack, the 40-field template becomes template-array.
+            r config set hash-max-listpack-entries 16
+
+            # Two shared templates: small -> template-listpack, big -> template-array.
+            set big_fields {}
+            for {set f 0} {$f < 40} {incr f} { lappend big_fields field_[format %02d $f] }
+            set bigval [string repeat x 80]
+
+            set n 20000
+            # HIMPORT fieldsets are per-client, so prepare on the same
+            # (deferring) connection that issues the HIMPORT SETs.
+            set rd [redis_deferring_client]
+            $rd himport prepare small a b c       ; $rd read
+            $rd himport prepare big {*}$big_fields ; $rd read
+            set batch 200
+            for {set j 0} {$j < $n} {incr j} {
+                if {$j % 2 == 0} {
+                    $rd himport set k:$j small v${j}a v${j}b v${j}c
+                } else {
+                    set vals {}
+                    for {set f 0} {$f < 40} {incr f} { lappend vals $bigval }
+                    $rd himport set k:$j big {*}$vals
+                }
+                discard_replies_every $rd [expr {$j + 1}] $batch $batch
+            }
+            for {set j 0} {$j < [expr {$n % $batch}]} {incr j} { $rd read }
+
+            assert_equal template-listpack [r object encoding k:0]
+            assert_equal template-array    [r object encoding k:1]
+
+            # Fragment: delete half the keys (both encodings), leaving holes
+            # around the surviving template-listpack and template-array keys.
+            set deleted 0
+            for {set j 0} {$j < $n} {incr j} {
+                if {($j % 4) < 2} { $rd del k:$j; incr deleted }
+            }
+            for {set j 0} {$j < $deleted} {incr j} { $rd read }
+            $rd close
+
+            after 120
+            if {$::verbose} { puts "frag before defrag: [s allocator_frag_ratio]" }
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes}
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 100 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    fail "defrag not started."
+                }
+                wait_for_defrag_stop 500 100
+            }
+
+            # Data byte-identical after defrag moved the allocations.
+            assert_equal $digest [debug_digest]
+            # Survivors of both encodings still resolve (k:2 small, k:3 big).
+            assert_equal template-listpack [r object encoding k:2]
+            assert_equal template-array    [r object encoding k:3]
+            assert_equal v2a    [r hget k:2 a]
+            assert_equal $bigval [r hget k:3 field_00]
+            assert_equal $bigval [r hget k:3 field_39]
+            r save ;# iterate over all data / pointers
+        } {OK}
+
+        # The test above fragments per-key values (two shared templates). Here
+        # every key has its own template, so deleting half the keys frees half the
+        # templates, leaving holes around the survivors; active defrag relocates
+        # the surviving templates and the hashes stay intact.
+        test "Active defrag hash template registry: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100kb
+            r config set maxmemory 0
+            r config set hash-min-template-entries 0
+
+            # Many distinct templates with long field names, fragmenting the
+            # registry's per-template allocations (struct, field array + strings,
+            # by_fields entries) - all relocatable.
+            set pad [string repeat _ 2000]
+            set n 1000
+            set rd [redis_deferring_client]
+            set batch 200
+            set cmds 0
+            for {set j 0} {$j < $n} {incr j} {
+                $rd himport prepare fs$j a$j$pad b$j$pad c$j$pad ; incr cmds
+                $rd himport set k:$j fs$j v${j}a v${j}b v${j}c   ; incr cmds
+                if {$cmds % $batch == 0} { for {set rc 0} {$rc < $batch} {incr rc} { $rd read } }
+            }
+            $rd close
+            assert {[s hash_templates] >= $n}
+
+            # Fragment: delete every other key so its template (and long field-name
+            # strings) is freed, leaving holes around the survivors.
+            set rd [redis_deferring_client]
+            set deleted 0
+            for {set j 0} {$j < $n} {incr j 2} { $rd del k:$j; incr deleted }
+            for {set rc 0} {$rc < $deleted} {incr rc} { $rd read }
+            $rd close
+            wait_for_condition 300 100 {
+                [s hash_templates] <= [expr {$n / 2 + 50}]
+            } else { fail "templates not drained ([s hash_templates])" }
+
+            after 120
+            if {$::verbose} { puts "registry frag before defrag: [s allocator_frag_ratio]" }
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes}
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                # Let defrag relocate the registry allocations; we only wait for
+                # progress (hits > 0), not for fragmentation to fully settle.
+                wait_for_condition 100 100 {
+                    [s active_defrag_hits] > 0
+                } else { fail "defrag made no progress" }
+                after 500 ;# let it churn the registry a bit more
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            # Byte-identical after the registry field-name/array moves, and a
+            # survivor still resolves (its relocated field name reads back right).
+            assert_equal $digest [debug_digest]
+            assert_equal v1a [r hget k:1 a1$pad]
+            # After relocation, re-preparing an existing field set still finds its
+            # template instead of creating a new one.
+            set nt [s hash_templates]
+            r himport prepare chk a1$pad b1$pad c1$pad
+            assert_equal $nt [s hash_templates]
+            r save ;# iterate over all data / pointers
+        } {OK}
+    }
     }
 
     test "Active defrag can't be triggered during replicaof database flush. See issue #14267" {

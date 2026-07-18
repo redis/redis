@@ -780,6 +780,43 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
 }
 
+/* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
+ * hashtable/set/array paths) so a wide template hash can't stall defrag. */
+void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr, *newhta;
+    if ((newhta = activeDefragAlloc(hta))) ob->ptr = hta = newhta;
+    if (hta->field_count > server.active_defrag_max_scan_fields) {
+        defragLater(ctx, ob);
+    } else {
+        for (unsigned long long i = 0; i < hta->field_count; i++) {
+            sds newsds = activeDefragSds(hta->values[i]);
+            if (newsds) hta->values[i] = newsds;
+        }
+    }
+}
+
+/* Incremental defrag of a TMPL_ARRAY's values; cursor = next index.
+ * Returns 1 if time is up (more to do), 0 when done. */
+long scanLaterTmplArray(robj *ob, unsigned long *cursor, monotime endtime) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr;
+    unsigned long long n = hta->field_count;
+    long iterations = 0;
+    while (*cursor < n) {
+        sds newsds = activeDefragSds(hta->values[*cursor]);
+        if (newsds) hta->values[*cursor] = newsds;
+        server.stat_active_defrag_scanned++;
+        (*cursor)++;
+        if (++iterations > 128) {
+            if (getMonotonicUs() > endtime) return 1;
+            iterations = 0;
+        }
+    }
+    *cursor = 0;
+    return 0;
+}
+
 /* Defrag callback for radix tree iterator, called for each node,
  * used in order to defrag the nodes allocations. */
 int defragRaxNode(raxNode **noderef, void *privdata) {
@@ -1184,6 +1221,11 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
                 lpt->lp = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_TMPL_LP) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            defragTmplArray(ctx, ob);
         } else {
             serverPanic("Unknown hash encoding");
         }
@@ -1312,6 +1354,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             scanLaterZset(ob, cursor);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
+        } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            return scanLaterTmplArray(ob, cursor, endtime);
         } else if (ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM) {
             return scanLaterStreamListpacks(ob, cursor, endtime);
         } else if (ob->type == OBJ_MODULE) {
@@ -1641,6 +1685,73 @@ static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     UNUSED(endtime);
     UNUSED(ctx);
     activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
+    return DEFRAG_DONE;
+}
+
+static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
+    unsigned long *cursor = ctx;
+    hashTemplateRegistry *reg = server.htemplates;
+    if (reg == NULL || reg->by_id == NULL) return DEFRAG_DONE;
+
+    unsigned long iterations = 0;
+    while (*cursor < reg->by_id_next) {
+        hashTemplate *tmpl = hashTemplateGetById(*cursor);
+        (*cursor)++;
+        if (tmpl == NULL) continue; /* freed or never-used slot */
+
+        hashTemplateDefrag(tmpl);
+
+        if (++iterations > 64) {
+            iterations = 0;
+            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+        }
+    }
+    return DEFRAG_DONE;
+}
+
+static void defragTmplRegistryCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(privdata); 
+    UNUSED(de);
+    UNUSED(plink);
+}
+
+/* Defrag a registry lookup dict. Keys/values (template/blob pointers) are
+ * relocated by defragStageHashTemplates. */
+static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotime endtime) {
+    dictDefragFunctions fns = { .defragAlloc = activeDefragAlloc };
+    unsigned long iterations = 0;
+    do {
+        *cursor = dictScanDefrag(*dref, *cursor, defragTmplRegistryCb, &fns, NULL);
+        if (++iterations > 64) {
+            iterations = 0;
+            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+        }
+    } while (*cursor != 0);
+    dict *newd = dictDefragTables(*dref);
+    if (newd) *dref = newd;
+    return DEFRAG_DONE;
+}
+
+static doneStatus defragStageHashTemplatesByFields(void *ctx, monotime endtime) {
+    if (server.htemplates == NULL) return DEFRAG_DONE;
+    return defragRegistryDict(&server.htemplates->by_fields, ctx, endtime);
+}
+
+static doneStatus defragStageHashTemplatesByFieldsLp(void *ctx, monotime endtime) {
+    if (server.htemplates == NULL) return DEFRAG_DONE;
+    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, endtime);
+}
+
+static doneStatus defragStageHashTemplatesById(void *ctx, monotime endtime) {
+    unsigned long *cursor = ctx;
+    unsigned long iterations = 0;
+    while (hashTemplateDefragByIdChunk(*cursor)) {
+        (*cursor)++;
+        if (++iterations > 64) {
+            iterations = 0;
+            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+        }
+    }
     return DEFRAG_DONE;
 }
 
@@ -1974,6 +2085,12 @@ static void beginDefragCycle(void) {
 
     addDefragStage(defragLuaScripts, NULL, NULL);
 
+    /* Add stage for the hash template registry. */
+    addDefragStage(defragStageHashTemplates, zfree, zcalloc(sizeof(unsigned long)));
+    addDefragStage(defragStageHashTemplatesByFields, zfree, zcalloc(sizeof(unsigned long)));
+    addDefragStage(defragStageHashTemplatesByFieldsLp, zfree, zcalloc(sizeof(unsigned long)));
+    addDefragStage(defragStageHashTemplatesById, zfree, zcalloc(sizeof(unsigned long)));
+
     /* Add stages for modules. */
     dictIterator di;
     dictEntry *de;
@@ -2036,6 +2153,11 @@ void activeDefragFreeRaw(void *ptr) {
 
 robj *activeDefragStringOb(robj *ob) {
     UNUSED(ob);
+    return NULL;
+}
+
+sds activeDefragSds(sds sdsptr) {
+    UNUSED(sdsptr);
     return NULL;
 }
 

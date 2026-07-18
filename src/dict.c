@@ -28,6 +28,7 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "atomicvar.h"
 #include "util.h"
 
 /* Using dictSetResizeEnabled() we make possible to disable
@@ -41,8 +42,8 @@
  *    of elements and the buckets >= dict_force_resize_ratio.
  *  - A hash table is still allowed to shrink if the ratio between the number
  *    of elements and the buckets <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
-static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
-static unsigned int dict_force_resize_ratio = 4;
+static redisAtomic dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
+static const unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -406,11 +407,13 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
          (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
@@ -474,11 +477,13 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
     if (d->pauserehash != 0) return 0;
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
          (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
@@ -1655,9 +1660,11 @@ int dictExpandIfNeeded(dict *d) {
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
-    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
-        (dict_can_resize != DICT_RESIZE_FORBID &&
+        (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0] + 1))
@@ -1688,9 +1695,11 @@ int dictShrinkIfNeeded(dict *d) {
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
      * we'll trigger a resize of the hash table. */
-    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] * HASHTABLE_MIN_FILL <= DICTHT_SIZE(d->ht_size_exp[0])) ||
-        (dict_can_resize != DICT_RESIZE_FORBID &&
+        (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0]))
@@ -1792,7 +1801,7 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
 }
 
 void dictSetResizeEnabled(dictResizeEnable enable) {
-    dict_can_resize = enable;
+    atomicSet(dict_can_resize, enable);
 }
 
 /* Compiler inlines this for internal calls within dict.c (verified with -O3). */

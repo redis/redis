@@ -2088,30 +2088,20 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if ((hi->encoding == OBJ_ENCODING_LISTPACK) || (hi->encoding == OBJ_ENCODING_LISTPACK_EX)) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    size_t vlen = 0;
+    long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll, NULL);
-        if (vstr)
-            return rioWriteBulkString(r, (char*)vstr, vlen);
-        else
-            return rioWriteBulkLongLong(r, vll);
-    } else if (hi->encoding == OBJ_ENCODING_HT) {
-        char *str;
-        size_t len;
-        hashTypeCurrentFromHashTable(hi, what, &str, &len, NULL);
-        return rioWriteBulkString(r, str, len);
-    }
-
-    serverPanic("Unknown hash encoding");
-    return 0;
+    hashTypeCurrentObject(hi, what, &vstr, &vlen, &vll, NULL);
+    if (vstr)
+        return rioWriteBulkString(r, (char*)vstr, vlen);
+    else
+        return rioWriteBulkLongLong(r, vll);
 }
 
 /* Emit the commands needed to rebuild a hash object.
  * The function returns 0 on error, 1 on success. */
-int rewriteHashObject(rio *r, robj *key, robj *o) {
+int rewriteHashObject(rio *r, robj *key, robj *o, int dbid) {
     int res = 0; /*fail*/
 
     hashTypeIterator hi;
@@ -2120,7 +2110,22 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     int isHFE = hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
     hashTypeInitIterator(&hi, o);
 
-    if (!isHFE) {
+    int isTmpl = (o->encoding == OBJ_ENCODING_TMPL_LP ||
+                  o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+
+    if (isTmpl) {
+        /* Emit a self-contained RESTORE so replay reconstructs the hash without
+         * needing the template registry. */
+        sds pl = createRawDumpPayload(o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+        int ok = rioWriteBulkCount(r, '*', 5) &&
+                 rioWriteBulkString(r, "RESTORE", 7) &&
+                 rioWriteBulkObject(r, key) &&
+                 rioWriteBulkString(r, "0", 1) &&
+                 rioWriteBulkString(r, pl, sdslen(pl)) &&
+                 rioWriteBulkString(r, "REPLACE", 7);
+        sdsfree(pl);
+        if (!ok) goto reHashEnd;
+    } else if (!isHFE) {
         while (hashTypeNext(&hi, 0) != C_ERR) {
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
@@ -2650,7 +2655,7 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
     } else if (o->type == OBJ_ZSET) {
         if (rewriteSortedSetObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_HASH) {
-        if (rewriteHashObject(r,key,o) == 0) return C_ERR;
+        if (rewriteHashObject(r,key,o,dbid) == 0) return C_ERR;
     } else if (o->type == OBJ_STREAM) {
         if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
 #ifdef ENABLE_GCRA

@@ -184,6 +184,8 @@ char *receiveSynchronousResponse(connection *conn);
 ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
+/* cluster.c */
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);
@@ -2251,8 +2253,13 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
      * use RESTORE command (RDB format) to migrate data.
      * Generally RDB binary format is more efficient, but it may cause
      * block in the destination if the object is too large, so fall back
-     * to AOF format if necessary. */
-    if ((o->type == OBJ_MODULE) ||
+     * to AOF format if necessary. Templated hashes always use RESTORE
+     * regardless of size: the DUMP payload is self-contained (full
+     * RDB_TYPE_HASH_TMPL_LP/ARRAY with fields inlined). */
+    int isTmplHash = (o->type == OBJ_HASH &&
+                      (o->encoding == OBJ_ENCODING_TMPL_LP ||
+                       o->encoding == OBJ_ENCODING_TMPL_ARRAY));
+    if ((o->type == OBJ_MODULE) || isTmplHash ||
         (o->type != OBJ_STRING && getObjectLength(o) <= ASM_AOF_MIN_ITEMS_PER_KEY))
     {
         if (rioWriteBulkCount(rdb, '*', 5) == 0) return C_ERR;
@@ -2262,7 +2269,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Create the DUMP encoded representation. */
         rio payload;
-        createDumpPayload(&payload, o, &key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM);
+        createDumpPayload(&payload, o, &key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM, 0);
         sds buf = payload.io.buffer.ptr;
         if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
             sdsfree(payload.io.buffer.ptr);

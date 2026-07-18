@@ -803,6 +803,19 @@ void dismissHashObject(robj *o, size_t size_hint) {
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = o->ptr;
         dismissMemory(lpt->lp, lpBytes((unsigned char*)lpt->lp));
+    } else if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+        dismissMemory(lp, lpBytes(lp));
+    } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashTemplateArray *hta = o->ptr;
+        unsigned long long n = hta->field_count;
+        /* We iterate all values only when average value size is bigger than
+         * a page size, mirroring the heuristic used for OBJ_ENCODING_HT. */
+        if (n > 0 && size_hint / n >= server.page_size) {
+            for (unsigned long long i = 0; i < n; i++)
+                dismissSds(hta->values[i]);
+        }
+        dismissMemory(hta, sizeof(*hta) + n * sizeof(sds));
     } else {
         serverPanic("Unknown hash encoding type");
     }
@@ -1299,6 +1312,8 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
+	case OBJ_ENCODING_TMPL_LP: return "template-listpack";
+	case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
     default: return "unknown";
     }
 }
@@ -1490,6 +1505,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->script_vm = evalScriptsMemoryVM();
     mh->script_vm += functionsMemoryVM();
     mem_total+=mh->script_vm;
+
+    mh->hash_templates = hashTemplatesMemUsage();
+    mem_total+=mh->hash_templates;
 
     /* Cluster atomic slot migration buffers. */
     mh->asm_import_input_buffer = asmGetImportInputBufferSize();
@@ -1742,7 +1760,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
-        addReplyBulkCString(c,strEncoding(kv->encoding));
+        addReplyBulkCString(c, strEncoding(kv->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
@@ -1814,11 +1832,19 @@ NULL
             return;
         }
         size_t usage = kvobjComputeSize(c->argv[2], kv, samples, c->db->id);
+
+        /* Add this key's share of the hash-template cost (see the comment of
+         * hashTemplatePerKeyMemoryShare()). */
+        if (kv->type == OBJ_HASH &&
+            (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+             kv->encoding == OBJ_ENCODING_TMPL_ARRAY))
+            usage += hashTemplatePerKeyMemoryShare(kv);
+
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,35+mh->num_dbs);
+        addReplyMapLen(c,36+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1861,6 +1887,9 @@ NULL
 
         addReplyBulkCString(c,"script.VMs");
         addReplyLongLong(c,mh->script_vm);
+
+        addReplyBulkCString(c,"hash.templates");
+        addReplyLongLong(c,mh->hash_templates);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];

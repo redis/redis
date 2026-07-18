@@ -762,6 +762,9 @@ test {diskless loading short read} {
                 redis.register_function('test', function() return 'hello1' end)
             }
 
+            r himport prepare fieldset1 f0 f1 f2 f3 f4 f5 f6 f7 f8 f9
+            r himport prepare fieldset2 g0 g1 g2 g3 g4 g5 g6 g7 g8 [string repeat z 250]
+
             set has_vector_sets [server_has_command vadd]
 
             for {set k 0} {$k < 3} {incr k} {
@@ -790,6 +793,17 @@ test {diskless loading short read} {
                     r xgroup create "$k stream" "mygroup_$i" 0
                     r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
                 }
+
+                set tmpl_small_vals {}
+                set tmpl_large_vals {}
+                for {set i 0} {$i < 10} {incr i} {
+                    lappend tmpl_small_vals [string repeat A [expr {int(rand()*10)}]]
+                    lappend tmpl_large_vals [string repeat A [expr {int(rand()*100000)}]]
+                }
+                r himport set "$k tmpl_small" fieldset1 {*}$tmpl_small_vals
+                r himport set "$k tmpl_large" fieldset1 {*}$tmpl_large_vals
+                r himport set "$k tmpl_long_field_small" fieldset2 {*}$tmpl_small_vals
+                r himport set "$k tmpl_long_field_large" fieldset2 {*}$tmpl_large_vals
             }
 
             if {$::verbose} {

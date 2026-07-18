@@ -92,7 +92,7 @@ long long stat_prev_total_client_process_input_buff_events = 0;
 /*============================ Internal prototypes ========================== */
 
 static inline int isShutdownInitiated(void);
-static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg);
+static inline int isCommandReusable(struct redisCommand *cmd, robj **argv, int argc);
 int isReadyToShutdown(void);
 int finishShutdown(void);
 const char *replstateToString(int replstate);
@@ -104,11 +104,16 @@ const char *replstateToString(int replstate);
  * - It is not NULL.
  * - It does not have subcommands (subcommands_dict == NULL).
  *   This preserves simplicity on the check and accounts for the majority of the use cases.
- * - Its full name matches the provided command argument. */
-static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) {
-    return cmd != NULL &&
-           cmd->subcommands_dict == NULL &&
-           strcasecmp(cmd->fullname, commandArg->ptr) == 0;
+ * - For top-level commands, its full name matches argv[0].
+ * - For subcommands, argv[0] matches the parent's full name and argv[1] matches
+ *   the subcommand's declared name. */
+static inline int isCommandReusable(struct redisCommand *cmd, robj **argv, int argc) {
+    if (cmd == NULL || cmd->subcommands_dict != NULL) return 0;
+    if (cmd->parent == NULL)
+        return strcasecmp(cmd->fullname, argv[0]->ptr) == 0;
+    return argc >= 2 &&
+           strcasecmp(cmd->parent->fullname, argv[0]->ptr) == 0 &&
+           strcasecmp(cmd->declared_name, argv[1]->ptr) == 0;
 }
 
 /* This macro tells if we are in the context of loading an AOF. */
@@ -1797,6 +1802,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         pendingCommandPoolCron();
     }
 
+    /* Template registry maintenance. */
+    hashTemplatesCron();
+
     /* Resize tracking keys table if needed. This is also done at every
      * command execution, but we want to be sure that if the last command
      * executed changes the value via CONFIG SET, the server will perform
@@ -2312,6 +2320,8 @@ void createSharedObjects(void) {
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
     shared.hsetex = createStringObject("HSETEX",6);
+    shared.restore = createStringObject("RESTORE",7);
+    shared.replace = createStringObject("REPLACE",7);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);
@@ -3043,6 +3053,7 @@ void initServer(void) {
         exit(1);
     }
 
+    hashTemplatesInit();
     createSharedObjects();
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
@@ -3676,7 +3687,7 @@ int mustObeyClient(client *c) {
     return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
 }
 
-static int shouldPropagate(int target) {
+int shouldPropagate(int target) {
     if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
         return 0;
 
@@ -4377,7 +4388,7 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
      * The previous command is either the penultimate pending command (if it exists), or c->lastcmd. */
     struct redisCommand *last_cmd = pcmd->prev ? pcmd->prev->cmd : c->lastcmd;
 
-    if (isCommandReusable(last_cmd, pcmd->argv[0]))
+    if (isCommandReusable(last_cmd, pcmd->argv, pcmd->argc))
         pcmd->cmd = last_cmd;
     else
         pcmd->cmd = lookupCommand(pcmd->argv, pcmd->argc);
@@ -4458,7 +4469,7 @@ int processCommand(client *c) {
         /* The command may have been modified by modules (e.g., in CommandFilters callbacks),
          * so we need to look it up again. */
         if (!cmd) {
-            if (isCommandReusable(c->lastcmd, c->argv[0]))
+            if (isCommandReusable(c->lastcmd, c->argv, c->argc))
                 cmd = c->lastcmd;
             else
                 cmd = lookupCommand(c->argv, c->argc);
@@ -6513,6 +6524,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_vm_total:%lld\r\n", memory_functions + memory_lua,
             "used_memory_vm_total_human:%s\r\n", used_memory_vm_total_hmem,
             "used_memory_functions:%lld\r\n", (long long)mh->functions_caches,
+            "used_memory_hash_templates:%zu\r\n", mh->hash_templates,
             "used_memory_scripts:%lld\r\n", (long long)mh->eval_caches + (long long)mh->functions_caches,
             "used_memory_scripts_human:%s\r\n", used_memory_scripts_hmem,
             "maxmemory:%lld\r\n", server.maxmemory,
@@ -6773,7 +6785,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "avg_pipeline_length:%.2f\r\n", stat_avg_pipeline_length_cnt ? (double)stat_avg_pipeline_length_sum / stat_avg_pipeline_length_cnt : 0,
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
-            "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000));
+            "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
+            "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
+            "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);

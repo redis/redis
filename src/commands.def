@@ -4238,6 +4238,126 @@ struct COMMAND_ARG HGETEX_Args[] = {
 {MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HGETEX_fields_Subargs},
 };
 
+/********** HIMPORT DISCARD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT DISCARD history */
+#define HIMPORT_DISCARD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT DISCARD tips */
+const char *HIMPORT_DISCARD_Tips[] = {
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT DISCARD key specs */
+#define HIMPORT_DISCARD_Keyspecs NULL
+#endif
+
+/* HIMPORT DISCARD argument table */
+struct COMMAND_ARG HIMPORT_DISCARD_Args[] = {
+{MAKE_ARG("fieldset-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** HIMPORT DISCARDALL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT DISCARDALL history */
+#define HIMPORT_DISCARDALL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT DISCARDALL tips */
+const char *HIMPORT_DISCARDALL_Tips[] = {
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT DISCARDALL key specs */
+#define HIMPORT_DISCARDALL_Keyspecs NULL
+#endif
+
+/********** HIMPORT PREPARE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT PREPARE history */
+#define HIMPORT_PREPARE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT PREPARE tips */
+const char *HIMPORT_PREPARE_Tips[] = {
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT PREPARE key specs */
+#define HIMPORT_PREPARE_Keyspecs NULL
+#endif
+
+/* HIMPORT PREPARE argument table */
+struct COMMAND_ARG HIMPORT_PREPARE_Args[] = {
+{MAKE_ARG("fieldset-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** HIMPORT SET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT SET history */
+#define HIMPORT_SET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT SET tips */
+#define HIMPORT_SET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT SET key specs */
+keySpec HIMPORT_SET_Keyspecs[1] = {
+{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HIMPORT SET argument table */
+struct COMMAND_ARG HIMPORT_SET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fieldset-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HIMPORT command table */
+struct COMMAND_STRUCT HIMPORT_Subcommands[] = {
+{MAKE_CMD("discard","Removes a single session-local fieldset by name.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARD_History,0,HIMPORT_DISCARD_Tips,1,himportDiscardCommand,3,0,ACL_CATEGORY_HASH,HIMPORT_DISCARD_Keyspecs,0,NULL,1),.args=HIMPORT_DISCARD_Args},
+{MAKE_CMD("discardall","Removes all session-local fieldsets for the connection.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARDALL_History,0,HIMPORT_DISCARDALL_Tips,1,himportDiscardallCommand,2,0,ACL_CATEGORY_HASH,HIMPORT_DISCARDALL_Keyspecs,0,NULL,0)},
+{MAKE_CMD("prepare","Defines a session-local fieldset that maps a name to a sorted set of field names.","O(N*log(N)) where N is the number of fields.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_PREPARE_History,0,HIMPORT_PREPARE_Tips,1,himportPrepareCommand,-4,CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_PREPARE_Keyspecs,0,NULL,2),.args=HIMPORT_PREPARE_Args},
+{MAKE_CMD("set","Creates a fieldset-based hash from values supplied in the order matching a previously prepared fieldset.","O(N) where N is the number of fields in the fieldset.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_SET_History,0,HIMPORT_SET_Tips,0,himportSetCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_SET_Keyspecs,1,NULL,3),.args=HIMPORT_SET_Args},
+{0}
+};
+
+/********** HIMPORT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT history */
+#define HIMPORT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT tips */
+#define HIMPORT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT key specs */
+#define HIMPORT_Keyspecs NULL
+#endif
+
 /********** HINCRBY ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -12620,6 +12740,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hgetall","Returns all fields and values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETALL_History,0,HGETALL_Tips,1,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HGETALL_Keyspecs,1,NULL,1),.args=HGETALL_Args},
 {MAKE_CMD("hgetdel","Returns the value of a field and deletes it from the hash.","O(N) where N is the number of specified fields","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETDEL_History,0,HGETDEL_Tips,0,hgetdelCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HGETDEL_Keyspecs,1,NULL,2),.args=HGETDEL_Args},
 {MAKE_CMD("hgetex","Get the value of one or more fields of a given hash key, and optionally set their expiration.","O(N) where N is the number of specified fields","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETEX_History,0,HGETEX_Tips,0,hgetexCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HGETEX_Keyspecs,1,NULL,3),.args=HGETEX_Args},
+{MAKE_CMD("himport","A container for session-based hash import commands using fieldsets.","Depends on subcommand.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_History,0,HIMPORT_Tips,0,NULL,-2,0,ACL_CATEGORY_HASH,HIMPORT_Keyspecs,0,NULL,0),.subcommands=HIMPORT_Subcommands},
 {MAKE_CMD("hincrby","Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBY_History,0,HINCRBY_Tips,0,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBY_Keyspecs,1,NULL,3),.args=HINCRBY_Args},
 {MAKE_CMD("hincrbyfloat","Increments the floating point value of a field by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBYFLOAT_History,0,HINCRBYFLOAT_Tips,0,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBYFLOAT_Keyspecs,1,NULL,3),.args=HINCRBYFLOAT_Args},
 {MAKE_CMD("hkeys","Returns all fields in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HKEYS_History,0,HKEYS_Tips,1,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HKEYS_Keyspecs,1,NULL,1),.args=HKEYS_Args},
