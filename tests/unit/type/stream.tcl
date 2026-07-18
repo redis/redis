@@ -1077,11 +1077,11 @@ start_server {
 
         $db0 XADD mystream IDMP p1 "init" * field "init"
         $db0 XCFGSET mystream IDMP-DURATION 2
-        set id0 [$db0 XADD mystream IDMP p1 "req-1" * field "v1"]
+        $db0 XADD mystream IDMP p1 "req-1" * field "v1"
 
         $db1 XADD mystream IDMP p2 "init" * field "init"
         $db1 XCFGSET mystream IDMP-DURATION 2
-        set id1 [$db1 XADD mystream IDMP p2 "req-1" * field "v1"]
+        $db1 XADD mystream IDMP p2 "req-1" * field "v1"
 
         assert_equal 1 [dict get [$db0 XINFO STREAM mystream] pids-tracked]
         assert_equal 1 [dict get [$db1 XINFO STREAM mystream] pids-tracked]
@@ -1094,13 +1094,15 @@ start_server {
         $db1 XCFGSET mystream IDMP-DURATION 2
 
         set len0_before [$db0 XLEN mystream]
-        set id0_new [$db0 XADD mystream IDMP p1 "req-1" * field "v2"]
-        assert_equal [expr {$len0_before + 1}] [$db0 XLEN mystream] \
+        $db0 XADD mystream IDMP p1 "req-1" * field "v2"
+        set len0_after [$db0 XLEN mystream]
+        assert_equal [expr {$len0_before + 1}] $len0_after \
             "DB0: XADD after FLUSHALL should create a new entry, not deduplicate"
 
         set len1_before [$db1 XLEN mystream]
-        set id1_new [$db1 XADD mystream IDMP p2 "req-1" * field "v2"]
-        assert_equal [expr {$len1_before + 1}] [$db1 XLEN mystream] \
+        $db1 XADD mystream IDMP p2 "req-1" * field "v2"
+        set len1_after [$db1 XLEN mystream]
+        assert_equal [expr {$len1_before + 1}] $len1_after \
             "DB1: XADD after FLUSHALL should create a new entry, not deduplicate"
 
         wait_for_condition 50 100 {
@@ -1116,7 +1118,7 @@ start_server {
 
         $db0 close
         $db1 close
-        assert {$id0 ne $id0_new}
+        assert_equal {2 2} [list $len0_after $len1_after]
     } {} {singledb:skip}
 
     test {XADD IDMP tracking survives RENAME} {
