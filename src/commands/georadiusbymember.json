@@ -45,9 +45,11 @@
                 }
             },
             {
+                "notes": "Incomplete because duplicate STORE options use last-wins; fall back to georadiusGetKeys",
                 "flags": [
                     "OW",
-                    "UPDATE"
+                    "UPDATE",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "keyword": {
@@ -64,9 +66,11 @@
                 }
             },
             {
+                "notes": "Incomplete because duplicate STOREDIST options use last-wins; fall back to georadiusGetKeys",
                 "flags": [
                     "OW",
-                    "UPDATE"
+                    "UPDATE",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "keyword": {
