@@ -323,6 +323,9 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
+    /* HIMPORT fieldsets are scoped to a single script invocation. */
+    himportFieldsetsFree(run_ctx->c);
+
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
         /* Restore the client that was protected when the script timeout

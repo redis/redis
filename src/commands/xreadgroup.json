@@ -26,9 +26,11 @@
         ],
         "key_specs": [
             {
+                "notes": "Incomplete because a consumer/group named STREAMS (or options before GROUP) can shift the STREAMS keyword; fall back to xreadGetKeys",
                 "flags": [
                     "RO",
-                    "ACCESS"
+                    "ACCESS",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "keyword": {

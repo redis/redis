@@ -655,6 +655,8 @@ NULL
             }
         }
 
+        backupSetFailed("debug reload executed");
+
         /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
@@ -682,6 +684,7 @@ NULL
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        backupSetFailed("debug loadaof executed");
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
@@ -713,7 +716,9 @@ NULL
             return;
         }
 
-        strenc = strEncoding(kv->encoding);
+        strenc = kv->type == OBJ_BITMAP ?
+                     "bitmap-roaring" :
+                     strEncoding(kv->encoding);
 
         char extra[138] = {0};
         if (kv->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -763,7 +768,7 @@ NULL
         }
 
         rio payload;
-        createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META);
+        createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META, 0);
         addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         robj *val;

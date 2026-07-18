@@ -120,7 +120,6 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
         sendPendingClientsToMainThreadIfNeeded(t, 1);
         /* Disable read and write to avoid race when main thread processes. */
         c->io_flags &= ~(CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED);
-        connSetWriteHandler(c->conn, NULL);
         /* Remove the client from IO thread, add it to main thread's pending list. */
         listUnlinkNode(t->clients, c->io_thread_client_list_node);
         listLinkNodeTail(t->pending_clients_to_main_thread, c->io_thread_client_list_node);
@@ -772,6 +771,13 @@ int processClientsFromMainThread(IOThread *t) {
             if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && clientHasPendingReplies(c)) {
                 connSetWriteHandler(c->conn, sendReplyToClient);
             }
+        }
+        /* If everything has been flushed, drop any stale write handler so the IO
+         * thread event loop doesn't keep firing writable (EPOLLOUT) on an idle
+         * client. */
+        if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && !clientHasPendingReplies(c)) {
+            serverAssert(connHasEventLoop(c->conn));
+            connSetWriteHandler(c->conn, NULL);
         }
     }
     /* All clients must are processed. */

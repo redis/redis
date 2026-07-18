@@ -879,6 +879,16 @@ int sdscmp(const sds s1, const sds s2) {
     return cmp;
 }
 
+/* Compare two sds strings by length first, then content.
+ * Faster than sdscmp when strings often have different lengths.
+ * Returns: negative if s1 < s2, positive if s1 > s2, 0 if equal. */
+int sdscmplen(const sds s1, const sds s2) {
+    size_t l1 = sdslen(s1);
+    size_t l2 = sdslen(s2);
+    if (l1 != l2) return (l1 > l2) ? 1 : -1;
+    return memcmp(s1, s2, l1);
+}
+
 /* Split 's' with separator in 'sep'. An array
  * of sds strings is returned. *count will be set
  * by reference to the number of tokens returned.

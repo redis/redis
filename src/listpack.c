@@ -116,6 +116,9 @@
     assert((p) >= (lp)+LP_HDR_SIZE && (p)+(len) < (lp)+lpGetTotalBytes((lp))); \
 } while (0)
 
+/* Batch writers keep up to this many entries on the stack, else the heap. */
+#define LP_BATCH_STACK_ENTRIES 64
+
 static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p);
 
 /* Don't let listpacks grow over 1GB in any case, don't wanna risk overflow in
@@ -1175,6 +1178,72 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     return lp;
 }
 
+struct listpackInsertEntry {
+    int enctype;
+    uint64_t enclen;
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+    unsigned char backlen[LP_MAX_BACKLEN_SIZE];
+    unsigned long backlen_size;
+};
+
+/* Encode 'len' entries into 'enc' and return the total encoded bytes. */
+static uint64_t lpEncodeEntries(listpackEntry *entries, unsigned int len,
+                                struct listpackInsertEntry *enc)
+{
+    uint64_t addedlen = 0;
+    for (unsigned int i = 0; i < len; i++) {
+        listpackEntry *e = &entries[i];
+        if (e->sval) {
+           /* Calling lpEncodeGetType() results into the encoded version of the
+            * element to be stored into 'intenc' in case it is representable as
+            * an integer: in that case, the function returns LP_ENCODING_INT.
+            * Otherwise, if LP_ENCODING_STR is returned, we'll have to call
+            * lpEncodeString() to actually write the encoded string on place
+            * later.
+            *
+            * Whatever the returned encoding is, 'enclen' is populated with the
+            * length of the encoded element. */
+            enc[i].enctype = lpEncodeGetType(e->sval, e->slen,
+                                             enc[i].intenc, &enc[i].enclen);
+        } else {
+            enc[i].enctype = LP_ENCODING_INT;
+            lpEncodeIntegerGetType(e->lval, enc[i].intenc, &enc[i].enclen);
+        }
+        addedlen += enc[i].enclen;
+
+        /* We need to also encode the backward-parsable length of the element
+         * and append it to the end: this allows to traverse the listpack from
+         * the end to the start. */
+        enc[i].backlen_size = lpEncodeBacklen(enc[i].backlen, enc[i].enclen);
+        addedlen += enc[i].backlen_size;
+    }
+    return addedlen;
+}
+
+/* Write 'len' pre-encoded entries at 'dst' and return the pointer just past the
+ * last one. If 'newp' is not NULL it is left pointing at the last entry written. */
+static unsigned char *lpWriteEntries(unsigned char *dst, listpackEntry *entries,
+                                     struct listpackInsertEntry *enc,
+                                     unsigned int len, unsigned char **newp)
+{
+    for (unsigned int i = 0; i < len; i++) {
+        listpackEntry *ent = &entries[i];
+
+        if (newp)
+            *newp = dst;
+
+        if (enc[i].enctype == LP_ENCODING_INT)
+            memcpy(dst, enc[i].intenc, enc[i].enclen);
+        else
+            lpEncodeString(dst, ent->sval, ent->slen);
+
+        dst += enc[i].enclen;
+        memcpy(dst, enc[i].backlen, enc[i].backlen_size);
+        dst += enc[i].backlen_size;
+    }
+    return dst;
+}
+
 /* Insert the specified elements with 'entries' and 'len' at the specified
  * position 'p', with 'p' being a listpack element pointer obtained with
  * lpFirst(), lpLast(), lpNext(), lpPrev() or lpSeek().
@@ -1205,16 +1274,8 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
     assert(where == LP_BEFORE || where == LP_AFTER);
     assert(entries != NULL && len > 0);
 
-    struct listpackInsertEntry {
-        int enctype;
-        uint64_t enclen;
-        unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
-        unsigned char backlen[LP_MAX_BACKLEN_SIZE];
-        unsigned long backlen_size;
-    };
-
     uint64_t addedlen = 0;       /* The encoded length of the added elements. */
-    struct listpackInsertEntry tmp[3];  /* Encoded entries */
+    struct listpackInsertEntry tmp[LP_BATCH_STACK_ENTRIES];  /* Encoded entries */
     struct listpackInsertEntry *enc = tmp;
 
     if (len > sizeof(tmp) / sizeof(struct listpackInsertEntry)) {
@@ -1232,32 +1293,7 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
         ASSERT_INTEGRITY(lp, p);
     }
 
-    for (unsigned int i = 0; i < len; i++) {
-        listpackEntry *e = &entries[i];
-        if (e->sval) {
-           /* Calling lpEncodeGetType() results into the encoded version of the
-            * element to be stored into 'intenc' in case it is representable as
-            * an integer: in that case, the function returns LP_ENCODING_INT.
-            * Otherwise, if LP_ENCODING_STR is returned, we'll have to call
-            * lpEncodeString() to actually write the encoded string on place
-            * later.
-            *
-            * Whatever the returned encoding is, 'enclen' is populated with the
-            * length of the encoded element. */
-            enc[i].enctype = lpEncodeGetType(e->sval, e->slen,
-                                             enc[i].intenc, &enc[i].enclen);
-        } else {
-            enc[i].enctype = LP_ENCODING_INT;
-            lpEncodeIntegerGetType(e->lval, enc[i].intenc, &enc[i].enclen);
-        }
-        addedlen += enc[i].enclen;
-
-        /* We need to also encode the backward-parsable length of the element
-         * and append it to the end: this allows to traverse the listpack from
-         * the end to the start. */
-        enc[i].backlen_size = lpEncodeBacklen(enc[i].backlen, enc[i].enclen);
-        addedlen += enc[i].backlen_size;
-    }
+    addedlen = lpEncodeEntries(entries, len, enc);
 
     uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
     uint64_t new_listpack_bytes = old_listpack_bytes + addedlen;
@@ -1285,21 +1321,7 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
      * we need to store the new ones. */
     memmove(dst+addedlen,dst,old_listpack_bytes-poff);
 
-    for (unsigned int i = 0; i < len; i++) {
-        listpackEntry *ent = &entries[i];
-
-        if (newp)
-            *newp = dst;
-
-        if (enc[i].enctype == LP_ENCODING_INT)
-            memcpy(dst, enc[i].intenc, enc[i].enclen);
-        else
-            lpEncodeString(dst, ent->sval, ent->slen);
-
-        dst += enc[i].enclen;
-        memcpy(dst, enc[i].backlen, enc[i].backlen_size);
-        dst += enc[i].backlen_size;
-    }
+    lpWriteEntries(dst, entries, enc, len, newp);
 
     /* Update header. */
     uint32_t num_elements = lpGetNumElements(lp);
@@ -1310,6 +1332,33 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
             lpSetNumElements(lp,num_elements + len);
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
+    if (enc != tmp) lp_free(enc);
+
+    return lp;
+}
+
+/* Create a new listpack from entries. Returns NULL if it would exceed 2^32-1 bytes. */
+unsigned char *lpNewWithEntries(listpackEntry *entries, unsigned int len) {
+    assert(entries != NULL && len > 0);
+
+    struct listpackInsertEntry tmp[LP_BATCH_STACK_ENTRIES];
+    struct listpackInsertEntry *enc = tmp;
+    if (len > sizeof(tmp) / sizeof(struct listpackInsertEntry))
+        enc = zmalloc(len * sizeof(struct listpackInsertEntry));
+
+    uint64_t entries_len = lpEncodeEntries(entries, len, enc);
+    uint64_t listpack_bytes = LP_HDR_SIZE + entries_len + 1; /* +1 for EOF */
+    if (listpack_bytes > UINT32_MAX) {
+        if (enc != tmp) lp_free(enc);
+        return NULL;
+    }
+    unsigned char *lp = lp_malloc(listpack_bytes);
+    unsigned char *tail = lpWriteEntries(lp + LP_HDR_SIZE, entries, enc, len, NULL);
+    *tail = LP_EOF;
+
+    uint32_t num_elements = (len >= LP_HDR_NUMELE_UNKNOWN) ? LP_HDR_NUMELE_UNKNOWN : len;
+    lpSetNumElements(lp, num_elements);
+    lpSetTotalBytes(lp, listpack_bytes);
     if (enc != tmp) lp_free(enc);
 
     return lp;
@@ -2605,6 +2654,95 @@ int listpackTest(int argc, char *argv[], int flags) {
         verifyEntry(lpSeek(lp, 1), ent[1].sval, ent[1].slen);
         verifyEntry(lpSeek(lp, 2), ent[2].sval, ent[2].slen);
 
+        lpFree(lp);
+    }
+
+    TEST("Build a new listpack from entries") {
+        listpackEntry ent[6] = {
+                {.sval = (unsigned char*)mixlist[0], .slen = strlen(mixlist[0])},
+                {.sval = (unsigned char*)mixlist[1], .slen = strlen(mixlist[1])},
+                {.sval = (unsigned char*)mixlist[2], .slen = strlen(mixlist[2])},
+                {.lval = 4294967296},
+                {.sval = (unsigned char*)mixlist[3], .slen = strlen(mixlist[3])},
+                {.lval = -100}
+        };
+
+        lp = lpNewWithEntries(ent, 6);
+        assert(lp != NULL);
+        assert(lpLength(lp) == 6);
+        verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
+        verifyEntry(lpSeek(lp, 1), ent[1].sval, ent[1].slen);
+        verifyEntry(lpSeek(lp, 2), ent[2].sval, ent[2].slen);
+        verifyEntry(lpSeek(lp, 3), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp, 4), ent[4].sval, ent[4].slen);
+        verifyEntry(lpSeek(lp, 5), (unsigned char*)"-100", 4);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+
+        /* The freshly built listpack must keep working under insert/delete. */
+        listpackEntry more[2] = {{.lval = 7}, {.sval = (unsigned char*)"tail", .slen = 4}};
+        lp = lpBatchAppend(lp, more, 2);
+        assert(lpLength(lp) == 8);
+        verifyEntry(lpSeek(lp, 6), (unsigned char*)"7", 1);
+        verifyEntry(lpSeek(lp, 7), (unsigned char*)"tail", 4);
+        lp = lpDeleteRange(lp, 0, 3);
+        assert(lpLength(lp) == 5);
+        verifyEntry(lpSeek(lp, 0), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp, 4), (unsigned char*)"tail", 4);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+
+        /* Single-entry new listpack. */
+        lp = lpNewWithEntries(ent, 1);
+        assert(lp != NULL);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+    }
+
+    TEST("lpNewWithEntries stack/heap buffer boundary") {
+        /* Keeps up to LP_BATCH_STACK_ENTRIES entries on the stack, then switches
+         * to the heap. Walk both sides. */
+        listpackEntry ent[LP_BATCH_STACK_ENTRIES + 2];
+
+        for (int n = LP_BATCH_STACK_ENTRIES - 1; n <= LP_BATCH_STACK_ENTRIES + 2; n++) {
+            for (int j = 0; j < n; j++) {
+                ent[j].sval = NULL;
+                ent[j].lval = j;
+            }
+            lp = lpNewWithEntries(ent, n);
+            assert(lp != NULL);
+            assert((int)lpLength(lp) == n);
+            for (int j = 0; j < n; j++) {
+                char buf[LP_INTBUF_SIZE];
+                int blen = snprintf(buf, sizeof(buf), "%d", j);
+                verifyEntry(lpSeek(lp, j), (unsigned char*)buf, blen);
+            }
+            assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+            lpFree(lp);
+        }
+    }
+
+    TEST("lpBatchInsert past the stack buffer (heap path)") {
+        /* 'len' beyond LP_BATCH_STACK_ENTRIES makes the encoder use the heap. */
+        int heaplen = LP_BATCH_STACK_ENTRIES + 1;
+        listpackEntry ent[LP_BATCH_STACK_ENTRIES + 1];
+        for (int j = 0; j < heaplen; j++) {
+            ent[j].sval = NULL;
+            ent[j].lval = j;
+        }
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"head", 4);
+        p = lpSeek(lp, 0);
+        lp = lpBatchInsert(lp, p, LP_AFTER, ent, heaplen, NULL);
+        assert((int)lpLength(lp) == heaplen + 1);
+        verifyEntry(lpSeek(lp, 0), (unsigned char*)"head", 4);
+        for (int j = 0; j < heaplen; j++) {
+            char buf[LP_INTBUF_SIZE];
+            int blen = snprintf(buf, sizeof(buf), "%d", j);
+            verifyEntry(lpSeek(lp, j + 1), (unsigned char*)buf, blen);
+        }
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
         lpFree(lp);
     }
 
