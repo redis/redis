@@ -4811,8 +4811,19 @@ void xautoclaimCommand(client *c) {
         streamID id;
         streamDecodeID(ri.key, &id);
 
+        /* Position a single stream iterator on this entry and reuse it both to
+         * check existence and (for non-JUSTID) to emit its fields. This avoids
+         * the second seek that a follow-up streamReplyWithRange would perform
+         * for the same ID. */
+        streamIterator si;
+        streamID myid;
+        int64_t numfields;
+        streamIteratorStart(&si,s,&id,&id,0);
+        int found = streamIteratorGetID(&si,&myid,&numfields);
+
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(s,&id)) {
+        if (!found) {
+            streamIteratorStop(&si);
             /* Propagate this change (we are going to delete the NACK). */
             if (nack->consumer) {
                 robj *idstr = createObjectFromStreamID(&id);
@@ -4838,11 +4849,14 @@ void xautoclaimCommand(client *c) {
             count--; /* Count is a limit of the command response size. */
             continue;
         }
+        serverAssert(streamCompareID(&id,&myid) == 0);
 
         if (nack->consumer && minidle) {
             mstime_t this_idle = now - nack->delivery_time;
-            if (this_idle < minidle)
+            if (this_idle < minidle) {
+                streamIteratorStop(&si);
                 continue;
+            }
         }
 
         if (nack->consumer != consumer) {
@@ -4871,12 +4885,21 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            streamReplyRangeArgs rawargs = {
-                .start = &id, .end = &id, .count = 1,
-                .min_idle_time = -1, .flags = STREAM_RWR_RAWENTRIES,
-            };
-            serverAssert(streamReplyWithRange(c,o->ptr,&rawargs) == 1);
+            /* Emit the raw entry (ID + field/value pairs) straight from the
+             * iterator we already positioned, mirroring the min_idle_time==-1
+             * RAWENTRIES shape of streamReplyWithRange. */
+            addReplyArrayLen(c,2);
+            addReplyStreamID(c,&id);
+            addReplyArrayLen(c,numfields*2);
+            while (numfields--) {
+                unsigned char *field, *value;
+                int64_t field_len, value_len;
+                streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
+                addReplyBulkCBuffer(c,field,field_len);
+                addReplyBulkCBuffer(c,value,value_len);
+            }
         }
+        streamIteratorStop(&si);
         arraylen++;
         count--;
 
