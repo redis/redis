@@ -629,6 +629,8 @@ NULL
             }
         }
 
+        backupSetFailed("debug reload executed");
+
         /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
@@ -656,6 +658,7 @@ NULL
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        backupSetFailed("debug loadaof executed");
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);

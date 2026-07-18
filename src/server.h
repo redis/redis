@@ -354,6 +354,14 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
+/* Backup states (MP-AOF based backup, see backupCommand in aof.c) */
+#define BACKUP_STATE_IDLE         0 /* No backup in progress */
+#define BACKUP_STATE_PENDING      1 /* Waiting until an AOFRW can start */
+#define BACKUP_STATE_SNAPSHOTTING 2 /* Waiting for the snapshot (BASE) rewrite */
+#define BACKUP_STATE_INCREMENTING 3 /* BASE pinned, accumulating into the live INCR */
+#define BACKUP_STATE_SEALED       4 /* BASE + INCR + manifest frozen in the backup dir */
+#define BACKUP_STATE_FAILED       5 /* The last backup failed or was aborted */
+
 /* AOF return values for loadAppendOnlyFiles() and loadSingleAppendOnlyFile() */
 #define AOF_OK 0
 #define AOF_NOT_EXIST 1
@@ -2272,6 +2280,7 @@ struct redisServer {
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
+    char *preload_file;             /* [aof|rdb]:[filename] to preload on startup */
     int set_proc_title;             /* True if change proc title */
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
@@ -2325,6 +2334,18 @@ struct redisServer {
     aofManifest *aof_manifest;       /* Used to track AOFs. */
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
+
+    /* Backup (MP-AOF based, see backupCommand in aof.c) */
+    int backup_state;                /* BACKUP_STATE_* */
+    char *backup_dirname;            /* Name of the backup directory. */
+    int backup_can_remove_aof_dir;   /* 1 if stopping temp AOF may remove appendonlydir. */
+    sds backup_base_filename;        /* Basename of the BASE file hard-linked into backupdirname. */
+    sds backup_incr_filename;        /* Basename of the INCR file hard-linked into backupdirname. */
+    sds backup_manifest_filename;    /* Basename of the manifest written into backupdirname. */
+    sds backup_error;                /* Last backup failure/abort reason, or NULL. */
+    time_t backup_start_time;        /* Unix time when the current/last backup started. */
+    time_t backup_end_time;          /* Unix time when the current/last backup was sealed. */
+    time_t backup_sealed_ttl;        /* Seconds to keep SEALED backup files; 0 disables auto cleanup. */
 
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
@@ -3589,7 +3610,10 @@ void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
+int loadPreLoadAOFFile(char *file);
+int loadPreLoadManifestFile(char *file);
 int loadAppendOnlyFiles(aofManifest *am);
+void upgradeAofIfNeeded(aofManifest *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void startAppendOnlyWithRetry(void);
@@ -3598,7 +3622,11 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void killAppendOnlyChild(void);
 void aofLoadManifestFromDisk(void);
 void aofOpenIfNeededOnServerStart(void);
+void aofHandlePreloadOnServerStart(void);
 void aofManifestFree(aofManifest *am);
+void backupCron(void);
+int backupIsInProgress(void);
+void backupSetFailed(const char *err);
 int aofDelHistoryFiles(void);
 int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
@@ -4499,6 +4527,7 @@ void lastsaveCommand(client *c);
 void saveCommand(client *c);
 void bgsaveCommand(client *c);
 void bgrewriteaofCommand(client *c);
+void backupCommand(client *c);
 void shutdownCommand(client *c);
 void slowlogCommand(client *c);
 void moveCommand(client *c);

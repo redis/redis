@@ -15,6 +15,7 @@
 
 #include <signal.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/time.h>
@@ -493,8 +494,7 @@ sds getLastIncrAofName(aofManifest *am) {
     }
 
     /* Or return the last one. */
-    listNode *lastnode = listIndex(am->incr_aof_list, -1);
-    aofInfo *ai = listNodeValue(lastnode);
+    aofInfo *ai = listNodeValue(listLast(am->incr_aof_list));
     return ai->file_name;
 }
 
@@ -535,21 +535,22 @@ void markRewrittenIncrAofAsHistory(aofManifest *am) {
     am->dirty = 1;
 }
 
-/* Write the formatted manifest string to disk. */
-int writeAofManifestFile(sds buf) {
+/* Write the formatted manifest string to 'dirname'. The manifest is written to
+ * a temporary file first and then renamed into place. */
+static int writeAofManifestFileToDir(char *dirname, sds buf) {
     int ret = C_OK;
     ssize_t nwritten;
     int len;
 
     sds am_name = getAofManifestFileName();
-    sds am_filepath = makePath(server.aof_dirname, am_name);
+    sds am_filepath = makePath(dirname, am_name);
     sds tmp_am_name = getTempAofManifestFileName();
-    sds tmp_am_filepath = makePath(server.aof_dirname, tmp_am_name);
+    sds tmp_am_filepath = makePath(dirname, tmp_am_name);
 
     int fd = open(tmp_am_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     if (fd == -1) {
-        serverLog(LL_WARNING, "Can't open the AOF manifest file %s: %s",
-            tmp_am_name, strerror(errno));
+        serverLog(LL_WARNING, "Can't open the temporary manifest file %s: %s",
+            tmp_am_filepath, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
@@ -562,8 +563,8 @@ int writeAofManifestFile(sds buf) {
         if (nwritten < 0) {
             if (errno == EINTR) continue;
 
-            serverLog(LL_WARNING, "Error trying to write the temporary AOF manifest file %s: %s",
-                tmp_am_name, strerror(errno));
+            serverLog(LL_WARNING, "Error trying to write the temporary manifest file %s: %s",
+                tmp_am_filepath, strerror(errno));
 
             ret = C_ERR;
             goto cleanup;
@@ -574,8 +575,8 @@ int writeAofManifestFile(sds buf) {
     }
 
     if (redis_fsync(fd) == -1) {
-        serverLog(LL_WARNING, "Fail to fsync the temp AOF file %s: %s.",
-            tmp_am_name, strerror(errno));
+        serverLog(LL_WARNING, "Fail to fsync the temporary manifest file %s: %s.",
+            tmp_am_filepath, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
@@ -583,16 +584,16 @@ int writeAofManifestFile(sds buf) {
 
     if (rename(tmp_am_filepath, am_filepath) != 0) {
         serverLog(LL_WARNING,
-            "Error trying to rename the temporary AOF manifest file %s into %s: %s",
-            tmp_am_name, am_name, strerror(errno));
+            "Error trying to rename the temporary manifest file %s into %s: %s",
+            tmp_am_filepath, am_filepath, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
     }
 
-    /* Also sync the AOF directory as new AOF files may be added in the directory */
+    /* Also sync the directory so the manifest rename is durable. */
     if (fsyncFileDir(am_filepath) == -1) {
-        serverLog(LL_WARNING, "Fail to fsync AOF directory %s: %s.",
+        serverLog(LL_WARNING, "Fail to fsync manifest directory %s: %s.",
             am_filepath, strerror(errno));
 
         ret = C_ERR;
@@ -601,11 +602,17 @@ int writeAofManifestFile(sds buf) {
 
 cleanup:
     if (fd != -1) close(fd);
+    if (ret != C_OK) bg_unlink(tmp_am_filepath);
     sdsfree(am_name);
     sdsfree(am_filepath);
     sdsfree(tmp_am_name);
     sdsfree(tmp_am_filepath);
     return ret;
+}
+
+/* Write the formatted manifest string to the AOF directory. */
+int writeAofManifestFile(sds buf) {
+    return writeAofManifestFileToDir(server.aof_dirname, buf);
 }
 
 /* Persist the aofManifest information pointed to by am to disk. */
@@ -778,6 +785,63 @@ void aofOpenIfNeededOnServerStart(void) {
         serverLog(LL_NOTICE, "Opening AOF incr file %s on server start", aof_name);
     } else {
         serverLog(LL_NOTICE, "Creating AOF incr file %s on server start", aof_name);
+    }
+}
+
+/* Return true when preload-file is the absolute path of the manifest currently
+ * used by the configured append-only directory. */
+static int preloadFileIsCurrentAofManifest(void) {
+    if (server.preload_file == NULL ||
+        strncmp(server.preload_file, "aof:/", 5) != 0)
+    {
+        return 0;
+    }
+
+    char *preload_path = server.preload_file + 4;
+    char *extension = getFileExtension(preload_path);
+    if (extension == NULL || strcmp(extension, "manifest") != 0) {
+        return 0;
+    }
+
+    sds manifest_name = getAofManifestFileName();
+    sds current_path = makePath(server.aof_dirname, manifest_name);
+    sds current_absolute_path = getAbsolutePath(current_path);
+    int is_current = current_absolute_path != NULL &&
+                     strcmp(preload_path, current_absolute_path) == 0;
+
+    sdsfree(current_absolute_path);
+    sdsfree(current_path);
+    sdsfree(manifest_name);
+    return is_current;
+}
+
+/* Make the local AOF consistent with data loaded through preload-file.
+ * Reusing the current manifest is equivalent to a normal local AOF load. For
+ * any other preload source, start a background rewrite while a temporary INCR
+ * records new writes. */
+void aofHandlePreloadOnServerStart(void) {
+    if (server.preload_file == NULL || server.aof_state != AOF_ON) {
+        return;
+    }
+
+    /* If preload-file points to the current local manifest, the normal startup
+     * path has already opened the correct INCR and no rewrite is needed. Apply
+     * the same replication-offset update as a normal local AOF load, including
+     * clearing the persisted end offset before new commands are appended. */
+    if (preloadFileIsCurrentAofManifest()) {
+        updateReplOffsetAndResetEndOffset();
+        return;
+    }
+
+    /* The current manifest may describe a different dataset, so don't attach
+     * new writes to its active INCR while rebuilding it. Reuse the state used
+     * when AOF is enabled at runtime: write to a temporary INCR, publish it
+     * together with the new BASE after AOFRW succeeds, and retry on failure. */
+    server.aof_state = AOF_WAIT_REWRITE;
+    if (rewriteAppendOnlyFileBackground() != C_OK) {
+        serverLog(LL_WARNING,
+            "Failed to start background AOF rewrite after preload");
+        exit(1);
     }
 }
 
@@ -1029,6 +1093,8 @@ void stopAppendOnly(void) {
     killAppendOnlyChild();
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
+    /* Stopping AOF breaks the continuous INCR stream required by BACKUP. */
+    backupSetFailed("appendonly is stopped");
 }
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
@@ -1475,6 +1541,57 @@ struct client *createAOFClient(void) {
     return c;
 }
 
+int loadPreLoadAOFFile(char *file) {
+    aofManifest* preload_am = aofManifestCreate();
+    aofInfo *ai = aofInfoCreate();
+    ai->file_name = sdsnew(file);
+    ai->file_seq = 1;
+    ai->file_type = AOF_FILE_TYPE_BASE;
+    preload_am->base_aof_info = ai;
+    preload_am->curr_base_file_seq = 1;
+    preload_am->dirty = 1;
+
+    /* We change server.aof_filename temporarily to skip upgradeAofIfNeeded */
+    char *tmp_aof_filename = server.aof_filename;
+    server.aof_filename = "";
+    char *tmp_aof_dirname = server.aof_dirname;
+    server.aof_dirname = "";
+    int ret = loadAppendOnlyFiles(preload_am);
+    aofManifestFree(preload_am);
+    server.aof_filename = tmp_aof_filename;
+    server.aof_dirname = tmp_aof_dirname;
+    return ret;
+}
+
+int loadPreLoadManifestFile(char *file) {
+    aofManifest* preload_am = aofLoadManifestFromFile(file);
+
+    /* We change server.aof_filename temporarily to skip upgradeAofIfNeeded */
+    char *tmp_aof_fullfilename = server.aof_filename;
+    server.aof_filename = "";
+    char *tmp_aof_dirname = server.aof_dirname;
+    /* Load preload manifest entries relative to the preload file directory. */
+    server.aof_dirname = getFilePath(file);
+    int ret = loadAppendOnlyFiles(preload_am);
+    /* Update server.master_repl_offset if possible. */
+    if (listLength(preload_am->incr_aof_list) > 0) {
+        aofInfo *ai = listNodeValue(listLast(preload_am->incr_aof_list));
+        if (ai->end_offset != -1) {
+            server.master_repl_offset = ai->end_offset;
+        } else {
+            /* If the INCR file doesn't have an end offset, we need to calculate
+             * the replication offset by the start offset plus the file size. */
+            server.master_repl_offset = (ai->start_offset == -1 ? 0 : ai->start_offset) +
+                                        getAppendOnlyFileSize(ai->file_name, NULL);
+        }
+    }
+    aofManifestFree(preload_am);
+    sdsfree(server.aof_dirname);
+    server.aof_filename = tmp_aof_fullfilename;
+    server.aof_dirname = tmp_aof_dirname;
+    return ret;
+}
+
 static int truncateAppendOnlyFile(char *filename, off_t valid_up_to) {
     if (valid_up_to == -1) {
         serverLog(LL_WARNING,"Last valid command offset is invalid");
@@ -1778,15 +1895,7 @@ cleanup:
     return ret;
 }
 
-/* Load the AOF files according the aofManifest pointed by am. */
-int loadAppendOnlyFiles(aofManifest *am) {
-    serverAssert(am != NULL);
-    int status, ret = AOF_OK;
-    long long start;
-    off_t total_size = 0, base_size = 0;
-    sds aof_name;
-    int total_num, aof_num = 0, last_file;
-
+void upgradeAofIfNeeded(aofManifest *am) {
     /* If the 'server.aof_filename' file exists in dir, we may be starting
      * from an old redis version. We will use enter upgrade mode in three situations.
      *
@@ -1805,6 +1914,18 @@ int loadAppendOnlyFiles(aofManifest *am) {
             aofUpgradePrepare(am);
         }
     }
+}
+
+/* Load the AOF files according the aofManifest pointed by am. */
+int loadAppendOnlyFiles(aofManifest *am) {
+    serverAssert(am != NULL);
+    int status, ret = AOF_OK;
+    long long start;
+    off_t total_size = 0, base_size = 0;
+    sds aof_name;
+    int total_num, aof_num = 0, last_file;
+
+    upgradeAofIfNeeded(am);
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
         return AOF_NOT_EXIST;
@@ -2873,6 +2994,11 @@ int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
+    if (server.backup_state == BACKUP_STATE_SNAPSHOTTING ||
+        server.backup_state == BACKUP_STATE_INCREMENTING)
+    {
+        return C_ERR;
+    }
 
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
         serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
@@ -2940,7 +3066,11 @@ int rewriteAppendOnlyFileBackground(void) {
 }
 
 void bgrewriteaofCommand(client *c) {
-    if (server.child_type == CHILD_TYPE_AOF) {
+    if (backupIsInProgress()) {
+        server.aof_rewrite_scheduled = 1;
+        server.stat_aofrw_consecutive_failures = 0;
+        addReplyStatus(c,"Background append only file rewriting scheduled");
+    } else if (server.child_type == CHILD_TYPE_AOF) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess() || server.in_exec) {
         server.aof_rewrite_scheduled = 1;
@@ -3024,9 +3154,493 @@ int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am) {
     return num;
 }
 
+/* ----------------------------------------------------------------------------
+ * BACKUP command implementation.
+ *
+ * BACKUP produces a consistent, self-contained copy of the dataset by reusing
+ * the Multi-Part AOF machinery. A backup is made of one BASE file (a fresh
+ * snapshot), one INCR file (the writes accumulated while the backup is open)
+ * and a generated manifest in the directory named by the 'backupdirname' config.
+ * BASE and INCR are hard-linked to pin the underlying inodes so the files
+ * survive AOF rewrites and history GC even after they leave the live
+ * appendonlydir.
+ *
+ * Lifecycle:
+ * IDLE -> PENDING -> SNAPSHOTTING -> INCREMENTING -> SEALED.
+ * Failures and ABORT move to FAILED; CLEANUP accepts SEALED/FAILED/IDLE.
+ * -------------------------------------------------------------------------- */
+
+/* Background-unlink all files in a Redis-owned flat directory.
+ * This is not a recursive directory remover. */
+static void removeFilesInDir(char *dirname) {
+    DIR *d = opendir(dirname);
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL) {
+            if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+            sds p = makePath(dirname, de->d_name);
+            bg_unlink(p); /* Background method to avoid blocking. */
+            sdsfree(p);
+        }
+        closedir(d);
+    }
+}
+
+/* Hard-link 'filename' from the live AOF directory into the backup directory.
+ * Both sides use the same basename. Returns C_OK on success. */
+static int backupLinkFile(char *filename) {
+    int ret = C_OK;
+    sds src = makePath(server.aof_dirname, filename);
+    sds dst = makePath(server.backup_dirname, filename);
+
+    if (link(src, dst) == -1) {
+        serverLog(LL_WARNING, "BACKUP: can't hard-link %s into %s: %s",
+                              src, dst, strerror(errno));
+        ret = C_ERR;
+    }
+    sdsfree(src);
+    sdsfree(dst);
+    return ret;
+}
+
+/* Remove all artifact files from the backup directory. */
+static void backupRemoveArtifacts(void) {
+    removeFilesInDir(server.backup_dirname);
+}
+
+static void backupClearError(void) {
+    if (server.backup_error) {
+        sdsfree(server.backup_error);
+        server.backup_error = NULL;
+    }
+}
+
+/* Free the in-memory filenames for the current backup. On-disk files are left
+ * untouched, callers remove them explicitly when needed. */
+static void backupClearArtifactFilenames(void) {
+    sdsfree(server.backup_base_filename);
+    server.backup_base_filename = NULL;
+
+    sdsfree(server.backup_incr_filename);
+    server.backup_incr_filename = NULL;
+
+    sdsfree(server.backup_manifest_filename);
+    server.backup_manifest_filename = NULL;
+}
+
+/* Free the current/last backup metadata and return to IDLE. */
+static void backupResetState(void) {
+    backupClearError();
+    backupClearArtifactFilenames();
+    server.backup_can_remove_aof_dir = 0;
+    server.backup_state = BACKUP_STATE_IDLE;
+    server.backup_start_time = 0;
+    server.backup_end_time = 0;
+}
+
+/* Stop the AOF stream created only for an appendonly-no backup. If the user
+ * enabled appendonly during the backup window, the live AOF no longer belongs
+ * to BACKUP and must be kept. */
+static void backupStopTempAofIfNeeded(void) {
+    if (server.aof_enabled) return;
+
+    /* AOF already is off. */
+    if (server.aof_state == AOF_OFF) return;
+
+    /* stopAppendOnly() clears aof_rewrite_scheduled flag, keep any manual
+     * BGREWRITEAOF postponed while the backup window was open. */
+    int postponed_aof_rewrite = server.aof_rewrite_scheduled;
+
+    stopAppendOnly();
+
+    /* Resume a manual BGREWRITEAOF that was postponed while BACKUP was open. */
+    if (postponed_aof_rewrite) {
+        server.aof_rewrite_scheduled = 1;
+        server.stat_aofrw_consecutive_failures = 0;
+    }
+}
+
+int backupIsInProgress(void) {
+    if (server.backup_state == BACKUP_STATE_PENDING ||
+        server.backup_state == BACKUP_STATE_SNAPSHOTTING ||
+        server.backup_state == BACKUP_STATE_INCREMENTING)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+/* Stop temporary AOF state, remove recorded artifacts and mark the current
+ * backup as FAILED while keeping timing/error metadata visible to BACKUP
+ * STATUS. */
+void backupSetFailed(const char *err) {
+    if (!backupIsInProgress()) return;
+
+    /* Mark the backup failed before cleanup. Some cleanup paths can re-enter
+     * backupSetFailed(), and the state change makes the nested call a no-op. */
+    server.backup_state = BACKUP_STATE_FAILED;
+    if (server.backup_error) sdsfree(server.backup_error);
+    server.backup_error = sdsnew(err ? err : "unknown backup error");
+
+    /* Stop the temporary AOF/AOFRW state started by BACKUP, if any. */
+    backupStopTempAofIfNeeded();
+    /* Delete appendonlydir only when BACKUP owns the whole temp-AOF directory. */
+    if (server.backup_can_remove_aof_dir) {
+        removeFilesInDir(server.aof_dirname);
+        /* Reset the manifest together with deleting the AOF files it describes. */
+        aofManifestFreeAndUpdate(aofManifestCreate());
+    }
+
+    backupRemoveArtifacts();
+    backupClearArtifactFilenames();
+    server.backup_can_remove_aof_dir = 0;
+    server.backup_end_time = 0;
+    serverLog(LL_WARNING, "BACKUP: failed: %s", server.backup_error);
+}
+
+/* Write a standalone backup manifest with only {BASE, INCR} to describe the
+ * backup. Live AOF HISTORY entries are intentionally excluded. */
+static int backupWriteManifest(aofManifest *am) {
+    aofInfo *base = am->base_aof_info;
+
+    serverAssert(listLength(am->incr_aof_list) == 1);
+    aofInfo *incr = listNodeValue(listLast(am->incr_aof_list));
+
+    sds buf = sdsempty();
+    buf = aofInfoFormat(buf, base);
+    buf = aofInfoFormat(buf, incr);
+
+    sds name = getAofManifestFileName();
+    int ret = writeAofManifestFileToDir(server.backup_dirname, buf);
+    if (ret == C_OK) {
+        server.backup_manifest_filename = sdsdup(name);
+    }
+
+    sdsfree(buf);
+    sdsfree(name);
+    return ret;
+}
+
+/* Called from backgroundRewriteDoneHandler on a successful rewrite. If a backup
+ * is waiting for its snapshot, pin the freshly written BASE file and move to the
+ * INCREMENTING state. */
+static void backupHandleSnapshotDone(void) {
+    if (server.backup_state != BACKUP_STATE_SNAPSHOTTING) return;
+
+    serverAssert(server.aof_manifest->base_aof_info);
+    sds base_filename = server.aof_manifest->base_aof_info->file_name;
+    if (backupLinkFile(base_filename) != C_OK) {
+        backupSetFailed("failed to pin snapshot file");
+        return;
+    }
+    server.backup_base_filename = sdsnew(base_filename);
+    server.backup_state = BACKUP_STATE_INCREMENTING;
+    serverLog(LL_NOTICE, "BACKUP: snapshot pinned (%s), now accumulating writes",
+                         base_filename);
+}
+
+/* Called from backgroundRewriteDoneHandler when the snapshot rewrite failed. */
+static void backupHandleSnapshotFailed(const char *err) {
+    if (server.backup_state != BACKUP_STATE_SNAPSHOTTING) return;
+
+    sds msg = sdscatfmt(sdsempty(), "snapshot rewrite failed: %s", err);
+    backupSetFailed(msg);
+    sdsfree(msg);
+}
+
+static const char *backupStateToString(int s) {
+    switch (s) {
+    case BACKUP_STATE_PENDING:      return "pending";
+    case BACKUP_STATE_SNAPSHOTTING: return "snapshotting";
+    case BACKUP_STATE_INCREMENTING: return "incrementing";
+    case BACKUP_STATE_SEALED:       return "sealed";
+    case BACKUP_STATE_FAILED:       return "failed";
+    default:                        return "idle";
+    }
+}
+
+static int backupStartPendingSnapshot(void) {
+    if (server.backup_state != BACKUP_STATE_PENDING) return C_OK;
+
+    if (server.child_type == CHILD_TYPE_AOF) {
+        if (server.aof_state != AOF_OFF) {
+            /* Reuse an AOFRW that started while the backup was pending. */
+            server.backup_start_time = server.unixtime;
+            server.backup_state = BACKUP_STATE_SNAPSHOTTING;
+            return C_OK;
+        } else {
+            /* Cannot reuse this AOFRW: with AOF_OFF the parent is not feeding
+             * writes into a temp INCR, so BASE+INCR would not be continuous. */
+            return C_OK;
+        }
+    }
+
+    /* Another child owns the fork, backupCron will retry after it exits. */
+    if (hasActiveChildProcess()) return C_OK;
+
+    if (server.aof_state == AOF_OFF) {
+        /* BACKUP owns the temporary AOF stream it is about to start, but it may
+         * remove appendonlydir only when no preexisting/scheduled AOF files
+         * need to be preserved. */
+        server.backup_can_remove_aof_dir = dirIsEmpty(server.aof_dirname) &&
+                                           !server.aof_rewrite_scheduled;
+        if (startAppendOnly() != C_OK) {
+            backupSetFailed("failed to temporarily enable AOF for backup");
+            return C_ERR;
+        }
+    } else {
+        if (rewriteAppendOnlyFileBackground() != C_OK) {
+            backupSetFailed("failed to start AOF rewrite for backup");
+            return C_ERR;
+        }
+    }
+    /* BACKUP can only enter SNAPSHOTTING after an AOFRW child has actually
+     * been forked. startAppendOnly() may return OK for scheduled rewrites in
+     * generic AOF paths, so keep this as a sanity check for the backup path. */
+    if (server.child_type != CHILD_TYPE_AOF) {
+        backupSetFailed("failed to start AOF rewrite child for backup");
+        return C_ERR;
+    }
+
+    server.backup_start_time = server.unixtime;
+    server.backup_state = BACKUP_STATE_SNAPSHOTTING;
+    return C_OK;
+}
+
+void backupCron(void) {
+    backupStartPendingSnapshot();
+
+    /* Auto clean sealed backup. */
+    time_t now = server.unixtime;
+    if (server.backup_state == BACKUP_STATE_SEALED &&
+        server.backup_sealed_ttl &&
+        server.backup_end_time &&
+        now >= server.backup_end_time &&
+        now - server.backup_end_time >= server.backup_sealed_ttl)
+    {
+        serverLog(LL_NOTICE, "BACKUP: auto cleaning sealed backup after %lld seconds",
+                             (long long)(now - server.backup_end_time));
+        backupRemoveArtifacts();
+        backupResetState();
+    }
+}
+
+/* BACKUP START: begin a new backup window. */
+static void backupStartCommand(client *c) {
+    if (backupIsInProgress()) {
+        addReplyError(c, "A backup is already in progress, ABORT it first");
+        return;
+    }
+    if (server.backup_state == BACKUP_STATE_SEALED) {
+        addReplyError(c, "A sealed backup exists, CLEANUP it first");
+        return;
+    }
+    serverAssert(server.backup_dirname);
+    if (dirCreateIfMissing(server.backup_dirname) == -1) {
+        addReplyErrorFormat(c, "Can't create backup directory %s: %s",
+                                server.backup_dirname, strerror(errno));
+        return;
+    }
+    if (!dirIsEmpty(server.backup_dirname)) {
+        addReplyErrorFormat(c, "Backup directory %s is not empty, CLEANUP it first",
+                                server.backup_dirname);
+        return;
+    }
+
+    backupResetState();
+    server.backup_state = BACKUP_STATE_PENDING;
+
+    /* Do not start AOFRW from inside EXEC. Forking there could make the BASE
+     * snapshot capture a transaction mid-state. */
+    if (!server.in_exec && backupStartPendingSnapshot() != C_OK) {
+        addReplyError(c, "Can't start the AOF rewrite for the backup");
+        return;
+    }
+    addReply(c, shared.ok);
+}
+
+/* BACKUP SEAL: freeze the INCR, assemble the manifest and finish the backup. */
+static void backupSealCommand(client *c) {
+    if (server.backup_state != BACKUP_STATE_INCREMENTING) {
+        addReplyError(c, "No backup ready to seal (must be in the incrementing state)");
+        return;
+    }
+
+    /* Sanity check that the successful AOFRW left the live manifest with the
+     * expected BASE entry before pinning it for the backup. */
+    serverAssert(server.backup_base_filename);
+    serverAssert(!sdscmp(server.aof_manifest->base_aof_info->file_name,
+                         server.backup_base_filename));
+
+    /* Flush and fsync the current INCR before pinning it. In the appendonly-yes
+     * path the later rotation is what stops this INCR from receiving writes. */
+    flushAppendOnlyFile(1);
+    if (redis_fsync(server.aof_fd) == -1) {
+        char err[256];
+        snprintf(err, sizeof(err), "failed to fsync incr file: %s", strerror(errno));
+        backupSetFailed(err);
+        addReplyError(c, "Can't fsync the INCR file for the backup");
+        return;
+    }
+
+    /* Update end offset before rotating new incr AOF. */
+    updateCurIncrAofEndOffset();
+
+    /* BACKUP START creates a fresh BASE through AOFRW, and AOFRW is suppressed
+     * while the backup window is open. So this backup design expects exactly
+     * one current INCR AOF, even though MP-AOF generally supports multiple INCR
+     * files after failed rewrites. */
+    serverAssert(listLength(server.aof_manifest->incr_aof_list) == 1);
+    sds incr_name = getLastIncrAofName(server.aof_manifest);
+    if (backupLinkFile(incr_name) != C_OK) {
+        backupSetFailed("failed to pin INCR AOF");
+        addReplyError(c, "Can't pin the INCR AOF for the backup");
+        return;
+    }
+    server.backup_incr_filename = sdsnew(incr_name);
+
+    /* Generate a manifest to describe the current backup. */
+    if (backupWriteManifest(server.aof_manifest) != C_OK) {
+        addReplyError(c, "Can't write the backup manifest");
+        backupSetFailed("failed to write backup manifest");
+        return;
+    }
+
+    if (!server.aof_enabled) {
+        /* The backup is complete once its manifest is written. Mark it sealed
+         * before stopping the temp AOF so stopAppendOnly() doesn't treat this
+         * normal cleanup as an interruption. */
+        server.backup_state = BACKUP_STATE_SEALED;
+        /* appendonly no: stop the temp AOF after the backup has hard-linked copies. */
+        backupStopTempAofIfNeeded();
+        /* Delete appendonlydir only when BACKUP owns the whole temp-AOF directory. */
+        if (server.backup_can_remove_aof_dir) {
+            removeFilesInDir(server.aof_dirname);
+            /* Reset the manifest together with deleting the AOF files it describes. */
+            aofManifestFreeAndUpdate(aofManifestCreate());
+        }
+    } else {
+        /* appendonly yes: rotate the live AOF so the pinned INCR stops growing. */
+        if (openNewIncrAofForAppend() != C_OK) {
+            addReplyError(c, "Can't rotate the live AOF after sealing the backup");
+            backupSetFailed("failed to rotate live AOF after seal");
+            return;
+        }
+        /* After rotating to a new INCR, the pinned INCR is immutable and sealed. */
+        server.backup_state = BACKUP_STATE_SEALED;
+    }
+
+    server.backup_end_time = server.unixtime;
+    serverLog(LL_NOTICE, "BACKUP: sealed backup in %s", server.backup_dirname);
+    addReply(c, shared.ok);
+}
+
+/* BACKUP ABORT: cancel a not-yet-sealed backup. */
+static void backupAbortCommand(client *c) {
+    if (!backupIsInProgress()) {
+        addReplyError(c, "No backup in progress");
+        return;
+    }
+
+    backupSetFailed("aborted by user");
+    addReply(c, shared.ok);
+}
+
+/* BACKUP CLEANUP: reset SEALED/FAILED/IDLE backup state. */
+static void backupCleanupCommand(client *c) {
+    if (backupIsInProgress()) {
+        addReplyError(c, "Backup is in progress");
+        return;
+    }
+    backupRemoveArtifacts();
+    backupResetState();
+    addReply(c, shared.ok);
+}
+
+/* BACKUP STATUS: report the current backup state. */
+static void backupStatusCommand(client *c) {
+    addReplyMapLen(c, 4);
+    addReplyBulkCString(c, "state");
+    addReplyBulkCString(c, backupStateToString(server.backup_state));
+    addReplyBulkCString(c, "error");
+    addReplyBulkCString(c, server.backup_error ? server.backup_error : "");
+    addReplyBulkCString(c, "start_time");
+    addReplyLongLong(c, (long long)server.backup_start_time);
+    addReplyBulkCString(c, "end_time");
+    addReplyLongLong(c, (long long)server.backup_end_time);
+}
+
+static sds backupMakeAbsolutePath(char *filename) {
+    sds path = makePath(server.backup_dirname, filename);
+    sds abspath = getAbsolutePath(path);
+    sdsfree(path);
+    return abspath;
+}
+
+/* BACKUP LIST: list the immutable files pinned so far for the current backup. */
+static void backupListCommand(client *c) {
+    sds base = NULL, incr = NULL, manifest = NULL;
+    int n = 0;
+
+    if (server.backup_base_filename) {
+        base = backupMakeAbsolutePath(server.backup_base_filename);
+        if (base) n++;
+    }
+    if (server.backup_incr_filename) {
+        incr = backupMakeAbsolutePath(server.backup_incr_filename);
+        if (incr) n++;
+    }
+    if (server.backup_manifest_filename) {
+        manifest = backupMakeAbsolutePath(server.backup_manifest_filename);
+        if (manifest) n++;
+    }
+
+    addReplyArrayLen(c, n);
+    if (base) addReplyBulkSds(c, base);
+    if (incr) addReplyBulkSds(c, incr);
+    if (manifest) addReplyBulkSds(c, manifest);
+}
+
+void backupCommand(client *c) {
+    const char *help[] = {
+"START",
+"    Start a new backup into the configured 'backupdirname'.",
+"SEAL",
+"    Freeze the current backup (BASE + INCR + manifest).",
+"ABORT",
+"    Cancel a backup that has not been sealed yet.",
+"CLEANUP",
+"    Remove a sealed backup's files and return to idle.",
+"STATUS",
+"    Report the current backup state.",
+"LIST",
+"    List the immutable files pinned so far.",
+"HELP",
+"    Return this help.",
+NULL
+    };
+
+    char *sub = c->argv[1]->ptr;
+    if (!strcasecmp(sub, "help")) {
+        addReplyHelp(c, help);
+        return;
+    }
+
+    if (!strcasecmp(sub, "start")) backupStartCommand(c);
+    else if (!strcasecmp(sub, "seal")) backupSealCommand(c);
+    else if (!strcasecmp(sub, "abort")) backupAbortCommand(c);
+    else if (!strcasecmp(sub, "cleanup")) backupCleanupCommand(c);
+    else if (!strcasecmp(sub, "status")) backupStatusCommand(c);
+    else if (!strcasecmp(sub, "list")) backupListCommand(c);
+    else addReplySubcommandSyntaxError(c);
+}
+
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
+    int rewrite_success = 0;
+    char bgrewrite_error[256] = "";
+
     if (!bysignal && exitcode == 0) {
         char tmpfile[256];
         long long now = ustime();
@@ -3155,12 +3769,15 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
+        rewrite_success = 1;
     } else if (!bysignal && exitcode != 0) {
         server.aof_lastbgrewrite_status = C_ERR;
         server.stat_aofrw_consecutive_failures++;
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated with error");
+        snprintf(bgrewrite_error, sizeof(bgrewrite_error),
+                 "child exited with code %d", exitcode);
     } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * triggering an error condition. */
@@ -3171,6 +3788,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);
+        snprintf(bgrewrite_error, sizeof(bgrewrite_error),
+                 "child terminated by signal %d", bysignal);
     }
 
 cleanup:
@@ -3183,7 +3802,19 @@ cleanup:
     }
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
-    /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */
-    if (server.aof_state == AOF_WAIT_REWRITE)
+    /* Schedule a new rewrite only when AOF is enabled by config. BACKUP's
+     * appendonly-no temp AOF should fail instead of retrying internally. */
+    if (server.aof_state == AOF_WAIT_REWRITE && server.aof_enabled)
         server.aof_rewrite_scheduled = 1;
+
+    /* Notify BACKUP only after AOFRW has finished its own cleanup. The BACKUP
+     * callback may stop temp AOF or remove backup artifacts, so it must not run
+     * while the AOFRW handler is still cleaning child/temp-file state. */
+    if (rewrite_success) {
+        backupHandleSnapshotDone();
+    } else {
+        if (!bgrewrite_error[0])
+            snprintf(bgrewrite_error, sizeof(bgrewrite_error), "AOFRW failed to persist files");
+        backupHandleSnapshotFailed(bgrewrite_error);
+    }
 }

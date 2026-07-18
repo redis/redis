@@ -2399,6 +2399,22 @@ static int isValidAOFfilename(char *val, const char **err) {
     return 1;
 }
 
+static int isValidPreloadFile(char *val, const char **err) {
+    if (val && strncmp(val, "aof:/", 5) && strncmp(val, "rdb:/", 5)) {
+        *err = "argument must be in the format '[aof|rdb]:[filename]'";
+        return 0;
+    }
+
+    if (val) {
+        char *ext = getFileExtension(val);
+        if (!ext) {
+            *err = "preload-file must end with an extension";
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int isValidAOFdirname(char *val, const char **err) {
     if (!strcmp(val, "")) {
         *err = "appenddirname can't be empty";
@@ -2406,6 +2422,18 @@ static int isValidAOFdirname(char *val, const char **err) {
     }
     if (!pathIsBaseName(val)) {
         *err = "appenddirname can't be a path, just a dirname";
+        return 0;
+    }
+    return 1;
+}
+
+static int isValidBackupdirname(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "backupdirname can't be empty";
+        return 0;
+    }
+    if (!pathIsBaseName(val)) {
+        *err = "backupdirname can't be a path, just a dirname";
         return 0;
     }
     return 1;
@@ -3248,6 +3276,8 @@ standardConfig static_configs[] = {
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
+    createStringConfig("backupdirname", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.backup_dirname, "backupdir", isValidBackupdirname, NULL),
+    createStringConfig("preload-file", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.preload_file, NULL, isValidPreloadFile, NULL),
     createStringConfig("server-cpulist", "server_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio-cpulist", "bio_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
     createStringConfig("aof-rewrite-cpulist", "aof_rewrite_cpulist", IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),
@@ -3390,6 +3420,7 @@ standardConfig static_configs[] = {
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
+    createTimeTConfig("backup-sealed-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.backup_sealed_ttl, 0, INTEGER_CONFIG, NULL, NULL), /* Default: disabled */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*512, INTEGER_CONFIG, NULL, NULL),
     createOffTConfig("aof-load-corrupt-tail-max-size", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.aof_load_corrupt_tail_max_size, 0, INTEGER_CONFIG, NULL, NULL),

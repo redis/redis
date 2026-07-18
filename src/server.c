@@ -1684,10 +1684,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Handle background operations on Redis databases. */
     databasesCron();
 
-    /* Start a scheduled AOF rewrite if this was requested by the user while
-     * a BGSAVE was in progress. */
+    backupCron();
+
+    /* Start a scheduled AOF rewrite if this was requested while another state
+     * prevented it earlier. */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled &&
+        !backupIsInProgress() &&
         !aofRewriteLimited())
     {
         rewriteAppendOnlyFileBackground();
@@ -1726,6 +1729,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         /* Trigger an AOF rewrite if needed. */
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
+            !backupIsInProgress() &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
@@ -2427,6 +2431,14 @@ void initServerConfig(void) {
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
     server.aof_state = AOF_OFF;
+    server.backup_state = BACKUP_STATE_IDLE;
+    server.backup_can_remove_aof_dir = 0;
+    server.backup_base_filename = NULL;
+    server.backup_incr_filename = NULL;
+    server.backup_manifest_filename = NULL;
+    server.backup_error = NULL;
+    server.backup_start_time = 0;
+    server.backup_end_time = 0;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
@@ -6610,6 +6622,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "aof_last_write_status:%s\r\n", (server.aof_last_write_status == C_OK &&
                                              aof_bio_fsync_status == C_OK) ? "ok" : "err",
             "aof_last_cow_size:%zu\r\n", server.stat_aof_cow_bytes,
+            "backup_in_progress:%d\r\n", backupIsInProgress(),
             "module_fork_in_progress:%d\r\n", server.child_type == CHILD_TYPE_MODULE,
             "module_fork_last_cow_size:%zu\r\n", server.stat_module_cow_bytes));
 
@@ -7656,16 +7669,68 @@ int checkForSentinelMode(int argc, char **argv, char *exec_name) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
-    if (server.aof_state == AOF_ON) {
+    rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+    int loaded = 0;
+    int rdb_load_ret = RDB_NOT_EXIST;
+
+    /* Handle preload_file, which overrides anything else. */
+    if (server.preload_file) {
+        if (!strncmp(server.preload_file, "aof:/", 5)) {
+            int ret;
+            if (!strcmp(getFileExtension(server.preload_file), "aof")) {
+                ret = loadPreLoadAOFFile(server.preload_file + 4);
+            } else if (!strcmp(getFileExtension(server.preload_file), "manifest")) {
+                ret = loadPreLoadManifestFile(server.preload_file + 4);
+            } else {
+                serverLog(LL_NOTICE,"Invalid preload-file configuration (not .aof or .manifest): %s. Exiting.", server.preload_file);
+                exit(1);
+            }
+            if (ret == AOF_OK) {
+                serverLog(LL_NOTICE,"DB pre-loaded from append only file: %s: %.3f seconds",server.preload_file+4, (float)(ustime()-start)/1000000);
+            } else {
+                serverLog(LL_NOTICE,"FATAL: pre-load from AOF failed! (%s) %s", server.preload_file+4, strerror(errno));
+                exit(1);
+            }
+            loaded = 1;
+        } else if (!strncmp(server.preload_file, "rdb:/", 5)) {
+            int rdbflags = RDBFLAGS_NONE;
+            if (iAmMaster()) {
+                /* Master may delete expired keys when loading, we should
+                 * propagate expire to replication backlog. */
+                createReplicationBacklog();
+                rdbflags |= RDBFLAGS_FEED_REPL;
+            }
+            rdb_load_ret = rdbLoad(server.preload_file + 4,&rsi,rdbflags);
+            if (rdb_load_ret == C_OK) {
+                serverLog(LL_NOTICE,"DB pre-loaded from rdb file: %s: %.3f seconds",
+                    server.preload_file+4, (float)(ustime()-start)/1000000);
+                loaded = 1;
+            } else {
+                serverLog(LL_WARNING,"FATAL: pre-loading RDB failed! (%s): %s. Exiting.", server.preload_file+4, strerror(errno));
+                redis_check_rdb(server.preload_file+4, NULL);
+                exit(1);
+            }
+        } else {
+            serverLog(LL_WARNING,"Invalid preload-file configuration: %s. Exiting.", server.preload_file);
+            exit(1);
+        }
+    }
+
+    if (loaded && server.aof_state == AOF_ON) {
+        /* On database upgrades, we store an rdb file on shutdown, and then start from it with preload-file.
+         * but we still need to convert the old AOF file (exact same content), otherwise,
+         * we'll end up doing a foreground AOFRW on startup. */
+        upgradeAofIfNeeded(server.aof_manifest);
+    } else if (!loaded && server.aof_state == AOF_ON) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
-        if (ret != AOF_NOT_EXIST)
+        if (ret != AOF_NOT_EXIST) {
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
+            loaded = 1;
+        }
         updateReplOffsetAndResetEndOffset();
-    } else {
-        rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        int rsi_is_valid = 0;
+    } else if (!loaded) {
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
         if (iAmMaster()) {
@@ -7674,11 +7739,21 @@ void loadDataFromDisk(void) {
             createReplicationBacklog();
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
-        int rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
+        rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
         if (rdb_load_ret == RDB_OK) {
+            loaded = 1;
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
+        } else if (rdb_load_ret != RDB_NOT_EXIST) {
+            serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
+            exit(1);
+        }
+    }
 
+    /* Post load actions apply to both preload and normal load. */
+    {
+        int rsi_is_valid = 0;
+        if (rdb_load_ret == RDB_OK) {
             /* Restore the replication ID / offset from the RDB file. */
             if (rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
@@ -7711,9 +7786,6 @@ void loadDataFromDisk(void) {
                     server.repl_no_slaves_since = time(NULL);
                 }
             }
-        } else if (rdb_load_ret != RDB_NOT_EXIST) {
-            serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
-            exit(1);
         }
 
         /* We always create replication backlog if server is a master, we need
@@ -8261,6 +8333,8 @@ int main(int argc, char **argv) {
          * If there was a config change while we were inside loadDataFromDisk()
          * above, we'll apply it here. */
         applyAppendOnlyConfig();
+        /* Make the local AOF consistent with preloaded data if needed. */
+        aofHandlePreloadOnServerStart();
 
         if (server.cluster_enabled) {
             serverAssert(verifyClusterConfigWithData() == C_OK);
