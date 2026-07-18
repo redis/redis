@@ -16,9 +16,11 @@
         ],
         "key_specs": [
             {
+                "notes": "Incomplete because a stream key named STREAMS (or options before it) can shift the STREAMS keyword; fall back to xreadGetKeys",
                 "flags": [
                     "RO",
-                    "ACCESS"
+                    "ACCESS",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "keyword": {
