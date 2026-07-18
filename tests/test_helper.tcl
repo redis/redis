@@ -90,6 +90,8 @@ set ::large_memory 0
 set ::log_req_res 0
 set ::force_resp3 0
 set ::debug_defrag 0
+set ::junitxml ""
+set ::junit_results {}
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -399,6 +401,9 @@ proc read_from_test_client fd {
         puts "\[[colorstr red $status]\]: $data"
         kill_clients
         force_kill_all_servers
+        if {$::junitxml ne ""} {
+            catch {write_junit_xml $::junitxml $::junit_results}
+        }
         exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
@@ -414,6 +419,10 @@ proc read_from_test_client fd {
         set ::active_clients_task($fd) "(KILLED SERVER) pid:$data"
     } elseif {$status eq {run_solo}} {
         lappend ::run_solo_tests $data
+    } elseif {$status eq {junit}} {
+        # Silent aggregation of per-test JUnit data sent by clients.
+        # data is a list: {name file result message}; elapsed is ms.
+        lappend ::junit_results [list {*}$data $elapsed]
     } else {
         if {!$::quiet} {
             puts "\[$status\]: $data"
@@ -497,6 +506,105 @@ proc signal_idle_client fd {
     }
 }
 
+# Escape a string for safe inclusion as XML attribute or PCDATA.
+# Also strips ASCII control chars (except TAB/LF/CR) which are illegal in XML 1.0.
+proc xml_escape {s} {
+    set s [string map {& &amp; < &lt; > &gt; \" &quot; ' &apos;} $s]
+    set out ""
+    foreach ch [split $s ""] {
+        scan $ch %c c
+        if {$c == 9 || $c == 10 || $c == 13 || ($c >= 32 && $c != 127)} {
+            append out $ch
+        } else {
+            append out "?"
+        }
+    }
+    return $out
+}
+
+# Sanitize a string for inclusion inside a CDATA section by neutralizing the
+# only forbidden token "]]>".
+proc cdata_escape {s} {
+    return [string map {\]\]> {]]]]><![CDATA[>}} $s]
+}
+
+# Write an aggregated JUnit XML report from ::junit_results to the given path.
+# Each .tcl test file becomes one <testsuite>; each `test "..." { ... }` block
+# becomes one <testcase>. Failures and skips are emitted as nested elements.
+proc write_junit_xml {path results} {
+    array set suites {}
+    set suite_order {}
+    foreach r $results {
+        lassign $r name file result message elapsed_ms
+        if {![info exists suites($file)]} {
+            set suites($file) {}
+            lappend suite_order $file
+        }
+        lappend suites($file) $r
+    }
+
+    set total_tests 0
+    set total_failures 0
+    set total_skipped 0
+    set total_time_ms 0
+    foreach r $results {
+        lassign $r name file result message elapsed_ms
+        incr total_tests
+        if {$result eq "fail"} { incr total_failures }
+        if {$result eq "skip"} { incr total_skipped }
+        incr total_time_ms $elapsed_ms
+    }
+
+    set parent [file dirname $path]
+    if {$parent ne "" && $parent ne "." && ![file exists $parent]} {
+        file mkdir $parent
+    }
+    set fp [open $path w]
+    fconfigure $fp -encoding utf-8
+    puts $fp {<?xml version="1.0" encoding="UTF-8"?>}
+    puts $fp [format {<testsuites tests="%d" failures="%d" skipped="%d" time="%.3f">} \
+        $total_tests $total_failures $total_skipped [expr {$total_time_ms / 1000.0}]]
+
+    foreach file $suite_order {
+        set s_tests 0; set s_fail 0; set s_skip 0; set s_time_ms 0
+        foreach r $suites($file) {
+            lassign $r _ _ result _ elapsed_ms
+            incr s_tests
+            if {$result eq "fail"} { incr s_fail }
+            if {$result eq "skip"} { incr s_skip }
+            incr s_time_ms $elapsed_ms
+        }
+        puts $fp [format {  <testsuite name="%s" tests="%d" failures="%d" skipped="%d" time="%.3f">} \
+            [xml_escape $file] $s_tests $s_fail $s_skip [expr {$s_time_ms / 1000.0}]]
+        foreach r $suites($file) {
+            lassign $r name file result message elapsed_ms
+            set t [expr {$elapsed_ms / 1000.0}]
+            set tc [format {    <testcase classname="%s" name="%s" time="%.3f"} \
+                [xml_escape $file] [xml_escape $name] $t]
+            if {$result eq "pass"} {
+                puts $fp "$tc/>"
+            } elseif {$result eq "fail"} {
+                puts $fp "$tc>"
+                set summary [string range $message 0 199]
+                puts $fp [format {      <failure message="%s" type="assertion"><![CDATA[%s]]></failure>} \
+                    [xml_escape $summary] [cdata_escape $message]]
+                puts $fp "    </testcase>"
+            } else {
+                puts $fp "$tc>"
+                if {$message ne ""} {
+                    puts $fp [format {      <skipped message="%s"/>} [xml_escape $message]]
+                } else {
+                    puts $fp {      <skipped/>}
+                }
+                puts $fp "    </testcase>"
+            }
+        }
+        puts $fp "  </testsuite>"
+    }
+    puts $fp "</testsuites>"
+    close $fp
+}
+
 # The the_end function gets called when all the test units were already
 # executed, so the test finished.
 proc the_end {} {
@@ -505,6 +613,13 @@ proc the_end {} {
     puts "Execution time of different units:"
     foreach {time name} $::clients_time_history {
         puts "  $time seconds - $name"
+    }
+    if {$::junitxml ne ""} {
+        if {[catch {write_junit_xml $::junitxml $::junit_results} err]} {
+            puts "Warning: failed to write JUnit XML to $::junitxml: $err"
+        } else {
+            puts "JUnit XML report written to $::junitxml ([llength $::junit_results] testcases)"
+        }
     }
     if {[llength $::failed_tests]} {
         puts "\n[colorstr bold-red {!!! WARNING}] The following tests failed:\n"
@@ -595,6 +710,7 @@ proc print_help_screen {} {
         "--ignore-digest    Don't use debug digest validations."
         "--large-memory     Run tests using over 100mb."
         "--debug-defrag     Indicate the test is running against server compiled with DEBUG_DEFRAG option"
+        "--junitxml <path>  Write JUnit XML report of test results to the given path."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -728,6 +844,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::ignoredigest 1
     } elseif {$opt eq {--debug-defrag}} {
         set ::debug_defrag 1
+    } elseif {$opt eq {--junitxml}} {
+        set ::junitxml $arg
+        incr j
     } elseif {$opt eq {--help}} {
         print_help_screen
         exit 0
