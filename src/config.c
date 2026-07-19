@@ -2596,15 +2596,18 @@ static int updateReplBacklogSize(const char **err) {
 /* When switching maxmemory-policy at runtime, re-seed key access metadata so
  * the lru field encoding matches the new policy. Keys stored under a non-LFU
  * policy keep an LRU-encoded lru field; under LFU that is treated as frequency
- * 0 and can be preferred for eviction. The reverse (LFU -> idle-based) matters
- * for multi-arg CONFIG SET rollback and for LFU -> LRU/LRM: apply re-seeds LFU,
+ * 0 and can be preferred for eviction. The reverse (LFU -> non-LFU) matters for
+ * multi-arg CONFIG SET rollback and for LFU -> LRU/LRM: apply re-seeds LFU,
  * then a later failure restores the old non-LFU policy and must re-seed LRU
  * clocks so eviction does not interpret LFU counters as idle time. LRM scores
  * with estimateObjectIdleTime on the same field. See #15375.
  *
- * Only reseed when the LFU encoding bit flips. Switches within the same
- * encoding (allkeys-lru <-> volatile-lru, allkeys-lfu <-> volatile-lfu,
- * allkeys-lrm <-> volatile-lrm, lru <-> lrm) must not rewrite every key. */
+ * Always reseed when the LFU encoding bit flips, including LFU -> noeviction /
+ * random / volatile-ttl. Skipping those left LFU-encoded values on keys while
+ * prev_maxmemory_lfu claimed non-LFU, so a later switch to LRU/LRM saw no bit
+ * flip and treated LFU counters as idle clocks. Same-encoding switches
+ * (allkeys-lru <-> volatile-lru, allkeys-lfu <-> volatile-lfu, lru <-> lrm)
+ * do not rewrite every key. */
 static int prev_maxmemory_lfu = -1;
 
 /* loadServerConfig only sets maxmemory-policy and never runs apply. Seed the
@@ -2618,9 +2621,6 @@ static void seedMaxmemoryPolicyBaseline(void) {
 static int updateMaxmemoryPolicy(const char **err) {
     UNUSED(err);
     int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
-    /* LRU and LRM both score keys via estimateObjectIdleTime on lru. */
-    int idle_based = server.maxmemory_policy &
-                     (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM) ? 1 : 0;
 
     /* Defensive: if baseline was never seeded, keys already match the live
      * policy encoding from createObject / initObjectLRUOrLFU. */
@@ -2631,13 +2631,6 @@ static int updateMaxmemoryPolicy(const char **err) {
 
     if (prev_maxmemory_lfu == lfu)
         return 1;
-
-    /* Leaving LFU for random / noeviction / volatile-ttl: field unused for
-     * eviction scoring, skip the keyspace walk. */
-    if (!lfu && !idle_based) {
-        prev_maxmemory_lfu = lfu;
-        return 1;
-    }
 
     for (int j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db + j;

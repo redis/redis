@@ -793,6 +793,41 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_lessthan_equal [r object idletime vlrmkey] 1
     }
 
+    # Intermediate non-scoring policies must still reseed off LFU encoding so a
+    # later switch to LRU/LRM does not treat LFU counters as idle clocks.
+    test {LFU: via noeviction then allkeys-lru has fresh IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set midkey value-mid
+        assert_equal 5 [r object freq midkey]
+        r config set maxmemory-policy noeviction
+        r config set maxmemory-policy allkeys-lru
+        assert_lessthan_equal [r object idletime midkey] 1
+    }
+
+    test {LFU: via allkeys-random then allkeys-lrm has fresh IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set midlrm value-midlrm
+        assert_equal 5 [r object freq midlrm]
+        r config set maxmemory-policy allkeys-random
+        r config set maxmemory-policy allkeys-lrm
+        assert_lessthan_equal [r object idletime midlrm] 1
+    }
+
+    test {LFU: via volatile-ttl then volatile-lru has fresh IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set midttl value-midttl
+        assert_equal 5 [r object freq midttl]
+        r config set maxmemory-policy volatile-ttl
+        r config set maxmemory-policy volatile-lru
+        assert_lessthan_equal [r object idletime midttl] 1
+    }
+
 }
 
 # Conf-file LFU never runs apply at load; baseline must come from the live
