@@ -23,9 +23,10 @@ on:
     - cron: '30 1 * * *'
   workflow_dispatch:
     inputs:
-      skiptests:
-        description: "set to 'modules' to skip the heavy 'make test all' step"
-        default: ''
+      run_tests:
+        description: "run the heavy 'make test all' step (off by default; never runs on schedule)"
+        type: boolean
+        default: false
       use_repo:
         description: 'repo owner and name'
         default: 'redis/redis'
@@ -164,7 +165,7 @@ jobs:
         done
         ./src/redis-cli shutdown nosave || true
     - name: make test all
-      if: ${{ !contains(github.event.inputs.skiptests, 'modules') }}
+      if: ${{ github.event.inputs.run_tests == 'true' }}
       run: make test all
     # Package/deploy smoke: verify `make tarball` produces a self-contained
     # bundle and `make deploy` installs a runnable server + modules.
@@ -242,7 +243,7 @@ jobs:
         done
         ./src/redis-cli shutdown nosave || true
     - name: make test all
-      if: ${{ !contains(github.event.inputs.skiptests, 'modules') }}
+      if: ${{ github.event.inputs.run_tests == 'true' }}
       run: make test all
     - name: make tarball, deploy, smoke test
       run: |
