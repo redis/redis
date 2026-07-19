@@ -66,6 +66,10 @@ jobs:
       # flags must reach that rebuild too. Redis core is pure C and ignores
       # CXXFLAGS.
       CXXFLAGS: -Wno-error=uninitialized -Wno-error=maybe-uninitialized -Wno-unknown-warning-option
+      # Shared across the split tarball/deploy/run steps (same runner FS).
+      EXTRACTED: /tmp/redis-tarball-check/redis-HEAD
+      DEPLOY_PREFIX: /tmp/redis-deploy
+      DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
     strategy:
       fail-fast: false
       # Both architectures the bundled modules support, mirroring their own
@@ -168,22 +172,16 @@ jobs:
       if: ${{ github.event.inputs.run_tests == 'true' }}
       run: make test all
     # Package/deploy smoke — mirrors PR TalBarYakar/redis#4's
-    # phase_package_deploy_smoke exactly:
-    #   1. make tarball, extract, assert the bundled redis.conf carries the
-    #      exact relative loadmodule line for every module.
-    #   2. make deploy FROM the extracted tarball, then assert deploy
-    #      rewrote redis.conf's loadmodule lines to the absolute $PREFIX paths.
-    #   3. run the deployed redis-server with that redis.conf, verify each
-    #      module both loads (MODULE LIST + server log) and answers a command.
-    - name: make tarball, deploy, smoke test
-      env:
-        DEPLOY_PREFIX: /tmp/redis-deploy
-        DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
+    # phase_package_deploy_smoke, split into one step per phase for easier
+    # tracking in the Actions UI. The steps share the runner filesystem and
+    # the EXTRACTED/DEPLOY_* paths from the job env.
+    - name: make tarball
       run: |
         make tarball TAG=HEAD
         rm -rf /tmp/redis-tarball-check && mkdir -p /tmp/redis-tarball-check
         tar -xf /tmp/redis-HEAD.tar.gz -C /tmp/redis-tarball-check
-        EXTRACTED=/tmp/redis-tarball-check/redis-HEAD
+    - name: check tarball redis.conf loadmodule lines
+      run: |
         for line in \
           "loadmodule ./modules/redisbloom/redisbloom.so" \
           "loadmodule ./modules/redisearch/redisearch.so" \
@@ -191,6 +189,8 @@ jobs:
           "loadmodule ./modules/redistimeseries/redistimeseries.so"; do
           grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: missing tarball redis.conf line: $line" >&2; exit 1; }
         done
+    - name: make deploy from tarball
+      run: |
         mkdir -p "$DEPLOY_PREFIX"
         ( cd "$EXTRACTED" && make deploy PREFIX="$DEPLOY_PREFIX" )
         for so in redisbloom.so redisearch.so rejson.so redistimeseries.so; do
@@ -198,6 +198,8 @@ jobs:
           grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: deployed redis.conf missing absolute line: $line" >&2; exit 1; }
         done
         cp "$EXTRACTED/redis.conf" "$DEPLOY_PREFIX/redis.conf"
+    - name: run deployed server, verify modules
+      run: |
         "$DEPLOY_PREFIX/bin/redis-server" "$DEPLOY_PREFIX/redis.conf" --appendonly no >"$DEPLOY_RUN_LOG" 2>&1 &
         cli="$DEPLOY_PREFIX/bin/redis-cli"
         i=0
@@ -234,6 +236,10 @@ jobs:
     env:
       # make tarball needs GNU tar (gtar from Homebrew); tarball.sh honors TAR.
       TAR: gtar
+      # Shared across the split tarball/deploy/run steps (same runner FS).
+      EXTRACTED: /tmp/redis-tarball-check/redis-HEAD
+      DEPLOY_PREFIX: /tmp/redis-deploy
+      DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
     steps:
     - name: install manual prerequisites
       # git/make/clang ship with the Xcode command line tools; brew supplies
@@ -274,15 +280,13 @@ jobs:
     - name: make test all
       if: ${{ github.event.inputs.run_tests == 'true' }}
       run: make test all
-    - name: make tarball, deploy, smoke test
-      env:
-        DEPLOY_PREFIX: /tmp/redis-deploy
-        DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
+    - name: make tarball
       run: |
         make tarball TAG=HEAD
         rm -rf /tmp/redis-tarball-check && mkdir -p /tmp/redis-tarball-check
         tar -xf /tmp/redis-HEAD.tar.gz -C /tmp/redis-tarball-check
-        EXTRACTED=/tmp/redis-tarball-check/redis-HEAD
+    - name: check tarball redis.conf loadmodule lines
+      run: |
         for line in \
           "loadmodule ./modules/redisbloom/redisbloom.so" \
           "loadmodule ./modules/redisearch/redisearch.so" \
@@ -290,6 +294,8 @@ jobs:
           "loadmodule ./modules/redistimeseries/redistimeseries.so"; do
           grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: missing tarball redis.conf line: $line" >&2; exit 1; }
         done
+    - name: make deploy from tarball
+      run: |
         mkdir -p "$DEPLOY_PREFIX"
         ( cd "$EXTRACTED" && make deploy PREFIX="$DEPLOY_PREFIX" )
         for so in redisbloom.so redisearch.so rejson.so redistimeseries.so; do
@@ -297,6 +303,8 @@ jobs:
           grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: deployed redis.conf missing absolute line: $line" >&2; exit 1; }
         done
         cp "$EXTRACTED/redis.conf" "$DEPLOY_PREFIX/redis.conf"
+    - name: run deployed server, verify modules
+      run: |
         "$DEPLOY_PREFIX/bin/redis-server" "$DEPLOY_PREFIX/redis.conf" --appendonly no >"$DEPLOY_RUN_LOG" 2>&1 &
         cli="$DEPLOY_PREFIX/bin/redis-cli"
         i=0
