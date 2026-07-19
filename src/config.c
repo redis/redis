@@ -652,6 +652,9 @@ loaderr:
     exit(1);
 }
 
+/* Forward decl: defined with updateMaxmemoryPolicy; called after config load. */
+static void seedMaxmemoryPolicyBaseline(void);
+
 /* Load the server configuration from the specified filename.
  * The function appends the additional configuration directives stored
  * in the 'options' string to the config file before loading.
@@ -731,6 +734,8 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     }
     loadServerConfigFromString(config);
     sdsfree(config);
+    /* Conf may have set maxmemory-policy without apply; refresh LFU baseline. */
+    seedMaxmemoryPolicyBaseline();
 }
 
 static int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
@@ -2591,36 +2596,46 @@ static int updateReplBacklogSize(const char **err) {
 /* When switching maxmemory-policy at runtime, re-seed key access metadata so
  * the lru field encoding matches the new policy. Keys stored under a non-LFU
  * policy keep an LRU-encoded lru field; under LFU that is treated as frequency
- * 0 and can be preferred for eviction. The reverse (LFU -> LRU) matters for
- * multi-arg CONFIG SET rollback: apply re-seeds LFU, then a later failure
- * restores the old non-LFU policy and must re-seed LRU clocks so eviction does
- * not interpret LFU counters as idle time. See #15375.
+ * 0 and can be preferred for eviction. The reverse (LFU -> idle-based) matters
+ * for multi-arg CONFIG SET rollback and for LFU -> LRU/LRM: apply re-seeds LFU,
+ * then a later failure restores the old non-LFU policy and must re-seed LRU
+ * clocks so eviction does not interpret LFU counters as idle time. LRM scores
+ * with estimateObjectIdleTime on the same field. See #15375.
  *
  * Only reseed when the LFU encoding bit flips. Switches within the same
- * encoding (allkeys-lru <-> volatile-lru, allkeys-lfu <-> volatile-lfu) must
- * not rewrite every key's lru field. */
+ * encoding (allkeys-lru <-> volatile-lru, allkeys-lfu <-> volatile-lfu,
+ * allkeys-lrm <-> volatile-lrm, lru <-> lrm) must not rewrite every key. */
+static int prev_maxmemory_lfu = -1;
+
+/* loadServerConfig only sets maxmemory-policy and never runs apply. Seed the
+ * LFU-bit baseline from the live (default or conf-file) policy so the first
+ * CONFIG SET between LFU variants is not treated as "enter LFU". Called after
+ * defaults (initConfigValues) and again after config load. */
+static void seedMaxmemoryPolicyBaseline(void) {
+    prev_maxmemory_lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
+}
+
 static int updateMaxmemoryPolicy(const char **err) {
     UNUSED(err);
-    /* -1: not yet initialized (startup config apply / first CONFIG SET). */
-    static int prev_lfu = -1;
     int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
-    int lru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU ? 1 : 0;
+    /* LRU and LRM both score keys via estimateObjectIdleTime on lru. */
+    int idle_based = server.maxmemory_policy &
+                     (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM) ? 1 : 0;
 
-    /* Encoding unchanged after we have a baseline. */
-    if (prev_lfu == lfu && prev_lfu != -1)
-        return 1;
-
-    /* First call while non-LFU (typical startup / noeviction default): just
-     * record baseline. First call into LFU still reseeds so keys created under
-     * the default non-LFU policy before any apply get correct counters. */
-    if (prev_lfu == -1 && !lfu) {
-        prev_lfu = 0;
+    /* Defensive: if baseline was never seeded, keys already match the live
+     * policy encoding from createObject / initObjectLRUOrLFU. */
+    if (prev_maxmemory_lfu == -1) {
+        prev_maxmemory_lfu = lfu;
         return 1;
     }
 
-    /* Leaving LFU for random/noeviction: field unused for eviction, skip walk. */
-    if (!lfu && !lru) {
-        prev_lfu = lfu;
+    if (prev_maxmemory_lfu == lfu)
+        return 1;
+
+    /* Leaving LFU for random / noeviction / volatile-ttl: field unused for
+     * eviction scoring, skip the keyspace walk. */
+    if (!lfu && !idle_based) {
+        prev_maxmemory_lfu = lfu;
         return 1;
     }
 
@@ -2640,7 +2655,7 @@ static int updateMaxmemoryPolicy(const char **err) {
         }
         kvstoreIteratorReset(&kvs_it);
     }
-    prev_lfu = lfu;
+    prev_maxmemory_lfu = lfu;
     return 1;
 }
 
@@ -3512,6 +3527,8 @@ void initConfigValues(void) {
             serverAssert(ret);
         }
     }
+    /* Defaults are live; seed before any client keys or CONFIG SET. */
+    seedMaxmemoryPolicyBaseline();
 }
 
 /* Remove a config by name from the configs dict. */

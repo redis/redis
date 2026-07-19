@@ -771,5 +771,41 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_equal $before [r object freq hotkey]
     }
 
+    # Leaving LFU for LRM must reseed idle clocks: LRM scores with
+    # estimateObjectIdleTime on the shared lru field (same as LRU).
+    test {LFU: CONFIG SET allkeys-lfu to allkeys-lrm reseeds IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set lrmkey value-lrm
+        assert_equal 5 [r object freq lrmkey]
+        r config set maxmemory-policy allkeys-lrm
+        assert_lessthan_equal [r object idletime lrmkey] 1
+    }
 
+    test {LFU: CONFIG SET allkeys-lfu to volatile-lrm reseeds IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set vlrmkey value-vlrm
+        assert_equal 5 [r object freq vlrmkey]
+        r config set maxmemory-policy volatile-lrm
+        assert_lessthan_equal [r object idletime vlrmkey] 1
+    }
+
+}
+
+# Conf-file LFU never runs apply at load; baseline must come from the live
+# policy so the first CONFIG SET between LFU variants preserves FREQ.
+start_server {tags {"maxmemory" "external:skip"} overrides {maxmemory-policy allkeys-lfu maxmemory 0}} {
+    test {LFU: conf-file allkeys-lfu then CONFIG SET volatile-lfu preserves FREQ} {
+        r set confkey value-conf
+        for {set i 0} {$i < 200} {incr i} {
+            r get confkey
+        }
+        set before [r object freq confkey]
+        assert_morethan $before 5
+        r config set maxmemory-policy volatile-lfu
+        assert_equal $before [r object freq confkey]
+    }
 }
