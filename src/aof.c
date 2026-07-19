@@ -992,6 +992,13 @@ int ingestPreloadRdbIntoAof(void) {
     server.aof_fd = incr_fd;
     server.aof_state = AOF_ON;
     server.aof_current_size = 0;
+    /* Set rewrite base size to the BASE file size so auto‑rewrite behaves correctly. */
+    struct stat st;
+    if (stat(target_path, &st) == 0) {
+        server.aof_rewrite_base_size = st.st_size;
+    } else {
+        server.aof_rewrite_base_size = 0;
+    }
     server.aof_last_incr_size = 0;
 
     sdsfree(incr_path);
@@ -1143,6 +1150,13 @@ int ingestPreloadSingleAofIntoAof(void) {
     server.aof_fd = incr_fd;
     server.aof_state = AOF_ON;
     server.aof_current_size = 0;
+    /* Set rewrite base size to the BASE file size so auto‑rewrite behaves correctly. */
+    struct stat st;
+    if (stat(target_path, &st) == 0) {
+        server.aof_rewrite_base_size = st.st_size;
+    } else {
+        server.aof_rewrite_base_size = 0;
+    }
     server.aof_last_incr_size = 0;
 
     sdsfree(incr_path);
@@ -1240,6 +1254,28 @@ int ingestPreloadManifestIntoAof(void) {
         listAddNodeTail(new_am->incr_aof_list, new_ai);
     }
 
+        /* Compute the total size of the ingested BASE + historical INCR files
+     * for the auto‑rewrite threshold (the new empty INCR is excluded). */
+    off_t total_base_size = 0;
+    if (new_am->base_aof_info) {
+        sds base_path = makePath(server.aof_dirname, new_am->base_aof_info->file_name);
+        struct stat st;
+        if (stat(base_path, &st) == 0) total_base_size += st.st_size;
+        sdsfree(base_path);
+    }
+    {
+        listIter li2;
+        listNode *ln2;
+        listRewind(new_am->incr_aof_list, &li2);
+        while ((ln2 = listNext(&li2)) != NULL) {
+            aofInfo *ai = listNodeValue(ln2);
+            sds incr_path = makePath(server.aof_dirname, ai->file_name);
+            struct stat st;
+            if (stat(incr_path, &st) == 0) total_base_size += st.st_size;
+            sdsfree(incr_path);
+        }
+    }
+
     /* Manually create a fresh INCR file for future writes.
      * We bypass openNewIncrAofForAppend() because it relies on live-server
      * state that isn't correctly set after a preload. */
@@ -1257,7 +1293,7 @@ int ingestPreloadManifestIntoAof(void) {
     }
 
     aofInfo *incr_ai = aofInfoCreate();
-    incr_ai->file_name = incr_name;
+    incr_ai->file_name = incr_name;   /* ownership passed */
     incr_ai->file_seq = next_incr_seq;
     incr_ai->file_type = AOF_FILE_TYPE_INCR;
     incr_ai->start_offset = server.master_repl_offset;
@@ -1283,6 +1319,7 @@ int ingestPreloadManifestIntoAof(void) {
     /* Attach the new INCR fd and mark AOF as ON. */
     server.aof_fd = incr_fd;
     server.aof_state = AOF_ON;
+    server.aof_rewrite_base_size = total_base_size;   /* set auto‑rewrite base */
     server.aof_current_size = 0;
     server.aof_last_incr_size = 0;
 
@@ -2004,8 +2041,16 @@ struct client *createAOFClient(void) {
 
 int loadPreLoadAOFFile(char *file) {
     aofManifest* preload_am = aofManifestCreate();
-    aofInfo *ai = aofInfoCreate();
-    ai->file_name = sdsnew(file);
+        aofInfo *ai = aofInfoCreate();
+    sds file_dir = getFilePath(file);
+    if (file_dir) {
+        /* Extract only the base name; loadAppendOnlyFiles will prepend the dir */
+        char *base = strrchr(file, '/');
+        ai->file_name = sdsnew(base ? base + 1 : file);
+        sdsfree(file_dir);
+    } else {
+        ai->file_name = sdsnew(file);
+    }
     ai->file_seq = 1;
     ai->file_type = AOF_FILE_TYPE_BASE;
     preload_am->base_aof_info = ai;
