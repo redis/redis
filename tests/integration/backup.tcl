@@ -130,7 +130,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         set manifest [file join $bdir appendonly.aof.manifest]
         start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"] keep_persistence true] {
             assert_equal 3 [r dbsize]
-            assert_equal 1 [s aof_rewrites]
+            assert_equal 0 [s aof_rewrites]
             waitForBgrewriteaof r
             assert_equal ok [s aof_last_bgrewrite_status]
             # we don't append the old incr aof, and it is deleted after AOFRW
@@ -631,6 +631,112 @@ start_server {overrides {appendonly yes auto-aof-rewrite-percentage 0}} {
 
         assert_equal "OK" [r backup cleanup]
         assert_equal "idle" [backup_status_field state]
+    }
+
+    test {Ingested RDB produces a working MP-AOF with new writes} {
+        r flushall
+        r set pre key1
+        r set post key2
+        # Create an RDB snapshot
+        set rdb_path [file join [lindex [r config get dir] 1] preload_ingest.rdb]
+        r save
+        file copy -force [file join [lindex [r config get dir] 1] dump.rdb] $rdb_path
+
+        # Start a new server with appendonly yes and the RDB preload file
+        start_server [list overrides [list appendonly yes preload-file "rdb:$rdb_path"]] {
+            # Both keys must be present (RDB content was loaded)
+            assert_equal 2 [r dbsize]
+            assert_equal key1 [r get pre]
+            assert_equal key2 [r get post]
+
+            # Write a new key and restart to confirm the AOF persists it
+            r set after_ingest works
+            assert_equal 3 [r dbsize]
+
+            set server_dir [lindex [r config get dir] 1]
+            set manifest [file join $server_dir appendonlydir appendonly.aof.manifest]
+            assert {[file exists $manifest]}
+            # The manifest should contain BASE and INCR entries
+            set fd [open $manifest r]
+            set content [read $fd]
+            close $fd
+            assert_match {*base*} $content
+            assert_match {*incr*} $content
+        }
+
+        # Cleanup the temporary RDB
+        file delete $rdb_path
+    }
+
+    test {Ingested manifest keeps all INCR files and can be appended to} {
+        # Create a temporary sealed backup to use as preload source
+        set backup_dir [tmpdir manifest_ingest]
+        set backup_subdir [file join $backup_dir backupdir]
+        file mkdir $backup_subdir
+
+        # Start a temporary server to create a sealed backup
+        start_server [list overrides [list dir $backup_dir appendonly yes auto-aof-rewrite-percentage 0]] {
+            r flushall
+            r set k1 v1
+            r set k2 v2
+            r backup start
+            wait_for_condition 50 100 {
+                [backup_status_field state] eq "incrementing"
+            } else {
+                fail "Backup did not reach incrementing state"
+            }
+            r set k3 v3
+            r backup seal
+            assert_equal "sealed" [backup_status_field state]
+        }
+
+        set manifest [file join $backup_subdir appendonly.aof.manifest]
+        set manifest_abs [file normalize $manifest]
+        assert {[file exists $manifest]}
+
+        # Now ingest that sealed backup into a new server
+        start_server [list overrides [list appendonly yes preload-file "aof:$manifest_abs"]] {
+            # Check data from the backup is present
+            assert_equal 3 [r dbsize]
+            assert_equal v1 [r get k1]
+            assert_equal v2 [r get k2]
+            assert_equal v3 [r get k3]
+
+            # Write a new key and verify it survives restart
+            r set after_ingest works
+            set server_dir [lindex [r config get dir] 1]
+            # Restart the same server (without preload-file) to test persistence
+            start_server [list overrides [list dir $server_dir appendonly yes]] {
+                assert_equal 4 [r dbsize]
+                assert_equal works [r get after_ingest]
+            }
+        }
+    }
+
+    test {Ingestion rollback cleans up on write error} {
+        r flushall
+        r set must-survive 1
+        set rdb [file join [lindex [r config get dir] 1] crash_me.rdb]
+        r save
+        file copy -force [file join [lindex [r config get dir] 1] dump.rdb] $rdb
+
+        # Start a server with appendonly yes, but make the appendonlydir read-only
+        # so open() for the new INCR fails.
+        set server_dir [tmpdir ingest_rollback]
+        file mkdir $server_dir
+        file attributes $server_dir -permissions 0555  ;# read+execute only
+
+        catch {
+            exec src/redis-server --port 0 --dir $server_dir --appendonly yes \
+                 --preload-file "rdb:$rdb" --logfile /dev/null
+        }
+        # The server should exit, and the appendonlydir should remain empty (no leftover BASE)
+        assert {[llength [glob -nocomplain -directory $server_dir *]] == 0}
+
+        file delete $rdb
+        # Restore permissions to clean up
+        file attributes $server_dir -permissions 0755
+        file delete -force $server_dir
     }
 
 }

@@ -32,6 +32,11 @@ int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
 void aof_background_fsync_and_close(int fd);
+static void removeFilesInDir(char *dirname);
+static int openNewIncrAofForAppend(void);
+int ingestPreloadRdbIntoAof(void);
+int ingestPreloadSingleAofIntoAof(void);
+int ingestPreloadManifestIntoAof(void);
 
 /* When we call 'startAppendOnly', we will create a temp INCR AOF, and rename
  * it to the real INCR AOF name when the AOFRW is done, so if want to know the
@@ -833,16 +838,477 @@ void aofHandlePreloadOnServerStart(void) {
         return;
     }
 
-    /* The current manifest may describe a different dataset, so don't attach
-     * new writes to its active INCR while rebuilding it. Reuse the state used
-     * when AOF is enabled at runtime: write to a temporary INCR, publish it
-     * together with the new BASE after AOFRW succeeds, and retry on failure. */
-    server.aof_state = AOF_WAIT_REWRITE;
-    if (rewriteAppendOnlyFileBackground() != C_OK) {
-        serverLog(LL_WARNING,
-            "Failed to start background AOF rewrite after preload");
+    /* The current AOF was opened with the old (unrelated) manifest.
+     * Stop it cleanly before we empty the directory. */
+    stopAppendOnly();
+
+    /* We are about to replace the entire AOF history with the preload
+    * dataset. Delete all files from the appendonlydir first, because
+    * they belong to an old, now invalid state. */
+    serverLog(LL_NOTICE, "Ingesting preload data into AOF directory: %s", server.preload_file);
+    removeFilesInDir(server.aof_dirname);
+    if (!dirIsEmpty(server.aof_dirname)) {
+        serverLog(LL_WARNING, "Failed to completely empty AOF directory, ingestion aborted.");
         exit(1);
     }
+
+    /* Now ingest the preload dataset. The exact method depends on the type. */
+    int ingested = 0;
+    if (strncmp(server.preload_file, "rdb:/", 5) == 0) {
+        ingested = ingestPreloadRdbIntoAof();
+    } else if (strncmp(server.preload_file, "aof:/", 5) == 0) {
+        const char *ext = getFileExtension(server.preload_file);
+        if (ext && !strcmp(ext, "aof")) {
+            ingested = ingestPreloadSingleAofIntoAof();
+        } else if (ext && !strcmp(ext, "manifest")) {
+            ingested = ingestPreloadManifestIntoAof();
+        }
+    }
+
+    if (ingested != C_OK) {
+        serverLog(LL_WARNING, "Failed to ingest preload file into AOF, exiting.");
+        exit(1);
+    }
+
+    serverLog(LL_NOTICE, "AOF is now consistent with preload file, no rewrite needed.");
+}
+
+/* Ingest a preloaded RDB file into the (empty) append-only directory.
+ * The RDB file is hard-linked (or copied if cross-device) as the BASE file,
+ * then a new manifest is created and a fresh INCR AOF is opened for future
+ * writes.
+ *
+ * Returns C_OK on success, C_ERR on failure (logs details). */
+int ingestPreloadRdbIntoAof(void) {
+    /* Obtain the absolute path to the preloaded RDB file. */
+    const char *rdb_path = server.preload_file + 4; /* skip "rdb:" */
+    sds abs_src = getAbsolutePath(rdb_path);
+    if (!abs_src) {
+        serverLog(LL_WARNING, "Failed to resolve absolute path for RDB: %s", rdb_path);
+        return C_ERR;
+    }
+
+    /* Ensure the appendonly directory exists. */
+    if (dirCreateIfMissing(server.aof_dirname) == -1) {
+        serverLog(LL_WARNING, "Cannot create AOF directory: %s", strerror(errno));
+        sdsfree(abs_src);
+        return C_ERR;
+    }
+
+    /* Construct the target BASE file path. */
+    sds base_name = sdsnew("appendonly.aof.1.base.rdb");
+    sds target_path = makePath(server.aof_dirname, base_name);
+
+    /* Try hard-linking the RDB into the AOF directory. */
+    if (link(abs_src, target_path) == -1) {
+        if (errno == EXDEV) {
+            /* Cross-device link - fall back to full copy. */
+            serverLog(LL_NOTICE,
+                "Hard link failed (cross-device), copying RDB file instead: %s -> %s",
+                abs_src, target_path);
+            if (fcopyfile(abs_src, target_path) != 0) {
+                serverLog(LL_WARNING, "Copy failed: %s -> %s: %s",
+                          abs_src, target_path, strerror(errno));
+                sdsfree(abs_src);
+                sdsfree(target_path);
+                sdsfree(base_name);
+                return C_ERR;
+            }
+        } else {
+            serverLog(LL_WARNING, "Cannot hard-link RDB file: %s -> %s: %s",
+                      abs_src, target_path, strerror(errno));
+            sdsfree(abs_src);
+            sdsfree(target_path);
+            sdsfree(base_name);
+            return C_ERR;
+        }
+    }
+    sdsfree(abs_src);
+
+    /* Build a fresh MP-AOF manifest with the BASE file. */
+    aofManifest *new_am = aofManifestCreate();
+    aofInfo *base_ai = aofInfoCreate();
+    base_ai->file_name = sdsdup(base_name);
+    base_ai->file_seq = 1;
+    base_ai->file_type = AOF_FILE_TYPE_BASE;
+    new_am->base_aof_info = base_ai;
+    new_am->curr_base_file_seq = 1;
+    new_am->dirty = 1;
+
+    /* Replace the old manifest now (the AOF directory is empty so any old
+     * manifest is invalid). */
+    if (server.aof_manifest) {
+        aofManifestFree(server.aof_manifest);
+    }
+    server.aof_manifest = new_am;
+
+    /* Manually create a fresh INCR file and update the manifest.
+     * We bypass openNewIncrAofForAppend() because that function relies
+     * on live-server state (repl offset, rewrite flags) that are not
+     * properly initialised after a preload. */
+    int next_incr_seq = new_am->curr_base_file_seq + 1;
+    sds incr_name = sdscatprintf(sdsempty(), "appendonly.aof.%d.incr.aof", next_incr_seq);
+    sds incr_path = makePath(server.aof_dirname, incr_name);
+    int incr_fd = open(incr_path, O_WRONLY|O_CREAT|O_TRUNC, 0644);
+    if (incr_fd == -1) {
+        serverLog(LL_WARNING, "Cannot create new INCR file %s: %s",
+                  incr_name, strerror(errno));
+        sdsfree(incr_name);
+        sdsfree(incr_path);
+        /* Rollback: remove BASE file and free manifest */
+        unlink(target_path);
+        aofManifestFree(server.aof_manifest);
+        server.aof_manifest = NULL;
+        sdsfree(target_path);
+        sdsfree(base_name);
+        return C_ERR;
+    }
+
+    aofInfo *incr_ai = aofInfoCreate();
+    incr_ai->file_name = incr_name;   /* ownership passed */
+    incr_ai->file_seq = next_incr_seq;
+    incr_ai->file_type = AOF_FILE_TYPE_INCR;
+    incr_ai->start_offset = 0;
+    incr_ai->end_offset = -1;
+    listAddNodeTail(new_am->incr_aof_list, incr_ai);
+    new_am->dirty = 1;
+
+    if (persistAofManifest(new_am) != C_OK) {
+        serverLog(LL_WARNING, "Failed to persist manifest after adding INCR");
+        close(incr_fd);
+        unlink(incr_path);
+        /* Rollback: remove BASE file and free manifest */
+        unlink(target_path);
+        aofManifestFree(server.aof_manifest);
+        server.aof_manifest = NULL;
+        sdsfree(target_path);
+        sdsfree(base_name);
+        sdsfree(incr_path);
+        return C_ERR;
+    }
+
+    /* Live manifest is already set; now attach the new INCR fd. */
+    server.aof_fd = incr_fd;
+    server.aof_state = AOF_ON;
+    server.aof_current_size = 0;
+    server.aof_last_incr_size = 0;
+
+    sdsfree(incr_path);
+    sdsfree(target_path);
+    sdsfree(base_name);
+    return C_OK;
+}
+
+/* Link/copy a file into the AOF directory and record it for rollback.
+ * Returns the new base name (sds) on success, NULL on failure. */
+static sds copyFileIntoAofDir(fileList *created, const char *src_path,
+                               int seq, const char *type, const char *ext) {
+    sds new_name = sdscatprintf(sdsempty(), "appendonly.aof.%d.%s.%s",
+                                seq, type, ext);
+    sds new_path = makePath(server.aof_dirname, new_name);
+    if (link(src_path, new_path) == -1) {
+        if (errno == EXDEV) {
+            serverLog(LL_NOTICE, "Cross-device link, copying: %s -> %s",
+                      src_path, new_path);
+            if (fcopyfile(src_path, new_path) != 0) {
+                serverLog(LL_WARNING, "Copy failed: %s -> %s: %s",
+                          src_path, new_path, strerror(errno));
+                sdsfree(new_path);
+                sdsfree(new_name);
+                return NULL;
+            }
+        } else {
+            serverLog(LL_WARNING, "Cannot hard-link: %s -> %s: %s",
+                      src_path, new_path, strerror(errno));
+            sdsfree(new_path);
+            sdsfree(new_name);
+            return NULL;
+        }
+    }
+    fileListAdd(created, sdsdup(new_path));
+    sdsfree(new_path);
+    return new_name;
+}
+
+/* Ingest a preloaded single AOF file (old-style) into the (empty) append-only
+ * directory. The file is hard-linked (or copied if cross-device) as the BASE
+ * AOF, a new MP-AOF manifest is created, and a fresh INCR AOF is opened for
+ * future writes.
+ *
+ * Returns C_OK on success, C_ERR on failure (logs details). */
+int ingestPreloadSingleAofIntoAof(void) {
+    /* Obtain the absolute path to the preloaded AOF file. */
+    const char *aof_path = server.preload_file + 4; /* skip "aof:" */
+    sds abs_src = getAbsolutePath(aof_path);
+    if (!abs_src) {
+        serverLog(LL_WARNING, "Failed to resolve absolute path for AOF: %s", aof_path);
+        return C_ERR;
+    }
+
+    /* Ensure the append-only directory exists. */
+    if (dirCreateIfMissing(server.aof_dirname) == -1) {
+        serverLog(LL_WARNING, "Cannot create AOF directory: %s", strerror(errno));
+        sdsfree(abs_src);
+        return C_ERR;
+    }
+
+    /* Construct the target BASE file name. */
+    sds base_name = sdsnew("appendonly.aof.1.base.aof");
+    sds target_path = makePath(server.aof_dirname, base_name);
+
+    /* Try hard-linking the AOF file. Fallback to copy on EXDEV. */
+    if (link(abs_src, target_path) == -1) {
+        if (errno == EXDEV) {
+            /* Cross-device link, copying instead. */
+            serverLog(LL_NOTICE,
+                "Hard link failed (cross-device), copying AOF file instead: %s -> %s",
+                abs_src, target_path);
+            if (fcopyfile(abs_src, target_path) != 0) {
+                serverLog(LL_WARNING, "Copy failed: %s -> %s: %s",
+                          abs_src, target_path, strerror(errno));
+                goto fail;
+            }
+        } else {
+            serverLog(LL_WARNING, "Cannot hard-link AOF file: %s -> %s: %s",
+                      abs_src, target_path, strerror(errno));
+            goto fail;
+        }
+    }
+    sdsfree(abs_src);
+
+    /* Build a fresh MP-AOF manifest with the BASE file. */
+    aofManifest *new_am = aofManifestCreate();
+    aofInfo *base_ai = aofInfoCreate();
+    base_ai->file_name = sdsdup(base_name);
+    base_ai->file_seq = 1;
+    base_ai->file_type = AOF_FILE_TYPE_BASE;
+    new_am->base_aof_info = base_ai;
+    new_am->curr_base_file_seq = 1;
+    new_am->dirty = 1;
+
+    /* Replace the existing manifest. */
+    if (server.aof_manifest) {
+        aofManifestFree(server.aof_manifest);
+    }
+    server.aof_manifest = new_am;
+
+    /* Manually create a fresh INCR file and update the manifest.
+     * We bypass openNewIncrAofForAppend() because that function relies
+     * on live-server state (repl offset, rewrite flags) that are not
+     * properly initialised after a preload. */
+    int next_incr_seq = new_am->curr_base_file_seq + 1;
+    sds incr_name = sdscatprintf(sdsempty(), "appendonly.aof.%d.incr.aof", next_incr_seq);
+    sds incr_path = makePath(server.aof_dirname, incr_name);
+    int incr_fd = open(incr_path, O_WRONLY|O_CREAT|O_TRUNC, 0644);
+    if (incr_fd == -1) {
+        serverLog(LL_WARNING, "Cannot create new INCR file %s: %s",
+                  incr_name, strerror(errno));
+        sdsfree(incr_name);
+        sdsfree(incr_path);
+        /* Rollback: remove BASE file and free manifest */
+        unlink(target_path);
+        aofManifestFree(server.aof_manifest);
+        server.aof_manifest = NULL;
+        sdsfree(target_path);
+        sdsfree(base_name);
+        return C_ERR;
+    }
+
+    aofInfo *incr_ai = aofInfoCreate();
+    incr_ai->file_name = incr_name;   /* ownership passed */
+    incr_ai->file_seq = next_incr_seq;
+    incr_ai->file_type = AOF_FILE_TYPE_INCR;
+    incr_ai->start_offset = 0;
+    incr_ai->end_offset = -1;
+    listAddNodeTail(new_am->incr_aof_list, incr_ai);
+    new_am->dirty = 1;
+
+    if (persistAofManifest(new_am) != C_OK) {
+        serverLog(LL_WARNING, "Failed to persist manifest after adding INCR");
+        close(incr_fd);
+        unlink(incr_path);
+        /* Rollback as above */
+        unlink(target_path);
+        aofManifestFree(server.aof_manifest);
+        server.aof_manifest = NULL;
+        sdsfree(target_path);
+        sdsfree(base_name);
+        sdsfree(incr_path);
+        return C_ERR;
+    }
+
+    /* Attach the new INCR fd and mark AOF as ON. */
+    server.aof_fd = incr_fd;
+    server.aof_state = AOF_ON;
+    server.aof_current_size = 0;
+    server.aof_last_incr_size = 0;
+
+    sdsfree(incr_path);
+    sdsfree(target_path);
+    sdsfree(base_name);
+    return C_OK;
+
+fail:
+    sdsfree(abs_src);
+    sdsfree(target_path);
+    sdsfree(base_name);
+    return C_ERR;
+}
+
+/* Ingest a preloaded MP-AOF manifest (sealed backup) into the (empty) append-only
+ * directory. Every file referenced by the manifest is hard-linked (or copied if
+ * cross-device) with new sequential MP-AOF names. A new manifest is then
+ * persisted, and a fresh INCR AOF is opened for future writes.
+ *
+ * Returns C_OK on success, C_ERR on failure (logs details). */
+int ingestPreloadManifestIntoAof(void) {
+    const char *manifest_path = server.preload_file + 4;
+    sds abs_manifest = getAbsolutePath(manifest_path);
+    if (!abs_manifest) {
+        serverLog(LL_WARNING, "Failed to resolve absolute path for manifest: %s",
+                  manifest_path);
+        return C_ERR;
+    }
+
+    aofManifest *preload_am = aofLoadManifestFromFile(abs_manifest);
+    if (!preload_am) {
+        serverLog(LL_WARNING, "Failed to load preload manifest: %s", abs_manifest);
+        sdsfree(abs_manifest);
+        return C_ERR;
+    }
+
+    sds src_dir = getFilePath(abs_manifest);
+    if (!src_dir) src_dir = sdsnew(".");
+
+    if (dirCreateIfMissing(server.aof_dirname) == -1) {
+        serverLog(LL_WARNING, "Cannot create AOF directory: %s", strerror(errno));
+        aofManifestFree(preload_am);
+        sdsfree(abs_manifest);
+        sdsfree(src_dir);
+        return C_ERR;
+    }
+
+    aofManifest *new_am = aofManifestCreate();
+    fileList created;
+    fileListInit(&created);
+    int next_seq = 1;
+    int success = C_OK;
+
+    /* Process BASE file. */
+    if (preload_am->base_aof_info) {
+        aofInfo *base_src = preload_am->base_aof_info;
+        sds src_path = makePath(src_dir, base_src->file_name);
+        char *ext = getFileExtension(base_src->file_name);
+        if (!ext) ext = "aof";
+        sds new_name = copyFileIntoAofDir(&created, src_path, next_seq, "base", ext);
+        sdsfree(src_path);
+        if (!new_name) {
+            success = C_ERR;
+            goto cleanup;
+        }
+        aofInfo *new_ai = aofInfoCreate();
+        new_ai->file_name = new_name;
+        new_ai->file_seq = next_seq++;
+        new_ai->file_type = AOF_FILE_TYPE_BASE;
+        new_ai->start_offset = base_src->start_offset;
+        new_ai->end_offset = base_src->end_offset;
+        new_am->base_aof_info = new_ai;
+        new_am->curr_base_file_seq = new_ai->file_seq;
+    }
+
+    /* Process INCR files. */
+    listIter li;
+    listNode *ln;
+    listRewind(preload_am->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *incr_src = listNodeValue(ln);
+        sds src_path = makePath(src_dir, incr_src->file_name);
+        sds new_name = copyFileIntoAofDir(&created, src_path, next_seq, "incr", "aof");
+        sdsfree(src_path);
+        if (!new_name) {
+            success = C_ERR;
+            goto cleanup;
+        }
+        aofInfo *new_ai = aofInfoCreate();
+        new_ai->file_name = new_name;
+        new_ai->file_seq = next_seq++;
+        new_ai->file_type = AOF_FILE_TYPE_INCR;
+        new_ai->start_offset = incr_src->start_offset;
+        new_ai->end_offset = incr_src->end_offset;
+        listAddNodeTail(new_am->incr_aof_list, new_ai);
+    }
+
+    /* Persist the manifest (contains BASE + historical INCRs). */
+    if (persistAofManifest(new_am) != C_OK) {
+        serverLog(LL_WARNING, "Failed to persist new manifest after ingestion");
+        success = C_ERR;
+        goto cleanup;
+    }
+
+    /* Replace the live manifest with the one we just built. */
+    if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+    server.aof_manifest = new_am;
+    new_am = NULL;  /* ownership transferred */
+
+    /* Manually create a fresh INCR file for future writes.
+     * We bypass openNewIncrAofForAppend() because it relies on live-server
+     * state that isn't correctly set after a preload. */
+    int next_incr_seq = next_seq;
+    sds incr_name = sdscatprintf(sdsempty(), "appendonly.aof.%d.incr.aof", next_incr_seq);
+    sds incr_path = makePath(server.aof_dirname, incr_name);
+    int incr_fd = open(incr_path, O_WRONLY|O_CREAT|O_TRUNC, 0644);
+    if (incr_fd == -1) {
+        serverLog(LL_WARNING, "Cannot create new INCR file %s: %s",
+                  incr_name, strerror(errno));
+        sdsfree(incr_name);
+        sdsfree(incr_path);
+        success = C_ERR;
+        goto cleanup;
+    }
+
+    aofInfo *incr_ai = aofInfoCreate();
+    incr_ai->file_name = incr_name;   /* ownership passed */
+    incr_ai->file_seq = next_incr_seq;
+    incr_ai->file_type = AOF_FILE_TYPE_INCR;
+    incr_ai->start_offset = 0;
+    incr_ai->end_offset = -1;
+    listAddNodeTail(server.aof_manifest->incr_aof_list, incr_ai);
+    server.aof_manifest->dirty = 1;
+
+    if (persistAofManifest(server.aof_manifest) != C_OK) {
+        serverLog(LL_WARNING, "Failed to persist manifest after adding INCR");
+        close(incr_fd);
+        unlink(incr_path);
+        /* The INCR file was not added to the rollback list; we remove it manually
+         * while the rest of created files will be cleaned by fileListRollback. */
+        success = C_ERR;
+        goto cleanup;
+    }
+
+    /* Attach the new INCR fd and mark AOF as ON. */
+    server.aof_fd = incr_fd;
+    server.aof_state = AOF_ON;
+    server.aof_current_size = 0;
+    server.aof_last_incr_size = 0;
+
+    sdsfree(incr_path);
+    /* Fall through to cleanup, which frees the created file list but keeps files. */
+
+cleanup:
+    if (new_am) aofManifestFree(new_am);
+
+    if (success != C_OK) {
+        /* Remove all files we created (including BASE/INCR copies) */
+        fileListRollback(&created);
+    } else {
+        /* Files are in place; just free the path list. */
+        fileListFree(&created);
+    }
+
+    sdsfree(src_dir);
+    sdsfree(abs_manifest);
+    aofManifestFree(preload_am);
+    return success;
 }
 
 int aofFileExist(char *filename) {
@@ -1555,9 +2021,10 @@ int loadPreLoadAOFFile(char *file) {
     char *tmp_aof_filename = server.aof_filename;
     server.aof_filename = "";
     char *tmp_aof_dirname = server.aof_dirname;
-    server.aof_dirname = "";
+    server.aof_dirname = getFilePath(file);
     int ret = loadAppendOnlyFiles(preload_am);
     aofManifestFree(preload_am);
+    sdsfree(server.aof_dirname);
     server.aof_filename = tmp_aof_filename;
     server.aof_dirname = tmp_aof_dirname;
     return ret;

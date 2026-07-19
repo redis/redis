@@ -37,6 +37,13 @@ typedef enum {
     LD_STR_HEX       /* %La */
 } ld2string_mode;
 
+/* Simple dynamic list of file paths for atomic rollback. */
+typedef struct {
+    sds *paths;      /* array of sds */
+    int count;       /* number of entries */
+    int capacity;    /* allocated size */
+} fileList;
+
 int prefixmatch(const char *pattern, int patternLen, const char *prefixStr, 
                 int prefixStrLen, int nocase);
 int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
@@ -61,11 +68,16 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 int double2ll(double d, long long *out);
 int yesnotoi(char *s);
-sds getAbsolutePath(char *filename);
+sds getAbsolutePath(const char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
 char *getFileExtension(char *path);
 sds getFilePath(char *path);
+void fileListInit(fileList *fl);
+void fileListAdd(fileList *fl, sds path);
+void fileListRollback(fileList *fl);
+void fileListFree(fileList *fl);
+int fcopyfile(const char *src, const char *dst);
 int dirCreateIfMissing(char *dname);
 int dirExists(char *dname);
 int dirIsEmpty(char *dname);

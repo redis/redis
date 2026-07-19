@@ -51,6 +51,7 @@
 #include "util.h"
 #include "sha256.h"
 #include "config.h"
+#include "zmalloc.h"
 
 #define UNUSED(x) ((void)(x))
 
@@ -1034,7 +1035,7 @@ void getRandomHexChars(char *p, size_t len) {
  * The function does not try to normalize everything, but only the obvious
  * case of one or more "../" appearing at the start of "filename"
  * relative path. */
-sds getAbsolutePath(char *filename) {
+sds getAbsolutePath(const char *filename) {
     char cwd[1024];
     sds abspath;
     sds relpath = sdsnew(filename);
@@ -1112,10 +1113,83 @@ char *getFileExtension(char *path) {
 }
 
 sds getFilePath(char *path) {
-    if (pathIsBaseName(path)) return NULL;
+    if (pathIsBaseName(path)) return sdsnew(".");
 
     char *pch = strrchr(path,'/');
     return sdsnewlen(path, pch - path);
+}
+
+/* Initialise a new fileList. Caller must later call fileListRollback or fileListFree. */
+void fileListInit(fileList *fl) {
+    fl->paths = NULL;
+    fl->count = 0;
+    fl->capacity = 0;
+}
+
+/* Add a path to the list. The sds ownership is taken by the list. */
+void fileListAdd(fileList *fl, sds path) {
+    if (fl->count >= fl->capacity) {
+        int newcap = fl->capacity ? fl->capacity * 2 : 8;
+        fl->paths = zrealloc(fl->paths, sizeof(sds) * newcap);
+        fl->capacity = newcap;
+    }
+    fl->paths[fl->count++] = path;
+}
+
+/* Remove (unlink) all files in the list, free their sds strings, and reset
+ * the list. This is meant for error recovery. After calling, the list is
+ * empty and can be reused or simply discarded. */
+void fileListRollback(fileList *fl) {
+    for (int i = 0; i < fl->count; i++) {
+        unlink(fl->paths[i]);      /* ignore errors, best effort */
+        sdsfree(fl->paths[i]);
+    }
+    zfree(fl->paths);
+    fl->paths = NULL;
+    fl->count = 0;
+    fl->capacity = 0;
+}
+
+/* Free the list without deleting files (for successful completion). */
+void fileListFree(fileList *fl) {
+    for (int i = 0; i < fl->count; i++) {
+        sdsfree(fl->paths[i]);
+    }
+    zfree(fl->paths);
+    fl->paths = NULL;
+    fl->count = 0;
+    fl->capacity = 0;
+}
+
+/* Copy file from src to dst. Returns 0 on success, -1 on error. */
+int fcopyfile(const char *src, const char *dst) {
+    int sfd = open(src, O_RDONLY);
+    if (sfd == -1) return -1;
+    int dfd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (dfd == -1) { close(sfd); return -1; }
+
+    char buf[65536];
+    ssize_t n;
+    int err = 0;
+    while ((n = read(sfd, buf, sizeof(buf))) > 0) {
+        ssize_t written = 0;
+        while (written < n) {
+            ssize_t w = write(dfd, buf + written, n - written);
+            if (w == -1) {
+                if (errno == EINTR) continue;
+                err = 1;
+                goto end;
+            }
+            written += w;
+        }
+    }
+    if (n == -1) err = 1;
+
+end:
+    close(sfd);
+    close(dfd);
+    if (err) { unlink(dst); return -1; }
+    return 0;
 }
 
 int fileExist(char *filename) {
