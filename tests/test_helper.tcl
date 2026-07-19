@@ -90,6 +90,8 @@ set ::large_memory 0
 set ::log_req_res 0
 set ::force_resp3 0
 set ::debug_defrag 0
+set ::last_failed_test_name ""
+set ::last_failed_test_file ""
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -396,10 +398,15 @@ proc read_from_test_client fd {
             gets stdin
         }
     } elseif {$status eq {exception}} {
-        puts "\[[colorstr red $status]\]: $data"
-        kill_clients
-        force_kill_all_servers
-        exit 1
+        set err "\[[colorstr red $status]\]: $data"
+        puts $err
+        lappend ::failed_tests $err
+        set ::active_clients_task($fd) "(EXCEPTION) $data"
+        if {$::stop_on_failure} {
+            puts -nonewline "(Test stopped, press enter to resume the tests)"
+            flush stdout
+            gets stdin
+        }
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
     } elseif {$status eq {server-spawning}} {
@@ -531,10 +538,20 @@ proc test_client_main server_port {
         set payload [encoding convertfrom utf-8 [read $::test_server_fd $bytes]]
         foreach {cmd data} $payload break
         if {$cmd eq {run}} {
-            execute_test_file $data
+            # Catch exceptions from individual test file execution, but don't exit the client.
+            if {[catch {execute_test_file $data} err]} {
+                set error_detail "Test '$::last_failed_test_name' in $::last_failed_test_file threw exception:\n$::errorInfo"
+                send_data_packet $::test_server_fd exception $error_detail
+                send_data_packet $::test_server_fd done $data
+            }
         } elseif {$cmd eq {run_code}} {
             foreach {name filename code} $data break
-            execute_test_code $name $filename $code
+            # Catch exceptions from individual test code execution, but don't exit the client.
+            if {[catch {execute_test_code $name $filename $code} err]} {
+                set error_detail "Test '$::last_failed_test_name' in $::last_failed_test_file threw exception:\n$::errorInfo"
+                send_data_packet $::test_server_fd exception $error_detail
+                send_data_packet $::test_server_fd done $name
+            }
         } else {
             error "Unknown test client command: $cmd"
         }
