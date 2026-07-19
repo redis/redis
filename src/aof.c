@@ -968,10 +968,11 @@ int ingestPreloadRdbIntoAof(void) {
     incr_ai->file_name = incr_name;   /* ownership passed */
     incr_ai->file_seq = next_incr_seq;
     incr_ai->file_type = AOF_FILE_TYPE_INCR;
-    incr_ai->start_offset = 0;
+    incr_ai->start_offset = server.master_repl_offset;
     incr_ai->end_offset = -1;
     listAddNodeTail(new_am->incr_aof_list, incr_ai);
     new_am->dirty = 1;
+    new_am->curr_incr_file_seq = next_incr_seq;
 
     if (persistAofManifest(new_am) != C_OK) {
         serverLog(LL_WARNING, "Failed to persist manifest after adding INCR");
@@ -1118,10 +1119,11 @@ int ingestPreloadSingleAofIntoAof(void) {
     incr_ai->file_name = incr_name;   /* ownership passed */
     incr_ai->file_seq = next_incr_seq;
     incr_ai->file_type = AOF_FILE_TYPE_INCR;
-    incr_ai->start_offset = 0;
+    incr_ai->start_offset = server.master_repl_offset;
     incr_ai->end_offset = -1;
     listAddNodeTail(new_am->incr_aof_list, incr_ai);
     new_am->dirty = 1;
+    new_am->curr_incr_file_seq = next_incr_seq;
 
     if (persistAofManifest(new_am) != C_OK) {
         serverLog(LL_WARNING, "Failed to persist manifest after adding INCR");
@@ -1238,18 +1240,6 @@ int ingestPreloadManifestIntoAof(void) {
         listAddNodeTail(new_am->incr_aof_list, new_ai);
     }
 
-    /* Persist the manifest (contains BASE + historical INCRs). */
-    if (persistAofManifest(new_am) != C_OK) {
-        serverLog(LL_WARNING, "Failed to persist new manifest after ingestion");
-        success = C_ERR;
-        goto cleanup;
-    }
-
-    /* Replace the live manifest with the one we just built. */
-    if (server.aof_manifest) aofManifestFree(server.aof_manifest);
-    server.aof_manifest = new_am;
-    new_am = NULL;  /* ownership transferred */
-
     /* Manually create a fresh INCR file for future writes.
      * We bypass openNewIncrAofForAppend() because it relies on live-server
      * state that isn't correctly set after a preload. */
@@ -1267,23 +1257,28 @@ int ingestPreloadManifestIntoAof(void) {
     }
 
     aofInfo *incr_ai = aofInfoCreate();
-    incr_ai->file_name = incr_name;   /* ownership passed */
+    incr_ai->file_name = incr_name;
     incr_ai->file_seq = next_incr_seq;
     incr_ai->file_type = AOF_FILE_TYPE_INCR;
-    incr_ai->start_offset = 0;
+    incr_ai->start_offset = server.master_repl_offset;
     incr_ai->end_offset = -1;
-    listAddNodeTail(server.aof_manifest->incr_aof_list, incr_ai);
-    server.aof_manifest->dirty = 1;
+    listAddNodeTail(new_am->incr_aof_list, incr_ai);
+    new_am->curr_incr_file_seq = next_incr_seq;
+    new_am->dirty = 1;
 
-    if (persistAofManifest(server.aof_manifest) != C_OK) {
+    /* Now persist the complete manifest (BASE + historical INCRs + new INCR). */
+    if (persistAofManifest(new_am) != C_OK) {
         serverLog(LL_WARNING, "Failed to persist manifest after adding INCR");
         close(incr_fd);
         unlink(incr_path);
-        /* The INCR file was not added to the rollback list; we remove it manually
-         * while the rest of created files will be cleaned by fileListRollback. */
         success = C_ERR;
         goto cleanup;
     }
+
+    /* Replace the live manifest with the one we just built. */
+    if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+    server.aof_manifest = new_am;
+    new_am = NULL;  /* ownership transferred */
 
     /* Attach the new INCR fd and mark AOF as ON. */
     server.aof_fd = incr_fd;
