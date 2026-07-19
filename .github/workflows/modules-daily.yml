@@ -167,31 +167,60 @@ jobs:
     - name: make test all
       if: ${{ github.event.inputs.run_tests == 'true' }}
       run: make test all
-    # Package/deploy smoke: verify `make tarball` produces a self-contained
-    # bundle and `make deploy` installs a runnable server + modules.
-    #   tarball: TARBALL_SKIP_MODULES_UPDATE=1 — modules already cloned above.
-    #   deploy : reuses the already-built tree, copies binaries + .so into
-    #            $PREFIX and rewrites redis-full.conf's loadmodule paths to
-    #            the installed absolute paths; we then run the deployed server.
-    # ponytail: deploy smokes the current build, not a from-tarball rebuild —
-    # a full rebuild-from-tarball would double build time for little added
-    # signal here; add it if the tarball's bundled sources ever drift.
+    # Package/deploy smoke — mirrors PR TalBarYakar/redis#4's
+    # phase_package_deploy_smoke exactly:
+    #   1. make tarball, extract, assert the bundled redis.conf carries the
+    #      exact relative loadmodule line for every module.
+    #   2. make deploy FROM the extracted tarball, then assert deploy
+    #      rewrote redis.conf's loadmodule lines to the absolute $PREFIX paths.
+    #   3. run the deployed redis-server with that redis.conf, verify each
+    #      module both loads (MODULE LIST + server log) and answers a command.
     - name: make tarball, deploy, smoke test
+      env:
+        DEPLOY_PREFIX: /tmp/redis-deploy
+        DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
       run: |
-        make tarball TAG=HEAD OUT_PATH=/tmp/redis-bundle.tar.gz TARBALL_SKIP_MODULES_UPDATE=1
-        tar tzf /tmp/redis-bundle.tar.gz | grep -q 'modules/redisearch/src/' || { echo 'tarball missing module sources'; exit 1; }
-        make deploy PREFIX=/tmp/redis-deploy
-        /tmp/redis-deploy/bin/redis-server redis-full.conf --daemonize no &
+        make tarball TAG=HEAD
+        rm -rf /tmp/redis-tarball-check && mkdir -p /tmp/redis-tarball-check
+        tar -xf /tmp/redis-HEAD.tar.gz -C /tmp/redis-tarball-check
+        EXTRACTED=/tmp/redis-tarball-check/redis-HEAD
+        for line in \
+          "loadmodule ./modules/redisbloom/redisbloom.so" \
+          "loadmodule ./modules/redisearch/redisearch.so" \
+          "loadmodule ./modules/redisjson/rejson.so" \
+          "loadmodule ./modules/redistimeseries/redistimeseries.so"; do
+          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: missing tarball redis.conf line: $line" >&2; exit 1; }
+        done
+        mkdir -p "$DEPLOY_PREFIX"
+        ( cd "$EXTRACTED" && make deploy PREFIX="$DEPLOY_PREFIX" )
+        for so in redisbloom.so redisearch.so rejson.so redistimeseries.so; do
+          line="loadmodule $DEPLOY_PREFIX/lib/redis/modules/$so"
+          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: deployed redis.conf missing absolute line: $line" >&2; exit 1; }
+        done
+        cp "$EXTRACTED/redis.conf" "$DEPLOY_PREFIX/redis.conf"
+        "$DEPLOY_PREFIX/bin/redis-server" "$DEPLOY_PREFIX/redis.conf" --appendonly no >"$DEPLOY_RUN_LOG" 2>&1 &
+        cli="$DEPLOY_PREFIX/bin/redis-cli"
         i=0
-        until /tmp/redis-deploy/bin/redis-cli ping 2>/dev/null | grep -q PONG; do
-          i=$((i+1)); [ "$i" -gt 60 ] && echo 'deployed redis-server did not come up' && exit 1
+        until "$cli" PING 2>/dev/null | grep -q PONG; do
+          i=$((i+1)); [ "$i" -gt 120 ] && { tail -80 "$DEPLOY_RUN_LOG"; echo 'deployed redis-server did not become ready' >&2; exit 1; }
           sleep 1
         done
-        /tmp/redis-deploy/bin/redis-cli MODULE LIST | tee deploy-module-list.txt
-        for m in bf search ReJSON timeseries; do
-          grep -qx "$m" deploy-module-list.txt || { echo "MISSING MODULE (deploy): $m"; exit 1; }
+        for needle in timeseries bf ReJSON search; do
+          "$cli" MODULE LIST | grep -qi "$needle" || { "$cli" MODULE LIST; echo "ERROR: module '$needle' was not loaded" >&2; exit 1; }
         done
-        /tmp/redis-deploy/bin/redis-cli shutdown nosave || true
+        "$cli" TS.CREATE ts
+        "$cli" TS.ADD ts '*' 1
+        "$cli" TS.INFO ts
+        "$cli" BF.ADD bf x
+        "$cli" BF.EXISTS bf x
+        "$cli" JSON.SET j '$' '{"a":1}'
+        "$cli" JSON.GET j
+        "$cli" FT.CREATE idx ON HASH SCHEMA t TEXT
+        "$cli" FT._LIST
+        for module_name in bf search ReJSON timeseries; do
+          grep -q "Module '$module_name' loaded" "$DEPLOY_RUN_LOG" || { tail -80 "$DEPLOY_RUN_LOG"; echo "ERROR: deployed server log did not show module '$module_name' loading" >&2; exit 1; }
+        done
+        "$cli" SHUTDOWN NOSAVE || true
 
   # Same from-source flow as test-modules, on native macOS. macOS can't run
   # inside a container and current runners are arm64-only, so it can't join
@@ -246,18 +275,48 @@ jobs:
       if: ${{ github.event.inputs.run_tests == 'true' }}
       run: make test all
     - name: make tarball, deploy, smoke test
+      env:
+        DEPLOY_PREFIX: /tmp/redis-deploy
+        DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
       run: |
-        make tarball TAG=HEAD OUT_PATH=/tmp/redis-bundle.tar.gz TARBALL_SKIP_MODULES_UPDATE=1
-        tar tzf /tmp/redis-bundle.tar.gz | grep -q 'modules/redisearch/src/' || { echo 'tarball missing module sources'; exit 1; }
-        make deploy PREFIX=/tmp/redis-deploy
-        /tmp/redis-deploy/bin/redis-server redis-full.conf --daemonize no &
+        make tarball TAG=HEAD
+        rm -rf /tmp/redis-tarball-check && mkdir -p /tmp/redis-tarball-check
+        tar -xf /tmp/redis-HEAD.tar.gz -C /tmp/redis-tarball-check
+        EXTRACTED=/tmp/redis-tarball-check/redis-HEAD
+        for line in \
+          "loadmodule ./modules/redisbloom/redisbloom.so" \
+          "loadmodule ./modules/redisearch/redisearch.so" \
+          "loadmodule ./modules/redisjson/rejson.so" \
+          "loadmodule ./modules/redistimeseries/redistimeseries.so"; do
+          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: missing tarball redis.conf line: $line" >&2; exit 1; }
+        done
+        mkdir -p "$DEPLOY_PREFIX"
+        ( cd "$EXTRACTED" && make deploy PREFIX="$DEPLOY_PREFIX" )
+        for so in redisbloom.so redisearch.so rejson.so redistimeseries.so; do
+          line="loadmodule $DEPLOY_PREFIX/lib/redis/modules/$so"
+          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: deployed redis.conf missing absolute line: $line" >&2; exit 1; }
+        done
+        cp "$EXTRACTED/redis.conf" "$DEPLOY_PREFIX/redis.conf"
+        "$DEPLOY_PREFIX/bin/redis-server" "$DEPLOY_PREFIX/redis.conf" --appendonly no >"$DEPLOY_RUN_LOG" 2>&1 &
+        cli="$DEPLOY_PREFIX/bin/redis-cli"
         i=0
-        until /tmp/redis-deploy/bin/redis-cli ping 2>/dev/null | grep -q PONG; do
-          i=$((i+1)); [ "$i" -gt 60 ] && echo 'deployed redis-server did not come up' && exit 1
+        until "$cli" PING 2>/dev/null | grep -q PONG; do
+          i=$((i+1)); [ "$i" -gt 120 ] && { tail -80 "$DEPLOY_RUN_LOG"; echo 'deployed redis-server did not become ready' >&2; exit 1; }
           sleep 1
         done
-        /tmp/redis-deploy/bin/redis-cli MODULE LIST | tee deploy-module-list.txt
-        for m in bf search ReJSON timeseries; do
-          grep -qx "$m" deploy-module-list.txt || { echo "MISSING MODULE (deploy): $m"; exit 1; }
+        for needle in timeseries bf ReJSON search; do
+          "$cli" MODULE LIST | grep -qi "$needle" || { "$cli" MODULE LIST; echo "ERROR: module '$needle' was not loaded" >&2; exit 1; }
         done
-        /tmp/redis-deploy/bin/redis-cli shutdown nosave || true
+        "$cli" TS.CREATE ts
+        "$cli" TS.ADD ts '*' 1
+        "$cli" TS.INFO ts
+        "$cli" BF.ADD bf x
+        "$cli" BF.EXISTS bf x
+        "$cli" JSON.SET j '$' '{"a":1}'
+        "$cli" JSON.GET j
+        "$cli" FT.CREATE idx ON HASH SCHEMA t TEXT
+        "$cli" FT._LIST
+        for module_name in bf search ReJSON timeseries; do
+          grep -q "Module '$module_name' loaded" "$DEPLOY_RUN_LOG" || { tail -80 "$DEPLOY_RUN_LOG"; echo "ERROR: deployed server log did not show module '$module_name' loading" >&2; exit 1; }
+        done
+        "$cli" SHUTDOWN NOSAVE || true
