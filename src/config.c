@@ -2594,15 +2594,35 @@ static int updateReplBacklogSize(const char **err) {
  * 0 and can be preferred for eviction. The reverse (LFU -> LRU) matters for
  * multi-arg CONFIG SET rollback: apply re-seeds LFU, then a later failure
  * restores the old non-LFU policy and must re-seed LRU clocks so eviction does
- * not interpret LFU counters as idle time. See #15375. */
+ * not interpret LFU counters as idle time. See #15375.
+ *
+ * Only reseed when the LFU encoding bit flips. Switches within the same
+ * encoding (allkeys-lru <-> volatile-lru, allkeys-lfu <-> volatile-lfu) must
+ * not rewrite every key's lru field. */
 static int updateMaxmemoryPolicy(const char **err) {
     UNUSED(err);
-    int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
-    int lru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
+    /* -1: not yet initialized (startup config apply / first CONFIG SET). */
+    static int prev_lfu = -1;
+    int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
+    int lru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU ? 1 : 0;
 
-    /* Random / noeviction do not use the lru field for eviction. */
-    if (!lfu && !lru)
+    /* Encoding unchanged after we have a baseline. */
+    if (prev_lfu == lfu && prev_lfu != -1)
         return 1;
+
+    /* First call while non-LFU (typical startup / noeviction default): just
+     * record baseline. First call into LFU still reseeds so keys created under
+     * the default non-LFU policy before any apply get correct counters. */
+    if (prev_lfu == -1 && !lfu) {
+        prev_lfu = 0;
+        return 1;
+    }
+
+    /* Leaving LFU for random/noeviction: field unused for eviction, skip walk. */
+    if (!lfu && !lru) {
+        prev_lfu = lfu;
+        return 1;
+    }
 
     for (int j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db + j;
@@ -2620,6 +2640,7 @@ static int updateMaxmemoryPolicy(const char **err) {
         }
         kvstoreIteratorReset(&kvs_it);
     }
+    prev_lfu = lfu;
     return 1;
 }
 

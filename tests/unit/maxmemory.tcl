@@ -739,4 +739,37 @@ start_server {tags {"maxmemory" "external:skip"}} {
         # Fresh LRU clock: idle time should be ~0 right after reseed.
         assert_lessthan_equal [r object idletime baz] 1
     }
+
+    # Same-encoding policy switches must not rewrite every key's lru field.
+    test {LRU: CONFIG SET allkeys-lru to volatile-lru preserves IDLETIME} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+        r set idlekey value-idle
+        after 1100
+        set before [r object idletime idlekey]
+        assert_morethan_equal $before 1
+        r config set maxmemory-policy volatile-lru
+        set after_idle [r object idletime idlekey]
+        # Allow 1s of clock skew between samples; must not reset to a fresh clock (~0).
+        assert_morethan_equal $after_idle 1
+        assert {$after_idle >= $before - 1}
+    }
+
+    test {LFU: CONFIG SET allkeys-lfu to volatile-lfu preserves FREQ} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set hotkey value-hot
+        # Bump frequency above the LFU_INIT_VAL reseed (5).
+        for {set i 0} {$i < 200} {incr i} {
+            r get hotkey
+        }
+        set before [r object freq hotkey]
+        assert_morethan $before 5
+        r config set maxmemory-policy volatile-lfu
+        assert_equal $before [r object freq hotkey]
+    }
+
+
 }
