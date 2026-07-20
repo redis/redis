@@ -925,10 +925,31 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
  * handshake fails with X509_V_ERR_HOSTNAME_MISMATCH if no listed name matches.
  * Returns C_OK on success, C_ERR if a name could not be applied or the value
  * contained no usable name. */
+/* Report whether this build can verify peer certificate name(s). The X509
+ * hostname-checking API used by tlsSetVerifyName() is available since OpenSSL
+ * 1.0.2; older builds cannot honor tls-expected-peer-name. Used by the config
+ * layer to reject the option early rather than failing per connection. */
+static int connTLSSupportsVerifyName(void) {
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 static int tlsSetVerifyName(SSL *ssl, const char *names) {
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+    /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
+     * than the SSL_set1_host()/SSL_add1_host()/SSL_set_hostflags() convenience
+     * wrappers (introduced only in OpenSSL 1.1.0). This keeps certificate name
+     * verification available on every OpenSSL version that actually provides the
+     * hostname-checking machinery, matching the older versions the rest of this
+     * file still supports. */
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+
     /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
      * "*.example.com" still matches. */
-    SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
     char *copy = zstrdup(names);
     char *saveptr = NULL;
@@ -937,10 +958,10 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
          name != NULL;
          name = strtok_r(NULL, " ", &saveptr))
     {
-        /* First name via SSL_set1_host (replaces), each subsequent via
-         * SSL_add1_host (appends); a match against any listed name succeeds. */
-        int r = first ? SSL_set1_host(ssl, name)
-                      : SSL_add1_host(ssl, name);
+        /* First name via set1_host (replaces), each subsequent via add1_host
+         * (appends); a match against any listed name succeeds. */
+        int r = first ? X509_VERIFY_PARAM_set1_host(param, name, 0)
+                      : X509_VERIFY_PARAM_add1_host(param, name, 0);
         first = 0;
         if (r != 1) { ok = 0; break; }
     }
@@ -949,6 +970,17 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
     /* !ok: a name failed to apply. first still set: the value had no usable
      * token (e.g. all whitespace). Either way, fail closed. */
     return (ok && !first) ? C_OK : C_ERR;
+#else
+    /* Certificate name verification relies on the X509_VERIFY_PARAM host API,
+     * introduced in OpenSSL 1.0.2. On older builds we cannot honor
+     * tls-expected-peer-name, so fail closed rather than connect unverified. */
+    UNUSED(ssl);
+    UNUSED(names);
+    serverLog(LL_WARNING,
+        "tls-expected-peer-name is set but peer certificate name verification "
+        "requires OpenSSL 1.0.2 or newer; refusing the connection.");
+    return C_ERR;
+#endif
 }
 
 /* Set the expected peer name(s) to verify on an already-created SSL connection.
@@ -1320,6 +1352,7 @@ static ConnectionType CT_TLS = {
     .get_peer_cert = connTLSGetPeerCert,
     .get_peer_username = tlsGetPeerUsername,
     .set_verify_name = connTLSSetVerifyName,
+    .supports_verify_name = connTLSSupportsVerifyName,
 };
 
 int RedisRegisterConnectionTypeTLS(void) {

@@ -99,6 +99,12 @@ typedef struct ConnectionType {
     /* Set the expected peer certificate name(s) to verify during the handshake
      * (TLS only; may be NULL for connection types without certificate identity). */
     int (*set_verify_name)(struct connection *conn, const char *name);
+
+    /* Whether this connection type can verify peer certificate name(s) in this
+     * build (TLS only; NULL for types without certificate identity). Lets the
+     * config layer reject tls-expected-peer-name early when the underlying
+     * library is too old to honor it, rather than per connection. */
+    int (*supports_verify_name)(void);
 } ConnectionType;
 
 struct connection {

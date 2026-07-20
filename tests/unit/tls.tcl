@@ -245,6 +245,16 @@ start_server {tags {"tls"}} {
             }
         }
 
+        test {TLS: tls-expected-peer-name can be set and cleared} {
+            # Round-trip through the config's validation (isValidTlsExpectedPeerName):
+            # a name is accepted, and an empty value clears it (the validator receives
+            # "" before the empty-to-null conversion and always allows clearing).
+            r config set tls-expected-peer-name node.cluster.local
+            assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
+            r config set tls-expected-peer-name ""
+            assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
+        }
+
         test {TLS: switch between tcp and tls ports} {
             set srv_port [srv 0 port]
 

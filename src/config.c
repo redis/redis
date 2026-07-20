@@ -2791,6 +2791,23 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
+/* Reject tls-expected-peer-name at config time (startup and CONFIG SET) when the
+ * TLS build cannot verify peer certificate names, instead of accepting it and
+ * then refusing every connection. An empty value clears the option and is always
+ * allowed. If TLS is not available yet (e.g. not compiled in, or a TLS module not
+ * loaded during startup parsing), we accept it here; the per-connection check
+ * remains as a backstop. */
+static int isValidTlsExpectedPeerName(char *val, const char **err) {
+    if (val[0] == '\0') return 1;
+    ConnectionType *ct_tls = connectionTypeTls();
+    if (ct_tls && ct_tls->supports_verify_name && !ct_tls->supports_verify_name()) {
+        *err = "tls-expected-peer-name requires certificate name verification "
+               "support, available only when built against OpenSSL 1.0.2 or newer";
+        return 0;
+    }
+    return 1;
+}
+
 static int applyTlsCfg(const char **err) {
     /* If TLS is enabled, try to configure OpenSSL. */
     if (server.tls_port || server.tls_replication || server.tls_cluster) {
@@ -3450,7 +3467,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, NULL, NULL),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
