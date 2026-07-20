@@ -73,20 +73,44 @@ unsigned int LRU_CLOCK(void) {
     return lruclock;
 }
 
+/* Return 1 if o->lru still looks like LFU encoding (ldt<<8|counter) rather
+ * than an LRU/LRM clock. Used to lazily re-encode after leaving an LFU policy
+ * without a keyspace walk or a time-bounded import window. */
+static int objectLruLooksLikeLFU(robj *o) {
+    unsigned long ldt = o->lru >> 8;
+    /* Warm/recent LFU last-decay time (within 24h of the LFU minute clock). */
+    if (LFUTimeElapsed(ldt) <= 60*24)
+        return 1;
+
+    /* Stale LFU: LFUTimeElapsed can exceed 24h. As an LRU clock, that field
+     * almost never yields an idle time within process uptime, so treat
+     * impossible idles as residual LFU encoding. */
+    unsigned int clock = LRU_CLOCK();
+    unsigned long long idle_ms;
+    if (clock >= o->lru)
+        idle_ms = (unsigned long long)(clock - o->lru) * LRU_CLOCK_RESOLUTION;
+    else
+        idle_ms = (unsigned long long)(clock + (LRU_CLOCK_MAX - o->lru)) *
+                    LRU_CLOCK_RESOLUTION;
+    time_t uptime = server.unixtime - server.stat_starttime;
+    if (uptime < 0) uptime = 0;
+    if (idle_ms / 1000 > (unsigned long long)uptime + 60)
+        return 1;
+    return 0;
+}
+
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
     /* After LFU -> non-LFU policy switch, lru may still hold LFU encoding.
-     * Convert lazily (no keyspace walk on CONFIG SET). Only while an idle-based
-     * (non-LFU) policy is active, so a stale lru_import_until cannot rewrite
-     * keys after a quick bounce back to LFU. */
+     * Convert lazily on first idle-time use (no keyspace walk, no expiry
+     * window). Only under a non-LFU policy so DEBUG OBJECT / idle paths cannot
+     * rewrite keys after a bounce back to LFU. Already-converted LRU clocks
+     * fail objectLruLooksLikeLFU and are left alone. */
     if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
-        server.lru_import_until && mstime() < server.lru_import_until)
+        objectLruLooksLikeLFU(o))
     {
-        unsigned long ldt = o->lru >> 8;
-        if (LFUTimeElapsed(ldt) <= 60*24) {
-            o->lru = LRU_CLOCK();
-        }
+        o->lru = LRU_CLOCK();
     }
     unsigned long long lruclock = LRU_CLOCK();
     if (lruclock >= o->lru) {

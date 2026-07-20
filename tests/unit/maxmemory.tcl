@@ -828,8 +828,8 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_lessthan_equal [r object idletime midttl] 1
     }
 
-    # Quick LFU -> LRU -> LFU must not leave a stale lru_import window that
-    # rewrites LFU keys when idle-time is computed under LFU (DEBUG OBJECT).
+    # Quick LFU -> LRU -> LFU must not rewrite LFU keys when idle-time is
+    # computed under LFU (DEBUG OBJECT uses estimateObjectIdleTime).
     test {LFU: bounce LFU to LRU to LFU keeps FREQ after DEBUG OBJECT} {
         r flushdb
         r config set maxmemory 0

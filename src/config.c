@@ -2597,12 +2597,15 @@ static int updateReplBacklogSize(const char **err) {
  * still hold the previous encoding of the shared lru field. Walking the whole
  * keyspace on CONFIG SET is not acceptable on large instances.
  *
- * Instead open a short lazy-import window. On first use of each object as LFU
- * (LFUDecrAndReturn / eviction samples / OBJECT FREQ) or as idle time
- * (estimateObjectIdleTime / OBJECT IDLETIME), convert that object only.
+ * Lazy convert instead:
+ * - non-LFU -> LFU: short import window; LFUDecrAndReturn / OBJECT FREQ convert
+ *   on first LFU use (heuristic: lru still looks like an LRU clock).
+ * - LFU -> non-LFU: no time window; estimateObjectIdleTime converts when the
+ *   field still looks like LFU encoding (warm LFU ldt, or idle impossible for
+ *   process uptime). Already-correct LRU clocks are left alone.
  * Same-encoding switches (allkeys-lru <-> volatile-lru, LFU <-> LFU) are no-ops.
  * See #15375. */
-#define MAXMEMORY_POLICY_IMPORT_MS 60000 /* 60s lazy convert window */
+#define MAXMEMORY_POLICY_IMPORT_MS 60000 /* 60s lazy LFU import window */
 
 static int prev_maxmemory_lfu = -1;
 
@@ -2628,14 +2631,12 @@ static int updateMaxmemoryPolicy(const char **err) {
     if (prev_maxmemory_lfu == lfu)
         return 1;
 
-    /* Encoding flipped: enable lazy per-object convert, no keyspace walk.
-     * Clear the opposite window so a quick LFU<->non-LFU bounce cannot leave
-     * a stale deadline that rewrites keys under the wrong active policy. */
+    /* Encoding flipped: no keyspace walk. Open the LFU import window only when
+     * entering LFU; clear it when leaving so a bounce cannot keep converting
+     * under the wrong policy. LFU->idle convert is heuristic (no deadline). */
     if (lfu) {
         server.lfu_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
-        server.lru_import_until = 0;
     } else {
-        server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
         server.lfu_import_until = 0;
     }
 
