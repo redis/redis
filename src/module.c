@@ -4261,6 +4261,58 @@ void RM_CloseKey(RedisModuleKey *key) {
     zfree(key);
 }
 
+/* --- Keyspace value-MVCC snapshots (see src/kvsnapshot.c) ----------------- */
+
+/* Create a point-in-time snapshot of the keyspace *values*. Must be called with
+ * the GIL held (from the main thread, or from a thread holding the thread-safe
+ * context lock): it registers the snapshot so that subsequent writes preserve
+ * the pre-snapshot value of any key the snapshot might read.
+ *
+ * Snapshots the whole currently-selected DB's HASH values. Free the returned
+ * handle with RedisModule_FreeKeyspaceSnapshot.
+ *
+ * NOTE: the snapshot preserves the VALUES of HASH keys, not key existence. A key
+ * created after the snapshot is visible through it; reads observe a hash's value
+ * as of the snapshot for hashes that existed at creation time. */
+RedisModuleKeyspaceSnapshot *RM_CreateKeyspaceSnapshot(RedisModuleCtx *ctx) {
+    return (RedisModuleKeyspaceSnapshot *) kvSnapshotCreate(ctx->client->db->id);
+}
+
+/* Open a HASH key for READ against a snapshot: the returned handle sees the
+ * hash's value as of the snapshot. Must be called with the GIL held.
+ *
+ * Returns a read-only RedisModuleKey (use RM_HashGet / RM_ValueLength / ...), or
+ * NULL if the key is not a hash as-of the snapshot (non-hash types are not
+ * snapshotted and are rejected). Close it with RedisModule_CloseKey. Valid only
+ * while the GIL is held and the snapshot is alive. */
+RedisModuleKey *RM_SnapshotOpenKey(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap, RedisModuleString *keyname) {
+    kvobj *kv = kvSnapshotView((keyspaceSnapshot *) snap, keyname);
+    if (kv == NULL || kv->type != OBJ_HASH) return NULL; /* hash-only */
+    RedisModuleKey *kp = zmalloc(sizeof(*kp));
+    /* ACCESS_EXPIRED: the view is a frozen as-of-V hash, so RM_HashGet must
+     * return fields whose copied TTL has since lapsed in wall-clock time. */
+    moduleInitKey(kp, ctx, keyname, kv, REDISMODULE_READ | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED);
+    autoMemoryAdd(ctx, REDISMODULE_AM_KEY, kp);
+    return kp;
+}
+
+/* Read one hash field as-of the snapshot without materializing the whole hash.
+ * Returns the field's as-of-snapshot value (auto-freed), or NULL if the field is
+ * absent as-of the snapshot or the key is not a hash. GIL held. */
+RedisModuleString *RM_SnapshotHashGet(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap,
+                                      RedisModuleString *keyname, RedisModuleString *field) {
+    robj *v = kvSnapshotHashField((keyspaceSnapshot *) snap, keyname, field->ptr);
+    if (!v) return NULL;
+    autoMemoryAdd(ctx, REDISMODULE_AM_STRING, v); /* caller-owned ref, auto-freed */
+    return v;
+}
+
+/* Free a keyspace snapshot and drop all its preserved values. GIL held. */
+void RM_FreeKeyspaceSnapshot(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap) {
+    UNUSED(ctx);
+    kvSnapshotFree((keyspaceSnapshot *) snap);
+}
+
 /* Return the type of the key. If the key pointer is NULL then
  * REDISMODULE_KEYTYPE_EMPTY is returned. */
 int RM_KeyType(RedisModuleKey *key) {
@@ -5774,7 +5826,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         if (value == REDISMODULE_HASH_DELETE) {
             if (server.memory_tracking_enabled)
                 oldsize = kvobjAllocSize(key->kv);
-            count += hashTypeDelete(key->kv, field->ptr);
+            count += hashTypeDelete(key->db, key->kv, field->ptr);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
@@ -7381,6 +7433,24 @@ const char *moduleNameFromCommand(struct redisCommand *cmd) {
 /* Create a copy of a module type value using the copy callback. If failed
  * or not supported, produce an error reply and return NULL.
  */
+/* Duplicate a module-type value without a client (no error replies). Prefers the
+ * v4 copy2 callback, falls back to the v1 copy callback. Returns a new OBJ_MODULE
+ * robj, or NULL if the type registered neither callback or the copy failed. Used
+ * by COPY (via moduleTypeDupOrReply) and by keyspace value snapshots. */
+robj *moduleTypeDup(robj *fromkey, robj *tokey, int fromdb, int todb, robj *value) {
+    moduleValue *mv = value->ptr;
+    moduleType *mt = mv->type;
+    void *newval = NULL;
+    if (mt->copy2 != NULL) {
+        RedisModuleKeyOptCtx ctx = {fromkey, tokey, fromdb, todb};
+        newval = mt->copy2(&ctx, mv->value);
+    } else if (mt->copy != NULL) {
+        newval = mt->copy(fromkey, tokey, mv->value);
+    }
+    if (!newval) return NULL;
+    return createModuleObject(mt, newval);
+}
+
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
@@ -7388,19 +7458,12 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
         addReplyError(c, "not supported for this module key");
         return NULL;
     }
-    void *newval = NULL;
-    if (mt->copy2 != NULL) {
-        RedisModuleKeyOptCtx ctx = {fromkey, tokey, c->db->id, todb};
-        newval = mt->copy2(&ctx, mv->value);
-    } else {
-        newval = mt->copy(fromkey, tokey, mv->value);
-    }
-     
-    if (!newval) {
+    robj *newobj = moduleTypeDup(fromkey, tokey, c->db->id, todb, value);
+    if (!newobj) {
         addReplyError(c, "module key failed to copy");
         return NULL;
     }
-    return createModuleObject(mt, newval);
+    return newobj;
 }
 
 /* Register a new data type exported by the module. The parameters are the
@@ -7504,7 +7567,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  * * **aux_save2**: Similar to `aux_save`, but with small semantic change, if the module
  *   saves nothing on this callback then no data about this aux field will be written to the
  *   RDB and it will be possible to load the RDB even if the module is not loaded.
- * 
+ *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
@@ -15728,6 +15791,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
+    REGISTER_API(CreateKeyspaceSnapshot);
+    REGISTER_API(SnapshotOpenKey);
+    REGISTER_API(SnapshotHashGet);
+    REGISTER_API(FreeKeyspaceSnapshot);
     REGISTER_API(GetOpenKeyModesAll);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);

@@ -586,6 +586,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     kvobj *old = dictGetKV(*link);
     kvobj *kvNew;
 
+    /* Hash snapshots: a HASH value about to be replaced wholesale is materialized
+     * into open snapshots before it's freed (no-op for non-hash types). */
+    if (unlikely(server.snapshots_open))
+        snapshotHashPreserveOnRemove(db, key, old);
+
     int64_t oldlen = (int64_t) getObjectLength(old);
     int oldtype = old->type;
 
@@ -877,7 +882,12 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* Because of dbUnshareStringValue, the val in db may change. */
         kv = dictGetKV(*link);
-        
+
+        /* Hash snapshots: materialize the as-of-snapshot HASH into open snapshots
+         * before it is freed (DEL/UNLINK/expiry/eviction); no-op for non-hash. */
+        if (unlikely(server.snapshots_open))
+            snapshotHashPreserveOnRemove(db, key, kv);
+
         /* if expirable, delete an entry from the expires dict is not decrRefCount of kvobj */
         if (kvobjGetExpire(kv) != -1)
             kvstoreDictDelete(db->expires, slot, key->ptr);
@@ -993,6 +1003,11 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
 
     for (int j = startdb; j <= enddb; j++) {
         removed += kvstoreSize(dbarray[j].keys);
+        /* Hash snapshots: FLUSH bypasses the per-key delete hooks, so preserve
+         * the as-of-V view of every hash key into open snapshots and drop the
+         * DB's version store before the wipe. Only for the live DBs. */
+        if (unlikely(server.snapshots_open) && dbarray == server.db)
+            snapshotHashPreserveOnFlush(&dbarray[j]);
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {

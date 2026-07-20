@@ -1330,6 +1330,16 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
+        /* Value-MVCC delta-log: this listpack-ex field is about to be freed by the
+         * batch lpDeleteRange below, which bypasses hashTypeDelete — so capture its
+         * as-of-V value here for any open delta_hash snapshot. */
+        if (unlikely(server.snapshots_open)) {
+            char *fstr = (char *)(fref ? fref : intbuf);
+            sds ftmp = sdsnewlen(fstr, flen);
+            snapshotHashCapture(db, kv, ftmp);
+            sdsfree(ftmp);
+        }
+
         /* Collect expired field for subkey notification. */
         if (ctx->vexpired) {
             char *fstr = (char *)(fref ? fref : intbuf);
@@ -1488,7 +1498,7 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
      * If replica, continue like the field is valid */
     if (unlikely(checkAlreadyExpired(expireAt))) {
         propagateHashFieldDeletion(ex->db, ex->key->ptr, field, sdslen(field));
-        hashTypeDelete(ex->hashObj, field);
+        hashTypeDelete(ex->db, ex->hashObj, field);
         server.stat_expired_subkeys++;
         return HSETEX_DELETED;
     }
@@ -1742,7 +1752,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     /* delete the field and propagate the deletion */
     if (server.memory_tracking_enabled && !(hfeFlags & HFE_LAZY_NO_UPDATE_ALLOCSIZES))
         oldsize = kvobjAllocSize(o);
-    serverAssert(hashTypeDelete(o, field) == 1);
+    serverAssert(hashTypeDelete(db, o, field) == 1);
     if (server.memory_tracking_enabled && !(hfeFlags & HFE_LAZY_NO_UPDATE_ALLOCSIZES))
         updateSlotAllocSize(db, getKeySlot(key), o, oldsize, kvobjAllocSize(o));
     propagateHashFieldDeletion(db, key, field, sdslen(field));
@@ -1874,6 +1884,10 @@ static_assert(HASH_SET_TAKE_VALUE == ENTRY_TAKE_VALUE, "ENTRY_TAKE_VALUE must ma
 
 int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
     int update = 0;
+
+    /* Value-MVCC hash delta-log: record this field's pre-write value for any
+     * open hash snapshot, before we mutate it. */
+    if (unlikely(server.snapshots_open)) snapshotHashCapture(db, o, field);
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr, *vptr;
@@ -2177,7 +2191,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
     if (unlikely(checkAlreadyExpired(expireAt))) {
         /* replicas should not initiate deletion of fields */
         propagateHashFieldDeletion(exInfo->db, exInfo->key->ptr, field, sdslen(field));
-        hashTypeDelete(exInfo->hashObj, field);
+        hashTypeDelete(exInfo->db, exInfo->hashObj, field);
         server.stat_expired_subkeys++;
         return HSETEX_DELETED;
     }
@@ -2327,7 +2341,14 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
  *
  * Return 1 on deleted and 0 on not found.
  * field - sds field name to delete */
-int hashTypeDelete(robj *o, void *field) {
+int hashTypeDelete(redisDb *db, robj *o, void *field) {
+    /* Value-MVCC delta-log: record this field's pre-delete value for any open
+     * delta_hash snapshot before it is removed. This is the single choke point
+     * every removal funnels through — HDEL, HGETDEL, active/lazy/listpack/HSETEX
+     * field expiry, and the module HashSet-delete path — so capturing here covers
+     * them all. No-op unless a delta_hash snapshot has this hash in scope. */
+    if (unlikely(server.snapshots_open))
+        snapshotHashCapture(db, o, field);
     int deleted = 0;
     int fieldLen = sdslen((sds)field);
 
@@ -4967,7 +4988,7 @@ void hgetdelCommand(client *c) {
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
             vecPush(vdeleted, c->argv[i]);
-            serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
+            serverAssert(hashTypeDelete(c->db, o, c->argv[i]->ptr) == 1);
         }
     }
 
@@ -5213,7 +5234,7 @@ void hdelCommand(client *c) {
     if (o->encoding == OBJ_ENCODING_HT)
         dictPauseAutoResize((dict*)o->ptr);
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr)) {
+        if (hashTypeDelete(c->db, o, c->argv[j]->ptr)) {
             vecPush(vdeleted, c->argv[j]);
             if (hashTypeLength(o, 0) == 0) {
                 keyremoved = 1;
@@ -5943,7 +5964,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     unsigned long l = hashTypeLength(expCtx->hashObj, 0);
     updateKeysizesHist(expCtx->db, OBJ_HASH, l, l - 1);
 
-    serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
+    serverAssert(hashTypeDelete(expCtx->db, expCtx->hashObj, field) == 1);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(expCtx->db, getKeySlot(key), kv, oldsize, kvobjAllocSize(kv));
     server.stat_expired_subkeys++;
