@@ -44,6 +44,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal 0 [r setbit bitmap:public:create $::sparse_public_offset 1]
         assert_equal bitmap [r type bitmap:public:create]
         assert_equal bitmap-roaring [r object encoding bitmap:public:create]
+        assert_match {*encoding:bitmap-roaring*} [r debug object bitmap:public:create]
         assert_equal 1 [r getbit bitmap:public:create $::sparse_public_offset]
         assert_equal 1 [r bitcount bitmap:public:create]
         assert_equal $::sparse_public_len [string length [r debug bitmap-raw bitmap:public:create]]
@@ -315,61 +316,36 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:roaring:small-limit
     }
 
-    test {Roaring bitmap offset cap remains bounded when proto-max-bulk-len is raised} {
+    test {Roaring BITFIELD offsets above UINT32_MAX follow proto-max-bulk-len} {
         set raised_limit [expr {536870912 + 1}]
         set max_roaring_bit 4294967295
-        set first_rejected [expr {$max_roaring_bit + 1}]
+        set first_wide_bit [expr {$max_roaring_bit + 1}]
         set oldval [config_get_set proto-max-bulk-len $raised_limit]
 
-        r del bitmap:roaring:raised-limit bitmap:roaring:raised-limit:new \
-            bitmap:roaring:raised-limit:string
+        r del bitmap:roaring:raised-limit
         r config set bitmap-default-roaring yes
         assert_equal 0 [r setbit bitmap:roaring:raised-limit 0 1]
-        assert_equal 0 [r getbit bitmap:roaring:raised-limit $max_roaring_bit]
-
-        # Writes past the fixed Roaring cap fail even though proto-max-bulk-len
-        # would permit the offset; reads there see plain unset bits, exactly
-        # like reads past the end of a string bitmap.
-        foreach cmd [list \
-            [list setbit bitmap:roaring:raised-limit $first_rejected 1] \
-            [list bitfield bitmap:roaring:raised-limit SET u1 $first_rejected 1] \
-            [list bitfield bitmap:roaring:raised-limit SET u2 $max_roaring_bit 3] \
-        ] {
-            assert_error {*bit offset*out of range*} {r {*}$cmd}
-        }
-        assert_equal 0 [r getbit bitmap:roaring:raised-limit $first_rejected]
-        assert_equal {0} [r bitfield_ro bitmap:roaring:raised-limit GET u1 $first_rejected]
-        assert_equal {0 1} [
-            r bitfield bitmap:roaring:raised-limit GET u1 $first_rejected SET u1 0 1
-        ]
-
-        assert_error {*bit offset*out of range*} {
-            r setbit bitmap:roaring:raised-limit:new $first_rejected 1
-        }
-        assert_equal 0 [r exists bitmap:roaring:raised-limit:new]
-
-        # A write past the Roaring cap against an existing string is rejected
-        # by the conversion path and must leave the string untouched: SETBIT
-        # discards the trial Roaring object, BITFIELD rejects before
-        # converting. Reads there pass the raised parse-time limit and see
-        # zeros past the end of the string.
-        r set bitmap:roaring:raised-limit:string [binary format H* 80]
-        assert_error {*bit offset*out of range*} {
-            r setbit bitmap:roaring:raised-limit:string $first_rejected 1
-        }
-        assert_error {*bit offset*out of range*} {
-            r bitfield bitmap:roaring:raised-limit:string SET u1 $first_rejected 1
-        }
         assert_equal {0} [
-            r bitfield bitmap:roaring:raised-limit:string GET u1 $first_rejected
+            r bitfield bitmap:roaring:raised-limit SET u2 $max_roaring_bit 3
         ]
-        assert_equal string [r type bitmap:roaring:raised-limit:string]
-        assert_equal [binary format H* 80] [r get bitmap:roaring:raised-limit:string]
+        assert_equal 1 [r getbit bitmap:roaring:raised-limit $max_roaring_bit]
+        assert_equal 1 [r getbit bitmap:roaring:raised-limit $first_wide_bit]
+        assert_equal {3} [
+            r bitfield_ro bitmap:roaring:raised-limit GET u2 $max_roaring_bit
+        ]
+        assert_equal 3 [r bitcount bitmap:roaring:raised-limit]
 
-        assert_equal 1 [r bitcount bitmap:roaring:raised-limit]
+        # Lowering the user-configured limit makes the first byte above
+        # UINT32_MAX inaccessible while the preceding bit remains readable.
+        r config set proto-max-bulk-len 536870912
+        assert_equal 1 [r getbit bitmap:roaring:raised-limit $max_roaring_bit]
+        assert_error {*bit offset*out of range*} {
+            r getbit bitmap:roaring:raised-limit $first_wide_bit
+        }
+
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitmap:roaring:raised-limit bitmap:roaring:raised-limit:string
+        r del bitmap:roaring:raised-limit
     }
 
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
@@ -1723,34 +1699,33 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 10] [r debug bitmap-raw bitmap:roaring:getbit:past]
     }
 
-    test {Roaring bitmap v1 cap applies when proto-max-bulk-len permits wider strings} {
-        set max_roaring_bit 4294967295
-        set first_rejected [expr {$max_roaring_bit + 1}]
-        set limit [expr {($first_rejected / 8) + 1}]
+    test {Roaring SETBIT offsets above UINT32_MAX follow proto-max-bulk-len} {
+        set first_wide_bit 4294967296
+        set limit [expr {($first_wide_bit / 8) + 1}]
         set oldval [config_get_set proto-max-bulk-len $limit]
         r config set bitmap-default-roaring yes
         r del bitmap:roaring:wide-offset-cap
 
-        assert_equal 0 [r setbit bitmap:roaring:wide-offset-cap $max_roaring_bit 1]
+        assert_equal 0 [r setbit bitmap:roaring:wide-offset-cap 0 1]
+        assert_equal 0 [r setbit bitmap:roaring:wide-offset-cap $first_wide_bit 1]
         assert_equal bitmap [r type bitmap:roaring:wide-offset-cap]
         assert_equal bitmap-roaring [r object encoding bitmap:roaring:wide-offset-cap]
-        assert_equal 1 [r getbit bitmap:roaring:wide-offset-cap $max_roaring_bit]
-        assert_equal {1} [r bitfield_ro bitmap:roaring:wide-offset-cap GET u1 $max_roaring_bit]
-        assert_equal 1 [r bitcount bitmap:roaring:wide-offset-cap]
+        assert_equal 1 [r getbit bitmap:roaring:wide-offset-cap $first_wide_bit]
+        assert_equal {1} [r bitfield_ro bitmap:roaring:wide-offset-cap GET u1 $first_wide_bit]
+        assert_equal 2 [r bitcount bitmap:roaring:wide-offset-cap]
 
         # Offsets follow the current proto-max-bulk-len exactly like string
         # bitmaps: lowering it below existing data bounds later accesses too.
         r config set proto-max-bulk-len 1048576
         foreach cmd [list \
-            [list getbit bitmap:roaring:wide-offset-cap $max_roaring_bit] \
-            [list getbit bitmap:roaring:wide-offset-cap $first_rejected] \
-            [list bitfield_ro bitmap:roaring:wide-offset-cap GET u1 $first_rejected] \
-            [list setbit bitmap:roaring:wide-offset-cap $first_rejected 1] \
-            [list bitfield bitmap:roaring:wide-offset-cap SET u1 $first_rejected 1] \
+            [list getbit bitmap:roaring:wide-offset-cap $first_wide_bit] \
+            [list bitfield_ro bitmap:roaring:wide-offset-cap GET u1 $first_wide_bit] \
+            [list setbit bitmap:roaring:wide-offset-cap $first_wide_bit 1] \
+            [list bitfield bitmap:roaring:wide-offset-cap SET u1 $first_wide_bit 1] \
         ] {
             assert_error {*bit offset*out of range*} {r {*}$cmd}
         }
-        assert_equal 1 [r bitcount bitmap:roaring:wide-offset-cap]
+        assert_equal 2 [r bitcount bitmap:roaring:wide-offset-cap]
 
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval

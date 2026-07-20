@@ -64,8 +64,8 @@ proc seed_roaring_bitmap {key bits} {
 }
 
 proc empty_roaring_bitmap_dump_payload {} {
-    # RDB_TYPE_BITMAP, empty raw string, RDB_VERSION 15, followed by an
+    # RDB_TYPE_BITMAP, empty raw string, RDB_VERSION 16, followed by an
     # all-zero checksum. RESTORE accepts the zero checksum in test-built
     # payloads.
-    return [binary format H* 21000f000000000000000000]
+    return [binary format H* 210010000000000000000000]
 }

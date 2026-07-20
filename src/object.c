@@ -1326,6 +1326,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
     case OBJ_ENCODING_TMPL_LP: return "template-listpack";
     case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
+    case OBJ_ENCODING_BITMAP_ROARING: return "bitmap-roaring";
     default: return "unknown";
     }
 }
@@ -1775,9 +1776,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
-        addReplyBulkCString(c, kv->type == OBJ_BITMAP ?
-                                  "bitmap-roaring" :
-                                  strEncoding(kv->encoding));
+        addReplyBulkCString(c, strEncoding(kv->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
