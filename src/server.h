@@ -67,6 +67,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "connection.h" /* Connection abstraction */
 #include "eventnotifier.h" /* Event notification */
 #include "memory_prefetch.h"
+#include "client_comp.h"
 
 /* Forward declarations needed by redismodule.h and keymeta.h */
 struct redisObject;
@@ -469,6 +470,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_IO_REUSABLE_QUERYBUFFER (1ULL<<3) /* The client is using the reusable query buffer. */
 #define CLIENT_IO_CLOSE_ASAP (1ULL<<4) /* Close this client ASAP in IO thread. */
 #define CLIENT_IO_PENDING_CRON (1ULL<<5)  /* The client is pending cron job, to be processed in main thread. */
+#define CLIENT_IO_COMPRESSION_ENABLED (1ULL<<6)  /* The client compression is enabled for this client*/
 
 /* Definitions for client read errors. These error codes are used to indicate
  * various issues that can occur while reading or parsing data from a client. */
@@ -541,6 +543,7 @@ typedef enum {
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_REQ_REPLY,   /* Wait for REPLCONF reply */
+    REPL_STATE_RECEIVE_CLIENT_COMP, /* Wait for CLIENT_COMP reply */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
@@ -825,10 +828,12 @@ typedef enum {
 #endif
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY) /* A flag */
 
+#define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
+
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
-#define run_with_period(_ms_) if (((_ms_) <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
+#define run_with_period(_ms_) _run_with_period(server.cronloops, (_ms_), server.hz)
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define serverAssertWithInfo(_c,_o,_e) (likely(_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
@@ -1602,6 +1607,7 @@ typedef struct client {
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *io_thread_client_list_node; /* list node in io thread client list */
+    listNode *io_thread_compression_clients_node; /* list node in io thread compression clients list */
     listNode *postponed_list_node; /* list node within the postponed list */
     void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
                                   * client. This is set in case of module authentication before the
@@ -1618,7 +1624,10 @@ typedef struct client {
     void *auth_module;      /* The module that owns the callback, which is used
                              * to disconnect the client if the module is
                              * unloaded for cleanup. Opaque for Redis Core.*/
-
+    compressionState *compression_state; /* Opauqe handle to compression state */
+    int compression_level;  /* Compression level (0 means no compresison).
+                             * Currently not relevant for non-replication
+                             * connections. */
     /* If this client is in tracking mode and this field is non zero,
      * invalidation messages for keys fetched by this client will be sent to
      * the specified client ID. */
@@ -1701,6 +1710,8 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     list *clients;                              /* IO thread managed clients. */
     redisAtomic long long io_reads_processed;   /* Number of read events processed */
     redisAtomic long long io_writes_processed;  /* Number of write events processed */
+    list *compression_clients;                  /* Clients that write/read compressed data */
+    size_t cronloops;
 } IOThread;
 
 extern IOThread IOThreads[IO_THREADS_MAX_NUM];
@@ -2206,6 +2217,8 @@ struct redisServer {
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
     redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
+    redisAtomic long long stat_net_repl_output_uncompressed_bytes; /* Bytes read from repl buffer before being compressed and written during replication. */
+    redisAtomic long long stat_net_repl_input_decompressed_bytes; /* Decompressed bytes after reading compressed data during replication. */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
@@ -2482,6 +2495,8 @@ struct redisServer {
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
+    int repl_compression;               /* Should slave attempt compressed replication link */
+    int repl_master_compression_level;  /* Compression level agreed with master */
     /* Synchronous replication. */
     list *clients_waiting_acks;         /* Clients waiting in WAIT or WAITAOF. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
@@ -2502,6 +2517,7 @@ struct redisServer {
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */
+    int compression_max_latency;                  /* flush interval for client compression in ms */
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
@@ -3538,6 +3554,8 @@ void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+void setReplCompression(int level);
+void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);

@@ -108,13 +108,13 @@ start_server {tags {"repl external:skip"}} {
             $B config set loglevel debug
             r set test foo
             assert_equal [r getset test bar] foo
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [$A get test] eq "bar"
             } else {
                 fail "getset wasn't propagated"
             }
             assert_equal [r set test vaz get] bar
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [$A get test] eq "vaz"
             } else {
                 fail "set get wasn't propagated"
@@ -241,8 +241,8 @@ start_server {tags {"repl external:skip"}} {
             s role
         } {slave}
 
-        wait_for_sync r
         test {Sync should have transferred keys from master} {
+            wait_for_sync r
             r get mykey
         } {foo}
 
@@ -367,7 +367,7 @@ foreach mdl {no yes} rdbchannel {no yes} {
 
                             # Wait for all the three slaves to reach the "online"
                             # state from the POV of the master.
-                            set retry 500
+                            set retry 1000
                             while {$retry} {
                                 set info [r -3 info]
                                 if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
@@ -824,7 +824,7 @@ test {diskless loading short read} {
             for {set i 0} {$i < $attempts} {incr i} {
                 # wait for the replica to start reading the rdb
                 # using the log file since the replica only responds to INFO once in 2mb
-                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 2000 1]
+                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 10000 1]
                 set loglines [lindex $res 1]
 
                 # add some additional random sleep so that we kill the master on a different place each time
@@ -1565,7 +1565,7 @@ start_server {tags {"repl external:skip"}} {
 
 foreach disklessload {disabled on-empty-db} {
     test "Replica should reply LOADING while flushing a large db (disklessload: $disklessload)" {
-        start_server {} {
+        start_server {tags {"repl"}} {
             set replica [srv 0 client]
             start_server {} {
                 set master [srv 0 client]

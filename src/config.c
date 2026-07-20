@@ -3356,6 +3356,10 @@ standardConfig static_configs[] = {
     createIntConfig("cluster-slot-migration-max-archived-tasks", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1, INT_MAX, server.asm_max_archived_tasks, 32, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("lookahead", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.lookahead, REDIS_DEFAULT_LOOKAHEAD, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("slowlog-entry-max-argc", NULL, MODIFIABLE_CONFIG, 2, INT_MAX, server.slowlog_max_argc, 32, INTEGER_CONFIG, NULL, NULL),
+#ifdef USE_COMPRESSION
+    createIntConfig("repl-compression", NULL, IMMUTABLE_CONFIG, 0, 22, server.repl_compression, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("repl-compression-max-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.compression_max_latency, 100, INTEGER_CONFIG, NULL, NULL), /* 100ms */
+#endif
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
