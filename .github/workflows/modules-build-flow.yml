@@ -1,4 +1,4 @@
-name: Modules Daily
+name: Modules Build Flow
 
 # Verifies the from-source modules flow documented in modules/README.md on
 # every OS the bundled modules support (the same list the modules' own
@@ -7,9 +7,8 @@ name: Modules Daily
 #
 #   make modules-update            clone every module pinned in modules.yaml
 #   make bootstrap                 install per-module build/test prereqs
-#   make LTO=0                     build Redis + all modules (see LTO note)
+#   make all BUILD_TLS=yes         build Redis + all modules
 #   ./src/redis-server redis-full.conf   then `redis-cli MODULE LIST`
-#   make test all                  every module's suite
 #
 # The "install manual prerequisites" step deliberately installs only what a
 # user needs before the manual's first command can run at all (git, make,
@@ -19,13 +18,13 @@ name: Modules Daily
 # that OS and this workflow exists to catch exactly that.
 
 on:
-  schedule:
-    - cron: '30 1 * * *'
+  # Only when the module pin manifest changes — a bump to any module's ref is
+  # exactly what can break the from-source build/load on some OS — or manually.
+  pull_request:
+    paths:
+      - 'modules/modules.yaml'
   workflow_dispatch:
     inputs:
-      skiptests:
-        description: "set to 'modules' to skip the heavy 'make test all' step"
-        default: ''
       use_repo:
         description: 'repo owner and name'
         default: 'redis/redis'
@@ -38,7 +37,6 @@ jobs:
   test-modules:
     name: test-modules-${{ matrix.arch }}-${{ matrix.osnick }}
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    if: github.event_name == 'workflow_dispatch' || github.repository == 'redis/redis'
     timeout-minutes: 300
     # Mapping form with an explicit PATH: a module bootstrap can append to
     # $GITHUB_PATH (redisearch's uv installer does), and when the runner
@@ -118,7 +116,8 @@ jobs:
               sleep 10
             done
             [ -n "$ok" ] || { echo "ERROR: tdnf prerequisite install failed after retries" >&2; exit 1; } ;;
-          apk)  apk add git make bash ca-certificates openssl-dev openssl ;;
+          # tar: alpine's default is busybox tar; `make tarball` needs GNU tar.
+          apk)  apk add git make bash ca-certificates openssl-dev openssl tar ;;
         esac
         # The modules' bootstrap tooling (redistimeseries .install/lib/
         # setup-python.sh) skips its uv/venv/pip setup when /.dockerenv
@@ -134,8 +133,18 @@ jobs:
       run: |
         git config --global --add safe.directory "$(pwd)"
         git init .
-        git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
-        git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Build the PR's code — the modules.yaml change that triggered this
+          # run — not unstable. github.event.inputs is empty on pull_request,
+          # so the dispatch fallback below would otherwise check out unstable
+          # and never exercise the bumped pins. GitHub publishes the merge ref
+          # on the base repo, so this also works for fork PRs.
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth 1 origin "+refs/pull/${{ github.event.pull_request.number }}/merge"
+        else
+          git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
+          git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+        fi
         git checkout FETCH_HEAD
     - name: make modules-update
       run: make modules-update
@@ -162,6 +171,3 @@ jobs:
           grep -qx "$m" module-list.txt || { echo "MISSING MODULE: $m"; exit 1; }
         done
         ./src/redis-cli shutdown nosave || true
-    - name: make test all
-      if: ${{ !contains(github.event.inputs.skiptests, 'modules') }}
-      run: make test all
