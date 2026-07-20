@@ -2,15 +2,19 @@
 # Test the "INFO stream" section.
 #
 # The section reports per-database, base-2 logarithmic histograms of stream
-# properties, identical in form to the "INFO keysizes" section. The first
-# metric is distrib_cgroups_pel: one sample per consumer group, valued by the
-# group's pending-entry-list (PEL) size. Collection is gated on the stream-stats
-# directive and reconstructed exactly from RDB / replication.
+# properties, identical in form to the "INFO keysizes" section. One sample per
+# consumer group per metric:
+#   - distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
+#   - distrib_cgroups_lag: the group's backlog of unconsumed messages, bounded
+#     by the live stream length (matching XINFO GROUPS lag); groups whose lag is
+#     unavailable due to fragmentation (XINFO NULL) contribute no sample.
+# Collection is gated on the stream-stats directive and reconstructed exactly
+# from RDB / replication.
 ################################################################################
 
-# Map a PEL value to its histogram bin label, matching the C binning
-# (largest power of two <= value; 0 -> "0"; >=1024 rendered with K/M/... suffix).
-proc pel_label {v} {
+# Map a value to its histogram bin label, matching the C binning (largest power
+# of two <= value; 0 -> "0"; >=1024 rendered with K/M/... suffix).
+proc hist_label {v} {
     if {$v == 0} { return 0 }
     set power 1
     while { ($power * 2) <= $v } { set power [expr {$power * 2}] }
@@ -19,8 +23,8 @@ proc pel_label {v} {
     return $power
 }
 
-# Strip the "INFO stream" output to a canonical comparable form: drop the
-# "# Stream" header and all whitespace.
+# Whole "INFO stream" section, header and whitespace stripped (used to assert
+# the section is entirely empty).
 proc get_info_stream_stripped {server} {
     return [string map {
         "# Stream" ""
@@ -28,19 +32,32 @@ proc get_info_stream_stripped {server} {
     } [$server info stream]]
 }
 
-# Reconstruct the expected distrib_cgroups_pel histogram for 'dbid' directly
-# from the keyspace (the INFO-independent cross-check): for every stream, ask
-# XINFO GROUPS for each group's pending count and bin it. Returns the same
-# canonical (stripped) form as get_info_stream_stripped, so the two can be
-# compared for equality.
-proc eval_pel_histogram {server dbid} {
+# Only the "INFO stream" lines for a given metric field (e.g.
+# distrib_cgroups_pel), concatenated and whitespace-stripped -- so a per-metric
+# assertion isn't disturbed by the other metrics' lines.
+proc get_info_stream_field {server field} {
+    set out ""
+    foreach line [split [$server info stream] "\n"] {
+        set line [string trim $line "\r"]
+        if {[string match "db*_$field:*" $line]} { append out $line }
+    }
+    return $out
+}
+
+# Reconstruct a metric's expected histogram for 'dbid' directly from the
+# keyspace (the INFO-independent cross-check): for every stream, read the given
+# XINFO GROUPS field per group and bin it. A nil field (e.g. lag under
+# fragmentation) contributes no sample, matching the live histogram. Returns the
+# same canonical form as get_info_stream_field.
+proc eval_stream_histogram {server dbid metric xinfo_field} {
     $server select $dbid
     array set bin_counts {}
     foreach key [$server keys *] {
         if {[$server type $key] ne "stream"} continue
         foreach g [$server xinfo groups $key] {
             array set gi $g
-            incr bin_counts([pel_label $gi(pending)])
+            set v $gi($xinfo_field)
+            if {$v ne {}} { incr bin_counts([hist_label $v]) }
             unset gi
         }
     }
@@ -56,21 +73,22 @@ proc eval_pel_histogram {server dbid} {
     }
     set out {}
     foreach p [lsort -integer -index 0 $pairs] { lappend out [lindex $p 1] }
-    return "db${dbid}_distrib_cgroups_pel:[join $out ,]"
+    return "db${dbid}_$metric:[join $out ,]"
 }
 
-# Resolve the expected string: the sentinel "__EVAL__ <dbid>" reconstructs from
-# the keyspace; otherwise the literal (placeholder "PEL" -> the field name).
-proc pel_expand {server exp} {
+# Resolve the expected string for metric 'field': the sentinel "__EVAL__ <dbid>"
+# reconstructs from the keyspace via XINFO 'xinfo_field'; otherwise the literal,
+# with the given short 'placeholder' expanded to the field name.
+proc stream_metric_expand {server exp field placeholder xinfo_field} {
     if {[regexp {^__EVAL__\s+(\d+)$} $exp -> dbid]} {
-        return [eval_pel_histogram $server $dbid]
+        return [eval_stream_histogram $server $dbid $field $xinfo_field]
     }
-    return [string map {"PEL" "distrib_cgroups_pel" " " "" "\n" "" "\r" ""} $exp]
+    return [string map [list $placeholder $field " " "" "\n" "" "\r" ""] $exp]
 }
 
-# Run 'cmd', then assert the INFO stream section equals 'exp'. In replicaMode the
-# assertion is repeated on the replica after it catches up.
-proc verify_pel {cmd exp {waitCond 0}} {
+# Run 'cmd', then assert that metric 'field's INFO stream lines equal 'exp'. In
+# replicaMode the assertion is repeated on the replica after it catches up.
+proc verify_stream_metric {cmd exp field placeholder xinfo_field waitCond} {
     global replicaMode
     uplevel 1 $cmd
 
@@ -84,18 +102,28 @@ proc verify_pel {cmd exp {waitCond 0}} {
     set retries [expr {$waitCond ? 50 : 1}]
 
     wait_for_condition 50 $retries {
-        [pel_expand $server $exp] eq [get_info_stream_stripped $server]
+        [stream_metric_expand $server $exp $field $placeholder $xinfo_field] eq [get_info_stream_field $server $field]
     } else {
-        fail "Expected: `[pel_expand $server $exp]` Actual: `[get_info_stream_stripped $server]`. After: $cmd"
+        fail "Expected: `[stream_metric_expand $server $exp $field $placeholder $xinfo_field]` Actual: `[get_info_stream_field $server $field]`. After: $cmd"
     }
 
     if {$replicaMode eq 1} {
         wait_for_condition 50 50 {
-            [pel_expand $server $exp] eq [get_info_stream_stripped $replica]
+            [stream_metric_expand $server $exp $field $placeholder $xinfo_field] eq [get_info_stream_field $replica $field]
         } else {
-            fail "Replica mismatch. Expected: `[pel_expand $server $exp]` Actual: `[get_info_stream_stripped $replica]`. After: $cmd"
+            fail "Replica mismatch. Expected: `[stream_metric_expand $server $exp $field $placeholder $xinfo_field]` Actual: `[get_info_stream_field $replica $field]`. After: $cmd"
         }
     }
+}
+
+# distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
+proc verify_pel {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp distrib_cgroups_pel PEL pending $waitCond]
+}
+
+# distrib_cgroups_lag: placeholder "LAG", cross-checked against XINFO 'lag'.
+proc verify_lag {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp distrib_cgroups_lag LAG lag $waitCond]
 }
 
 # Seed a stream with 'n' entries 1-1..n-1.
@@ -121,7 +149,7 @@ proc test_all_stream_stats { {replMode 0} } {
             verify_pel {$server FLUSHALL} {}
             seed_stream $server st $n
             $server xgroup create st g 0
-            verify_pel {$server xreadgroup group g c count $n streams st >} "db0_PEL:[pel_label $n]=1"
+            verify_pel {$server xreadgroup group g c count $n streams st >} "db0_PEL:[hist_label $n]=1"
         }
     }
 
@@ -248,6 +276,63 @@ proc test_all_stream_stats { {replMode 0} } {
         $server select 0
     }
 
+    test "STREAM-STATS - lag grows on XADD, shrinks on XREADGROUP $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 4
+        # A group created at 0 on a 4-entry stream has lag 4.
+        verify_lag {$server xgroup create st g 0} {db0_LAG:4=1}
+        # Reading 3 entries lowers lag to 1; reading the rest to 0.
+        verify_lag {$server xreadgroup group g c count 3 streams st >} {db0_LAG:1=1}
+        verify_lag {$server xreadgroup group g c count 10 streams st >} {db0_LAG:0=1}
+        # Producing more raises the caught-up group's lag again.
+        verify_lag {$server xadd st 5-1 f v} {db0_LAG:1=1}
+        verify_lag {$server xadd st 6-1 f v} {db0_LAG:2=1}
+    }
+
+    test "STREAM-STATS - lag is bounded: trimming unread entries lowers it $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        # Group at 0 that hasn't read: lag 8.
+        verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
+        # Trimming to the newest 4 removes 4 unread entries. The backlog is the
+        # live window (4), not the raw producer-minus-read (8) -- it crosses a
+        # bin (8 -> "4"), and matches XINFO lag. A naive added-read would stay 8.
+        verify_lag {$server xtrim st maxlen 4} {db0_LAG:4=1}
+        # The group still catches up to 0 by reading the 4 live entries.
+        verify_lag {$server xreadgroup group g c count 100 streams st >} {db0_LAG:0=1}
+    }
+
+    test "STREAM-STATS - lag with multiple groups $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        $server xreadgroup group g1 c count 8 streams st >
+        $server xreadgroup group g2 c count 2 streams st >
+        # g1 caught up (lag 0); g2 read 2 of 8 -> lag 6 -> bin "4".
+        verify_lag {} {db0_LAG:0=1,4=1}
+    }
+
+    test "STREAM-STATS - fragmented group (NULL lag) is excluded $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 5
+        $server xgroup create st g 0
+        $server xreadgroup group g c count 2 streams st >
+        verify_lag {} {db0_LAG:2=1} ;# lag 3 -> "2"
+        # Deleting an entry ahead of the group leaves a tombstone ahead, so its
+        # lag becomes unavailable (XINFO reports NULL) and it drops out.
+        verify_lag {$server xdel st 4-1} {}
+    }
+
+    test "STREAM-STATS - XGROUP SETID and DESTROY move the lag sample $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
+        verify_lag {$server xgroup setid st g $} {db0_LAG:0=1} ;# jump to tail -> lag 0
+        verify_lag {$server xgroup setid st g 0} {db0_LAG:8=1} ;# back to head -> lag 8
+        verify_lag {$server xgroup destroy st g} {}
+    }
+
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
         verify_pel {$server FLUSHALL} {}
         for {set s 0} {$s < 6} {incr s} {
@@ -257,8 +342,14 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xreadgroup group g0 c count [expr {int(rand()*20)}] streams strm$s >}
             catch {$server xreadgroup group g1 c count [expr {int(rand()*20)}] streams strm$s >}
             catch {$server xack strm$s g0 [expr {int(rand()*10)+1}]-1}
+            # Trims and deletes exercise the lag bound and fragmentation (NULL).
+            catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
+            catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
+        # Both metrics must match an independent reconstruction from XINFO GROUPS
+        # (pending for PEL, lag for LAG) -- across trims/deletes/reads/acks.
         verify_pel {} {__EVAL__ 0}
+        verify_lag {} {__EVAL__ 0}
     }
 }
 
@@ -278,7 +369,9 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         set before [get_info_stream_stripped r]
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
-        assert_equal [eval_pel_histogram r 0] [get_info_stream_stripped r]
+        # Both metrics match an independent reconstruction from XINFO GROUPS.
+        assert_equal [eval_stream_histogram r 0 distrib_cgroups_pel pending] [get_info_stream_field r distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 distrib_cgroups_lag lag] [get_info_stream_field r distrib_cgroups_lag]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {
@@ -287,7 +380,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         seed_stream r st 4
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
-        assert_equal "db0_distrib_cgroups_pel:4=1" [get_info_stream_stripped r]
+        assert_equal "db0_distrib_cgroups_pel:4=1" [get_info_stream_field r distrib_cgroups_pel]
         r del st
         assert_equal "" [get_info_stream_stripped r]
     }
@@ -337,7 +430,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "" [get_info_stream_stripped r]
         # A reload rebuilds the gauge exactly from the keyspace.
         r DEBUG RELOAD
-        assert_equal "db0_distrib_cgroups_pel:4=1" [get_info_stream_stripped r]
+        assert_equal "db0_distrib_cgroups_pel:4=1" [get_info_stream_field r distrib_cgroups_pel]
         # Disabling zeroes the histogram so no stale samples linger.
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]
