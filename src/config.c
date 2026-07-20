@@ -2597,17 +2597,20 @@ static int updateReplBacklogSize(const char **err) {
  * still hold the previous encoding of the shared lru field. Walking the whole
  * keyspace on CONFIG SET is not acceptable on large instances.
  *
- * Lazy convert instead:
- * - non-LFU -> LFU: short import window; LFUDecrAndReturn / OBJECT FREQ convert
- *   on first LFU use (heuristic: lru still looks like an LRU clock).
- * - LFU -> non-LFU: no time window; estimateObjectIdleTime converts when the
- *   field still looks like LFU encoding (warm LFU ldt, or idle impossible for
- *   process uptime). Already-correct LRU clocks are left alone.
- * Same-encoding switches (allkeys-lru <-> volatile-lru, LFU <-> LFU) are no-ops.
- * See #15375. */
-#define MAXMEMORY_POLICY_IMPORT_MS 60000 /* 60s lazy LFU import window */
+ * Lazy convert on short import windows instead:
+ * - non-LFU -> LFU: lfu_import_until; LFUDecrAndReturn / OBJECT FREQ convert
+ * - LFU -> non-LFU: lru_import_until; estimateObjectIdleTime / OBJECT IDLETIME
+ *   convert. Also set lru_field_may_be_lfu so LFU->noeviction->LRU after the
+ *   window expires can reopen import (encoding bit alone would not flip).
+ * Same-encoding switches (allkeys-lru <-> volatile-lru, LFU <-> LFU) are no-ops
+ * unless reopening a dirty idle import. See #15375. */
+#define MAXMEMORY_POLICY_IMPORT_MS 60000 /* 60s lazy convert window */
 
 static int prev_maxmemory_lfu = -1;
+static int prev_idle_scoring = -1;
+/* Keys may still hold LFU-encoded lru after leaving LFU (until imported or
+ * rewritten by access under a non-LFU policy). */
+static int lru_field_may_be_lfu = 0;
 
 /* loadServerConfig only sets maxmemory-policy and never runs apply. Seed the
  * LFU-bit baseline from the live (default or conf-file) policy so the first
@@ -2615,32 +2618,52 @@ static int prev_maxmemory_lfu = -1;
  * defaults (initConfigValues) and again after config load. */
 static void seedMaxmemoryPolicyBaseline(void) {
     prev_maxmemory_lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
+    prev_idle_scoring = server.maxmemory_policy &
+        (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM) ? 1 : 0;
 }
 
 static int updateMaxmemoryPolicy(const char **err) {
     UNUSED(err);
     int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
+    int idle_scoring = server.maxmemory_policy &
+        (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM) ? 1 : 0;
 
     /* Defensive: if baseline was never seeded, keys already match the live
      * policy encoding from createObject / initObjectLRUOrLFU. */
     if (prev_maxmemory_lfu == -1) {
         prev_maxmemory_lfu = lfu;
+        prev_idle_scoring = idle_scoring;
         return 1;
     }
 
-    if (prev_maxmemory_lfu == lfu)
+    if (prev_maxmemory_lfu == lfu) {
+        /* LFU bit unchanged. Reopen idle import only when *entering* an
+         * idle-scoring policy from a non-scoring one (LFU -> noeviction ->
+         * LRU). Same-encoding LRU <-> LRU must not reopen or IDLETIME is
+         * rewritten. */
+        if (!lfu && lru_field_may_be_lfu && idle_scoring && !prev_idle_scoring)
+        {
+            server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+        }
+        prev_idle_scoring = idle_scoring;
         return 1;
+    }
 
-    /* Encoding flipped: no keyspace walk. Open the LFU import window only when
-     * entering LFU; clear it when leaving so a bounce cannot keep converting
-     * under the wrong policy. LFU->idle convert is heuristic (no deadline). */
+    /* Encoding flipped: enable lazy per-object convert, no keyspace walk.
+     * Clear the opposite window so a quick bounce cannot rewrite under the
+     * wrong active policy. */
     if (lfu) {
         server.lfu_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+        server.lru_import_until = 0;
+        lru_field_may_be_lfu = 0;
     } else {
+        server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
         server.lfu_import_until = 0;
+        lru_field_may_be_lfu = 1;
     }
 
     prev_maxmemory_lfu = lfu;
+    prev_idle_scoring = idle_scoring;
     return 1;
 }
 

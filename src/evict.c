@@ -73,25 +73,23 @@ unsigned int LRU_CLOCK(void) {
     return lruclock;
 }
 
-/* Return 1 if o->lru still looks like LFU encoding (ldt<<8|counter) rather
- * than an LRU/LRM clock. Used to lazily re-encode after leaving an LFU policy
- * without a keyspace walk or a time-bounded import window. */
-static int objectLruLooksLikeLFU(robj *o) {
+/* True if o->lru still looks like residual LFU encoding rather than an idle
+ * clock. Used only inside the LFU->non-LFU import window. */
+static int objectLruLooksLikeResidualLFU(robj *o) {
     unsigned long ldt = o->lru >> 8;
-    /* Warm/recent LFU last-decay time (within 24h of the LFU minute clock). */
+    /* Warm LFU last-decay time (within 24h of the LFU minute clock). */
     if (LFUTimeElapsed(ldt) <= 60*24)
         return 1;
 
-    /* Stale LFU: LFUTimeElapsed can exceed 24h. As an LRU clock, that field
-     * almost never yields an idle time within process uptime, so treat
-     * impossible idles as residual LFU encoding. */
-    unsigned int clock = LRU_CLOCK();
+    /* Stale LFU: as an LRU clock the idle is almost never within process
+     * uptime, so treat impossible idles as residual LFU. Valid RESTORE /
+     * module IDLETIME values stay within uptime and are left alone. */
+    unsigned long long lruclock = LRU_CLOCK();
     unsigned long long idle_ms;
-    if (clock >= o->lru)
-        idle_ms = (unsigned long long)(clock - o->lru) * LRU_CLOCK_RESOLUTION;
+    if (lruclock >= o->lru)
+        idle_ms = (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
     else
-        idle_ms = (unsigned long long)(clock + (LRU_CLOCK_MAX - o->lru)) *
-                    LRU_CLOCK_RESOLUTION;
+        idle_ms = (lruclock + (LRU_CLOCK_MAX - o->lru)) * LRU_CLOCK_RESOLUTION;
     time_t uptime = server.unixtime - server.stat_starttime;
     if (uptime < 0) uptime = 0;
     if (idle_ms / 1000 > (unsigned long long)uptime + 60)
@@ -103,12 +101,14 @@ static int objectLruLooksLikeLFU(robj *o) {
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
     /* After LFU -> non-LFU policy switch, lru may still hold LFU encoding.
-     * Convert lazily on first idle-time use (no keyspace walk, no expiry
-     * window). Only under a non-LFU policy so DEBUG OBJECT / idle paths cannot
-     * rewrite keys after a bounce back to LFU. Already-converted LRU clocks
-     * fail objectLruLooksLikeLFU and are left alone. */
+     * Convert lazily during the short import window only (no keyspace walk).
+     * Must not run outside the window: permanent heuristics rewrite legitimate
+     * RESTORE IDLETIME / module setlru clocks to a fresh LRU_CLOCK (idle 0).
+     * Only under a non-LFU policy so DEBUG OBJECT cannot rewrite after bounce
+     * back to LFU. */
     if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
-        objectLruLooksLikeLFU(o))
+        server.lru_import_until && mstime() < server.lru_import_until &&
+        objectLruLooksLikeResidualLFU(o))
     {
         o->lru = LRU_CLOCK();
     }
