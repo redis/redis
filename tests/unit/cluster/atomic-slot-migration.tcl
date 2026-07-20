@@ -182,15 +182,17 @@ proc reset_default_trim_method {} {
     }
 }
 
-# Return the INFO `stream` distrib_cgroups_pel histogram for a node's db
-# (e.g. "1=1,4=1"), or "" if absent.
-proc stream_pel_hist {node_id {dbnum 0}} {
+# Return an INFO `stream` per-cgroup histogram (e.g. distrib_cgroups_pel) for a
+# node's db (e.g. "1=1,4=1"), or "" if absent.
+proc stream_cgroups_hist {node_id metric {dbnum 0}} {
     foreach line [split [R $node_id info stream] "\n"] {
         set line [string trim $line "\r"]
-        if {[regexp "^db${dbnum}_distrib_cgroups_pel:(.*)$" $line -> val]} { return $val }
+        if {[regexp "^db${dbnum}_${metric}:(.*)$" $line -> val]} { return $val }
     }
     return ""
 }
+proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id distrib_cgroups_pel $dbnum] }
+proc stream_lag_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id distrib_cgroups_lag $dbnum] }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
@@ -271,42 +273,46 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     foreach trim_method {"active" "bg"} {
-        test "Slot trim updates distrib_cgroups_pel histogram (trim method: $trim_method)" {
+        test "Slot trim updates distrib_cgroups_pel/lag histograms (trim method: $trim_method)" {
             R 0 debug asm-trim-method $trim_method
             R 0 flushall
             R 1 flushall
             R 0 config set stream-stats yes
             R 1 config set stream-stats yes
 
-            # Streams in slots that will be migrated away (0-100) and one that
-            # stays on R 0 (slot 101). Each has a consumer group whose PEL size
-            # (chosen for distinct bins) is the histogram sample.
+            # Streams in slots migrated away (0-100) and one that stays (101).
+            # Each has a group with a partial read, giving distinct PEL and lag
+            # bins:  key   entries read -> PEL  lag  (lag=entries-read)
+            #        s0    4       1       1    3
+            #        s1    8       4       4    4
+            #        s101  2       1       1    1
             set s0 [slot_key 0 strm]
             set s1 [slot_key 1 strm]
             set s101 [slot_key 101 strm]
-            foreach {key n} [list $s0 4 $s1 8 $s101 2] {
+            foreach {key n r} [list $s0 4 1 $s1 8 4 $s101 2 1] {
                 for {set i 1} {$i <= $n} {incr i} { R 0 xadd $key $i-1 f v }
                 R 0 xgroup create $key g 0
-                R 0 xreadgroup group g c count $n streams $key >
+                R 0 xreadgroup group g c count $r streams $key >
             }
-            assert_equal "2=1,4=1,8=1" [stream_pel_hist 0]
+            assert_equal "1=2,4=1" [stream_pel_hist 0]     ;# PEL 1,4,1
+            assert_equal "1=1,2=1,4=1" [stream_lag_hist 0] ;# lag 1,3,4 -> "1","2","4"
 
             # Migrate slots 0-100 to R 1; slot 101 stays on R 0.
             R 1 CLUSTER MIGRATION IMPORT 0 100
             wait_for_asm_done
 
-            # Trimming the migrated slots removes their stream keys (and their
-            # consumer groups) without going through streamKeyRemoved (the bg
-            # method frees them off-thread), so R 0's histogram must drop to
-            # only the slot-101 group.
+            # Trimming the migrated slots frees their stream keys (and groups) --
+            # with the bg method off-thread, bypassing streamKeyRemoved -- so
+            # R 0's histograms must drop to just the slot-101 group.
             wait_for_condition 1000 50 {
-                [stream_pel_hist 0] eq "2=1"
+                [stream_pel_hist 0] eq "1=1" && [stream_lag_hist 0] eq "1=1"
             } else {
-                fail "distrib_cgroups_pel not trimmed: [stream_pel_hist 0]"
+                fail "R0 histograms not trimmed: pel=[stream_pel_hist 0] lag=[stream_lag_hist 0]"
             }
 
             # The importing node counts the migrated groups as they load.
-            assert_equal "4=1,8=1" [stream_pel_hist 1]
+            assert_equal "1=1,4=1" [stream_pel_hist 1]
+            assert_equal "2=1,4=1" [stream_lag_hist 1]
 
             # cleanup: flush and migrate the slots back to R 0.
             R 0 flushall
