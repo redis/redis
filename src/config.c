@@ -2628,11 +2628,16 @@ static int updateMaxmemoryPolicy(const char **err) {
     if (prev_maxmemory_lfu == lfu)
         return 1;
 
-    /* Encoding flipped: enable lazy per-object convert, no keyspace walk. */
-    if (lfu)
+    /* Encoding flipped: enable lazy per-object convert, no keyspace walk.
+     * Clear the opposite window so a quick LFU<->non-LFU bounce cannot leave
+     * a stale deadline that rewrites keys under the wrong active policy. */
+    if (lfu) {
         server.lfu_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
-    else
+        server.lru_import_until = 0;
+    } else {
         server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+        server.lfu_import_until = 0;
+    }
 
     prev_maxmemory_lfu = lfu;
     return 1;

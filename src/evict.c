@@ -77,9 +77,12 @@ unsigned int LRU_CLOCK(void) {
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
     /* After LFU -> non-LFU policy switch, lru may still hold LFU encoding.
-     * Convert lazily (no keyspace walk on CONFIG SET). LFU LDTs sit near the
-     * LFU minute clock; LRU clocks usually do not. */
-    if (server.lru_import_until && mstime() < server.lru_import_until) {
+     * Convert lazily (no keyspace walk on CONFIG SET). Only while an idle-based
+     * (non-LFU) policy is active, so a stale lru_import_until cannot rewrite
+     * keys after a quick bounce back to LFU. */
+    if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
+        server.lru_import_until && mstime() < server.lru_import_until)
+    {
         unsigned long ldt = o->lru >> 8;
         if (LFUTimeElapsed(ldt) <= 60*24) {
             o->lru = LRU_CLOCK();
@@ -312,9 +315,10 @@ uint8_t LFULogIncr(uint8_t counter) {
  * counter of the scanned objects if needed. */
 unsigned long LFUDecrAndReturn(robj *o) {
     /* After non-LFU -> LFU policy switch, lru may still hold an LRU clock.
-     * Convert lazily on first LFU use. LRU clocks decoded as LFU almost always
-     * have an LDT far from the LFU minute clock (elapsed >> 60). */
-    if (server.lfu_import_until && mstime() < server.lfu_import_until) {
+     * Convert lazily on first LFU use, and only while an LFU policy is active. */
+    if ((server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
+        server.lfu_import_until && mstime() < server.lfu_import_until)
+    {
         unsigned long ldt = o->lru >> 8;
         if (LFUTimeElapsed(ldt) > 60) {
             o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;

@@ -828,6 +828,25 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_lessthan_equal [r object idletime midttl] 1
     }
 
+    # Quick LFU -> LRU -> LFU must not leave a stale lru_import window that
+    # rewrites LFU keys when idle-time is computed under LFU (DEBUG OBJECT).
+    test {LFU: bounce LFU to LRU to LFU keeps FREQ after DEBUG OBJECT} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set bouncekey value-bounce
+        for {set i 0} {$i < 200} {incr i} {
+            r get bouncekey
+        }
+        set before [r object freq bouncekey]
+        assert_morethan $before 5
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory-policy allkeys-lfu
+        # Uses estimateObjectIdleTime; must not convert under LFU.
+        catch {r debug object bouncekey}
+        assert_equal $before [r object freq bouncekey]
+    }
+
 }
 
 # Conf-file LFU never runs apply at load; baseline must come from the live
