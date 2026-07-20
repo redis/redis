@@ -2640,19 +2640,15 @@ static int updateMaxmemoryPolicy(const char **err) {
         /* LFU bit unchanged. Reopen idle import only when *entering* an
          * idle-scoring policy from a non-scoring one (LFU -> noeviction ->
          * LRU), once per leave-LFU cycle. Same-encoding LRU <-> LRU must not
-         * reopen or IDLETIME is rewritten. */
+         * reopen or IDLETIME is rewritten.
+         *
+         * Do not clear lru_field_may_be_lfu merely because the initial window
+         * expired while still on idle scoring: untouched keys may still be
+         * LFU-encoded, and a later non-scoring -> LRU hop needs one reopen. */
         if (!lfu && lru_field_may_be_lfu && idle_scoring && !prev_idle_scoring)
         {
             server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
-            /* One reopen only; do not keep reopening on later non-scoring
-             * hops after keys have had a chance to convert. */
-            lru_field_may_be_lfu = 0;
-        } else if (!lfu && lru_field_may_be_lfu && idle_scoring &&
-                   prev_idle_scoring && server.lru_import_until &&
-                   mstime() >= server.lru_import_until)
-        {
-            /* Already on idle scoring and the initial window expired: residue
-             * flag is no longer needed. */
+            /* One reopen only; further non-scoring hops do not reopen. */
             lru_field_may_be_lfu = 0;
         }
         prev_idle_scoring = idle_scoring;
