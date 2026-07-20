@@ -45,6 +45,9 @@ struct evictionPoolEntry {
 
 static struct evictionPoolEntry *EvictionPoolLRU;
 
+/* Forward decl: used by estimateObjectIdleTime before its definition. */
+unsigned long LFUTimeElapsed(unsigned long ldt);
+
 /* ----------------------------------------------------------------------------
  * Implementation of eviction, aging and LRU
  * --------------------------------------------------------------------------*/
@@ -73,6 +76,15 @@ unsigned int LRU_CLOCK(void) {
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
+    /* After LFU -> non-LFU policy switch, lru may still hold LFU encoding.
+     * Convert lazily (no keyspace walk on CONFIG SET). LFU LDTs sit near the
+     * LFU minute clock; LRU clocks usually do not. */
+    if (server.lru_import_until && mstime() < server.lru_import_until) {
+        unsigned long ldt = o->lru >> 8;
+        if (LFUTimeElapsed(ldt) <= 60*24) {
+            o->lru = LRU_CLOCK();
+        }
+    }
     unsigned long long lruclock = LRU_CLOCK();
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
@@ -299,6 +311,16 @@ uint8_t LFULogIncr(uint8_t counter) {
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
 unsigned long LFUDecrAndReturn(robj *o) {
+    /* After non-LFU -> LFU policy switch, lru may still hold an LRU clock.
+     * Convert lazily on first LFU use. LRU clocks decoded as LFU almost always
+     * have an LDT far from the LFU minute clock (elapsed >> 60). */
+    if (server.lfu_import_until && mstime() < server.lfu_import_until) {
+        unsigned long ldt = o->lru >> 8;
+        if (LFUTimeElapsed(ldt) > 60) {
+            o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
+            return LFU_INIT_VAL;
+        }
+    }
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;

@@ -2593,21 +2593,17 @@ static int updateReplBacklogSize(const char **err) {
     return 1;
 }
 
-/* When switching maxmemory-policy at runtime, re-seed key access metadata so
- * the lru field encoding matches the new policy. Keys stored under a non-LFU
- * policy keep an LRU-encoded lru field; under LFU that is treated as frequency
- * 0 and can be preferred for eviction. The reverse (LFU -> non-LFU) matters for
- * multi-arg CONFIG SET rollback and for LFU -> LRU/LRM: apply re-seeds LFU,
- * then a later failure restores the old non-LFU policy and must re-seed LRU
- * clocks so eviction does not interpret LFU counters as idle time. LRM scores
- * with estimateObjectIdleTime on the same field. See #15375.
+/* When maxmemory-policy flips between LFU and non-LFU encodings, existing keys
+ * still hold the previous encoding of the shared lru field. Walking the whole
+ * keyspace on CONFIG SET is not acceptable on large instances.
  *
- * Always reseed when the LFU encoding bit flips, including LFU -> noeviction /
- * random / volatile-ttl. Skipping those left LFU-encoded values on keys while
- * prev_maxmemory_lfu claimed non-LFU, so a later switch to LRU/LRM saw no bit
- * flip and treated LFU counters as idle clocks. Same-encoding switches
- * (allkeys-lru <-> volatile-lru, allkeys-lfu <-> volatile-lfu, lru <-> lrm)
- * do not rewrite every key. */
+ * Instead open a short lazy-import window. On first use of each object as LFU
+ * (LFUDecrAndReturn / eviction samples / OBJECT FREQ) or as idle time
+ * (estimateObjectIdleTime / OBJECT IDLETIME), convert that object only.
+ * Same-encoding switches (allkeys-lru <-> volatile-lru, LFU <-> LFU) are no-ops.
+ * See #15375. */
+#define MAXMEMORY_POLICY_IMPORT_MS 60000 /* 60s lazy convert window */
+
 static int prev_maxmemory_lfu = -1;
 
 /* loadServerConfig only sets maxmemory-policy and never runs apply. Seed the
@@ -2632,22 +2628,12 @@ static int updateMaxmemoryPolicy(const char **err) {
     if (prev_maxmemory_lfu == lfu)
         return 1;
 
-    for (int j = 0; j < server.dbnum; j++) {
-        redisDb *db = server.db + j;
-        if (!kvstoreSize(db->keys)) continue;
+    /* Encoding flipped: enable lazy per-object convert, no keyspace walk. */
+    if (lfu)
+        server.lfu_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+    else
+        server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
 
-        dictEntry *de;
-        kvstoreIterator kvs_it;
-        kvstoreIteratorInit(&kvs_it, db->keys);
-        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
-            kvobj *kv = dictGetKV(de);
-            if (lfu)
-                kv->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
-            else
-                kv->lru = LRU_CLOCK();
-        }
-        kvstoreIteratorReset(&kvs_it);
-    }
     prev_maxmemory_lfu = lfu;
     return 1;
 }
