@@ -99,34 +99,6 @@ proc populate_slot {num args} {
     R $idx deferred 0
 }
 
-# Return 1 if all instances are idle
-proc asm_all_instances_idle {total} {
-    for {set i 0} {$i < $total} {incr i} {
-        if {[CI $i cluster_slot_migration_active_tasks] != 0} { return 0 }
-        if {[CI $i cluster_slot_migration_active_trim_running] != 0} { return 0 }
-    }
-    return 1
-}
-
-# Wait for all ASM tasks to complete in the cluster
-proc wait_for_asm_done {} {
-    set total_instances [expr {$::cluster_master_nodes + $::cluster_replica_nodes}]
-
-    wait_for_condition 3000 10 {
-        [asm_all_instances_idle $total_instances] == 1
-    } else {
-        # Print the number of active tasks on each instance
-        for {set i 0} {$i < $total_instances} {incr i} {
-            set migration_count [CI $i cluster_slot_migration_active_tasks]
-            set trim_count [CI $i cluster_slot_migration_active_trim_running]
-            puts "Instance $i: migration_tasks=$migration_count, trim_tasks=$trim_count"
-        }
-        fail "ASM tasks did not complete on all instances"
-    }
-    # wait all nodes to reach the same cluster config after ASM
-    wait_for_cluster_propagation
-}
-
 proc failover_and_wait_for_done {node_id {failover_arg ""}} {
     set max_attempts 5
     for {set attempt 1} {$attempt <= $max_attempts} {incr attempt} {
