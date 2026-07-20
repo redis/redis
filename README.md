@@ -1237,7 +1237,7 @@ If TLS is built, running the tests with TLS enabled (you will need `tcl-tls` ins
 ./runtest --tls
 ```
 
-Redis suppports compression of replication stream via zstd as of 8.10. To build with compression support use the following flag:
+Redis supports compression of replication stream via zstd as of 8.10. To build with compression support use the following flag:
 
 ```sh
 make BUILD_COMPRESSION=yes
