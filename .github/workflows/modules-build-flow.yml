@@ -1,4 +1,4 @@
-name: Modules Daily
+name: Modules Build Flow
 
 # Verifies the from-source modules flow documented in modules/README.md on
 # every OS the bundled modules support (the same list the modules' own
@@ -19,8 +19,11 @@ name: Modules Daily
 # that OS and this workflow exists to catch exactly that.
 
 on:
-  schedule:
-    - cron: '30 1 * * *'
+  # Only when the module pin manifest changes — a bump to any module's ref is
+  # exactly what can break the from-source build/load on some OS — or manually.
+  pull_request:
+    paths:
+      - 'modules/modules.yaml'
   workflow_dispatch:
     inputs:
       run_tests:
@@ -39,7 +42,6 @@ jobs:
   test-modules:
     name: test-modules-${{ matrix.arch }}-${{ matrix.osnick }}
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    if: github.event_name == 'workflow_dispatch' || github.repository == 'redis/redis'
     timeout-minutes: 300
     # Mapping form with an explicit PATH: a module bootstrap can append to
     # $GITHUB_PATH (redisearch's uv installer does), and when the runner
@@ -231,7 +233,6 @@ jobs:
   test-modules-macos:
     name: test-modules-macos
     runs-on: macos-latest
-    if: github.event_name == 'workflow_dispatch' || github.repository == 'redis/redis'
     timeout-minutes: 300
     env:
       # make tarball needs GNU tar (gtar from Homebrew); tarball.sh honors TAR.
