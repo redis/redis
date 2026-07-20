@@ -101,6 +101,7 @@ typedef struct asmBgTrimState {
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
     int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
+    int64_t delta_distrib_cgroups_lag[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
     int track_stream_stats;      /* stream-stats state captured when the trim job was
                                     scheduled; the BIO thread reads this instead of the
                                     live config, and the delta is applied only if it was
@@ -3097,14 +3098,19 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* Update distrib_cgroups_pel delta (INFO `stream`): one sample per
-         * consumer group. Bg slot trim frees stream keys without going through
-         * streamKeyRemoved, so record each group's PEL size here. Done before the
-         * keysizes row lookup below, so it stays reachable regardless of whether
-         * streams are a tracked keysizes type. Gated on the stream-stats state
-         * captured when the job was scheduled (bg->track_stream_stats), not the
-         * live config, since this runs on the BIO thread; completion re-validates
-         * the epoch. */
+        /* Update the INFO `stream` per-consumer-group deltas (distrib_cgroups_pel
+         * and distrib_cgroups_lag): one sample per consumer group. Bg slot trim
+         * frees stream keys without going through streamKeyRemoved, so record each
+         * group's samples here. Done before the keysizes row lookup below, so it
+         * stays reachable regardless of whether streams are a tracked keysizes
+         * type.
+         *
+         * Gated on the stream-stats state captured when the job was scheduled
+         * (bg->track_stream_stats), not the live config, since this runs on the
+         * BIO thread; completion re-validates the epoch. Reading the group state
+         * here is safe without locking: bg slot trim moved the freed slots into a
+         * detached kvstore before this job started, so this thread solely owns
+         * these streams (raxSize and streamCGLag only read them). */
         if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
             stream *s = kv->ptr;
             if (s->cgroups && raxSize(s->cgroups)) {
@@ -3113,10 +3119,21 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                 raxSeek(&ri, "^", NULL, 0);
                 while (raxNext(&ri)) {
                     streamCG *cg = ri.data;
+
+                    /* PEL size: one sample per group. */
                     uint64_t pel = raxSize(cg->pel);
                     int bin = (pel == 0) ? 0 : log2ceil(pel) + 1;
                     debugServerAssert(bin < MAX_KEYSIZES_BINS);
                     trim_job->bg->delta_distrib_cgroups_pel[bin]++;
+
+                    /* Lag: groups whose lag is unknown (fragmentation) are
+                     * excluded, matching the live histogram. */
+                    long long lag;
+                    if (streamCGLag(s, cg, &lag)) {
+                        int lbin = (lag == 0) ? 0 : log2ceil(lag) + 1;
+                        debugServerAssert(lbin < MAX_KEYSIZES_BINS);
+                        trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
+                    }
                 }
                 raxStop(&ri);
             }
@@ -3169,9 +3186,12 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
             job->bg->stream_stats_epoch == server.stream_stats_epoch)
         {
             for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                int64_t d = job->bg->delta_distrib_cgroups_pel[bin];
-                int64_t *cur = &meta->distrib_cgroups_pel[bin];
-                *cur = (*cur > d) ? (*cur - d) : 0;
+                int64_t dpel = job->bg->delta_distrib_cgroups_pel[bin];
+                int64_t *pel = &meta->distrib_cgroups_pel[bin];
+                *pel = (*pel > dpel) ? (*pel - dpel) : 0;
+                int64_t dlag = job->bg->delta_distrib_cgroups_lag[bin];
+                int64_t *lag = &meta->distrib_cgroups_lag[bin];
+                *lag = (*lag > dlag) ? (*lag - dlag) : 0;
             }
         }
     }
