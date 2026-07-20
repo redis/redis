@@ -910,8 +910,8 @@ static int bitmapDefaultRoaringEnabled(client *c) {
 }
 
 /* Convert a string value of any encoding into a Roaring bitmap object holding
- * the same logical bits. Returns NULL when the string is wider than the v1
- * Roaring bitmap cap. */
+ * the same logical bits. Returns NULL beyond the internal representability
+ * bound. */
 static robj *bitmapObjectFromStringObject(robj *o) {
     robj *decoded = getDecodedObject(o);
     robj *bitmap = createBitmapObjectFromString((unsigned char *)decoded->ptr,
@@ -1005,11 +1005,8 @@ static int bitmapResolveRoaringTarget(client *c, kvobj *o, uint64_t maxbit,
                          (o == NULL || o->type == OBJ_STRING);
     if (!is_roaring && !default_roaring) return C_OK;
 
-    /* Per-offset limits were enforced at parse time against
-     * proto-max-bulk-len. The fixed Roaring v1 cap is only lower when
-     * proto-max-bulk-len is raised above it; reject such writes here, before
-     * any object is created or converted, so the setters below cannot fail
-     * halfway through. */
+    /* Parsing already enforced proto-max-bulk-len. Keep writes inside the
+     * internal range used by bitmap length arithmetic as well. */
     if (!bitmapObjectCanRepresentBit(maxbit)) {
         addReplyError(c, "bit offset is out of range");
         return C_ERR;
@@ -1055,8 +1052,7 @@ static void setbitCommandBitmap(client *c, kvobj *o, robj *roaring,
     if (byte >= oldlen || (!!bitval != on)) {
         if (!created && !converted && server.memory_tracking_enabled)
             oldAllocSize = kvobjAllocSize(roaring);
-        /* bitmapResolveRoaringTarget() already rejected offsets beyond the
-         * Roaring cap. */
+        /* bitmapResolveRoaringTarget() already checked the internal bound. */
         serverAssert(bitmapObjectSetBit(roaring, bitoffset, on) == C_OK);
         changed = 1;
     }
@@ -1519,10 +1515,6 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
 {
     robj *res_bitmap = NULL;
 
-    if (maxlen > BITMAP_OBJECT_MAX_BYTES) {
-        addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
-        return;
-    }
     /* NOT materializes a dense result, and all-string Roaring transitions
      * propagate a RESTORE payload. Existing Roaring operands for other ops
      * stay compressed and propagate the original BITOP, like strings do. */

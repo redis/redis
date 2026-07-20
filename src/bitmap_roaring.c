@@ -51,12 +51,13 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
                                  unsigned long minlen);
 #endif
 
-/* Derived from the byte cap in bitmap_roaring.h; only this file needs the
+/* Derived from the byte bound in bitmap_roaring.h; only this file needs the
  * bit-offset form. */
 #define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
 
 /* Bitmap objects use Roaring internally. Client-visible command limits are
- * enforced by command handlers; the object cap protects encoding invariants. */
+ * enforced by command handlers; the internal bound protects arithmetic
+ * invariants. */
 typedef struct bitmapObject {
     uint64_t byte_len;
     size_t alloc_size;          /* Total memory used by this bitmap object. */
@@ -333,7 +334,7 @@ robj *createBitmapObject(void) {
 }
 
 robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
-#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES
+#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
     if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
 #endif
 
