@@ -73,6 +73,20 @@ unsigned int LRU_CLOCK(void) {
     return lruclock;
 }
 
+/* Idle time in ms if o->lru is interpreted as an LRU/LRM clock. */
+static unsigned long long objectLruFieldIdleMs(robj *o) {
+    unsigned long long lruclock = LRU_CLOCK();
+    if (lruclock >= o->lru)
+        return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
+    return (lruclock + (LRU_CLOCK_MAX - o->lru)) * LRU_CLOCK_RESOLUTION;
+}
+
+/* Process uptime in seconds (non-negative). */
+static time_t serverUptimeSeconds(void) {
+    time_t uptime = server.unixtime - server.stat_starttime;
+    return uptime < 0 ? 0 : uptime;
+}
+
 /* True if o->lru still looks like residual LFU encoding rather than an idle
  * clock. Used only inside the LFU->non-LFU import window. */
 static int objectLruLooksLikeResidualLFU(robj *o) {
@@ -84,15 +98,19 @@ static int objectLruLooksLikeResidualLFU(robj *o) {
     /* Stale LFU: as an LRU clock the idle is almost never within process
      * uptime, so treat impossible idles as residual LFU. Valid RESTORE /
      * module IDLETIME values stay within uptime and are left alone. */
-    unsigned long long lruclock = LRU_CLOCK();
-    unsigned long long idle_ms;
-    if (lruclock >= o->lru)
-        idle_ms = (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
-    else
-        idle_ms = (lruclock + (LRU_CLOCK_MAX - o->lru)) * LRU_CLOCK_RESOLUTION;
-    time_t uptime = server.unixtime - server.stat_starttime;
-    if (uptime < 0) uptime = 0;
-    if (idle_ms / 1000 > (unsigned long long)uptime + 60)
+    if (objectLruFieldIdleMs(o) / 1000 > (unsigned long long)serverUptimeSeconds() + 60)
+        return 1;
+    return 0;
+}
+
+/* True if o->lru still looks like a residual LRU/LRM clock rather than LFU
+ * encoding. Used only inside the non-LFU->LFU import window.
+ * LFUTimeElapsed(ldt) > 60 alone misses LRU clocks whose high bits land
+ * near the LFU minute clock; those would keep garbage low-8 frequency. */
+static int objectLruLooksLikeResidualLRU(robj *o) {
+    /* Plausible idle under the current process → residual LRU clock. */
+    if (objectLruFieldIdleMs(o) / 1000 <=
+        (unsigned long long)serverUptimeSeconds() + 60)
         return 1;
     return 0;
 }
@@ -339,15 +357,15 @@ uint8_t LFULogIncr(uint8_t counter) {
  * counter of the scanned objects if needed. */
 unsigned long LFUDecrAndReturn(robj *o) {
     /* After non-LFU -> LFU policy switch, lru may still hold an LRU clock.
-     * Convert lazily on first LFU use, and only while an LFU policy is active. */
+     * Convert lazily on first LFU use during the import window, only while
+     * an LFU policy is active. Detect residual LRU by plausible idle vs
+     * process uptime (not only LFUTimeElapsed > 60). */
     if ((server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
-        server.lfu_import_until && mstime() < server.lfu_import_until)
+        server.lfu_import_until && mstime() < server.lfu_import_until &&
+        objectLruLooksLikeResidualLRU(o))
     {
-        unsigned long ldt = o->lru >> 8;
-        if (LFUTimeElapsed(ldt) > 60) {
-            o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
-            return LFU_INIT_VAL;
-        }
+        o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
+        return LFU_INIT_VAL;
     }
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
