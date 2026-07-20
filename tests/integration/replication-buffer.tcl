@@ -196,7 +196,7 @@ start_server {} {
 
         # revert the config
         if {$::compression} {
-            $replica2 config set repl-rdb-channel yes
+            $replica2 config set repl-rdb-channel $rdbchannel
         }
     }
 
@@ -208,6 +208,8 @@ start_server {} {
     }
 
     test "Replica could use replication buffer (beyond backlog config) for partial resynchronization rdbchannel=$rdbchannel" {
+        set old_sync_partial [s sync_partial_ok]
+
         # replica1 disconnects with master
         $replica1 replicaof [srv -1 host] [srv -1 port]
         # Write a mass of data that exceeds repl-backlog-size
@@ -223,7 +225,7 @@ start_server {} {
         # replica2 still waits for bgsave ending
         assert {[s rdb_bgsave_in_progress] eq {1} && [lindex [$replica2 role] 3] eq {sync}}
         # master accepted replica1 partial resync
-        assert_equal [s sync_partial_ok] {1}
+        assert_equal [s sync_partial_ok] [expr $old_sync_partial + 1]
         assert_equal [$master debug digest] [$replica1 debug digest]
     }
 
