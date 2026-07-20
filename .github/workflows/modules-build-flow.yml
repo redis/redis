@@ -133,8 +133,18 @@ jobs:
       run: |
         git config --global --add safe.directory "$(pwd)"
         git init .
-        git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
-        git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Build the PR's code — the modules.yaml change that triggered this
+          # run — not unstable. github.event.inputs is empty on pull_request,
+          # so the dispatch fallback below would otherwise check out unstable
+          # and never exercise the bumped pins. GitHub publishes the merge ref
+          # on the base repo, so this also works for fork PRs.
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth 1 origin "+refs/pull/${{ github.event.pull_request.number }}/merge"
+        else
+          git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
+          git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+        fi
         git checkout FETCH_HEAD
     - name: make modules-update
       run: make modules-update
