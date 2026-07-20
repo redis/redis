@@ -124,8 +124,7 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
-static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end,
-                                       void *privdata) {
+static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end, void *privdata) {
     unsigned char *digest = privdata;
     char buf[LONG_STR_SIZE];
 
@@ -716,9 +715,7 @@ NULL
             return;
         }
 
-        strenc = kv->type == OBJ_BITMAP ?
-                     "bitmap-roaring" :
-                     strEncoding(kv->encoding);
+        strenc = strEncoding(kv->encoding);
 
         char extra[138] = {0};
         if (kv->encoding == OBJ_ENCODING_QUICKLIST) {

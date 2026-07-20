@@ -8,14 +8,11 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-/* Representability cap for Roaring bitmap logical length. Keep v1 Roaring
- * bitmaps inside the same 32-bit bit index space as bounded Roaring bitmaps:
- * 512 MiB of logical bytes, max bit offset UINT32_MAX. Command handlers still
- * enforce the client-visible proto-max-bulk-len limit for writes,
- * dense/materializing paths, and legacy string reads when it is lower;
- * read-only roaring lookups may exceed that lower runtime limit inside this
- * cap. */
-#define BITMAP_OBJECT_MAX_BYTES (512ULL*1024*1024)
+/* Internal representability bound for Roaring bitmap logical length. Command
+ * handlers enforce the user-configured proto-max-bulk-len limit separately;
+ * this bound only protects signed range and length arithmetic. */
+#define BITMAP_OBJECT_MAX_BYTES_RAW (INT64_MAX >> 3)
+#define BITMAP_OBJECT_MAX_BYTES ((uint64_t)BITMAP_OBJECT_MAX_BYTES_RAW)
 
 typedef enum bitmapBitop {
     BITOP_AND = 0,

@@ -4262,9 +4262,7 @@ void RM_CloseKey(RedisModuleKey *key) {
 }
 
 /* Return the type of the key. If the key pointer is NULL then
- * REDISMODULE_KEYTYPE_EMPTY is returned. A string-to-roaring-bitmap conversion
- * changes the result from REDISMODULE_KEYTYPE_STRING before the converting
- * command to REDISMODULE_KEYTYPE_BITMAP after it. */
+ * REDISMODULE_KEYTYPE_EMPTY is returned. */
 int RM_KeyType(RedisModuleKey *key) {
     if (key == NULL || key->kv ==  NULL) return REDISMODULE_KEYTYPE_EMPTY;
     /* We map between defines so that we are free to change the internal
@@ -4281,6 +4279,8 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
+    /* A string-to-Roaring-bitmap conversion changes the result from
+     * REDISMODULE_KEYTYPE_STRING to REDISMODULE_KEYTYPE_BITMAP. */
     case OBJ_BITMAP: return REDISMODULE_KEYTYPE_BITMAP;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }

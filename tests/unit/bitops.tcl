@@ -729,22 +729,23 @@ start_server {tags {"bitops"}} {
             assert_equal -1 [r bitpos mykey 0 0 [expr $bytes - 1]]
         }
 
-        # The source is one byte wider than the fixed Roaring bitmap cap.
-        # BITOP must reject the roaring-destination path
-        # before replacing an existing destination or changing the source.
-        r set bitop:fixed-cap:dest sentinel
+        # A sparse Roaring source one byte beyond UINT32_MAX remains usable
+        # when proto-max-bulk-len permits it.
+        r del bitop:wide-source
         r config set bitmap-default-roaring yes
-        assert_error {*bitmap length exceeds Roaring bitmap limit*} {
-            r bitop or bitop:fixed-cap:dest mykey
-        }
+        r setbit bitop:wide-source 0 1
+        r setbit bitop:wide-source $bitpos 1
+        r set bitop:wide:dest sentinel
+        assert_equal $bytes [r bitop or bitop:wide:dest bitop:wide-source]
         assert_equal string [r type mykey]
         assert_equal $bytes [r strlen mykey]
-        assert_equal string [r type bitop:fixed-cap:dest]
-        assert_equal sentinel [r get bitop:fixed-cap:dest]
+        assert_equal bitmap [r type bitop:wide:dest]
+        assert_equal 1 [r getbit bitop:wide:dest 0]
+        assert_equal 1 [r getbit bitop:wide:dest $bitpos]
 
         r config set bitmap-default-roaring $oldroaring
         r config set proto-max-bulk-len $oldval
-        r del bitop:fixed-cap:dest
+        r del bitop:wide:dest bitop:wide-source
         r del mykey
     } {1} {large-memory}
 

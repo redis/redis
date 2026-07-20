@@ -2817,10 +2817,10 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
 
-    /* Emit module key metadata via its AOF callback. Bitmap RESTORE payloads
-     * omit KeyMeta so AOF-capable classes are persisted exactly once. */
-    if (getModuleMetaBits(o->metabits) &&
-        (keyMetaOnAof(r, key, o, dbid) == 0))
+    /* Emit module key metadata once here, via each class's AOF callback. The RESTORE-based
+     * paths above (bitmap, templated hash) pass DUMP_PAYLOAD_SKIP_KEY_META so the metadata
+     * isn't also written inside the payload. */
+    if (getModuleMetaBits(o->metabits) && (keyMetaOnAof(r, key, o, dbid) == 0))
         return C_ERR;
 
     return C_OK;
