@@ -2621,6 +2621,17 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
+    /* The aof_rewrite callback is optional for a module data type. Calling it
+     * when it is NULL would crash the child process performing the AOF
+     * rewrite, so fail the rewrite with a clear error instead. */
+    if (mt->aof_rewrite == NULL) {
+        serverLog(LL_WARNING,
+            "Can't rewrite the append only file: the module data type '%s' "
+            "does not implement the aof_rewrite callback. Enable "
+            "aof-use-rdb-preamble to rewrite the AOF for this data type.",
+            mt->entity.name);
+        return 0;
+    }
     moduleInitIOContext(&io, &mt->entity, r, key, dbid);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
