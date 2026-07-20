@@ -38,6 +38,7 @@ extern dictType idmpDictType;
  * update function serves every metric. STREAM_DISTRIB_MAX bounds loops. */
 typedef enum {
     STREAM_DISTRIB_CGROUPS_PEL = 0, /* distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_LAG,     /* distrib_cgroups_lag */
     STREAM_DISTRIB_MAX
 } streamDistribMetric;
 
@@ -232,6 +233,7 @@ int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
+int streamCGLag(stream *s, streamCG *cg, long long *lag);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 

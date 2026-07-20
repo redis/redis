@@ -3299,9 +3299,12 @@ static int applyStreamStats(const char **err) {
         server.stream_stats_epoch++;
         for (int j = 0; j < server.dbnum; j++) {
             kvstoreMetadata *meta = kvstoreGetMetadata(server.db[j].keys);
-            if (meta)
+            if (meta) {
                 memset(meta->distrib_cgroups_pel, 0,
                        sizeof(meta->distrib_cgroups_pel));
+                memset(meta->distrib_cgroups_lag, 0,
+                       sizeof(meta->distrib_cgroups_lag));
+            }
         }
     }
     return 1;

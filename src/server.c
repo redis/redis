@@ -549,6 +549,7 @@ static void kvstoreOnEmpty(kvstore *kvs) {
     memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
     memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
     memset(&meta->distrib_cgroups_pel, 0, sizeof(meta->distrib_cgroups_pel));
+    memset(&meta->distrib_cgroups_lag, 0, sizeof(meta->distrib_cgroups_lag));
 }
 
 static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
@@ -7180,6 +7181,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 if (!meta) continue;
                 info = sdscatHistogramRow(info, dbnum, "distrib_cgroups_pel",
                                           meta->distrib_cgroups_pel);
+                info = sdscatHistogramRow(info, dbnum, "distrib_cgroups_lag",
+                                          meta->distrib_cgroups_lag);
             }
         }
     }
