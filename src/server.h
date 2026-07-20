@@ -3499,8 +3499,7 @@ uint64_t trackingGetTotalKeys(void);
 uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(user *u);
 void trackingBroadcastFlushClientPrefixes(client *c);
-void clientSetUser(client *c, user *new_user);
-void authSetClientUser(client *c, user *new_user);
+void clientSetUser(client *c, user *new_user, int stamp_pubsub);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */

@@ -555,24 +555,22 @@ void ACLCopyUser(user *dst, user *src) {
  * bookkeeping for the switch. In particular, any pending BCAST tracking
  * invalidations are flushed under the client's current ACL identity before
  * c->user changes, so they are not re-filtered by the new user's key
- * permissions in beforeSleep. */
-void clientSetUser(client *c, user *new_user) {
-    if (c->user != new_user)
+ * permissions in beforeSleep.
+ *
+ * Pass stamp_pubsub = 1 for a *genuine identity switch* (AUTH, HELLO AUTH, TLS
+ * cert auto-auth, internal auth, module RM_Authenticate*): before the old
+ * identity is abandoned, every still-NULL Pub/Sub subscription — one whose
+ * stored owner is NULL and therefore belongs to the *current* c->user — is
+ * stamped with that user so its provenance survives the switch (see
+ * pubsubStampCurrentUser). Pass 0 when the identity is not really changing: the
+ * ACL LOAD object swap (which re-keys stamped values itself) and the initial
+ * default-auth setup. */
+void clientSetUser(client *c, user *new_user, int stamp_pubsub) {
+    if (c->user != new_user) {
+        if (stamp_pubsub) pubsubStampCurrentUser(c);
         trackingBroadcastFlushClientPrefixes(c);
+    }
     c->user = new_user;
-}
-
-/* Set the user for a *genuine identity switch* (AUTH, HELLO AUTH, TLS cert
- * auto-auth, module RM_Authenticate*). Unlike clientSetUser(), this first
- * freezes the provenance of any existing Pub/Sub subscriptions: while a
- * subscription's stored owner is NULL it belongs to the *current* c->user, so
- * before we abandon that identity we stamp those entries with it. This must NOT
- * be used for the ACL LOAD pointer swap (same identity, new user object) — that
- * path re-keys stamped values explicitly and calls clientSetUser() directly. */
-void authSetClientUser(client *c, user *new_user) {
-    if (c->user != new_user)
-        pubsubStampCurrentUser(c);
-    clientSetUser(c, new_user);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1549,7 +1547,7 @@ void addAuthErrReply(client *c, robj *err) {
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
-        authSetClientUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)));
+        clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)), 1);
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -2726,7 +2724,7 @@ sds ACLLoadFromFile(const char *filename) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            clientSetUser(c, new_current);
+            clientSetUser(c, new_current, 0);
         }
 
         if (user_channels)
@@ -3486,7 +3484,7 @@ static void internalAuth(client *c) {
         c->authenticated = 1;
         /* Set the user to the unrestricted user, if it is not already set (default). */
         if (c->user != NULL) {
-            authSetClientUser(c, NULL);
+            clientSetUser(c, NULL, 1);
             moduleNotifyUserChanged(c);
         }
         addReply(c, shared.ok);

@@ -11045,7 +11045,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     moduleNotifyUserChanged(ctx->client);
 
     ctx->client->authenticated = 1;
-    authSetClientUser(ctx->client, user);
+    clientSetUser(ctx->client, user, 1);
 
     if (clientHasModuleAuthInProgress(ctx->client)) {
         ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
