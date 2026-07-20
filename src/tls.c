@@ -964,6 +964,25 @@ static int connTLSSetVerifyName(connection *conn_, const char *name) {
     return C_OK;
 }
 
+/* Apply the configured tls-expected-peer-name (if any) to an outbound connection's
+ * SSL object before the handshake. Shared by the non-blocking (connTLSConnect) and
+ * blocking (connTLSBlockingConnect) connect paths so that every outbound
+ * server-to-server connection -- replication, cluster bus and MIGRATE -- is
+ * verified against the configured identity. Returns C_OK on success or when no
+ * name is configured; on failure sets the connection error state and returns
+ * C_ERR. */
+static int tlsApplyExpectedPeerName(tls_connection *conn, const char *addr) {
+    const char *name = server.tls_ctx_config.expected_peer_name;
+    if (!name || !name[0]) return C_OK;
+    if (tlsSetVerifyName(conn->ssl, name) != C_OK) {
+        serverLog(LL_WARNING,
+            "Failed to set expected TLS peer name for outbound connection to %s", addr);
+        conn->c.state = CONN_STATE_ERROR;
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 static int connTLSConnect(connection *conn_, const char *addr, int port, const char *src_addr, ConnectionCallbackFunc connect_handler) {
     tls_connection *conn = (tls_connection *) conn_;
     unsigned char addr_buf[sizeof(struct in6_addr)];
@@ -978,14 +997,7 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
 
     /* When tls-expected-peer-name is configured, verify the peer (server)
      * certificate against the configured name(s) on this outbound connection. */
-    if (server.tls_ctx_config.expected_peer_name && server.tls_ctx_config.expected_peer_name[0]) {
-        if (tlsSetVerifyName(conn->ssl, server.tls_ctx_config.expected_peer_name) != C_OK) {
-            serverLog(LL_WARNING,
-                "Failed to set expected TLS peer name for outbound connection to %s", addr);
-            conn->c.state = CONN_STATE_ERROR;
-            return C_ERR;
-        }
-    }
+    if (tlsApplyExpectedPeerName(conn, addr) != C_OK) return C_ERR;
 
     /* Initiate Socket connection first */
     if (connectionTypeTcp()->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
@@ -1123,6 +1135,11 @@ static int connTLSBlockingConnect(connection *conn_, const char *addr, int port,
 
     /* Initiate socket blocking connect first */
     if (connectionTypeTcp()->blocking_connect(conn_, addr, port, timeout) == C_ERR) return C_ERR;
+
+    /* When tls-expected-peer-name is configured, verify the peer (server)
+     * certificate against the configured name(s). This path is used by MIGRATE,
+     * so it must enforce the same identity check as connTLSConnect. */
+    if (tlsApplyExpectedPeerName(conn, addr) != C_OK) return C_ERR;
 
     /* Initiate TLS connection now.  We set up a send/recv timeout on the socket,
      * which means the specified timeout will not be enforced accurately. */

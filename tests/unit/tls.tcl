@@ -218,6 +218,33 @@ start_server {tags {"tls"}} {
             }
         }
 
+        test {TLS: tls-expected-peer-name is enforced on MIGRATE (blocking connect)} {
+            # MIGRATE opens its target via the blocking connect path, which must
+            # apply the same peer-name verification as the async connect path.
+            set san_crt [format "%s/tests/tls/san.crt" [pwd]]
+            set san_key [format "%s/tests/tls/san.key" [pwd]]
+            # Target presents the SAN cert (redis.local / cluster.local).
+            start_server [list overrides [list tls-cert-file $san_crt tls-key-file $san_key]] {
+                set target_host [srv 0 host]
+                set target_port [srv 0 port]
+                # Source enforces a name the target certificate does NOT carry.
+                start_server [list overrides [list tls-expected-peer-name "wrong.example.com"]] {
+                    set src [srv 0 client]
+                    $src set k1 v1
+                    # Mismatch: the TLS handshake to the target fails, so MIGRATE errors
+                    # and the key is not moved. (A failed connect is not cached.)
+                    catch {$src migrate $target_host $target_port k1 9 5000} e
+                    assert_match {*IOERR*} $e
+                    assert_equal 1 [$src exists k1]
+
+                    # Correct the expected name: a fresh connection verifies and succeeds.
+                    $src config set tls-expected-peer-name "redis.local"
+                    assert_equal {OK} [$src migrate $target_host $target_port k1 9 5000]
+                    assert_equal 0 [$src exists k1]
+                }
+            }
+        }
+
         test {TLS: switch between tcp and tls ports} {
             set srv_port [srv 0 port]
 
