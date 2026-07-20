@@ -21,6 +21,20 @@ The release notes contain PRs from multiple repositories:
 
 
 ==================================================================
+Redis 8.10-RC2 (v8.9.241)    Released Mon 20 Jul 2026 21:00:00 IST
+==================================================================
+
+This is the second Release Candidate of Redis 8.10 in Redis Open Source.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### Bug fixes (compared to 8.10-RC1)
+
+- A user can manipulate data read by a connection by injecting \r\n sequences into a Redis error reply
+- A typo in release.h that could cause build failures
+
+
+==================================================================
 Redis 8.10-RC1 (v8.9.240)    Released Mon 20 Jul 2026 18:00:00 IST
 ==================================================================
 
