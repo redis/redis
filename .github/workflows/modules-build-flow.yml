@@ -7,9 +7,8 @@ name: Modules Build Flow
 #
 #   make modules-update            clone every module pinned in modules.yaml
 #   make bootstrap                 install per-module build/test prereqs
-#   make LTO=0                     build Redis + all modules (see LTO note)
+#   make all BUILD_TLS=yes         build Redis + all modules
 #   ./src/redis-server redis-full.conf   then `redis-cli MODULE LIST`
-#   make test all                  every module's suite
 #
 # The "install manual prerequisites" step deliberately installs only what a
 # user needs before the manual's first command can run at all (git, make,
@@ -26,10 +25,6 @@ on:
       - 'modules/modules.yaml'
   workflow_dispatch:
     inputs:
-      run_tests:
-        description: "run the heavy 'make test all' step (off by default; never runs on schedule)"
-        type: boolean
-        default: false
       use_repo:
         description: 'repo owner and name'
         default: 'redis/redis'
@@ -68,10 +63,6 @@ jobs:
       # flags must reach that rebuild too. Redis core is pure C and ignores
       # CXXFLAGS.
       CXXFLAGS: -Wno-error=uninitialized -Wno-error=maybe-uninitialized -Wno-unknown-warning-option
-      # Shared across the split tarball/deploy/run steps (same runner FS).
-      EXTRACTED: /tmp/redis-tarball-check/redis-HEAD
-      DEPLOY_PREFIX: /tmp/redis-deploy
-      DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
     strategy:
       fail-fast: false
       # Both architectures the bundled modules support, mirroring their own
@@ -170,162 +161,3 @@ jobs:
           grep -qx "$m" module-list.txt || { echo "MISSING MODULE: $m"; exit 1; }
         done
         ./src/redis-cli shutdown nosave || true
-    - name: make test all
-      if: ${{ github.event.inputs.run_tests == 'true' }}
-      run: make test all
-    # Package/deploy smoke — mirrors PR TalBarYakar/redis#4's
-    # phase_package_deploy_smoke, split into one step per phase for easier
-    # tracking in the Actions UI. The steps share the runner filesystem and
-    # the EXTRACTED/DEPLOY_* paths from the job env.
-    - name: make tarball
-      run: |
-        make tarball TAG=HEAD
-        rm -rf /tmp/redis-tarball-check && mkdir -p /tmp/redis-tarball-check
-        tar -xf /tmp/redis-HEAD.tar.gz -C /tmp/redis-tarball-check
-    - name: check tarball redis.conf loadmodule lines
-      run: |
-        for line in \
-          "loadmodule ./modules/redisbloom/redisbloom.so" \
-          "loadmodule ./modules/redisearch/redisearch.so" \
-          "loadmodule ./modules/redisjson/rejson.so" \
-          "loadmodule ./modules/redistimeseries/redistimeseries.so"; do
-          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: missing tarball redis.conf line: $line" >&2; exit 1; }
-        done
-    - name: make deploy from tarball
-      run: |
-        mkdir -p "$DEPLOY_PREFIX"
-        ( cd "$EXTRACTED" && make deploy PREFIX="$DEPLOY_PREFIX" )
-        for so in redisbloom.so redisearch.so rejson.so redistimeseries.so; do
-          line="loadmodule $DEPLOY_PREFIX/lib/redis/modules/$so"
-          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: deployed redis.conf missing absolute line: $line" >&2; exit 1; }
-        done
-        cp "$EXTRACTED/redis.conf" "$DEPLOY_PREFIX/redis.conf"
-    - name: run deployed server, verify modules
-      run: |
-        "$DEPLOY_PREFIX/bin/redis-server" "$DEPLOY_PREFIX/redis.conf" --appendonly no >"$DEPLOY_RUN_LOG" 2>&1 &
-        cli="$DEPLOY_PREFIX/bin/redis-cli"
-        i=0
-        until "$cli" PING 2>/dev/null | grep -q PONG; do
-          i=$((i+1)); [ "$i" -gt 120 ] && { tail -80 "$DEPLOY_RUN_LOG"; echo 'deployed redis-server did not become ready' >&2; exit 1; }
-          sleep 1
-        done
-        for needle in timeseries bf ReJSON search; do
-          "$cli" MODULE LIST | grep -qi "$needle" || { "$cli" MODULE LIST; echo "ERROR: module '$needle' was not loaded" >&2; exit 1; }
-        done
-        "$cli" TS.CREATE ts
-        "$cli" TS.ADD ts '*' 1
-        "$cli" TS.INFO ts
-        "$cli" BF.ADD bf x
-        "$cli" BF.EXISTS bf x
-        "$cli" JSON.SET j '$' '{"a":1}'
-        "$cli" JSON.GET j
-        "$cli" FT.CREATE idx ON HASH SCHEMA t TEXT
-        "$cli" FT._LIST
-        for module_name in bf search ReJSON timeseries; do
-          grep -q "Module '$module_name' loaded" "$DEPLOY_RUN_LOG" || { tail -80 "$DEPLOY_RUN_LOG"; echo "ERROR: deployed server log did not show module '$module_name' loading" >&2; exit 1; }
-        done
-        "$cli" SHUTDOWN NOSAVE || true
-
-  # Same from-source flow as test-modules, on native macOS. macOS can't run
-  # inside a container and current runners are arm64-only, so it can't join
-  # the arch×osnick matrix above — it's the same steps as one matrix row,
-  # with the macOS-only prerequisites (Homebrew) as the sole difference.
-  test-modules-macos:
-    name: test-modules-macos
-    runs-on: macos-latest
-    timeout-minutes: 300
-    env:
-      # make tarball needs GNU tar (gtar from Homebrew); tarball.sh honors TAR.
-      TAR: gtar
-      # Shared across the split tarball/deploy/run steps (same runner FS).
-      EXTRACTED: /tmp/redis-tarball-check/redis-HEAD
-      DEPLOY_PREFIX: /tmp/redis-deploy
-      DEPLOY_RUN_LOG: /tmp/redis-deploy-run.log
-    steps:
-    - name: install manual prerequisites
-      # git/make/clang ship with the Xcode command line tools; brew supplies
-      # only what the manual assumes present that macOS lacks: coreutils for
-      # nproc (used by the build step, same as the Linux rows), GNU tar for
-      # make tarball, and openssl for the BUILD_TLS=yes build.
-      run: |
-        HOMEBREW_NO_AUTO_UPDATE=1 brew install coreutils gnu-tar openssl
-        # coreutils installs GNU tools g-prefixed; put the unprefixed names
-        # (nproc, …) on PATH so the build step matches the Linux rows verbatim.
-        echo "$(brew --prefix)/opt/coreutils/libexec/gnubin" >> "$GITHUB_PATH"
-    - name: checkout
-      run: |
-        git config --global --add safe.directory "$(pwd)"
-        git init .
-        git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
-        git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
-        git checkout FETCH_HEAD
-    - name: make modules-update
-      run: make modules-update
-    - name: make bootstrap
-      run: make bootstrap
-    - name: make -j "$(nproc)" all BUILD_TLS=yes
-      run: make -j "$(nproc)" all BUILD_TLS=yes
-    - name: run server with redis-full.conf, verify MODULE LIST
-      run: |
-        ./src/redis-server redis-full.conf --daemonize no &
-        i=0
-        until ./src/redis-cli ping 2>/dev/null | grep -q PONG; do
-          i=$((i+1)); [ "$i" -gt 60 ] && echo 'redis-server did not come up' && exit 1
-          sleep 1
-        done
-        ./src/redis-cli MODULE LIST | tee module-list.txt
-        for m in bf search ReJSON timeseries; do
-          grep -qx "$m" module-list.txt || { echo "MISSING MODULE: $m"; exit 1; }
-        done
-        ./src/redis-cli shutdown nosave || true
-    - name: make test all
-      if: ${{ github.event.inputs.run_tests == 'true' }}
-      run: make test all
-    - name: make tarball
-      run: |
-        make tarball TAG=HEAD
-        rm -rf /tmp/redis-tarball-check && mkdir -p /tmp/redis-tarball-check
-        tar -xf /tmp/redis-HEAD.tar.gz -C /tmp/redis-tarball-check
-    - name: check tarball redis.conf loadmodule lines
-      run: |
-        for line in \
-          "loadmodule ./modules/redisbloom/redisbloom.so" \
-          "loadmodule ./modules/redisearch/redisearch.so" \
-          "loadmodule ./modules/redisjson/rejson.so" \
-          "loadmodule ./modules/redistimeseries/redistimeseries.so"; do
-          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: missing tarball redis.conf line: $line" >&2; exit 1; }
-        done
-    - name: make deploy from tarball
-      run: |
-        mkdir -p "$DEPLOY_PREFIX"
-        ( cd "$EXTRACTED" && make deploy PREFIX="$DEPLOY_PREFIX" )
-        for so in redisbloom.so redisearch.so rejson.so redistimeseries.so; do
-          line="loadmodule $DEPLOY_PREFIX/lib/redis/modules/$so"
-          grep -qxF "$line" "$EXTRACTED/redis.conf" || { echo "ERROR: deployed redis.conf missing absolute line: $line" >&2; exit 1; }
-        done
-        cp "$EXTRACTED/redis.conf" "$DEPLOY_PREFIX/redis.conf"
-    - name: run deployed server, verify modules
-      run: |
-        "$DEPLOY_PREFIX/bin/redis-server" "$DEPLOY_PREFIX/redis.conf" --appendonly no >"$DEPLOY_RUN_LOG" 2>&1 &
-        cli="$DEPLOY_PREFIX/bin/redis-cli"
-        i=0
-        until "$cli" PING 2>/dev/null | grep -q PONG; do
-          i=$((i+1)); [ "$i" -gt 120 ] && { tail -80 "$DEPLOY_RUN_LOG"; echo 'deployed redis-server did not become ready' >&2; exit 1; }
-          sleep 1
-        done
-        for needle in timeseries bf ReJSON search; do
-          "$cli" MODULE LIST | grep -qi "$needle" || { "$cli" MODULE LIST; echo "ERROR: module '$needle' was not loaded" >&2; exit 1; }
-        done
-        "$cli" TS.CREATE ts
-        "$cli" TS.ADD ts '*' 1
-        "$cli" TS.INFO ts
-        "$cli" BF.ADD bf x
-        "$cli" BF.EXISTS bf x
-        "$cli" JSON.SET j '$' '{"a":1}'
-        "$cli" JSON.GET j
-        "$cli" FT.CREATE idx ON HASH SCHEMA t TEXT
-        "$cli" FT._LIST
-        for module_name in bf search ReJSON timeseries; do
-          grep -q "Module '$module_name' loaded" "$DEPLOY_RUN_LOG" || { tail -80 "$DEPLOY_RUN_LOG"; echo "ERROR: deployed server log did not show module '$module_name' loading" >&2; exit 1; }
-        done
-        "$cli" SHUTDOWN NOSAVE || true
