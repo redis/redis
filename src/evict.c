@@ -88,17 +88,17 @@ static time_t serverUptimeSeconds(void) {
 }
 
 /* True if o->lru still looks like residual LFU encoding rather than an idle
- * clock. Used only inside the LFU->non-LFU import window. */
+ * clock. Used only inside the LFU->non-LFU import window.
+ *
+ * Do NOT use LFUTimeElapsed(o->lru>>8): after keys are rewritten to a normal
+ * LRU clock that shift is not an LFU ldt, yet the 24h check often still
+ * passes and would wipe real idle on every OBJECT IDLETIME / eviction sample.
+ * Residual LFU almost always yields an idle outside process uptime when read
+ * as an LRU clock; plausible idles are left alone (access under non-LFU also
+ * rewrites the field via lookupKey). */
 static int objectLruLooksLikeResidualLFU(robj *o) {
-    unsigned long ldt = o->lru >> 8;
-    /* Warm LFU last-decay time (within 24h of the LFU minute clock). */
-    if (LFUTimeElapsed(ldt) <= 60*24)
-        return 1;
-
-    /* Stale LFU: as an LRU clock the idle is almost never within process
-     * uptime, so treat impossible idles as residual LFU. Valid RESTORE /
-     * module IDLETIME values stay within uptime and are left alone. */
-    if (objectLruFieldIdleMs(o) / 1000 > (unsigned long long)serverUptimeSeconds() + 60)
+    if (objectLruFieldIdleMs(o) / 1000 >
+        (unsigned long long)serverUptimeSeconds() + 60)
         return 1;
     return 0;
 }
