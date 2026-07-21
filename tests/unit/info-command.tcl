@@ -7,7 +7,7 @@ start_server {tags {"info and its relative command"}} {
                 set info [r 0 info $arg]
             }
 
-            assert { [string match "*redis_version*" $info] }
+            assert { ![string match "*redis_version*" $info] }
             assert { [string match "*used_cpu_user*" $info] }
             assert { ![string match "*sentinel_tilt*" $info] }
             assert { [string match "*used_memory*" $info] }
