@@ -858,8 +858,10 @@ err:
     return 0;
 }
 
-/* Trims off trailing zeros from a string representing a double. */
+/* Trims off trailing zeros from a string representing a double.
+ * Preconditions: 'buf' must be non-NULL and 'len' must be > 0. */
 int trimDoubleString(char *buf, size_t len) {
+    assert(buf != NULL && len > 0);
     if (strchr(buf,'.') != NULL) {
         char *p = buf+len-1;
         while(*p == '0') {
@@ -1747,6 +1749,26 @@ static void test_fixedpoint_d2string(void) {
     assert(sz == 0);
 }
 
+static void test_trimDoubleString(void) {
+    char buf[32];
+
+    redis_strlcpy(buf, "1.5000", sizeof(buf));
+    assert(trimDoubleString(buf, 6) == 3);
+    assert(!strcmp(buf, "1.5"));
+
+    redis_strlcpy(buf, "1.0000", sizeof(buf));
+    assert(trimDoubleString(buf, 6) == 1);
+    assert(!strcmp(buf, "1"));
+
+    redis_strlcpy(buf, "100", sizeof(buf));
+    assert(trimDoubleString(buf, 3) == 3);
+    assert(!strcmp(buf, "100"));
+
+    redis_strlcpy(buf, "0.0000", sizeof(buf));
+    assert(trimDoubleString(buf, 6) == 1);
+    assert(!strcmp(buf, "0"));
+}
+
 #if defined(__linux__)
 /* Since fadvise and mincore is only supported in specific platforms like
  * Linux, we only verify the fadvise mechanism works in Linux */
@@ -1796,6 +1818,7 @@ int utilTest(int argc, char **argv, int flags) {
     test_ll2string();
     test_ld2string();
     test_fixedpoint_d2string();
+    test_trimDoubleString();
 #if defined(__linux__)
     if (!(flags & REDIS_TEST_VALGRIND)) {
         test_reclaimFilePageCache();
