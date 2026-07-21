@@ -1,0 +1,27 @@
+name: CI Failure Monitor
+
+on:
+  workflow_run:
+    workflows: [Daily]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+
+jobs:
+  record-failure:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create or update CI failure issues
+        uses: ./.github/actions/ci-failure-monitor
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          run-url: ${{ github.event.workflow_run.html_url }}
+          commit: ${{ github.event.workflow_run.head_sha }}
+          token: ${{ github.token }}
