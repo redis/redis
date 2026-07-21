@@ -553,6 +553,20 @@ int clientHasPendingCompressedData(client *c) {
            state->output.written > state->output.consumed;
 }
 
+/* Return the number of bytes used by the client's compression state, i.e the
+ * compressionState struct itself plus its input/output buffers. Note this
+ * does not include the zstd compression/decompression context (ctx.zstdCCtx/
+ * zstdDCtx), which is allocated by libzstd via libc malloc and therefore
+ * tracked neither here nor in used_memory. */
+size_t clientCompressionMemoryUsage(client *c) {
+    compressionState *st = c->compression_state;
+    if (!st) return 0;
+
+    return zmalloc_size(st) +
+           (st->input.data ? zmalloc_size(st->input.data) : 0) +
+           (st->output.data ? zmalloc_size(st->output.data) : 0);
+}
+
 /* Add the client to its event loop's pending decompression list so its buffered
  * compressed/decompressed data can be drained from beforeSleep even when no
  * socket read event fires. No-op if already present. */
@@ -815,6 +829,11 @@ int clientHasPendingCompressionFlush(client *c) {
 }
 
 int clientHasPendingCompressedData(client *c) {
+    UNUSED(c);
+    return 0;
+}
+
+size_t clientCompressionMemoryUsage(client *c) {
     UNUSED(c);
     return 0;
 }
