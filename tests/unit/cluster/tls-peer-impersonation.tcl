@@ -62,8 +62,6 @@ if {$::tls} {
                 $CLUSTERMSG_TYPE_FAIL $totlen]
             append packet [binary format a${CLUSTER_NAMELEN} $failed_target]
 
-            set loglines [count_log_lines 0]
-
             # The attacker cert (redis.crt) chains to the CA but carries no cluster
             # SAN. With Part B the victim verifies the client cert's SAN on accept
             # and rejects the handshake, so the write never reaches packet

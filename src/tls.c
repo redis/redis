@@ -43,6 +43,10 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
 #endif
 
+/* Whether this build can verify peer certificate name(s): the X509_VERIFY_PARAM
+ * host API used by tlsSetVerifyName() is available since OpenSSL 1.0.2. */
+#define CONN_TLS_SUPPORTS_VERIFY_NAME (OPENSSL_VERSION_NUMBER >= 0x10002000L)
+
 SSL_CTX *redis_tls_ctx = NULL;
 SSL_CTX *redis_tls_client_ctx = NULL;
 
@@ -917,6 +921,13 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
     return C_OK;
 }
 
+/* Report whether this build can verify peer certificate name(s). Used by the
+ * config layer to reject tls-expected-peer-name early rather than failing per
+ * connection. */
+static int connTLSSupportsVerifyName(void) {
+    return CONN_TLS_SUPPORTS_VERIFY_NAME;
+}
+
 /* Configure the SSL object to verify the peer certificate's SAN/CN against the
  * given space-separated list of expected name(s), in addition to CA chain
  * validation. Used to bind server-to-server connections to a specific identity
@@ -925,20 +936,8 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
  * handshake fails with X509_V_ERR_HOSTNAME_MISMATCH if no listed name matches.
  * Returns C_OK on success, C_ERR if a name could not be applied or the value
  * contained no usable name. */
-/* Report whether this build can verify peer certificate name(s). The X509
- * hostname-checking API used by tlsSetVerifyName() is available since OpenSSL
- * 1.0.2; older builds cannot honor tls-expected-peer-name. Used by the config
- * layer to reject the option early rather than failing per connection. */
-static int connTLSSupportsVerifyName(void) {
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-    return 1;
-#else
-    return 0;
-#endif
-}
-
 static int tlsSetVerifyName(SSL *ssl, const char *names) {
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+#if CONN_TLS_SUPPORTS_VERIFY_NAME
     /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
      * than the SSL_set1_host()/SSL_add1_host()/SSL_set_hostflags() convenience
      * wrappers (introduced only in OpenSSL 1.1.0). This keeps certificate name
