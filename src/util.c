@@ -1287,17 +1287,17 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
  * On EOF or read error, NULL is returned to prevent returning partial incomplete lines in signal handlers. */
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd) {
     if (buff_size <= 0) return NULL;
-    int i = 0;
-    while (i < buff_size - 1) {
+    int i;
+    for (i = 0; i < buff_size - 1; i++) {
         /* Read one byte */
         ssize_t bytes_read_count = read(fd, dest + i, 1);
         /* On EOF or error return NULL to prevent returning partial incomplete lines in signal handlers */
         if (bytes_read_count < 1) {
             return NULL;
         }
-        i++;
         /* we found the end of the line. */
-        if (dest[i - 1] == '\n') {
+        if (dest[i] == '\n') {
+            i++;
             break;
         }
     }
