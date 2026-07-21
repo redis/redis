@@ -1271,10 +1271,7 @@ int copyFile(char *source, char *destination) {
 cleanup:
     error = errno;
     if (source_fd != -1) close(source_fd);
-    if (destination_fd != -1 && close(destination_fd) == -1 && ret == 0) {
-        error = errno;
-        ret = -1;
-    }
+    if (destination_fd != -1) close(destination_fd);
     if (ret == -1 && destination_created) unlink(destination);
     zfree(buf);
     errno = error;

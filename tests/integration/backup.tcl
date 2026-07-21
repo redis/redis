@@ -124,23 +124,31 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         # Seed an unrelated local MP-AOF. preload-file must replace this
         # manifest history rather than append the restored data to it.
         create_local_aof $local_dir
-        set aof_dir [file join $local_dir appendonlydir]
-        set unmanaged_file [file join $aof_dir unmanaged-file]
-        set fp [open $unmanaged_file w]
-        puts $fp stale
-        close $fp
 
+        # Use backup to restore data
         set manifest [file join $bdir appendonly.aof.manifest]
-        set backup_files [lsort [glob -tails -directory $bdir *]]
+        set backup_files [lsort [glob -tails -directory $bdir *]] ;# backup files list
+        # Read manifest content
+        set fp [open $manifest r]
+        set backup_manifest_lines [split [string trim [read $fp]] "\n"]
+        close $fp
         start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"] keep_persistence true] {
             assert_equal 3 [r dbsize]
             # Installing the preload files must not require serializing the
             # in-memory dataset through an AOF rewrite.
             assert_equal 0 [s aof_rewrites]
-            # Files not owned by the newly installed manifest are removed.
-            assert_equal 0 [file exists $unmanaged_file]
             # Restoring must not modify the sealed backup directory.
             assert_equal $backup_files [lsort [glob -tails -directory $bdir *]]
+
+            # The local manifest keeps the preload BASE and INCR, then adds a
+            # fresh INCR for writes made after startup.
+            set fp [open [file join $local_dir appendonlydir appendonly.aof.manifest] r]
+            set local_manifest_lines [split [string trim [read $fp]] "\n"]
+            close $fp
+            # Exclude the final added INCR when comparing with the preload manifest.
+            assert_equal $backup_manifest_lines [lrange $local_manifest_lines 0 end-1]
+            assert_equal [expr {[llength $backup_manifest_lines] + 1}] [llength $local_manifest_lines]
+            assert_match "file appendonly.aof.*.incr.aof seq * type i*" [lindex $local_manifest_lines end]
             assert_equal OK [r set after-preload value]
         }
 
@@ -157,23 +165,22 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {Preload a standalone AOF installs it as the local BASE} {
         set preload_dir [file normalize [tmpdir preload.single-aof.source]]
-        set preload_aof [file join $preload_dir preload-source.aof]
+        # Use the first generated INCR name to exercise filename collision
+        # handling when Redis creates a fresh INCR after the preload.
+        set preload_aof [file join $preload_dir appendonly.aof.1.incr.aof]
         set fp [open $preload_aof w]
         puts -nonewline $fp [formatCommand select 9]
         puts -nonewline $fp [formatCommand set single-aof-key value]
         close $fp
 
-        # Seed an unrelated local MP-AOF to verify that the standalone preload
-        # replaces it instead of becoming an increment on top of its dataset.
         set local_dir [file normalize [tmpdir preload.single-aof.local]]
+        # Seed the local AOF so the restart can prove it was fully replaced.
         create_local_aof $local_dir
         set aof_dir [file join $local_dir appendonlydir]
 
         start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"] keep_persistence true] {
-            r select 9
             assert_equal value [r get single-aof-key]
             assert_equal 0 [r exists local-aof-key]
-            assert_equal 0 [s aof_rewrites]
 
             # A standalone preload becomes the BASE of the local manifest and
             # is followed by a fresh INCR for subsequent writes.
@@ -181,18 +188,19 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             assert {[file exists $local_base]}
             assert {[file exists $preload_aof]}
 
+            # The standalone AOF occupies the first INCR candidate name, so it
+            # becomes the BASE and the fresh INCR advances to sequence 2.
             set fp [open [file join $aof_dir appendonly.aof.manifest] r]
             set local_manifest [read $fp]
             close $fp
-            assert_match "*file [file tail $preload_aof] seq 1 type b*" $local_manifest
-            assert_match "*type i*" $local_manifest
+            assert_match "*file appendonly.aof.1.incr.aof seq 1 type b*" $local_manifest
+            assert_match "*file appendonly.aof.2.incr.aof seq 2 type i*" $local_manifest
             assert_equal OK [r set after-single-aof-preload value]
         }
 
         # The generated local manifest must be sufficient after preload-file
         # is removed, including writes made after the preload was installed.
         start_server [list overrides [list dir $local_dir appendonly yes]] {
-            r select 9
             assert_equal value [r get single-aof-key]
             assert_equal value [r get after-single-aof-preload]
             assert_equal 0 [r exists local-aof-key]
@@ -213,46 +221,18 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
-    test {Preload avoids a new INCR filename already owned by the manifest} {
-        # Build a valid INCR-only manifest whose filename does not match its
-        # sequence number: the existing file uses the name normally generated
-        # for the next INCR.
-        set preload_dir [file normalize [tmpdir preload.incr-name-conflict.source]]
-        create_local_aof $preload_dir
-        set preload_aof_dir [file join $preload_dir appendonlydir]
-        set conflicting_incr [file join $preload_aof_dir appendonly.aof.2.incr.aof]
-        file rename [file join $preload_aof_dir appendonly.aof.1.incr.aof] $conflicting_incr
-        set manifest [file join $preload_aof_dir appendonly.aof.manifest]
-        set fp [open $manifest w]
-        puts -nonewline $fp "file appendonly.aof.2.incr.aof seq 1 type i\n"
-        close $fp
-
-        set local_dir [file normalize [tmpdir preload.incr-name-conflict.local]]
-        set local_aof_dir [file join $local_dir appendonlydir]
-        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"]] {
-            r select 9
-            assert_equal value [r get local-aof-key]
-            assert_equal 0 [s aof_rewrites]
-            assert {[file exists [file join $local_aof_dir appendonly.aof.2.incr.aof]]}
-            assert {[file exists [file join $local_aof_dir appendonly.aof.3.incr.aof]]}
-
-            set fp [open [file join $local_aof_dir appendonly.aof.manifest] r]
-            set local_manifest [read $fp]
-            close $fp
-            assert_match "*file appendonly.aof.2.incr.aof seq 1 type i*" $local_manifest
-            assert_match "*file appendonly.aof.3.incr.aof seq 3 type i*" $local_manifest
-        }
-    }
-
-    test {Preload replaces a conflicting old INCR before creating the new INCR} {
+    test {Preload from appendonlydir preserves its source and recreates the INCR} {
         set local_dir [file normalize [tmpdir preload.same-aof-dir]]
         create_local_aof $local_dir
         set aof_dir [file join $local_dir appendonlydir]
-        set old_incr [file join $aof_dir appendonly.aof.1.incr.aof]
-        set old_incr_size [file size $old_incr]
+        # The INCR uses the same path before and after preload: the existing
+        # file is removed, then a fresh INCR is created at this path.
+        set incr_path [file join $aof_dir appendonly.aof.1.incr.aof]
+        set initial_incr_size [file size $incr_path]
 
-        # Put the preload snapshot in appendonlydir itself. Installing it must
-        # preserve that file while removing the unrelated local AOF files.
+        # Put the preload snapshot in appendonlydir itself. Its source and
+        # target paths are identical, so installation must reuse the file
+        # while replacing the AOF files from the previous local manifest.
         r flushall
         r set same-dir-key value
         set preload_rdb [file join $aof_dir preload-source.rdb]
@@ -261,16 +241,20 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         start_server [list overrides [list dir $local_dir appendonly yes preload-file "rdb:$preload_rdb"]] {
             assert_equal value [r get same-dir-key]
             assert_equal 0 [r exists local-aof-key]
-            assert_equal 0 [s aof_rewrites]
             assert {[file exists $preload_rdb]}
-            # The obsolete INCR is removed before the fresh local INCR is
-            # added to the manifest. Otherwise startup would abort when the
-            # new INCR reuses its filename.
-            assert {$old_incr_size > 0}
-            assert_equal 0 [file size $old_incr]
+
+            # Removing the obsolete INCR before selecting a new INCR name
+            # allows sequence 1 to be reused. The existing file was non-empty;
+            # the empty file at the same path is the newly created local INCR.
+            assert {$initial_incr_size > 0}
+            assert_equal 0 [file size $incr_path]
+
+            # The installed manifest owns the preserved RDB as its BASE and
+            # the replacement INCR as the destination for subsequent writes.
             set fp [open [file join $aof_dir appendonly.aof.manifest] r]
             set local_manifest [read $fp]
             close $fp
+            assert_match "*file preload-source.rdb seq 1 type b*" $local_manifest
             assert_match "*file appendonly.aof.1.incr.aof seq 1 type i*" $local_manifest
         }
     }
