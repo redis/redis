@@ -3640,7 +3640,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void killAppendOnlyChild(void);
 void aofLoadManifestFromDisk(void);
 void aofOpenIfNeededOnServerStart(void);
-void aofHandlePreloadOnServerStart(void);
+void aofSetupAfterPreloadFile(void);
 void aofManifestFree(aofManifest *am);
 void backupCron(void);
 int backupIsInProgress(void);
