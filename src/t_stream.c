@@ -4704,21 +4704,18 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Upper bound on how many stream entries XAUTOCLAIM's merge-join iterator will
- * scan forward while looking for the next pending entry before it gives up and
- * seeks directly to the target. Roughly one macro-node worth of entries: for a
- * dense/contiguous PEL each resume is O(1); for a sparse PEL this cap keeps the
- * worst case no worse than the per-entry seek baseline. */
+/* Max entries the XAUTOCLAIM merge-join iterator scans forward before giving up
+ * and seeking directly to the target, bounding the sparse-PEL worst case. */
 #define STREAM_XAC_MAX_SCAN 128
 
 /* Advance the shared stream iterator 'si' forward to the first entry whose ID
  * is >= *target, implementing the merge-join used by xautoclaimCommand.
  *
- * Iterator carry-over state between calls:
- *  - *have_entry == 1: 'si' is positioned on *entry_id / *entry_numfields with
- *    the current entry's fields NOT yet consumed.
- *  - *have_entry == 0: the previous entry's fields have been consumed, so the
- *    next streamIteratorGetID() yields the following entry.
+ * The '*have_entry' flag carries the iterator state across calls. If it is 1
+ * then 'si' is positioned on *entry_id / *entry_numfields and the current
+ * entry's fields have NOT yet been consumed. If it is 0 then the previous
+ * entry's fields have been consumed, so the next streamIteratorGetID() call
+ * yields the following entry.
  *
  * Returns 1 with 'si' positioned on *entry_id (>= *target, fields intact), or
  * 0 at EOF. */
@@ -4728,29 +4725,28 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
     streamID maxid = {UINT64_MAX, UINT64_MAX};
     int steps = 0;
     while (1) {
-        if (*have_entry && streamCompareID(entry_id, target) < 0) {
+        if (*have_entry && streamCompareID(entry_id,target) < 0) {
             /* Skip an intervening / already-processed entry: consume its
              * fields so lp_ele lands where the next GetID expects it. */
             int64_t nf = *entry_numfields;
             while (nf--) {
                 unsigned char *f, *v;
                 int64_t fl, vl;
-                streamIteratorGetField(si, &f, &v, &fl, &vl);
+                streamIteratorGetField(si,&f,&v,&fl,&vl);
             }
             *have_entry = 0;
         }
         if (!*have_entry) {
-            /* Bounded fallback: if we have scanned too far without reaching the
-             * target (sparse PEL), stop the forward scan and seek directly, so
-             * the worst case stays ~= the baseline per-entry seek. */
+            /* If we have scanned too far without reaching the target (sparse
+             * PEL), stop the forward scan and seek directly to the target. */
             if (steps++ > STREAM_XAC_MAX_SCAN) {
                 streamIteratorStop(si);
-                streamIteratorStart(si, s, target, &maxid, 0);
+                streamIteratorStart(si,s,target,&maxid,0);
             }
-            *have_entry = streamIteratorGetID(si, entry_id, entry_numfields);
+            *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
             if (!*have_entry) return 0; /* EOF */
         }
-        if (streamCompareID(entry_id, target) >= 0) return 1;
+        if (streamCompareID(entry_id,target) >= 0) return 1;
     }
 }
 
@@ -4856,18 +4852,16 @@ void xautoclaimCommand(client *c) {
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
 
-    /* Open a single stream iterator once and advance it forward (merge-join)
-     * across all PEL entries, instead of re-seeking per entry. The stream's
-     * entry data is never mutated during a single XAUTOCLAIM (only the
-     * group/consumer PEL and NACKs are), so this iterator stays valid for the
-     * whole command. */
+    /* Open a single stream iterator and merge-join it forward across all PEL
+     * entries. The stream's entry data is never mutated during a single
+     * XAUTOCLAIM (only the group/consumer PEL and NACKs are), so this iterator
+     * stays valid for the whole command. */
     streamID maxid = {UINT64_MAX, UINT64_MAX};
     streamIterator si;
     streamIteratorStart(&si,s,&startid,&maxid,0);
-    streamID entry_id;           /* Stream entry the shared iterator is on. */
-    int64_t entry_numfields;     /* Field count for that entry. */
-    int have_entry = 0;          /* 1 if entry_id is valid and fields unread. */
-
+    streamID entry_id;
+    int64_t entry_numfields;
+    int have_entry = 0; /* 1 if entry_id is valid and its fields are unread. */
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
 
@@ -4877,8 +4871,7 @@ void xautoclaimCommand(client *c) {
         /* Merge-join: advance the shared iterator to the first stream entry
          * with ID >= this PEL id, reusing it both to check existence and (for
          * non-JUSTID) to emit its fields. */
-        int have = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,
-                                     &have_entry);
+        int have = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,&have_entry);
         int found = have && streamCompareID(&entry_id,&id) == 0;
 
         /* Item must exist for us to transfer it to another consumer. */
@@ -4908,7 +4901,6 @@ void xautoclaimCommand(client *c) {
             count--; /* Count is a limit of the command response size. */
             continue;
         }
-        serverAssert(streamCompareID(&id,&entry_id) == 0);
 
         if (nack->consumer && minidle) {
             mstime_t this_idle = now - nack->delivery_time;
@@ -4942,9 +4934,6 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            /* Emit the raw entry (ID + field/value pairs) straight from the
-             * iterator we already positioned, mirroring the min_idle_time==-1
-             * RAWENTRIES shape of streamReplyWithRange. */
             addReplyArrayLen(c,2);
             addReplyStreamID(c,&id);
             addReplyArrayLen(c,entry_numfields*2);
