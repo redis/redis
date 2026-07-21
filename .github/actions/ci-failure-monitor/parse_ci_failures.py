@@ -7,7 +7,7 @@ import re
 
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-TIMESTAMP = re.compile(r"^[0-9-]+T[0-9:.]+Z\s+")
+TIMESTAMP = re.compile(r"^[0-9-]+T[0-9:.]+Z ?")
 TEST_FAILURE = re.compile(r"\[err\]:\s*(.+\s+in\s+(?:\.?/)?tests/\S+\.tcl)\s*$")
 WARNING = "!!! WARNING The following tests failed:"
 FALLBACK_ERROR = re.compile(
