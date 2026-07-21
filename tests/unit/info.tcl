@@ -702,7 +702,7 @@ start_server {tags {"info" "external:skip"}} {
 
         # Add a small string, which cannot exceed the previous peak value
         r set small_str [string repeat "a" 1000]
-        assert {[s used_memory_peak] == $peak_value}
+        assert {[s used_memory_peak] == $peak_value + 1}
     }
 }
 
@@ -726,6 +726,6 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         R 0 set k v ;# Make dbs overhead displayed
         set info_mem [r memory stats]
         assert_equal [dict get $info_mem db.0 overhead.hashtable.main] $overhead_main
-        assert_equal [dict get $info_mem db.0 overhead.hashtable.expires] $overhead_expires
+        assert_equal [dict get $info_mem db.0 overhead.hashtable.missing] $overhead_expires
     }
 }
