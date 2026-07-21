@@ -19,13 +19,13 @@ def parse(path):
         if summary is None and re.search(r"(\[exception\]:|error:|ERROR:|FAILED:|fatal:|FATAL:|Process completed with exit code)", line): summary = line
         match = TEST_FAILURE.search(line)
         if match:
-            finish(pending); pending = {"kind":"test","job":job,"test_case":match.group(1),"error":[]}; continue
+            finish(pending); pending = {"kind":"test","job":job,"test_case":match.group(1),"error":[line]}; continue
         if "[exception]:" in line:
             finish(pending); pending = {"kind":"exception","job":job,"test_case":None,"title":line.replace("[exception]:","exception:",1),"error":[line]}; continue
         if pending:
             if line.startswith("Cleanup:") or re.match(r"\[(?:ok|err|exception)\]:", line): finish(pending); pending = None
             elif pending["kind"] == "exception": pending["error"].append(line)
-            elif not pending["error"] and line.strip(): pending["error"].append(line)
+            elif pending["kind"] == "test" and len(pending["error"]) == 1 and line.strip(): pending["error"].append(line)
     finish(pending)
     if not failures: failures.append({"kind":"fallback","job":first_job,"test_case":None,"title":f"unidentified failure in {first_job}","error":[summary or "No test failure marker was found in the failed log."]})
     for failure in failures: failure["error"] = "\n".join(failure["error"])
