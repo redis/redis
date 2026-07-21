@@ -21,5 +21,7 @@ def main():
         body=template.format(test_name=test_name,test_file=test_file,ci_name=job,commit=os.environ["SHA"],job_url=job_url,error=failure["error"])
         number=by_title.get(title)
         if number: gh("issue","comment",str(number),"--repo",repo,"--body",f"### Failure recorded\n\n{body}")
-        else: gh("issue","create","--repo",repo,"--label","ci-failure","--title",title,"--body",body)
+        else:
+            issue_url=gh("issue","create","--repo",repo,"--label","ci-failure","--title",title,"--body",body).strip()
+            by_title[title]=int(issue_url.rsplit("/",1)[-1])
 if __name__ == "__main__": main()
