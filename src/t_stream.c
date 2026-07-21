@@ -4704,6 +4704,55 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
+/* Upper bound on how many stream entries XAUTOCLAIM's merge-join iterator will
+ * scan forward while looking for the next pending entry before it gives up and
+ * seeks directly to the target. Roughly one macro-node worth of entries: for a
+ * dense/contiguous PEL each resume is O(1); for a sparse PEL this cap keeps the
+ * worst case no worse than the per-entry seek baseline. */
+#define STREAM_XAC_MAX_SCAN 128
+
+/* Advance the shared stream iterator 'si' forward to the first entry whose ID
+ * is >= *target, implementing the merge-join used by xautoclaimCommand.
+ *
+ * Iterator carry-over state between calls:
+ *  - *have_id == 1: 'si' is positioned on *cur_id / *cur_nf with the current
+ *    entry's fields NOT yet consumed.
+ *  - *have_id == 0: the previous entry's fields have been consumed, so the next
+ *    streamIteratorGetID() yields the following entry.
+ *
+ * Returns 1 with 'si' positioned on *cur_id (>= *target, fields intact), or 0
+ * at EOF. */
+static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
+                             streamID *cur_id, int64_t *cur_nf, int *have_id) {
+    streamID maxid = {UINT64_MAX, UINT64_MAX};
+    int steps = 0;
+    while (1) {
+        if (*have_id && streamCompareID(cur_id, target) < 0) {
+            /* Skip an intervening / already-processed entry: consume its
+             * fields so lp_ele lands where the next GetID expects it. */
+            int64_t nf = *cur_nf;
+            while (nf--) {
+                unsigned char *f, *v;
+                int64_t fl, vl;
+                streamIteratorGetField(si, &f, &v, &fl, &vl);
+            }
+            *have_id = 0;
+        }
+        if (!*have_id) {
+            /* Bounded fallback: if we have scanned too far without reaching the
+             * target (sparse PEL), stop the forward scan and seek directly, so
+             * the worst case stays ~= the baseline per-entry seek. */
+            if (steps++ > STREAM_XAC_MAX_SCAN) {
+                streamIteratorStop(si);
+                streamIteratorStart(si, s, target, &maxid, 0);
+            }
+            *have_id = streamIteratorGetID(si, cur_id, cur_nf);
+            if (!*have_id) return 0; /* EOF */
+        }
+        if (streamCompareID(cur_id, target) >= 0) return 1;
+    }
+}
+
 /* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID]
  *
  * Changes ownership of one or multiple messages in the Pending Entries List
@@ -4805,25 +4854,36 @@ void xautoclaimCommand(client *c) {
     size_t arraylen = 0;
     mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
+
+    /* Open a single stream iterator once and advance it forward (merge-join)
+     * across all PEL entries, instead of re-seeking per entry. The stream's
+     * entry data is never mutated during a single XAUTOCLAIM (only the
+     * group/consumer PEL and NACKs are), so this iterator stays valid for the
+     * whole command. */
+    streamID maxid = {UINT64_MAX, UINT64_MAX};
+    streamIterator si;
+    streamIteratorStart(&si,s,&startid,&maxid,0);
+    streamID cur_id;
+    int64_t cur_nf;
+    int have_id = 0;
+
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
 
         streamID id;
         streamDecodeID(ri.key, &id);
 
-        /* Position a single stream iterator on this entry and reuse it both to
-         * check existence and (for non-JUSTID) to emit its fields. This avoids
-         * the second seek that a follow-up streamReplyWithRange would perform
-         * for the same ID. */
-        streamIterator si;
-        streamID myid;
-        int64_t numfields;
-        streamIteratorStart(&si,s,&id,&id,0);
-        int found = streamIteratorGetID(&si,&myid,&numfields);
+        /* Merge-join: advance the shared iterator to the first stream entry
+         * with ID >= this PEL id, reusing it both to check existence and (for
+         * non-JUSTID) to emit its fields. */
+        int have = xautoclaimAdvance(&si,s,&id,&cur_id,&cur_nf,&have_id);
+        int found = have && streamCompareID(&cur_id,&id) == 0;
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!found) {
-            streamIteratorStop(&si);
+            /* Leave the iterator positioned as-is: cur_id (if any) is > id and
+             * may match a later PEL id, so we must not consume it here. The
+             * cleanup below only touches the PEL rax, so 'si' stays valid. */
             /* Propagate this change (we are going to delete the NACK). */
             if (nack->consumer) {
                 robj *idstr = createObjectFromStreamID(&id);
@@ -4849,12 +4909,13 @@ void xautoclaimCommand(client *c) {
             count--; /* Count is a limit of the command response size. */
             continue;
         }
-        serverAssert(streamCompareID(&id,&myid) == 0);
+        serverAssert(streamCompareID(&id,&cur_id) == 0);
 
         if (nack->consumer && minidle) {
             mstime_t this_idle = now - nack->delivery_time;
             if (this_idle < minidle) {
-                streamIteratorStop(&si);
+                /* Leave the iterator's fields unconsumed; the next
+                 * xautoclaimAdvance sees cur_id < next target and skips them. */
                 continue;
             }
         }
@@ -4884,22 +4945,25 @@ void xautoclaimCommand(client *c) {
         /* Send the reply for this entry. */
         if (justid) {
             addReplyStreamID(c,&id);
+            /* Leave have_id set: the fields are skipped lazily on the next
+             * xautoclaimAdvance. */
         } else {
             /* Emit the raw entry (ID + field/value pairs) straight from the
              * iterator we already positioned, mirroring the min_idle_time==-1
              * RAWENTRIES shape of streamReplyWithRange. */
             addReplyArrayLen(c,2);
             addReplyStreamID(c,&id);
-            addReplyArrayLen(c,numfields*2);
-            while (numfields--) {
+            addReplyArrayLen(c,cur_nf*2);
+            int64_t nf = cur_nf;
+            while (nf--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
                 streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
                 addReplyBulkCBuffer(c,field,field_len);
                 addReplyBulkCBuffer(c,value,value_len);
             }
+            have_id = 0; /* Fields consumed; next GetID yields the following entry. */
         }
-        streamIteratorStop(&si);
         arraylen++;
         count--;
 
@@ -4911,6 +4975,8 @@ void xautoclaimCommand(client *c) {
         decrRefCount(idstr);
         server.dirty++;
     }
+
+    streamIteratorStop(&si);
 
     /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
     raxNext(&ri);
