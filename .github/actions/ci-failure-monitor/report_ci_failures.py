@@ -15,9 +15,9 @@ def main():
     for failure in failures:
         job=failure["job"]; job_url=jobs.get(job,os.environ["RUN_URL"])
         if failure["kind"] == "test":
-            test_name,test_file=failure["test_case"].rsplit(" in ",1); title=f"[CI-FAILED] {failure['test_case']}"
+            test_name,test_file=failure["test_case"].rsplit(" in ",1); title=f"[TEST] {test_name}"
         else:
-            title=f"[CI-FAILED] {failure['title']}"; test_name,test_file=failure["title"],"N/A"
+            title=f"[TEST] {failure['title']}"; test_name,test_file=failure["title"],"N/A"
         body=template.format(test_name=test_name,test_file=test_file,ci_name=job,commit=os.environ["SHA"],job_url=job_url,error=failure["error"])
         number=by_title.get(title)
         if number: gh("issue","comment",str(number),"--repo",repo,"--body",f"### Failure recorded\n\n{body}")
