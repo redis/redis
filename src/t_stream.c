@@ -4715,30 +4715,31 @@ cleanup:
  * is >= *target, implementing the merge-join used by xautoclaimCommand.
  *
  * Iterator carry-over state between calls:
- *  - *have_id == 1: 'si' is positioned on *cur_id / *cur_nf with the current
- *    entry's fields NOT yet consumed.
- *  - *have_id == 0: the previous entry's fields have been consumed, so the next
- *    streamIteratorGetID() yields the following entry.
+ *  - *have_entry == 1: 'si' is positioned on *entry_id / *entry_numfields with
+ *    the current entry's fields NOT yet consumed.
+ *  - *have_entry == 0: the previous entry's fields have been consumed, so the
+ *    next streamIteratorGetID() yields the following entry.
  *
- * Returns 1 with 'si' positioned on *cur_id (>= *target, fields intact), or 0
- * at EOF. */
+ * Returns 1 with 'si' positioned on *entry_id (>= *target, fields intact), or
+ * 0 at EOF. */
 static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
-                             streamID *cur_id, int64_t *cur_nf, int *have_id) {
+                             streamID *entry_id, int64_t *entry_numfields,
+                             int *have_entry) {
     streamID maxid = {UINT64_MAX, UINT64_MAX};
     int steps = 0;
     while (1) {
-        if (*have_id && streamCompareID(cur_id, target) < 0) {
+        if (*have_entry && streamCompareID(entry_id, target) < 0) {
             /* Skip an intervening / already-processed entry: consume its
              * fields so lp_ele lands where the next GetID expects it. */
-            int64_t nf = *cur_nf;
+            int64_t nf = *entry_numfields;
             while (nf--) {
                 unsigned char *f, *v;
                 int64_t fl, vl;
                 streamIteratorGetField(si, &f, &v, &fl, &vl);
             }
-            *have_id = 0;
+            *have_entry = 0;
         }
-        if (!*have_id) {
+        if (!*have_entry) {
             /* Bounded fallback: if we have scanned too far without reaching the
              * target (sparse PEL), stop the forward scan and seek directly, so
              * the worst case stays ~= the baseline per-entry seek. */
@@ -4746,10 +4747,10 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                 streamIteratorStop(si);
                 streamIteratorStart(si, s, target, &maxid, 0);
             }
-            *have_id = streamIteratorGetID(si, cur_id, cur_nf);
-            if (!*have_id) return 0; /* EOF */
+            *have_entry = streamIteratorGetID(si, entry_id, entry_numfields);
+            if (!*have_entry) return 0; /* EOF */
         }
-        if (streamCompareID(cur_id, target) >= 0) return 1;
+        if (streamCompareID(entry_id, target) >= 0) return 1;
     }
 }
 
@@ -4863,9 +4864,9 @@ void xautoclaimCommand(client *c) {
     streamID maxid = {UINT64_MAX, UINT64_MAX};
     streamIterator si;
     streamIteratorStart(&si,s,&startid,&maxid,0);
-    streamID cur_id;
-    int64_t cur_nf;
-    int have_id = 0;
+    streamID entry_id;           /* Stream entry the shared iterator is on. */
+    int64_t entry_numfields;     /* Field count for that entry. */
+    int have_entry = 0;          /* 1 if entry_id is valid and fields unread. */
 
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
@@ -4876,14 +4877,12 @@ void xautoclaimCommand(client *c) {
         /* Merge-join: advance the shared iterator to the first stream entry
          * with ID >= this PEL id, reusing it both to check existence and (for
          * non-JUSTID) to emit its fields. */
-        int have = xautoclaimAdvance(&si,s,&id,&cur_id,&cur_nf,&have_id);
-        int found = have && streamCompareID(&cur_id,&id) == 0;
+        int have = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,
+                                     &have_entry);
+        int found = have && streamCompareID(&entry_id,&id) == 0;
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!found) {
-            /* Leave the iterator positioned as-is: cur_id (if any) is > id and
-             * may match a later PEL id, so we must not consume it here. The
-             * cleanup below only touches the PEL rax, so 'si' stays valid. */
             /* Propagate this change (we are going to delete the NACK). */
             if (nack->consumer) {
                 robj *idstr = createObjectFromStreamID(&id);
@@ -4909,15 +4908,12 @@ void xautoclaimCommand(client *c) {
             count--; /* Count is a limit of the command response size. */
             continue;
         }
-        serverAssert(streamCompareID(&id,&cur_id) == 0);
+        serverAssert(streamCompareID(&id,&entry_id) == 0);
 
         if (nack->consumer && minidle) {
             mstime_t this_idle = now - nack->delivery_time;
-            if (this_idle < minidle) {
-                /* Leave the iterator's fields unconsumed; the next
-                 * xautoclaimAdvance sees cur_id < next target and skips them. */
+            if (this_idle < minidle)
                 continue;
-            }
         }
 
         if (nack->consumer != consumer) {
@@ -4945,16 +4941,14 @@ void xautoclaimCommand(client *c) {
         /* Send the reply for this entry. */
         if (justid) {
             addReplyStreamID(c,&id);
-            /* Leave have_id set: the fields are skipped lazily on the next
-             * xautoclaimAdvance. */
         } else {
             /* Emit the raw entry (ID + field/value pairs) straight from the
              * iterator we already positioned, mirroring the min_idle_time==-1
              * RAWENTRIES shape of streamReplyWithRange. */
             addReplyArrayLen(c,2);
             addReplyStreamID(c,&id);
-            addReplyArrayLen(c,cur_nf*2);
-            int64_t nf = cur_nf;
+            addReplyArrayLen(c,entry_numfields*2);
+            int64_t nf = entry_numfields;
             while (nf--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
@@ -4962,7 +4956,7 @@ void xautoclaimCommand(client *c) {
                 addReplyBulkCBuffer(c,field,field_len);
                 addReplyBulkCBuffer(c,value,value_len);
             }
-            have_id = 0; /* Fields consumed; next GetID yields the following entry. */
+            have_entry = 0; /* Fields consumed; next GetID yields the next entry. */
         }
         arraylen++;
         count--;
