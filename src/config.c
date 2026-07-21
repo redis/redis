@@ -2799,6 +2799,18 @@ int updateClusterHumanNodename(const char **err) {
  * remains as a backstop. */
 static int isValidTlsExpectedPeerName(char *val, const char **err) {
     if (val[0] == '\0') return 1;
+
+    /* A non-empty value must contain at least one name token; tlsSetVerifyName()
+     * splits it on spaces, so a whitespace-only value (e.g. a quoted line of
+     * spaces) yields no tokens and would make it reject every connection while
+     * the config still looks set. Reject such a value here; use an empty string
+     * to disable the option. */
+    if (strspn(val, " ") == strlen(val)) {
+        *err = "tls-expected-peer-name contains no usable name; "
+               "use an empty string to disable it";
+        return 0;
+    }
+
     ConnectionType *ct_tls = connectionTypeTls();
     if (ct_tls && ct_tls->supports_verify_name && !ct_tls->supports_verify_name()) {
         *err = "tls-expected-peer-name requires certificate name verification "

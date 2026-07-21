@@ -339,5 +339,16 @@ if {$::tls} {
             r config set tls-expected-peer-name ""
             assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
         }
+
+        test {TLS: tls-expected-peer-name rejects a whitespace-only value} {
+            # A value with no usable name (only spaces) would otherwise be stored
+            # and then refuse every connection; it must be rejected at config time.
+            catch {r config set tls-expected-peer-name "   "} e
+            assert_match {*no usable name*} $e
+            # A real name is still accepted; clear afterwards.
+            r config set tls-expected-peer-name node.cluster.local
+            assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
+            r config set tls-expected-peer-name ""
+        }
     }
 }
