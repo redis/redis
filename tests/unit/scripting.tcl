@@ -1350,6 +1350,40 @@ start_server {tags {"scripting"}} {
         $rd close
     }
 
+    test {Timedout scripts stuck in Lua pattern matching can be killed by SCRIPT KILL} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        # Catastrophic backtracking: this pattern never matches and would run
+        # (effectively) forever. The whole match runs inside the C function
+        # match() in deps/lua/src/lstrlib.c, so before the fix neither
+        # lua-time-limit nor SCRIPT KILL could interrupt it and the entire
+        # server hung until it was killed with SIGKILL.
+        run_script_on_connection $rd {return string.find(string.rep('A', 100), string.rep('(.+)', 10) .. '!')} 0
+
+        # The server must stay responsive (report BUSY) rather than hang.
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        kill_script
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        $rd close
+
+        assert_match {*killed by user*} $res
+    }
+
     test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
