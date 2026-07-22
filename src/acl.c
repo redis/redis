@@ -2212,7 +2212,7 @@ cleanup:
  * not leave the user's password list partially updated. */
 static sds ACLStringSetUserPasswords(user *u, sds *argv, int argc) {
     if (u == NULL) {
-        return sdsnew("ERR ACL SETPASS is not available for connections without an authenticated user");
+        return sdsnew("ACL SETPASS is not available for connections without an authenticated user");
     }
 
     sds error = NULL;
