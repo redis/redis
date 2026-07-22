@@ -1021,6 +1021,7 @@ void aofSetupAfterPreloadFile(void) {
     /* Make the installed manifest active. */
     aofManifestFreeAndUpdate(am);
     sdsfree(absolute_preload_dir);
+    serverLog(LL_NOTICE, "Successfully installed preload files into the local AOF");
 }
 
 int aofFileExist(char *filename) {
