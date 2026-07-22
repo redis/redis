@@ -145,7 +145,6 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             close $fp
             # Exclude the final added INCR when comparing with the preload manifest.
             assert_equal $backup_manifest_lines [lrange $local_manifest_lines 0 end-1]
-            assert_equal [expr {[llength $backup_manifest_lines] + 1}] [llength $local_manifest_lines]
             assert_match "file appendonly.aof.*.incr.aof seq * type i*" [lindex $local_manifest_lines end]
             assert_equal OK [r set after-preload value]
         }
@@ -196,8 +195,8 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             assert_equal OK [r set after-single-aof-preload value]
         }
 
-        # The generated local manifest must be sufficient after preload-file
-        # is removed, including writes made after the preload was installed.
+        # Restart without preload-file to verify that the local AOF restores
+        # both the preloaded data and writes made after startup.
         start_server [list overrides [list dir $local_dir appendonly yes]] {
             assert_equal value [r get single-aof-key]
             assert_equal value [r get after-single-aof-preload]
