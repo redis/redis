@@ -59,13 +59,11 @@ run_solo {defrag} {
             r config set hz 100
             r config set activedefrag no
             r config set active-defrag-ignore-bytes 1
-            # Catch the validation error so this UBSAN regression test can continue.
-            catch {r config set active-defrag-threshold-lower 20 active-defrag-threshold-upper 20}
+            r config set active-defrag-threshold-lower 20 active-defrag-threshold-upper 20
 
             # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
-            # fragmented bytes, guaranteeing that computeDefragCycles()
-            # reaches the interpolation with a zero denominator if the invalid
-            # thresholds above are accepted.
+            # fragmented bytes, guaranteeing that computeDefragCycles() handles
+            # the equal thresholds without reaching the interpolation.
             catch {r config set activedefrag yes}
 
             # The final PING verifies that the server stayed alive.

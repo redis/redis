@@ -2554,18 +2554,20 @@ static int isValidArraySparseKmin(long long val, const char **err) {
     return 1;
 }
 
+/* Keep accepting equal or reversed thresholds for backward compatibility.
+ * These validators only log a warning; computeDefragCycles() handles them safely. */
 static int isValidActiveDefragThresholdLower(long long val, const char **err) {
+    UNUSED(err);
     if (val >= server.active_defrag_threshold_upper) {
-        *err = "active-defrag-threshold-lower must be less than active-defrag-threshold-upper";
-        return 0;
+        serverLog(LL_WARNING, "WARNING: active-defrag-threshold-lower should be less than active-defrag-threshold-upper");
     }
     return 1;
 }
 
 static int isValidActiveDefragThresholdUpper(long long val, const char **err) {
+    UNUSED(err);
     if (val <= server.active_defrag_threshold_lower) {
-        *err = "active-defrag-threshold-upper must be greater than active-defrag-threshold-lower";
-        return 0;
+        serverLog(LL_WARNING, "WARNING: active-defrag-threshold-upper should be greater than active-defrag-threshold-lower");
     }
     return 1;
 }
