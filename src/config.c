@@ -2554,7 +2554,6 @@ static int isValidArraySparseKmin(long long val, const char **err) {
     return 1;
 }
 
-/* Validate active-defrag-threshold-lower: must be < upper */
 static int isValidActiveDefragThresholdLower(long long val, const char **err) {
     if (val >= server.active_defrag_threshold_upper) {
         *err = "active-defrag-threshold-lower must be less than active-defrag-threshold-upper";
@@ -2563,7 +2562,6 @@ static int isValidActiveDefragThresholdLower(long long val, const char **err) {
     return 1;
 }
 
-/* Validate active-defrag-threshold-upper: must be > lower */
 static int isValidActiveDefragThresholdUpper(long long val, const char **err) {
     if (val <= server.active_defrag_threshold_lower) {
         *err = "active-defrag-threshold-upper must be greater than active-defrag-threshold-lower";
