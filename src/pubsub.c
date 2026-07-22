@@ -62,7 +62,7 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels);
  * value (see pubsubStampCurrentUser) — never as a live current identity. */
 static user pubsubNoAuthUser;
 
-int pubsubUserIsNoAuth(user *u) {
+static int pubsubUserIsNoAuth(user *u) {
     return u == &pubsubNoAuthUser;
 }
 
@@ -78,6 +78,95 @@ user *pubsubEntryOwner(client *c, dictEntry *de) {
     user *stamped = dictGetVal(de);
     if (stamped) return stamped;
     return c->user ? c->user : &pubsubNoAuthUser;
+}
+
+/* ACL LOAD phase 1 (read-only): validate a client's Pub/Sub subscriptions
+ * against the freshly-loaded ACL. Returns C_OK if the client may keep all its
+ * subscriptions, or C_ERR if it must be killed because a provenance user
+ * disappeared or a still-held subscription is no longer permitted.
+ *
+ * Each subscription's owner is its stamped provenance user*, or c->user while
+ * the stored value is still NULL. `user_channels` caches getUpcomingChannelList()
+ * results keyed by owner name. The ACL owner-resolution and channel-permission
+ * helpers this drives (pubsubACLLoadResolveOwner, getUpcomingChannelList,
+ * ACLCheckChannelAgainstList) are exported from acl.c. */
+int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels) {
+    dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
+    int is_pattern[3] = { 1, 0, 0 };
+    for (int i = 0; i < 3; i++) {
+        dict *d = dicts[i];
+        if (dictSize(d) == 0) continue;
+        dictIterator di;
+        dictEntry *de;
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
+            user *owner = pubsubEntryOwner(c, de);
+            /* No-auth-origin subscriptions are never ACL channel-restricted. */
+            if (pubsubUserIsNoAuth(owner)) continue;
+
+            user *old_owner, *new_owner;
+            aclLoadOwnerStatus st =
+                pubsubACLLoadResolveOwner(owner, old_users, &old_owner, &new_owner);
+            /* Module/external users are not governed by ACL LOAD; skip them. */
+            if (st == ACL_LOAD_OWNER_UNMANAGED) continue;
+            /* A registered ACL user disappeared: the client must be killed. */
+            if (st == ACL_LOAD_OWNER_GONE) {
+                dictResetIterator(&di);
+                return C_ERR;
+            }
+
+            /* Cache the upcoming channel list per managed owner. Keyed by owner
+             * name, which is safe because only registry users (unique names)
+             * reach here — module users, which may collide on name, were
+             * skipped above by the pointer-identity check. */
+            list *channels = NULL;
+            if (!raxFind(user_channels, (unsigned char*)owner->name, sdslen(owner->name), (void**)&channels)) {
+                channels = getUpcomingChannelList(new_owner, old_owner);
+                raxInsert(user_channels, (unsigned char*)owner->name, sdslen(owner->name), channels, NULL);
+            }
+            /* A NULL upcoming list means the new permissions are a superset of
+             * the old ones for this owner, so nothing can be violated. */
+            if (channels != NULL) {
+                robj *o = dictGetKey(de);
+                if (ACLCheckChannelAgainstList(channels, o->ptr, sdslen(o->ptr), is_pattern[i])
+                        == ACL_DENIED_CHANNEL) {
+                    dictResetIterator(&di);
+                    return C_ERR;
+                }
+            }
+        }
+        dictResetIterator(&di);
+    }
+    return C_OK;
+}
+
+/* ACL LOAD phase 2 (mutate): after the client survived validation, translate
+ * every stamped provenance value from its old user object to the freshly-loaded
+ * object of the same identity. NULL values (owned by the current user, which the
+ * caller reassigns) and the no-auth sentinel are left untouched, as are module/
+ * external users, which ACL LOAD does not own. */
+static void pubsubACLLoadRekeyDict(dict *d, rax *old_users) {
+    if (dictSize(d) == 0) return;
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, d);
+    while ((de = dictNext(&di)) != NULL) {
+        user *stamped = dictGetVal(de);
+        if (stamped == NULL || pubsubUserIsNoAuth(stamped)) continue;
+        user *old_owner, *new_owner;
+        aclLoadOwnerStatus st =
+            pubsubACLLoadResolveOwner(stamped, old_users, &old_owner, &new_owner);
+        if (st == ACL_LOAD_OWNER_UNMANAGED) continue; /* module/external: leave as-is */
+        serverAssert(st == ACL_LOAD_OWNER_MANAGED);   /* GONE ruled out by phase 1 */
+        dictSetVal(d, de, new_owner);                 /* default rekeys to itself */
+    }
+    dictResetIterator(&di);
+}
+
+void pubsubACLLoadRekeyClient(client *c, rax *old_users) {
+    pubsubACLLoadRekeyDict(c->pubsub_patterns, old_users);
+    pubsubACLLoadRekeyDict(c->pubsub_channels, old_users);
+    pubsubACLLoadRekeyDict(c->pubsubshard_channels, old_users);
 }
 
 /*

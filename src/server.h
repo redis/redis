@@ -3713,6 +3713,17 @@ void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
+/* ACL LOAD owner-resolution, exported for the Pub/Sub provenance validation that
+ * lives in pubsub.c (pubsubACLLoadValidateClient). */
+typedef enum {
+    ACL_LOAD_OWNER_UNMANAGED = 0, /* module/external user: leave the stamp as-is */
+    ACL_LOAD_OWNER_MANAGED,       /* registered ACL user (including default) */
+    ACL_LOAD_OWNER_GONE,          /* registered ACL user removed by the reload */
+} aclLoadOwnerStatus;
+aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
+                                             user **old_out, user **new_out);
+list *getUpcomingChannelList(user *new, user *original);
+int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserHasUnrestrictedKeyAccess(user *u, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
@@ -4141,9 +4152,10 @@ int pubsubTotalSubscriptions(void);
 int clientTotalPubSubSubscriptionCount(client *c);
 dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
-int pubsubUserIsNoAuth(user *u);
 user *pubsubEntryOwner(client *c, dictEntry *de);
 void pubsubStampCurrentUser(client *c);
+int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels);
+void pubsubACLLoadRekeyClient(client *c, rax *old_users);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
