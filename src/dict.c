@@ -763,7 +763,7 @@ void dictRelease(dict *d)
  * 
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+static dictEntryLink dictFindLinkInternalHashed(dict *d, const void *key, dictEntryLink *bucket, const uint64_t hash) {
     dictCmpCache cmpCache = {0};
     dictEntryLink link;
     uint64_t idx;
@@ -776,7 +776,6 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
         if (dictSize(d) == 0) return NULL; 
     }
 
-    const uint64_t hash = dictGetHash(d, key);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
@@ -800,6 +799,10 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
         }
     }
     return NULL;
+}
+
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+    return dictFindLinkInternalHashed(d, key, bucket, dictGetHash(d, key));
 }
 
 dictEntry *dictFind(dict *d, const void *key)
@@ -866,6 +869,19 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
         return NULL;
     
     return dictFindLinkInternal(d, key, bucket);
+}
+
+/* Like dictFindLink(), but uses a caller-supplied precomputed hash instead of
+ * calling the dict's hash function. The caller MUST guarantee that 'hash' was
+ * produced by this dict's hash function for exactly the same key bytes as
+ * 'key'; otherwise the lookup result is undefined. Used by the command-batch
+ * prefetcher to avoid hashing the same key twice (AMD). */
+dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;
+    if (unlikely(dictSize(d) == 0))
+        return NULL;
+
+    return dictFindLinkInternalHashed(d, key, bucket, hash);
 }
 
 /* Set the key with link 

@@ -276,9 +276,22 @@ void dbgRunAssertions(redisDb *db) {
  * Even if the key expiry is master-driven, we can correctly report a key is
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
+static kvobj *dbFindByLinkWithHash(redisDb *db, sds key, uint64_t hash, dictEntryLink *plink);
+
 kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
 
-    kvobj *val = dbFindByLink(db, key->ptr, link);
+    /* Fast path (AMD): if the cross-command prefetch batch already computed the
+     * SipHash of this exact key object, reuse it and skip re-hashing. The
+     * pointer match against key_hash_obj guarantees the cached hash belongs to
+     * the same live key bytes; the flag is cleared on every pendingCommand
+     * (re)acquire so it can never refer to a stale key. */
+    client *cc = server.current_client;
+    pendingCommand *pc = cc ? cc->current_pending_cmd : NULL;
+    kvobj *val;
+    if (pc && (pc->flags & PENDING_CMD_KEY_HASH_VALID) && pc->key_hash_obj == key)
+        val = dbFindByLinkWithHash(db, key->ptr, pc->key_hash, link);
+    else
+        val = dbFindByLink(db, key->ptr, link);
 
     if (val) {
         /* Forcing deletion of expired keys on a replica makes the replica
@@ -3125,6 +3138,23 @@ kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *plink) {
     dictEntryLink link, bucket;
 
     link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
+    if (link == NULL) {
+        if (plink) *plink = bucket;
+        return NULL;
+    } else {
+        if (plink) *plink = link;
+        return dictGetKV(*link);
+    }
+}
+
+/* Like dbFindByLink(), but reuses a precomputed key hash (see
+ * dictFindLinkWithHash()). Used by lookupKey() when the command-batch
+ * prefetcher already hashed this key (AMD). */
+static kvobj *dbFindByLinkWithHash(redisDb *db, sds key, uint64_t hash, dictEntryLink *plink) {
+    int slot = getKeySlot(key);
+    dictEntryLink link, bucket;
+
+    link = kvstoreDictFindLinkWithHash(db->keys, slot, key, hash, &bucket);
     if (link == NULL) {
         if (plink) *plink = bucket;
         return NULL;

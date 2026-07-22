@@ -863,6 +863,16 @@ dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLi
     return dictFindLink(d, key, bucket);
 }
 
+/* Like kvstoreDictFindLink(), but reuses a caller-supplied precomputed hash
+ * (see dictFindLinkWithHash()). Used by the command-batch prefetch hash-reuse
+ * path (AMD). */
+dictEntryLink kvstoreDictFindLinkWithHash(kvstore *kvs, int didx, void *key, uint64_t hash, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (!d) return NULL;
+    return dictFindLinkWithHash(d, key, hash, bucket);
+}
+
 /* Set a key (or key-value) in the specified kvstore. 
  *
  * This function inserts a new key or updates an existing one, depending on 
