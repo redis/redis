@@ -1282,15 +1282,14 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 }
 
 /** An async signal safe version of fgets().
- * Has the same behaviour as standard fgets(): reads a line from fd and stores it into the dest buffer.
- * It stops when either (buff_size-1) characters are read, the newline character is read, or the end-of-file is reached,
- * whichever comes first.
+ * Reads a line from fd and stores it into the dest buffer.
+ * It stops when either (buff_size-1) characters are read, or a newline character is read.
  *
- * On success, the function returns the same dest parameter. If the End-of-File is encountered and no characters have
- * been read, the contents of dest remain unchanged and a null pointer is returned.
- * If an error occurs, a null pointer is returned. */
+ * On success, the function returns the same dest parameter, which is guaranteed to be null-terminated.
+ * On EOF or read error, NULL is returned to prevent returning partial incomplete lines in signal handler. */
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd) {
-    for (int i = 0; i < buff_size; i++) {
+    if (buff_size <= 0) return NULL;
+    for (int i = 0; i < buff_size - 1; i++) {
         /* Read one byte */
         ssize_t bytes_read_count = read(fd, dest + i, 1);
         /* On EOF or error return NULL */
@@ -1299,9 +1298,11 @@ char *fgets_async_signal_safe(char *dest, int buff_size, int fd) {
         }
         /* we found the end of the line. */
         if (dest[i] == '\n') {
-            break;
+            dest[i + 1] = '\0';
+            return dest;
         }
     }
+    dest[buff_size - 1] = '\0';
     return dest;
 }
 
