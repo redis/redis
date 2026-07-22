@@ -2368,14 +2368,10 @@ aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
     return ACL_LOAD_OWNER_MANAGED;
 }
 
-/* ACL LOAD phase 1 (read-only) validation of a client's Pub/Sub subscriptions
- * lives in pubsub.c (pubsubACLLoadValidateClient); it iterates the client's
- * subscription dicts and calls back into pubsubACLLoadResolveOwner() /
- * getUpcomingChannelList() / ACLCheckChannelAgainstList() exported above. */
-
-/* ACL LOAD phase 2 (mutate), pubsubACLLoadRekeyClient(), also lives in pubsub.c
- * next to phase 1: it re-keys stamped provenance values from their old user
- * objects to the freshly-loaded ones via pubsubACLLoadResolveOwner() above. */
+/* Per-client ACL LOAD reconciliation of Pub/Sub subscriptions lives in pubsub.c
+ * (pubsubACLLoadReconcileClient): it validates each subscription against the new
+ * ACL and re-keys surviving stamps, calling back into pubsubACLLoadResolveOwner()
+ * / getUpcomingChannelList() / ACLCheckChannelAgainstList() exported above. */
 
 /* This function loads the ACL from the specified filename: every line
  * is validated and should be either empty, a comment, or in the format
@@ -2601,19 +2597,13 @@ sds ACLLoadFromFile(const char *filename) {
              * client can hold any either. */
             serverAssert(user_channels || clientTotalPubSubSubscriptionCount(c) == 0);
             if (user_channels && clientTotalPubSubSubscriptionCount(c) > 0) {
-                /* Phase 1: read-only validation of every subscription against
-                 * the new ACL, keyed by each subscription's provenance owner. */
-                if (pubsubACLLoadValidateClient(c, old_users, user_channels) == C_ERR) {
+                /* Validate this client's subscriptions against the new ACL and,
+                 * if it survives, re-key their stamped provenance to the new user
+                 * objects before the old ones are freed (see pubsub.c). */
+                if (pubsubACLLoadReconcileClient(c, old_users, user_channels) == C_ERR) {
                     deauthenticateAndCloseClient(c);
                     continue;
                 }
-                /* Phase 2: client survived — re-key stamped provenance values
-                 * from old to new user objects before the old ones are freed.
-                 * Only clients that re-authed while subscribed carry stamps; for
-                 * everyone else every value is NULL and re-keying is a no-op, so
-                 * the CLIENT_PUBSUB_REAUTHED hint lets us skip the walk entirely. */
-                if (c->flags & CLIENT_PUBSUB_REAUTHED)
-                    pubsubACLLoadRekeyClient(c, old_users);
             }
 
             /* Re-resolve the current identity, by pointer identity (same as the

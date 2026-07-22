@@ -3713,8 +3713,8 @@ void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
-/* ACL LOAD owner-resolution, exported for the Pub/Sub provenance validation that
- * lives in pubsub.c (pubsubACLLoadValidateClient). */
+/* ACL LOAD owner-resolution, exported for the Pub/Sub provenance reconciliation
+ * that lives in pubsub.c (pubsubACLLoadReconcileClient). */
 typedef enum {
     ACL_LOAD_OWNER_UNMANAGED = 0, /* module/external user: leave the stamp as-is */
     ACL_LOAD_OWNER_MANAGED,       /* registered ACL user (including default) */
@@ -4154,8 +4154,7 @@ dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
 user *pubsubEntryOwner(client *c, dictEntry *de);
 void pubsubStampCurrentUser(client *c);
-int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels);
-void pubsubACLLoadRekeyClient(client *c, rax *old_users);
+int pubsubACLLoadReconcileClient(client *c, rax *old_users, rax *user_channels);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);

@@ -90,7 +90,7 @@ user *pubsubEntryOwner(client *c, dictEntry *de) {
  * results keyed by owner name. The ACL owner-resolution and channel-permission
  * helpers this drives (pubsubACLLoadResolveOwner, getUpcomingChannelList,
  * ACLCheckChannelAgainstList) are exported from acl.c. */
-int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels) {
+static int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels) {
     dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
     int is_pattern[3] = { 1, 0, 0 };
     for (int i = 0; i < 3; i++) {
@@ -163,10 +163,28 @@ static void pubsubACLLoadRekeyDict(dict *d, rax *old_users) {
     dictResetIterator(&di);
 }
 
-void pubsubACLLoadRekeyClient(client *c, rax *old_users) {
+static void pubsubACLLoadRekeyClient(client *c, rax *old_users) {
     pubsubACLLoadRekeyDict(c->pubsub_patterns, old_users);
     pubsubACLLoadRekeyDict(c->pubsub_channels, old_users);
     pubsubACLLoadRekeyDict(c->pubsubshard_channels, old_users);
+}
+
+/* Reconcile one client's Pub/Sub subscriptions against the freshly-loaded ACL
+ * during ACL LOAD. Returns C_OK if the client keeps its subscriptions — in which
+ * case any stamped provenance values have been re-keyed to the new user objects —
+ * or C_ERR if it must be killed because a provenance user disappeared or a
+ * still-held subscription is no longer permitted.
+ *
+ * Validation (phase 1) is read-only and runs to completion before any re-keying
+ * (phase 2), so a rejected client is never left partially re-keyed. Re-keying is
+ * skipped for clients that never re-authed while subscribed: they carry no stamps
+ * (every value is NULL), so the CLIENT_PUBSUB_REAUTHED hint avoids the walk. */
+int pubsubACLLoadReconcileClient(client *c, rax *old_users, rax *user_channels) {
+    if (pubsubACLLoadValidateClient(c, old_users, user_channels) == C_ERR)
+        return C_ERR;
+    if (c->flags & CLIENT_PUBSUB_REAUTHED)
+        pubsubACLLoadRekeyClient(c, old_users);
+    return C_OK;
 }
 
 /*
