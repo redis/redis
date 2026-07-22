@@ -2041,10 +2041,10 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
-/* Return 1 if any entry in dict `d` whose effective owner is `owner` violates
- * the `upcoming` channel list. */
-static int aclDictHasViolatingOwnedEntry(client *c, dict *d, user *owner,
-                                         list *upcoming, int is_pattern) {
+/* Return 1 if any subscription in dict `d` whose effective owner is `owner` is
+ * denied by the `upcoming` channel list. */
+static int dictHasDeniedSubForOwner(client *c, dict *d, user *owner,
+                                    list *upcoming, int is_pattern) {
     if (dictSize(d) == 0) return 0;
     dictIterator di;
     dictEntry *de;
@@ -2060,12 +2060,12 @@ static int aclDictHasViolatingOwnedEntry(client *c, dict *d, user *owner,
     return kill;
 }
 
-/* Check if the client should be killed because it holds a subscription created
- * under `owner` that is no longer in `owner`'s upcoming channel list. */
-static int ACLShouldKillPubsubClientForOwner(client *c, user *owner, list *upcoming) {
-    return aclDictHasViolatingOwnedEntry(c, c->pubsub_patterns, owner, upcoming, 1)
-        || aclDictHasViolatingOwnedEntry(c, c->pubsub_channels, owner, upcoming, 0)
-        || aclDictHasViolatingOwnedEntry(c, c->pubsubshard_channels, owner, upcoming, 0);
+/* Return 1 if the client holds a subscription created under `owner` that is no
+ * longer in `owner`'s upcoming channel list (i.e. it must be disconnected). */
+static int clientHasDeniedSubForOwner(client *c, user *owner, list *upcoming) {
+    return dictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
+        || dictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
+        || dictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
@@ -2094,7 +2094,7 @@ static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         /* Skip clients that can't own anything under `original`: never re-authed
          * (all subs owned by current user) and c->user != original. */
         if (!(c->flags & CLIENT_PUBSUB_REAUTHED) && c->user != original) continue;
-        if (ACLShouldKillPubsubClientForOwner(c, original, channels))
+        if (clientHasDeniedSubForOwner(c, original, channels))
             deauthenticateAndCloseClient(c);
     }
 
