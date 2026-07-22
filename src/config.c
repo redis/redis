@@ -2400,8 +2400,8 @@ static int isValidAOFfilename(char *val, const char **err) {
 }
 
 /* Return true for an absolute file path without empty, ".", or ".."
- * components. preload-file paths are kept in this lexical form so directory
- * equality can be determined by comparing path strings. */
+ * components. Keeping preload-file paths in this lexical form makes direct
+ * path-string comparisons unambiguous. */
 static int isNormalizedAbsoluteFilePath(char *path) {
     if (path[0] != '/') return 0;
 

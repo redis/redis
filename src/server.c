@@ -8347,7 +8347,7 @@ int main(int argc, char **argv) {
         serverLog(LL_NOTICE,"Server initialized");
         aofLoadManifestFromDisk();
         loadDataFromDisk();
-        /* Setup the local AOF for preloaded data before opening its INCR. */
+        /* Make the on-disk AOF match the preloaded in-memory dataset. */
         aofSetupAfterPreloadFile();
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();

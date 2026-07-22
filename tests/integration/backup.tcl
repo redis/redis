@@ -121,21 +121,19 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
 
     test {Preload installs a self-contained local AOF without rewrite} {
         set local_dir [tmpdir preload.install.local-aof]
-        # Seed an unrelated local MP-AOF. preload-file must replace this
-        # manifest history rather than append the restored data to it.
+        # Seed an unrelated local MP-AOF. The preload must replace it rather
+        # than append the restored dataset to its active INCR.
         create_local_aof $local_dir
 
-        # Use backup to restore data
+        # Capture the sealed backup files and manifest before restoring it.
         set manifest [file join $bdir appendonly.aof.manifest]
-        set backup_files [lsort [glob -tails -directory $bdir *]] ;# backup files list
-        # Read manifest content
+        set backup_files [lsort [glob -tails -directory $bdir *]]
         set fp [open $manifest r]
         set backup_manifest_lines [split [string trim [read $fp]] "\n"]
         close $fp
         start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"] keep_persistence true] {
             assert_equal 3 [r dbsize]
-            # Installing the preload files must not require serializing the
-            # in-memory dataset through an AOF rewrite.
+            # Installing the preload files directly must not trigger an AOF rewrite.
             assert_equal 0 [s aof_rewrites]
             # Restoring must not modify the sealed backup directory.
             assert_equal $backup_files [lsort [glob -tails -directory $bdir *]]
@@ -249,8 +247,8 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             assert {$initial_incr_size > 0}
             assert_equal 0 [file size $incr_path]
 
-            # The installed manifest owns the preserved RDB as its BASE and
-            # the replacement INCR as the destination for subsequent writes.
+            # The installed manifest references the preserved RDB as its BASE and
+            # the recreated INCR as the destination for subsequent writes.
             set fp [open [file join $aof_dir appendonly.aof.manifest] r]
             set local_manifest [read $fp]
             close $fp

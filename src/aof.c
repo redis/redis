@@ -816,7 +816,7 @@ static int preloadFileIsCurrentAofManifest(void) {
 }
 
 /* Describe every preload format as a manifest. A standalone RDB or AOF becomes
- * a single BASE; an existing manifest supplies its optional BASE and INCRs. */
+ * a single BASE, an existing manifest supplies its optional BASE and INCRs. */
 static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
     char *extension = getFileExtension(preload_path);
     serverAssert(extension != NULL);
@@ -834,9 +834,9 @@ static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
     return am;
 }
 
-/* Install one preload manifest entry under its existing filename. Reuse an
- * existing path; otherwise replace the old local file with the preload
- * file without changing any manifest metadata. */
+/* Install one preload manifest entry under its existing filename. Leave the
+ * file in place when source and target are the same path, otherwise replace
+ * the target without changing the manifest metadata. */
 static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
     sds source_path = makePath(absolute_preload_dir, file_name);
     sds relative_path = makePath(server.aof_dirname, file_name);
@@ -876,15 +876,18 @@ cleanup:
     return ret;
 }
 
+/* Return whether name is referenced by the manifest's BASE or INCR entries. */
 static int aofManifestReferencesFile(aofManifest *am, char *name) {
-    if (am->base_aof_info && !strcmp(am->base_aof_info->file_name, name)) return 1;
+    if (am->base_aof_info && !strcmp(am->base_aof_info->file_name, name))
+        return 1;
 
     listIter li;
     listNode *ln;
     listRewind(am->incr_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = listNodeValue(ln);
-        if (!strcmp(ai->file_name, name)) return 1;
+        if (!strcmp(ai->file_name, name))
+            return 1;
     }
     return 0;
 }
@@ -954,9 +957,8 @@ static void aofRemoveFilesOutsideManifest(aofManifest *am) {
 }
 
 /* Make the local AOF describe exactly the data loaded through preload-file.
- * The current local manifest can be reused as-is. Other preload formats are
- * installed as a new manifest, preferring hard links and falling back to
- * copies, without an AOFRW. */
+ * Reuse the current local manifest when it is the preload source, otherwise
+ * install the preload source as a new local manifest without an AOFRW. */
 void aofSetupAfterPreloadFile(void) {
     if (server.preload_file == NULL || server.aof_state != AOF_ON) {
         return;
@@ -980,9 +982,10 @@ void aofSetupAfterPreloadFile(void) {
     char *preload_path = server.preload_file + 4;
     sds absolute_preload_dir = getFilePath(preload_path);
 
-    /* Represent every preload format as the target AOF manifest. This gives
-     * the installation code one ownership set for installing BASE/INCR files,
-     * removing obsolete local files, and finally publishing the local manifest. */
+    /* First describe the preload source with a manifest, regardless of its
+     * format. The steps below can then use one flow to install its BASE/INCR
+     * files, remove unreferenced local files, add a fresh INCR, and publish
+     * the local manifest. */
     aofManifest *am = aofManifestFromPreloadFile(preload_path);
     listEmpty(am->history_aof_list); /* Discard HISTORY entries. */
 
