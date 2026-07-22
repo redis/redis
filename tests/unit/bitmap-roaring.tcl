@@ -510,7 +510,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {BITOP NOT rejects oversized string sources when destination would be roaring} {
+    test {BITOP NOT allows oversized string sources when destination would be roaring} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
         r config set bitmap-default-roaring no
@@ -519,15 +519,17 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set proto-max-bulk-len $limit
         r config set bitmap-default-roaring yes
 
-        assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
-            r bitop not bitop:not:mixed:out bitop:not:mixed:big
-        }
-        assert_equal 0 [r exists bitop:not:mixed:out]
+        assert_equal [expr {$limit + 1}] [r bitop not bitop:not:mixed:out bitop:not:mixed:big]
+        assert_equal bitmap [r type bitop:not:mixed:out]
+        assert_equal 1 [r getbit bitop:not:mixed:out 0]
         assert_equal string [r type bitop:not:mixed:big]
 
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
-        r del bitop:not:mixed:big
+        # Restore the limit before reading the high bit (GETBIT caps its offset
+        # at proto-max-bulk-len too).
+        assert_equal 0 [r getbit bitop:not:mixed:out [expr {($limit + 1) * 8 - 1}]]
+        r del bitop:not:mixed:big bitop:not:mixed:out
     }
 
     test {BITOP with sparse Roaring sources computes in Roaring space} {
@@ -2080,7 +2082,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 0fff] [r debug bitmap-raw bitmap:roaring:bitop:not]
     }
 
-    test {BITOP NOT honors proto-max-bulk-len for Roaring bitmap sources} {
+    test {BITOP NOT allows Roaring bitmap sources larger than proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
         r config set bitmap-default-roaring yes
@@ -2098,16 +2100,20 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r getbit bitop:not:roaring:out [expr {$limit * 8 - 2}]]
         assert_equal 0 [r getbit bitop:not:roaring:out [expr {$limit * 8 - 1}]]
 
+        # A source above the lowered limit is no longer rejected; the NOT
+        # succeeds and overwrites the destination with the complement.
         r set bitop:not:roaring:sentinel keep
-        assert_error {*string exceeds maximum allowed size (proto-max-bulk-len)*} {
-            r bitop not bitop:not:roaring:sentinel bitop:not:roaring:too-big
-        }
-        assert_equal string [r type bitop:not:roaring:sentinel]
-        assert_equal keep [r get bitop:not:roaring:sentinel]
+        assert_equal [expr {$limit + 1}] \
+            [r bitop not bitop:not:roaring:sentinel bitop:not:roaring:too-big]
+        assert_equal bitmap [r type bitop:not:roaring:sentinel]
+        assert_equal 1 [r getbit bitop:not:roaring:sentinel 0]
         assert_equal bitmap [r type bitop:not:roaring:too-big]
 
         r config set bitmap-default-roaring no
         r config set proto-max-bulk-len $oldval
+        # Restore the limit before reading the high bit (GETBIT caps its offset
+        # at proto-max-bulk-len too).
+        assert_equal 0 [r getbit bitop:not:roaring:sentinel [expr {($limit + 1) * 8 - 1}]]
         r del bitop:not:roaring:limit bitop:not:roaring:too-big \
             bitop:not:roaring:out bitop:not:roaring:sentinel
     }
