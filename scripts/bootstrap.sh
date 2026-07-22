@@ -43,7 +43,7 @@ if [ "$DRY" = 1 ] && [ -t 1 ]; then _DB="$(printf '\033[1;36m')"; _DR="$(printf 
 
 # Ensure sudo + python3 exist when running as root inside a slim container,
 # matching the legacy Makefile recipe behaviour.
-if [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" -eq 0 ] && ! command -v sudo >/dev/null 2>&1; then
+if [ "$CHECK_DEPS" != 1 ] && [ "$DRY" != 1 ] && [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" -eq 0 ] && ! command -v sudo >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo python3
   elif command -v dnf >/dev/null 2>&1; then
@@ -135,6 +135,8 @@ if [ -n "$failed" ]; then
     # build failure. Exit non-zero anyway so CI can gate on it.
     echo "==> Deps check: missing prerequisites in:$failed (see lists above)"
     echo "    Run 'make bootstrap$failed' to install them."
+  elif [ "$DRY" = 1 ]; then
+    echo "==> Dry-run errored for:$failed (see output above)"
   else
     echo "==> Deps install completed with FAILURES for:$failed"
     echo "    Re-run 'make bootstrap$failed' after fixing the issues above."
@@ -153,13 +155,13 @@ if [ "$CHECK_DEPS" = 1 ]; then
   # below as the MAX across modules (strictest floor wins).
   mtokens=$(awk '$1=="missing"{print $2}' "$DEPS_REPORT_FILE" | sort -u)
   missing=$(printf '%s\n' "$mtokens" | sed 's/:.*//' | sort -u | sed '/^$/d')
-  installed=$(sort -u "$DEPS_REPORT_FILE" | awk '$1=="ok"||$1=="opt_ok"{print $2}')
-  opt_missing=$(sort -u "$DEPS_REPORT_FILE" | awk '$1=="opt_missing"{print $2}')
+  installed=$(sort -u "$DEPS_REPORT_FILE" | awk '$1=="ok"||$1=="opt_ok"{print $2}' | sort -u)
+  opt_missing=$(sort -u "$DEPS_REPORT_FILE" | awk '$1=="opt_missing"{print $2}' | sort -u)
   # Required wins across modules: a package that's required-missing anywhere is
   # dropped from installed and from the optional list.
   if [ -n "$missing" ]; then
-    [ -n "$installed" ]   && installed=$(printf '%s\n' "$installed" | grep -vxF "$missing")
-    [ -n "$opt_missing" ] && opt_missing=$(printf '%s\n' "$opt_missing" | grep -vxF "$missing")
+    [ -n "$installed" ]   && installed=$(printf '%s\n' "$installed" | grep -vxF "$missing" || true)
+    [ -n "$opt_missing" ] && opt_missing=$(printf '%s\n' "$opt_missing" | grep -vxF "$missing" || true)
   fi
   if [ -z "$missing" ];   then n_missing=0; else n_missing=$(printf '%s\n' "$missing" | sed '/^$/d' | wc -l | tr -d ' '); fi
   if [ -z "$installed" ]; then n_ok=0;      else n_ok=$(printf '%s\n' "$installed" | sed '/^$/d' | wc -l | tr -d ' '); fi
@@ -170,7 +172,7 @@ if [ "$CHECK_DEPS" = 1 ]; then
     echo "${RED}NOT INSTALLED ($n_missing):${RST}"
     printf '%s\n' "$missing" | while IFS= read -r p; do
       [ -n "$p" ] || continue
-      need=$(printf '%s\n' "$mtokens" | awk -F: -v pp="$p" '$1==pp && NF>1{print $2}' | sort -V | tail -1)
+      need=$(printf '%s\n' "$mtokens" | awk -F: -v pp="$p" '$1==pp && NF>1{print $2}' | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1)
       if [ -n "$need" ]; then echo "${RED}    $p (>= $need)${RST}"; else echo "${RED}    $p${RST}"; fi
     done
   else

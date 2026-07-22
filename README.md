@@ -277,7 +277,13 @@ Pick whichever option fits your environment:
    make bootstrap dry-run
    ```
 
-   Copy-paste the printed commands.
+   The commands are printed **per module**, so a dependency shared by several
+   modules appears once for each. Work through them iteratively:
+
+   1. Copy-paste the commands for a module to install its dependencies.
+   2. Re-run `make bootstrap dry-run` — the deps you just installed no longer
+      show, so you now see only what's still missing for the remaining modules.
+   3. Repeat until `make bootstrap dry-run` prints no install commands.
 
 #### 3. Build and run
 
