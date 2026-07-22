@@ -48,9 +48,10 @@ struct compressionState {
     size_t alloc_size;  /* Total allocated size of this struct plus the input/output
                          * buffers, captured at allocation time so memory accounting
                          * doesn't have to query the allocator on every call. */
-    size_t ctx_size;  /* Size of the zstd context, refreshed by the IO thread after
-                       * each (de)compression. The main thread only reads this field,
-                       * so it never touches the context itself. */
+    redisAtomic size_t ctx_size;  /* Size of the zstd context, refreshed by the IO thread after
+                                   * each (de)compression. The main thread only reads this field,
+                                   * so it never touches the context itself. Accessed atomically
+                                   * since it's written by the IO thread and read by the main thread. */
 };
 
 /* --- zstd --- */
@@ -87,7 +88,7 @@ static int zstdInitCompress(compressionState *st, int level) {
 
     st->write_flush_pending = 0;
 
-    st->ctx_size = ZSTD_sizeof_CStream(st->ctx.zstdCCtx);
+    atomicSet(st->ctx_size, ZSTD_sizeof_CStream(st->ctx.zstdCCtx));
 
     return 0;
 }
@@ -118,7 +119,7 @@ static int zstdInitDecompress(compressionState *st) {
 
     st->read_flush_pending = 0;
 
-    st->ctx_size = ZSTD_sizeof_DStream(st->ctx.zstdDCtx);
+    atomicSet(st->ctx_size, ZSTD_sizeof_DStream(st->ctx.zstdDCtx));
 
     return 0;
 }
@@ -177,7 +178,7 @@ static int zstdCompress(compressionState *st, int flush) {
     st->input.consumed = input.pos;
     st->output.written = output.pos;
 
-    st->ctx_size = ZSTD_sizeof_CStream(st->ctx.zstdCCtx);
+    atomicSet(st->ctx_size, ZSTD_sizeof_CStream(st->ctx.zstdCCtx));
 
     return 0;
 }
@@ -207,7 +208,7 @@ static int zstdDecompress(compressionState *st) {
     st->input.consumed = input.pos;
     st->output.written = output.pos;
 
-    st->ctx_size = ZSTD_sizeof_DStream(st->ctx.zstdDCtx);
+    atomicSet(st->ctx_size, ZSTD_sizeof_DStream(st->ctx.zstdDCtx));
 
     return 0;
 }
@@ -602,7 +603,9 @@ size_t clientCompressionCtxMemoryUsage(client *c) {
     compressionState *st = c->compression_state;
     if (!st) return 0;
 
-    return st->ctx_size;
+    size_t sz;
+    atomicGet(st->ctx_size, sz);
+    return sz;
 }
 
 /* Add the client to its event loop's pending decompression list so its buffered
