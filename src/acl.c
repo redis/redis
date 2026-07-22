@@ -2053,8 +2053,8 @@ static int dictHasDeniedSubForOwner(client *c, dict *d, user *owner,
     while (!kill && ((de = dictNext(&di)) != NULL)) {
         if (pubsubEntryOwner(c, de) != owner) continue;
         robj *o = dictGetKey(de);
-        kill = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern)
-               == ACL_DENIED_CHANNEL;
+        int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern);
+        kill = (res == ACL_DENIED_CHANNEL);
     }
     dictResetIterator(&di);
     return kill;
