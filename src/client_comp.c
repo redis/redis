@@ -48,10 +48,6 @@ struct compressionState {
     size_t alloc_size;  /* Total allocated size of this struct plus the input/output
                          * buffers, captured at allocation time so memory accounting
                          * doesn't have to query the allocator on every call. */
-    redisAtomic size_t ctx_size;  /* Size of the zstd context, refreshed by the IO thread after
-                                   * each (de)compression. The main thread only reads this field,
-                                   * so it never touches the context itself. Accessed atomically
-                                   * since it's written by the IO thread and read by the main thread. */
 };
 
 /* --- zstd --- */
@@ -88,8 +84,6 @@ static int zstdInitCompress(compressionState *st, int level) {
 
     st->write_flush_pending = 0;
 
-    atomicSet(st->ctx_size, ZSTD_sizeof_CStream(st->ctx.zstdCCtx));
-
     return 0;
 }
 
@@ -118,8 +112,6 @@ static int zstdInitDecompress(compressionState *st) {
     st->alloc_size += usable;
 
     st->read_flush_pending = 0;
-
-    atomicSet(st->ctx_size, ZSTD_sizeof_DStream(st->ctx.zstdDCtx));
 
     return 0;
 }
@@ -178,8 +170,6 @@ static int zstdCompress(compressionState *st, int flush) {
     st->input.consumed = input.pos;
     st->output.written = output.pos;
 
-    atomicSet(st->ctx_size, ZSTD_sizeof_CStream(st->ctx.zstdCCtx));
-
     return 0;
 }
 
@@ -207,8 +197,6 @@ static int zstdDecompress(compressionState *st) {
 
     st->input.consumed = input.pos;
     st->output.written = output.pos;
-
-    atomicSet(st->ctx_size, ZSTD_sizeof_DStream(st->ctx.zstdDCtx));
 
     return 0;
 }
@@ -590,24 +578,6 @@ size_t clientCompressionMemoryUsage(client *c) {
     return st->alloc_size;
 }
 
-/* Return the size in bytes of the underlying zstd streaming context (CCtx/DCtx)
- * currently allocated for this client's compression state, or 0 if none exists.
- * This memory is allocated by libzstd via libc malloc, not zmalloc, so it is
- * NOT tracked by zmalloc/used_memory and must never be folded into
- * clientCompressionMemoryUsage(). The value is refreshed by the IO thread
- * owning this client right after each (de)compression call (see zstdCompress/
- * zstdDecompress/zstdInitCompress/zstdInitDecompress); the main thread (e.g.
- * from getMemoryOverheadData) only reads this cached field and never touches
- * the zstd context itself, avoiding a data race with the owning IO thread. */
-size_t clientCompressionCtxMemoryUsage(client *c) {
-    compressionState *st = c->compression_state;
-    if (!st) return 0;
-
-    size_t sz;
-    atomicGet(st->ctx_size, sz);
-    return sz;
-}
-
 /* Add the client to its event loop's pending decompression list so its buffered
  * compressed/decompressed data can be drained from beforeSleep even when no
  * socket read event fires. No-op if already present. */
@@ -875,11 +845,6 @@ int clientHasPendingCompressedData(client *c) {
 }
 
 size_t clientCompressionMemoryUsage(client *c) {
-    UNUSED(c);
-    return 0;
-}
-
-size_t clientCompressionCtxMemoryUsage(client *c) {
     UNUSED(c);
     return 0;
 }

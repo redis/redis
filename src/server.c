@@ -6577,7 +6577,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_slot_migration_input_buffer:%zu\r\n", mh->asm_import_input_buffer,
             "mem_cluster_slot_migration_input_buffer_peak:%zu\r\n", asmGetPeakSyncBufferSize(),
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
-            "mem_replication_compression_ctx:%zu\r\n", mh->replication_compression_ctx,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
             "mem_overhead_db_hashtable_rehashing:%zu\r\n", mh->overhead_db_hashtable_rehashing,

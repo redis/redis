@@ -1862,9 +1862,6 @@ struct redisMemOverhead {
     size_t clients_normal_shared;
     size_t clients_normal_unshared;
     size_t cluster_links;
-    size_t replication_compression_ctx; /* zstd (de)compression contexts. Not part of
-                                         * overhead_total: libzstd allocates them via
-                                         * libc malloc so they are not in used_memory. */
     size_t aof_buffer;
     size_t eval_caches;
     size_t functions_caches;
