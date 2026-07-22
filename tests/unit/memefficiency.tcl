@@ -66,7 +66,7 @@ run_solo {defrag} {
             # fragmented bytes, guaranteeing that computeDefragCycles()
             # reaches the interpolation with a zero denominator if the invalid
             # thresholds above are accepted.
-            r config set activedefrag yes
+            catch {r config set activedefrag yes}
 
             # The final PING verifies that the server stayed alive.
             after 100
