@@ -443,6 +443,25 @@ start_server {tags {"repl external:skip"}} {
                 fail "tot-mem field not found or too low in replica's master client info: [$replica client list type master]"
             }
         }
+
+        test {mem_clients_slaves includes replication compression buffers} {
+            # Same lazy-creation caveat as above: generate write traffic and
+            # wait for it to reach the replica so the master-side
+            # compressionState exists before we sample mem_clients_slaves.
+            for {set i 0} {$i < 100} {incr i} {
+                $master set k$i v$i
+            }
+            wait_for_ofs_sync $master $replica
+
+            # With little replication traffic, repl_buffer_mem stays below
+            # repl_backlog_size, so mem_clients_slaves would be 0 unless the
+            # replica's compression buffers (~256Kb+) are also accounted for.
+            wait_for_condition 50 100 {
+                [s mem_clients_slaves] >= 240*1024
+            } else {
+                fail "mem_clients_slaves is too low, replication compression buffers not accounted: [s mem_clients_slaves]"
+            }
+        }
     }
 }
 }
