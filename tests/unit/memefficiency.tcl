@@ -1333,6 +1333,7 @@ run_solo {defrag} {
             assert_equal OK [r save] ;# Iterates all pointers again after defrag.
             expr 1
         } {1}
+
         test "Active defrag check-cache: skip path when below threshold: $type" {
             # threshold-lower=99 and ignore-bytes=1gb guarantee the cached
             # value is below both skip conditions every tick, so defrag

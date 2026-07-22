@@ -3,6 +3,12 @@
 # bitmap writes while bitmap-default-roaring is enabled, then restore the
 # previous server setting.
 
+# Re-encodes an existing plain-string bitmap as Roaring in place, exercising the
+# string->Roaring conversion path while preserving the original bytes. It sets bit
+# 0 back to its current value (a no-op write that triggers conversion without
+# changing content) with bitmap-default-roaring enabled, then restores the setting.
+# The zero-length case is handled via RESTORE of an empty Roaring payload, since any
+# SETBIT there would extend the value. Fixtures built from scratch use direct SETBIT.
 proc convert_string_bitmap_to_roaring {client key} {
     set old [lindex [$client config get bitmap-default-roaring] 1]
     set raw [$client get $key]
