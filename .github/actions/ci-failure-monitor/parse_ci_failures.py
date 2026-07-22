@@ -11,7 +11,8 @@ TIMESTAMP = re.compile(r"^[0-9-]+T[0-9:.]+Z ?")
 TEST_FAILURE = re.compile(r"\[err\]:\s*(.+\s+in\s+(?:\.?/)?tests/\S+\.tcl)\s*$")
 WARNING = "!!! WARNING The following tests failed:"
 FALLBACK_ERROR = re.compile(
-    r"(error:|ERROR:|FAILED:|fatal:|FATAL:|Process completed with exit code)"
+    r"(\[TIMEOUT\]|Valgrind error|Sanitizer error|Can't start|"
+    r"error:|ERROR:|FAILED:|fatal:|FATAL:|Process completed with exit code)"
 )
 
 
@@ -87,7 +88,11 @@ def parse(path):
     failures = []
     for job, lines in read_jobs(path).items():
         if any(WARNING in line for line in lines):
-            failures.extend(parse_test_failures(job, lines))
+            test_failures = parse_test_failures(job, lines)
+            if test_failures:
+                failures.extend(test_failures)
+            else:
+                failures.append(parse_fallback(job, lines))
             continue
         exception = parse_exception(job, lines)
         failures.append(exception or parse_fallback(job, lines))
