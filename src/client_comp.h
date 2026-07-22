@@ -39,6 +39,12 @@ int clientReadBufAndDecompress(struct client *c, char *input_buf, size_t input_l
 int clientHasPendingCompressionFlush(struct client *c);
 int clientHasPendingCompressedData(struct client *c);
 
+/* Size in bytes of the underlying zstd streaming context (CCtx/DCtx) allocated
+ * for the client's compression state, or 0 if none exists. This memory is
+ * allocated by libzstd via libc malloc, not zmalloc, so it is not tracked by
+ * used_memory/zmalloc accounting. */
+size_t clientCompressionCtxMemoryUsage(struct client *c);
+
 /* Client-level compression API. These are the networking-facing wrappers that
  * apply the client's compressor around the client's connection.
  *

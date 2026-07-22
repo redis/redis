@@ -553,6 +553,25 @@ int clientHasPendingCompressedData(client *c) {
            state->output.written > state->output.consumed;
 }
 
+/* Return the size in bytes of the underlying zstd streaming context (CCtx/DCtx)
+ * currently allocated for this client's compression state, or 0 if none exists.
+ * This memory is allocated by libzstd via libc malloc, not zmalloc, so it is
+ * NOT tracked by zmalloc/used_memory and must never be folded into
+ * clientCompressionMemoryUsage(). Context allocation inside libzstd is lazy, so
+ * the reported size can still be small until the first compress/decompress
+ * call has run. */
+size_t clientCompressionCtxMemoryUsage(client *c) {
+    compressionState *st = c->compression_state;
+    if (!st) return 0;
+
+    if (st->dir == COMPRESS && st->ctx.zstdCCtx)
+        return ZSTD_sizeof_CStream(st->ctx.zstdCCtx);
+    if (st->dir == DECOMPRESS && st->ctx.zstdDCtx)
+        return ZSTD_sizeof_DStream(st->ctx.zstdDCtx);
+
+    return 0;
+}
+
 /* Add the client to its event loop's pending decompression list so its buffered
  * compressed/decompressed data can be drained from beforeSleep even when no
  * socket read event fires. No-op if already present. */
@@ -815,6 +834,11 @@ int clientHasPendingCompressionFlush(client *c) {
 }
 
 int clientHasPendingCompressedData(client *c) {
+    UNUSED(c);
+    return 0;
+}
+
+size_t clientCompressionCtxMemoryUsage(client *c) {
     UNUSED(c);
     return 0;
 }
