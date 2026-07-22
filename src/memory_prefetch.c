@@ -226,6 +226,16 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
     p->nkeys = nkeys;
     p->cur_idx = 0;
 
+    /* Collect the sds-keyed lookups so their SipHash can be computed together
+     * with the AVX-512 8-wide batch hasher (AMD Zen 5). Every dict whose hash
+     * function is dictSdsHash hashes an sds key via siphash(key, sdslen, seed),
+     * so they can all share one batched call. Other dict types (or non-sds
+     * keys) fall back to the per-key scalar hash below. */
+    const void *bkeys[PREFETCH_BATCH_MAX_SIZE * 2];
+    size_t blens[PREFETCH_BATCH_MAX_SIZE * 2];
+    unsigned int bpos[PREFETCH_BATCH_MAX_SIZE * 2];
+    unsigned int bn = 0;
+
     size_t remaining = 0;
     for (size_t i = 0; i < nkeys; i++) {
         dictPrefetchLookup *lk = &p->lookups[i];
@@ -241,9 +251,25 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
         lk->ht_idx = HT_IDX_INVALID;
         lk->current_entry = NULL;
         lk->state = PREFETCH_BUCKET;
-        lk->key_hash = dictGetHash(dicts[i], keys[i]);
         remaining++;
+
+        if (dicts[i]->type->hashFunction == dictSdsHash) {
+            bkeys[bn] = keys[i];
+            blens[bn] = sdslen((sds)keys[i]);
+            bpos[bn] = (unsigned int)i;
+            bn++;
+        } else {
+            lk->key_hash = dictGetHash(dicts[i], keys[i]);
+        }
     }
+
+    if (bn) {
+        uint64_t bhash[PREFETCH_BATCH_MAX_SIZE * 2];
+        dictGenHashFunctionBatch(bkeys, blens, bhash, bn);
+        for (unsigned int j = 0; j < bn; j++)
+            p->lookups[bpos[j]].key_hash = bhash[j];
+    }
+
     p->remaining = remaining;
 }
 
