@@ -1504,6 +1504,20 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->cluster_links = server.stat_cluster_links_memory;
     mem_total += mh->cluster_links;
 
+    /* Replication (de)compression contexts (zstd). These are allocated by
+     * libzstd via libc malloc, so they are not part of zmalloc_used_memory()
+     * and must NOT be added to mem_total, or dataset/dataset_perc would be
+     * miscalculated. Reported for visibility only. */
+    {
+        listNode *ln;
+        listIter li;
+        listRewind(server.clients, &li);
+        while ((ln = listNext(&li))) {
+            client *c = listNodeValue(ln);
+            mh->replication_compression_ctx += clientCompressionCtxMemoryUsage(c);
+        }
+    }
+
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
@@ -1859,7 +1873,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,36+mh->num_dbs);
+        addReplyMapLen(c,37+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1890,6 +1904,9 @@ NULL
 
         addReplyBulkCString(c,"cluster.links");
         addReplyLongLong(c,mh->cluster_links);
+
+        addReplyBulkCString(c,"replication.compression.ctx");
+        addReplyLongLong(c,mh->replication_compression_ctx);
 
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);

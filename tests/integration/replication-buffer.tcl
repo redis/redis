@@ -465,3 +465,44 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 }
+
+if {$::compression} {
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            r config set save ""
+
+            set replica [srv -1 client]
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_sync $replica
+
+            test "mem_replication_compression_ctx reports zstd context memory" {
+                # zstd allocates the context workspace lazily, and small commands
+                # alone don't grow it past the initial few KB, so push large
+                # values too.
+                for {set i 0} {$i < 200} {incr i} {
+                    r set k$i v$i
+                }
+                set big [string repeat "y" 65536]
+                for {set i 0} {$i < 20} {incr i} {
+                    r set big$i $big
+                }
+                wait_for_ofs_sync r $replica
+
+                # At zstd level 1 the CStream workspace measures ~1.3MB once allocated.
+                wait_for_condition 50 100 {
+                    [s mem_replication_compression_ctx] >= 512*1024
+                } else {
+                    fail "master mem_replication_compression_ctx too low: [s mem_replication_compression_ctx]"
+                }
+
+                # The replica only holds a DStream, which is much smaller.
+                wait_for_condition 50 100 {
+                    [s -1 mem_replication_compression_ctx] > 0
+                } else {
+                    fail "replica mem_replication_compression_ctx not reported: [s -1 mem_replication_compression_ctx]"
+                }
+            }
+        }
+    }
+}
+
