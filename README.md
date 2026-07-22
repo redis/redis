@@ -236,7 +236,7 @@ Tested with the following Docker image:
    ```sh
    apt-get update
    apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool libzstd-dev
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
    ```
 
 2. Use GCC 11 as the default compiler
@@ -339,7 +339,7 @@ Tested with the following Docker image:
    ```sh
    apt-get update
    apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool libzstd-dev
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
    ```
 
 2. Install CMake
@@ -430,7 +430,7 @@ Tested with the following Docker image:
    ```sh
    apt-get update
    apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool libzstd-dev
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
    ```
 
 2. Install the LLVM 21 toolchain
@@ -511,7 +511,7 @@ Tested with the following Docker image:
    ```sh
    apt-get update
    apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev libcrypt-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang lld llvm automake autoconf libtool libzstd-dev
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev libcrypt-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang lld llvm automake autoconf libtool
    ```
 
 2. Install CMake
@@ -594,7 +594,7 @@ Tested with the following Docker images:
    ```sh
    apt-get update
    apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool libzstd-dev
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
    ```
 
 2. Install the LLVM 21 toolchain
@@ -701,7 +701,7 @@ Tested with the following Docker images:
    Update your package lists and install the necessary development tools and libraries:
 
    ```sh
-   dnf install -y pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel libzstd-devel
+   dnf install -y pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
    `clang` on these releases is already LLVM 21, matching the Rust toolchain installed in the "Install the Rust toolchain" step below; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
@@ -820,7 +820,7 @@ Tested with the following Docker images:
    Update your package lists and install the necessary development tools and libraries:
 
    ```sh
-   dnf install -y pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel libzstd-devel
+   dnf install -y pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
    `clang` on these releases is already LLVM 21, matching the Rust toolchain installed in the "Install the Rust toolchain" step below; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
@@ -933,7 +933,7 @@ Tested with the following Docker images:
 
    ```sh
    dnf groupinstall "Development Tools" -y
-   dnf install -y pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel libzstd-devel
+   dnf install -y pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
    ```
 
    On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain installed in the "Install the Rust toolchain" step below. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
@@ -1005,7 +1005,7 @@ Tested with the following Docker image:
      openssl openssl-dev cmake bash git wget curl xz unzip tar rsync which \
      libtool automake autoconf libffi-dev libgcc ncurses-dev xsimd \
      cargo clang21 clang21-static clang21-libclang llvm21-dev lld21 \
-     python3 py3-pip python3-dev zstd-dev
+     python3 py3-pip python3-dev
    ```
 
    Install the Python packages required by the `RedisJSON` module build:
@@ -1103,7 +1103,6 @@ The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
    brew install automake
    brew install libtool
    brew install wget
-   brew install zstd
    ```
 
 3. Install Rust
@@ -1236,12 +1235,6 @@ If TLS is built, running the tests with TLS enabled (you will need `tcl-tls` ins
 ```sh
 ./utils/gen-test-certs.sh
 ./runtest --tls
-```
-
-Redis supports compression of replication stream via zstd as of 8.10. To build with compression support you have to install zstd development libraries (e.g libzstd-dev on Debian/Ubuntu) and use the following flag when invoking the make command:
-
-```sh
-make BUILD_COMPRESSION=yes
 ```
 
 ### Fixing build problems with dependencies or cached build options
