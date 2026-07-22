@@ -1515,17 +1515,6 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
 {
     robj *res_bitmap = NULL;
 
-    /* NOT materializes a dense result, and all-string Roaring transitions
-     * propagate a RESTORE payload. Existing Roaring operands for other ops
-     * stay compressed and propagate the original BITOP, like strings do. */
-    if (!mustObeyClient(c) &&
-        maxlen > (uint64_t)server.proto_max_bulk_len &&
-        (op == BITOP_NOT || !has_roaring_bitmap))
-    {
-        addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
-        return;
-    }
-
     if (maxlen)
         res_bitmap = bitmapObjectsBitop(op, objects, numkeys, maxlen);
 
@@ -1667,26 +1656,25 @@ void bitopCommand(client *c) {
         return;
     }
 
-    /* NOT writes one dense result byte per source byte; keep the result
-     * inside the string materialization limit, like the Roaring path above
-     * does for every operation. */
-    if (op == BITOP_NOT && !mustObeyClient(c) &&
-        maxlen > (uint64_t)server.proto_max_bulk_len)
-    {
-        addReplyError(c, "string exceeds maximum allowed size (proto-max-bulk-len)");
-        for (j = 0; j < numkeys; j++) {
-            if (objects[j])
-                decrRefCount(objects[j]);
-        }
-        zfree(src);
-        zfree(len);
-        zfree(objects);
-        return;
-    }
-
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
+        /* The dense result is one byte per source byte and can exceed
+         * proto-max-bulk-len when a source was created under a larger limit
+         * (or loaded from RDB/replication). Allocate it with a try-variant so
+         * an oversized BITOP fails with an OOM error instead of aborting,
+         * rather than being rejected outright. */
+        res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+        if (res == NULL) {
+            addReplyError(c, "BITOP failed allocating the result, out of memory");
+            for (j = 0; j < numkeys; j++) {
+                if (objects[j])
+                    decrRefCount(objects[j]);
+            }
+            zfree(src);
+            zfree(len);
+            zfree(objects);
+            return;
+        }
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
         int useAVX = 0;
