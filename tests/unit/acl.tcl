@@ -82,6 +82,7 @@ start_server {tags {"acl external:skip"}} {
         assert_error {*WRONGPASS*} {r AUTH selfpass oldpass}
         r AUTH selfpass newpass
         r AUTH default pwd
+        r AUTH newuser passwd2
     }
 
     test {By default users are not able to access any command} {
