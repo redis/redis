@@ -30,7 +30,7 @@ static char monotonic_info_string[32];
  */
 
 
-#if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
+#if defined(__x86_64__) && defined(__linux__)
 #include <regex.h>
 #include <x86intrin.h>
 
@@ -41,59 +41,52 @@ static monotime getMonotonicUs_x86(void) {
 }
 
 static void monotonicInit_x86linux(void) {
-    const int bufflen = 256;
-    char buf[bufflen];
-    regex_t cpuGhzRegex, constTscRegex;
-    const size_t nmatch = 2;
-    regmatch_t pmatch[nmatch];
-    int constantTsc = 0;
-    int rc;
-
-    /* Determine the number of TSC ticks in a micro-second.  This is
-     * a constant value matching the standard speed of the processor.
-     * On modern processors, this speed remains constant even though
-     * the actual clock speed varies dynamically for each core.  */
-    rc = regcomp(&cpuGhzRegex, "^model name\\s+:.*@ ([0-9.]+)GHz", REG_EXTENDED);
-    assert(rc == 0);
-
-    /* Also check that the constant_tsc flag is present.  (It should be
-     * unless this is a really old CPU.  */
-    rc = regcomp(&constTscRegex, "^flags\\s+:.* constant_tsc", REG_EXTENDED);
-    assert(rc == 0);
-
+    /* Require an invariant TSC (constant_tsc + nonstop_tsc). This is vendor
+     * neutral, unlike the previous Intel-only "model name : ... @ X.XGHz"
+     * parse which never matches AMD CPUs (their model name has no GHz). */
+    int invariant = 0;
     FILE *cpuinfo = fopen("/proc/cpuinfo", "r");
     if (cpuinfo != NULL) {
-        while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (regexec(&cpuGhzRegex, buf, nmatch, pmatch, 0) == 0) {
-                buf[pmatch[1].rm_eo] = '\0';
-                double ghz = atof(&buf[pmatch[1].rm_so]);
-                mono_ticksPerMicrosecond = (long)(ghz * 1000);
+        char line[1024];
+        while (fgets(line, sizeof(line), cpuinfo) != NULL) {
+            if (strncmp(line, "flags", 5) == 0) {
+                invariant = (strstr(line, "constant_tsc") != NULL) &&
+                            (strstr(line, "nonstop_tsc") != NULL);
                 break;
             }
         }
-        while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (regexec(&constTscRegex, buf, nmatch, pmatch, 0) == 0) {
-                constantTsc = 1;
-                break;
-            }
-        }
-
         fclose(cpuinfo);
     }
-    regfree(&cpuGhzRegex);
-    regfree(&constTscRegex);
-
-    if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: x86 linux, unable to determine clock rate\n");
+    if (!invariant) {
+        fprintf(stderr, "monotonic: x86 linux, invariant TSC not present\n");
         return;
     }
-    if (!constantTsc) {
-        fprintf(stderr, "monotonic: x86 linux, 'constant_tsc' flag not present\n");
+
+    /* Calibrate TSC ticks-per-microsecond against CLOCK_MONOTONIC. The
+     * invariant TSC advances at a constant rate regardless of the current
+     * core frequency, so a one-time calibration is accurate. */
+    struct timespec ts0, ts1;
+    uint64_t c0, c1;
+    clock_gettime(CLOCK_MONOTONIC, &ts0);
+    c0 = __rdtsc();
+    const long calib_ns = 20L * 1000 * 1000; /* 20 ms */
+    long elapsed_ns;
+    do {
+        clock_gettime(CLOCK_MONOTONIC, &ts1);
+        elapsed_ns = (ts1.tv_sec - ts0.tv_sec) * 1000000000L +
+                     (ts1.tv_nsec - ts0.tv_nsec);
+    } while (elapsed_ns < calib_ns);
+    c1 = __rdtsc();
+
+    double ticks_per_ns = (double)(c1 - c0) / (double)elapsed_ns;
+    mono_ticksPerMicrosecond = (long)(ticks_per_ns * 1000.0 + 0.5);
+    if (mono_ticksPerMicrosecond <= 0) {
+        fprintf(stderr, "monotonic: x86 linux, TSC calibration failed\n");
         return;
     }
 
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
-            "X86 TSC @ %ld ticks/us", mono_ticksPerMicrosecond);
+            "X86 TSC @ %ld ticks/us (calibrated)", mono_ticksPerMicrosecond);
     getMonotonicUs = getMonotonicUs_x86;
 }
 #endif
@@ -219,7 +212,7 @@ static void monotonicInit_posix(void) {
 
 
 const char * monotonicInit(void) {
-    #if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
+    #if defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
 
