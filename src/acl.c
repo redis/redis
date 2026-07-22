@@ -2211,6 +2211,10 @@ cleanup:
  * property. Apply the rules to a temporary copy first so that a failure does
  * not leave the user's password list partially updated. */
 static sds ACLStringSetUserPasswords(user *u, sds *argv, int argc) {
+    if (u == NULL) {
+        return sdsnew("ERR ACL SETPASS is not available for connections without an authenticated user");
+    }
+
     sds error = NULL;
     user *tempu = ACLCreateUnlinkedUser();
     ACLCopyUser(tempu, u);

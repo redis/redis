@@ -73,6 +73,10 @@ start_server {tags {"acl external:skip"}} {
     test {Users can update only their own password rules} {
         r AUTH default pwd
         r ACL setuser selfpass reset on >oldpass +acl|setpass
+        r ACL setuser connectionpass reset on >oldpass +@connection
+        r AUTH connectionpass oldpass
+        assert_error {*NOPERM*acl|setpass*} {r ACL SETPASS >newpass}
+        r AUTH default pwd
         r AUTH selfpass oldpass
         assert_error {*only password rules are allowed*} {r ACL SETPASS <oldpass >newpass on}
         r AUTH selfpass oldpass
