@@ -486,9 +486,9 @@ void ACLFreeUserGeneric(void *u) {
  * stamped with user `u` (i.e. created while authenticated as `u`, before the
  * client switched identity). Subscriptions owned by the *current* user are
  * caught separately via c->user == u, so this only scans stamped values. Uses
- * the pubsub_reauthed fast-path hint: with no stamps there is nothing to scan. */
+ * the CLIENT_PUBSUB_REAUTHED hint: with no stamps there is nothing to scan. */
 static int pubsubClientHasStampedOwner(client *c, user *u) {
-    if (!c->pubsub_reauthed) return 0;
+    if (!(c->flags & CLIENT_PUBSUB_REAUTHED)) return 0;
     dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
     for (int i = 0; i < 3; i++) {
         dict *d = dicts[i];
@@ -2093,7 +2093,7 @@ static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         if (getClientType(c) != CLIENT_TYPE_PUBSUB) continue;
         /* Skip clients that can't own anything under `original`: never re-authed
          * (all subs owned by current user) and c->user != original. */
-        if (!c->pubsub_reauthed && c->user != original) continue;
+        if (!(c->flags & CLIENT_PUBSUB_REAUTHED) && c->user != original) continue;
         if (ACLShouldKillPubsubClientForOwner(c, original, channels))
             deauthenticateAndCloseClient(c);
     }
@@ -2702,8 +2702,8 @@ sds ACLLoadFromFile(const char *filename) {
                  * from old to new user objects before the old ones are freed.
                  * Only clients that re-authed while subscribed carry stamps; for
                  * everyone else every value is NULL and re-keying is a no-op, so
-                 * the pubsub_reauthed hint lets us skip the walk entirely. */
-                if (c->pubsub_reauthed)
+                 * the CLIENT_PUBSUB_REAUTHED hint lets us skip the walk entirely. */
+                if (c->flags & CLIENT_PUBSUB_REAUTHED)
                     pubsubACLLoadRekeyClient(c, old_users);
             }
 

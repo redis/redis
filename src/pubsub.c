@@ -264,9 +264,9 @@ void unmarkClientAsPubSub(client *c) {
         server.pubsub_clients--;
     }
     /* Callers only reach here once the client holds no subscriptions, so no
-     * stamped provenance can remain either. Reset the fast-path hint so ACL
+     * stamped provenance can remain either. Clear the fast-path hint so ACL
      * scans can skip this client in O(1) again. */
-    c->pubsub_reauthed = 0;
+    c->flags &= ~CLIENT_PUBSUB_REAUTHED;
 }
 
 /* Freeze provenance before an identity switch: stamp every still-NULL
@@ -293,7 +293,7 @@ void pubsubStampCurrentUser(client *c) {
     pubsubStampDict(c->pubsub_channels, owner);
     pubsubStampDict(c->pubsub_patterns, owner);
     pubsubStampDict(c->pubsubshard_channels, owner);
-    c->pubsub_reauthed = 1;
+    c->flags |= CLIENT_PUBSUB_REAUTHED;
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or

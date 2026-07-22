@@ -456,6 +456,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 #define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
 #define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
+#define CLIENT_PUBSUB_REAUTHED (1ULL<<55) /* Client re-authenticated while holding Pub/Sub
+                                             subscriptions, so a subscription value may carry a
+                                             provenance stamp (see pubsubStampCurrentUser). Fast-path
+                                             hint: while unset, every subscription is owned by
+                                             c->user, so ACL scans can skip the client in O(1). */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -1606,9 +1611,6 @@ typedef struct client {
                              * provenance stamp frozen when the client switched identity. */
     dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE); value as above */
     dict *pubsubshard_channels;  /* shard level channels (SSUBSCRIBE); value as above */
-    int pubsub_reauthed;    /* Fast-path hint: set once any subscription has been provenance-
-                             * stamped (client re-authed while subscribed). While 0 every entry
-                             * is owned by c->user, so ACL scans can skip in O(1). */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
