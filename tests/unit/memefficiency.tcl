@@ -54,6 +54,26 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
+    test "Active defrag handles equal fragmentation thresholds" {
+        start_server {tags {"defrag"} overrides {save ""}} {
+            r config set hz 100
+            r config set activedefrag no
+            r config set active-defrag-ignore-bytes 1
+            # Catch the validation error so this UBSAN regression test can continue.
+            catch {r config set active-defrag-threshold-lower 20 active-defrag-threshold-upper 20}
+
+            # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
+            # fragmented bytes, guaranteeing that computeDefragCycles()
+            # reaches the interpolation with a zero denominator if the invalid
+            # thresholds above are accepted.
+            r config set activedefrag yes
+
+            # The final PING verifies that the server stayed alive.
+            after 100
+            assert_equal PONG [r ping]
+        }
+    } {} {defrag external:skip tsan:skip standalone}
+
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
             [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
