@@ -1507,15 +1507,18 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     /* Replication (de)compression contexts (zstd). These are allocated by
      * libzstd via libc malloc, so they are not part of zmalloc_used_memory()
      * and must NOT be added to mem_total, or dataset/dataset_perc would be
-     * miscalculated. Reported for visibility only. */
+     * miscalculated. Reported for visibility only.
+     *
+     * Only replication links carry a compression state: the replica clients
+     * on a primary, and the master client on a replica. */
     {
         listNode *ln;
         listIter li;
-        listRewind(server.clients, &li);
-        while ((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            mh->replication_compression_ctx += clientCompressionCtxMemoryUsage(c);
-        }
+        listRewind(server.slaves, &li);
+        while ((ln = listNext(&li)))
+            mh->replication_compression_ctx += clientCompressionCtxMemoryUsage(listNodeValue(ln));
+        if (server.master)
+            mh->replication_compression_ctx += clientCompressionCtxMemoryUsage(server.master);
     }
 
     mem = 0;
