@@ -557,7 +557,7 @@ void ACLCopyUser(user *dst, user *src) {
  * c->user changes, so they are not re-filtered by the new user's key
  * permissions in beforeSleep.
  *
- * Pass stamp_pubsub = 1 for a *genuine identity switch* (AUTH, HELLO AUTH, TLS
+ * Pass auth_switch = 1 for a *genuine identity switch* (AUTH, HELLO AUTH, TLS
  * cert auto-auth, internal auth, module RM_Authenticate*): before the old
  * identity is abandoned, every still-NULL Pub/Sub subscription — one whose
  * stored owner is NULL and therefore belongs to the *current* c->user — is
@@ -565,9 +565,9 @@ void ACLCopyUser(user *dst, user *src) {
  * pubsubStampCurrentUser). Pass 0 when the identity is not really changing: the
  * ACL LOAD object swap (which re-keys stamped values itself) and the initial
  * default-auth setup. */
-void clientSetUser(client *c, user *new_user, int stamp_pubsub) {
+void clientSetUser(client *c, user *new_user, int auth_switch) {
     if (c->user != new_user) {
-        if (stamp_pubsub) pubsubStampCurrentUser(c);
+        if (auth_switch) pubsubStampCurrentUser(c);
         trackingBroadcastFlushClientPrefixes(c);
     }
     c->user = new_user;
