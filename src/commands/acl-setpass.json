@@ -1,0 +1,31 @@
+{
+    "SETPASS": {
+        "summary": "Updates password rules for the authenticated ACL user.",
+        "complexity": "O(N). Where N is the number of password rules provided.",
+        "group": "server",
+        "since": "8.6.0",
+        "arity": -3,
+        "container": "ACL",
+        "function": "aclCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "name": "rule",
+                "type": "string",
+                "multiple": true,
+                "description": "A password rule: >password, #hash, <password, or !hash."
+            }
+        ]
+    }
+}

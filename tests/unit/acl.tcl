@@ -70,6 +70,20 @@ start_server {tags {"acl external:skip"}} {
         assert_no_match {*34344e4d60c2b6d639b7bd22e18f2b0b91bc34bf0ac5f9952744435093cfb4e6*} $passstr
     }
 
+    test {Users can update only their own password rules} {
+        r AUTH default pwd
+        r ACL setuser selfpass reset on >oldpass +acl|setpass
+        r AUTH selfpass oldpass
+        assert_error {*only password rules are allowed*} {r ACL SETPASS <oldpass >newpass on}
+        r AUTH selfpass oldpass
+        r ACL setpass <oldpass >newpass
+        assert_error {*NOPERM*acl|list*} {r ACL LIST}
+        assert_error {*only password rules are allowed*} {r ACL SETPASS on}
+        assert_error {*WRONGPASS*} {r AUTH selfpass oldpass}
+        r AUTH selfpass newpass
+        r AUTH default pwd
+    }
+
     test {By default users are not able to access any command} {
         catch {r SET foo bar} e
         set e

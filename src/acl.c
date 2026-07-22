@@ -2206,6 +2206,38 @@ cleanup:
     return error;
 }
 
+/* Apply password-only ACL rules to an existing user. This is used by ACL
+ * SETPASS, which deliberately does not permit changing any other user
+ * property. Apply the rules to a temporary copy first so that a failure does
+ * not leave the user's password list partially updated. */
+static sds ACLStringSetUserPasswords(user *u, sds *argv, int argc) {
+    sds error = NULL;
+    user *tempu = ACLCreateUnlinkedUser();
+    ACLCopyUser(tempu, u);
+
+    for (int j = 0; j < argc; j++) {
+        sds op = argv[j];
+        if (op[0] != '>' && op[0] != '#' && op[0] != '<' && op[0] != '!') {
+            error = sdscatfmt(sdsempty(),
+                              "Error in ACL SETPASS modifier '%s': only password rules are allowed",
+                              (char*)op);
+            goto cleanup;
+        }
+        if (ACLSetUser(tempu, op, (ssize_t)sdslen(op)) != C_OK) {
+            error = sdscatfmt(sdsempty(),
+                              "Error in ACL SETPASS modifier '%s': %s",
+                              (char*)op, ACLSetUserStringError());
+            goto cleanup;
+        }
+    }
+
+    ACLCopyUser(u, tempu);
+
+cleanup:
+    ACLFreeUser(tempu);
+    return error;
+}
+
 /* Given an argument vector describing a user in the form:
  *
  *      user <username> ... ACL rules and flags ...
@@ -2920,6 +2952,7 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
  * ACL USERS
  * ACL CAT [<category>]
  * ACL SETUSER <username> ... acl rules ...
+ * ACL SETPASS ... password rules ...
  * ACL DELUSER <username> [...]
  * ACL GETUSER <username>
  * ACL GENPASS [<bits>]
@@ -2951,6 +2984,23 @@ void aclCommand(client *c) {
         zfree(temp_argv);
         if (error == NULL) {
             addReply(c,shared.ok);
+        } else {
+            addReplyErrorSdsSafe(c, error);
+        }
+        return;
+    } else if (!strcasecmp(sub,"setpass") && c->argc >= 3) {
+        /* Passwords must never be written to logs or command history. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
+
+        sds *temp_argv = zmalloc((c->argc - 2) * sizeof(sds));
+        for (int i = 2; i < c->argc; i++) temp_argv[i-2] = c->argv[i]->ptr;
+
+        sds error = ACLStringSetUserPasswords(c->user, temp_argv, c->argc - 2);
+        zfree(temp_argv);
+        if (error == NULL) {
+            addReply(c, shared.ok);
         } else {
             addReplyErrorSdsSafe(c, error);
         }
