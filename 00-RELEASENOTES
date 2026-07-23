@@ -20,6 +20,17 @@ The release notes contain PRs from multiple repositories:
 #Pn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
 
 
+================================================================================
+Redis 8.8.1    Released Thu 23 Jul 2026 22:00:00 IST
+================================================================================
+
+SECURITY: There is a security fix in the release.
+
+### Security fixes
+
+- #P1044 Crafted RESTORE payloads in RedisBloom and TDigest may trigger out-of-bounds writes, potentially leading to remote code execution
+
+
 =================================================================
 Redis 8.8 GA  (v8.8.0)    Released Mon 25 May 2026 12:00:00 IST
 =================================================================
