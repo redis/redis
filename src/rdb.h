@@ -134,6 +134,8 @@
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
 #define RDBFLAGS_FEED_REPL (1<<3)       /* Feed replication stream when loading.*/
 #define RDBFLAGS_KEEP_CACHE (1<<4)      /* Don't reclaim cache after rdb file is generated */
+#define RDBFLAGS_DUMP_PAYLOAD (1<<5)    /* Saving or loading a standalone DUMP payload
+                                           (DUMP/RESTORE), not a full RDB stream. */
 
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
@@ -151,8 +153,7 @@ ssize_t rdbSaveMillisecondTime(rio *rdb, long long t);
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver);
 uint64_t rdbLoadLen(rio *rdb, int *isencoded);
 int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
-int rdbSaveObjectType(rio *rdb, robj *o);
-int rdbSaveSetRefMode(int enable);
+int rdbSaveObjectType(rio *rdb, robj *o, int rdbflags);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*emptyDbFunc)(void));
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags);
@@ -161,11 +162,11 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi);
 void rdbRemoveTempFile(pid_t childpid, int from_signal);
 int rdbSaveToFile(const char *filename);
 int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
-ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
-size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error);
+ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid, int rdbflags);
+size_t rdbSavedObjectLen(robj *o, robj *key, int dbid, int rdbflags);
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbflags, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, int dbid, int rdbflags);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error);
 int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta);

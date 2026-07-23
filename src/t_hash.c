@@ -923,6 +923,7 @@ long long hashTemplateFieldIndex(hashTemplate *tmpl, sds field) {
 /* Return the template with `field` inserted at `insert_pos` (key-ref taken). */
 static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
                                                   long long insert_pos) {
+    serverAssert(insert_pos >= 0 && (unsigned long long)insert_pos <= tmpl->field_count);
     unsigned long long new_count = tmpl->field_count + 1;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
@@ -944,6 +945,7 @@ static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
  * Precondition: at least one field remains. */
 static hashTemplate *hashTemplateForDeletedField(hashTemplate *tmpl, long long idx) {
     serverAssert(tmpl->field_count >= 2); /* at least one field remains after delete */
+    serverAssert(idx >= 0 && (unsigned long long)idx < tmpl->field_count);
     unsigned long long new_count = tmpl->field_count - 1;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
@@ -2619,6 +2621,7 @@ int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
         hi->vptr = (hi->tmpl_index == 0) ?
                    hashTemplateLpFirstValue(lp) : lpNext(lp, hi->vptr);
         if (!hi->vptr) return C_ERR;
+        serverAssert((unsigned long long)hi->tmpl_index < hi->tmpl->field_count);
     } else if (hi->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         /* Advance to next field. */
         hi->tmpl_index++;

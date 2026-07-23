@@ -105,9 +105,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
     }
     rioInitWithBuffer(payload,buffer);
 
-    /* A DUMP payload is standalone: serialize objects self-contained (not ref
-     * form), and skip LZF when the caller asked for raw bytes. */
-    int prev_ref = rdbSaveSetRefMode(0);
+    /* Skip compression when the caller asked for raw bytes. */
     int prev_comp = server.rdb_compression;
     if (flags & DUMP_PAYLOAD_DONT_COMPRESS) server.rdb_compression = 0;
 
@@ -116,11 +114,10 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
      * metadata separately through keyMetaOnAof(). */
     if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
-    serverAssert(rdbSaveObjectType(payload,o));
-    serverAssert(rdbSaveObject(payload,o,key,dbid));
+    serverAssert(rdbSaveObjectType(payload,o,RDBFLAGS_DUMP_PAYLOAD));
+    serverAssert(rdbSaveObject(payload,o,key,dbid,RDBFLAGS_DUMP_PAYLOAD));
 
     server.rdb_compression = prev_comp;
-    rdbSaveSetRefMode(prev_ref);
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
@@ -293,7 +290,7 @@ void restoreCommand(client *c) {
     }
 
     /* Load the object */
-    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,RDBFLAGS_DUMP_PAYLOAD,NULL)) == NULL)
     {
         keyMetaSpecCleanup(&keymeta);
         addReplyError(c,"Bad data format");
