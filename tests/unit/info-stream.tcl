@@ -333,6 +333,19 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_lag {$server xgroup destroy st g} {}
     }
 
+    test "STREAM-STATS - lag bin is clamped for out-of-range values $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 3
+        $server xgroup create st g 0
+        $server xreadgroup group g c count 1 streams st > ;# read pos in range, small entries_read
+        # Unlike key sizes, lag is not physically bounded: XSETID ENTRIESADDED can
+        # push entries_added to ~2^63, so lag (added - read) exceeds the histogram
+        # range. The bin must clamp to the last bucket ("256P", the top of the 60
+        # bins) rather than writing past distrib_cgroups_lag (a heap OOB).
+        verify_lag {$server xsetid st 3-1 entriesadded 9223372036854775806} {db0_LAG:256P=1}
+        assert_equal PONG [$server ping] ;# no crash / corruption
+    }
+
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
         verify_pel {$server FLUSHALL} {}
         for {set s 0} {$s < 6} {incr s} {

@@ -3127,11 +3127,14 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                     trim_job->bg->delta_distrib_cgroups_pel[bin]++;
 
                     /* Lag: groups whose lag is unknown (fragmentation) are
-                     * excluded, matching the live histogram. */
+                     * excluded, matching the live histogram. Clamp the bin to
+                     * the last one: lag isn't physically bounded (XSETID
+                     * ENTRIESADDED can inflate it to ~2^63), matching the live
+                     * streamDistribBin() clamp and avoiding an OOB write. */
                     long long lag;
                     if (streamCGLag(s, cg, &lag)) {
                         int lbin = (lag == 0) ? 0 : log2ceil(lag) + 1;
-                        debugServerAssert(lbin < MAX_KEYSIZES_BINS);
+                        if (lbin >= MAX_KEYSIZES_BINS) lbin = MAX_KEYSIZES_BINS - 1;
                         trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
                     }
                 }

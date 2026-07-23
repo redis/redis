@@ -164,11 +164,17 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
 
 /* Map a stream property value to its histogram bin, matching the keysizes
  * histogram: 0 -> bin 0, otherwise log2ceil(value)+1. A negative value means
- * "no sample" and maps to -1 (used when a sample enters or leaves). */
+ * "no sample" and maps to -1 (used when a sample enters or leaves).
+ *
+ * The bin is clamped to the last bin: unlike key sizes, some samples aren't
+ * physically bounded -- e.g. a consumer group's lag is entries_added minus
+ * entries_read, and XSETID ... ENTRIESADDED lets entries_added reach ~2^63,
+ * whose log2ceil+1 would index past the histogram. Clamping keeps the top bin a
+ * "this large or larger" bucket and prevents an out-of-bounds write. */
 static inline int streamDistribBin(int64_t value) {
     if (value < 0) return -1;
     int bin = (value == 0) ? 0 : log2ceil(value) + 1;
-    debugServerAssert(bin < MAX_KEYSIZES_BINS);
+    if (bin >= MAX_KEYSIZES_BINS) bin = MAX_KEYSIZES_BINS - 1;
     return bin;
 }
 
