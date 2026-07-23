@@ -48,7 +48,6 @@ void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 static void clusterFireTopologyChangeEventIfNeeded(void);
-static void clusterNotifyTopologyChange(uint64_t change_flags);
 int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
@@ -5221,7 +5220,8 @@ void clusterCloseAllSlots(void) {
  * REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) and request it to be fired
  * from the next clusterBeforeSleep(). Called from every slot/role mutation and
  * on the cluster's OK/FAIL transition. */
-static void clusterNotifyTopologyChange(uint64_t change_flags) {
+void clusterNotifyTopologyChange(uint64_t change_flags) {
+    if (!server.cluster_enabled || !server.cluster) return;
     server.cluster->topology_change_flags |= change_flags;
     clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
 }

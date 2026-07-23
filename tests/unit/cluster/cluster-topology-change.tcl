@@ -175,3 +175,29 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         }
     }
 }
+
+if {$::tls} {
+    start_cluster 1 0 [list tags {external:skip cluster modules tls} config_lines [list loadmodule $testmodule]] {
+        test "ClusterTopologyChange reports the NODE reason when tls-cluster changes the preferred port" {
+            set tls_port [lindex [R 0 config get tls-port] 1]
+            set tcp_port [lindex [R 0 config get port] 1]
+            assert {$tls_port != $tcp_port}
+
+            set before [dict get [topo_stats 0] node]
+            R 0 config set tls-cluster no
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported when tls-cluster was disabled"
+            }
+
+            set before [dict get [topo_stats 0] node]
+            R 0 config set tls-cluster yes
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported when tls-cluster was enabled"
+            }
+        }
+    }
+}
