@@ -323,6 +323,57 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 1 config set stream-stats no
         }
     }
+
+    # Background trim frees migrated stream keys off-thread, so their consumer
+    # groups are binned by populateDeltaHistograms() (bg method only; the active
+    # method frees via the live streamKeyRemoved). That path must bin through the
+    # shared streamDistribBin(), which clamps an out-of-range lag to the top
+    # bucket instead of indexing past the histogram -- a heap OOB write into
+    # asmTrimCtx, caught under AddressSanitizer. A lag beyond the range is
+    # reachable with a small entries_read and a huge entries_added (XSETID
+    # ENTRIESADDED), which stays valid for migration (entries_read <=
+    # entries_added, so RDB/RESTORE accepts it). (A negative lag can't be
+    # exercised here: entries_read > entries_added is rejected on load, so such a
+    # stream can't be migrated; that case is covered on the live path in
+    # tests/unit/info-stream.tcl.)
+    test "Slot bg-trim bins an out-of-range lag safely" {
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+        R 1 flushall
+        R 0 config set stream-stats yes
+        R 1 config set stream-stats yes
+
+        # A group in a MIGRATED slot (0-100): PEL bin "1", and a lag beyond the
+        # histogram range (~2^63) via a huge entries_added -> top bin "256P".
+        set mig [slot_key 2 strm]
+        for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
+        R 0 xgroup create $mig g 0
+        R 0 xreadgroup group g c count 1 streams $mig >
+        R 0 xsetid $mig 3-1 entriesadded 9223372036854775806
+        assert_equal "1=1" [stream_pel_hist 0]
+        assert_equal "256P=1" [stream_lag_hist 0]
+
+        # Migrating the slot makes the source bg-trim its copy: the delta bins
+        # this ~2^63 lag through the clamp (no OOB) and removes it cleanly.
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        wait_for_condition 1000 50 {
+            [stream_lag_hist 0] eq "" && [stream_pel_hist 0] eq ""
+        } else {
+            fail "R0 histograms not trimmed: lag=[stream_lag_hist 0] pel=[stream_pel_hist 0]"
+        }
+        # The importing node reconstructs it through the same clamp.
+        assert_equal "1=1" [stream_pel_hist 1]
+        assert_equal "256P=1" [stream_lag_hist 1]
+
+        # cleanup: flush and migrate the slots back to R 0.
+        R 0 flushall
+        R 1 flushall
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 config set stream-stats no
+        R 1 config set stream-stats no
+    }
 }
 
 # Skip most of the tests when running under valgrind since it is hard to

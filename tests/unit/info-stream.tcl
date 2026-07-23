@@ -346,6 +346,20 @@ proc test_all_stream_stats { {replMode 0} } {
         assert_equal PONG [$server ping] ;# no crash / corruption
     }
 
+    test "STREAM-STATS - negative lag (entries_read > entries_added) is excluded $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 10
+        $server xgroup create st g 0
+        $server xgroup setid st g 10-1 entriesread 10 ;# read pos at tail, entries_read=10
+        $server xtrim st maxlen 2                     ;# entries_added stays 10
+        # Dropping entries_added below the group's entries_read makes lag negative
+        # (3 - 10). A negative lag has no histogram bucket, so the group is
+        # excluded -- as on the live path, streamDistribBin maps it to "no
+        # sample" -- rather than feeding a negative into log2ceil (a heap OOB).
+        verify_lag {$server xsetid st 10-1 entriesadded 3} {}
+        assert_equal PONG [$server ping]
+    }
+
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
         verify_pel {$server FLUSHALL} {}
         for {set s 0} {$s < 6} {incr s} {
