@@ -868,6 +868,13 @@ static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
         }
     }
 
+    /* Persist the newly installed AOF directory entry. */
+    if (fsyncFileDir(target_path) == -1) {
+        serverLog(LL_WARNING, "Can't fsync AOF directory after installing preload file %s: %s",
+                              target_path, strerror(errno));
+        goto cleanup;
+    }
+
     ret = C_OK;
 
 cleanup:
