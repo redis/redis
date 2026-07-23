@@ -1471,6 +1471,8 @@ void computeDefragCycles(void) {
     /* Calculate the adaptive aggressiveness of the defrag based on the current
      * fragmentation and configurations. */
     int cpu_pct;
+    /* Equal or reversed thresholds are allowed for backward compatibility.
+     * Since there is no valid range to INTERPOLATE, use the minimum effort. */
     if (server.active_defrag_threshold_upper <= server.active_defrag_threshold_lower) {
         cpu_pct = server.active_defrag_cycle_min;
     } else {
