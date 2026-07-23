@@ -59,7 +59,7 @@ run_solo {defrag} {
             r config set hz 100
             r config set activedefrag no
             r config set active-defrag-ignore-bytes 1
-            r config set active-defrag-threshold-lower 20 active-defrag-threshold-upper 20
+            r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
 
             # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
             # fragmented bytes, guaranteeing that computeDefragCycles() handles
