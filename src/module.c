@@ -10030,7 +10030,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
         if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;
         if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
-        if (server.tls_cluster) *flags |= REDISMODULE_NODE_PORT_TLS;
+        if (clusterDefaultClientPortIsTLS()) *flags |= REDISMODULE_NODE_PORT_TLS;
     }
     return REDISMODULE_OK;
 }
