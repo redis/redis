@@ -234,6 +234,7 @@ int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 int streamCGLag(stream *s, streamCG *cg, long long *lag);
+int streamDistribBin(int64_t value);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
