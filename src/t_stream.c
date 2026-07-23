@@ -4704,9 +4704,9 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Max entries the XAUTOCLAIM merge-join iterator scans forward before giving up
- * and seeking directly to the target, bounding the sparse-PEL worst case. */
-#define STREAM_XAC_MAX_SCAN 128
+/* Max macro-nodes the XAUTOCLAIM merge-join scans forward before seeking
+ * directly to the target, bounding the sparse-PEL worst case. */
+#define STREAM_XAC_MAX_NODE_SCAN 2
 
 /* Advance the shared stream iterator 'si' forward to the first entry whose ID
  * is >= *target, implementing the merge-join used by xautoclaimCommand.
@@ -4723,28 +4723,40 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                              streamID *entry_id, int64_t *entry_numfields,
                              int *have_entry) {
     streamID maxid = {UINT64_MAX, UINT64_MAX};
-    int steps = 0;
+    int node_scan = 0;
+    int have_master = *have_entry;
+    streamID prev_master = have_master ? si->master_id : (streamID){0,0};
     while (1) {
         if (*have_entry && streamCompareID(entry_id,target) < 0) {
-            /* Skip an intervening / already-processed entry: consume its
-             * fields so lp_ele lands where the next GetID expects it. */
-            int64_t nf = *entry_numfields;
-            while (nf--) {
-                unsigned char *f, *v;
-                int64_t fl, vl;
-                streamIteratorGetField(si,&f,&v,&fl,&vl);
-            }
+            /* Skip an intervening / already-processed entry: advance past its
+             * fields without decoding them, mirroring streamIteratorGetID()'s
+             * discard logic. */
+            int64_t to_skip = (si->entry_flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
+                              *entry_numfields : *entry_numfields*2;
+            while (to_skip-- > 0)
+                si->lp_ele = lpNext(si->lp,si->lp_ele);
             *have_entry = 0;
         }
         if (!*have_entry) {
-            /* If we have scanned too far without reaching the target (sparse
-             * PEL), stop the forward scan and seek directly to the target. */
-            if (steps++ > STREAM_XAC_MAX_SCAN) {
-                streamIteratorStop(si);
-                streamIteratorStart(si,s,target,&maxid,0);
-            }
             *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
             if (!*have_entry) return 0; /* EOF */
+            /* Count node boundaries crossed while scanning forward; once we
+             * cross more than STREAM_XAC_MAX_NODE_SCAN without reaching the
+             * target (sparse PEL), seek directly instead. */
+            if (!have_master) {
+                prev_master = si->master_id;
+                have_master = 1;
+            } else if (streamCompareID(&si->master_id,&prev_master) != 0) {
+                prev_master = si->master_id;
+                if (++node_scan > STREAM_XAC_MAX_NODE_SCAN) {
+                    streamIteratorStop(si);
+                    streamIteratorStart(si,s,target,&maxid,0);
+                    node_scan = 0;
+                    have_master = 0; /* re-prime prev_master on next GetID */
+                    *have_entry = 0;
+                    continue;
+                }
+            }
         }
         if (streamCompareID(entry_id,target) >= 0) return 1;
     }
