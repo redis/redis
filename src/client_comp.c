@@ -45,6 +45,9 @@ struct compressionState {
                                    * or NULL if not pending. */
     int handle_pending;  /* When set, clientConnRead only drains already-read
                           * compressed data without touching the socket. */
+    size_t alloc_size;  /* Total allocated size of this struct plus the input/output
+                         * buffers, captured at allocation time so memory accounting
+                         * doesn't have to query the allocator on every call. */
 };
 
 /* --- zstd --- */
@@ -64,17 +67,20 @@ static int zstdInitCompress(compressionState *st, int level) {
 
     /* temp buf storing compressed data */
     size_t outSize = ZSTD_CStreamOutSize();
-    st->output.data = zmalloc(outSize);
+    size_t usable = 0;
+    st->output.data = zmalloc_usable(outSize, &usable);
     st->output.size = outSize;
     st->output.written = 0;
     st->output.consumed = 0;
+    st->alloc_size += usable;
 
     /* temp buf storing uncompressed data */
     size_t inSize = ZSTD_CStreamInSize();
-    st->input.data = zmalloc(inSize);
+    st->input.data = zmalloc_usable(inSize, &usable);
     st->input.size = inSize;
     st->input.written = 0;
     st->input.consumed = 0;
+    st->alloc_size += usable;
 
     st->write_flush_pending = 0;
 
@@ -90,17 +96,20 @@ static int zstdInitDecompress(compressionState *st) {
 
     /* temp buf storing compressed data */
     size_t inSize = ZSTD_DStreamInSize();
-    st->input.data = zmalloc(inSize);
+    size_t usable = 0;
+    st->input.data = zmalloc_usable(inSize, &usable);
     st->input.size = inSize;
     st->input.written = 0;
     st->input.consumed = 0;
+    st->alloc_size += usable;
 
     /* temp buf storing decompressed data */
     size_t outSize = ZSTD_DStreamOutSize();
-    st->output.data = zmalloc(outSize);
+    st->output.data = zmalloc_usable(outSize, &usable);
     st->output.size = outSize;
     st->output.written = 0;
     st->output.consumed = 0;
+    st->alloc_size += usable;
 
     st->read_flush_pending = 0;
 
@@ -233,7 +242,9 @@ static const compressionType zstdType = {
 
 /* Create compression state for the client */
 int compressionStateCreate(client *c) {
-    compressionState *st = zcalloc(sizeof(compressionState));
+    size_t usable = 0;
+    compressionState *st = zcalloc_usable(sizeof(compressionState), &usable);
+    st->alloc_size = usable;
     st->type = &zstdType;
     st->last_write = 0;
     st->write_flush_pending = 0;
@@ -553,6 +564,20 @@ int clientHasPendingCompressedData(client *c) {
            state->output.written > state->output.consumed;
 }
 
+/* Return the number of bytes used by the client's compression state, i.e the
+ * compressionState struct itself plus its input/output buffers. The size is
+ * captured at allocation time (see compressionStateCreate/zstdInitCompress/
+ * zstdInitDecompress) so this call is just a field read instead of querying
+ * the allocator. Note this does not include the zstd compression/decompression
+ * context (ctx.zstdCCtx/zstdDCtx), which is allocated by libzstd via libc
+ * malloc and therefore tracked neither here nor in used_memory. */
+size_t clientCompressionMemoryUsage(client *c) {
+    compressionState *st = c->compression_state;
+    if (!st) return 0;
+
+    return st->alloc_size;
+}
+
 /* Add the client to its event loop's pending decompression list so its buffered
  * compressed/decompressed data can be drained from beforeSleep even when no
  * socket read event fires. No-op if already present. */
@@ -815,6 +840,11 @@ int clientHasPendingCompressionFlush(client *c) {
 }
 
 int clientHasPendingCompressedData(client *c) {
+    UNUSED(c);
+    return 0;
+}
+
+size_t clientCompressionMemoryUsage(client *c) {
     UNUSED(c);
     return 0;
 }
