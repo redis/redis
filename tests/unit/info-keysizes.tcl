@@ -9,8 +9,8 @@
 #  cmd         -  A command that should be run before the verification.
 #  expOutput   -  This is a string that represents the expected output abbreviated.
 #                 Instead of the output of "strings_len_exp_distrib" write "STR". 
-#                 Similarly for LIST, SET, ZSET and HASH. Spaces and newlines are 
-#                 ignored.
+#                 Similarly for LIST, SET, ZSET, HASH and STREAM. Spaces and
+#                 newlines are ignored.
 #
 #                 Alternatively, you can set "__EVAL_DB_HIST__". The function
 #                 will read all the keys from the server for selected db index,
