@@ -3120,22 +3120,19 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                 while (raxNext(&ri)) {
                     streamCG *cg = ri.data;
 
-                    /* PEL size: one sample per group. */
-                    uint64_t pel = raxSize(cg->pel);
-                    int bin = (pel == 0) ? 0 : log2ceil(pel) + 1;
-                    debugServerAssert(bin < MAX_KEYSIZES_BINS);
-                    trim_job->bg->delta_distrib_cgroups_pel[bin]++;
+                    /* Bin through streamDistribBin() so this path matches the
+                     * live histogram exactly -- it clamps out-of-range values
+                     * and maps "no sample" (a lag that is unknown due to
+                     * fragmentation, or a degenerate negative lag) to -1, which
+                     * we skip. Duplicating the binning here previously caused an
+                     * out-of-bounds write on both. */
+                    int bin = streamDistribBin((int64_t) raxSize(cg->pel));
+                    if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
 
-                    /* Lag: groups whose lag is unknown (fragmentation) are
-                     * excluded, matching the live histogram. Clamp the bin to
-                     * the last one: lag isn't physically bounded (XSETID
-                     * ENTRIESADDED can inflate it to ~2^63), matching the live
-                     * streamDistribBin() clamp and avoiding an OOB write. */
                     long long lag;
                     if (streamCGLag(s, cg, &lag)) {
-                        int lbin = (lag == 0) ? 0 : log2ceil(lag) + 1;
-                        if (lbin >= MAX_KEYSIZES_BINS) lbin = MAX_KEYSIZES_BINS - 1;
-                        trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
+                        int lbin = streamDistribBin(lag);
+                        if (lbin >= 0) trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
                     }
                 }
                 raxStop(&ri);
