@@ -21,6 +21,22 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.6.5    Released Thu 23 Jul 2026 22:00:00 IST
+================================================================================
+
+SECURITY: There are security fixes in the release.
+
+### Security fixes
+
+- A crafted stream RESTORE payload can make two consumers share the same NACK, leading to a use-after-free that may result in Remote Code Execution
+- #P1046 Crafted RESTORE payloads in RedisBloom and TDigest may trigger out-of-bounds writes, potentially leading to remote code execution
+
+### Bug fixes
+
+- #P1021 Replicate `CF.LOADCHUNK` data chunks to prevent silent Cuckoo Filter data loss on failover
+
+
+================================================================================
 Redis 8.6.4    Released Thu 4 Jun 2026 19:00:00 IST
 ================================================================================
 
