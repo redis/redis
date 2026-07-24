@@ -67,7 +67,11 @@ run_solo {defrag} {
             catch {r config set activedefrag yes}
 
             # The final PING verifies that the server stayed alive.
-            after 100
+            wait_for_condition 50 100 {
+                [s total_active_defrag_time] ne 0
+            } else {
+                fail "defrag not started."
+            }
             assert_equal PONG [r ping]
         }
     } {} {defrag external:skip tsan:skip standalone}
