@@ -4721,7 +4721,8 @@ cleanup:
  * 0 at EOF. */
 static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                              streamID *entry_id, int64_t *entry_numfields,
-                             int *have_entry) {
+                             int *have_entry)
+{
     streamID maxid = {UINT64_MAX, UINT64_MAX};
     int node_scan = 0;
     int have_master = *have_entry;
