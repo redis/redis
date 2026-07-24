@@ -60,7 +60,12 @@ test "Active defrag handles equal fragmentation thresholds" {
         r config set active-defrag-ignore-bytes 1
         r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
 
-        r set defrag-test-key defrag-test-value
+        # Leave allocated regions between freed regions so jemalloc reports
+        # fragmentation while retaining keys for active defrag to scan.
+        populate 1000 defrag-test-key 1024
+        for {set j 0} {$j < 1000} {incr j 2} {
+            r del defrag-test-key$j
+        }
 
         # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
         # fragmented bytes, guaranteeing that computeDefragCycles() handles
