@@ -60,6 +60,8 @@ test "Active defrag handles equal fragmentation thresholds" {
         r config set active-defrag-ignore-bytes 1
         r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
 
+        r set defrag-test-key defrag-test-value
+
         # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
         # fragmented bytes, guaranteeing that computeDefragCycles() handles
         # the equal thresholds without reaching the interpolation.
@@ -68,7 +70,7 @@ test "Active defrag handles equal fragmentation thresholds" {
         # The final PING verifies that the server stayed alive.
         if {[r config get activedefrag] eq "activedefrag yes"} {
             wait_for_condition 50 100 {
-                [s total_active_defrag_time] ne 0
+                [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
             } else {
                 fail "defrag not started."
             }
