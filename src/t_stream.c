@@ -4717,8 +4717,9 @@ cleanup:
  * entry's fields have been consumed, so the next streamIteratorGetID() call
  * yields the following entry.
  *
- * Returns 1 with 'si' positioned on *entry_id (>= *target, fields intact), or
- * 0 at EOF. */
+ * Returns 1 if *target exists, positioning 'si' on it (fields intact). Returns
+ * 0 otherwise; if we stopped on a later entry it is left unconsumed
+ * (*have_entry stays 1) for the next call to reuse. */
 static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                              streamID *entry_id, int64_t *entry_numfields,
                              int *have_entry)
@@ -4741,15 +4742,17 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
         if (!*have_entry) {
             *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
             if (!*have_entry) return 0; /* EOF */
-            /* Count node boundaries crossed while scanning forward; once we
-             * cross more than STREAM_XAC_MAX_NODE_SCAN without reaching the
-             * target (sparse PEL), seek directly instead. */
+            /* After crossing more than STREAM_XAC_MAX_NODE_SCAN nodes without
+             * reaching the target (sparse PEL), seek directly instead. But skip
+             * the re-seek if the current entry already reached the target,
+             * since it would only rediscover the same entry. */
             if (!have_master) {
                 prev_master = si->master_id;
                 have_master = 1;
             } else if (streamCompareID(&si->master_id,&prev_master) != 0) {
                 prev_master = si->master_id;
-                if (++node_scan > STREAM_XAC_MAX_NODE_SCAN) {
+                if (++node_scan > STREAM_XAC_MAX_NODE_SCAN &&
+                    streamCompareID(entry_id,target) < 0) {
                     streamIteratorStop(si);
                     streamIteratorStart(si,s,target,&maxid,0);
                     node_scan = 0;
@@ -4759,7 +4762,9 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                 }
             }
         }
-        if (streamCompareID(entry_id,target) >= 0) return 1;
+        int cmp = streamCompareID(entry_id,target);
+        if (cmp == 0) return 1;  /* Found target. */
+        if (cmp > 0) return 0;   /* Past target: not found, leave entry for reuse. */
     }
 }
 
@@ -4884,8 +4889,7 @@ void xautoclaimCommand(client *c) {
         /* Merge-join: advance the shared iterator to the first stream entry
          * with ID >= this PEL id, reusing it both to check existence and (for
          * non-JUSTID) to emit its fields. */
-        int have = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,&have_entry);
-        int found = have && streamCompareID(&entry_id,&id) == 0;
+        int found = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,&have_entry);
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!found) {
