@@ -51,6 +51,7 @@
 #include "util.h"
 #include "sha256.h"
 #include "config.h"
+#include "zmalloc.h"
 
 #define UNUSED(x) ((void)(x))
 
@@ -1111,6 +1112,13 @@ char *getFileExtension(char *path) {
         return pch+1;
 }
 
+char *getFileBaseName(char *path) {
+    if (pathIsBaseName(path)) return path;
+
+    char *pch = strrchr(path,'/');
+    return pch+1;
+}
+
 sds getFilePath(char *path) {
     if (pathIsBaseName(path)) return NULL;
 
@@ -1212,6 +1220,62 @@ int dirRemove(char *dname) {
 
 sds makePath(char *path, char *filename) {
     return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
+/* Copy source to a newly created destination and sync its contents. On error,
+ * remove any partial destination and return -1 with errno preserved. */
+int copyFile(char *source, char *destination) {
+    const size_t buf_size = 64 * 1024;
+    char *buf = zmalloc(buf_size);
+    int source_fd = -1, destination_fd = -1;
+    int destination_created = 0;
+    struct stat sb;
+    int ret = -1;
+    int error;
+
+    if ((source_fd = open(source, O_RDONLY)) == -1 ||
+        fstat(source_fd, &sb) == -1)
+    {
+        goto cleanup;
+    }
+
+    destination_fd = open(destination, O_WRONLY|O_CREAT|O_EXCL,
+                          sb.st_mode & 0777);
+    if (destination_fd == -1) goto cleanup;
+    destination_created = 1;
+
+    while (1) {
+        ssize_t nread = read(source_fd, buf, buf_size);
+        if (nread == 0) break;
+        if (nread == -1) {
+            if (errno == EINTR) continue;
+            goto cleanup;
+        }
+
+        ssize_t offset = 0;
+        while (offset < nread) {
+            ssize_t nwritten = write(destination_fd, buf + offset, nread - offset);
+            if (nwritten <= 0) {
+                if (errno == EINTR) continue;
+                if (nwritten == 0) errno = EIO;
+                goto cleanup;
+            }
+            offset += nwritten;
+        }
+    }
+
+    if (redis_fsync(destination_fd) == -1)
+        goto cleanup;
+    ret = 0;
+
+cleanup:
+    error = errno;
+    if (source_fd != -1) close(source_fd);
+    if (destination_fd != -1) close(destination_fd);
+    if (ret == -1 && destination_created) unlink(destination);
+    zfree(buf);
+    errno = error;
+    return ret;
 }
 
 /* Given the filename, sync the corresponding directory.

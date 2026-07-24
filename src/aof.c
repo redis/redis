@@ -815,34 +815,220 @@ static int preloadFileIsCurrentAofManifest(void) {
     return is_current;
 }
 
-/* Make the local AOF consistent with data loaded through preload-file.
- * Reusing the current manifest is equivalent to a normal local AOF load. For
- * any other preload source, start a background rewrite while a temporary INCR
- * records new writes. */
-void aofHandlePreloadOnServerStart(void) {
+/* Describe every preload format as a manifest. A standalone RDB or AOF becomes
+ * a single BASE, an existing manifest supplies its optional BASE and INCRs. */
+static aofManifest *aofManifestFromPreloadFile(char *preload_path) {
+    char *extension = getFileExtension(preload_path);
+    serverAssert(extension != NULL);
+    if (!strcmp(extension, "manifest")) {
+        return aofLoadManifestFromFile(preload_path);
+    }
+
+    aofManifest *am = aofManifestCreate();
+    aofInfo *base = aofInfoCreate();
+    base->file_name = sdsnew(getFileBaseName(preload_path));
+    base->file_seq = 1;
+    base->file_type = AOF_FILE_TYPE_BASE;
+    am->base_aof_info = base;
+    am->curr_base_file_seq = 1;
+    return am;
+}
+
+/* Install one preload manifest entry under its existing filename. Leave the
+ * file in place when source and target are the same path, otherwise replace
+ * the target without changing the manifest metadata. */
+static int aofInstallPreloadFile(char *absolute_preload_dir, char *file_name) {
+    sds source_path = makePath(absolute_preload_dir, file_name);
+    sds relative_path = makePath(server.aof_dirname, file_name);
+    sds target_path = getAbsolutePath(relative_path);
+    sdsfree(relative_path);
+    int ret = C_ERR;
+
+    /* Avoid unlinking the preload source when it is already at the target path. */
+    if (!strcmp(source_path, target_path)) {
+        ret = C_OK;
+        goto cleanup;
+    }
+
+    /* Remove an existing target before installing the preload file. */
+    if (unlink(target_path) == -1 && errno != ENOENT) {
+        serverLog(LL_WARNING, "Can't remove old append-only file %s: %s",
+                              target_path, strerror(errno));
+        goto cleanup;
+    }
+
+    /* Prefer a hard link to avoid copying, and fall back to a full copy. */
+    if (link(source_path, target_path) == -1) {
+        serverLog(LL_NOTICE, "Can't hard-link preload file %s as %s, copying it instead: %s",
+                             source_path, target_path, strerror(errno));
+        if (copyFile(source_path, target_path) == -1) {
+            serverLog(LL_WARNING, "Can't copy preload file %s as %s: %s",
+                                  source_path, target_path, strerror(errno));
+            goto cleanup;
+        }
+    }
+
+    /* Persist the newly installed AOF directory entry. */
+    if (fsyncFileDir(target_path) == -1) {
+        serverLog(LL_WARNING, "Can't fsync AOF directory after installing preload file %s: %s",
+                              target_path, strerror(errno));
+        goto cleanup;
+    }
+
+    ret = C_OK;
+
+cleanup:
+    sdsfree(target_path);
+    sdsfree(source_path);
+    return ret;
+}
+
+/* Return whether name is referenced by the manifest's BASE or INCR entries. */
+static int aofManifestReferencesFile(aofManifest *am, char *name) {
+    if (am->base_aof_info && !strcmp(am->base_aof_info->file_name, name))
+        return 1;
+
+    listIter li;
+    listNode *ln;
+    listRewind(am->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = listNodeValue(ln);
+        if (!strcmp(ai->file_name, name))
+            return 1;
+    }
+    return 0;
+}
+
+/* Add a fresh INCR entry so later writes are never appended to a preload
+ * source file. aofOpenIfNeededOnServerStart() creates and opens the actual
+ * file immediately after the new manifest is installed. */
+static void aofManifestAddNewIncr(aofManifest *am) {
+    sds name = NULL;
+    while (name == NULL) {
+        long long seq = ++am->curr_incr_file_seq;
+        name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename,
+                            seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
+
+        /* Skip names already used by an installed preload file. */
+        sds path = makePath(server.aof_dirname, name);
+        if (fileExist(path)) {
+            sdsfree(name);
+            name = NULL;
+        }
+        sdsfree(path);
+    }
+
+    aofInfo *ai = aofInfoCreate();
+    ai->file_name = name;
+    ai->file_seq = am->curr_incr_file_seq;
+    ai->file_type = AOF_FILE_TYPE_INCR;
+    /* loadDataFromDisk() has updated the replication offset if possible. */
+    ai->start_offset = server.master_repl_offset;
+    listAddNodeTail(am->incr_aof_list, ai);
+}
+
+/* Treat the new manifest as the ownership set for appendonlydir. Remove every
+ * non-directory entry that is neither the manifest itself nor referenced by
+ * one of its BASE or INCR entries. */
+static void aofRemoveFilesOutsideManifest(aofManifest *am) {
+    DIR *dir = opendir(server.aof_dirname);
+    if (!dir) {
+        serverLog(LL_WARNING, "Can't open append-only dir %s for cleanup: %s",
+                              server.aof_dirname, strerror(errno));
+        return;
+    }
+
+    sds manifest_name = getAofManifestFileName();
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        char *name = entry->d_name;
+        if (!strcmp(name, ".") || !strcmp(name, "..") ||
+            !strcmp(name, manifest_name) ||
+            aofManifestReferencesFile(am, name))
+        {
+            continue;
+        }
+
+        sds path = makePath(server.aof_dirname, name);
+        struct stat sb;
+        if (lstat(path, &sb) == 0 && !S_ISDIR(sb.st_mode)) {
+            if (bg_unlink(path) == -1) {
+                serverLog(LL_WARNING, "Can't remove obsolete AOF file %s: %s",
+                                      path, strerror(errno));
+            }
+        }
+        sdsfree(path);
+    }
+    closedir(dir);
+    sdsfree(manifest_name);
+}
+
+/* Make the local AOF describe exactly the data loaded through preload-file.
+ * Reuse the current local manifest when it is the preload source, otherwise
+ * install the preload source as a new local manifest without an AOFRW. */
+void aofSetupAfterPreloadFile(void) {
     if (server.preload_file == NULL || server.aof_state != AOF_ON) {
         return;
     }
 
     /* If preload-file points to the current local manifest, the normal startup
-     * path has already opened the correct INCR and no rewrite is needed. Apply
-     * the same replication-offset update as a normal local AOF load, including
+     * path can open its existing INCR and no migration is needed. Apply the
+     * same replication-offset update as a normal local AOF load, including
      * clearing the persisted end offset before new commands are appended. */
     if (preloadFileIsCurrentAofManifest()) {
         updateReplOffsetAndResetEndOffset();
         return;
     }
 
-    /* The current manifest may describe a different dataset, so don't attach
-     * new writes to its active INCR while rebuilding it. Reuse the state used
-     * when AOF is enabled at runtime: write to a temporary INCR, publish it
-     * together with the new BASE after AOFRW succeeds, and retry on failure. */
-    server.aof_state = AOF_WAIT_REWRITE;
-    if (rewriteAppendOnlyFileBackground() != C_OK) {
-        serverLog(LL_WARNING,
-            "Failed to start background AOF rewrite after preload");
+    if (dirCreateIfMissing(server.aof_dirname) == -1) {
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
+                              server.aof_dirname, strerror(errno));
         exit(1);
     }
+
+    char *preload_path = server.preload_file + 4;
+    sds absolute_preload_dir = getFilePath(preload_path);
+
+    /* First describe the preload source with a manifest, regardless of its
+     * format. The steps below can then use one flow to install its BASE/INCR
+     * files, remove unreferenced local files, add a fresh INCR, and publish
+     * the local manifest. */
+    aofManifest *am = aofManifestFromPreloadFile(preload_path);
+    listEmpty(am->history_aof_list); /* Discard HISTORY entries. */
+
+    /* Install the preload BASE in appendonlydir. */
+    if (am->base_aof_info) {
+        if (aofInstallPreloadFile(absolute_preload_dir, am->base_aof_info->file_name) != C_OK)
+            exit(1);
+    }
+
+    /* Install every ordered INCR referenced by the preload manifest. */
+    listIter li;
+    listNode *ln;
+    listRewind(am->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = listNodeValue(ln);
+        if (aofInstallPreloadFile(absolute_preload_dir, ai->file_name) != C_OK)
+            exit(1);
+    }
+
+    /* Remove files not owned by the preload manifest before choosing the new
+     * INCR name, so obsolete local files do not consume sequence numbers. */
+    aofRemoveFilesOutsideManifest(am);
+
+    /* Reserve a fresh local INCR for writes after preload. */
+    aofManifestAddNewIncr(am);
+
+    /* Publish the complete local AOF ownership set. */
+    am->dirty = 1;
+    if (persistAofManifest(am) != C_OK) {
+        serverLog(LL_WARNING, "Failed to persist the local AOF manifest after preload");
+        exit(1);
+    }
+    /* Make the installed manifest active. */
+    aofManifestFreeAndUpdate(am);
+    sdsfree(absolute_preload_dir);
+    serverLog(LL_NOTICE, "Successfully installed preload files into the local AOF");
 }
 
 int aofFileExist(char *filename) {
@@ -3190,7 +3376,10 @@ static void removeFilesInDir(char *dirname) {
         while ((de = readdir(d)) != NULL) {
             if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
             sds p = makePath(dirname, de->d_name);
-            bg_unlink(p); /* Background method to avoid blocking. */
+            struct stat sb;
+            if (lstat(p, &sb) == 0 && !S_ISDIR(sb.st_mode)) {
+                bg_unlink(p); /* Background method to avoid blocking. */
+            }
             sdsfree(p);
         }
         closedir(d);
