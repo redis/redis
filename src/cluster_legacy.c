@@ -2488,7 +2488,12 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     {
         /* Safeguard against sub-replicas. A replica's master can turn itself
          * into a replica if its last slot is removed. If no other node takes
-         * over the slot, there is nothing else to trigger replica migration. */
+         * over the slot, there is nothing else to trigger replica migration.
+         *
+         * Note that this only covers the case where we get here at all. When a
+         * master is demoted by a failover, clusterProcessPacket() moves its
+         * slots to the new master itself, leaving no slot difference for us to
+         * detect, so it runs the same safeguard right after that handling. */
         serverLog(LL_NOTICE,
                   "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
                   myself->slaveof->slaveof->name, myself->slaveof->slaveof->human_nodename);
@@ -3150,6 +3155,35 @@ int clusterProcessPacket(clusterLink *link) {
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 }
             }
+        }
+
+        /* Safeguard against sub-replicas: our master may have just been demoted
+         * above, or by an earlier packet. We cannot leave this to the same check
+         * in clusterUpdateSlotsConfigWith(), which is only reached when the
+         * sender claims slots we attribute to someone else: once the demotion
+         * handling above hands them to the new master, that difference is gone.
+         *
+         * This runs on every packet rather than only on the demotion itself, so
+         * it also recovers a node that learned of the demotion before it knew
+         * the new master. Only follow a grandmaster we believe is a master, so
+         * that a stale message we chose to ignore above, or a chain that has not
+         * settled yet, cannot make us resync from a node that owns no slots. */
+        clusterNode *grandmaster = nodeIsSlave(myself) && myself->slaveof ?
+                                   myself->slaveof->slaveof : NULL;
+        if (grandmaster && clusterNodeIsMaster(grandmaster) &&
+            grandmaster != myself && grandmaster != myself->slaveof &&
+            myself->numslots == 0 &&
+            !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION))
+        {
+            serverLog(LL_NOTICE,
+                      "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
+                      grandmaster->name, grandmaster->human_nodename);
+            clusterSetMaster(grandmaster);
+            /* Save the new config and broadcast to the other nodes. */
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_UPDATE_STATE|
+                                 CLUSTER_TODO_FSYNC_CONFIG|
+                                 CLUSTER_TODO_BROADCAST_PONG);
         }
 
         /* Update our info about served slots.
