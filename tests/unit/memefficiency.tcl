@@ -53,31 +53,31 @@ start_server {tags {"memefficiency external:skip"}} {
     }
 }
 
-run_solo {defrag} {
-    test "Active defrag handles equal fragmentation thresholds" {
-        start_server {tags {"defrag"} overrides {save ""}} {
-            r config set hz 100
-            r config set activedefrag no
-            r config set active-defrag-ignore-bytes 1
-            r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
+test "Active defrag handles equal fragmentation thresholds" {
+    start_server {tags {"defrag"} overrides {save ""}} {
+        r config set hz 100
+        r config set activedefrag no
+        r config set active-defrag-ignore-bytes 1
+        r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
 
-            # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
-            # fragmented bytes, guaranteeing that computeDefragCycles() handles
-            # the equal thresholds without reaching the interpolation.
-            catch {r config set activedefrag yes}
+        # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
+        # fragmented bytes, guaranteeing that computeDefragCycles() handles
+        # the equal thresholds without reaching the interpolation.
+        catch {r config set activedefrag yes}
 
-            # The final PING verifies that the server stayed alive.
-            if {[r config get activedefrag] eq "activedefrag yes"} {
-                wait_for_condition 50 100 {
-                    [s total_active_defrag_time] ne 0
-                } else {
-                    fail "defrag not started."
-                }
+        # The final PING verifies that the server stayed alive.
+        if {[r config get activedefrag] eq "activedefrag yes"} {
+            wait_for_condition 50 100 {
+                [s total_active_defrag_time] ne 0
+            } else {
+                fail "defrag not started."
             }
-            assert_equal PONG [r ping]
         }
-    } {} {defrag external:skip tsan:skip standalone}
+        assert_equal PONG [r ping]
+    }
+} {} {defrag external:skip tsan:skip standalone}
 
+run_solo {defrag} {
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
             [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
