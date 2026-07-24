@@ -921,13 +921,6 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
     return C_OK;
 }
 
-/* Report whether this build can verify peer certificate name(s). Used by the
- * config layer to reject tls-expected-peer-name early rather than failing per
- * connection. */
-static int connTLSSupportsVerifyName(void) {
-    return CONN_TLS_SUPPORTS_VERIFY_NAME;
-}
-
 /* Configure the SSL object to verify the peer certificate's SAN/CN against the
  * given space-separated list of expected name(s), in addition to CA chain
  * validation. Used to bind server-to-server connections to a specific identity
@@ -935,7 +928,9 @@ static int connTLSSupportsVerifyName(void) {
  * name(s) come from local configuration, never from the wire. A subsequent
  * handshake fails with X509_V_ERR_HOSTNAME_MISMATCH if no listed name matches.
  * Returns C_OK on success, C_ERR if a name could not be applied or the value
- * contained no usable name. */
+ * contained no usable name. On a build without the host-verification API
+ * (OpenSSL < 1.0.2) it cannot enforce the name; it logs a warning and returns
+ * C_OK so the connection still proceeds (CA validation still applies). */
 static int tlsSetVerifyName(SSL *ssl, const char *names) {
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
     /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
@@ -972,13 +967,15 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
 #else
     /* Certificate name verification relies on the X509_VERIFY_PARAM host API,
      * introduced in OpenSSL 1.0.2. On older builds we cannot honor
-     * tls-expected-peer-name, so fail closed rather than connect unverified. */
+     * tls-expected-peer-name; warn and let the connection proceed (CA chain
+     * validation still applies) rather than refusing it. */
     UNUSED(ssl);
     UNUSED(names);
     serverLog(LL_WARNING,
         "tls-expected-peer-name is set but peer certificate name verification "
-        "requires OpenSSL 1.0.2 or newer; refusing the connection.");
-    return C_ERR;
+        "requires OpenSSL 1.0.2 or newer; the name is not enforced on this "
+        "connection.");
+    return C_OK;
 #endif
 }
 
@@ -1351,7 +1348,6 @@ static ConnectionType CT_TLS = {
     .get_peer_cert = connTLSGetPeerCert,
     .get_peer_username = tlsGetPeerUsername,
     .set_verify_name = connTLSSetVerifyName,
-    .supports_verify_name = connTLSSupportsVerifyName,
 };
 
 int RedisRegisterConnectionTypeTLS(void) {
