@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <strings.h>
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || defined(__X86_64__) || defined(__x86_64__)
 #include <immintrin.h>
 #endif
 #include "crccombine.h"
