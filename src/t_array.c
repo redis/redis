@@ -893,6 +893,7 @@ void arscanCommand(client *c) {
 #define ARGREP_PRED_MATCH 2
 #define ARGREP_PRED_GLOB  3
 #define ARGREP_PRED_RE    4
+#define ARGREP_PRED_RANGE 5
 
 #define ARGREP_MAX_PREDICATES 250
 #define ARGREP_MAX_RE_LEN 2048
@@ -905,10 +906,14 @@ void arscanCommand(client *c) {
 #define ARGREP_BOUND_END   3
 
 typedef struct {
-    int type;               /* EXACT, MATCH, GLOB, or RE. */
+    int type;               /* EXACT, MATCH, GLOB, RE, or RANGE */
     sds pattern;            /* Pattern argument exactly as given by the user. */
-    regex_t regex;          /* Compiled regex for RE predicates. */
-    int regex_compiled;     /* Whether regex must be freed. */
+    regex_t regex;          /* Compiled regex for RE predicates */
+    int regex_compiled;     /* Whether regex must be freed */
+    /* For RANGE predicate */
+    long double min;
+    long double max;
+    int exclusive;
 } arGrepPredicate;
 
 typedef struct {
@@ -967,6 +972,7 @@ int arGrepPredicateType(const char *token) {
     if (!strcasecmp(token, "MATCH")) return ARGREP_PRED_MATCH;
     if (!strcasecmp(token, "GLOB")) return ARGREP_PRED_GLOB;
     if (!strcasecmp(token, "RE")) return ARGREP_PRED_RE;
+    if (!strcasecmp(token, "RANGE")) return ARGREP_PRED_RANGE;
     return 0;
 }
 
@@ -1047,11 +1053,18 @@ int arGrepCompileRegexesOrReply(client *c, arGrepPlan *plan) {
     return C_OK;
 }
 
-/* Parse predicates and global modifiers in a single pass. This makes the
+/* Used by: ARGREP and ARAGG
+ * Parse predicates and global modifiers in a single pass. This makes the
  * command more user-friendly because predicates and options can be mixed
  * freely. If the same global option appears multiple times, the last one
- * wins. */
-int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit) {
+ * wins. For ARAGG - If stop_token is NULL the parser runs until the end
+ * of argv and requires at least one predicate.  If stop_token is not NULL
+ * parser stops immediately when it encounters that token, returns success
+ * and writes current argv index into *next_arg (if next_arg != NULL).
+ * Zero predicates are allowed when a stop_token is given (useful for
+ * optional filtering).*/
+int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
+                           const char *stop_token, int *next_arg) {
     memset(plan, 0, sizeof(*plan));
     plan->combine = ARGREP_COMBINE_OR;
     *limit = UINT64_MAX;
@@ -1061,9 +1074,47 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit) {
 
     for (int arg = 4; arg < c->argc; ) {
         sds token = c->argv[arg]->ptr;
+        /* ---------- Sentinel token check ---------- */
+        if (stop_token && !strcasecmp(token, stop_token)) {
+            if (next_arg) *next_arg = arg;
+            /* Compile any regexes we already collected */
+            return arGrepCompileRegexesOrReply(c, plan);
+        }
+
         int type = arGrepPredicateType(token);
 
         if (type != 0) {
+            if (type == ARGREP_PRED_RANGE) {
+                if (arg + 2 >= c->argc) {
+                    addReplyErrorObject(c, shared.syntaxerr);
+                    return C_ERR;
+                }
+                if (plan->num_preds >= ARGREP_MAX_PREDICATES) {
+                    addReplyErrorFormat(c, "too many predicates, maximum is %d",
+                                        ARGREP_MAX_PREDICATES);
+                    return C_ERR;
+                }
+
+                arGrepPredicate *pred = &plan->preds[plan->num_preds++];
+                pred->type = ARGREP_PRED_RANGE;
+
+                if (getLongDoubleFromObjectOrReply(c, c->argv[arg+1],
+                                                   &pred->min, NULL) != C_OK)
+                    return C_ERR;
+                if (getLongDoubleFromObjectOrReply(c, c->argv[arg+2],
+                                                   &pred->max, NULL) != C_OK)
+                    return C_ERR;
+                pred->exclusive = 0;
+                arg += 3;   /* consumed RANGE, min, max */
+
+                /* Optional EXCLUSIVE flag */
+                if (arg < c->argc && !strcasecmp(c->argv[arg]->ptr, "EXCLUSIVE")) {
+                    pred->exclusive = 1;
+                    arg++;
+                }
+                continue;   /* skip the normal pattern handling below */
+            }
+
             if (arg + 1 >= c->argc) {
                 addReplyErrorObject(c, shared.syntaxerr);
                 return C_ERR;
@@ -1132,7 +1183,8 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit) {
         return C_ERR;
     }
 
-    if (plan->num_preds == 0) {
+    /* Only enforce "at least one predicate" when no stop_token was used. */
+    if (plan->num_preds == 0 && stop_token == NULL) {
         addReplyErrorObject(c, shared.syntaxerr);
         return C_ERR;
     }
@@ -1143,18 +1195,33 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit) {
 /* Match one predicate against the decoded element bytes. */
 int arGrepMatchPredicate(arGrepPredicate *pred, const char *data, size_t len,
                          int nocase) {
-    size_t pattern_len = sdslen(pred->pattern);
 
     switch (pred->type) {
-    case ARGREP_PRED_EXACT:
+    case ARGREP_PRED_EXACT: {
+        size_t pattern_len = sdslen(pred->pattern);
         return arGrepBytesEqual(data, len, pred->pattern, pattern_len, nocase);
-    case ARGREP_PRED_MATCH:
+    }
+    case ARGREP_PRED_MATCH: {
+        size_t pattern_len = sdslen(pred->pattern);
         return arGrepBytesContains(data, len, pred->pattern, pattern_len,
                                    nocase);
-    case ARGREP_PRED_GLOB:
+    }
+    case ARGREP_PRED_GLOB: {
+        size_t pattern_len = sdslen(pred->pattern);
         return stringmatchlen(pred->pattern, pattern_len, data, len, nocase);
+    }
     case ARGREP_PRED_RE:
         return tre_regnexecb(&pred->regex, data, len, 0, NULL, 0) == REG_OK;
+    case ARGREP_PRED_RANGE: {
+        long double val;
+        if (!string2ld(data, len, &val)) return 0;
+        if (pred->exclusive) {
+            if (val <= pred->min || val >= pred->max) return 0;
+        } else {
+            if (val < pred->min || val > pred->max) return 0;
+        }
+        return 1;
+    }
     default:
         serverPanic("Unknown ARGREP predicate type");
     }
@@ -1162,6 +1229,7 @@ int arGrepMatchPredicate(arGrepPredicate *pred, const char *data, size_t len,
 
 /* Decode one array value and apply all the predicates to it. */
 int arGrepValueMatches(arGrepPlan *plan, void *v) {
+    if (plan->num_preds == 0) return 1;
     char buf[AR_INLINE_BUFSIZE];
     size_t len;
     const char *data = arDecode(v, buf, sizeof(buf), &len);
@@ -1203,7 +1271,7 @@ void argrepCommand(client *c) {
 
     arGrepPlan plan;
     uint64_t remaining;
-    if (arGrepParsePlanOrReply(c, &plan, &remaining) != C_OK) {
+    if (arGrepParsePlanOrReply(c, &plan, &remaining, NULL, NULL) != C_OK) {
         arGrepFreePlan(&plan);
         return;
     }
@@ -1466,6 +1534,323 @@ void aropCommand(client *c) {
             addReplyBulkCBuffer(c, buf, len);
         }
     }
+}
+
+/* ============================================================================
+ * ARAGG
+ * ============================================================================
+ * Aggregate array elements that match a set of predicates.
+ *
+ * Shares the predicate parser and matching engine with ARGREP, allowing
+ * multiple aggregate operations (SUM, MIN, MAX, COUNT, AVG, AND, OR, XOR)
+ * to be computed in a single scan.
+ * -------------------------------------------------------------------------- */
+
+/* ARAGG aggregate operation types */
+#define ARAGG_OP_SUM   1
+#define ARAGG_OP_MIN   2
+#define ARAGG_OP_MAX   3
+#define ARAGG_OP_COUNT 4
+#define ARAGG_OP_AVG   5
+#define ARAGG_OP_AND   6
+#define ARAGG_OP_OR    7
+#define ARAGG_OP_XOR   8
+
+
+/* Holds state for multiple concurrent aggregates */
+typedef struct {
+    int has_sum, has_min, has_max, has_count;
+    int has_bitwise_and, has_bitwise_or, has_bitwise_xor;
+    int has_avg;
+
+    long double sum;
+    long double min;
+    long double max;
+    long long count;
+    long long numeric_count;  /* Used for AVG denominator. */
+    int64_t bitwise_and;
+    int64_t bitwise_or;
+    int64_t bitwise_xor;
+    int has_numeric;          /* saw at least one numeric value (for SUM/MIN/MAX) */
+    int has_int;              /* saw at least one integer (for bitwise) */
+} arMultiAcc;
+
+/* Initialise the accumulator with the list of requested aggregate ops.
+ * ops is an array of int (ARAGG_OP_*), num_ops is its length. */
+static void arMultiAccInit(arMultiAcc *acc, int *ops, int num_ops) {
+    memset(acc, 0, sizeof(*acc));
+    for (int i = 0; i < num_ops; i++) {
+        switch (ops[i]) {
+        case ARAGG_OP_SUM:  acc->has_sum = 1; break;
+        case ARAGG_OP_MIN:  acc->has_min = 1; break;
+        case ARAGG_OP_MAX:  acc->has_max = 1; break;
+        case ARAGG_OP_COUNT: acc->has_count = 1; break;
+        case ARAGG_OP_AVG:  acc->has_avg = 1; break;
+        case ARAGG_OP_AND:  acc->has_bitwise_and = 1; break;
+        case ARAGG_OP_OR:   acc->has_bitwise_or = 1; break;
+        case ARAGG_OP_XOR:  acc->has_bitwise_xor = 1; break;
+        }
+    }
+    /* AVG implicitly needs SUM and COUNT */
+    if (acc->has_avg) {
+        acc->has_sum = 1;
+        acc->has_count = 1;
+    }
+}
+
+/* Accumulate one value into all requested aggregates. */
+static void arMultiAccAdd(arMultiAcc *acc, void *v) {
+    if (acc->has_count) acc->count++;
+
+    /* Try to convert the value to a number for numeric ops */
+    int need_numeric = acc->has_sum || acc->has_min || acc->has_max ||
+                       acc->has_bitwise_and || acc->has_bitwise_or ||
+                       acc->has_bitwise_xor;
+    if (!need_numeric) return;
+
+    long double num;
+    int64_t ival = 0;
+    int is_int = 0;
+
+    if (arIsInt(v)) {
+        ival = arToInt(v);
+        num = (long double)ival;
+        is_int = 1;
+    } else if (arIsFloat(v)) {
+        num = (long double)arToDouble(v);
+    } else {
+        const char *data;
+        size_t vlen;
+        char smallbuf[8];
+
+        if (arIsSmallStr(v)) {
+            vlen = arToSmallStr(v, smallbuf);
+            data = smallbuf;
+        } else {
+            data = arStringData(v);
+            vlen = arStringLen(v);
+        }
+
+        long long ll;
+        if (string2ll(data, vlen, &ll)) {
+            ival = ll;
+            num = (long double)ll;
+            is_int = 1;
+        } else {
+            long double ld;
+            if (string2ld(data, vlen, &ld)) {
+                num = ld;
+            } else {
+                return;  /* not a number */
+            }
+        }
+    }
+
+    if (!is_int && isnan(num)) return;
+
+    /* Numeric aggregates */
+    if (acc->has_sum || acc->has_min || acc->has_max) {
+        if (acc->has_avg) acc->numeric_count++;   /* count numeric values for AVG */
+        if (!acc->has_numeric) {
+            acc->sum = num;
+            if (acc->has_min) acc->min = num;
+            if (acc->has_max) acc->max = num;
+            acc->has_numeric = 1;
+        } else {
+            if (acc->has_sum) acc->sum += num;
+            if (acc->has_min && num < acc->min) acc->min = num;
+            if (acc->has_max && num > acc->max) acc->max = num;
+        }
+    }
+
+    /* Bitwise aggregates (require integer) */
+    if (acc->has_bitwise_and || acc->has_bitwise_or || acc->has_bitwise_xor) {
+        if (!is_int) {
+            /* Bitwise aggregates operate on integers. Truncate finite floating
+             * point values toward zero when possible. */
+            if (isnan(num)) return;
+            if (num < (long double)INT64_MIN || num > (long double)INT64_MAX) return;
+            ival = (int64_t)num;
+        }
+        if (!acc->has_int) {
+            if (acc->has_bitwise_and) acc->bitwise_and = ival;
+            if (acc->has_bitwise_or)  acc->bitwise_or = ival;
+            if (acc->has_bitwise_xor) acc->bitwise_xor = ival;
+            acc->has_int = 1;
+        } else {
+            if (acc->has_bitwise_and) acc->bitwise_and &= ival;
+            if (acc->has_bitwise_or)  acc->bitwise_or  |= ival;
+            if (acc->has_bitwise_xor) acc->bitwise_xor ^= ival;
+        }
+    }
+}
+
+/* Reply with the requested aggregates in order. */
+static void arMultiAccReply(client *c, arMultiAcc *acc, int *ops, int num_ops) {
+    addReplyArrayLen(c, num_ops);
+    for (int i = 0; i < num_ops; i++) {
+        switch (ops[i]) {
+        case ARAGG_OP_SUM:
+            if (!acc->has_numeric) addReplyNull(c);
+            else {
+                char buf[MAX_LONG_DOUBLE_CHARS+1];
+                int len = ld2string(buf, sizeof(buf), acc->sum, LD_STR_AUTO);
+                addReplyBulkCBuffer(c, buf, len);
+            }
+            break;
+        case ARAGG_OP_MIN:
+            if (!acc->has_numeric) addReplyNull(c);
+            else {
+                char buf[MAX_LONG_DOUBLE_CHARS+1];
+                int len = ld2string(buf, sizeof(buf), acc->min, LD_STR_AUTO);
+                addReplyBulkCBuffer(c, buf, len);
+            }
+            break;
+        case ARAGG_OP_MAX:
+            if (!acc->has_numeric) addReplyNull(c);
+            else {
+                char buf[MAX_LONG_DOUBLE_CHARS+1];
+                int len = ld2string(buf, sizeof(buf), acc->max, LD_STR_AUTO);
+                addReplyBulkCBuffer(c, buf, len);
+            }
+            break;
+        case ARAGG_OP_COUNT:
+            addReplyLongLong(c, acc->count);
+            break;
+        case ARAGG_OP_AVG:
+            if (!acc->has_numeric || acc->numeric_count == 0) addReplyNull(c);
+            else {
+                long double avg = acc->sum / (long double)acc->numeric_count;
+                char buf[MAX_LONG_DOUBLE_CHARS+1];
+                int len = ld2string(buf, sizeof(buf), avg, LD_STR_AUTO);
+                addReplyBulkCBuffer(c, buf, len);
+            }
+            break;
+        case ARAGG_OP_AND:
+            if (!acc->has_int) addReplyNull(c);
+            else addReplyLongLong(c, acc->bitwise_and);
+            break;
+        case ARAGG_OP_OR:
+            if (!acc->has_int) addReplyNull(c);
+            else addReplyLongLong(c, acc->bitwise_or);
+            break;
+        case ARAGG_OP_XOR:
+            if (!acc->has_int) addReplyNull(c);
+            else addReplyLongLong(c, acc->bitwise_xor);
+            break;
+        default:
+            addReplyNull(c);
+        }
+    }
+}
+
+/* ARAGG key start end
+ *        [EXACT string | MATCH string | GLOB pattern | RE pattern | RANGE min max [EXCLUSIVE]] ...
+ *        [AND | OR] [LIMIT count] [NOCASE]
+ *        AGGREGATE <op> [op ...]
+ *
+ * Compute one or more aggregates over elements that match the given predicates.
+ * Available operations: SUM, MIN, MAX, COUNT, AVG, AND, OR, XOR. */
+void araggCommand(client *c) {
+    arGrepBound start_bound, end_bound;
+    if (arGrepParseBoundOrReply(c, c->argv[2], &start_bound) != C_OK) return;
+    if (arGrepParseBoundOrReply(c, c->argv[3], &end_bound) != C_OK) return;
+
+    /* ---- Parse optional predicates + global options, stopping at "AGGREGATE" ---- */
+    arGrepPlan plan;
+    uint64_t limit;
+    int agg_idx = -1;   /* will be set to the index of "AGGREGATE" */
+    if (arGrepParsePlanOrReply(c, &plan, &limit, "AGGREGATE", &agg_idx) != C_OK) {
+        arGrepFreePlan(&plan);
+        return;
+    }
+    if (agg_idx == -1) {
+        arGrepFreePlan(&plan);
+        addReplyError(c, "AGGREGATE keyword required");
+        return;
+    }
+
+    /* ---- Parse aggregate operations (argv[agg_idx+1 .. argc-1]) ---- */
+    int first_op = agg_idx + 1;
+    if (first_op >= c->argc) {
+        arGrepFreePlan(&plan);
+        addReplyError(c, "AGGREGATE keyword requires at least one operation");
+        return;
+    }
+
+    int max_ops = c->argc - first_op;
+    int *ops = zcalloc(sizeof(int) * max_ops);
+    int num_ops = 0;
+    for (int i = first_op; i < c->argc; i++) {
+        const char *opstr = c->argv[i]->ptr;
+        int op = 0;
+        if (!strcasecmp(opstr, "SUM"))        op = ARAGG_OP_SUM;
+        else if (!strcasecmp(opstr, "MIN"))   op = ARAGG_OP_MIN;
+        else if (!strcasecmp(opstr, "MAX"))   op = ARAGG_OP_MAX;
+        else if (!strcasecmp(opstr, "COUNT")) op = ARAGG_OP_COUNT;
+        else if (!strcasecmp(opstr, "AVG"))   op = ARAGG_OP_AVG;
+        else if (!strcasecmp(opstr, "AND"))   op = ARAGG_OP_AND;
+        else if (!strcasecmp(opstr, "OR"))    op = ARAGG_OP_OR;
+        else if (!strcasecmp(opstr, "XOR"))   op = ARAGG_OP_XOR;
+        else {
+            zfree(ops);
+            arGrepFreePlan(&plan);
+            addReplyErrorFormat(c, "unknown aggregate operation: %s", opstr);
+            return;
+        }
+        ops[num_ops++] = op;
+    }
+
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (o != NULL && checkType(c, o, OBJ_ARRAY)) {
+        zfree(ops);
+        arGrepFreePlan(&plan);
+        return;
+    }
+
+    if (o == NULL) {
+        arMultiAcc acc;
+        memset(&acc, 0, sizeof(acc));
+        arMultiAccReply(c, &acc, ops, num_ops);
+        zfree(ops);
+        arGrepFreePlan(&plan);
+        return;
+    }
+
+    redisArray *ar = o->ptr;
+    uint64_t ar_len = arLen(ar);
+    if (ar_len == 0 || arCount(ar) == 0) {
+        arMultiAcc acc;
+        memset(&acc, 0, sizeof(acc));
+        arMultiAccReply(c, &acc, ops, num_ops);
+        zfree(ops);
+        arGrepFreePlan(&plan);
+        return;
+    }
+
+    /* ---- Iterate over the range and accumulate ---- */
+    uint64_t max_index = ar_len - 1;
+    uint64_t start = arGrepResolveBound(&start_bound, max_index);
+    uint64_t end   = arGrepResolveBound(&end_bound,   max_index);
+
+    arScanIter it;
+    arScanIterInit(ar, start, end, &it);
+    uint64_t idx;
+    void *v;
+
+    arMultiAcc acc;
+    arMultiAccInit(&acc, ops, num_ops);
+
+    while (limit > 0 && arScanIterNext(&it, &idx, &v)) {
+        if (!arGrepValueMatches(&plan, v)) continue;
+        arMultiAccAdd(&acc, v);
+        limit--;
+    }
+
+    arMultiAccReply(c, &acc, ops, num_ops);
+
+    zfree(ops);
+    arGrepFreePlan(&plan);
 }
 
 /* ----------------------------------------------------------------------------
