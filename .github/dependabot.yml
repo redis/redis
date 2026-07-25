@@ -9,7 +9,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: pip
     directory: /.codespell
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
