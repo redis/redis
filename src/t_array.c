@@ -880,30 +880,33 @@ void arscanCommand(client *c) {
 }
 
 /* ============================================================================
- * ARGREP
+ * ARRAY PREDICATE ENGINE
  * ============================================================================
  *
- * Search existing array elements in a range using textual predicates.
- * Like ARSCAN, the work is bound by the visited slices, not by the raw
- * numeric span alone: dense slices scan the touched dense window, while
- * sparse slices only scan stored entries inside the covered offsets.
+ * Shared predicate definitions, parsing, compilation, matching, and plan
+ * management used by ARGREP (element search) and ARAGG (element aggregation).
+ *
+ * A predicate plan describes one or more predicates that an array element
+ * must satisfy, together with global options such as AND/OR combine mode,
+ * case‑insensitivity, and a response limit.
+ *
+ * Bounds are also parsed here because they are reused by both callers.
  * -------------------------------------------------------------------------- */
+#define ARPRED_EXACT 1
+#define ARPRED_MATCH 2
+#define ARPRED_GLOB   3
+#define ARPRED_RE     4
+#define ARPRED_RANGE  5
 
-#define ARGREP_PRED_EXACT 1
-#define ARGREP_PRED_MATCH 2
-#define ARGREP_PRED_GLOB  3
-#define ARGREP_PRED_RE    4
-#define ARGREP_PRED_RANGE 5
+#define ARPRED_MAX_PREDICATES 250
+#define ARPRED_MAX_RE_LEN     2048
 
-#define ARGREP_MAX_PREDICATES 250
-#define ARGREP_MAX_RE_LEN 2048
+#define ARPRED_COMBINE_OR  1
+#define ARPRED_COMBINE_AND 2
 
-#define ARGREP_COMBINE_OR  1
-#define ARGREP_COMBINE_AND 2
-
-#define ARGREP_BOUND_INDEX 1
-#define ARGREP_BOUND_START 2
-#define ARGREP_BOUND_END   3
+#define ARBOUND_INDEX 1
+#define ARBOUND_START 2
+#define ARBOUND_END   3
 
 typedef struct {
     int type;               /* EXACT, MATCH, GLOB, RE, or RANGE */
@@ -914,36 +917,36 @@ typedef struct {
     long double min;
     long double max;
     int exclusive;
-} arGrepPredicate;
+} arPredicate;
 
 typedef struct {
     int type;               /* Numeric index, logical start, or logical end. */
     uint64_t index;         /* Used only for numeric bounds. */
-} arGrepBound;
+} arPredicateBound;
 
 typedef struct {
-    arGrepPredicate *preds; /* All predicates to apply to each element. */
+    arPredicate *preds;     /* All predicates to apply to each element. */
     int num_preds;          /* Number of predicates stored in preds[]. */
     int combine;            /* OR by default, AND if requested. */
     int withvalues;         /* Reply with [idx value ...] instead of [idx ...]. */
     int nocase;             /* Apply case-insensitive matching globally. */
-} arGrepPlan;
+} arPredicatePlan;
 
 /* Lowercase only ASCII letters. This keeps MATCH/EXACT deterministic and
  * locale-independent even on arbitrary binary payloads. */
-static inline unsigned char arGrepLowerAscii(unsigned char c) {
+static inline unsigned char arPredicateLowerAscii(unsigned char c) {
     return (c >= 'A' && c <= 'Z') ? (unsigned char)(c + ('a' - 'A')) : c;
 }
 
 /* Compare two byte strings, optionally ignoring ASCII case. */
-int arGrepBytesEqual(const char *a, size_t alen, const char *b, size_t blen,
+int arPredicateBytesEqual(const char *a, size_t alen, const char *b, size_t blen,
                      int nocase) {
     if (alen != blen) return 0;
     if (!nocase) return memcmp(a, b, alen) == 0;
 
     for (size_t i = 0; i < alen; i++) {
-        if (arGrepLowerAscii((unsigned char)a[i]) !=
-            arGrepLowerAscii((unsigned char)b[i])) {
+        if (arPredicateLowerAscii((unsigned char)a[i]) !=
+            arPredicateLowerAscii((unsigned char)b[i])) {
             return 0;
         }
     }
@@ -951,14 +954,14 @@ int arGrepBytesEqual(const char *a, size_t alen, const char *b, size_t blen,
 }
 
 /* Find a needle inside a byte string, optionally ignoring ASCII case. */
-int arGrepBytesContains(const char *haystack, size_t haystack_len,
+int arPredicateBytesContains(const char *haystack, size_t haystack_len,
                         const char *needle, size_t needle_len, int nocase) {
     if (needle_len == 0) return 1;
     if (needle_len > haystack_len) return 0;
 
     size_t last = haystack_len - needle_len;
     for (size_t i = 0; i <= last; i++) {
-        if (arGrepBytesEqual(haystack + i, needle_len, needle, needle_len,
+        if (arPredicateBytesEqual(haystack + i, needle_len, needle, needle_len,
                              nocase)) {
             return 1;
         }
@@ -967,17 +970,17 @@ int arGrepBytesContains(const char *haystack, size_t haystack_len,
 }
 
 /* Return the predicate type for a keyword, or 0 if it is not one. */
-int arGrepPredicateType(const char *token) {
-    if (!strcasecmp(token, "EXACT")) return ARGREP_PRED_EXACT;
-    if (!strcasecmp(token, "MATCH")) return ARGREP_PRED_MATCH;
-    if (!strcasecmp(token, "GLOB")) return ARGREP_PRED_GLOB;
-    if (!strcasecmp(token, "RE")) return ARGREP_PRED_RE;
-    if (!strcasecmp(token, "RANGE")) return ARGREP_PRED_RANGE;
+int arPredicateType(const char *token) {
+    if (!strcasecmp(token, "EXACT")) return ARPRED_EXACT;
+    if (!strcasecmp(token, "MATCH")) return ARPRED_MATCH;
+    if (!strcasecmp(token, "GLOB"))  return ARPRED_GLOB;
+    if (!strcasecmp(token, "RE"))    return ARPRED_RE;
+    if (!strcasecmp(token, "RANGE")) return ARPRED_RANGE;
     return 0;
 }
 
-/* Free any compiled regex state created while parsing ARGREP. */
-void arGrepFreePlan(arGrepPlan *plan) {
+/* Free any compiled regex state created while parsing. */
+void arFreePredicatePlan(arPredicatePlan *plan) {
     if (plan->preds == NULL) return;
 
     for (int i = 0; i < plan->num_preds; i++) {
@@ -988,18 +991,18 @@ void arGrepFreePlan(arGrepPlan *plan) {
     plan->preds = NULL;
 }
 
-/* Parse a bound argument. ARGREP accepts the special tokens "-" and "+"
+/* Parse a bound argument. ARGREP/ARAGG accepts the special tokens "-" and "+"
  * in addition to normal array indexes. */
-int arGrepParseBoundOrReply(client *c, robj *arg, arGrepBound *bound) {
+int arParsePredicateBoundOrReply(client *c, robj *arg, arPredicateBound *bound) {
     if (arg->encoding != OBJ_ENCODING_INT) {
         sds token = arg->ptr;
         if (sdslen(token) == 1 && token[0] == '-') {
-            bound->type = ARGREP_BOUND_START;
+            bound->type = ARBOUND_START;
             bound->index = 0;
             return C_OK;
         }
         if (sdslen(token) == 1 && token[0] == '+') {
-            bound->type = ARGREP_BOUND_END;
+            bound->type = ARBOUND_END;
             bound->index = 0;
             return C_OK;
         }
@@ -1009,23 +1012,23 @@ int arGrepParseBoundOrReply(client *c, robj *arg, arGrepBound *bound) {
         addReplyError(c, "invalid array index");
         return C_ERR;
     }
-    bound->type = ARGREP_BOUND_INDEX;
+    bound->type = ARBOUND_INDEX;
     return C_OK;
 }
 
 /* Resolve a parsed bound against the current array length. */
-uint64_t arGrepResolveBound(arGrepBound *bound, uint64_t max_index) {
-    if (bound->type == ARGREP_BOUND_START) return 0;
-    if (bound->type == ARGREP_BOUND_END) return max_index;
+uint64_t arResolvePredicateBound(arPredicateBound *bound, uint64_t max_index) {
+    if (bound->type == ARBOUND_START) return 0;
+    if (bound->type == ARBOUND_END) return max_index;
     return bound->index;
 }
 
 /* Compile all RE predicates after the whole command is parsed, so NOCASE is
  * already known and affects every regex consistently. */
-int arGrepCompileRegexesOrReply(client *c, arGrepPlan *plan) {
+int arCompilePredicateRegexesOrReply(client *c, arPredicatePlan *plan) {
     for (int i = 0; i < plan->num_preds; i++) {
-        arGrepPredicate *pred = &plan->preds[i];
-        if (pred->type != ARGREP_PRED_RE) continue;
+        arPredicate *pred = &plan->preds[i];
+        if (pred->type != ARPRED_RE) continue;
 
         if (sdslen(pred->pattern) == 0) {
             addReplyError(c, "regular expression is empty");
@@ -1054,19 +1057,20 @@ int arGrepCompileRegexesOrReply(client *c, arGrepPlan *plan) {
 }
 
 /* Used by: ARGREP and ARAGG
- * Parse predicates and global modifiers in a single pass. This makes the
- * command more user-friendly because predicates and options can be mixed
- * freely. If the same global option appears multiple times, the last one
- * wins. For ARAGG - If stop_token is NULL the parser runs until the end
- * of argv and requires at least one predicate.  If stop_token is not NULL
- * parser stops immediately when it encounters that token, returns success
- * and writes current argv index into *next_arg (if next_arg != NULL).
- * Zero predicates are allowed when a stop_token is given (useful for
- * optional filtering).*/
-int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
-                           const char *stop_token, int *next_arg) {
+ * Parse predicates and global modifiers in a single pass. Options and
+ * predicates may be freely interleaved; the last occurrence of a global
+ * option wins.
+ *
+ * If stop_token is not NULL, parsing stops when that token is encountered
+ * and the current argv index is written into *next_arg (if next_arg != NULL).
+ * In that case zero predicates are allowed (optional filtering).
+ *
+ * If stop_token is NULL, at least one predicate must be supplied. */
+int arParsePredicatePlanOrReply(client *c, arPredicatePlan *plan, uint64_t *limit,
+                           const char *stop_token, int *next_arg,
+                           int allow_withvalues) {
     memset(plan, 0, sizeof(*plan));
-    plan->combine = ARGREP_COMBINE_OR;
+    plan->combine = ARPRED_COMBINE_OR;
     *limit = UINT64_MAX;
 
     int max_preds = c->argc - 4;
@@ -1074,29 +1078,29 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
 
     for (int arg = 4; arg < c->argc; ) {
         sds token = c->argv[arg]->ptr;
-        /* ---------- Sentinel token check ---------- */
+        /* Sentinel token check (used by ARAGG to stop before AGGREGATE) */
         if (stop_token && !strcasecmp(token, stop_token)) {
             if (next_arg) *next_arg = arg;
             /* Compile any regexes we already collected */
-            return arGrepCompileRegexesOrReply(c, plan);
+            return arCompilePredicateRegexesOrReply(c, plan);
         }
 
-        int type = arGrepPredicateType(token);
+        int type = arPredicateType(token);
 
         if (type != 0) {
-            if (type == ARGREP_PRED_RANGE) {
+            if (type == ARPRED_RANGE) {
                 if (arg + 2 >= c->argc) {
                     addReplyErrorObject(c, shared.syntaxerr);
                     return C_ERR;
                 }
-                if (plan->num_preds >= ARGREP_MAX_PREDICATES) {
+                if (plan->num_preds >= ARPRED_MAX_PREDICATES) {
                     addReplyErrorFormat(c, "too many predicates, maximum is %d",
-                                        ARGREP_MAX_PREDICATES);
+                                        ARPRED_MAX_PREDICATES);
                     return C_ERR;
                 }
 
-                arGrepPredicate *pred = &plan->preds[plan->num_preds++];
-                pred->type = ARGREP_PRED_RANGE;
+                arPredicate *pred = &plan->preds[plan->num_preds++];
+                pred->type = ARPRED_RANGE;
 
                 if (getLongDoubleFromObjectOrReply(c, c->argv[arg+1],
                                                    &pred->min, NULL) != C_OK)
@@ -1119,20 +1123,20 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
                 addReplyErrorObject(c, shared.syntaxerr);
                 return C_ERR;
             }
-            if (plan->num_preds >= ARGREP_MAX_PREDICATES) {
+            if (plan->num_preds >= ARPRED_MAX_PREDICATES) {
                 addReplyErrorFormat(c, "too many predicates, maximum is %d",
-                                    ARGREP_MAX_PREDICATES);
+                                    ARPRED_MAX_PREDICATES);
                 return C_ERR;
             }
 
-            arGrepPredicate *pred = &plan->preds[plan->num_preds++];
+            arPredicate *pred = &plan->preds[plan->num_preds++];
             pred->type = type;
             pred->pattern = c->argv[arg + 1]->ptr;
-            if (type == ARGREP_PRED_RE &&
-                sdslen(pred->pattern) > ARGREP_MAX_RE_LEN) {
+            if (type == ARPRED_RE &&
+                sdslen(pred->pattern) > ARPRED_MAX_RE_LEN) {
                 addReplyErrorFormat(c,
                     "regular expression is too long, maximum is %d bytes",
-                    ARGREP_MAX_RE_LEN);
+                    ARPRED_MAX_RE_LEN);
                 return C_ERR;
             }
             arg += 2;
@@ -1161,6 +1165,10 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
         }
 
         if (!strcasecmp(token, "WITHVALUES")) {
+            if (!allow_withvalues) {
+                addReplyError(c, "WITHVALUES is not supported in ARAGG command");
+                return C_ERR;
+            }
             plan->withvalues = 1;
             arg++;
             continue;
@@ -1174,7 +1182,7 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
 
         if (!strcasecmp(token, "AND") || !strcasecmp(token, "OR")) {
             plan->combine = !strcasecmp(token, "AND") ?
-                ARGREP_COMBINE_AND : ARGREP_COMBINE_OR;
+                ARPRED_COMBINE_AND : ARPRED_COMBINE_OR;
             arg++;
             continue;
         }
@@ -1189,30 +1197,30 @@ int arGrepParsePlanOrReply(client *c, arGrepPlan *plan, uint64_t *limit,
         return C_ERR;
     }
 
-    return arGrepCompileRegexesOrReply(c, plan);
+    return arCompilePredicateRegexesOrReply(c, plan);
 }
 
 /* Match one predicate against the decoded element bytes. */
-int arGrepMatchPredicate(arGrepPredicate *pred, const char *data, size_t len,
+int arPredicateMatch(arPredicate *pred, const char *data, size_t len,
                          int nocase) {
 
     switch (pred->type) {
-    case ARGREP_PRED_EXACT: {
+    case ARPRED_EXACT: {
         size_t pattern_len = sdslen(pred->pattern);
-        return arGrepBytesEqual(data, len, pred->pattern, pattern_len, nocase);
+        return arPredicateBytesEqual(data, len, pred->pattern, pattern_len, nocase);
     }
-    case ARGREP_PRED_MATCH: {
+    case ARPRED_MATCH: {
         size_t pattern_len = sdslen(pred->pattern);
-        return arGrepBytesContains(data, len, pred->pattern, pattern_len,
+        return arPredicateBytesContains(data, len, pred->pattern, pattern_len,
                                    nocase);
     }
-    case ARGREP_PRED_GLOB: {
+    case ARPRED_GLOB: {
         size_t pattern_len = sdslen(pred->pattern);
         return stringmatchlen(pred->pattern, pattern_len, data, len, nocase);
     }
-    case ARGREP_PRED_RE:
+    case ARPRED_RE:
         return tre_regnexecb(&pred->regex, data, len, 0, NULL, 0) == REG_OK;
-    case ARGREP_PRED_RANGE: {
+    case ARPRED_RANGE: {
         long double val;
         if (!string2ld(data, len, &val)) return 0;
         if (pred->exclusive) {
@@ -1223,20 +1231,20 @@ int arGrepMatchPredicate(arGrepPredicate *pred, const char *data, size_t len,
         return 1;
     }
     default:
-        serverPanic("Unknown ARGREP predicate type");
+        serverPanic("Unknown ARRAY predicate type");
     }
 }
 
 /* Decode one array value and apply all the predicates to it. */
-int arGrepValueMatches(arGrepPlan *plan, void *v) {
+int arPredicateValueMatches(arPredicatePlan *plan, void *v) {
     if (plan->num_preds == 0) return 1;
     char buf[AR_INLINE_BUFSIZE];
     size_t len;
     const char *data = arDecode(v, buf, sizeof(buf), &len);
 
-    if (plan->combine == ARGREP_COMBINE_AND) {
+    if (plan->combine == ARPRED_COMBINE_AND) {
         for (int i = 0; i < plan->num_preds; i++) {
-            if (!arGrepMatchPredicate(&plan->preds[i], data, len,
+            if (!arPredicateMatch(&plan->preds[i], data, len,
                                       plan->nocase)) {
                 return 0;
             }
@@ -1245,11 +1253,22 @@ int arGrepValueMatches(arGrepPlan *plan, void *v) {
     }
 
     for (int i = 0; i < plan->num_preds; i++) {
-        if (arGrepMatchPredicate(&plan->preds[i], data, len, plan->nocase))
+        if (arPredicateMatch(&plan->preds[i], data, len, plan->nocase))
             return 1;
     }
     return 0;
 }
+
+
+/* ============================================================================
+ * ARGREP
+ * ============================================================================
+ *
+ * Search existing array elements in a range using textual predicates.
+ * Like ARSCAN, the work is bound by the visited slices, not by the raw
+ * numeric span alone: dense slices scan the touched dense window, while
+ * sparse slices only scan stored entries inside the covered offsets.
+ * -------------------------------------------------------------------------- */
 
 /* ARGREP key start end
  *        (EXACT string | MATCH string | GLOB pattern | RE pattern) ...
@@ -1265,24 +1284,24 @@ int arGrepValueMatches(arGrepPlan *plan, void *v) {
  * "-" and "+" mean the logical start and end of the array. WITHVALUES changes
  * the reply from [idx ...] to [idx value ...]. */
 void argrepCommand(client *c) {
-    arGrepBound start_bound, end_bound;
-    if (arGrepParseBoundOrReply(c, c->argv[2], &start_bound) != C_OK) return;
-    if (arGrepParseBoundOrReply(c, c->argv[3], &end_bound) != C_OK) return;
+    arPredicateBound start_bound, end_bound;
+    if (arParsePredicateBoundOrReply(c, c->argv[2], &start_bound) != C_OK) return;
+    if (arParsePredicateBoundOrReply(c, c->argv[3], &end_bound) != C_OK) return;
 
-    arGrepPlan plan;
+    arPredicatePlan plan;
     uint64_t remaining;
-    if (arGrepParsePlanOrReply(c, &plan, &remaining, NULL, NULL) != C_OK) {
-        arGrepFreePlan(&plan);
+    if (arParsePredicatePlanOrReply(c, &plan, &remaining, NULL, NULL, 1) != C_OK) {
+        arFreePredicatePlan(&plan);
         return;
     }
 
     robj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_ARRAY)) {
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         return;
     }
     if (o == NULL) {
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         addReplyArrayLen(c, 0);
         return;
     }
@@ -1290,7 +1309,7 @@ void argrepCommand(client *c) {
     redisArray *ar = o->ptr;
     uint64_t ar_len = arLen(ar);
     if (ar_len == 0 || arCount(ar) == 0) {
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         addReplyArrayLen(c, 0);
         return;
     }
@@ -1298,15 +1317,15 @@ void argrepCommand(client *c) {
     void *replylen = addReplyDeferredLen(c);
     uint64_t count = 0;
     uint64_t max_index = ar_len - 1;
-    uint64_t start = arGrepResolveBound(&start_bound, max_index);
-    uint64_t end = arGrepResolveBound(&end_bound, max_index);
+    uint64_t start = arResolvePredicateBound(&start_bound, max_index);
+    uint64_t end = arResolvePredicateBound(&end_bound, max_index);
     arScanIter it;
     uint64_t idx;
     void *v;
 
     arScanIterInit(ar, start, end, &it);
     while (remaining && arScanIterNext(&it, &idx, &v)) {
-        if (!arGrepValueMatches(&plan, v)) continue;
+        if (!arPredicateValueMatches(&plan, v)) continue;
         /* With WITHVALUES, reply nested [idx, value] pairs. */
         if (plan.withvalues) addReplyArrayLen(c, 2);
         addReplyUnsignedLongLong(c, idx);
@@ -1316,7 +1335,7 @@ void argrepCommand(client *c) {
     }
 
     setDeferredArrayLen(c, replylen, count);
-    arGrepFreePlan(&plan);
+    arFreePredicatePlan(&plan);
 }
 
 /* ============================================================================
@@ -1556,7 +1575,6 @@ void aropCommand(client *c) {
 #define ARAGG_OP_OR    7
 #define ARAGG_OP_XOR   8
 
-
 /* Holds state for multiple concurrent aggregates */
 typedef struct {
     int has_sum, has_min, has_max, has_count;
@@ -1752,20 +1770,20 @@ static void arMultiAccReply(client *c, arMultiAcc *acc, int *ops, int num_ops) {
  * Compute one or more aggregates over elements that match the given predicates.
  * Available operations: SUM, MIN, MAX, COUNT, AVG, AND, OR, XOR. */
 void araggCommand(client *c) {
-    arGrepBound start_bound, end_bound;
-    if (arGrepParseBoundOrReply(c, c->argv[2], &start_bound) != C_OK) return;
-    if (arGrepParseBoundOrReply(c, c->argv[3], &end_bound) != C_OK) return;
+    arPredicateBound start_bound, end_bound;
+    if (arParsePredicateBoundOrReply(c, c->argv[2], &start_bound) != C_OK) return;
+    if (arParsePredicateBoundOrReply(c, c->argv[3], &end_bound) != C_OK) return;
 
     /* ---- Parse optional predicates + global options, stopping at "AGGREGATE" ---- */
-    arGrepPlan plan;
+    arPredicatePlan plan;
     uint64_t limit;
     int agg_idx = -1;   /* will be set to the index of "AGGREGATE" */
-    if (arGrepParsePlanOrReply(c, &plan, &limit, "AGGREGATE", &agg_idx) != C_OK) {
-        arGrepFreePlan(&plan);
+    if (arParsePredicatePlanOrReply(c, &plan, &limit, "AGGREGATE", &agg_idx, 0) != C_OK) {
+        arFreePredicatePlan(&plan);
         return;
     }
     if (agg_idx == -1) {
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         addReplyError(c, "AGGREGATE keyword required");
         return;
     }
@@ -1773,7 +1791,7 @@ void araggCommand(client *c) {
     /* ---- Parse aggregate operations (argv[agg_idx+1 .. argc-1]) ---- */
     int first_op = agg_idx + 1;
     if (first_op >= c->argc) {
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         addReplyError(c, "AGGREGATE keyword requires at least one operation");
         return;
     }
@@ -1794,7 +1812,7 @@ void araggCommand(client *c) {
         else if (!strcasecmp(opstr, "XOR"))   op = ARAGG_OP_XOR;
         else {
             zfree(ops);
-            arGrepFreePlan(&plan);
+            arFreePredicatePlan(&plan);
             addReplyErrorFormat(c, "unknown aggregate operation: %s", opstr);
             return;
         }
@@ -1804,7 +1822,7 @@ void araggCommand(client *c) {
     robj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_ARRAY)) {
         zfree(ops);
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         return;
     }
 
@@ -1813,7 +1831,7 @@ void araggCommand(client *c) {
         memset(&acc, 0, sizeof(acc));
         arMultiAccReply(c, &acc, ops, num_ops);
         zfree(ops);
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         return;
     }
 
@@ -1824,14 +1842,14 @@ void araggCommand(client *c) {
         memset(&acc, 0, sizeof(acc));
         arMultiAccReply(c, &acc, ops, num_ops);
         zfree(ops);
-        arGrepFreePlan(&plan);
+        arFreePredicatePlan(&plan);
         return;
     }
 
     /* ---- Iterate over the range and accumulate ---- */
     uint64_t max_index = ar_len - 1;
-    uint64_t start = arGrepResolveBound(&start_bound, max_index);
-    uint64_t end   = arGrepResolveBound(&end_bound,   max_index);
+    uint64_t start = arResolvePredicateBound(&start_bound, max_index);
+    uint64_t end   = arResolvePredicateBound(&end_bound,   max_index);
 
     arScanIter it;
     arScanIterInit(ar, start, end, &it);
@@ -1842,7 +1860,7 @@ void araggCommand(client *c) {
     arMultiAccInit(&acc, ops, num_ops);
 
     while (limit > 0 && arScanIterNext(&it, &idx, &v)) {
-        if (!arGrepValueMatches(&plan, v)) continue;
+        if (!arPredicateValueMatches(&plan, v)) continue;
         arMultiAccAdd(&acc, v);
         limit--;
     }
@@ -1850,7 +1868,7 @@ void araggCommand(client *c) {
     arMultiAccReply(c, &acc, ops, num_ops);
 
     zfree(ops);
-    arGrepFreePlan(&plan);
+    arFreePredicatePlan(&plan);
 }
 
 /* ----------------------------------------------------------------------------
