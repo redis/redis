@@ -158,6 +158,28 @@ void armgetCommand(client *c) {
  * ARSET / ARMSET
  * -------------------------------------------------------------------------- */
 
+/* Helper function to finalize ARSET/ARMSET after a successful write. */
+static void arFinalizeSet(
+    client *c,
+    robj *o,
+    uint64_t old_count,
+    size_t old_alloc,
+    long long dirty_count,
+    const char *event)
+{
+    redisArray *ar = o->ptr;
+    long long set_count = arCount(ar) - old_count;
+    updateKeysizesHist(c->db, OBJ_ARRAY, old_count, arCount(ar));
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
+
+    keyModified(c, c->db, c->argv[1], o, 1);
+    notifyKeyspaceEvent(NOTIFY_ARRAY, event, c->argv[1], c->db->id);
+    server.dirty += dirty_count;
+    addReplyLongLong(c, set_count);
+}
+
 /* ARSET key <index> <value> [value ...]
  *
  * Sets one or more contiguous values in O(N), where N is the number of
@@ -198,14 +220,7 @@ void armgetCommand(client *c) {
         idx++;
     }
 
-    long long set_count = arCount(ar) - old_count;
-    updateKeysizesHist(c->db, OBJ_ARRAY, old_count, arCount(ar));
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
-    keyModified(c, c->db, c->argv[1], o, 1);
-    notifyKeyspaceEvent(NOTIFY_ARRAY, "arset", c->argv[1], c->db->id);
-    server.dirty += num_values;
-    addReplyLongLong(c, set_count);
+    arFinalizeSet(c, o, old_count, old_alloc, num_values, "arset");
 }
 
 /* ARMSET key idx value [idx value ...]
@@ -243,19 +258,47 @@ void armsetCommand(client *c) {
     }
 
     int num_pairs = (c->argc - 2) / 2;
-    long long set_count = arCount(ar) - old_count;
-    updateKeysizesHist(c->db, OBJ_ARRAY, old_count, arCount(ar));
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
-    keyModified(c, c->db, c->argv[1], o, 1);
-    notifyKeyspaceEvent(NOTIFY_ARRAY, "armset", c->argv[1], c->db->id);
-    server.dirty += num_pairs;
-    addReplyLongLong(c, set_count);
+    arFinalizeSet(c, o, old_count, old_alloc, num_pairs, "armset");
 }
 
 /* ----------------------------------------------------------------------------
  * ARDEL / ARDELRANGE
  * -------------------------------------------------------------------------- */
+
+/* Helper function to finalize ARDEL/ARDELRANGE after a successful deletion. */
+static void arFinalizeDelete(
+    client *c,
+    robj *o,
+    uint64_t old_count,
+    size_t old_alloc,
+    long long deleted,
+    const char *event)
+{
+    redisArray *ar = o->ptr;
+    int keyremoved = (arCount(ar) == 0);
+
+    if (server.memory_tracking_enabled && deleted > 0 && keyremoved)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
+
+    if (deleted > 0) {
+        if (keyremoved)
+            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+
+        updateKeysizesHist(c->db, OBJ_ARRAY,
+                           old_count, keyremoved ? -1 : (int64_t)arCount(ar));
+
+        if (server.memory_tracking_enabled && !keyremoved)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
+
+        keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
+        notifyKeyspaceEvent(NOTIFY_ARRAY, event, c->argv[1], c->db->id);
+
+        if (keyremoved)
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+
+        server.dirty += deleted;
+    }
+}
 
 /* ARDEL key idx [idx ...]
  *
@@ -289,22 +332,7 @@ void ardelCommand(client *c) {
         deleted += arDel(ar, idx);
     }
 
-    int keyremoved = (arCount(ar) == 0);
-    if (server.memory_tracking_enabled && deleted > 0 && keyremoved)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
-    if (deleted > 0) {
-        if (keyremoved)
-            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
-        updateKeysizesHist(c->db, OBJ_ARRAY,
-                           old_count, keyremoved ? -1 : (int64_t)arCount(ar));
-        if (server.memory_tracking_enabled && !keyremoved)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
-        keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
-        notifyKeyspaceEvent(NOTIFY_ARRAY, "ardel", c->argv[1], c->db->id);
-        if (keyremoved)
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        server.dirty += deleted;
-    }
+    arFinalizeDelete(c, o, old_count, old_alloc, deleted, "ardel");
     addReplyLongLong(c, deleted);
 }
 
@@ -355,22 +383,7 @@ void ardelrangeCommand(client *c) {
         total_deleted += arDeleteRange(ar, lo, hi);
     }
 
-    int keyremoved = (arCount(ar) == 0);
-    if (server.memory_tracking_enabled && total_deleted > 0 && keyremoved)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
-    if (total_deleted > 0) {
-        if (keyremoved)
-            dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
-        updateKeysizesHist(c->db, OBJ_ARRAY,
-                           old_count, keyremoved ? -1 : (int64_t)arCount(ar));
-        if (server.memory_tracking_enabled && !keyremoved)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, old_alloc, kvobjAllocSize(o));
-        keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
-        notifyKeyspaceEvent(NOTIFY_ARRAY, "ardelrange", c->argv[1], c->db->id);
-        if (keyremoved)
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-        server.dirty += total_deleted;
-    }
+    arFinalizeDelete(c, o, old_count, old_alloc, total_deleted, "ardelrange");
     addReplyUnsignedLongLong(c, total_deleted);
 }
 
