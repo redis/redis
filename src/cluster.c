@@ -104,6 +104,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
         buffer = sdsempty();
     }
     rioInitWithBuffer(payload,buffer);
+    payload->flags |= RIO_FLAG_DUMP_PAYLOAD;
 
     /* Skip compression when the caller asked for raw bytes. */
     int prev_comp = server.rdb_compression;
@@ -114,8 +115,8 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
      * metadata separately through keyMetaOnAof(). */
     if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
-    serverAssert(rdbSaveObjectType(payload,o,RDBFLAGS_DUMP_PAYLOAD));
-    serverAssert(rdbSaveObject(payload,o,key,dbid,RDBFLAGS_DUMP_PAYLOAD));
+    serverAssert(rdbSaveObjectType(payload,o));
+    serverAssert(rdbSaveObject(payload,o,key,dbid));
 
     server.rdb_compression = prev_comp;
 
@@ -271,6 +272,7 @@ void restoreCommand(client *c) {
     }
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
+    payload.flags |= RIO_FLAG_DUMP_PAYLOAD;
 
     /* Initialize metadata spec to collect metadata+expiry from payload. */
     KeyMetaSpec keymeta;
@@ -290,7 +292,7 @@ void restoreCommand(client *c) {
     }
 
     /* Load the object */
-    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,RDBFLAGS_DUMP_PAYLOAD,NULL)) == NULL)
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
     {
         keyMetaSpecCleanup(&keymeta);
         addReplyError(c,"Bad data format");

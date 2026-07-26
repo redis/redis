@@ -730,7 +730,7 @@ NULL
             "encoding:%s serializedlength:%zu "
             "lru:%d lru_seconds_idle:%llu%s",
             (void*)kv, kv->refcount,
-            strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id, RDBFLAGS_DUMP_PAYLOAD),
+            strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
             kv->lru, estimateObjectIdleTime(kv)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"keymeta-aof-dump") && c->argc == 3) {
         kvobj *kv = dbFind(c->db, c->argv[2]->ptr);

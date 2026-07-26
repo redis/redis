@@ -101,6 +101,10 @@ ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     return len;
 }
 
+static inline int rdbIsDumpPayload(const rio *rdb) {
+    return rdb && (rdb->flags & RIO_FLAG_DUMP_PAYLOAD);
+}
+
 int rdbSaveType(rio *rdb, unsigned char type) {
     return rdbWriteRaw(rdb,&type,1);
 }
@@ -684,7 +688,7 @@ int rdbLoadBinaryFloatValue(rio *rdb, float *val) {
 }
 
 /* Save the object type of object "o". */
-int rdbSaveObjectType(rio *rdb, robj *o, int rdbflags) {
+int rdbSaveObjectType(rio *rdb, robj *o) {
     switch (o->type) {
     case OBJ_STRING:
         return rdbSaveType(rdb,RDB_TYPE_STRING);
@@ -724,7 +728,7 @@ int rdbSaveObjectType(rio *rdb, robj *o, int rdbflags) {
             /* Template encodings. RDB save: compact "ref" form storing only the
              * template id + values. DUMP/RESTORE: "full" form that includes 
              * field names. */
-            if (!(rdbflags & RDBFLAGS_DUMP_PAYLOAD)) {
+            if (!rdbIsDumpPayload(rdb)) {
                 return rdbSaveType(rdb, o->encoding == OBJ_ENCODING_TMPL_LP ?
                                                             RDB_TYPE_HASH_TMPL_LP_REF :
                                                             RDB_TYPE_HASH_TMPL_ARRAY_REF);
@@ -1129,7 +1133,7 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     return nwritten;
 }
 
-ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid, int rdbflags) {
+ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     ssize_t n = 0, nwritten = 0;
 
     if (o->type == OBJ_STRING) {
@@ -1256,7 +1260,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid, int rdbflags) {
 
             /* If this is a BGSAVE, we can use the compact ref format.
              * DUMP payload is self-contained (field names included). */
-            if (!(rdbflags & RDBFLAGS_DUMP_PAYLOAD)) {
+            if (!rdbIsDumpPayload(rdb)) {
                 if (o->encoding == OBJ_ENCODING_TMPL_LP) {
                     /* TMPL_LP compact: raw listpack blob. The template ID is
                      * the first listpack entry, so no separate field needed. */
@@ -1670,8 +1674,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid, int rdbflags) {
  * the rdbSaveObject() function. Currently we use a trick to get
  * this length with very little changes to the code. In the future
  * we could switch to a faster solution. */
-size_t rdbSavedObjectLen(robj *o, robj *key, int dbid, int rdbflags) {
-    ssize_t len = rdbSaveObject(NULL,o,key,dbid,rdbflags);
+size_t rdbSavedObjectLen(robj *o, robj *key, int dbid) {
+    ssize_t len = rdbSaveObject(NULL,o,key,dbid);
     serverAssertWithInfo(NULL,o,len != -1);
     return len;
 }
@@ -1679,7 +1683,7 @@ size_t rdbSavedObjectLen(robj *o, robj *key, int dbid, int rdbflags) {
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned. */
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, int dbid, int rdbflags) {
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, int dbid) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
@@ -1716,9 +1720,9 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
     }
 
     /* Save type, key, value */
-    if (rdbSaveObjectType(rdb,val,rdbflags) == -1) return -1;
+    if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
-    if (rdbSaveObject(rdb,val,key,dbid,rdbflags) == -1) return -1;
+    if (rdbSaveObject(rdb,val,key,dbid) == -1) return -1;
 
     /* Delay return if required (for testing) */
     if (server.rdb_key_save_delay)
@@ -1976,7 +1980,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
         expire = kvobjGetExpire(kv);
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
-        res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid, rdbflags);
+        res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(db, curr_slot, kv, oldsize, kvobjAllocSize(kv));
         if (res < 0) goto werr2;
@@ -2899,7 +2903,7 @@ static void rdbDiscardTemplateFields(rdbTmplFields *out) {
  *   no fields with expiration or it is not a hash, then it will set be to
  *   EB_EXPIRE_TIME_INVALID.
  */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbflags, int *error)
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
@@ -3276,7 +3280,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbflags, int 
             hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_LP_REF) {
         /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
-        if (rdbflags & RDBFLAGS_DUMP_PAYLOAD) {
+        if (rdbIsDumpPayload(rdb)) {
             rdbReportCorruptRDB("Hash type %d not valid in a DUMP payload", rdbtype);
             return NULL;
         }
@@ -3324,7 +3328,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbflags, int 
         zfree(values);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_ARRAY_REF) {
         /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
-        if (rdbflags & RDBFLAGS_DUMP_PAYLOAD) {
+        if (rdbIsDumpPayload(rdb)) {
             rdbReportCorruptRDB("Hash type %d not valid in a DUMP payload", rdbtype);
             return NULL;
         }
@@ -4946,7 +4950,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             goto eoferr;
         }
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db->id,rdbflags,&error);
+        val = rdbLoadObject(type,rdb,key,db->id,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
