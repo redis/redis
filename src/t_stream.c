@@ -4704,10 +4704,6 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Max macro-nodes the XAUTOCLAIM merge-join scans forward before seeking
- * directly to the target, bounding the sparse-PEL worst case. */
-#define STREAM_XAC_MAX_NODE_SCAN 2
-
 /* Advance the shared stream iterator 'si' forward to the first entry whose ID
  * is >= *target, implementing the merge-join used by xautoclaimCommand.
  *
@@ -4717,6 +4713,10 @@ cleanup:
  * entry's fields have been consumed, so the next streamIteratorGetID() call
  * yields the following entry.
  *
+ * When the target is past the last ID of the current listpack node (sparse
+ * PEL), the iterator seeks directly to *target instead of scanning every
+ * intervening entry.
+ *
  * Returns 1 if *target exists, positioning 'si' on it (fields intact). Returns
  * 0 otherwise; if we stopped on a later entry it is left unconsumed
  * (*have_entry stays 1) for the next call to reuse. */
@@ -4725,46 +4725,41 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                              int *have_entry)
 {
     streamID maxid = {UINT64_MAX, UINT64_MAX};
-    int node_scan = 0;
-    int have_master = *have_entry;
-    streamID prev_master = have_master ? si->master_id : (streamID){0,0};
     while (1) {
-        if (*have_entry && streamCompareID(entry_id,target) < 0) {
-            /* Skip an intervening / already-processed entry: advance past its
-             * fields without decoding them, mirroring streamIteratorGetID()'s
-             * discard logic. */
-            int64_t to_skip = (si->entry_flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
-                              *entry_numfields : *entry_numfields*2;
-            while (to_skip-- > 0)
-                si->lp_ele = lpNext(si->lp,si->lp_ele);
+        if (*have_entry) {
+            int cmp = streamCompareID(entry_id,target);
+            if (cmp == 0) return 1;  /* Found target. */
+            if (cmp > 0) return 0;   /* Past target: not found, leave entry for reuse. */
+            /* entry_id < target. If the target is past this listpack's last ID,
+             * seek directly instead of walking intervening entries. */
+            streamID last_id;
+            if (lpGetEdgeStreamID(si->lp, 0, &si->master_id, &last_id) &&
+                streamCompareID(target, &last_id) > 0)
+            {
+                streamIteratorStop(si);
+                streamIteratorStart(si,s,target,&maxid,0);
+            } else {
+                /* Target may still be in this node: skip this entry's fields
+                 * without decoding them, mirroring streamIteratorGetID(). */
+                int64_t to_skip = (si->entry_flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
+                                  *entry_numfields : *entry_numfields*2;
+                while (to_skip-- > 0)
+                    si->lp_ele = lpNext(si->lp,si->lp_ele);
+            }
             *have_entry = 0;
-        }
-        if (!*have_entry) {
-            *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
-            if (!*have_entry) return 0; /* EOF */
-            /* After crossing more than STREAM_XAC_MAX_NODE_SCAN nodes without
-             * reaching the target (sparse PEL), seek directly instead. But skip
-             * the re-seek if the current entry already reached the target,
-             * since it would only rediscover the same entry. */
-            if (!have_master) {
-                prev_master = si->master_id;
-                have_master = 1;
-            } else if (streamCompareID(&si->master_id,&prev_master) != 0) {
-                prev_master = si->master_id;
-                if (++node_scan > STREAM_XAC_MAX_NODE_SCAN &&
-                    streamCompareID(entry_id,target) < 0) {
-                    streamIteratorStop(si);
-                    streamIteratorStart(si,s,target,&maxid,0);
-                    node_scan = 0;
-                    have_master = 0; /* re-prime prev_master on next GetID */
-                    *have_entry = 0;
-                    continue;
-                }
+        } else if (si->lp) {
+            /* Fields already consumed; still jump past this node if needed. */
+            streamID last_id;
+            if (lpGetEdgeStreamID(si->lp, 0, &si->master_id, &last_id) &&
+                streamCompareID(target, &last_id) > 0)
+            {
+                streamIteratorStop(si);
+                streamIteratorStart(si,s,target,&maxid,0);
             }
         }
-        int cmp = streamCompareID(entry_id,target);
-        if (cmp == 0) return 1;  /* Found target. */
-        if (cmp > 0) return 0;   /* Past target: not found, leave entry for reuse. */
+
+        *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
+        if (!*have_entry) return 0; /* EOF */
     }
 }
 
