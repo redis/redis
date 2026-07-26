@@ -102,7 +102,9 @@ ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
 }
 
 static inline int rdbIsDumpPayload(const rio *rdb) {
-    return rdb && (rdb->flags & RIO_FLAG_DUMP_PAYLOAD);
+    /* A NULL rio is used by DEBUG OBJECT, which historically reports the DUMP
+     * payload serialization size. */
+    return rdb == NULL || (rdb->flags & RIO_FLAG_DUMP_PAYLOAD);
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
