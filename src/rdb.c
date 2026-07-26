@@ -2746,6 +2746,7 @@ static robj *rdbFinalizeTmplLp(unsigned char *lp, hashTemplate *tmpl) {
     unsigned char *p = lpFirst(lp);
     serverAssert(p != NULL);
     lp = lpReplaceInteger(lp, &p, (long long)tmpl->id);
+    serverAssert(lp != NULL);
 
     hashTemplateIncrKeyRef(tmpl);
     robj *o = createObject(OBJ_HASH, lp);
