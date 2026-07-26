@@ -1470,6 +1470,15 @@ void computeDefragCycles(void) {
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current
      * fragmentation and configurations. */
+    /* Guard against division-by-zero when thresholds are equal or reversed */
+    if (server.active_defrag_threshold_upper <= server.active_defrag_threshold_lower) {
+        serverLog(LL_WARNING,
+            "Active defrag: upper threshold (%d) <= lower threshold (%d), using max cycle",
+            server.active_defrag_threshold_upper,
+            server.active_defrag_threshold_lower);
+        server.active_defrag_running = server.active_defrag_cycle_max;
+        return;
+    }
     int cpu_pct = INTERPOLATE(frag_pct,
             server.active_defrag_threshold_lower,
             server.active_defrag_threshold_upper,
