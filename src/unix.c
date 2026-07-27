@@ -60,11 +60,27 @@ static int connUnixListen(connListener *listener) {
     for (int j = 0; j < listener->bindaddr_count; j++) {
         char *addr = listener->bindaddr[j];
 
-        unlink(addr); /* don't care if this fails */
+        fd = anetUnixNonBlockConnect(server.neterr, addr);
+        if (fd != ANET_ERR) {
+            close(fd);
+            serverLog(LL_WARNING, "Unix socket %s is already in use", addr);
+            return C_ERR;
+        }
+        if (errno != ENOENT) {
+            if (errno != ECONNREFUSED) {
+                serverLog(LL_WARNING, "Failed probing Unix socket %s: %s", addr, server.neterr);
+                return C_ERR;
+            }
+            if (unlink(addr) == -1) {
+                serverLog(LL_WARNING, "Failed removing stale Unix socket %s: %s", addr, strerror(errno));
+                return C_ERR;
+            }
+        }
+
         fd = anetUnixServer(server.neterr, addr, *perm, server.tcp_backlog);
         if (fd == ANET_ERR) {
             serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
-            exit(1);
+            return C_ERR;
         }
         anetNonBlock(NULL, fd);
         anetCloexec(fd);

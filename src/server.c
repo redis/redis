@@ -3296,6 +3296,7 @@ void initListeners(void) {
 
     /* create all the configured listener, and add handler to start to accept */
     int listen_fds = 0;
+    int unix_socket_created = 0;
     for (int j = 0; j < CONN_TYPE_MAX; j++) {
         listener = &server.listeners[j];
         if (listener->ct == NULL)
@@ -3303,19 +3304,30 @@ void initListeners(void) {
 
         if (connListen(listener) == C_ERR) {
             serverLog(LL_WARNING, "Failed listening on port %u (%s), aborting.", listener->port, listener->ct->get_type(NULL));
-            exit(1);
+            goto listener_error;
         }
 
-        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK)
-            serverPanic("Unrecoverable error creating %s listener accept handler.", listener->ct->get_type(NULL));
+        if (!strcasecmp(listener->ct->get_type(NULL), CONN_TYPE_UNIX) && listener->count > 0)
+            unix_socket_created = 1;
 
-       listen_fds += listener->count;
+        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK) {
+            serverLog(LL_WARNING, "Failed creating %s listener accept handler, aborting.",
+                      listener->ct->get_type(NULL));
+            goto listener_error;
+        }
+
+        listen_fds += listener->count;
     }
 
     if (listen_fds == 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
-        exit(1);
+        goto listener_error;
     }
+    return;
+
+listener_error:
+    closeListeningSockets(unix_socket_created);
+    exit(1);
 }
 
 /* Some steps in server initialization need to be done last (after modules

@@ -14,6 +14,62 @@
 
 source tests/support/cli.tcl
 
+start_server {tags {"unixsocket external:skip"}} {
+    test {A second server does not replace an active Unix socket} {
+        # Avoid a TCP port conflict so the second server reaches the Unix
+        # socket check, while reusing the socket owned by the outer server.
+        set second_port [find_available_port $::baseport $::portcount]
+
+        assert_equal 1 [catch {
+            exec src/redis-server [srv config_file] \
+                --port $second_port --unixsocket [srv unixsocket]
+        } second_error]
+        assert_match {*Unix socket * is already in use*} $second_error
+
+        # The failed second startup must not disturb the original listener.
+        assert_equal PONG [exec {*}[rediscli_unixsocket [srv unixsocket]] PING]
+    }
+
+    test {Failed listener initialization removes its newly created Unix socket} {
+        if {$::tls} {
+            # Disable the plain TCP listener and use a new Unix socket. The
+            # inherited TLS port is already owned by the outer server, so this
+            # startup fails only after successfully creating the Unix socket.
+            set failed_socket [file normalize [tmpfile failed-startup.sock]]
+
+            assert_equal 1 [catch {
+                exec src/redis-server [srv config_file] \
+                    --port 0 --unixsocket $failed_socket
+            }]
+
+            # Listener rollback must remove the socket created by this process.
+            assert_equal 0 [file exists $failed_socket]
+        }
+    }
+
+    test {A stale Unix socket is replaced and accepts connections} {
+        set stale_socket [file normalize [tmpfile stale.sock]]
+
+        # SIGKILL bypasses normal shutdown cleanup, leaving the socket path
+        # behind with no process listening on it.
+        start_server [list overrides [list unixsocket $stale_socket]] {
+            set stale_pid [srv 0 pid]
+            exec kill -9 $stale_pid
+            wait_for_condition 500 10 {
+                ![is_alive $stale_pid]
+            } else {
+                fail "Server did not exit after SIGKILL"
+            }
+        }
+        assert_equal 1 [file exists $stale_socket]
+
+        # A new server should remove the stale path, bind it, and accept clients.
+        start_server [list overrides [list unixsocket $stale_socket]] {
+            assert_equal PONG [exec {*}[rediscli_unixsocket $stale_socket] PING]
+        }
+    }
+}
+
 test {CONFIG SET port number} {
     start_server {} {
         if {$::tls} { set port_cfg tls-port} else { set port_cfg port }
