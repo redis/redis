@@ -3166,7 +3166,7 @@ typedef struct {
     dictEntry *de;
 
     /* For TMPL_LP and TMPL_ARRAY encodings. */
-    int tmpl_index;  /* Current field index in template (-1 = not started). */
+    long long field_index;  /* Current field index in template (-1 = not started). */
     struct hashTemplate *tmpl;  /* Cached template pointer. */
 } hashTypeIterator;
 

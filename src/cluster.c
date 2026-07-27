@@ -104,10 +104,9 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
         buffer = sdsempty();
     }
     rioInitWithBuffer(payload,buffer);
+    payload->flags |= RIO_FLAG_DUMP_PAYLOAD;
 
-    /* A DUMP payload is standalone: serialize objects self-contained (not ref
-     * form), and skip LZF when the caller asked for raw bytes. */
-    int prev_ref = rdbSaveSetRefMode(0);
+    /* Skip compression when the caller asked for raw bytes. */
     int prev_comp = server.rdb_compression;
     if (flags & DUMP_PAYLOAD_DONT_COMPRESS) server.rdb_compression = 0;
 
@@ -120,7 +119,6 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
     server.rdb_compression = prev_comp;
-    rdbSaveSetRefMode(prev_ref);
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
@@ -274,6 +272,7 @@ void restoreCommand(client *c) {
     }
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
+    payload.flags |= RIO_FLAG_DUMP_PAYLOAD;
 
     /* Initialize metadata spec to collect metadata+expiry from payload. */
     KeyMetaSpec keymeta;
