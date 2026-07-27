@@ -176,6 +176,28 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
     }
 }
 
+start_cluster 2 2 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 3000]] {
+    test "ClusterTopologyChange does not report NODE when only a peer cluster bus port changes" {
+        if {$::tls} {
+            set baseport [lindex [R 0 config get tls-port] 1]
+        } else {
+            set baseport [lindex [R 0 config get port] 1]
+        }
+        set count [expr [llength $::servers] + 1]
+        set newbus [find_available_port $baseport $count]
+
+        set before [dict get [topo_stats 1] node]
+        R 0 config set cluster-announce-bus-port $newbus
+
+        wait_for_condition 50 100 {
+            [string match "*@$newbus *" [R 1 cluster nodes]]
+        } else {
+            fail "Cluster announced bus port was not propagated via gossip"
+        }
+        assert_equal $before [dict get [topo_stats 1] node]
+    }
+}
+
 if {$::tls} {
     start_cluster 1 0 [list tags {external:skip cluster modules tls} config_lines [list loadmodule $testmodule]] {
         test "ClusterTopologyChange reports the NODE reason when local announced endpoints change" {

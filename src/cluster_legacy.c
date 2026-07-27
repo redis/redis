@@ -2312,6 +2312,12 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (node->tcp_port == tcp_port && node->cport == cport && node->tls_port == tls_port &&
         strcmp(ip,node->ip) == 0) return 0;
 
+    /* The cluster bus port is only used for internal node-to-node communication,
+     * so changing it alone is not a module-visible topology change. */
+    int topology_changed = node->tcp_port != tcp_port ||
+                           node->tls_port != tls_port ||
+                           strcmp(ip,node->ip) != 0;
+
     /* IP / port is different, update it. */
     memcpy(node->ip,ip,sizeof(ip));
     node->tcp_port = tcp_port;
@@ -2327,8 +2333,8 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (nodeIsSlave(myself) && myself->slaveof == node)
         replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
 
-    /* A node moving to a different address is a topology change. */
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    if (topology_changed)
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     return 1;
 }
 
