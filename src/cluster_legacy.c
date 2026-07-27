@@ -854,12 +854,10 @@ void clusterUpdateMyselfAnnouncedPorts(void) {
     if (!myself) return;
     int old_tcp_port = myself->tcp_port;
     int old_tls_port = myself->tls_port;
-    int old_cport = myself->cport;
 
     deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
     if (myself->tcp_port != old_tcp_port ||
-        myself->tls_port != old_tls_port ||
-        myself->cport != old_cport)
+        myself->tls_port != old_tls_port)
     {
         clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     }
@@ -5233,7 +5231,7 @@ void clusterCloseAllSlots(void) {
  * from the next clusterBeforeSleep(). Called by topology mutation paths and
  * config-driven endpoint updates. */
 void clusterNotifyTopologyChange(uint64_t change_flags) {
-    if (!server.cluster_enabled || !server.cluster) return;
+    if (!server.cluster_enabled) return;
     server.cluster->topology_change_flags |= change_flags;
     clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
 }

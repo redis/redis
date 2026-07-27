@@ -184,7 +184,6 @@ if {$::tls} {
                 {cluster-announce-hostname node.example.test ""}
                 {cluster-announce-port 32001 0}
                 {cluster-announce-tls-port 32002 0}
-                {cluster-announce-bus-port 32003 0}
             } {
                 lassign $change config value default
 
@@ -204,6 +203,15 @@ if {$::tls} {
                     fail "NODE change reason was not reported after resetting $config"
                 }
             }
+        }
+
+        test "ClusterTopologyChange does not report NODE for local cluster bus port changes" {
+            set before [dict get [topo_stats 0] node]
+            R 0 config set cluster-announce-bus-port 32003
+            assert_equal $before [dict get [topo_stats 0] node]
+
+            R 0 config set cluster-announce-bus-port 0
+            assert_equal $before [dict get [topo_stats 0] node]
         }
 
         test "ClusterTopologyChange reports the NODE reason when tls-cluster changes the preferred port" {
