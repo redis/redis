@@ -4704,37 +4704,33 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Advance the shared stream iterator 'si' forward to the first entry whose ID
- * is >= *target, implementing the merge-join used by xautoclaimCommand.
+/* Advance the stream iterator 'si' to the first entry whose ID is greater than
+ * or equal to 'target'. This implements the merge join used by
+ * xautoclaimCommand().
  *
- * The '*have_entry' flag carries the iterator state across calls. If it is 1
- * then 'si' is positioned on *entry_id / *entry_numfields and the current
- * entry's fields have NOT yet been consumed. If it is 0 then the previous
- * entry's fields have been consumed, so the next streamIteratorGetID() call
- * yields the following entry.
+ * If 'have_entry' is set, 'entry_id' and 'entry_numfields' describe the
+ * current entry and its fields have not been consumed. Otherwise, the next
+ * call to streamIteratorGetID() returns the following entry.
  *
- * When the target is past the last ID of the current listpack node (sparse
- * PEL), the iterator seeks directly to *target instead of scanning every
- * intervening entry. The node last-ID is cached and refreshed only when the
- * current listpack (master_id) changes.
+ * If 'target' is past the current listpack, seek directly to it instead of
+ * scanning the intervening entries. The last ID of the current listpack is
+ * cached in 'last_id', 'last_master', and 'have_last' across calls.
  *
- * Returns 1 if *target exists, positioning 'si' on it (fields intact). Returns
- * 0 otherwise; if we stopped on a later entry it is left unconsumed
- * (*have_entry stays 1) for the next call to reuse. */
+ * Return 1 if 'target' exists, leaving its fields unconsumed. Otherwise return
+ * 0. If a later entry was found, it is also left unconsumed for the next call. */
 static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                              streamID *entry_id, int64_t *entry_numfields,
-                             int *have_entry)
+                             int *have_entry, streamID *last_id,
+                             streamID *last_master, int *have_last)
 {
     streamID maxid = {UINT64_MAX, UINT64_MAX};
-    streamID last_id, last_master = {0,0};
-    int have_last = 0;
     while (1) {
-        /* Cache this listpack's last ID once per node. */
-        if (si->lp && (!have_last || streamCompareID(&si->master_id,&last_master) != 0)) {
-            have_last = lpGetEdgeStreamID(si->lp,0,&si->master_id,&last_id);
-            last_master = si->master_id;
+        /* Cache this listpack's last ID once per node (persists across calls). */
+        if (si->lp && (!*have_last || streamCompareID(&si->master_id,last_master) != 0)) {
+            *have_last = lpGetEdgeStreamID(si->lp,0,&si->master_id,last_id);
+            *last_master = si->master_id;
         }
-        int past_node = have_last && streamCompareID(target,&last_id) > 0;
+        int past_node = *have_last && streamCompareID(target,last_id) > 0;
 
         if (*have_entry) {
             int cmp = streamCompareID(entry_id,target);
@@ -4755,7 +4751,7 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
         if (past_node) {
             streamIteratorStop(si);
             streamIteratorStart(si,s,target,&maxid,0);
-            have_last = 0;
+            *have_last = 0;
         }
 
         *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
@@ -4875,6 +4871,9 @@ void xautoclaimCommand(client *c) {
     streamID entry_id;
     int64_t entry_numfields;
     int have_entry = 0; /* 1 if entry_id is valid and its fields are unread. */
+    /* Node last-ID cache, persists across xautoclaimAdvance() calls. */
+    streamID last_id, last_master = {0,0};
+    int have_last = 0;
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
 
@@ -4884,7 +4883,8 @@ void xautoclaimCommand(client *c) {
         /* Merge-join: advance the shared iterator to the first stream entry
          * with ID >= this PEL id, reusing it both to check existence and (for
          * non-JUSTID) to emit its fields. */
-        int found = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,&have_entry);
+        int found = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,&have_entry,
+                                      &last_id,&last_master,&have_last);
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!found) {
