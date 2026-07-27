@@ -121,7 +121,7 @@ done
 echo
 # A structural skip (missing clone/Makefile or no 'bootstrap' target) already
 # printed "!! SKIP" inline above. In list mode the module only records (always
-# exits 0), so a non-zero $failed here is such a skip — it must NOT pre-empt the
+# exits 0), so a non-zero $failed here is such a skip — it must NOT preempt the
 # deduped union summary below. Only install/dry-run failures short-circuit.
 if [ -n "$failed" ] && [ "$CHECK_DEPS" != 1 ]; then
   if [ "$DRY" = 1 ]; then
