@@ -148,6 +148,20 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
+# Negative counterpart of wait_for_condition: assert that expression 'e' stays
+# false for the whole window (maxtries * delay ms). Fails as soon as 'e' becomes
+# true. Use this for "must never happen" checks -- wait_for_condition itself is
+# unsuitable there, since it waits FOR a condition and treats a timeout as failure.
+# Implemented on top of wait_for_condition by inverting: we wait for the unwanted
+# condition. wait_for_condition returns the else-script's value on timeout and an
+# empty string when the condition becomes true, so a "timed-out" sentinel back
+# means the bad thing never happened (success); anything else means it did.
+proc assert_condition_stays_false {maxtries delay e {msg ""}} {
+    if {$msg eq ""} { set msg "condition '$e' became true but was expected to stay false" }
+    set res [uplevel 1 [list wait_for_condition $maxtries $delay $e else {return -level 0 "timed-out"}]]
+    if {$res ne "timed-out"} { fail $msg }
+}
+
 # try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
 # The caller can specify to use only glob-pattern match
 proc search_pattern_list {value pattern_list {glob_pattern false}} {

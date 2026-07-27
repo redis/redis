@@ -249,15 +249,9 @@ if {$::tls} {
                 set replica [srv 0 client]
                 $replica replicaof $master_host $master_port
                 # The link must never reach "up": the peer cert has no matching SAN.
-                set never_up 1
-                for {set i 0} {$i < 20} {incr i} {
-                    if {[string match {*master_link_status:up*} [$replica info replication]]} {
-                        set never_up 0
-                        break
-                    }
-                    after 100
-                }
-                assert_equal 1 $never_up
+                assert_condition_stays_false 20 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } "Replication link came up despite a mismatching tls-expected-peer-name"
             }
         }
 
@@ -268,15 +262,9 @@ if {$::tls} {
             start_server [list overrides [list tls-expected-peer-name "absent.example.com"]] {
                 set replica [srv 0 client]
                 $replica replicaof $master_host $master_port
-                set never_up 1
-                for {set i 0} {$i < 20} {incr i} {
-                    if {[string match {*master_link_status:up*} [$replica info replication]]} {
-                        set never_up 0
-                        break
-                    }
-                    after 100
-                }
-                assert_equal 1 $never_up
+                assert_condition_stays_false 20 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } "Replication link came up before the matching name was configured"
                 $replica config set tls-expected-peer-name "absent.example.com cluster.local"
                 wait_for_condition 50 100 {
                     [string match {*master_link_status:up*} [$replica info replication]]
@@ -291,15 +279,9 @@ if {$::tls} {
                 set replica [srv 0 client]
                 $replica replicaof $master_host $master_port
                 # Wrong name: the link stays down.
-                set never_up 1
-                for {set i 0} {$i < 20} {incr i} {
-                    if {[string match {*master_link_status:up*} [$replica info replication]]} {
-                        set never_up 0
-                        break
-                    }
-                    after 100
-                }
-                assert_equal 1 $never_up
+                assert_condition_stays_false 20 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } "Replication link came up despite a wrong tls-expected-peer-name"
                 # Correct the expected name at runtime; the next reconnect should succeed.
                 $replica config set tls-expected-peer-name "redis.local"
                 wait_for_condition 50 100 {

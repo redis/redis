@@ -79,12 +79,12 @@ if {$::tls} {
             }
             catch {close $fd}
 
-            # Give the victim a moment to (fail to) process anything on that link.
-            after 500
-
-            # The forged FAIL must NOT have been processed: no node was marked
-            # failing on node 0's behalf. (A healthy cluster never emits FAIL.)
-            assert_equal 0 [count_log_message 0 "FAIL message received"]
+            # The forged FAIL must NOT be processed: the packet is rejected during
+            # the TLS handshake, so "FAIL message received" must never be logged.
+            # Poll the log over a bounded window and fail the instant it appears.
+            assert_condition_stays_false 20 100 {
+                [count_log_message 0 "FAIL message received"] > 0
+            } "Cluster bus processed a forged FAIL from a non-member certificate"
 
             # Node 2 must not be flagged failed in node 0's view.
             set node2 {}
