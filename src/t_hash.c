@@ -512,18 +512,33 @@ int hashTemplateDefragByIdChunk(unsigned long chunk_idx) {
     return 1;
 }
 
+/* HIMPORT SET propagation usually sends RESTORE commands with the same few
+ * field sets. ASM may send RESTORE commands with thousands of different field
+ * sets because keys arrive in arbitrary order. The cache holds at most one blob
+ * per template, so its size is naturally bounded by the template count. The
+ * explicit cap only protects against misuse that creates an excessive number
+ * of templates. */
+#define HASH_TMPL_FIELDS_LP_CACHE_MAX_BYTES (16 * 1024 * 1024)
+
 /* Cache 'fields_lp' as tmpl's fields-listpack (blob -> template), taking
- * ownership. Last one wins: a stale blob already attached is dropped. */
-void hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp) {
-    if (tmpl->fields_lp) {
-        dictDelete(htemplates->by_fields_lp, tmpl->fields_lp);
-        htemplates->total_mem_size -= lpBytes(tmpl->fields_lp);
-        lpFree(tmpl->fields_lp);
-    }
+ * ownership on success. Returns 0 without consuming fields_lp if tmpl is already
+ * indexed or the cache is full. */
+int hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp) {
+    if (tmpl->fields_lp) return 0;
+
+    size_t cached_bytes = htemplates->fields_lp_cache_bytes;
+    serverAssert(cached_bytes <= HASH_TMPL_FIELDS_LP_CACHE_MAX_BYTES);
+
+    size_t bytes = lpBytes(fields_lp);
+    if (bytes > HASH_TMPL_FIELDS_LP_CACHE_MAX_BYTES - cached_bytes)
+        return 0;
+
     tmpl->fields_lp = fields_lp;
     tmpl->fields_lp_last_used = server.mstime;
-    dictAdd(htemplates->by_fields_lp, fields_lp, tmpl);
-    htemplates->total_mem_size += lpBytes(fields_lp);
+    serverAssert(dictAdd(htemplates->by_fields_lp, fields_lp, tmpl) == DICT_OK);
+    htemplates->fields_lp_cache_bytes += bytes;
+    htemplates->total_mem_size += bytes;
+    return 1;
 }
 
 /* Build a fresh fields listpack (caller owns it). */
@@ -540,14 +555,15 @@ static unsigned char *hashTemplateBuildFieldsLp(hashTemplate *tmpl) {
     return lp;
 }
 
-/* Return tmpl's fields listpack, building it on first use. 'cache' also adds the
- * blob to the by_fields_lp lookup (used on RESTORE) */
-unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int cache) {
-    if (!cache) return hashTemplateBuildFieldsLp(tmpl);
+/* Return tmpl's fields listpack, building it on first use. '*cache' requests
+ * indexing the blob for RESTORE lookup and is cleared if the cache is full,
+ * in which case the caller owns the returned blob. */
+unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int *cache) {
+    if (!*cache) return hashTemplateBuildFieldsLp(tmpl);
     tmpl->fields_lp_last_used = server.mstime;
     if (tmpl->fields_lp) return tmpl->fields_lp;
     unsigned char *lp = hashTemplateBuildFieldsLp(tmpl);
-    hashTemplateIndexFieldsLp(tmpl, lp);
+    if (!hashTemplateIndexFieldsLp(tmpl, lp)) *cache = 0;
     return lp;
 }
 
@@ -601,16 +617,25 @@ static int templateFieldsKeyCompare(dictCmpCache *cache,
     return 1;
 }
 
+/* Drop tmpl's cached fields listpack. */
+static void hashTemplateDropFieldsLp(hashTemplate *tmpl) {
+    if (tmpl->fields_lp == NULL) return;
+
+    unsigned char *lp = tmpl->fields_lp;
+    size_t bytes = lpBytes(lp);
+    serverAssert(dictDelete(htemplates->by_fields_lp, lp) == DICT_OK);
+    serverAssert(htemplates->fields_lp_cache_bytes >= bytes);
+    htemplates->fields_lp_cache_bytes -= bytes;
+    htemplates->total_mem_size -= bytes;
+    lpFree(lp);
+    tmpl->fields_lp = NULL;
+}
+
 static void templateFieldsKeyDestructor(dict *d, void *key) {
     UNUSED(d);
     hashTemplate *tmpl = key;
     tmplIdRecycle(tmpl->id);
-    /* Drop the lazy fields-listpack blob and its by_fields_lp index entry. */
-    if (tmpl->fields_lp) {
-        dictDelete(htemplates->by_fields_lp, tmpl->fields_lp);
-        htemplates->total_mem_size -= lpBytes(tmpl->fields_lp);
-        lpFree(tmpl->fields_lp);
-    }
+    hashTemplateDropFieldsLp(tmpl);
     for (unsigned long long i = 0; i < tmpl->field_count; i++)
         sdsfree(tmpl->fields[i]);
     zfree(tmpl->fields);
@@ -862,12 +887,7 @@ static void hashTemplatesCleanupFieldsLpCron(void) {
 
         for (int i = 0; i < ctx.collected; i++) {
             hashTemplate *tmpl = ctx.tmpls[i];
-            if (tmpl->fields_lp == NULL) continue;
-
-            dictDelete(d, tmpl->fields_lp);
-            htemplates->total_mem_size -= lpBytes(tmpl->fields_lp);
-            lpFree(tmpl->fields_lp);
-            tmpl->fields_lp = NULL;
+            hashTemplateDropFieldsLp(tmpl);
         }
 
         if (cursor == 0) break; /* completed a full sweep */
@@ -3161,7 +3181,7 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
  *   - Disassemble: at end of load, turn every template still below the threshold
  *     key count back into a plain LISTPACK/HT hash.
  *
- * Why the reverse map (template -> list of the hash kvobjs using it): to undo a
+ * Why the reverse map (template ID -> list of the hash keys using it): to undo a
  * few-key template at end of load we need its keys, but a template doesn't know
  * who points at it. Building the list as we go lets us disassemble without
  * scanning the whole keyspace. A template that reaches the threshold "graduates"
@@ -3171,8 +3191,8 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
  * small early sample won't start it. See rdbLoadTemplateCtxShouldStopCreating(). */
 #define MIN_REVERSE_LOOKUP 1000
 struct rdbLoadTemplateCtx {
-    dict *reverse_lookup;   /* hashTemplate* -> list of hash kvobj* (few-key
-                             * templates only; entries leave on graduation). */
+    dict *reverse_lookup;   /* template ID -> list of rdbLoadTemplateCtxKvRef*
+                             * (few-key templates only; entries leave on graduation). */
     size_t disassembly_threshold; /* Keep templates with >= this many keys. */
     size_t number_of_templates;   /* Templates created this load (monotonic). */
     int stop_creating;        /* One-way latch: stop creating new templates. */
@@ -3195,8 +3215,7 @@ static void rdbLoadTemplateCtxListValDestructor(dict *d, void *val) {
     listRelease(val);
 }
 
-/* Keys are template pointers, values are lists of hash kvobjs freed when the 
- * entry is dropped/released. */
+/* Keys are stable template IDs; values are lists of rdbLoadTemplateCtxKvRef*. */
 static dictType rdbLoadTemplateCtxReverseDictType = {
     .hashFunction = dictPtrHash,
     .valDestructor = rdbLoadTemplateCtxListValDestructor,
@@ -3221,19 +3240,20 @@ void rdbLoadTemplateCtxRecord(rdbLoadTemplateCtx *ctx, robj *kv, redisDb *db) {
         kv->encoding != OBJ_ENCODING_TMPL_ARRAY) return;
 
     hashTemplate *tmpl = hashTypeGetTemplate(kv);
+    void *id_key = (void *)(uintptr_t)tmpl->id;
     if (tmpl->key_refcount == ctx->disassembly_threshold) {
         /* This key graduates tmpl: drop the tracking list so it survives. */
-        dictDelete(ctx->reverse_lookup, tmpl);
+        dictDelete(ctx->reverse_lookup, id_key);
         return;
     }
     if (tmpl->key_refcount > ctx->disassembly_threshold) return; /* already graduated */
 
-    dictEntry *de = dictFind(ctx->reverse_lookup, tmpl);
+    dictEntry *de = dictFind(ctx->reverse_lookup, id_key);
     list *l;
     if (de == NULL) {
         l = listCreate();
         listSetFreeMethod(l, rdbLoadTemplateCtxKvRefListFree);
-        dictAdd(ctx->reverse_lookup, tmpl, l);
+        dictAdd(ctx->reverse_lookup, id_key, l);
     } else {
         l = dictGetVal(de);
     }
