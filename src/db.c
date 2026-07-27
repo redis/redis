@@ -1752,6 +1752,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
                  * ones are provided. This is same behavior as SORT. */
                 found_store = 1;
                 keys[num] = i+1; /* <store-key> */
+                i++; /* Skip the store argument so it isn't re-parsed as an option keyword. */
                 break;
             }
         }

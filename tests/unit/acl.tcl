@@ -476,6 +476,24 @@ start_server {tags {"acl"}} {
         assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 
+    test {SORT duplicate STORE is checked against the last key} {
+        # Duplicate STORE uses last-wins semantics, so ACL must validate the
+        # last key. The earlier STORE argument can look like an option keyword
+        # (BY/GET/LIMIT) and must be skipped so a permitted first key doesn't
+        # mask a forbidden last key. (Backport smoke test for redis/redis#15478;
+        # 6.2 has no ACL DRYRUN, so we exercise the real command path.)
+        r ACL setuser command-test reset on nopass +@all ~read* ~by ~get ~limit
+        r AUTH command-test ""
+
+        assert_equal {0} [r SORT read STORE by STORE read2]
+        assert_error {*NOPERM*key*} {r SORT read STORE by STORE write2}
+        assert_error {*NOPERM*key*} {r SORT read STORE get STORE write2}
+        assert_error {*NOPERM*key*} {r SORT read STORE limit STORE write2}
+
+        r AUTH default ""
+        r ACL deluser command-test
+    }
+
     test {Delete a user that the client doesn't use} {
         r ACL setuser not_used on >passwd
         assert {[r ACL deluser not_used] == 1}
