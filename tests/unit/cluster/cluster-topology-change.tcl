@@ -178,6 +178,34 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
 
 if {$::tls} {
     start_cluster 1 0 [list tags {external:skip cluster modules tls} config_lines [list loadmodule $testmodule]] {
+        test "ClusterTopologyChange reports the NODE reason when local announced endpoints change" {
+            foreach change {
+                {cluster-announce-ip 127.0.0.2 ""}
+                {cluster-announce-hostname node.example.test ""}
+                {cluster-announce-port 32001 0}
+                {cluster-announce-tls-port 32002 0}
+                {cluster-announce-bus-port 32003 0}
+            } {
+                lassign $change config value default
+
+                set before [dict get [topo_stats 0] node]
+                R 0 config set $config $value
+                wait_for_condition 50 100 {
+                    [dict get [topo_stats 0] node] > $before
+                } else {
+                    fail "NODE change reason was not reported after changing $config"
+                }
+
+                set before [dict get [topo_stats 0] node]
+                R 0 config set $config $default
+                wait_for_condition 50 100 {
+                    [dict get [topo_stats 0] node] > $before
+                } else {
+                    fail "NODE change reason was not reported after resetting $config"
+                }
+            }
+        }
+
         test "ClusterTopologyChange reports the NODE reason when tls-cluster changes the preferred port" {
             set tls_port [lindex [R 0 config get tls-port] 1]
             set tcp_port [lindex [R 0 config get port] 1]

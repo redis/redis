@@ -852,7 +852,17 @@ void clusterUpdateMyselfFlags(void) {
 * The option can be set at runtime via CONFIG SET. */
 void clusterUpdateMyselfAnnouncedPorts(void) {
     if (!myself) return;
+    int old_tcp_port = myself->tcp_port;
+    int old_tls_port = myself->tls_port;
+    int old_cport = myself->cport;
+
     deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
+    if (myself->tcp_port != old_tcp_port ||
+        myself->tls_port != old_tls_port ||
+        myself->cport != old_cport)
+    {
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    }
 }
 
 /* We want to take myself->ip in sync with the cluster-announce-ip option.
@@ -880,6 +890,7 @@ void clusterUpdateMyselfIp(void) {
         } else {
             myself->ip[0] = '\0'; /* Force autodetection. */
         }
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     }
 }
 
@@ -898,6 +909,7 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
         sdsclear(node->hostname);
     }
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
 }
 
 static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
@@ -5218,8 +5230,8 @@ void clusterCloseAllSlots(void) {
 
 /* Record a pending RedisModuleEvent_ClusterTopologyChange (the change_flags are
  * REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) and request it to be fired
- * from the next clusterBeforeSleep(). Called from every slot/role mutation and
- * on the cluster's OK/FAIL transition. */
+ * from the next clusterBeforeSleep(). Called by topology mutation paths and
+ * config-driven endpoint updates. */
 void clusterNotifyTopologyChange(uint64_t change_flags) {
     if (!server.cluster_enabled || !server.cluster) return;
     server.cluster->topology_change_flags |= change_flags;
