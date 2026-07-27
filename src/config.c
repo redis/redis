@@ -2799,17 +2799,65 @@ int updateClusterHumanNodename(const char **err) {
 static int isValidTlsExpectedPeerName(char *val, const char **err) {
     if (val[0] == '\0') return 1;
 
-    /* A non-empty value must contain at least one name token; tlsSetVerifyName()
-     * splits it on spaces, so a whitespace-only value (e.g. a quoted line of
-     * spaces) yields no tokens and would make it reject every connection while
-     * the config still looks set. Reject such a value here; use an empty string
-     * to disable the option. */
+    /* A non-empty value must contain at least one name token; it is split on
+     * spaces (see applyTlsExpectedPeerName), so a whitespace-only value (e.g. a
+     * quoted line of spaces) yields no tokens and would make it reject every
+     * connection while the config still looks set. Reject such a value here; use
+     * an empty string to disable the option. */
     if (strspn(val, " ") == strlen(val)) {
         *err = "tls-expected-peer-name contains no usable name; "
                "use an empty string to disable it";
         return 0;
     }
 
+    return 1;
+}
+
+/* Parse tls-expected-peer-name into its individual space-separated name tokens
+ * so that each outbound/accept TLS connection can consume the pre-parsed list
+ * without re-tokenizing. Runs in the core, so it does no OpenSSL work -- it only
+ * splits the string; tlsSetVerifyName() applies the resulting tokens to the SSL
+ * object. The value has already been validated (isValidTlsExpectedPeerName) to
+ * contain at least one token when non-empty.
+ *
+ * Called both from the config apply callback (CONFIG SET) and directly from the
+ * startup TLS setup, because config apply callbacks do not run during initial
+ * config load. */
+void tlsParseExpectedPeerName(void) {
+    /* Free any previously parsed list. */
+    for (int i = 0; i < server.tls_ctx_config.expected_peer_names_count; i++)
+        zfree(server.tls_ctx_config.expected_peer_names[i]);
+    zfree(server.tls_ctx_config.expected_peer_names);
+    server.tls_ctx_config.expected_peer_names = NULL;
+    server.tls_ctx_config.expected_peer_names_count = 0;
+
+    const char *val = server.tls_ctx_config.expected_peer_name;
+    if (!val || !val[0]) return;
+
+    /* Split on spaces into a NULL-free array of duplicated tokens. */
+    char *copy = zstrdup(val);
+    char *saveptr = NULL;
+    int count = 0, cap = 0;
+    char **names = NULL;
+    for (char *tok = strtok_r(copy, " ", &saveptr);
+         tok != NULL;
+         tok = strtok_r(NULL, " ", &saveptr))
+    {
+        if (count == cap) {
+            cap = cap ? cap * 2 : 4;
+            names = zrealloc(names, sizeof(char *) * cap);
+        }
+        names[count++] = zstrdup(tok);
+    }
+    zfree(copy);
+
+    server.tls_ctx_config.expected_peer_names = names;
+    server.tls_ctx_config.expected_peer_names_count = count;
+}
+
+static int applyTlsExpectedPeerName(const char **err) {
+    UNUSED(err);
+    tlsParseExpectedPeerName();
     return 1;
 }
 
@@ -3472,7 +3520,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, applyTlsExpectedPeerName),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),

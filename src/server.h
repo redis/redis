@@ -1982,6 +1982,10 @@ typedef struct redisTLSContextConfig {
     int session_cache_timeout;
     char *expected_peer_name;       /* Space-separated SAN(s) to verify on outbound
                                        server-to-server TLS connections. NULL = disabled. */
+    char **expected_peer_names;     /* expected_peer_name split into individual name
+                                       tokens, parsed once by the config apply callback
+                                       so connections don't re-parse. NULL = disabled. */
+    int expected_peer_names_count;  /* Number of entries in expected_peer_names. */
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------
@@ -4195,6 +4199,7 @@ int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *optio
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void initConfigValues(void);
+void tlsParseExpectedPeerName(void);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
