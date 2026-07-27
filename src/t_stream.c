@@ -4715,7 +4715,8 @@ cleanup:
  *
  * When the target is past the last ID of the current listpack node (sparse
  * PEL), the iterator seeks directly to *target instead of scanning every
- * intervening entry.
+ * intervening entry. The node last-ID is cached and refreshed only when the
+ * current listpack (master_id) changes.
  *
  * Returns 1 if *target exists, positioning 'si' on it (fields intact). Returns
  * 0 otherwise; if we stopped on a later entry it is left unconsumed
@@ -4725,19 +4726,27 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                              int *have_entry)
 {
     streamID maxid = {UINT64_MAX, UINT64_MAX};
+    streamID last_id, last_master = {0,0};
+    int have_last = 0;
     while (1) {
+        /* Cache this listpack's last ID once per node. */
+        if (si->lp &&
+            (!have_last || streamCompareID(&si->master_id,&last_master) != 0))
+        {
+            have_last = lpGetEdgeStreamID(si->lp,0,&si->master_id,&last_id);
+            last_master = si->master_id;
+        }
+
         if (*have_entry) {
             int cmp = streamCompareID(entry_id,target);
             if (cmp == 0) return 1;  /* Found target. */
             if (cmp > 0) return 0;   /* Past target: not found, leave entry for reuse. */
             /* entry_id < target. If the target is past this listpack's last ID,
              * seek directly instead of walking intervening entries. */
-            streamID last_id;
-            if (lpGetEdgeStreamID(si->lp, 0, &si->master_id, &last_id) &&
-                streamCompareID(target, &last_id) > 0)
-            {
+            if (have_last && streamCompareID(target,&last_id) > 0) {
                 streamIteratorStop(si);
                 streamIteratorStart(si,s,target,&maxid,0);
+                have_last = 0; /* invalidate; next GetID may land on a new node */
             } else {
                 /* Target may still be in this node: skip this entry's fields
                  * without decoding them, mirroring streamIteratorGetID(). */
@@ -4747,15 +4756,11 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
                     si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
             *have_entry = 0;
-        } else if (si->lp) {
+        } else if (si->lp && have_last && streamCompareID(target,&last_id) > 0) {
             /* Fields already consumed; still jump past this node if needed. */
-            streamID last_id;
-            if (lpGetEdgeStreamID(si->lp, 0, &si->master_id, &last_id) &&
-                streamCompareID(target, &last_id) > 0)
-            {
-                streamIteratorStop(si);
-                streamIteratorStart(si,s,target,&maxid,0);
-            }
+            streamIteratorStop(si);
+            streamIteratorStart(si,s,target,&maxid,0);
+            have_last = 0;
         }
 
         *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
