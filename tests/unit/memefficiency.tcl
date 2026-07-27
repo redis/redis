@@ -1226,6 +1226,7 @@ run_solo {defrag} {
             # container allocations, so consecutive keys interleave inside the
             # same jemalloc size classes and deleting every other key later
             # produces real fragmentation there.
+            r config set bitmap-default-roaring yes
             set rd [redis_deferring_client]
             set count 0
             for {set j 0} {$j < 50} {incr j} {
@@ -1238,9 +1239,11 @@ run_solo {defrag} {
             for {set j 0} {$j < [expr {$count % 1000}]} {incr j} {
                 $rd read
             }
-            set template_raw [r get bitmap:template]
-            convert_string_bitmap_to_roaring r bitmap:template
+            r config set bitmap-default-roaring no
             assert_equal bitmap [r type bitmap:template]
+            # GET returns WRONGTYPE on a native bitmap, so snapshot the baseline
+            # bytes with DEBUG BITMAP-RAW for the post-defrag content checks.
+            set template_raw [r debug bitmap-raw bitmap:template]
 
             set frag_keys 400
             for {set k 0} {$k < $frag_keys} {incr k} {
