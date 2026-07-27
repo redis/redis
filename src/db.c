@@ -1130,21 +1130,24 @@ void discardTempDb(redisDb *tempDb) {
     zfree(tempDb);
 }
 
-/* Move entries whose robj keys belong to the given slot from src dict to dst.
+/* Move entries whose robj keys belong to the given slotRangeArray from src dict to dst.
  * Matching entries are removed from src and added to dst. */
-void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
+void streamMoveIdmpKeys(dict *src, dict *dst, slotRangeArray *slots) {
     if (dictSize(src) == 0) return;
 
+    /* slots must not be NULL */
+    serverAssert(slots != NULL);
     dictIterator *di = dictGetSafeIterator(src);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        if (calculateKeySlot(key->ptr) == slot) {
-            if (dictAddRaw(dst, key, NULL)) {
-                incrRefCount(key);
-            }
-            dictDelete(src, key);
+        /* Check if key belongs to the slot range. */
+        if (!slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
+            continue;
+        if (dictAddRaw(dst, key, NULL)) {
+            incrRefCount(key);
         }
+        dictDelete(src, key);
     }
     dictReleaseIterator(di);
 }
