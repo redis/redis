@@ -92,20 +92,10 @@ for name in $selected; do
     failed="$failed $name"
     continue
   fi
-  # In list mode, never invoke a module whose bootstrap can't honor it —
-  # it would install for real. Support is advertised by referencing the shared
-  # contract (DEPS_REPORT_FILE) anywhere under .install/ — the name-based
-  # modules and redisearch's verify_build_deps.sh all write to it.
-  if [ "$CHECK_DEPS" = 1 ] && ! grep -rq DEPS_REPORT_FILE "modules/$name/src/.install" 2>/dev/null; then
-    echo "    !! SKIP: $name does not support list (would install for real)"
-    continue
-  fi
-  # Same guard for dry-run: skip a module that can't honor `dry-run` (it would
-  # install for real). Support is advertised by referencing DRY_RUN in .install/.
-  if [ "$DRY" = 1 ] && ! grep -rq DRY_RUN "modules/$name/src/.install" 2>/dev/null; then
-    echo "    !! SKIP: $name does not support dry-run (would install for real)"
-    continue
-  fi
+  # Contract: any module that defines a `bootstrap` target MUST honor the
+  # read-only `list` and `dry-run` goals too (record deps / print commands,
+  # install nothing). We forward the goal verbatim and trust that — no
+  # capability probe. A module that violates the contract is its own bug.
   # Per-module convention: the inner target is still called `bootstrap` —
   # that's defined by each module's own Makefile, not by us.
   if ! grep -qE '^bootstrap[[:space:]]*:' "$src_mk"; then
@@ -129,13 +119,12 @@ for name in $selected; do
 done
 
 echo
-if [ -n "$failed" ]; then
-  if [ "$CHECK_DEPS" = 1 ]; then
-    # In check mode a non-zero module bootstrap means missing deps, not a
-    # build failure. Exit non-zero anyway so CI can gate on it.
-    echo "==> Deps check: missing prerequisites in:$failed (see lists above)"
-    echo "    Run 'make bootstrap$failed' to install them."
-  elif [ "$DRY" = 1 ]; then
+# A structural skip (missing clone/Makefile or no 'bootstrap' target) already
+# printed "!! SKIP" inline above. In list mode the module only records (always
+# exits 0), so a non-zero $failed here is such a skip — it must NOT pre-empt the
+# deduped union summary below. Only install/dry-run failures short-circuit.
+if [ -n "$failed" ] && [ "$CHECK_DEPS" != 1 ]; then
+  if [ "$DRY" = 1 ]; then
     echo "==> Dry-run errored for:$failed (see output above)"
   else
     echo "==> Deps install completed with FAILURES for:$failed"
@@ -147,22 +136,33 @@ if [ "$CHECK_DEPS" = 1 ]; then
   # One deduped union across every checked module. A package's installed state
   # is host-global, so dedup by name is safe (no per-module conflicts).
   if [ ! -s "$DEPS_REPORT_FILE" ]; then
-    echo "==> Deps check: no modules reported (none support list)"
-    exit 0
+    # Nothing landed in the report: every selected module was skipped
+    # (unsupported) or structurally broken — the check verified nothing, so
+    # this is a failure, not a green "all clear".
+    echo "==> Deps check: nothing verified (no selected module supports 'list')"
+    exit 1
   fi
   # Missing records are "pkg" or "pkg:minversion" (a present-but-too-old dep).
   # Dedup to package names; the required version (if any) is resolved per pkg
   # below as the MAX across modules (strictest floor wins).
   mtokens=$(awk '$1=="missing"{print $2}' "$DEPS_REPORT_FILE" | sort -u)
   missing=$(printf '%s\n' "$mtokens" | sed 's/:.*//' | sort -u | sed '/^$/d')
-  installed=$(sort -u "$DEPS_REPORT_FILE" | awk '$1=="ok"||$1=="opt_ok"{print $2}' | sort -u)
-  opt_missing=$(sort -u "$DEPS_REPORT_FILE" | awk '$1=="opt_missing"{print $2}' | sort -u)
-  # Required wins across modules: a package that's required-missing anywhere is
-  # dropped from installed and from the optional list.
+  # "installed" = REQUIRED deps present (ok records only) so the n_ok/total ratio
+  # below stays a clean "required installed / required total". $present also
+  # includes opt_ok (optional present) — used only to reconcile opt_missing.
+  installed=$(awk '$1=="ok"{print $2}' "$DEPS_REPORT_FILE" | sort -u)
+  present=$(awk '$1=="ok"||$1=="opt_ok"{print $2}' "$DEPS_REPORT_FILE" | sort -u)
+  opt_missing=$(awk '$1=="opt_missing"{print $2}' "$DEPS_REPORT_FILE" | sort -u)
+  # Required wins: a package required-missing anywhere is dropped from installed
+  # and from the optional list.
   if [ -n "$missing" ]; then
     [ -n "$installed" ]   && installed=$(printf '%s\n' "$installed" | grep -vxF "$missing" || true)
     [ -n "$opt_missing" ] && opt_missing=$(printf '%s\n' "$opt_missing" | grep -vxF "$missing" || true)
   fi
+  # Present wins: a package present anywhere (ok OR opt_ok) can't also be
+  # "optional, not installed" — drop it from opt_missing so the two lists are
+  # disjoint.
+  [ -n "$opt_missing" ] && [ -n "$present" ] && opt_missing=$(printf '%s\n' "$opt_missing" | grep -vxF "$present" || true)
   if [ -z "$missing" ];   then n_missing=0; else n_missing=$(printf '%s\n' "$missing" | sed '/^$/d' | wc -l | tr -d ' '); fi
   if [ -z "$installed" ]; then n_ok=0;      else n_ok=$(printf '%s\n' "$installed" | sed '/^$/d' | wc -l | tr -d ' '); fi
   total=$((n_ok + n_missing))
@@ -189,7 +189,8 @@ if [ "$CHECK_DEPS" = 1 ]; then
     echo "${GRN}installed: $n_ok/$total (set VERBOSE=1 to list)${RST}"
   fi
   echo "    Run 'make bootstrap' to install anything not installed."
-  [ "$n_missing" -eq 0 ] || exit 1
+  # A structural skip (printed inline as "!! SKIP" above) still fails the check.
+  { [ "$n_missing" -eq 0 ] && [ -z "$failed" ]; } || exit 1
 elif [ "$DRY" = 1 ]; then
   echo "${_DB}==> Dry-run complete for: $selected (commands above are what bootstrap would run; nothing installed)${_DR}"
 else
