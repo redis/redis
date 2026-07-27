@@ -1470,11 +1470,20 @@ void computeDefragCycles(void) {
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current
      * fragmentation and configurations. */
-    int cpu_pct = INTERPOLATE(frag_pct,
-            server.active_defrag_threshold_lower,
-            server.active_defrag_threshold_upper,
-            server.active_defrag_cycle_min,
-            server.active_defrag_cycle_max);
+    int cpu_pct;
+    if (server.active_defrag_threshold_upper <= server.active_defrag_threshold_lower) {
+        /* If upper is not greater than lower, reaching the lower threshold also
+         * means reaching the upper threshold, so use the maximum effort. This may
+         * cause an immediate jump to maximum effort, but only for an invalid
+         * threshold configuration. */
+        cpu_pct = server.active_defrag_cycle_max;
+    } else {
+        cpu_pct = INTERPOLATE(frag_pct,
+                server.active_defrag_threshold_lower,
+                server.active_defrag_threshold_upper,
+                server.active_defrag_cycle_min,
+                server.active_defrag_cycle_max);
+    }
     cpu_pct *= defrag.decay_rate;
     cpu_pct = LIMIT(cpu_pct,
             server.active_defrag_cycle_min,
