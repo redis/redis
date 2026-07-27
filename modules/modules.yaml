@@ -64,7 +64,7 @@
 modules:
   - name: redisbloom
     repo: https://github.com/redisbloom/redisbloom
-    ref: tal.ba/feat/enhance_bootstrap
+    ref: master
     target_module: redisbloom.so
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
@@ -75,11 +75,11 @@ modules:
     build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
-    ref: tal.ba/feat/enhance_bootstrap
+    ref: master
     target_module: rejson.so
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
     repo: https://github.com/redistimeseries/redistimeseries
-    ref: tal.ba/feat/bootstrap_enhance
+    ref: master
     target_module: redistimeseries.so
     loadmodule: ./modules/redistimeseries/redistimeseries.so
