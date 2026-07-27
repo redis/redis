@@ -4730,34 +4730,29 @@ static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
     int have_last = 0;
     while (1) {
         /* Cache this listpack's last ID once per node. */
-        if (si->lp &&
-            (!have_last || streamCompareID(&si->master_id,&last_master) != 0))
-        {
+        if (si->lp && (!have_last || streamCompareID(&si->master_id,&last_master) != 0)) {
             have_last = lpGetEdgeStreamID(si->lp,0,&si->master_id,&last_id);
             last_master = si->master_id;
         }
+        int past_node = have_last && streamCompareID(target,&last_id) > 0;
 
         if (*have_entry) {
             int cmp = streamCompareID(entry_id,target);
             if (cmp == 0) return 1;  /* Found target. */
             if (cmp > 0) return 0;   /* Past target: not found, leave entry for reuse. */
-            /* entry_id < target. If the target is past this listpack's last ID,
-             * seek directly instead of walking intervening entries. */
-            if (have_last && streamCompareID(target,&last_id) > 0) {
-                streamIteratorStop(si);
-                streamIteratorStart(si,s,target,&maxid,0);
-                have_last = 0; /* invalidate; next GetID may land on a new node */
-            } else {
-                /* Target may still be in this node: skip this entry's fields
-                 * without decoding them, mirroring streamIteratorGetID(). */
+            /* entry_id < target. Skip fields only if we stay in this node;
+             * a seek below abandons the listpack cursor entirely. */
+            if (!past_node) {
                 int64_t to_skip = (si->entry_flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
                                   *entry_numfields : *entry_numfields*2;
                 while (to_skip-- > 0)
                     si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
             *have_entry = 0;
-        } else if (si->lp && have_last && streamCompareID(target,&last_id) > 0) {
-            /* Fields already consumed; still jump past this node if needed. */
+        }
+
+        /* Sparse PEL: jump past this node instead of walking intervening entries. */
+        if (past_node) {
             streamIteratorStop(si);
             streamIteratorStart(si,s,target,&maxid,0);
             have_last = 0;
