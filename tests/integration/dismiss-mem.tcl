@@ -4,8 +4,6 @@
 # Actually, we may not have many asserts in the test, since we just check for
 # crashes and the dump file inconsistencies.
 
-source tests/support/bitmap.tcl
-
 start_server {tags {"dismiss external:skip needs:debug"}} {
     # In other tests, although we test child process dumping RDB file, but
     # memory allocations of key/values are usually small, they couldn't cover
