@@ -156,8 +156,6 @@ static inline int connAccept(connection *conn, ConnectionCallbackFunc accept_han
  * For connection types without certificate identity (e.g. TCP/Unix) this is a
  * no-op. Returns C_OK on success (including no-op), C_ERR if it could not be set. */
 static inline int connSetVerifyName(connection *conn, const char *name) {
-    /* C_OK/C_ERR (0/-1) are defined in server.h, which this header does not
-     * include; use the literal 0 for the no-op success path. */
     if (conn->type->set_verify_name == NULL) return 0;
     return conn->type->set_verify_name(conn, name);
 }
