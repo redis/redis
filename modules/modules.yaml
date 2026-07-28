@@ -75,7 +75,7 @@ modules:
     build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
-    ref: v8.9.90
+    ref: v8.10.0
     target_module: rejson.so
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
