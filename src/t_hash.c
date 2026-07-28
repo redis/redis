@@ -3181,7 +3181,7 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
  *   - Disassemble: at end of load, turn every template still below the threshold
  *     key count back into a plain LISTPACK/HT hash.
  *
- * Why the reverse map (template ID -> list of the hash keys using it): to undo a
+ * Why the reverse map (template -> list of the hash kvobjs using it): to undo a
  * few-key template at end of load we need its keys, but a template doesn't know
  * who points at it. Building the list as we go lets us disassemble without
  * scanning the whole keyspace. A template that reaches the threshold "graduates"
@@ -3191,8 +3191,8 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
  * small early sample won't start it. See rdbLoadTemplateCtxShouldStopCreating(). */
 #define MIN_REVERSE_LOOKUP 1000
 struct rdbLoadTemplateCtx {
-    dict *reverse_lookup;   /* template ID -> list of rdbLoadTemplateCtxKvRef*
-                             * (few-key templates only; entries leave on graduation). */
+    dict *reverse_lookup;   /* hashTemplate* -> list of hash kvobj* (few-key
+                             * templates only; entries leave on graduation). */
     size_t disassembly_threshold; /* Keep templates with >= this many keys. */
     size_t number_of_templates;   /* Templates created this load (monotonic). */
     int stop_creating;        /* One-way latch: stop creating new templates. */
@@ -3215,7 +3215,8 @@ static void rdbLoadTemplateCtxListValDestructor(dict *d, void *val) {
     listRelease(val);
 }
 
-/* Keys are stable template IDs; values are lists of rdbLoadTemplateCtxKvRef*. */
+/* Keys are template pointers, values are lists of hash kvobjs freed when the 
+ * entry is dropped/released. */
 static dictType rdbLoadTemplateCtxReverseDictType = {
     .hashFunction = dictPtrHash,
     .valDestructor = rdbLoadTemplateCtxListValDestructor,
@@ -3240,20 +3241,19 @@ void rdbLoadTemplateCtxRecord(rdbLoadTemplateCtx *ctx, robj *kv, redisDb *db) {
         kv->encoding != OBJ_ENCODING_TMPL_ARRAY) return;
 
     hashTemplate *tmpl = hashTypeGetTemplate(kv);
-    void *id_key = (void *)(uintptr_t)tmpl->id;
     if (tmpl->key_refcount == ctx->disassembly_threshold) {
         /* This key graduates tmpl: drop the tracking list so it survives. */
-        dictDelete(ctx->reverse_lookup, id_key);
+        dictDelete(ctx->reverse_lookup, tmpl);
         return;
     }
     if (tmpl->key_refcount > ctx->disassembly_threshold) return; /* already graduated */
 
-    dictEntry *de = dictFind(ctx->reverse_lookup, id_key);
+    dictEntry *de = dictFind(ctx->reverse_lookup, tmpl);
     list *l;
     if (de == NULL) {
         l = listCreate();
         listSetFreeMethod(l, rdbLoadTemplateCtxKvRefListFree);
-        dictAdd(ctx->reverse_lookup, id_key, l);
+        dictAdd(ctx->reverse_lookup, tmpl, l);
     } else {
         l = dictGetVal(de);
     }

@@ -2759,8 +2759,7 @@ static robj *rdbFinalizeTmplLp(unsigned char *lp, hashTemplate *tmpl) {
  * were parsed but no template built yet - the caller builds it only after the
  * values load cleanly, so a bad value can't leave an orphan template behind. */
 typedef struct {
-    uint64_t tmpl_id;          /* Valid when tmpl_resolved is set. */
-    int tmpl_resolved;         /* Registry hit; tmpl_id has a hold ref. */
+    hashTemplate *tmpl;        /* Set if resolved from the registry, else NULL. */
     sds *fields;               /* Set if parsed but not yet a template, else NULL. */
     uint64_t field_count;      /* Number of entries in 'fields'. */
     unsigned char *fields_lp;  /* Optional listpack blob for a fast blob->template lookup. */
@@ -2791,9 +2790,7 @@ static int rdbLoadTemplateFields(rio *rdb, int deep, rdbTmplFields *out) {
         hashTemplate *tmpl = hashTemplateGetByFieldsLp(blob);
         if (tmpl != NULL) {
             zfree(blob);
-            hashTemplateIncrHoldRef(tmpl);
-            out->tmpl_id = tmpl->id;
-            out->tmpl_resolved = 1;
+            out->tmpl = tmpl;
             out->field_count = tmpl->field_count;
             return C_OK;
         }
@@ -2868,11 +2865,7 @@ static int rdbLoadTemplateFields(rio *rdb, int deep, rdbTmplFields *out) {
  * create one now, attaching the parsed blob if present. Either way the parsed
  * fields and blob in 'out' are consumed: freed, or handed to the template. */
 static hashTemplate *rdbCreateTemplateFromFields(rdbTmplFields *out) {
-    if (out->tmpl_resolved) {  /* registry hit */
-        hashTemplate *tmpl = hashTemplateGetById(out->tmpl_id);
-        serverAssert(tmpl != NULL); /* held by rdbLoadTemplateFields */
-        return tmpl;
-    }
+    if (out->tmpl != NULL) return out->tmpl; /* registry hit */
     hashTemplate *tmpl = hashTemplateGetOrCreate(out->fields, out->field_count);
     rdbFreeSdsArray(out->fields, out->field_count);
     out->fields = NULL;
@@ -2888,14 +2881,8 @@ static hashTemplate *rdbCreateTemplateFromFields(rdbTmplFields *out) {
 static void rdbDiscardTemplateFields(rdbTmplFields *out) {
     if (out->fields) rdbFreeSdsArray(out->fields, out->field_count);
     if (out->fields_lp) zfree(out->fields_lp);
-    if (out->tmpl_resolved) {
-        hashTemplate *tmpl = hashTemplateGetById(out->tmpl_id);
-        serverAssert(tmpl != NULL);
-        hashTemplateDecrHoldRef(tmpl);
-    }
     out->fields = NULL;
     out->fields_lp = NULL;
-    out->tmpl_resolved = 0;
 }
 
 /* Load a Redis object of the specified type from the specified file.
@@ -3280,7 +3267,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         o = rdbFinalizeTmplLp(lp, rdbCreateTemplateFromFields(&tf));
-        rdbDiscardTemplateFields(&tf);
 
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
             hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
@@ -3331,7 +3317,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
         hashTemplate *tmpl = rdbCreateTemplateFromFields(&tf);
         o = createHashObjectFromTemplate(tmpl, values, 1);
-        rdbDiscardTemplateFields(&tf);
         zfree(values);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_ARRAY_REF) {
         /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
@@ -3340,25 +3325,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
         /* TMPL_ARRAY REF form: [template_id][value1][value2]... */
-        uint64_t rdb_tmpl_id;
-        if ((rdb_tmpl_id = rdbLoadLen(rdb, NULL)) == RDB_LENERR)
+        uint64_t template_id;
+        if ((template_id = rdbLoadLen(rdb, NULL)) == RDB_LENERR)
             return NULL;
 
-        hashTemplate *tmpl = rdbGetHashTemplateById(rdb_tmpl_id);
+        hashTemplate *tmpl = rdbGetHashTemplateById(template_id);
         if (tmpl == NULL) {
-            rdbReportCorruptRDB("Invalid hash template ID %llu", (unsigned long long)rdb_tmpl_id);
+            rdbReportCorruptRDB("Invalid hash template ID %lu", (unsigned long)template_id);
             return NULL;
         }
-        uint64_t registry_tmpl_id = tmpl->id;
         unsigned long long field_count = tmpl->field_count;
 
         sds *values = rdbLoadSdsArray(rdb, field_count, "template-array");
         if (values == NULL) return NULL;
-
-        /* rdbLoadSdsArray() above may yield and defrag during AOF load can 
-         * relocate tmpl. Look it up again. */
-        tmpl = hashTemplateGetById(registry_tmpl_id);
-        serverAssert(tmpl != NULL);
         o = createHashObjectFromTemplate(tmpl, values, 1);
         zfree(values);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA || rdbtype == RDB_TYPE_HASH_METADATA_PRE_GA) {
