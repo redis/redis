@@ -248,10 +248,18 @@ if {$::tls} {
             start_server [list overrides [list tls-expected-peer-name "wrong.example.com"]] {
                 set replica [srv 0 client]
                 $replica replicaof $master_host $master_port
-                # The link must never reach "up": the peer cert has no matching SAN.
-                assert_condition_stays_false 20 100 {
-                    [string match {*master_link_status:up*} [$replica info replication]]
-                } "Replication link came up despite a mismatching tls-expected-peer-name"
+                # Wait for the connection attempt to resolve one way or the other:
+                # either the link comes up (which would be a bug) or the replica logs
+                # the TLS certificate verification failure. Anchoring on the failure
+                # log lets us conclude quickly instead of waiting out a fixed window.
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]] ||
+                    [count_log_message 0 "certificate verify failed"] > 0
+                } else {
+                    fail "Replica never resolved its connection attempt (neither up nor errored)"
+                }
+                # The peer cert has no matching SAN, so the link must not be up.
+                assert_no_match {*master_link_status:up*} [$replica info replication]
             }
         }
 
@@ -262,9 +270,13 @@ if {$::tls} {
             start_server [list overrides [list tls-expected-peer-name "absent.example.com"]] {
                 set replica [srv 0 client]
                 $replica replicaof $master_host $master_port
-                assert_condition_stays_false 20 100 {
-                    [string match {*master_link_status:up*} [$replica info replication]]
-                } "Replication link came up before the matching name was configured"
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]] ||
+                    [count_log_message 0 "certificate verify failed"] > 0
+                } else {
+                    fail "Replica never resolved its connection attempt (neither up nor errored)"
+                }
+                assert_no_match {*master_link_status:up*} [$replica info replication]
                 $replica config set tls-expected-peer-name "absent.example.com cluster.local"
                 wait_for_condition 50 100 {
                     [string match {*master_link_status:up*} [$replica info replication]]
@@ -278,10 +290,14 @@ if {$::tls} {
             start_server [list overrides [list tls-expected-peer-name "wrong.example.com"]] {
                 set replica [srv 0 client]
                 $replica replicaof $master_host $master_port
-                # Wrong name: the link stays down.
-                assert_condition_stays_false 20 100 {
-                    [string match {*master_link_status:up*} [$replica info replication]]
-                } "Replication link came up despite a wrong tls-expected-peer-name"
+                # Wrong name: the link stays down and the replica logs a verify failure.
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]] ||
+                    [count_log_message 0 "certificate verify failed"] > 0
+                } else {
+                    fail "Replica never resolved its connection attempt (neither up nor errored)"
+                }
+                assert_no_match {*master_link_status:up*} [$replica info replication]
                 # Correct the expected name at runtime; the next reconnect should succeed.
                 $replica config set tls-expected-peer-name "redis.local"
                 wait_for_condition 50 100 {
